@@ -1,0 +1,61 @@
+name: hourly-human-intervention
+version: 1.1.0
+description: Hourly sweep for human-intervention GitHub issues/PRs plus RHEI-labeled PR review follow-up.
+
+inputs:
+  - name: repo
+    description: GitHub repository to inspect for human-intervention work.
+    type: string
+    default: oracle/graalvm-reachability-metadata
+
+  - name: label
+    description: GitHub label that marks work requiring manual follow-up.
+    type: string
+    default: human-intervention
+
+  - name: forge_checkout
+    description: Workspace-relative path to the graalvm-reachability-metadata checkout used for Forge and metadata fixes.
+    type: path
+    default: master
+
+  - name: graalvm_checkout
+    description: Workspace-relative path to the GraalVM coordination directory containing ce/ and ee/.
+    type: path
+    default: graalvm
+
+  - name: graalvm_ce_checkout
+    description: Workspace-relative path to the GraalVM CE git checkout.
+    type: path
+    default: graalvm/ce
+
+  - name: graalvm_ee_checkout
+    description: Workspace-relative path to the GraalVM EE git checkout.
+    type: path
+    default: graalvm/ee
+
+  - name: analysis_target
+    description: Execution target for fetching, classification, deep analysis, and routing.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: forge_fix_target
+    description: Execution target for Forge and reachability-metadata fixes.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: graalvm_fix_target
+    description: Execution target for GraalVM fixes.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: review_target
+    description: Execution target for automated review passes.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: github_reviewers
+    description: GitHub reviewers to request when creating or updating PRs. Empty means use repository defaults.
+    type: array
+    items:
+      type: string
+    default: []

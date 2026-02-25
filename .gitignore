@@ -1,0 +1,19 @@
+# Agents
+scratchpad/
+.agents/scratchpad/
+
+# Rust build artifacts
+target/
+**/target/
+
+# JavaScript and Python package artifacts
+node_modules/
+**/node_modules/
+**/dist/
+**/build/
+**/*.egg-info/
+**/__pycache__/
+**/*.pyc
+
+# OS files
+.DS_Store

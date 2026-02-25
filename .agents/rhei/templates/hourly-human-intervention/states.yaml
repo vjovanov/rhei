@@ -1,0 +1,833 @@
+# State machine diagram
+# ---------------------
+#
+#   Entry tasks, run once per hourly instantiation:
+#
+#     +----------------+
+#     | fetch-issues   |
+#     | state: fetch   |
+#     +-------+--------+
+#             |
+#             v
+#     +----------------+
+#     | completed      |
+#     +----------------+
+#             |
+#             +-- appends one deep-analysis child per non-CI issue class
+#             +-- appends one ci-failure-triage child per CI failure issue
+#
+#     +----------------+
+#     | fetch-prs      |
+#     | state: fetch   |
+#     +-------+--------+
+#             |
+#             v
+#     +----------------+
+#     | completed      |
+#     +----------------+
+#             |
+#             +-- appends one deep-analysis child per non-CI PR class
+#             +-- appends one ci-failure-triage child per CI failure PR
+#
+#     +--------------------+
+#     | follow-up-rhei-prs |
+#     | state: rhei-pr-    |
+#     | follow-up          |
+#     +---------+----------+
+#               |
+#               +-- fixes reviewer comments in isolated worktrees
+#               +-- merges PRs when reviewers approve and gates are green
+#               v
+#       +---------------+
+#       | completed     |
+#       +---------------+
+#
+#   Per-class fix state machine:
+#
+#     +-------------------+
+#     | ci-failure-triage |
+#     +---------+---------+
+#               |
+#               +-- completes if infra/transient rerun passes
+#               +-- appends deep-analysis/route child if rerun still fails
+#
+#     +---------------+      +-------+
+#     | deep-analysis | ---> | route |
+#     +---------------+      +---+---+
+#                                |
+#              +-----------------+-----------------+
+#              |                 |                 |
+#              v                 v                 v
+#     +-------------------+  +-----------+  +---------------------+
+#     | github-human-     |  | forge-fix |  | graalvm-propose-fix |
+#     | issue             |  +-----+-----+  +----------+----------+
+#     +---------+---------+        |                   |
+#               |                  v                   v
+#               |          +--------------+  +----------------------+
+#               |          | forge-review |  | graalvm-human-review |
+#               |          | visit 1      |  | gating               |
+#               |          +------+-------+  +----+------------+----+
+#               |                 |             |            |
+#               |                 v             |            v
+#               |       +------------------+    |    +-------------------+
+#               |       | forge-review-fix |    |    | github-human-    |
+#               |       +--------+---------+    |    | issue            |
+#               |                |              |    +---------+--------+
+#               |                v              |              |
+#               |        +--------------+       v              |
+#               |        | forge-review |  +-------------+     |
+#               |        | visit 2      |  | graalvm-fix |     |
+#               |        +------+-------+  +------+------+     |
+#               |               |                 |            |
+#               |               v                 v            |
+#               |       +---------------+  +----------------+   |
+#               |       | forge-publish |  | graalvm-review |   |
+#               |       +-------+-------+  | visit 1        |   |
+#               |               |          +--------+-------+   |
+#               |               |                   |           |
+#               |               |                   v           |
+#               |               |        +--------------------+ |
+#               |               |        | graalvm-review-fix | |
+#               |               |        +----------+---------+ |
+#               |               |                   |           |
+#               |               |                   v           |
+#               |               |          +----------------+   |
+#               |               |          | graalvm-review |   |
+#               |               |          | visit 2        |   |
+#               |               |          +--------+-------+   |
+#               |               |                   |           |
+#               |               |                   v           |
+#               |               |          +-----------------+  |
+#               |               |          | graalvm-publish |  |
+#               |               |          +--------+--------+  |
+#               |               |                   |           |
+#               +---------------+-------------------+-----------+
+#                               |
+#                               v
+#                        +-------------+
+#                        | completed   |
+#                        +-------------+
+#
+#   Any non-final state can transition to:
+#
+#                        +-------------+
+#                        | cancelled   |
+#                        +-------------+
+
+name: hourly-human-intervention
+version: 1.1.0
+
+states:
+  fetch:
+    description: Fetch all human-intervention items of one GitHub kind and classify them into root-cause classes.
+    initial: true
+    target: "{{analysis_target}}"
+    instructions: |
+      Fetch and classify Task {task_id}: {task_title}.
+
+      Work from the coordination workspace root. Treat GitHub as the source of
+      truth for `{{repo}}` items labeled `{{label}}`.
+
+      Determine from the task body whether this task fetches issues or pull
+      requests.
+
+      For issues, fetch every open issue labeled `{{label}}`. Include:
+      - number, title, URL, author, assignees, labels, created/updated times
+      - body, recent comments, linked PRs when available
+      - any Forge human-intervention comment, log URL, branch, or artifact
+
+      For pull requests, fetch every open PR labeled `{{label}}`. Include:
+      - number, title, URL, author, assignees, labels, created/updated times
+      - body, recent comments, review comments, review decision, CI state
+      - head branch, changed files, diff summary, and any Forge comment/log
+
+      Use `gh` commands with pagination when necessary. Do not silently stop at
+      the first page.
+
+      Write the raw inventory to `{output.inventory.path}`.
+
+      Classify items into root-cause classes that can share one investigation
+      and one fix path. CI failures are the exception: create one child task
+      per CI failure item because each needs an independent restart/rerun and
+      recheck before it is fixed or completed. Class names should be stable
+      lowercase slugs. Useful route hints are:
+      - `ci-failure`: the item is blocked by GitHub Actions, status checks, a
+        runner log, or a CI-created failure issue such as
+        `fails-javac-compile`, `fails-java-run`, or
+        `fails-native-image-run`.
+      - `human-github`: the item lacks information, needs product/reviewer
+        judgment, or cannot be fixed safely by automation.
+      - `forge`: the fix likely belongs in `{{forge_checkout}}`, including
+        metadata, tests, Forge workflows, prompts, scripts, or PR automation.
+      - `graalvm`: the fix likely belongs in `{{graalvm_ce_checkout}}` or
+        `{{graalvm_ee_checkout}}`, including Native Image, SVM, CE, EE, or the
+        local GraalVM build.
+
+      Write the classification manifest to `{output.classification.path}` with
+      one section per class:
+      - class slug
+      - route hint
+      - item numbers and URLs
+      - existing RHEI handoff/publication comments, if any
+      - shared symptoms
+      - evidence gathered
+      - why these items belong together
+
+      For CI failures, include the failing check name, workflow run URL, job
+      URL, rerun/restart command if one can be derived, and whether the first
+      evidence looks like infra, transient flakiness, or a real test/build
+      failure.
+
+      Idempotency matters because this sweep runs hourly. If an item already has
+      a recent RHEI handoff, publication, or "blocked waiting for human" comment
+      and no newer user/CI/review activity changes the evidence, classify it as
+      already handled and do not append another child task for it.
+
+      For each non-empty non-CI class, append one child task under the current
+      task in the same task file. Use this shape:
+
+        #### Task {task_id}.<class-slug>: Analyze <class title>
+        **State:** deep-analysis
+        **Prior:** Task {task_id}
+
+        - Source kind: issues or pull requests
+        - Route hint: human-github | forge | graalvm
+        - Items: <numbers and URLs>
+        - Classification evidence: <short summary>
+        - Inventory: `{output.inventory.path}`
+        - Classification: `{output.classification.path}`
+
+      Keep classes coarse enough to avoid one task per duplicate symptom, but
+      narrow enough that one agent can produce a concrete root-cause analysis.
+
+      For each CI failure item, append one child task under the current task in
+      the same task file. Use one task per issue or PR, even when the symptom
+      looks duplicated:
+
+        #### Task {task_id}.ci-failure-<number>: Triage CI failure for <item title>
+        **State:** ci-failure-triage
+        **Prior:** Task {task_id}
+
+        - Source kind: issues or pull requests
+        - Route hint: ci-failure
+        - Item: <number and URL>
+        - Labels: <labels>
+        - Failing check/job/run: <name and URL when available>
+        - Reproducer or rerun command: <command when available>
+        - Initial classification: infra | transient | persistent | unknown
+        - Inventory: `{output.inventory.path}`
+        - Classification: `{output.classification.path}`
+    outputs:
+      - name: inventory
+        path: runtime/inventory/{task_id}.md
+        description: Raw inventory of GitHub human-intervention items fetched for this queue.
+      - name: classification
+        path: runtime/classifications/{task_id}.md
+        description: Root-cause classes and route hints produced from the inventory.
+
+  deep-analysis:
+    description: Deeply analyze one root-cause class before deciding where it should be fixed.
+    target: "{{analysis_target}}"
+    instructions: |
+      Deeply analyze Task {task_id}: {task_title}.
+
+      Read the task body, the inventory, and the classification manifest named
+      in the task body. Inspect all linked GitHub issues or PRs, Forge logs,
+      generated branches, changed files, CI failures, review comments, and
+      relevant local code.
+
+      Use these checkout roots:
+      - Forge and reachability metadata: `{{forge_checkout}}`
+      - GraalVM CE git checkout: `{{graalvm_ce_checkout}}`
+      - GraalVM EE git checkout: `{{graalvm_ee_checkout}}`
+      - GraalVM coordination directory: `{{graalvm_checkout}}`
+
+      The goal is a cause analysis, not a quick guess. Reconstruct:
+      - what Forge did
+      - where the first observable failure or ambiguity appears
+      - whether the failure is in metadata/tests/Forge automation, GraalVM
+        behavior, repository/reviewer state, or missing human information
+      - which files and commands prove the conclusion
+      - whether multiple items in the class are the same cause or should be
+        split before fixing
+
+      Write `{output.cause-analysis.path}` with:
+      - Summary
+      - Items analyzed
+      - Timeline / reproduction evidence
+      - Root cause
+      - Candidate fix locations
+      - Risks and unknowns
+      - Recommended route: `human-github`, `forge`, or `graalvm`
+
+      If the class should be split, do not fix yet. Record the split in the
+      analysis and let the routing state append smaller follow-up tasks.
+    outputs:
+      - name: cause-analysis
+        path: runtime/analysis/{task_id}.md
+        description: Deep cause analysis for one human-intervention class.
+
+  ci-failure-triage:
+    description: Restart or rerun one CI failure item, then complete it if transient or route it if persistent.
+    target: "{{analysis_target}}"
+    instructions: |
+      Triage CI failure Task {task_id}: {task_title}.
+
+      Read the task body, inventory, classification manifest, and linked
+      GitHub issue or PR in `{{repo}}`. This state handles exactly one issue or
+      PR. Do not combine it with other CI failures.
+
+      Gather:
+      - the failing check name, workflow name, run ID, job ID, and URLs
+      - the failing command or reproducer from the item body, logs, or PR checks
+      - recent comments, reruns, status changes, and RHEI handoffs
+      - whether a fix PR already exists for the same item
+
+      Decide the first action:
+      - `infra`: runner outage, cancelled/stuck job, checkout/cache/network
+        failure, missing runner capacity, GitHub Actions failure before the
+        library command, or another failure unrelated to the coordinate. Restart
+        or rerun the failed CI job/run.
+      - `transient`: the failure might be flaky but is not clearly infra.
+        Rerun once, then re-check the result.
+      - `persistent`: the same library command fails with a real compile,
+        JVM-test, native-image, metadata, or repository error. Do not keep
+        rerunning; route into the existing fix/review pipeline.
+      - `unknown`: evidence is insufficient. Fetch more logs first; if still
+        unknown, rerun once unless that would duplicate a recent rerun.
+
+      When rerunning, prefer a narrow rerun of failed jobs if GitHub permits it,
+      for example `gh run rerun <run-id> --repo {{repo}} --failed`; otherwise
+      rerun the workflow run or post a concise human handoff if the current
+      token cannot restart it. After a restart/rerun, wait for completion when
+      practical and re-fetch the check state and logs.
+
+      Outcomes:
+      - If the rerun passes or the item is already green, comment with the
+        evidence if useful, remove `{{label}}`, and write this task as complete.
+      - If the rerun is still in progress at the end of the agent run, write a
+        status note and leave `{{label}}` in place; do not append a fix task yet.
+      - If the rerun fails the same way or the failure is persistent without a
+        rerun, append one child task under this task:
+        - use `forge-fix` when the fix belongs in `{{forge_checkout}}` or
+          `{{forge_checkout}}/forge`
+        - use `graalvm-propose-fix` when the fix belongs in
+          `{{graalvm_ce_checkout}}` or `{{graalvm_ee_checkout}}`
+        - use `github-human-issue` when a human decision or external owner is
+          required
+      - If an existing fix/review pipeline task or PR already covers this item,
+        record the URL and do not append a duplicate task.
+
+      Write `{output.ci-triage.path}` with:
+      - item number and URL
+      - failing check/job/run URLs
+      - classification: infra, transient, persistent, or unknown
+      - restart/rerun action taken, command used, and result
+      - whether the issue was completed, left pending, or routed
+      - appended child task ID or existing fix/review tracker URL
+      - label actions taken or still needed
+    outputs:
+      - name: ci-triage
+        path: runtime/ci-triage/{task_id}.md
+        description: CI failure rerun/restart triage and routing result.
+
+  route:
+    description: Decide whether the class needs human GitHub handoff, a Forge fix, or a GraalVM fix, then append the next task.
+    target: "{{analysis_target}}"
+    inputs:
+      - name: cause-analysis
+        path: runtime/analysis/{task_id}.md
+    instructions: |
+      Route Task {task_id}: {task_title}.
+
+      Read `{input.cause-analysis.path}` and decide the next state machine path.
+
+      Valid routes:
+      - `human-github`: this should be left for humans through a GitHub issue or
+        comment because automation lacks required information, the decision is
+        product/reviewer-owned, the root cause is external, or the safe action is
+        to document why automation cannot proceed.
+      - `forge`: the class can be fixed in `{{forge_checkout}}` or
+        `{{forge_checkout}}/forge`.
+      - `graalvm`: the class needs a fix in `{{graalvm_ce_checkout}}`,
+        `{{graalvm_ee_checkout}}`, or both.
+
+      Write `{output.routing.path}` with:
+      - selected route
+      - exact evidence supporting it
+      - files likely to change
+      - validation commands expected after the fix
+      - GitHub items that should be updated
+      - exact label actions needed to drain the item from `{{label}}`
+
+      Then append child tasks under the current class task:
+      - For `human-github`, append a task in state `github-human-issue`.
+      - For `forge`, append a task in state `forge-fix`.
+      - For `graalvm`, append a task in state `graalvm-propose-fix`.
+
+      Use one child task per independent fix or handoff. If the analysis says
+      the class must be split, append one routed child per split and include the
+      relevant item subset in each child body.
+
+      Child task shape:
+
+        ##### Task {task_id}.<route>-<slug>: <action title>
+        **State:** <github-human-issue | forge-fix | graalvm-propose-fix>
+        **Prior:** Task {task_id}
+
+        - Route: <route>
+        - Items: <numbers and URLs>
+        - Cause analysis: `{input.cause-analysis.path}`
+        - Routing decision: `{output.routing.path}`
+        - Scope: <files, checkouts, and commands>
+        - Expected outcome: <issue/comment, PR, or reviewable change>
+    outputs:
+      - name: routing
+        path: runtime/routing/{task_id}.md
+        description: Routing decision and spawned follow-up tasks.
+
+  github-human-issue:
+    description: Create or update GitHub human-facing issue/comment for items that cannot be fixed autonomously.
+    target: "{{analysis_target}}"
+    instructions: |
+      Prepare human GitHub handoff for Task {task_id}: {task_title}.
+
+      Read the task body plus the referenced analysis and routing files.
+      Update the relevant GitHub issue or PR in `{{repo}}` with a concise
+      human-action request. Prefer commenting on the existing item. Create a new
+      issue only when the work needs a separate durable tracker.
+      When creating a new GitHub issue, apply the `rhei` label in addition to
+      any context-specific labels.
+
+      The GitHub update must include:
+      - what automation tried
+      - root cause or current best evidence
+      - what human decision or information is needed
+      - exact next action that would let Forge continue
+      - links to logs, PRs, branches, or local files when useful
+
+      Before posting, check the existing comments. If an equivalent RHEI handoff
+      has already been posted and no newer user, CI, or review activity changes
+      the conclusion, do not post a duplicate. Record the existing URL instead.
+
+      After a durable handoff exists, remove `{{label}}` from the item unless the
+      task body explicitly says the item should stay in the hourly queue. Do not
+      add `human-intervention-fixed` for pure handoffs; that label is only for
+      PRs whose manual fix is ready for Forge's review/merge automation.
+
+      Do not make code changes in this state. Write `{output.github-note.path}`
+      with the URL(s) updated and a summary of the requested human action.
+    outputs:
+      - name: github-note
+        path: runtime/github-handoff/{task_id}.md
+        description: GitHub issue/comment URL and handoff summary.
+
+  forge-fix:
+    description: Implement the first Forge or reachability-metadata fix.
+    target: "{{forge_fix_target}}"
+    instructions: |
+      Implement the Forge-side fix for Task {task_id}: {task_title}.
+
+      Work in `{{forge_checkout}}` unless the task body narrows the scope to
+      `{{forge_checkout}}/forge`. Read the referenced cause analysis and routing
+      decision. Apply the smallest change that addresses the root cause.
+
+      This route covers:
+      - reachability metadata or tests
+      - Forge workflows, prompts, scripts, strategies, or GitHub automation
+      - validation command changes needed by Forge
+
+      Preserve unrelated work. Do not rewrite generated branches unless the task
+      body explicitly says to refresh them. Run the narrowest meaningful
+      validation commands documented in the relevant `AGENTS.md`.
+
+      Write `{output.forge-fix-note.path}` with:
+      - files changed
+      - rationale
+      - validation run and result
+      - GitHub items this fix addresses
+      - planned label actions after publication
+    outputs:
+      - name: forge-fix-note
+        path: runtime/fixes/{task_id}-forge-initial.md
+        description: Summary of the first Forge-side fix.
+
+  forge-review:
+    description: Review the Forge fix. Runs twice with a fix pass in between.
+    target: "{{review_target}}"
+    visits: 2
+    instructions: |
+      Review Forge fix pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Inspect the current diff in `{{forge_checkout}}` and the fix notes under
+      `runtime/fixes/` for this task. Review for correctness, scope control,
+      validation quality, and whether the GitHub human-intervention items are
+      actually addressed.
+
+      Write `{output.forge-review-note.path}` with:
+      - blocking findings, or `none`
+      - non-blocking follow-ups, or `none`
+      - validation gaps, or `none`
+      - `Ready to publish: yes` or `Ready to publish: no`
+    outputs:
+      - name: forge-review-note
+        path: runtime/reviews/{task_id}-forge-review-{visit_count}.md
+        description: Forge review findings for this pass.
+
+  forge-review-fix:
+    description: Address findings from the first Forge review pass.
+    target: "{{forge_fix_target}}"
+    instructions: |
+      Fix Forge review findings for Task {task_id}: {task_title}.
+
+      Read the latest `runtime/reviews/{task_id}-forge-review-*.md`. If the
+      review says `none`, do a no-op pass and record that no changes were
+      needed. Otherwise, address only the blocking findings in `{{forge_checkout}}`.
+
+      Run focused validation for the touched area. Write
+      `{output.forge-review-fix-note.path}` with files changed, findings
+      addressed, and validation results.
+    outputs:
+      - name: forge-review-fix-note
+        path: runtime/fixes/{task_id}-forge-review-fix.md
+        description: Summary of changes made after Forge review.
+
+  forge-publish:
+    description: Open or update the Forge PR or issue and request reviewers.
+    target: "{{forge_fix_target}}"
+    instructions: |
+      Publish the Forge fix for Task {task_id}: {task_title}.
+
+      Work in `{{forge_checkout}}`. Decide whether to:
+      - update an existing PR connected to the human-intervention item
+      - open a new PR in `{{repo}}`
+      - update a GitHub issue/comment when no PR is appropriate
+
+      The publication must include the root-cause summary, validation results,
+      and the GitHub items addressed.
+
+      First inspect the latest `runtime/reviews/{task_id}-forge-review-*.md`.
+      If it has blocking findings, validation gaps that matter for the change,
+      or `Ready to publish: no`, do not publish. Instead write the publication
+      note as blocked, append one child task in state `forge-review-fix` with
+      `**Prior:** Task {task_id}`, and leave GitHub labels unchanged except for
+      a short status comment when useful.
+
+      If publishing a PR:
+      - configured reviewers: `{{github_reviewers}}`
+      - request the configured reviewers when that list is non-empty
+      - otherwise use repository defaults
+      - for an existing PR that still has `{{label}}`, remove `{{label}}` and add
+        `human-intervention-fixed`
+      - for a new PR, mention the original human-intervention item and apply the
+        `rhei` label plus the normal Forge PR labels
+
+      If the fix closes an issue without a PR, comment with the fix evidence and
+      remove `{{label}}` from the issue. If no code PR is appropriate, update the
+      existing item once and remove `{{label}}` only when a durable next owner is
+      clear. If a new GitHub issue is created instead of a PR, apply the `rhei`
+      label.
+
+      Write `{output.forge-publication.path}` with the PR or issue URL, branch
+      name, reviewers requested, and any remaining human action.
+    outputs:
+      - name: forge-publication
+        path: runtime/publication/{task_id}-forge.md
+        description: Forge PR/issue publication summary.
+
+  graalvm-propose-fix:
+    description: Propose the GraalVM fix and stop for human review before editing GraalVM.
+    target: "{{graalvm_fix_target}}"
+    instructions: |
+      Propose the GraalVM fix for Task {task_id}: {task_title}.
+
+      Work from the GraalVM git checkout that owns the suspected code:
+      `{{graalvm_ce_checkout}}`, `{{graalvm_ee_checkout}}`, or both. The
+      `{{graalvm_checkout}}` path is only the coordination directory containing
+      those checkouts. Read the local `AGENTS.md` files before proposing
+      concrete edits.
+
+      Produce a proposal before changing code. Identify whether the fix belongs
+      in CE, EE, both, tests, or the GraalVM build used by Forge. Include:
+      - root cause
+      - candidate files and APIs
+      - expected behavior change
+      - validation commands
+      - whether `mxb ee` from `{{graalvm_ee_checkout}}/vm-enterprise` is needed
+      - risk to Native Image compatibility
+
+      Write `{output.graalvm-proposal.path}`. Do not edit GraalVM files in this
+      state.
+    outputs:
+      - name: graalvm-proposal
+        path: runtime/proposals/{task_id}-graalvm.md
+        description: Proposed GraalVM fix for human approval.
+
+  graalvm-human-review:
+    description: Human reviews the proposed GraalVM fix before code changes.
+    gating: true
+    inputs:
+      - name: graalvm-proposal
+        path: runtime/proposals/{task_id}-graalvm.md
+    instructions: |
+      Stop autonomous work on Task {task_id}: {task_title}.
+
+      A human must review `{input.graalvm-proposal.path}`. If approved or
+      adjusted, transition this task to `graalvm-fix`. If the proposal should
+      become a GitHub handoff instead, transition to `github-human-issue`. If
+      this class should be abandoned, transition to `cancelled`.
+
+  graalvm-fix:
+    description: Implement the approved GraalVM fix.
+    target: "{{graalvm_fix_target}}"
+    inputs:
+      - name: graalvm-proposal
+        path: runtime/proposals/{task_id}-graalvm.md
+        optional: true
+    instructions: |
+      Implement the approved GraalVM fix for Task {task_id}: {task_title}.
+
+      Work in `{{graalvm_ce_checkout}}`, `{{graalvm_ee_checkout}}`, or both as
+      approved by the proposal. Do not run git commands from
+      `{{graalvm_checkout}}`; it is not necessarily a git repository. Keep CE and
+      EE ownership boundaries clear.
+
+      If validation depends on the local GraalVM used by Forge, refresh it from:
+
+        cd {{graalvm_ee_checkout}}/vm-enterprise
+        mxb ee
+
+      Then run the narrowest meaningful validation from the relevant GraalVM
+      `AGENTS.md`.
+
+      Write `{output.graalvm-fix-note.path}` with:
+      - files changed
+      - rationale
+      - validation run and result
+      - Forge/GitHub items addressed
+      - planned label actions after publication
+    outputs:
+      - name: graalvm-fix-note
+        path: runtime/fixes/{task_id}-graalvm-initial.md
+        description: Summary of the first GraalVM fix.
+
+  graalvm-review:
+    description: Review the GraalVM fix. Runs twice with a fix pass in between.
+    target: "{{review_target}}"
+    visits: 2
+    instructions: |
+      Review GraalVM fix pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Inspect the current diff in `{{graalvm_ce_checkout}}`,
+      `{{graalvm_ee_checkout}}`, or both according to the fix note. Review
+      correctness, CE/EE ownership, Native Image behavior, validation, and
+      whether the Forge human-intervention items are actually unblocked.
+
+      Write `{output.graalvm-review-note.path}` with:
+      - blocking findings, or `none`
+      - non-blocking follow-ups, or `none`
+      - validation gaps, or `none`
+      - `Ready to publish: yes` or `Ready to publish: no`
+    outputs:
+      - name: graalvm-review-note
+        path: runtime/reviews/{task_id}-graalvm-review-{visit_count}.md
+        description: GraalVM review findings for this pass.
+
+  graalvm-review-fix:
+    description: Address findings from the first GraalVM review pass.
+    target: "{{graalvm_fix_target}}"
+    instructions: |
+      Fix GraalVM review findings for Task {task_id}: {task_title}.
+
+      Read the latest `runtime/reviews/{task_id}-graalvm-review-*.md`. If the
+      review says `none`, do a no-op pass and record that no changes were
+      needed. Otherwise, address only the blocking findings in
+      `{{graalvm_ce_checkout}}`, `{{graalvm_ee_checkout}}`, or both according to
+      the review.
+
+      Run focused validation for the touched area. Write
+      `{output.graalvm-review-fix-note.path}` with files changed, findings
+      addressed, and validation results.
+    outputs:
+      - name: graalvm-review-fix-note
+        path: runtime/fixes/{task_id}-graalvm-review-fix.md
+        description: Summary of changes made after GraalVM review.
+
+  graalvm-publish:
+    description: Open or update the GraalVM issue/PR and request reviewers.
+    target: "{{graalvm_fix_target}}"
+    instructions: |
+      Publish the GraalVM fix for Task {task_id}: {task_title}.
+
+      Work in `{{graalvm_ce_checkout}}`, `{{graalvm_ee_checkout}}`, or both.
+      Decide whether the result needs a CE PR, an EE PR, both, or an
+      issue/comment for the GraalVM owners. Use each local checkout's repository
+      conventions and `AGENTS.md` guidance.
+
+      Include the root-cause summary, validation results, and the
+      graalvm-reachability-metadata items this unblocks.
+
+      First inspect the latest `runtime/reviews/{task_id}-graalvm-review-*.md`.
+      If it has blocking findings, validation gaps that matter for the change,
+      or `Ready to publish: no`, do not publish. Instead write the publication
+      note as blocked, append one child task in state `graalvm-review-fix` with
+      `**Prior:** Task {task_id}`, and leave GitHub labels unchanged except for
+      a short status comment when useful.
+
+      If a PR is opened or updated:
+      - configured reviewers: `{{github_reviewers}}`
+      - request the configured reviewers when that list is non-empty
+      - otherwise use repository defaults
+      - for a new PR, apply the `rhei` label
+      - comment on the original graalvm-reachability-metadata item with the PR
+        URL(s), the validation evidence, and what remains blocked
+      - remove `{{label}}` from the original item only when the GraalVM PR or
+        handoff is the durable next owner; do not add `human-intervention-fixed`
+        to GraalVM PRs
+
+      If a new GitHub issue is created instead of a PR, apply the `rhei` label.
+
+      Write `{output.graalvm-publication.path}` with the issue or PR URL(s),
+      branch name(s), reviewers requested, and any remaining human action.
+    outputs:
+      - name: graalvm-publication
+        path: runtime/publication/{task_id}-graalvm.md
+        description: GraalVM PR/issue publication summary.
+
+  rhei-pr-follow-up:
+    description: Address reviewer feedback on RHEI-labeled pull requests and merge approved PRs.
+    target: "{{forge_fix_target}}"
+    instructions: |
+      Follow up on RHEI pull requests for Task {task_id}: {task_title}.
+
+      Work from the coordination workspace root. Treat GitHub as the source of
+      truth for open pull requests in `{{repo}}` labeled `rhei`.
+
+      For each PR:
+      - fetch the PR number, URL, title, author, labels, head repository, head
+        branch, review decision, submitted reviews, unresolved review comments,
+        issue comments, changed files, mergeability, and CI/check status
+      - skip PRs that are draft, already merged/closed, not labeled `rhei`, or
+        have a human-only blocker that cannot be addressed from the checkout
+      - if reviewer comments or requested changes require edits, create or
+        reuse an isolated git worktree for the PR head branch
+      - make the smallest changes that address the reviewer comments without
+        expanding PR scope
+      - run the narrowest meaningful validation for the changed files
+      - commit and push fixes to the PR head branch, preserving unrelated work
+      - comment on the PR with a concise summary of addressed feedback and
+        validation evidence when changes were pushed
+
+      Merge policy:
+      - only merge a PR when every non-dismissed reviewer review is approved,
+        every requested or participating reviewer has approved, required checks
+        are passing, and GitHub reports the PR mergeable
+      - do not merge when review is pending, changes are requested, required CI
+        is pending or failing, mergeability is unknown, or the PR has a
+        human-blocking comment
+      - use the repository's standard merge method and record the merge result
+
+      Write `{output.rhei-pr-follow-up.path}` with one section per PR covering
+      actions taken, worktree path if one was used, validation, push status,
+      merge decision, and any remaining human action.
+    outputs:
+      - name: rhei-pr-follow-up
+        path: runtime/rhei-pr-follow-up/{task_id}.md
+        description: RHEI PR reviewer-feedback and merge follow-up summary.
+
+  completed:
+    description: Task is done.
+    instructions: |
+      No further action is required for Task {task_id}.
+    final: true
+
+  cancelled:
+    description: Task was cancelled.
+    instructions: |
+      Stop work on Task {task_id}. Leave artifacts in place.
+    final: true
+
+transitions:
+  - from: fetch
+    to: completed
+    description: Inventory and classification were written, and class subtasks were appended.
+
+  - from: ci-failure-triage
+    to: completed
+    description: CI failure was restarted, completed, left pending, or routed to a follow-up task.
+
+  - from: deep-analysis
+    to: route
+    description: Deep cause analysis is complete; route the class.
+
+  - from: route
+    to: completed
+    description: Routed follow-up tasks were appended.
+
+  - from: github-human-issue
+    to: completed
+    description: GitHub issue/comment handoff was written.
+
+  - from: forge-fix
+    to: forge-review
+    description: Initial Forge fix is ready for review.
+
+  - from: forge-review
+    to: forge-review-fix
+    condition: visitCount < visits
+    description: First Forge review pass completed; address findings.
+
+  - from: forge-review-fix
+    to: forge-review
+    description: Forge review findings addressed; run the second review.
+
+  - from: forge-review
+    to: forge-publish
+    condition: visitCount >= visits
+    description: Forge review loop is complete; publish the result.
+
+  - from: forge-publish
+    to: completed
+    description: Forge issue or PR was published and reviewers were requested.
+
+  - from: graalvm-propose-fix
+    to: graalvm-human-review
+    description: GraalVM proposal is ready for human review.
+
+  - from: graalvm-human-review
+    to: graalvm-fix
+    description: Human approved or adjusted the GraalVM proposal.
+
+  - from: graalvm-human-review
+    to: github-human-issue
+    description: Human decided the GraalVM route should become a GitHub handoff.
+
+  - from: graalvm-fix
+    to: graalvm-review
+    description: Initial GraalVM fix is ready for review.
+
+  - from: graalvm-review
+    to: graalvm-review-fix
+    condition: visitCount < visits
+    description: First GraalVM review pass completed; address findings.
+
+  - from: graalvm-review-fix
+    to: graalvm-review
+    description: GraalVM review findings addressed; run the second review.
+
+  - from: graalvm-review
+    to: graalvm-publish
+    condition: visitCount >= visits
+    description: GraalVM review loop is complete; publish the result.
+
+  - from: graalvm-publish
+    to: completed
+    description: GraalVM issue or PR was published and reviewers were requested.
+
+  - from: rhei-pr-follow-up
+    to: completed
+    description: RHEI PR reviewer feedback was handled and approved PRs were merged.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel any non-final task.

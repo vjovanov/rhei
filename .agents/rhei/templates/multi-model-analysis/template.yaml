@@ -1,0 +1,58 @@
+name: multi-model-analysis
+version: 1.0.0
+description: Run one analytical task through multiple target-specific passes in one state, then have Claude write the final synthesis.
+
+inputs:
+  - name: plan_title
+    description: Title of the instantiated Rhei plan
+    type: string
+    required: true
+
+  - name: task_title
+    description: Title of the shared analysis task
+    type: string
+    required: true
+
+  - name: task_description
+    description: Full task instructions given to each analysis model pass
+    type: string
+    required: true
+
+  - name: analysis_output_dir
+    description: Directory that stores per-model analysis notes
+    type: string
+    default: runtime/analyses
+
+  - name: agents
+    description: Agent targets used for the analysis fanout
+    type: array
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+          validate: "[a-z][a-z0-9-]*"
+        label:
+          type: string
+        selector:
+          type: string
+    default:
+      - id: claude
+        label: Claude analysis note
+        selector: claude-code[yolo]:anthropic:claude-opus-4-7
+      - id: gemini
+        label: Gemini analysis note
+        selector: gemini[yolo]:google:gemini-3.1-pro-preview
+      - id: codex
+        label: Codex analysis note
+        selector: codex[yolo]:openai:gpt-5-codex
+
+  - name: summary_agent
+    description: Agent target that synthesizes the final document
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: final_document_path
+    description: Path where Claude writes the synthesized final document
+    type: string
+    default: runtime/final-analysis.md

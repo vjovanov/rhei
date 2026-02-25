@@ -1,0 +1,46 @@
+name: changeset-review
+version: 1.0.0
+description: Review a code change (PR, branch, commit, or diff) — split into parts, multi-target review each, score findings, human-gate, then fan out fixes.
+
+inputs:
+  - name: change_ref
+    description: The change to review. Any of — a PR URL or number, a branch name, a commit SHA (or range `base..head`), or a path to a .diff/.patch file. The coordinator resolves it to an actual set of files before splitting.
+    type: string
+
+  - name: review_targets
+    description: Execution targets that independently review each part of the change (one parallel pass per target)
+    type: array
+    items:
+      type: string
+    default:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[yolo]:openai:gpt-5.4
+
+  - name: review_focus
+    description: Optional focus areas each reviewer must address as its own subsection (e.g., performance, security, concurrency). Empty means a general review.
+    type: array
+    items:
+      type: string
+    default: []
+
+  - name: aggregator_target
+    description: Execution target that deduplicates per-part findings and produces the scored issue list
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: fix_target
+    description: Execution target that implements each human-approved fix
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: fix_prepare
+    description: Optional pre-fix workspace isolation. One of — none (apply in-tree), branch (create a new branch), worktree (create a git worktree), fork (fork the repo before working).
+    type: string
+    default: none
+    validate: "^(none|branch|worktree|fork)$"
+
+  - name: fix_commit
+    description: Optional post-fix commit behavior. One of — none (leave uncommitted), commit (local commit), push (commit and push to remote), pr (commit, push, open PR).
+    type: string
+    default: none
+    validate: "^(none|commit|push|pr)$"

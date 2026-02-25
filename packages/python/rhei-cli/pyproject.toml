@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rhei-cli"
+version = "0.1.0a1"
+description = "Command-line interface for validating, running, and rendering Rhei markdown plans."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT OR Apache-2.0"
+authors = [
+  { name = "Rhei contributors" }
+]
+keywords = ["agents", "markdown", "planning", "workflow", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Software Development"
+]
+
+[project.urls]
+Homepage = "https://github.com/vjovanov/rhei"
+Repository = "https://github.com/vjovanov/rhei"
+Issues = "https://github.com/vjovanov/rhei/issues"
+
+[project.scripts]
+rhei = "rhei_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

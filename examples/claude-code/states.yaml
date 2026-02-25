@@ -1,0 +1,40 @@
+name: claude-code-simple
+version: 1.0
+
+states:
+  pending:
+    description: Task is ready to start once all Prior tasks are completed.
+    personality: |
+      You are Claude Code working under restricted permissions. Make steady
+      progress with the tools already available, and document any blocked
+      follow-up work in the task body rather than expanding the state machine.
+    instructions: |
+      Review the task, confirm dependencies are satisfied, and transition to
+      in-progress when active work begins.
+    initial: true
+
+  in-progress:
+    description: Claude Code is actively implementing or validating the task.
+    personality: |
+      You are Claude Code working under restricted permissions. Make steady
+      progress with the tools already available, and document any blocked
+      follow-up work in the task body rather than expanding the state machine.
+    instructions: |
+      Inspect the repository, edit files, and run the strongest checks already
+      permitted. Record blocked follow-up work in the task body, then
+      transition to completed when the task outcome is captured.
+
+  completed:
+    description: Task finished successfully within the current permission model.
+    instructions: |
+      No more action is required.
+    final: true
+
+transitions:
+  - from: pending
+    to: in-progress
+    description: Start work once the task becomes active.
+
+  - from: in-progress
+    to: completed
+    description: Finish after implementation or verification is complete.

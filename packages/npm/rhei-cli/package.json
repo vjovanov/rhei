@@ -1,0 +1,37 @@
+{
+  "name": "rhei",
+  "version": "0.1.0-alpha.1",
+  "description": "Command-line interface for validating, running, and rendering Rhei markdown plans.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vjovanov/rhei.git"
+  },
+  "homepage": "https://github.com/vjovanov/rhei#readme",
+  "bugs": {
+    "url": "https://github.com/vjovanov/rhei/issues"
+  },
+  "bin": {
+    "rhei": "bin/rhei.js"
+  },
+  "main": "index.js",
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin/",
+    "index.js",
+    "scripts/",
+    "README.md"
+  ],
+  "keywords": [
+    "agents",
+    "markdown",
+    "planning",
+    "workflow",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

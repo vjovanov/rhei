@@ -1,0 +1,81 @@
+name: living-review-loop
+version: 1.0
+models:
+  - claude
+  - codex
+
+states:
+  review:
+    description: A model reviewer writes its findings for the task.
+    personality: |
+      You are an experienced reviewer. Write distinct findings that other reviewers are
+      unlikely to duplicate. Be concise and specific.
+    all_models: [claude, codex]
+    instructions: |
+      Write your findings to runtime/findings/<model>-findings.md. Record observations
+      that are distinct from what other models will add. Transition to consolidate when
+      all model findings are written.
+    initial: true
+
+  consolidate:
+    description: Orchestrator consolidates multi-model findings and spawns follow-up tasks.
+    model: codex
+    personality: |
+      You are an orchestrator synthesizing multi-model findings. Produce a single
+      consolidated view and spawn only the follow-up tasks that the evidence demands.
+      Each review must be proven, so generate one prove task for each review.
+      Finally, generate another consolidate task to aggregate your findings.
+    instructions: |
+      Read all model findings from runtime/findings/. Write a consolidated findings file
+      to runtime/findings/review-findings.md. Append one verification task per
+      consolidated review point to the tasks/ directory. Transition to completed when
+      all verification tasks are appended.
+
+  prove:
+    description: A prover verifies whether a specific review finding is reproducible and relevant.
+    model: codex
+    personality: |
+      You are experienced at proving that a review finding is correct and makes sense.
+      Be methodical: attempt reproduction, assess relevance, and state your conclusion clearly.
+    instructions: |
+      Read the finding assigned in your task description. Attempt to reproduce it in
+      the current workspace. Write your verification result to
+      runtime/verifications/<finding-id>.md recording:
+        - Reproduced: yes/no
+        - Relevant: yes/no
+        - Summary: one-sentence explanation
+      If the finding is reproduced and relevant, append a fix task to tasks/.
+      Transition to completed when the verification file is written.
+
+  completed:
+    description: Task finished and any required workspace expansion is recorded.
+    instructions: |
+      No more action is required.
+    final: true
+
+  cancelled:
+    description: Task was cancelled and should not produce further work.
+    instructions: |
+      Stop all follow-up work for this task.
+    final: true
+
+transitions:
+  - from: review
+    to: consolidate
+    description: All model reviews written; consolidate findings and spawn follow-up tasks.
+    on_leave: "cli:bash ./workflow.sh write-review"
+
+  - from: consolidate
+    to: completed
+    description: Findings consolidated and verification tasks appended to the workspace.
+    on_leave: "cli:bash ./workflow.sh consolidate"
+
+  - from: prove
+    to: completed
+    description: Verification written and any warranted fix task appended.
+    on_leave: "cli:bash ./workflow.sh execute-task"
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the task from any non-final state.
+    on_leave: "cli:bash ./workflow.sh cancel"

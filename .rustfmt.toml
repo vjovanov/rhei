@@ -1,0 +1,5 @@
+# Rustfmt configuration (stable options only)
+max_width = 100
+use_small_heuristics = "Max"
+newline_style = "Unix"
+reorder_imports = true

@@ -1,0 +1,98 @@
+name: rhei-live-ticket-dashboard
+version: 1.0
+
+states:
+  draft:
+    description: Demo planning state; sleeps briefly so live run monitors have time to render it.
+    initial: true
+    program: "sleep 1"
+    program_timeout: 5s
+    instructions: |
+      This demo state intentionally runs a short deterministic program so
+      `rhei run --tui` has visible slot activity while walking the example.
+
+  pending:
+    description: Demo implementation state; sleeps briefly so live run monitors have time to render it.
+    program: "sleep 1"
+    program_timeout: 5s
+    instructions: |
+      This demo state intentionally runs a short deterministic program so
+      `rhei run --tui` has visible slot activity while walking the example.
+
+  agent-review:
+    description: Demo review state; sleeps briefly so live run monitors have time to render it.
+    program: "sleep 1"
+    program_timeout: 5s
+    instructions: |
+      This demo state intentionally runs a short deterministic program so
+      `rhei run --tui` has visible slot activity while walking the example.
+
+  agent-review-fix:
+    description: Demo fix state; sleeps briefly so live run monitors have time to render it.
+    program: "sleep 1"
+    program_timeout: 5s
+    instructions: |
+      This demo state intentionally runs a short deterministic program so
+      `rhei run --tui` has visible slot activity while walking the example.
+
+  human-review:
+    description: Work is paused pending human inspection.
+    gating: true
+    instructions: |
+      Stop all automated work on this task. Wait for a human to approve,
+      request changes, or edit the plan.
+
+  completed:
+    description: Task finished successfully.
+    final: true
+
+  cancelled:
+    description: Task is no longer needed.
+    final: true
+
+transitions:
+  - from: draft
+    to: pending
+    exit_code: 0
+    description: Demo planning pause completed.
+  - from: draft
+    to: cancelled
+    exit_code: nonzero
+    description: Demo planning pause failed.
+
+  - from: pending
+    to: agent-review
+    exit_code: 0
+    description: Demo implementation pause completed.
+  - from: pending
+    to: cancelled
+    exit_code: nonzero
+    description: Demo implementation pause failed.
+
+  - from: agent-review
+    to: completed
+    exit_code: 0
+    description: Demo review pause completed.
+  - from: agent-review
+    to: agent-review-fix
+    exit_code: nonzero
+    description: Demo review pause failed.
+
+  - from: agent-review-fix
+    to: agent-review
+    exit_code: 0
+    description: Demo fix pause completed.
+  - from: agent-review-fix
+    to: cancelled
+    exit_code: nonzero
+    description: Demo fix pause failed.
+
+  - from: human-review
+    to: pending
+    description: Human requested rework.
+  - from: human-review
+    to: completed
+    description: Human approved the work.
+  - from: human-review
+    to: cancelled
+    description: Human decided to abandon the task.

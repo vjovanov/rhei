@@ -1,0 +1,39 @@
+name: spec-implementation-discrepancy-audit
+version: 1.0.0
+description: Audit written specifications against implementation, elaborate discrepancies, propose reconciliation, and stop for a human decision.
+
+inputs:
+  - name: audit_title
+    description: Title for the instantiated audit workspace.
+    type: string
+    default: Spec Implementation Discrepancy Audit
+
+  - name: subject
+    description: Product, repository, or subsystem whose spec and implementation are being audited.
+    type: string
+    default: Rhei
+
+  - name: spec_root
+    description: Documentation root containing rhei.spec.md and the specs/ directory.
+    type: string
+    default: docs
+
+  - name: implementation_roots
+    description: Root paths containing implementation, tests, templates, or skills to compare against the spec.
+    type: array
+    items:
+      type: string
+    default:
+      - crates
+      - skills
+      - .agents/rhei/templates
+
+  - name: audit_target
+    description: Execution target that scopes, compares, elaborates, and proposes reconciliation for each partition.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: extra_context
+    description: Optional free-form audit context appended to the rendered workspace overview.
+    type: string
+    default: ""

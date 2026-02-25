@@ -1,0 +1,94 @@
+2026-05-06T14:10:21Z  1  agent-review→agent-review  runtime/logs/task-1-agent-review.log
+2026-05-06T14:10:22Z  1  agent-review→agent-review  runtime/logs/task-1-agent-review.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:10:22Z  2  draft→draft  runtime/logs/task-2-draft.log
+2026-05-06T14:10:24Z  2  draft→draft  runtime/logs/task-2-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:24Z  3  draft→draft  runtime/logs/task-3-draft.log
+2026-05-06T14:10:25Z  3  draft→draft  runtime/logs/task-3-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:25Z  2  pending→pending  runtime/logs/task-2-pending.log
+2026-05-06T14:10:26Z  2  pending→pending  runtime/logs/task-2-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:27Z  3  pending→pending  runtime/logs/task-3-pending.log
+2026-05-06T14:10:28Z  3  pending→pending  runtime/logs/task-3-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:10:28Z  2  agent-review→agent-review  runtime/logs/task-2-agent-review.log
+2026-05-06T14:10:29Z  2  agent-review→agent-review  runtime/logs/task-2-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:29Z  3  agent-review→agent-review  runtime/logs/task-3-agent-review.log
+2026-05-06T14:10:30Z  3  agent-review→agent-review  runtime/logs/task-3-agent-review.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:10:31Z  4  draft→draft  runtime/logs/task-4-draft.log
+2026-05-06T14:10:32Z  4  draft→draft  runtime/logs/task-4-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:10:32Z  4  pending→pending  runtime/logs/task-4-pending.log
+2026-05-06T14:10:33Z  4  pending→pending  runtime/logs/task-4-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:33Z  4  agent-review→agent-review  runtime/logs/task-4-agent-review.log
+2026-05-06T14:10:34Z  4  agent-review→agent-review  runtime/logs/task-4-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:35Z  5  draft→draft  runtime/logs/task-5-draft.log
+2026-05-06T14:10:36Z  5  draft→draft  runtime/logs/task-5-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:10:36Z  6  draft→draft  runtime/logs/task-6-draft.log
+2026-05-06T14:10:37Z  6  draft→draft  runtime/logs/task-6-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:10:37Z  5  pending→pending  runtime/logs/task-5-pending.log
+2026-05-06T14:10:38Z  5  pending→pending  runtime/logs/task-5-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:38Z  6  pending→pending  runtime/logs/task-6-pending.log
+2026-05-06T14:10:40Z  6  pending→pending  runtime/logs/task-6-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:40Z  5  agent-review→agent-review  runtime/logs/task-5-agent-review.log
+2026-05-06T14:10:41Z  5  agent-review→agent-review  runtime/logs/task-5-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:41Z  6  agent-review→agent-review  runtime/logs/task-6-agent-review.log
+2026-05-06T14:10:42Z  6  agent-review→agent-review  runtime/logs/task-6-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:42Z  7  draft→draft  runtime/logs/task-7-draft.log
+2026-05-06T14:10:44Z  7  draft→draft  runtime/logs/task-7-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:44Z  7  pending→pending  runtime/logs/task-7-pending.log
+2026-05-06T14:10:45Z  7  pending→pending  runtime/logs/task-7-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:45Z  7  agent-review→agent-review  runtime/logs/task-7-agent-review.log
+2026-05-06T14:10:46Z  7  agent-review→agent-review  runtime/logs/task-7-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:46Z  8  draft→draft  runtime/logs/task-8-draft.log
+2026-05-06T14:10:48Z  8  draft→draft  runtime/logs/task-8-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:10:48Z  8  pending→pending  runtime/logs/task-8-pending.log
+2026-05-06T14:24:50Z  1  draft→draft  runtime/logs/task-1-draft.log
+2026-05-06T14:24:51Z  1  draft→draft  runtime/logs/task-1-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:24:51Z  1  pending→pending  runtime/logs/task-1-pending.log
+2026-05-06T14:24:52Z  1  pending→pending  runtime/logs/task-1-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:24:52Z  1  agent-review→agent-review  runtime/logs/task-1-agent-review.log
+2026-05-06T14:24:54Z  1  agent-review→agent-review  runtime/logs/task-1-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:24:54Z  2  draft→draft  runtime/logs/task-2-draft.log
+2026-05-06T14:24:55Z  2  draft→draft  runtime/logs/task-2-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T14:24:55Z  3  draft→draft  runtime/logs/task-3-draft.log
+2026-05-06T14:24:56Z  3  draft→draft  runtime/logs/task-3-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T14:24:56Z  2  pending→pending  runtime/logs/task-2-pending.log
+2026-05-06T15:03:46Z  1  draft→draft  runtime/logs/task-1-draft.log
+2026-05-06T15:03:47Z  1  draft→draft  runtime/logs/task-1-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:03:47Z  1  pending→pending  runtime/logs/task-1-pending.log
+2026-05-06T15:03:48Z  1  pending→pending  runtime/logs/task-1-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:03:48Z  1  agent-review→agent-review  runtime/logs/task-1-agent-review.log
+2026-05-06T15:03:49Z  1  agent-review→agent-review  runtime/logs/task-1-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:03:50Z  2  pending→pending  runtime/logs/task-2-pending.log
+2026-05-06T15:03:51Z  2  pending→pending  runtime/logs/task-2-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:03:51Z  3  pending→pending  runtime/logs/task-3-pending.log
+2026-05-06T15:03:52Z  3  pending→pending  runtime/logs/task-3-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:03:52Z  2  agent-review→agent-review  runtime/logs/task-2-agent-review.log
+2026-05-06T15:03:53Z  2  agent-review→agent-review  runtime/logs/task-2-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:03:54Z  3  agent-review→agent-review  runtime/logs/task-3-agent-review.log
+2026-05-06T15:03:55Z  3  agent-review→agent-review  runtime/logs/task-3-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:03:55Z  4  draft→draft  runtime/logs/task-4-draft.log
+2026-05-06T15:03:56Z  4  draft→draft  runtime/logs/task-4-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:03:57Z  4  pending→pending  runtime/logs/task-4-pending.log
+2026-05-06T15:03:58Z  4  pending→pending  runtime/logs/task-4-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:03:58Z  4  agent-review→agent-review  runtime/logs/task-4-agent-review.log
+2026-05-06T15:03:59Z  4  agent-review→agent-review  runtime/logs/task-4-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:03:59Z  5  draft→draft  runtime/logs/task-5-draft.log
+2026-05-06T15:04:00Z  5  draft→draft  runtime/logs/task-5-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:04:00Z  6  draft→draft  runtime/logs/task-6-draft.log
+2026-05-06T15:04:01Z  6  draft→draft  runtime/logs/task-6-draft.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:04:02Z  5  pending→pending  runtime/logs/task-5-pending.log
+2026-05-06T15:04:03Z  5  pending→pending  runtime/logs/task-5-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:04:03Z  6  pending→pending  runtime/logs/task-6-pending.log
+2026-05-06T15:04:04Z  6  pending→pending  runtime/logs/task-6-pending.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:04:04Z  5  agent-review→agent-review  runtime/logs/task-5-agent-review.log
+2026-05-06T15:04:05Z  5  agent-review→agent-review  runtime/logs/task-5-agent-review.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:04:05Z  6  agent-review→agent-review  runtime/logs/task-6-agent-review.log
+2026-05-06T15:04:07Z  6  agent-review→agent-review  runtime/logs/task-6-agent-review.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:04:07Z  7  draft→draft  runtime/logs/task-7-draft.log
+2026-05-06T15:04:08Z  7  draft→draft  runtime/logs/task-7-draft.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:04:08Z  7  pending→pending  runtime/logs/task-7-pending.log
+2026-05-06T15:04:09Z  7  pending→pending  runtime/logs/task-7-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:04:10Z  7  agent-review→agent-review  runtime/logs/task-7-agent-review.log
+2026-05-06T15:04:11Z  7  agent-review→agent-review  runtime/logs/task-7-agent-review.log  exit=0,duration=1s,outcome=completed
+2026-05-06T15:04:11Z  8  pending→pending  runtime/logs/task-8-pending.log
+2026-05-06T15:04:12Z  8  pending→pending  runtime/logs/task-8-pending.log  exit=0,duration=1.2s,outcome=completed
+2026-05-06T15:04:12Z  8  agent-review→agent-review  runtime/logs/task-8-agent-review.log
+2026-05-06T15:04:13Z  8  agent-review→agent-review  runtime/logs/task-8-agent-review.log  exit=0,duration=1.2s,outcome=completed

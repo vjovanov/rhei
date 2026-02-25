@@ -1,0 +1,526 @@
+# State machine diagram
+# ─────────────────────
+#
+# Legend:  [initial]  [final]  [gating — agent stops, waits for human]
+#          ═══►  happy-path transition
+#          ╌╌►  opt-out transition (human closes with no fixes)
+#
+#   ┌──────────────┐                     ┌───────────────────┐
+#   │ split        │ ═══ overview + ═══► │ completed [final] │
+#   │ [initial]    │     parts spawn     └───────────────────┘
+#   └──────────────┘
+#
+#   ┌──────────────┐                     ┌───────────────────┐
+#   │ review       │ ═══════════════════►│ completed [final] │
+#   │ (all_targets:│    per-target pass  └───────────────────┘
+#   │ review_      │    fan-out
+#   │  models)     │
+#   └──────────────┘
+#
+#   ┌──────────────┐   ┌──────────────────┐  triaged  ┌───────────┐
+#   │ aggregate    │══►│ human-review     │══════════►│ fix-spawn │═══►┐
+#   │ (Prior = all │   │ [gating]         │╌╌╌╌╌╌╌╌╌► └───────────┘    │
+#   │  reviews)    │   └──────────────────┘ no fixes          │        │
+#   └──────────────┘                                          ▼        ▼
+#                                                        ┌───────────────────┐
+#                                                        │ completed [final] │
+#                                                        └───────────────────┘
+#
+#   Fix task path (pre/post stages are conditional on template inputs):
+#
+#   ┌────────────────────┐       ┌─────┐       ┌────────────┐       ┌───────────┐
+#   │ prepare-workspace  │══════►│ fix │══════►│ commit-fix │══════►│ completed │
+#   │ (if fix_prepare    │       │     │       │ (if fix_   │       │  [final]  │
+#   │  ≠ none)           │       │     │       │  commit ≠  │       └───────────┘
+#   └────────────────────┘       └─────┘       │  none)     │
+#           ▲                       │          └────────────┘
+#           │                       │                 ▲
+#   entry when fix_prepare ≠ none   │ skip commit-fix ┘  (fix_commit == none:
+#   else entry is `fix`             │                     fix ═══► completed)
+#                                   ▼
+#                              ┌───────────┐
+#                              │ completed │
+#                              │  [final]  │
+#                              └───────────┘
+#
+#   any non-final state ═══► ┌───────────────────┐
+#                            │ cancelled [final] │
+#                            └───────────────────┘
+#
+# Per-task paths:
+#   coordinator:   split → completed
+#   review-<slug>: review → completed                   (all_targets fan-out)
+#   aggregate:     aggregate → human-review → fix-spawn → completed
+#                                          ╌► completed (no fixes selected)
+#   fix-<id>:      [prepare-workspace →] fix [→ commit-fix] → completed
+#                  (brackets denote optional stages toggled by fix_prepare
+#                   and fix_commit inputs)
+
+name: changeset-review
+version: 1.0.0
+
+states:
+  split:
+    description: Coordinator writes an architectural overview of the change, then spawns one review task per logical part plus an aggregator task.
+    initial: true
+    instructions: |
+      You are the change-review coordinator for Task {task_id}: {task_title}.
+
+      First, treat this instantiated workspace as a scratchpad. Resolve the
+      repository root with `git rev-parse --show-toplevel` from the current
+      workspace and use that repository root for all VCS commands and all
+      repository file lookups (`docs/specs`, source files, ADRs, etc.). Do
+      not assume the workspace directory itself contains the repository
+      files.
+
+      0. Resolve `{{change_ref}}` to a concrete set of files and a diff.
+         The reference can be any of:
+           - a PR URL or PR number (e.g., `#42`, `org/repo#42`, full URL)
+           - a branch name (compare against the project's default branch)
+           - a commit SHA or range `base..head`
+           - a path to a `.diff` or `.patch` file on disk
+         Use the project's VCS tooling (`gh`, `git diff`, `git log`, etc.)
+         from the resolved repository root to produce the list of changed
+         files and the unified diff. If the reference is ambiguous, resolve
+         it the narrowest way consistent with the user's intent and note the
+         assumption in the overview.
+      1. Produce an architectural overview of the resolved change.
+         Write it to `{output.architecture-overview.path}` covering:
+           - the user-visible or operational intent of the change
+           - the subsystems touched and how responsibility moves between
+             them (component diagram in text is fine)
+           - new or changed public interfaces, data models, and contracts
+           - cross-cutting concerns introduced (caching, locking,
+             migrations, feature flags, deployment ordering)
+           - risks the reviewers should keep in mind while reading parts
+
+         Include a "Metadata" subsection that captures, verbatim or
+         summarized:
+           - the resolved repository root path
+           - whether the change is accompanied by a PR (capture title and
+             body if so; leave a `PR: none` note otherwise)
+           - the list of commit subjects + bodies on the change
+           - whether the project has specs (look for `docs/specs/`,
+             `specs/`, `SPEC.md`, ADR directories, or equivalents) that
+             intersect the subsystems touched — record the intersecting
+             spec file paths or `Specs: none`
+
+         Include a "User-facing?" call: does the change alter behavior
+         visible to users or operators (public API, CLI, UI, error
+         messages, defaults, configuration surface, docs-worthy
+         behavior)? Record `yes` or `no` with a one-line justification.
+
+         This is the reviewer's mental map — keep it short and concrete.
+
+      2. Using the overview, decide which parts need to be reviewed.
+         The part set is a mix of **code parts** and **meta parts**.
+
+         Code parts:
+           - Split the diff into logical parts (by subsystem, by file
+             cluster, or by concern). Aim for parts small enough to
+             review thoroughly in one pass.
+
+         Meta parts — add each only when the condition holds:
+           - `pr-description` — add **if** the change arrived as a PR.
+             The task reviews the PR title and body for clarity,
+             completeness, release-note readiness, missing context, and
+             any security disclosure or breaking-change notes that
+             should be called out.
+           - `commit-messages` — add **always**. The task reviews the
+             list of commit messages for clarity, atomicity, traceability
+             (issue / ticket references), and "mess" — `wip`, `fixup`,
+             `address review comments`, typo-level fixups, or
+             conflicting intent that should be squashed or rewritten
+             before merge.
+           - `documentation` — add **if** "User-facing?" is `yes`.
+             Scope is README, CHANGELOG, `docs/`, API reference, CLI
+             help, and any other user-facing docs that must keep up
+             with the change. The task body lists the specific doc
+             files the coordinator believes need updating or verifying.
+           - `spec` — add **if** the project has specs that intersect
+             the subsystems touched. Scope is those specific spec files.
+             The task reviews whether the change is consistent with the
+             spec, whether the spec needs an update, and whether
+             assumptions baked into the change match documented behavior.
+
+      3. Write a short manifest of parts to `{output.parts-manifest.path}`.
+         Each entry records:
+           - a stable slug (lowercase, hyphenated)
+           - `type: code | pr-description | commit-messages | documentation | spec`
+           - the files, paths, or materials in scope (for meta parts,
+             inline the PR body or commit messages directly so the
+             reviewer does not have to re-fetch them)
+           - a one-line summary of what to focus on
+           - a pointer back to the relevant section of the overview
+
+      4. For every part, append a task file under `tasks/` named
+         `NN-review-<slug>.md` with:
+           - `### Task review-<slug>: Review <part title>`
+           - `**State:** review`
+           - `**Prior:** Task {task_id}`
+           - a body that:
+             * restates the part scope and cites the overview section
+             * for code parts, lists the files in scope
+             * for meta parts, inlines the materials to review (PR
+               body, commit messages) or lists the specific doc / spec
+               files in scope
+             * calls out the specific questions the reviewer must answer
+               (the bullet list under each meta part above)
+
+      5. Append one aggregator task file under `tasks/`:
+           - `### Task aggregate: Aggregate and score review findings`
+           - `**State:** aggregate`
+           - `**Prior:**` listing every `review-<slug>` task you just
+             created (code + meta), so it only runs after every review
+             completes.
+
+      6. Transition to `completed`.
+    outputs:
+      - name: architecture-overview
+        path: runtime/manifests/{task_id}-architecture.md
+        description: Architectural overview of the change — the reviewer's mental map
+      - name: parts-manifest
+        path: runtime/manifests/{task_id}-parts.md
+        description: Stable list of change parts and their scopes
+
+  review:
+    description: Independent per-target review of one part of the change.
+    all_targets:
+{%- for t in review_targets %}
+      - {{ t }}
+{%- endfor %}
+    personality: |
+      You are {target}, a rigorous reviewer. Focus on correctness,
+      regressions, and risks specific to the assigned part. Skip pure style
+      nits unless they indicate a real defect. Produce findings that other
+      targets are unlikely to duplicate.
+    instructions: |
+      Review pass on Task {task_id}: {task_title}.
+
+      Read the part scope from the task body and consult the
+      architectural overview at `runtime/manifests/coordinate-architecture.md`
+      for context. Treat this workspace as a scratchpad: keep scratchpad
+      artifact paths such as `runtime/...` and `tasks/...` anchored to the
+      current workspace directory, even after you resolve the Git toplevel.
+      Use the Git toplevel only for repository files under review
+      (`docs/`, `crates/`, source files, ADRs, etc.). Inspect the materials
+      listed in the task body:
+        - for code parts, the corresponding files on the change under
+          review (`{{change_ref}}`)
+        - for meta parts (pr-description, commit-messages,
+          documentation, spec), the inlined text or the named
+          doc / spec files from the task body
+      {%- if review_focus %}
+
+      Organize your findings into these focus subsections — every
+      subsection must appear, even if empty (write `- none` in that case):
+      {%- for f in review_focus %}
+        - {{ f }}
+      {%- endfor %}
+      {%- else %}
+
+      Produce a general review covering correctness, regressions, and
+      risks. Skip pure style nits unless they indicate a real defect.
+      {%- endif %}
+
+      Write concise, distinct findings to `{output.part-findings.path}` in
+      this exact shape:
+
+        # Part Review: {task_title} — target {target}
+      {%- if review_focus %}
+      {%- for f in review_focus %}
+
+        ## {{ f }}
+
+        - R-<short-id>: <one-line finding>
+          - File: <path>
+          - Detail: <what is wrong or risky, and why>
+      {%- endfor %}
+      {%- else %}
+
+        - R-<short-id>: <one-line finding>
+          - File: <path>
+          - Detail: <what is wrong or risky, and why>
+      {%- endif %}
+
+      Keep findings specific. Transition to `completed` when your findings
+      file is written.
+    outputs:
+      - name: part-findings
+        path: runtime/findings/{task_id}-{target.slug}.md
+        description: One target's findings for one part of the change
+
+  aggregate:
+    description: Merge per-part / per-target findings into a scored issue list ready for human triage.
+    target: {{aggregator_target}}
+    personality: |
+      You are the aggregator. Deduplicate across reviewers, weigh severity
+      against evidence, and produce a list a human can triage without
+      re-reading every finding file.
+    instructions: |
+      Aggregate findings for Task {task_id}: {task_title}.
+
+      1. Read every file under `runtime/findings/` that was produced by the
+         review tasks listed in your `**Prior:**`.
+      2. Deduplicate findings that describe the same defect across targets.
+         Where two targets agree, raise confidence; where they disagree,
+         note the disagreement.
+      3. Write a scored issue list to `{output.issues.path}` in this exact
+         shape. The `[ ]` markers are for the human reviewer.
+
+         # Review Issues — {{change_ref}}
+
+         Human reviewer: replace `[ ]` with `[fix]` to schedule a fix or
+         `[skip]` to drop the issue. For every `[fix]`, fill in the
+         `Approach:` line with a short directive for the fix agent.
+
+         - [ ] I-001 (severity: high | medium | low) — <one-line summary>
+           - Files: <paths>
+           - Evidence: <which targets reported it; key reasoning>
+           - Approach:
+
+      4. Order issues by severity (high first), then by confidence.
+      5. Transition to `human-review` once the file is written.
+    outputs:
+      - name: issues
+        path: runtime/issues/{task_id}-issues.md
+        description: Scored issue list ready for human triage
+
+  human-review:
+    description: Human edits the scored issue list in place to select fixes and supply approaches.
+    gating: true
+    instructions: |
+      Stop all agent work on Task {task_id}: {task_title}.
+
+      A human reviewer opens `{input.issues.path}` and edits it directly:
+        - changes `[ ]` to `[fix]` for issues to fix, or `[skip]` to drop.
+        - fills in the `Approach:` line for every `[fix]` issue.
+
+      When the human is done, they transition this task to `fix-spawn`.
+      Do not transition autonomously. If the human decides nothing needs
+      fixing, they transition directly to `completed`.
+    inputs:
+      - name: issues
+        path: runtime/issues/{task_id}-issues.md
+
+  fix-spawn:
+    description: Read the human-edited issue list and append one fix task per [fix] entry.
+    instructions: |
+      Fan-out fixes for Task {task_id}: {task_title}.
+
+      Read `{input.issues.path}`. For every issue marked `[fix]`, append a
+      task file under `tasks/` named `NN-fix-<issue-id>.md`:
+
+        ### Task fix-<issue-id>: <issue summary>
+        **State:** {% if fix_prepare != "none" %}prepare-workspace{% else %}fix{% endif %}
+        **Prior:** Task {task_id}
+
+        - Files: <copied from the issue>
+        - Evidence: <copied from the issue>
+        - Approach: <copied from the human-supplied approach line>
+
+      Ignore `[skip]` entries and any issue whose marker was left as `[ ]`
+      (flag those back to the human in the task result). Transition to
+      `completed` when every `[fix]` entry has a corresponding task file.
+    inputs:
+      - name: issues
+        path: runtime/issues/{task_id}-issues.md
+
+{% if fix_prepare != "none" %}
+  prepare-workspace:
+    description: Set up an isolated workspace ({{fix_prepare}}) before applying the fix.
+    target: {{fix_target}}
+    instructions: |
+      Pre-fix workspace setup for Task {task_id}: {task_title}.
+
+      Treat the instantiated review workspace as a scratchpad. Resolve the
+      repository root with `git rev-parse --show-toplevel` and use that
+      repository root as the source checkout you are branching, cloning, or
+      worktree-ing from.
+
+      Create an isolated workspace using mode `{{fix_prepare}}`:
+      {%- if fix_prepare == "branch" %}
+        - Derive a branch name from the task id (e.g. `fix/{task_id}`).
+        - Create and switch to that branch from the base the review was
+          anchored on.
+      {%- elif fix_prepare == "worktree" %}
+        - Derive a worktree path under `runtime/worktrees/{task_id}/`.
+        - Create a git worktree there on a new branch `fix/{task_id}`.
+        - All subsequent fix work must happen inside that worktree.
+      {%- elif fix_prepare == "fork" %}
+        - Fork the upstream repository for the current user via `gh repo
+          fork` (or the project-standard equivalent).
+        - Clone the fork into `runtime/forks/{task_id}/` and create branch
+          `fix/{task_id}` from the review base.
+      {%- endif %}
+
+      Record the resulting location and branch to
+      `{output.workspace-ref.path}` in this shape:
+
+        mode: {{fix_prepare}}
+        path: <absolute path where subsequent work happens>
+        branch: <branch name>
+        base: <commit or branch the workspace was anchored on>
+
+      Transition to `fix` once the workspace is ready.
+    outputs:
+      - name: workspace-ref
+        path: runtime/workspaces/{task_id}.yaml
+        description: Location and branch of the isolated fix workspace
+{% endif %}
+
+  fix:
+    description: Implement one human-approved fix.
+    target: {{fix_target}}
+{%- if fix_prepare != "none" %}
+    inputs:
+      - name: workspace-ref
+        path: runtime/workspaces/{task_id}.yaml
+{%- endif %}
+    instructions: |
+      Apply the fix described in Task {task_id}: {task_title}.
+      {%- if fix_prepare != "none" %}
+
+      Read `{input.workspace-ref.path}` to find the workspace path and
+      branch prepared in the previous state, and do all work inside that
+      workspace.
+      {%- else %}
+
+      This review workspace is only a scratchpad. Resolve the repository
+      root with `git rev-parse --show-toplevel` and apply the fix in that
+      repository checkout rather than in the workspace directory.
+      {%- endif %}
+
+      Read the task body for the issue summary, file scope, and the
+      human-supplied approach. Implement the smallest change that
+      addresses the issue without expanding scope. Write a completion
+      note to `{output.fix-note.path}` recording:
+        - files touched
+        - one-line rationale
+        - any follow-ups the fix exposed (optional)
+
+      Transition to `{% if fix_commit != "none" %}commit-fix{% else %}completed{% endif %}` when the change is applied and the
+      note is written.
+    outputs:
+      - name: fix-note
+        path: runtime/fixes/{task_id}.md
+        description: Per-fix completion note
+
+{% if fix_commit != "none" %}
+  commit-fix:
+    description: Commit the applied fix ({{fix_commit}}) and record the reference.
+    target: {{fix_target}}
+    inputs:
+      - name: fix-note
+        path: runtime/fixes/{task_id}.md
+{%- if fix_prepare != "none" %}
+      - name: workspace-ref
+        path: runtime/workspaces/{task_id}.yaml
+{%- endif %}
+    instructions: |
+      Post-fix commit step for Task {task_id}: {task_title}.
+      {%- if fix_prepare != "none" %}
+
+      Operate inside the workspace recorded at
+      `{input.workspace-ref.path}`.
+      {%- else %}
+
+      This review workspace is only a scratchpad. Resolve the repository
+      root with `git rev-parse --show-toplevel` and run the commit step in
+      that repository checkout.
+      {%- endif %}
+
+      Commit mode: `{{fix_commit}}`.
+      {%- if fix_commit == "commit" %}
+        - Stage only the files listed in `{input.fix-note.path}`.
+        - Create one local commit with a message summarizing the fix
+          (reference the issue id from the task title).
+      {%- elif fix_commit == "push" %}
+        - Stage only the files listed in `{input.fix-note.path}`.
+        - Create one local commit with a message summarizing the fix.
+        - Push the branch to the default remote.
+      {%- elif fix_commit == "pr" %}
+        - Stage only the files listed in `{input.fix-note.path}`.
+        - Create one local commit with a message summarizing the fix.
+        - Push the branch and open a pull request via `gh pr create`
+          (or the project-standard equivalent). The PR title must name
+          the issue id; the PR body must copy the Approach line and
+          point at the parent review task. Apply the `rhei` label to the
+          created PR.
+      {%- endif %}
+
+      Record the commit SHA and, when applicable, the remote ref or PR
+      URL to `{output.commit-ref.path}` in this shape:
+
+        mode: {{fix_commit}}
+        commit: <sha>
+        remote_ref: <branch pushed, or empty>
+        pr_url: <URL, or empty>
+
+      Transition to `completed` once the commit step succeeds.
+    outputs:
+      - name: commit-ref
+        path: runtime/commits/{task_id}.yaml
+        description: Commit SHA and (when applicable) remote ref or PR URL
+{% endif %}
+
+  completed:
+    description: Task is done.
+    instructions: |
+      No further action required for Task {task_id}.
+    final: true
+
+  cancelled:
+    description: Task was cancelled before completion.
+    instructions: |
+      Stop all work on Task {task_id}. Leave existing artifacts in place.
+    final: true
+
+transitions:
+  - from: split
+    to: completed
+    description: Coordinator emitted the parts manifest and spawned review + aggregator tasks.
+
+  - from: review
+    to: completed
+    description: Every configured target wrote its findings for this part.
+
+  - from: aggregate
+    to: human-review
+    description: Scored issue list is written; hand over to human triage.
+
+  - from: human-review
+    to: fix-spawn
+    description: Human triaged the issues; spawn fix tasks for every [fix] entry.
+
+  - from: human-review
+    to: completed
+    description: Human closed the review with no fixes needed.
+
+  - from: fix-spawn
+    to: completed
+    description: Fix tasks were appended for every [fix] entry.
+
+{% if fix_prepare != "none" %}
+  - from: prepare-workspace
+    to: fix
+    description: Isolated workspace ({{fix_prepare}}) is ready; apply the fix.
+{% endif %}
+
+{% if fix_commit != "none" %}
+  - from: fix
+    to: commit-fix
+    description: Fix applied; commit it ({{fix_commit}}).
+
+  - from: commit-fix
+    to: completed
+    description: Commit recorded.
+{% else %}
+  - from: fix
+    to: completed
+    description: Fix implemented and recorded.
+{% endif %}
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the task from any non-final state.

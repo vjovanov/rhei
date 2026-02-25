@@ -1,0 +1,13 @@
+name: review-flow-with-spaces
+version: 1
+states:
+  pending:
+    description: Task not yet started
+  in-progress:
+    description: Task currently being worked on
+  completed:
+    description: Task finished successfully
+  "in review":
+    description: Waiting for a reviewer with a space-containing state name
+  "ready to ship":
+    description: Approved and queued for release

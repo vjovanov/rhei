@@ -1,0 +1,113 @@
+name: multi-model-analysis
+version: 1.0.0
+
+states:
+  analyze:
+    description: Run one independent analysis pass per configured agent target.
+    all_targets:
+{% for analysis_agent in agents %}
+      - {{ analysis_agent.selector }}
+{% endfor %}
+    personality: |
+      You are {agent} in mode {agent.mode} running target {target}.
+      Do not imitate the other targets. Produce your own reasoning,
+      assumptions, risks, and recommendation.
+    instructions: |
+      Analyze Task {task_id}: {task_title}.
+
+      Read the task body carefully and produce a self-contained analysis note at
+      `{output.analysis.path}`. The note should include:
+      - task interpretation
+      - assumptions and unknowns
+      - key observations
+      - risks or tradeoffs
+      - recommended next action
+
+      If your toolset does not expose a dedicated file-write tool, create the
+      output file using available shell or filesystem commands instead.
+    outputs:
+      - name: analysis
+        path: {{analysis_output_dir}}/{target.slug}.md
+        description: Analysis note for the current target-specific pass
+
+  summarize:
+    description: Claude synthesizes the independent target analyses into one final document.
+    target: {{summary_agent}}
+    personality: |
+      You are Claude acting as the final synthesizer. Read the analysis notes,
+      reconcile overlap and disagreement, and produce one clear final document
+      for the user.
+    instructions: |
+      Summarize Task {task_id}: {task_title}.
+
+      Read:
+{% for analysis_agent in agents %}
+      - `{input.{{ analysis_agent.id }}-analysis.path}`
+{% endfor %}
+
+      Write a final document to `{output.final-document.path}` that:
+      - synthesizes the shared conclusions
+      - calls out meaningful disagreements or uncertainty
+      - recommends the final answer or next step
+
+      If your toolset does not expose a dedicated file-write tool, create the
+      output file using available shell or filesystem commands instead.
+    inputs:
+{% for analysis_agent in agents %}
+      - name: {{ analysis_agent.id }}-analysis
+        path: {{analysis_output_dir}}/{{ analysis_agent.selector|slug }}.md
+        description: {{ analysis_agent.label }}
+{% endfor %}
+    outputs:
+      - name: final-document
+        path: {{final_document_path}}
+        description: Final synthesized document across all model analysis notes
+
+  completed:
+    description: The multi-model analysis workflow is finished.
+    instructions: |
+      No more action is required.
+    final: true
+
+  cancelled:
+    description: The workflow was cancelled.
+    instructions: |
+      Stop work and leave existing artifacts unchanged.
+    final: true
+
+transitions:
+  - from: analyze
+    to: summarize
+    description: All target-specific analysis notes were written.
+
+  - from: analyze
+    to: cancelled
+    description: Cancel the workflow during the analysis fanout.
+
+  - from: summarize
+    to: completed
+    description: Claude wrote the final synthesized document.
+
+  - from: summarize
+    to: cancelled
+    description: Cancel the workflow during synthesis.
+
+profiles:
+  workspace:
+    initial: completed
+    allowed:
+      - completed
+
+  analysis-task:
+    initial: analyze
+    allowed:
+      - analyze
+      - summarize
+      - completed
+      - cancelled
+
+node_policy:
+  root: workspace
+  default: analysis-task
+  by_type:
+    task: analysis-task

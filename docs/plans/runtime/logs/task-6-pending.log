@@ -1,0 +1,13 @@
+=== rhei program log v1 ===
+program: sleep 1
+task: 6
+state: pending
+timeout: 5s
+plan: /home/vjovanov/c/rhei/docs/plans/rhei-live-ticket-dashboard.rhei.md
+===
+
+
+=== exit ===
+code: 0
+duration: 1s
+===

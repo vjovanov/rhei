@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rhei-api"
+version = "0.1.0a1"
+description = "Python API helpers for Rhei markdown plans."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT OR Apache-2.0"
+authors = [
+  { name = "Rhei contributors" }
+]
+dependencies = [
+  "rhei-cli==0.1.0a1"
+]
+keywords = ["agents", "markdown", "planning", "workflow", "api"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Software Development"
+]
+
+[project.urls]
+Homepage = "https://github.com/vjovanov/rhei"
+Repository = "https://github.com/vjovanov/rhei"
+Issues = "https://github.com/vjovanov/rhei/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
