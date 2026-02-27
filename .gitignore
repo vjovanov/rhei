@@ -1,2 +1,9 @@
 # Agents
 scratchpad/
+
+# Rust build artifacts
+target/
+**/target/
+
+# OS files
+.DS_Store

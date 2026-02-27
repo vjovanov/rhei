@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/gnd-core",
+    "crates/gnd-cli",
+    "crates/gnd-napi",
+]
+
+resolver = "2"
