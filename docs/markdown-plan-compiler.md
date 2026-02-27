@@ -41,6 +41,7 @@ Only two metadata fields are supported:
 2. **State**: `**State:** <state>`
    - Current state of the task
    - Compiler validates state consistency against state machine definition
+   - This is a mandatory field.
 
 ## Example Plan Format
 
@@ -58,7 +59,6 @@ Implement a complete user authentication system with login, registration, and pa
 # Tasks:
 
 ## Task 1: Database Schema Design
-
 **State:** completed
 
 Design the database schema for user accounts and sessions.
@@ -70,7 +70,6 @@ Create the users table with fields for email, password hash, and metadata.
 Create the sessions table for tracking active user sessions.
 
 ## Task 2: Authentication API Endpoints
-
 **Predecessors:** Task 1
 **State:** in-progress
 
@@ -86,7 +85,6 @@ Implement POST /api/auth/register endpoint.
 Implement POST /api/auth/logout endpoint.
 
 ## Task 3: Frontend Integration
-
 **Predecessors:** Task 2
 **State:** pending
 
@@ -209,7 +207,6 @@ Detect and report circular dependencies using graph algorithms (topological sort
 Validate that task and subtask numbers follow the expected format (subtask numbers must include parent task number).
 
 ## Task 6: Output Generators
-
 **Predecessors:** Task 5
 **State:** pending
 
