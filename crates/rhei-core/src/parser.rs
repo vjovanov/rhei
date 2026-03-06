@@ -57,7 +57,6 @@ pub fn parse(input: &str) -> Result<Saga> {
     let mut tasks: Vec<Task> = Vec::new();
 
     // Builders
-    #[derive(Default)]
     struct TaskBuilder {
         id: TaskId,
         title: String,

@@ -6,8 +6,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 rhei-core = { path = "../rhei-core" }
+rhei-validator = { path = "../rhei-validator" }
+rhei-output = { path = "../rhei-output" }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+miette = { version = "7", default-features = false, features = ["fancy-no-backtrace", "derive"] }
+serde_json = "1"
 
 [[bin]]
 name = "rhei"
