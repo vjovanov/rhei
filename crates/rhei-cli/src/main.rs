@@ -1,8 +1,11 @@
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
-use miette::{miette, LabeledSpan, NamedSource, Report, Result as MietteResult, SourceSpan};
+use miette::{miette, NamedSource, Report, Result as MietteResult, SourceSpan};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
 
 const DEFAULT_STATE_MACHINE_PATH: &str = "docs/state-machine.yaml";
 
@@ -33,6 +36,9 @@ struct Cli {
 enum Commands {
     /// Validate a markdown plan against the configured state machine
     Validate {
+        /// Re-run validation when the plan or state machine changes
+        #[arg(long)]
+        watch: bool,
         /// Path to the markdown plan file
         input: PathBuf,
     },
@@ -79,7 +85,9 @@ fn run() -> MietteResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Validate { input } => validate_command(&input, &cli.state_machine),
+        Commands::Validate { watch, input } => {
+            validate_command(&input, &cli.state_machine, watch)
+        }
         Commands::Render {
             input,
             format,
@@ -111,7 +119,15 @@ fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Saga> {
     rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))
 }
 
-fn validate_command(input: &Path, state_machine: &Path) -> MietteResult<()> {
+fn validate_command(input: &Path, state_machine: &Path, watch: bool) -> MietteResult<()> {
+    if watch {
+        watch_validation_command(input, state_machine)
+    } else {
+        run_validation_once(input, state_machine)
+    }
+}
+
+fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
     let saga = parse_input_file(input)?;
     let report =
         rhei_validator::validate_from_machine_file(&saga, state_machine).map_err(|err| {
@@ -122,20 +138,149 @@ fn validate_command(input: &Path, state_machine: &Path) -> MietteResult<()> {
             )
         })?;
 
-    if report.has_errors() {
-        for warning in &report.warnings {
-            eprintln!("warning: {warning}");
-        }
+    print_validation_report(&report.warnings);
 
+    if report.has_errors() {
         return Err(validation_report(input, state_machine, &report.errors));
     }
 
+    Ok(())
+}
+
+fn print_validation_report(warnings: &[String]) {
     println!("Validation succeeded");
-    for warning in &report.warnings {
+    for warning in warnings {
         println!("warning: {warning}");
     }
+}
 
-    Ok(())
+fn watch_validation_command(input: &Path, state_machine: &Path) -> MietteResult<()> {
+    let watched_paths = canonical_watched_paths(input, state_machine);
+    let watch_roots = watch_roots(input, state_machine);
+
+    println!(
+        "Watch mode started for '{}' and '{}'",
+        input.display(),
+        state_machine.display()
+    );
+
+    run_validation_iteration(input, state_machine);
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher: RecommendedWatcher = RecommendedWatcher::new(
+        move |res| {
+            let _ = tx.send(res);
+        },
+        Config::default(),
+    )
+    .map_err(|err| miette!("failed to initialize file watcher: {err}"))?;
+
+    for root in &watch_roots {
+        watcher
+            .watch(root, RecursiveMode::NonRecursive)
+            .map_err(|err| miette!("failed to watch '{}': {err}", root.display()))?;
+    }
+
+    loop {
+        let event = match rx.recv() {
+            Ok(Ok(event)) => event,
+            Ok(Err(err)) => {
+                eprintln!("watch error: {err}");
+                continue;
+            }
+            Err(err) => return Err(miette!("watch channel disconnected: {err}")),
+        };
+
+        if !should_revalidate(&event, &watched_paths) {
+            continue;
+        }
+
+        while debounce_has_relevant_event(&rx, &watched_paths) {}
+
+        println!("--- change detected, revalidating ---");
+        run_validation_iteration(input, state_machine);
+    }
+}
+
+fn run_validation_iteration(input: &Path, state_machine: &Path) {
+    if let Err(err) = run_validation_once(input, state_machine) {
+        eprintln!("{err:?}");
+    }
+}
+
+fn debounce_has_relevant_event(
+    rx: &mpsc::Receiver<notify::Result<Event>>,
+    watched_paths: &[PathBuf],
+) -> bool {
+    match rx.recv_timeout(Duration::from_millis(250)) {
+        Ok(Ok(event)) => should_revalidate(&event, watched_paths),
+        Ok(Err(err)) => {
+            eprintln!("watch error: {err}");
+            false
+        }
+        Err(RecvTimeoutError::Timeout) => false,
+        Err(RecvTimeoutError::Disconnected) => false,
+    }
+}
+
+fn should_revalidate(event: &Event, watched_paths: &[PathBuf]) -> bool {
+    if !is_relevant_event_kind(&event.kind) {
+        return false;
+    }
+
+    event.paths.iter().any(|path| path_matches(path, watched_paths))
+}
+
+fn is_relevant_event_kind(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_)
+            | EventKind::Modify(_)
+            | EventKind::Remove(_)
+            | EventKind::Any
+    )
+}
+
+fn path_matches(path: &Path, watched_paths: &[PathBuf]) -> bool {
+    watched_paths.iter().any(|watched| paths_equivalent(path, watched))
+}
+
+fn paths_equivalent(candidate: &Path, watched: &Path) -> bool {
+    if let Some(normalized_candidate) = normalize_path(candidate) {
+        return normalized_candidate == watched;
+    }
+
+    let candidate_file_name = candidate.file_name();
+    let watched_file_name = watched.file_name();
+
+    candidate_file_name.is_some()
+        && candidate_file_name == watched_file_name
+        && candidate.components().last() == watched.components().last()
+}
+
+fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<PathBuf> {
+    [input, state_machine]
+        .into_iter()
+        .map(|path| normalize_path(path).unwrap_or_else(|| path.to_path_buf()))
+        .collect()
+}
+
+fn watch_roots(input: &Path, state_machine: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    for path in [input, state_machine] {
+        let root = path.parent().unwrap_or_else(|| Path::new("."));
+        let normalized = normalize_path(root).unwrap_or_else(|| root.to_path_buf());
+        if !roots.iter().any(|existing| existing == &normalized) {
+            roots.push(normalized);
+        }
+    }
+
+    roots
+}
+
+fn normalize_path(path: &Path) -> Option<PathBuf> {
+    path.canonicalize().ok()
 }
 
 fn render_command(
@@ -194,13 +339,13 @@ fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -
     let message = format!("failed to parse '{}': {}", path.display(), err.message);
 
     if let Some(line_number) = err.line {
-        let span = line_span(input, line_number);
+        let has_span = line_span(input, line_number).is_some();
         let line_text = line_text(input, line_number);
         let diagnostic = miette!(
             "{message}\nhelp: parser reported line {line_number}: {}",
             line_text.unwrap_or("<line unavailable>")
         );
-        if let Some(span) = span {
+        if has_span {
             return diagnostic.with_source_code(NamedSource::new(
                 path.display().to_string(),
                 input.to_string(),
@@ -266,7 +411,28 @@ mod tests {
 
         assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATE_MACHINE_PATH));
         match cli.command {
-            Commands::Validate { input } => {
+            Commands::Validate { watch, input } => {
+                assert!(!watch);
+                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+            }
+            other => panic!("expected validate command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_validate_watch_command_with_input() {
+        let cli = Cli::try_parse_from([
+            "rhei",
+            "validate",
+            "--watch",
+            "docs/markdown-plan-compiler.md",
+        ])
+        .expect("cli should parse");
+
+        assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATE_MACHINE_PATH));
+        match cli.command {
+            Commands::Validate { watch, input } => {
+                assert!(watch);
                 assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
             }
             other => panic!("expected validate command, got {other:?}"),
@@ -412,6 +578,57 @@ mod tests {
         assert!(rendered.contains("- Task 1 is missing mandatory **State:** metadata"));
         assert!(rendered.contains("- Task 2 depends on missing Task 9"));
         assert_eq!(rendered.lines().count(), 2);
+    }
+
+    #[test]
+    fn path_matches_normalizes_paths() {
+        let watched = canonical_watched_paths(
+            Path::new("docs/markdown-plan-compiler.md"),
+            Path::new("docs/state-machine.yaml"),
+        );
+
+        assert!(path_matches(
+            Path::new("./docs/markdown-plan-compiler.md"),
+            &watched
+        ));
+        assert!(path_matches(Path::new("docs/state-machine.yaml"), &watched));
+        assert!(!path_matches(Path::new("docs/plan-language-spec.md"), &watched));
+    }
+
+    #[test]
+    fn paths_equivalent_falls_back_for_nonexistent_relative_paths() {
+        assert!(paths_equivalent(
+            Path::new("./docs/markdown-plan-compiler.md"),
+            Path::new("/tmp/project/docs/markdown-plan-compiler.md"),
+        ));
+        assert!(!paths_equivalent(
+            Path::new("./docs/plan-language-spec.md"),
+            Path::new("/tmp/project/docs/markdown-plan-compiler.md"),
+        ));
+    }
+
+    #[test]
+    fn should_revalidate_filters_irrelevant_events() {
+        let watched = canonical_watched_paths(
+            Path::new("docs/markdown-plan-compiler.md"),
+            Path::new("docs/state-machine.yaml"),
+        );
+
+        let event = Event {
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![PathBuf::from("./docs/markdown-plan-compiler.md")],
+            attrs: Default::default(),
+        };
+        assert!(should_revalidate(&event, &watched));
+
+        let event = Event {
+            kind: EventKind::Access(notify::event::AccessKind::Read),
+            paths: vec![PathBuf::from("./docs/markdown-plan-compiler.md")],
+            attrs: Default::default(),
+        };
+        assert!(!should_revalidate(&event, &watched));
     }
 
     #[test]
