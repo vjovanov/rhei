@@ -5,48 +5,17 @@ name: task-state-machine
 version: 1.0
 
 states:
+  draft:
+    description: Task not yet started
+
   pending:
     description: Task not yet started
-    initial: true
-    transitions:
-      - to: in-progress
-      - to: blocked
-      - to: cancelled
 
   in-progress:
     description: Task currently being worked on
-    transitions:
-      - to: completed
-      - to: blocked
-      - to: pending
-      - to: cancelled
-
-  blocked:
-    description: Task blocked by dependencies or issues
-    transitions:
-      - to: pending
-      - to: in-progress
-      - to: cancelled
 
   completed:
     description: Task finished successfully
-    final: true
-    transitions:
-      - to: in-progress  # Allow reopening if issues found
 
   cancelled:
     description: Task no longer needed
-    final: true
-    transitions: []  # No transitions out of cancelled
-
-# Validation rules
-rules:
-  # A task cannot be in-progress if its dependencies are not completed
-  dependency_completion:
-    when: in-progress
-    requires: all_dependencies_completed_or_cancelled
-
-  # A task cannot be completed if it has incomplete subtasks
-  subtask_completion:
-    when: completed
-    when: completed
