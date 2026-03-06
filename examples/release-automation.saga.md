@@ -24,7 +24,7 @@ rollback:
   enabled: true
 ```
 
-### Task 2: Bootstrap environments
+### Tsk 2: Bootstrap environments
 **State:** in-progress
 **Prior:** Task 1
 

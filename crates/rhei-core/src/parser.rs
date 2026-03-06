@@ -60,6 +60,7 @@ pub fn parse(input: &str) -> Result<Saga> {
     let mut in_code_block = false;
     let mut in_tasks_section = false;
     let mut tasks_section_line: Option<usize> = None;
+    let mut pre_tasks_h2_seen = false;
 
     let mut saga_title: Option<String> = None;
     let mut saga_header_seen = false;
@@ -142,10 +143,9 @@ pub fn parse(input: &str) -> Result<Saga> {
             }
 
             if re_h2_heading.is_match(line) {
-                return Err(ParseError::new(
-                    "Malformed tasks section heading: expected '## Tasks'",
-                    Some(line_number),
-                ));
+                pre_tasks_h2_seen = true;
+                saga_content.push(ContentBlock::Text(raw.to_string()));
+                continue;
             }
 
             if !saga_header_seen && re_saga_like_heading.is_match(line) {
@@ -380,6 +380,13 @@ pub fn parse(input: &str) -> Result<Saga> {
             ));
         }
 
+        if re_h2_heading.is_match(line) {
+            return Err(ParseError::new(
+                "Tasks section must be the final '##' chapter and appear as '## Tasks'",
+                Some(line_number),
+            ));
+        }
+
         // Fallback: content lines
         if let Some(st) = cur_subtask.as_mut() {
             st.content.push_str(raw);
@@ -425,7 +432,14 @@ pub fn parse(input: &str) -> Result<Saga> {
     };
 
     if !in_tasks_section {
-        return Err(ParseError::new("Missing '## Tasks' section", None));
+        return Err(ParseError::new(
+            if pre_tasks_h2_seen {
+                "Tasks section must be the final '##' chapter and appear as '## Tasks'"
+            } else {
+                "Missing '## Tasks' section"
+            },
+            None,
+        ));
     }
 
     if tasks.is_empty() {
@@ -550,15 +564,59 @@ code block
     }
 
     #[test]
-    fn errors_on_malformed_tasks_section_heading() {
-        let input = "# Saga: Example\n## Taskz\n";
+    fn allows_arbitrary_h2_chapters_before_tasks_section() {
+        let input = r#"# Saga: Example
+
+## Overview
+High-level context.
+
+## Requirements
+- Preserve audit logs
+- Support approvals
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+        let saga = parse(input).expect("parse ok");
+
+        assert_eq!(saga.title, "Example");
+        assert_eq!(saga.tasks.len(), 1);
+        assert_eq!(
+            saga.content,
+            vec![
+                ContentBlock::Text("## Overview".to_string()),
+                ContentBlock::Text("High-level context.".to_string()),
+                ContentBlock::Text("## Requirements".to_string()),
+                ContentBlock::Text("- Preserve audit logs".to_string()),
+                ContentBlock::Text("- Support approvals".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn errors_when_tasks_section_is_not_final_h2_chapter() {
+        let input = r#"# Saga: Example
+
+## Overview
+Context before tasks.
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+## Appendix
+Trailing chapter after tasks.
+"#;
         let err = parse(input).unwrap_err();
 
         assert_eq!(
             err.message,
-            "Malformed tasks section heading: expected '## Tasks'"
+            "Tasks section must be the final '##' chapter and appear as '## Tasks'"
         );
-        assert_eq!(err.line, Some(2));
+        assert_eq!(err.line, Some(11));
     }
 
     #[test]

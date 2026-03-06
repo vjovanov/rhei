@@ -147,8 +147,8 @@ fn assert_parse_failure(
         result.stderr
     );
     assert!(
-        normalized_stderr.contains("failed to parse"),
-        "expected parse wrapper in stderr, got:\n{}",
+        normalized_stderr.contains("PARSE ERROR"),
+        "expected Elm-style parse header in stderr, got:\n{}",
         result.stderr
     );
     assert_contains_in_order(
@@ -177,7 +177,7 @@ fn assert_parse_failure(
     }
 
     assert!(
-        !normalized_stderr.contains("validation failed"),
+        !normalized_stderr.contains("VALIDATION ERROR"),
         "parse failures should not fall through to validation output, got:\n{}",
         result.stderr
     );
@@ -206,12 +206,12 @@ fn assert_validation_failure(
         result.stderr
     );
     assert!(
-        normalized_stderr.contains("validation failed"),
-        "expected validation wrapper, got:\n{}",
+        normalized_stderr.contains("VALIDATION ERROR"),
+        "expected Elm-style validation header, got:\n{}",
         result.stderr
     );
     assert!(
-        !normalized_stderr.contains("failed to parse"),
+        !normalized_stderr.contains("PARSE ERROR"),
         "semantic failures should not be labeled as parse failures, got:\n{}",
         result.stderr
     );
@@ -366,7 +366,7 @@ fn cli_validate_surfaces_validation_errors_for_fixture() {
         stdout,
         stderr
     );
-    assert!(stderr.contains("validation failed"));
+    assert!(stderr.contains("VALIDATION ERROR"));
     assert!(stderr.contains("Task 1 metadata order invalid"));
     assert!(stderr.contains("Circular dependency detected"));
 
@@ -407,7 +407,7 @@ fn cli_validate_reports_malformed_saga_header_parse_failure() {
         &["Malformed saga heading", "expected", "Saga:", "title"],
         Some("line 1"),
         Some("#Saga: Missing required space"),
-        &["validation failed", "missing mandatory **State:**"],
+        &["VALIDATION ERROR", "missing mandatory **State:**"],
     );
 }
 
@@ -547,7 +547,7 @@ fn cli_validate_reports_metadata_outside_task_as_parse_failure() {
         &["Metadata field", "appears outside a task"],
         Some("line 3"),
         Some("**State:** pending"),
-        &["missing mandatory **State:**", "validation failed"],
+        &["missing mandatory **State:**", "VALIDATION ERROR"],
     );
 }
 
@@ -669,7 +669,7 @@ fn cli_validate_surfaces_named_task_warning_on_success() {
         result.stdout
     );
     assert!(
-        !result.stderr.contains("failed to parse") && !result.stderr.contains("validation failed"),
+        !result.stderr.contains("PARSE ERROR") && !result.stderr.contains("VALIDATION ERROR"),
         "successful warning case should not emit failure diagnostics, got:\n{}",
         result.stderr
     );

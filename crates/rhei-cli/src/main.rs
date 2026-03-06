@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
-use miette::{miette, NamedSource, Report, Result as MietteResult, SourceSpan};
+use miette::{miette, Report, Result as MietteResult};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -354,30 +354,9 @@ fn print_versions() {
     println!("rhei-output {}", rhei_output::version());
 }
 
-/// Convert a parser error into a [`miette::Report`] with source context when possible.
+/// Convert a parser error into an Elm-style diagnostic report.
 fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -> Report {
-    let message = format!("failed to parse '{}': {}", path.display(), err.message);
-
-    if let Some(line_number) = err.line {
-        let has_span = line_span(input, line_number).is_some();
-        let line_text = line_text(input, line_number);
-        let diagnostic = miette!(
-            "{message}\nhelp: parser reported line {line_number}: {}",
-            line_text.unwrap_or("<line unavailable>")
-        );
-        if has_span {
-            return diagnostic.with_source_code(NamedSource::new(
-                path.display().to_string(),
-                input.to_string(),
-            ));
-        }
-        return diagnostic;
-    }
-
-    miette!(message).with_source_code(NamedSource::new(
-        path.display().to_string(),
-        input.to_string(),
-    ))
+    miette!("{}", render_parse_diagnostic(path, input, err))
 }
 
 /// Convert file I/O failures into a consistent diagnostic message.
@@ -387,39 +366,80 @@ fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Rep
 
 /// Convert validation errors into a single CLI-facing diagnostic report.
 fn validation_report(input: &Path, state_machine: &Path, errors: &[String]) -> Report {
-    let details = format_validation_errors(errors);
-    miette!(
-        "validation failed for '{}' using states '{}'\n{}",
-        input.display(),
-        state_machine.display(),
-        details
-    )
+    miette!("{}", render_validation_diagnostic(input, state_machine, errors))
+}
+
+fn render_parse_diagnostic(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -> String {
+    let mut lines = vec![format!(
+        "-- PARSE ERROR ------------------------------------------------------------- {}",
+        path.display()
+    )];
+    lines.push(String::new());
+    lines.push("I got stuck while reading this markdown plan.".to_string());
+
+    if let Some(line_number) = err.line {
+        lines.push(String::new());
+        lines.push(format!("I was partway through line {line_number} when the problem showed up."));
+
+        if let Some(source_line) = line_text(input, line_number) {
+            lines.push(String::new());
+            lines.push(format!("{line_number}| {source_line}"));
+            lines.push(format!(
+                "{}{}",
+                " ".repeat(line_number.to_string().len() + 2),
+                "^"
+            ));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push(err.message.replace(" before task content", "\nbefore task content"));
+    lines.push(String::new());
+    lines.push(
+        "Hint: check the markdown structure around the highlighted line and try again."
+            .to_string(),
+    );
+
+    lines.join("\n")
+}
+
+fn render_validation_diagnostic(input: &Path, state_machine: &Path, errors: &[String]) -> String {
+    let mut lines = vec![format!(
+        "-- VALIDATION ERROR -------------------------------------------------------- {}",
+        input.display()
+    )];
+    lines.push(String::new());
+    lines.push(format!(
+        "I validated this plan using states from '{}', but found a problem.",
+        state_machine.display()
+    ));
+    lines.push(String::new());
+    lines.push(format_validation_errors(errors));
+    lines.push(String::new());
+    lines.push(
+        "I recommend fixing the problems above and running the command again.".to_string(),
+    );
+
+    lines.join("\n")
 }
 
 fn format_validation_errors(errors: &[String]) -> String {
-    errors
-        .iter()
-        .map(|error| format!("  - {error}"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    if errors.len() == 1 {
+        format!("The problem is:\n\n    {}", errors[0])
+    } else {
+        let mut lines = vec![format!("I found {} problems:", errors.len()), String::new()];
+        lines.extend(
+            errors
+                .iter()
+                .enumerate()
+                .map(|(index, error)| format!("{}. {}", index + 1, error)),
+        );
+        lines.join("\n")
+    }
 }
 
 fn line_text(input: &str, line_number: usize) -> Option<&str> {
     input.lines().nth(line_number.saturating_sub(1))
-}
-
-fn line_span(input: &str, line_number: usize) -> Option<SourceSpan> {
-    let mut offset = 0usize;
-
-    for (idx, line) in input.lines().enumerate() {
-        if idx + 1 == line_number {
-            return Some((offset, line.len().max(1)).into());
-        }
-
-        offset += line.len() + 1;
-    }
-
-    None
 }
 
 #[cfg(test)]
@@ -582,12 +602,12 @@ mod tests {
             line: Some(2),
         };
 
-        let report = parse_report(Path::new("broken.md"), input, &err);
-        let rendered = format!("{report:?}");
+        let rendered = render_parse_diagnostic(Path::new("broken.md"), input, &err);
 
-        assert!(rendered.contains("failed to parse 'broken.md': unexpected token"));
-        assert!(rendered.contains("line 2"));
-        assert!(rendered.contains("bad line"));
+        assert!(rendered.contains("-- PARSE ERROR"));
+        assert!(rendered.contains("broken.md"));
+        assert!(rendered.contains("2| bad line"));
+        assert!(rendered.contains("unexpected token"));
     }
 
     #[test]
@@ -597,9 +617,9 @@ mod tests {
             "Task 2 depends on missing Task 9".to_string(),
         ]);
 
-        assert!(rendered.contains("- Task 1 is missing mandatory **State:** metadata"));
-        assert!(rendered.contains("- Task 2 depends on missing Task 9"));
-        assert_eq!(rendered.lines().count(), 2);
+        assert!(rendered.contains("I found 2 problems:"));
+        assert!(rendered.contains("1. Task 1 is missing mandatory **State:** metadata"));
+        assert!(rendered.contains("2. Task 2 depends on missing Task 9"));
     }
 
     #[test]
