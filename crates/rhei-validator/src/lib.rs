@@ -1,26 +1,35 @@
-//! Rhei Validator
+//! Semantic validation for parsed Rhei markdown plans.
 //!
-//! Task 4: State Machine Loader
-//! - Provide a serde-backed loader for YAML state-machine definitions
+//! This crate provides two main pieces:
+//! - [`StateMachine`], loaded from YAML, which defines allowed task states
+//! - validation helpers such as [`validate_with_machine`] and
+//!   [`validate_from_machine_file`] that check a parsed
+//!   [`rhei_core::ast::Saga`](rhei_core::ast::Saga)
 //!
-//! Task 5: Semantic Validator
-//! - Validate dependency integrity, state consistency, circular dependencies,
-//!   and subtask numbering for a parsed Saga AST.
+//! The current validator enforces the behaviors implemented in this repository:
+//! dependency existence, required `**State:**` metadata, state validity,
+//! `**State:**` before `**Prior:**`, circular dependency detection, and
+//! subtask parent-number consistency for numeric task identifiers.
 
 use rhei_core::ast::{Saga, Task, TaskId};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
-/// Returns this crate's version.
+/// Returns the crate version reported by Cargo metadata.
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// A simple validation report with errors and warnings.
+/// Result of validating a parsed plan.
+///
+/// Errors indicate invalid input. Warnings indicate accepted input with
+/// noteworthy conditions, such as subtasks under named task identifiers.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ValidationReport {
+    /// Validation failures that should cause command execution to fail.
     pub errors: Vec<String>,
+    /// Non-fatal validation observations.
     pub warnings: Vec<String>,
 }
 
@@ -45,12 +54,13 @@ impl ValidationReport {
     }
 }
 
-/// Trait for validating a value into a ValidationReport.
+/// Trait for validating a value into a [`ValidationReport`].
 ///
-/// Implementations can be provided for AST nodes that do not require
-/// external context. For validations requiring a StateMachine, use
-/// Validator or validate_with_machine().
+/// Implementations can be provided for values that do not require external
+/// context. For markdown plan validation against allowed states, prefer
+/// [`Validator`] or [`validate_with_machine`].
 pub trait Validate {
+    /// Validate `self` and collect any errors or warnings.
     fn validate(&self) -> ValidationReport;
 }
 
@@ -65,7 +75,7 @@ impl Validate for () {
 // State Machine Loader (Task 4)
 // ===============================
 
-/// Error type for loading a StateMachine.
+/// Error returned when loading a [`StateMachine`] from YAML text or a file.
 #[derive(Debug)]
 pub enum StateMachineLoadError {
     Io(std::io::Error),
@@ -95,20 +105,24 @@ impl From<serde_yaml::Error> for StateMachineLoadError {
     }
 }
 
-/// In-YAML state definition entry.
+/// One entry from the `states` map in a YAML state machine file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateDef {
-    /// Optional descriptive text; schema is intentionally permissive.
+    /// Optional descriptive text; the current schema intentionally keeps this permissive.
     pub description: Option<String>,
 }
 
 /// State-machine data loaded from YAML.
 ///
-/// Note: version is typed as serde_yaml::Value to accept numeric or string.
+/// `version` is stored as [`serde_yaml::Value`] so the repository can accept
+/// either numeric or string YAML values without imposing a stricter schema.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateMachine {
+    /// Human-readable machine name.
     pub name: String,
+    /// YAML version field as provided by the source file.
     pub version: serde_yaml::Value,
+    /// Allowed states keyed by their exact textual names.
     pub states: HashMap<String, StateDef>,
 }
 
@@ -140,17 +154,18 @@ impl StateMachine {
 // Semantic Validator (Task 5)
 // ========================================
 
-/// Validates a Saga against a provided StateMachine.
+/// Validator configured with a loaded [`StateMachine`].
 pub struct Validator {
     machine: StateMachine,
 }
 
 impl Validator {
+    /// Create a validator that will use `machine` for allowed-state checks.
     pub fn new(machine: StateMachine) -> Self {
         Self { machine }
     }
 
-    /// Validate all required semantics for Task 5.
+    /// Validate a parsed saga using the currently configured state machine.
     pub fn validate(&self, saga: &Saga) -> ValidationReport {
         let mut report = ValidationReport::ok();
 
@@ -165,12 +180,12 @@ impl Validator {
     }
 }
 
-/// Convenience: validate a Saga using an already-loaded StateMachine.
+/// Validate a parsed saga using an already-loaded [`StateMachine`].
 pub fn validate_with_machine(saga: &Saga, machine: &StateMachine) -> ValidationReport {
     Validator::new(machine.clone()).validate(saga)
 }
 
-/// Convenience: load StateMachine from YAML file and validate Saga.
+/// Load a [`StateMachine`] from `machine_path` and validate a parsed saga.
 pub fn validate_from_machine_file<P: AsRef<Path>>(
     saga: &Saga,
     machine_path: P,

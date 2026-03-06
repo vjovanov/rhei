@@ -7,8 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
+/// Default state-machine file used by validation commands when `--state-machine`
+/// is not provided.
 const DEFAULT_STATE_MACHINE_PATH: &str = "docs/state-machine.yaml";
 
+/// Command-line interface for the markdown plan compiler.
 #[derive(Parser, Debug)]
 #[command(
     name = "rhei",
@@ -32,6 +35,7 @@ struct Cli {
     command: Commands,
 }
 
+/// Supported CLI subcommands.
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Validate a markdown plan against the configured state machine
@@ -66,6 +70,7 @@ enum Commands {
     Version,
 }
 
+/// Output formats supported by the [`Render`](Commands::Render) subcommand.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum RenderFormat {
     Json,
@@ -74,6 +79,9 @@ enum RenderFormat {
 }
 
 
+/// Program entry point.
+///
+/// Delegates to [`run()`](run) so tests can exercise the fallible logic directly.
 fn main() {
     if let Err(err) = run() {
         eprintln!("{err:?}");
@@ -81,6 +89,7 @@ fn main() {
     }
 }
 
+/// Parse CLI arguments and execute the requested command.
 fn run() -> MietteResult<()> {
     let cli = Cli::parse();
 
@@ -110,15 +119,18 @@ fn run() -> MietteResult<()> {
     }
 }
 
+/// Read the markdown plan source file from disk.
 fn read_input_file(path: &Path) -> MietteResult<String> {
     fs::read_to_string(path).map_err(|err| file_io_report(path, "failed to read input file", err))
 }
 
+/// Read and parse a markdown plan file into a [`rhei_core::ast::Saga`](rhei_core::ast::Saga).
 fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Saga> {
     let input = read_input_file(path)?;
     rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))
 }
 
+/// Execute the `validate` subcommand once or in watch mode.
 fn validate_command(input: &Path, state_machine: &Path, watch: bool) -> MietteResult<()> {
     if watch {
         watch_validation_command(input, state_machine)
@@ -127,6 +139,7 @@ fn validate_command(input: &Path, state_machine: &Path, watch: bool) -> MietteRe
     }
 }
 
+/// Parse a plan, load the selected state machine, and print validation results.
 fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
     let saga = parse_input_file(input)?;
     let report =
@@ -147,6 +160,7 @@ fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
     Ok(())
 }
 
+/// Print success output and any non-fatal validation warnings.
 fn print_validation_report(warnings: &[String]) {
     println!("Validation succeeded");
     for warning in warnings {
@@ -154,6 +168,7 @@ fn print_validation_report(warnings: &[String]) {
     }
 }
 
+/// Watch the plan and state-machine files and re-run validation on relevant changes.
 fn watch_validation_command(input: &Path, state_machine: &Path) -> MietteResult<()> {
     let watched_paths = canonical_watched_paths(input, state_machine);
     let watch_roots = watch_roots(input, state_machine);
@@ -202,6 +217,7 @@ fn watch_validation_command(input: &Path, state_machine: &Path) -> MietteResult<
     }
 }
 
+/// Run one validation iteration in watch mode, writing any failure to stderr.
 fn run_validation_iteration(input: &Path, state_machine: &Path) {
     if let Err(err) = run_validation_once(input, state_machine) {
         eprintln!("{err:?}");
@@ -283,6 +299,7 @@ fn normalize_path(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
 
+/// Execute the `render` subcommand for the selected output format.
 fn render_command(
     input: &Path,
     format: RenderFormat,
@@ -298,6 +315,7 @@ fn render_command(
     Ok(())
 }
 
+/// Render a parsed saga into the requested output representation.
 fn render_saga(
     saga: &rhei_core::ast::Saga,
     format: RenderFormat,
@@ -328,6 +346,7 @@ fn render_saga(
     }
 }
 
+/// Print versions for the CLI and the crates surfaced by this command.
 fn print_versions() {
     println!("rhei-cli {}", env!("CARGO_PKG_VERSION"));
     println!("rhei-core {}", rhei_core::version());
@@ -335,6 +354,7 @@ fn print_versions() {
     println!("rhei-output {}", rhei_output::version());
 }
 
+/// Convert a parser error into a [`miette::Report`] with source context when possible.
 fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -> Report {
     let message = format!("failed to parse '{}': {}", path.display(), err.message);
 
@@ -360,10 +380,12 @@ fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -
     ))
 }
 
+/// Convert file I/O failures into a consistent diagnostic message.
 fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Report {
     miette!("{action} '{}': {err}", path.display())
 }
 
+/// Convert validation errors into a single CLI-facing diagnostic report.
 fn validation_report(input: &Path, state_machine: &Path, errors: &[String]) -> Report {
     let details = format_validation_errors(errors);
     miette!(
