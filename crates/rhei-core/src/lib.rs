@@ -1,3 +1,12 @@
+pub mod tokens;
+pub mod lexer;
+pub mod ast;
+pub mod parser;
+
+pub use tokens::Token;
+pub use lexer::{Tokenizer, tokenize};
+pub use parser::parse;
+
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }

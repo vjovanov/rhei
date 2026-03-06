@@ -127,10 +127,10 @@ Create a new Rust project using Cargo with appropriate workspace structure for m
 
 #### Subtask 1.2: Define Project Structure
 Create the initial project structure with crates for:
-- `plan-compiler-core`: Lexer, parser, AST definitions
-- `plan-compiler-validator`: Semantic validation
-- `plan-compiler-cli`: Command-line interface
-- `plan-compiler-output`: Output generators
+- `rhei-core`: Lexer, parser, AST definitions
+- `rhei-validator`: Semantic validation
+- `rhei-cli`: Command-line interface
+- `rhei-output`: Output generators
 
 #### Subtask 1.3: Set Up Development Tooling
 Configure Cargo workspace, add development dependencies (testing frameworks, linting), and set up CI configuration.
@@ -177,7 +177,7 @@ Build the parser using recursive descent approach with Rust's Result type for er
 Implement error recovery using Rust's error handling patterns, providing span information for helpful error messages.
 
 ### Task 4: State Machine Loader
-**State:** pending
+**State:** completed
 **Prior:** Task 1
 
 Implement the state machine definition loader in Rust.
@@ -192,7 +192,7 @@ Build the deserializer for state machine definition files using serde derive mac
 Implement logic using Rust traits to validate state transitions according to the state machine definition.
 
 ### Task 5: Semantic Validator
-**State:** pending
+**State:** completed
 **Prior:** Task 3, Task 4
 
 Implement semantic validation on the parsed AST using Rust's type system.

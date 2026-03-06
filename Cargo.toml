@@ -3,6 +3,11 @@ members = [
     "crates/rhei-core",
     "crates/rhei-cli",
     "crates/rhei-napi",
+    "crates/rhei-validator",
+    "crates/rhei-output",
 ]
 
 resolver = "2"
+
+[workspace.dependencies]
+pretty_assertions = "1"

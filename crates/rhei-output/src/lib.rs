@@ -1,0 +1,509 @@
+//! Rhei Output
+//!
+//! Scaffold crate for output generators. Concrete implementations
+//! (e.g., JSON, GitHub, progress reports) will be added later.
+
+/// Returns this crate's version.
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Trait for output generators.
+///
+/// Implementations will convert internal representations into
+/// concrete output formats. This is a placeholder API to
+/// support compilation and downstream wiring.
+pub trait OutputGenerator {
+    /// Generate output from a string input placeholder.
+    ///
+    /// This will be replaced with typed inputs once AST and validation exist.
+    fn generate(&self, input: &str) -> String;
+}
+
+/// A no-op output generator that returns the input unchanged.
+#[derive(Debug, Default, Clone)]
+pub struct NoopOutput;
+
+impl OutputGenerator for NoopOutput {
+    fn generate(&self, input: &str) -> String {
+        input.to_string()
+    }
+}
+
+// -----------------------------------------------------------------------------
+// JSON Plan Output API
+// -----------------------------------------------------------------------------
+
+use serde_json::{json, Map, Value};
+
+use rhei_core::ast::{ContentBlock, Saga, Subtask, Task, TaskId};
+
+/// Plan output generator trait for structured outputs.
+///
+/// Implementations return a serde_json::Value tree without requiring
+/// Serialize on the core AST types.
+pub trait PlanOutputGenerator {
+    fn generate_saga(&self, saga: &rhei_core::ast::Saga) -> serde_json::Value;
+}
+
+/// JSON output generator.
+///
+/// pretty controls only string rendering choices in convenience methods; the
+/// trait itself returns a Value.
+#[derive(Debug, Clone, Default)]
+pub struct JsonOutput {
+    pub pretty: bool,
+}
+
+impl PlanOutputGenerator for JsonOutput {
+    fn generate_saga(&self, saga: &rhei_core::ast::Saga) -> serde_json::Value {
+        saga_json(saga)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Public convenience functions
+// -----------------------------------------------------------------------------
+
+/// Convert a parsed Saga into a serde_json::Value.
+pub fn to_json_value(saga: &rhei_core::ast::Saga) -> serde_json::Value {
+    JsonOutput { pretty: false }.generate_saga(saga)
+}
+
+/// Convert a parsed Saga into a pretty-printed JSON string.
+pub fn to_json_string_pretty(saga: &rhei_core::ast::Saga) -> String {
+    let v = to_json_value(saga);
+    serde_json::to_string_pretty(&v).expect("pretty JSON serialization")
+}
+
+// -----------------------------------------------------------------------------
+// Internal helpers (Value construction without Serialize derives)
+// -----------------------------------------------------------------------------
+
+fn task_id_json(id: &TaskId) -> Value {
+    match id {
+        TaskId::Number(n) => json!({ "number": n }),
+        TaskId::Named(s) => json!({ "named": s }),
+    }
+}
+
+fn subtask_json(st: &Subtask) -> Value {
+    json!({
+        "task_number": st.task_number,
+        "subtask_number": st.subtask_number,
+        "title": st.title,
+        "content": st.content,
+    })
+}
+
+fn task_json(t: &Task) -> Value {
+    // depends_on array (possibly empty)
+    let depends_on = t
+        .metadata
+        .depends_on
+        .iter()
+        .map(task_id_json)
+        .collect::<Vec<Value>>();
+
+    // metadata map with conditional "state"
+    let mut meta = Map::new();
+    meta.insert("depends_on".to_string(), Value::Array(depends_on));
+    if let Some(state) = &t.metadata.state {
+        meta.insert("state".to_string(), Value::String(state.clone()));
+    }
+    meta.insert(
+        "state_first".to_string(),
+        Value::Bool(t.metadata.state_first),
+    );
+
+    // subtasks
+    let subtasks = t.subtasks.iter().map(subtask_json).collect::<Vec<Value>>();
+
+    let mut obj = Map::new();
+    obj.insert("id".to_string(), task_id_json(&t.id));
+    obj.insert("title".to_string(), Value::String(t.title.clone()));
+    obj.insert("metadata".to_string(), Value::Object(meta));
+    obj.insert("subtasks".to_string(), Value::Array(subtasks));
+
+    Value::Object(obj)
+}
+
+fn saga_json(saga: &Saga) -> Value {
+    let content = saga
+        .content
+        .iter()
+        .filter_map(|c| match c {
+            ContentBlock::Text(s) => Some(Value::String(s.clone())),
+        })
+        .collect::<Vec<Value>>();
+
+    let tasks = saga.tasks.iter().map(task_json).collect::<Vec<Value>>();
+
+    json!({
+        "title": saga.title,
+        "content": content,
+        "tasks": tasks
+    })
+}
+
+// -----------------------------------------------------------------------------
+// GitHub Issues Markdown Output API
+// -----------------------------------------------------------------------------
+
+/// Helper: format a TaskId as a display string without prefixes.
+fn fmt_task_id(id: &TaskId) -> String {
+    match id {
+        TaskId::Number(n) => n.to_string(),
+        TaskId::Named(s) => s.clone(),
+    }
+}
+
+/// Helper: format a list of TaskIds as "Task 1, Task build".
+fn fmt_prior_list(ids: &[TaskId]) -> String {
+    ids.iter()
+        .map(|id| format!("Task {}", fmt_task_id(id)))
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+/// GitHub issues-style Markdown output generator.
+///
+/// Controls:
+/// - include_content: whether to emit subtask content indented under the checkbox item
+/// - include_metadata: whether to emit "- State:" and "- Prior:" lines under each task
+#[derive(Debug, Clone, Copy)]
+pub struct GithubIssuesOutput {
+    pub include_content: bool,
+    pub include_metadata: bool,
+}
+
+impl GithubIssuesOutput {
+    /// Render the provided Saga into a single GitHub-friendly Markdown document.
+    pub fn to_markdown(&self, saga: &rhei_core::ast::Saga) -> String {
+        let mut out = String::new();
+
+        // Title
+        out.push_str("# Saga: ");
+        out.push_str(&saga.title);
+        out.push('\n');
+        out.push('\n');
+
+        // Overview
+        let overview_lines = saga
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                ContentBlock::Text(s) => Some(s.as_str()),
+            })
+            .collect::<Vec<&str>>();
+        if !overview_lines.is_empty() {
+            out.push_str("## Overview\n\n");
+            out.push_str(&overview_lines.join("\n"));
+            out.push('\n');
+            out.push('\n');
+        }
+
+        // Tasks
+        out.push_str("## Tasks\n\n");
+        for task in &saga.tasks {
+            // Task header
+            out.push_str("### Task ");
+            out.push_str(&fmt_task_id(&task.id));
+            out.push_str(": ");
+            out.push_str(&task.title);
+            out.push('\n');
+
+            // Optional metadata
+            if self.include_metadata {
+                if let Some(state) = &task.metadata.state {
+                    out.push_str("- State: ");
+                    out.push_str(state);
+                    out.push('\n');
+                }
+                if !task.metadata.depends_on.is_empty() {
+                    out.push_str("- Prior: ");
+                    out.push_str(&fmt_prior_list(&task.metadata.depends_on));
+                    out.push('\n');
+                }
+            }
+
+            // Subtasks with checkboxes
+            for st in &task.subtasks {
+                out.push_str("- [ ] ");
+                out.push_str(&st.task_number.to_string());
+                out.push('.');
+                out.push_str(&st.subtask_number.to_string());
+                out.push_str(": ");
+                out.push_str(&st.title);
+                out.push('\n');
+
+                if self.include_content && !st.content.is_empty() {
+                    for line in st.content.lines() {
+                        out.push_str("  ");
+                        out.push_str(line);
+                        out.push('\n');
+                    }
+                }
+            }
+
+            out.push('\n');
+        }
+
+        out
+    }
+}
+
+/// Convenience: render saga to GitHub issues-style Markdown with all sections enabled.
+pub fn to_github_markdown(saga: &rhei_core::ast::Saga) -> String {
+    GithubIssuesOutput {
+        include_content: true,
+        include_metadata: true,
+    }
+    .to_markdown(saga)
+}
+
+// -----------------------------------------------------------------------------
+// Tests
+// -----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rhei_core::parser::parse;
+
+    #[test]
+    fn json_output_minimal_smoke() {
+        let input = r#"# Saga: Minimal
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let v = to_json_value(&saga);
+
+        // Saga title
+        assert_eq!(v["title"].as_str().unwrap(), "Minimal");
+
+        // Content array exists (may be empty)
+        assert!(v["content"].is_array());
+
+        // One task with numeric id 1
+        let tasks = v["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["id"]["number"].as_u64(), Some(1));
+
+        // Metadata.state present and set to "pending"
+        assert_eq!(tasks[0]["metadata"]["state"].as_str(), Some("pending"));
+
+        // Subtasks empty
+        assert!(tasks[0]["subtasks"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn json_output_with_named_ids_and_subtasks_and_prior() {
+        let input = r#"# Saga: Complex
+
+## Tasks
+
+### Task 1: First
+
+#### Subtask 1.1: Do A
+Do A line
+
+#### Subtask 1.2: Do B
+Do B line
+
+### Task build: Build it
+**State:** pending
+**Prior:** Task 1
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let v = to_json_value(&saga);
+
+        let tasks = v["tasks"].as_array().unwrap();
+
+        // Find named task "build"
+        let build = tasks
+            .iter()
+            .find(|t| t["id"]["named"].as_str() == Some("build"))
+            .expect("build task exists");
+
+        // build depends_on[0].number == 1
+        let deps = build["metadata"]["depends_on"].as_array().unwrap();
+        assert!(!deps.is_empty());
+        assert_eq!(deps[0]["number"].as_u64(), Some(1));
+
+        // Find Task 1 and verify two subtasks with fields
+        let task1 = tasks
+            .iter()
+            .find(|t| t["id"]["number"].as_u64() == Some(1))
+            .expect("task 1 exists");
+
+        let subtasks = task1["subtasks"].as_array().unwrap();
+        assert_eq!(subtasks.len(), 2);
+
+        // Subtask 1.1
+        assert_eq!(subtasks[0]["task_number"].as_u64(), Some(1));
+        assert_eq!(subtasks[0]["subtask_number"].as_u64(), Some(1));
+        assert_eq!(subtasks[0]["title"].as_str().unwrap(), "Do A");
+
+        // Subtask 1.2
+        assert_eq!(subtasks[1]["task_number"].as_u64(), Some(1));
+        assert_eq!(subtasks[1]["subtask_number"].as_u64(), Some(2));
+        assert_eq!(subtasks[1]["title"].as_str().unwrap(), "Do B");
+
+        // Ensure state_first signal carried through for build (ordering unaffected by output)
+        assert!(build["metadata"]["state_first"].is_boolean());
+    }
+
+    #[test]
+    fn json_output_escaped_state_space() {
+        let input = r#"# Saga: Escape
+
+## Tasks
+
+### Task 1: One
+**State:** in\ progress
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let v = to_json_value(&saga);
+        let tasks = v["tasks"].as_array().unwrap();
+        assert_eq!(tasks[0]["metadata"]["state"].as_str(), Some("in progress"));
+    }
+
+    #[test]
+    fn omits_missing_state_field() {
+        let input = r#"# Saga: NoState
+
+## Tasks
+
+### Task 1: One
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let v = to_json_value(&saga);
+        let meta = &v["tasks"][0]["metadata"];
+        // Ensure the "state" key is omitted entirely (not present)
+        assert!(meta.get("state").is_none());
+        // But depends_on should always be present (possibly empty)
+        assert!(meta["depends_on"].is_array());
+    }
+
+    // -------------------------------------------------------------------------
+    // GitHub Markdown output tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn github_markdown_tree_smoke() {
+        let input = r#"# Saga: Minimal
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+#### Subtask 1.1: Do it
+"#;
+        let saga = parse(input).expect("parse ok");
+        let s = to_github_markdown(&saga);
+
+        assert!(s.contains("# Saga: Minimal"));
+        assert!(s.contains("## Tasks"));
+        assert!(s.contains("### Task 1: Alpha"));
+        assert!(s.contains("- State: pending"));
+        assert!(s.contains("- [ ] 1.1: Do it"));
+    }
+
+    #[test]
+    fn includes_prior_and_state() {
+        let input = r#"# Saga: Prior
+
+## Tasks
+
+### Task 2: Second
+**State:** pending
+**Prior:** Task 1
+"#;
+        let saga = parse(input).expect("parse ok");
+        let s = to_github_markdown(&saga);
+
+        assert!(s.contains("- State: pending"));
+        assert!(s.contains("- Prior: Task 1"));
+    }
+
+    #[test]
+    fn supports_named_ids() {
+        let input = r#"# Saga: Named
+
+## Tasks
+
+### Task build: Title
+**State:** pending
+
+#### Subtask 1.1: First
+"#;
+        let saga = parse(input).expect("parse ok");
+        let s = to_github_markdown(&saga);
+
+        assert!(s.contains("### Task build: Title"));
+        assert!(s.contains("- [ ] 1.1: First"));
+    }
+
+    #[test]
+    fn includes_content_when_enabled() {
+        let input = r#"# Saga: Content
+
+## Tasks
+
+### Task 1: With content
+**State:** pending
+
+#### Subtask 1.1: Do A
+Line 1
+Line 2
+"#;
+        let saga = parse(input).expect("parse ok");
+        let gen = GithubIssuesOutput {
+            include_content: true,
+            include_metadata: true,
+        };
+        let s = gen.to_markdown(&saga);
+
+        // Checkbox line present
+        assert!(s.contains("- [ ] 1.1: Do A"));
+        // Indented content lines preserved and indented by two spaces
+        assert!(s.contains("\n  Line 1\n  Line 2\n"));
+    }
+
+    #[test]
+    fn omits_metadata_when_disabled() {
+        let input = r#"# Saga: NoMeta
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Prior:** Task 2
+
+#### Subtask 1.1: Do A
+"#;
+        let saga = parse(input).expect("parse ok");
+        let gen = GithubIssuesOutput {
+            include_content: false,
+            include_metadata: false,
+        };
+        let s = gen.to_markdown(&saga);
+
+        // Task and subtask still render
+        assert!(s.contains("### Task 1: Alpha"));
+        assert!(s.contains("- [ ] 1.1: Do A"));
+        // Metadata omitted
+        assert!(!s.contains("- State:"));
+        assert!(!s.contains("- Prior:"));
+    }
+}
