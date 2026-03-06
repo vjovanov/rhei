@@ -291,7 +291,7 @@ fn validate_subtask_numbering(saga: &Saga, report: &mut ValidationReport) {
 
 /// Detect cycles using Kahn's algorithm; report a generic cycle set on failure.
 fn validate_circular_dependencies(
-    saga: &Saga,
+    _saga: &Saga,
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {

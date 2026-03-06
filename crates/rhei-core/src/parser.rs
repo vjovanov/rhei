@@ -44,6 +44,7 @@ pub fn parse(input: &str) -> Result<Saga> {
     let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
     let re_task_header =
         Regex::new(r#"^###\s+Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+):\s+(.*)$"#).unwrap();
+    let re_task_like_heading = Regex::new(r#"^###\s+\S.*$"#).unwrap();
     let re_subtask_header = Regex::new(r#"^####\s+Subtask\s+(\d+)\.(\d+):\s+(.*)$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_prior_task_id =
@@ -79,7 +80,7 @@ pub fn parse(input: &str) -> Result<Saga> {
     let mut cur_subtask: Option<SubtaskBuilder> = None;
 
     for (idx, raw) in input.lines().enumerate() {
-        let line_no = idx + 1;
+        let line_number = idx + 1;
 
         // Detect fences first (outside of trimming)
         let trimmed_start = raw.trim_start();
@@ -147,7 +148,7 @@ pub fn parse(input: &str) -> Result<Saga> {
         // Task header
         if let Some(caps) = re_task_header.captures(line) {
             // Finalize current subtask if present
-            if let Some(mut st) = cur_subtask.take() {
+            if let Some(st) = cur_subtask.take() {
                 if let Some(t) = cur_task.as_mut() {
                     t.subtasks.push(Subtask {
                         task_number: st.task_number,
@@ -188,10 +189,17 @@ pub fn parse(input: &str) -> Result<Saga> {
             continue;
         }
 
+        if re_task_like_heading.is_match(line) {
+            return Err(ParseError::new(
+                "Malformed task heading: expected '### Task <id>: <title>'",
+                Some(line_number),
+            ));
+        }
+
         // Subtask header
         if let Some(caps) = re_subtask_header.captures(line) {
             // Close any open subtask
-            if let Some(mut st) = cur_subtask.take() {
+            if let Some(st) = cur_subtask.take() {
                 if let Some(t) = cur_task.as_mut() {
                     t.subtasks.push(Subtask {
                         task_number: st.task_number,
@@ -278,7 +286,7 @@ pub fn parse(input: &str) -> Result<Saga> {
     }
 
     // Finalize builders
-    if let Some(mut st) = cur_subtask.take() {
+    if let Some(st) = cur_subtask.take() {
         if let Some(t) = cur_task.as_mut() {
             t.subtasks.push(Subtask {
                 task_number: st.task_number,
@@ -487,6 +495,43 @@ Intro line
                 ContentBlock::Text("```".to_string()),
             ]
         );
+        assert_eq!(saga.tasks.len(), 1);
+        assert_eq!(saga.tasks[0].id, TaskId::Number(1));
+    }
+
+    #[test]
+    fn errors_on_malformed_task_heading_in_tasks_section() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Tak 3: Broken heading
+**State:** pending
+
+#### Subtask 3.1: Dry run
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed task heading: expected '### Task <id>: <title>'"
+        );
+        assert_eq!(err.line, Some(4));
+    }
+
+    #[test]
+    fn does_not_treat_non_task_third_level_heading_as_malformed_inside_saga_content() {
+        let input = r#"# Saga: Example
+
+### Notes
+This is saga content before tasks.
+
+## Tasks
+
+### Task 1: Real
+**State:** pending
+"#;
+
+        let saga = parse(input).expect("parse ok");
         assert_eq!(saga.tasks.len(), 1);
         assert_eq!(saga.tasks[0].id, TaskId::Number(1));
     }

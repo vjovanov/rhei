@@ -263,6 +263,120 @@ pub fn to_github_markdown(saga: &rhei_core::ast::Saga) -> String {
 }
 
 // -----------------------------------------------------------------------------
+// Progress Report (ANSI) Output API
+// -----------------------------------------------------------------------------
+
+/// Progress Report output generator for human-readable terminal summaries.
+#[derive(Debug, Clone, Copy)]
+pub struct ProgressReportOutput {
+    /// Whether to colorize the state badge using ANSI escape sequences.
+    pub color: bool,
+    /// Whether to show the "Prior" dependency list for each task.
+    pub show_dependencies: bool,
+}
+
+impl ProgressReportOutput {
+    /// Render the provided Saga into a concise terminal progress report.
+    ///
+    /// Formatting:
+    /// - Header: "Saga: <title>"
+    /// - Optional "Overview: ..." with the first non-empty saga content line.
+    /// - One-line summary per Task, with optional Prior line and subtasks.
+    pub fn to_string(&self, saga: &rhei_core::ast::Saga) -> String {
+        let mut out = String::new();
+
+        // Header
+        out.push_str("Saga: ");
+        out.push_str(&saga.title);
+        out.push('\n');
+
+        // Overview: first non-empty text line if any
+        if let Some(line) = saga
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                ContentBlock::Text(s) => Some(s.trim()),
+            })
+            .find(|s| !s.is_empty())
+        {
+            out.push_str("Overview: ");
+            out.push_str(line);
+            out.push('\n');
+        }
+
+        // Tasks
+        for task in &saga.tasks {
+            // Determine state (uppercased for display)
+            let state_upper = task
+                .metadata
+                .state
+                .as_deref()
+                .unwrap_or("unknown")
+                .trim()
+                .to_ascii_uppercase();
+            let badge = badge_for(&state_upper, self.color);
+
+            // Task summary line
+            out.push_str("* Task ");
+            out.push_str(&fmt_task_id(&task.id));
+            out.push_str(": ");
+            out.push_str(&task.title);
+            out.push_str("  ");
+            out.push_str(&badge);
+            out.push('\n');
+
+            // Optional dependencies ("Prior")
+            if self.show_dependencies && !task.metadata.depends_on.is_empty() {
+                out.push_str("  - Prior: ");
+                out.push_str(&fmt_prior_list(&task.metadata.depends_on));
+                out.push('\n');
+            }
+
+            // Subtasks (no colorization, focus on task state)
+            for st in &task.subtasks {
+                out.push_str("  - ");
+                out.push_str(&st.task_number.to_string());
+                out.push('.');
+                out.push_str(&st.subtask_number.to_string());
+                out.push_str(": ");
+                out.push_str(&st.title);
+                out.push('\n');
+            }
+        }
+
+        out
+    }
+}
+
+fn badge_for(state_upper: &str, color: bool) -> String {
+    if !color {
+        return format!("[{}]", state_upper);
+    }
+    // Same mapping as colorize()
+    let key = state_upper
+        .to_ascii_lowercase()
+        .replace(' ', "-");
+    let code = match key.as_str() {
+        "pending" => 34,       // blue
+        "in-progress" => 33,   // yellow
+        "blocked" => 31,       // red
+        "completed" => 32,     // green
+        "cancelled" => 90,     // bright black / gray
+        _ => 35,               // magenta (unknown)
+    };
+    format!("\x1b[{}m[{}]\x1b[0m", code, state_upper)
+}
+
+/// Convenience: render saga to a colored progress report with dependencies shown.
+pub fn to_progress_report(saga: &rhei_core::ast::Saga) -> String {
+    ProgressReportOutput {
+        color: true,
+        show_dependencies: true,
+    }
+    .to_string(saga)
+}
+
+// -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
 
@@ -505,5 +619,115 @@ Line 2
         // Metadata omitted
         assert!(!s.contains("- State:"));
         assert!(!s.contains("- Prior:"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Progress Report output tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn progress_report_basic_colors_and_structure() {
+        let input = r#"# Saga: Progress
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+#### Subtask 1.1: Do it
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let gen = ProgressReportOutput {
+            color: true,
+            show_dependencies: true,
+        };
+        let s = gen.to_string(&saga);
+
+        assert!(s.contains("Saga: "));
+        assert!(s.contains("* Task 1: Alpha"));
+        assert!(s.contains("[PENDING]"));
+        // ANSI escape marker present
+        assert!(s.contains("\x1b["));
+    }
+
+    #[test]
+    fn progress_report_includes_dependencies() {
+        let input = r#"# Saga: Prior
+## Tasks
+
+### Task 1: One
+**State:** completed
+
+### Task 2: Two
+**State:** in progress
+**Prior:** Task 1
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let s = to_progress_report(&saga);
+
+                // Second task header appears (don't match exact ANSI-wrapped badge)
+                assert!(s.contains("* Task 2: Two"));
+                // Prior line appears and is below the task line
+                let prior_line = "  - Prior: Task 1";
+                assert!(s.contains(prior_line));
+
+                let idx_task = s.find("* Task 2: Two").expect("task 2 line index");
+                let idx_prior = s[idx_task..]
+                    .find(prior_line)
+                    .map(|i| idx_task + i)
+                    .expect("prior line index");
+                assert!(idx_prior > idx_task);
+    }
+
+    #[test]
+    fn progress_report_handles_named_ids() {
+        let input = r#"# Saga: Named
+## Tasks
+
+### Task build: Title
+**State:** pending
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let s = to_progress_report(&saga);
+
+        assert!(s.contains("* Task build: Title"));
+        assert!(s.contains("[PENDING]"));
+    }
+
+    #[test]
+    fn progress_report_no_color_option() {
+        let input = r#"# Saga: NoColor
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let gen = ProgressReportOutput {
+            color: false,
+            show_dependencies: true,
+        };
+        let s = gen.to_string(&saga);
+
+        assert!(!s.contains("\x1b["));
+        assert!(s.contains("[PENDING]"));
+    }
+
+    #[test]
+    fn progress_report_escaped_state_space() {
+        let input = r#"# Saga: Escape
+## Tasks
+
+### Task 1: One
+**State:** in\ progress
+"#;
+
+        let saga = parse(input).expect("parse ok");
+        let s = to_progress_report(&saga);
+
+        assert!(s.contains("[IN PROGRESS]"));
     }
 }

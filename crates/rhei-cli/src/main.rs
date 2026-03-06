@@ -151,11 +151,11 @@ fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
             )
         })?;
 
-    print_validation_report(&report.warnings);
-
     if report.has_errors() {
         return Err(validation_report(input, state_machine, &report.errors));
     }
+
+    print_validation_report(&report.warnings);
 
     Ok(())
 }

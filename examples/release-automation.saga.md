@@ -24,7 +24,7 @@ rollback:
   enabled: true
 ```
 
-### Task bootstrap_env: Bootstrap environments
+### Task 2: Bootstrap environments
 **State:** in-progress
 **Prior:** Task 1
 
@@ -35,7 +35,7 @@ Create and store staging credentials.
 
 ### Task 3: Roll out release bot
 **State:** pending
-**Prior:** Task 1, Task bootstrap_env
+**Prior:** Task 1, Task 2
 
 Enable the release bot after environment bootstrap succeeds.
 

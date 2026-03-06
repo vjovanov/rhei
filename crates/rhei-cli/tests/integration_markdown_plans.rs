@@ -150,10 +150,66 @@ fn cli_validate_surfaces_validation_errors_for_fixture() {
 
     assert!(!output.status.success(), "invalid plan should fail validation");
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stdout.contains("Validation succeeded"),
+        "invalid validation should not report success\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
     assert!(stderr.contains("validation failed"));
     assert!(stderr.contains("Task 1 metadata order invalid"));
     assert!(stderr.contains("Circular dependency detected"));
+
+    fs::remove_dir_all(temp_dir).expect("temporary directory should be removed");
+}
+
+#[test]
+fn malformed_task_heading_reports_parse_error_instead_of_subtask_validation_error() {
+    let temp_dir = unique_temp_dir("integration-cli-malformed-heading");
+    let plan_path = write_fixture_file(
+        &temp_dir,
+        "malformed-plan.md",
+        include_str!("../../../examples/release-automation.saga.md"),
+    );
+    let machine_path =
+        write_fixture_file(&temp_dir, "state-machine.yaml", fixtures::TEST_STATE_MACHINE);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(&machine_path)
+        .arg("validate")
+        .arg(&plan_path)
+        .output()
+        .expect("validate command should run");
+
+    assert!(
+        !output.status.success(),
+        "malformed plan should fail validation"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("failed to parse"),
+        "expected parse failure, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Malformed task heading"),
+        "expected malformed-heading message, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("### Tak 3: Roll out release bot"),
+        "expected diagnostic to include the malformed heading line, got:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("Subtask 3.1 ('Dry run in staging') is under Task 2 but declares parent 3"),
+        "should not surface misleading subtask-parent error, got:\n{}",
+        stderr
+    );
 
     fs::remove_dir_all(temp_dir).expect("temporary directory should be removed");
 }
