@@ -45,15 +45,24 @@ pub fn parse(input: &str) -> Result<Saga> {
     let re_task_header =
         Regex::new(r#"^###\s+Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+):\s+(.*)$"#).unwrap();
     let re_task_like_heading = Regex::new(r#"^###\s+\S.*$"#).unwrap();
+    let re_task_heading_prefix = Regex::new(r#"^###\s+Task\b.*$"#).unwrap();
     let re_subtask_header = Regex::new(r#"^####\s+Subtask\s+(\d+)\.(\d+):\s+(.*)$"#).unwrap();
+    let re_subtask_like_heading = Regex::new(r#"^####\s+\S.*$"#).unwrap();
+    let re_subtask_heading_prefix = Regex::new(r#"^####\s+Subtask\b.*$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
+    let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
     let re_prior_task_id =
         Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
+    let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
+    let re_h2_heading = Regex::new(r#"^##\s+\S.*$"#).unwrap();
+    let re_saga_like_heading = Regex::new(r#"^#\S.*$"#).unwrap();
 
     let mut in_code_block = false;
     let mut in_tasks_section = false;
+    let mut tasks_section_line: Option<usize> = None;
 
     let mut saga_title: Option<String> = None;
+    let mut saga_header_seen = false;
     let mut saga_content: Vec<ContentBlock> = Vec::new();
     let mut tasks: Vec<Task> = Vec::new();
 
@@ -122,12 +131,35 @@ pub fn parse(input: &str) -> Result<Saga> {
         if !in_tasks_section && !in_code_block {
             if let Some(cap) = re_saga.captures(line) {
                 saga_title = Some(cap.get(1).unwrap().as_str().to_string());
+                saga_header_seen = true;
                 continue;
             }
 
             if re_tasks.is_match(line) {
                 in_tasks_section = true;
+                tasks_section_line = Some(line_number);
                 continue;
+            }
+
+            if re_h2_heading.is_match(line) {
+                return Err(ParseError::new(
+                    "Malformed tasks section heading: expected '## Tasks'",
+                    Some(line_number),
+                ));
+            }
+
+            if !saga_header_seen && re_saga_like_heading.is_match(line) {
+                return Err(ParseError::new(
+                    "Malformed saga heading: expected '# Saga: <title>'",
+                    Some(line_number),
+                ));
+            }
+
+            if re_state_like.is_match(line) || re_prior_like.is_match(line) {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
             }
 
             // Saga pre-Tasks content
@@ -223,6 +255,11 @@ pub fn parse(input: &str) -> Result<Saga> {
             // Starting a subtask implies metadata section is closed for the task.
             if let Some(t) = cur_task.as_mut() {
                 t.metadata_closed = true;
+            } else {
+                return Err(ParseError::new(
+                    "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
+                    Some(line_number),
+                ));
             }
 
             cur_subtask = Some(SubtaskBuilder {
@@ -235,6 +272,15 @@ pub fn parse(input: &str) -> Result<Saga> {
             continue;
         }
 
+        if re_subtask_like_heading.is_match(line) {
+            if cur_task.is_some() || re_subtask_heading_prefix.is_match(line) {
+                return Err(ParseError::new(
+                    "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
+                    Some(line_number),
+                ));
+            }
+        }
+
         // Metadata: State
         if let Some(caps) = re_state.captures(line) {
             if let Some(t) = cur_task.as_mut() {
@@ -244,7 +290,31 @@ pub fn parse(input: &str) -> Result<Saga> {
                     t.metadata.state = Some(state);
                     continue;
                 }
+
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
             }
+
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        if re_state_like.is_match(line) {
+            if cur_task.is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**State:** <value>'",
+                    Some(line_number),
+                ));
+            }
+
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
         }
 
         // Metadata: Prior
@@ -269,7 +339,45 @@ pub fn parse(input: &str) -> Result<Saga> {
                     t.metadata.depends_on.extend(ids);
                     continue;
                 }
+
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
             }
+
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        if re_prior_like.is_match(line) {
+            if cur_task.is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Prior:** Task <id>[, Task <id>...]'",
+                    Some(line_number),
+                ));
+            }
+
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        if re_task_heading_prefix.is_match(line) {
+            return Err(ParseError::new(
+                "Malformed task heading: expected '### Task <id>: <title>'",
+                Some(line_number),
+            ));
+        }
+
+        if re_subtask_heading_prefix.is_match(line) {
+            return Err(ParseError::new(
+                "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
+                Some(line_number),
+            ));
         }
 
         // Fallback: content lines
@@ -315,6 +423,17 @@ pub fn parse(input: &str) -> Result<Saga> {
             ))
         }
     };
+
+    if !in_tasks_section {
+        return Err(ParseError::new("Missing '## Tasks' section", None));
+    }
+
+    if tasks.is_empty() {
+        return Err(ParseError::new(
+            "Tasks section must contain at least one task",
+            tasks_section_line,
+        ));
+    }
 
     Ok(Saga {
         title,
@@ -401,6 +520,48 @@ code block
     }
 
     #[test]
+    fn errors_when_missing_tasks_section() {
+        let input = "# Saga: Example\n";
+        let err = parse(input).unwrap_err();
+
+        assert_eq!(err.message, "Missing '## Tasks' section");
+        assert_eq!(err.line, None);
+    }
+
+    #[test]
+    fn errors_when_tasks_section_is_empty() {
+        let input = "# Saga: Example\n## Tasks\n";
+        let err = parse(input).unwrap_err();
+
+        assert_eq!(err.message, "Tasks section must contain at least one task");
+        assert_eq!(err.line, Some(2));
+    }
+
+    #[test]
+    fn errors_on_malformed_saga_heading_intended_as_saga_header() {
+        let input = "#Saga: Example\n## Tasks\n";
+        let err = parse(input).unwrap_err();
+
+        assert_eq!(
+            err.message,
+            "Malformed saga heading: expected '# Saga: <title>'"
+        );
+        assert_eq!(err.line, Some(1));
+    }
+
+    #[test]
+    fn errors_on_malformed_tasks_section_heading() {
+        let input = "# Saga: Example\n## Taskz\n";
+        let err = parse(input).unwrap_err();
+
+        assert_eq!(
+            err.message,
+            "Malformed tasks section heading: expected '## Tasks'"
+        );
+        assert_eq!(err.line, Some(2));
+    }
+
+    #[test]
     fn parses_named_task_ids_and_named_prior_dependencies() {
         let input = r#"# Saga: Example
 ## Tasks
@@ -427,7 +588,7 @@ Body
     }
 
     #[test]
-    fn metadata_after_content_is_not_parsed_as_task_metadata() {
+    fn errors_when_metadata_after_content() {
         let input = r#"# Saga: Example
 ## Tasks
 
@@ -440,15 +601,13 @@ Task description closes metadata window.
 Done
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let err = parse(input).unwrap_err();
 
-        assert_eq!(saga.tasks.len(), 1);
-        let task = &saga.tasks[0];
-        assert_eq!(task.metadata.state.as_deref(), Some("pending"));
-        assert!(task.metadata.depends_on.is_empty());
-        assert!(task.metadata.state_first);
-        assert_eq!(task.subtasks.len(), 1);
-        assert!(task.subtasks[0].content.contains("Done"));
+        assert_eq!(
+            err.message,
+            "Metadata fields must appear immediately after the task heading before task content"
+        );
+        assert_eq!(err.line, Some(7));
     }
 
     #[test]
@@ -516,6 +675,142 @@ Intro line
             "Malformed task heading: expected '### Task <id>: <title>'"
         );
         assert_eq!(err.line, Some(4));
+    }
+
+    #[test]
+    fn errors_on_task_heading_missing_colon_separator() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1 Broken heading
+**State:** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed task heading: expected '### Task <id>: <title>'"
+        );
+        assert_eq!(err.line, Some(4));
+    }
+
+    #[test]
+    fn errors_on_empty_task_title() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1:
+**State:** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed task heading: expected '### Task <id>: <title>'"
+        );
+        assert_eq!(err.line, Some(4));
+    }
+
+    #[test]
+    fn errors_on_malformed_subtask_heading() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+#### Subtak 1.1: Broken
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'"
+        );
+        assert_eq!(err.line, Some(7));
+    }
+
+    #[test]
+    fn errors_on_empty_subtask_title() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+#### Subtask 1.1:
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'"
+        );
+        assert_eq!(err.line, Some(7));
+    }
+
+    #[test]
+    fn errors_on_malformed_state_metadata_line() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: Alpha
+**State** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed metadata field: expected '**State:** <value>'"
+        );
+        assert_eq!(err.line, Some(5));
+    }
+
+    #[test]
+    fn errors_on_malformed_prior_metadata_line() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: Alpha
+**Prior** Task 2
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Malformed metadata field: expected '**Prior:** Task <id>[, Task <id>...]'"
+        );
+        assert_eq!(err.line, Some(5));
+    }
+
+    #[test]
+    fn errors_on_metadata_outside_task_before_tasks_section() {
+        let input = r#"# Saga: Example
+**State:** pending
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.message, "Metadata field appears outside a task");
+        assert_eq!(err.line, Some(2));
+    }
+
+    #[test]
+    fn errors_on_metadata_outside_task_inside_tasks_section() {
+        let input = r#"# Saga: Example
+## Tasks
+**State:** pending
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.message, "Metadata field appears outside a task");
+        assert_eq!(err.line, Some(3));
     }
 
     #[test]
