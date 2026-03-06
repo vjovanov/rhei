@@ -1,14 +1,14 @@
 [package]
-name = "gnd-cli"
+name = "rhei-cli"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-gnd-core = { path = "../gnd-core" }
+rhei-core = { path = "../rhei-core" }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 
 [[bin]]
-name = "gnd"
+name = "rhei"
 path = "src/main.rs"

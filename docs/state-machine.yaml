@@ -19,3 +19,9 @@ states:
 
   cancelled:
     description: Task no longer needed
+
+  human-review:
+    description: Agents stop and leave the human to adjust the saga
+
+  agent-review:
+    description: Agents are currently reviewing the task result

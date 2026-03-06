@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "crates/gnd-core",
-    "crates/gnd-cli",
-    "crates/gnd-napi",
+    "crates/rhei-core",
+    "crates/rhei-cli",
+    "crates/rhei-napi",
 ]
 
 resolver = "2"

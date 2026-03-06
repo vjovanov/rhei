@@ -3,10 +3,10 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "gnd",
+    name = "rhei",
     author,
     version,
-    about = "GND (ground) - Markdown plan compiler scaffold",
+    about = "Rhei - Markdown plan compiler scaffold",
     long_about = None
 )]
 struct Cli {
@@ -35,7 +35,7 @@ fn run() -> Result<()> {
             println!("noop executed");
         }
         None => {
-            println!("{}", gnd_core::help_text());
+            println!("{}", rhei_core::help_text());
         }
     }
 

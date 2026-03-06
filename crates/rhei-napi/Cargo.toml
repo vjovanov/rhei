@@ -1,5 +1,5 @@
 [package]
-name = "gnd-napi"
+name = "rhei-napi"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -8,6 +8,6 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-gnd-core = { path = "../gnd-core" }
+rhei-core = { path = "../rhei-core" }
 napi = "2"
 napi-derive = "2"
