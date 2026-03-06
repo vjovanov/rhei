@@ -92,7 +92,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
     let temp_dir = unique_temp_dir("integration-cli");
     let plan_path = write_fixture_file(&temp_dir, "valid-plan.md", fixtures::VALID_PLAN);
     let machine_path =
-        write_fixture_file(&temp_dir, "state-machine.yaml", fixtures::TEST_STATE_MACHINE);
+        write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let validate = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("--state-machine")
@@ -138,7 +138,7 @@ fn cli_validate_surfaces_validation_errors_for_fixture() {
     let temp_dir = unique_temp_dir("integration-cli-invalid");
     let plan_path = write_fixture_file(&temp_dir, "invalid-plan.md", fixtures::INVALID_PLAN);
     let machine_path =
-        write_fixture_file(&temp_dir, "state-machine.yaml", fixtures::TEST_STATE_MACHINE);
+        write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("--state-machine")
@@ -174,7 +174,7 @@ fn malformed_task_heading_reports_parse_error_instead_of_subtask_validation_erro
         include_str!("../../../examples/release-automation.saga.md"),
     );
     let machine_path =
-        write_fixture_file(&temp_dir, "state-machine.yaml", fixtures::TEST_STATE_MACHINE);
+        write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("--state-machine")

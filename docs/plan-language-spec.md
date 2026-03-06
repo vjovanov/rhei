@@ -115,7 +115,7 @@ All task references in `**Prior:**` fields must resolve to existing tasks in the
 
 ### 2. State Validity
 
-All state values must be defined in the associated state machine configuration. The state machine is loaded from an external YAML file.
+All state values must be defined in the associated states configuration. The states definition is loaded from an external YAML file.
 
 ### 3. Acyclic Dependencies
 
@@ -206,7 +206,7 @@ The Saga Plan language is **context-sensitive** because:
 
 1. Subtask numbers depend on their parent task context
 2. `Prior` references must resolve to existing task definitions
-3. State values depend on external state machine configuration
+3. State values depend on external states configuration
 
 The language cannot be fully described by a context-free grammar alone; semantic analysis is required for complete validation.
 
@@ -216,4 +216,4 @@ The recommended file extension for Saga Plan documents is `.saga.md` or simply `
 
 ## Related Specifications
 
-- [State Machine Specification](state-machine-spec.md) - Defines the state machine configuration format
+- [States Specification](states-spec.md) - Defines the states configuration format

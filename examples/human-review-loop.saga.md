@@ -8,7 +8,7 @@ This example demonstrates:
 - escaped state values with spaces
 - numeric task dependencies
 - subtask body content captured by the parser
-- realistic states from the default state machine
+- realistic states from the default states file
 
 ## Tasks
 

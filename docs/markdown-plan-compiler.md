@@ -43,7 +43,7 @@ Only two metadata fields are supported:
 
 2. **State**: `**State:** <state>`
    - Current state of the task
-   - Compiler validates state consistency against state machine definition
+   - Compiler validates state consistency against states definition
    - This is a mandatory field.
    - State must be always first.
    - If it has spaces it must be escaped with ` `
@@ -105,9 +105,9 @@ Create the login form component.
 Create the registration form component.
 ```
 
-## State Machine
+## States
 
-The state machine definition will be stored in a separate file and loaded by the compiler. A typical state machine might include:
+The states definition will be stored in a separate file and loaded by the compiler. A typical states file might include:
 
 - `pending` - Task not yet started
 - `in-progress` - Task currently being worked on
@@ -176,20 +176,20 @@ Build the parser using recursive descent approach with Rust's Result type for er
 #### Subtask 3.3: Error Recovery
 Implement error recovery using Rust's error handling patterns, providing span information for helpful error messages.
 
-### Task 4: State Machine Loader
+### Task 4: States Loader
 **State:** completed
 **Prior:** Task 1
 
-Implement the state machine definition loader in Rust.
+Implement the states definition loader in Rust.
 
-#### Subtask 4.1: Define State Machine File Format
-Use YAML format for state machine definitions, leveraging the `serde` and `serde_yaml` crates.
+#### Subtask 4.1: Define States File Format
+Use YAML format for states definitions, leveraging the `serde` and `serde_yaml` crates.
 
-#### Subtask 4.2: Implement State Machine Parser
-Build the deserializer for state machine definition files using serde derive macros.
+#### Subtask 4.2: Implement States Parser
+Build the deserializer for states definition files using serde derive macros.
 
 #### Subtask 4.3: State Transition Validation
-Implement logic using Rust traits to validate state transitions according to the state machine definition.
+Implement logic using Rust traits to validate state transitions according to the states definition.
 
 ### Task 5: Semantic Validator
 **State:** completed
@@ -201,7 +201,7 @@ Implement semantic validation on the parsed AST using Rust's type system.
 Validate that all task numbers referenced in `Prior` fields exist in the plan using HashMap lookups.
 
 #### Subtask 5.2: State Consistency Validation
-Validate that task states are consistent with the loaded state machine definition.
+Validate that task states are consistent with the loaded states definition.
 
 #### Subtask 5.3: Circular Dependency Detection
 Detect and report circular dependencies using graph algorithms (topological sort).

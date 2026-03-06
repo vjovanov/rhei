@@ -72,7 +72,7 @@ impl Validate for () {
 }
 
 // ===============================
-// State Machine Loader (Task 4)
+// States Loader (Task 4)
 // ===============================
 
 /// Error returned when loading a [`StateMachine`] from YAML text or a file.
@@ -105,20 +105,20 @@ impl From<serde_yaml::Error> for StateMachineLoadError {
     }
 }
 
-/// One entry from the `states` map in a YAML state machine file.
+/// One entry from the `states` map in a YAML states file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateDef {
     /// Optional descriptive text; the current schema intentionally keeps this permissive.
     pub description: Option<String>,
 }
 
-/// State-machine data loaded from YAML.
+/// States data loaded from YAML.
 ///
 /// `version` is stored as [`serde_yaml::Value`] so the repository can accept
 /// either numeric or string YAML values without imposing a stricter schema.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateMachine {
-    /// Human-readable machine name.
+    /// Human-readable states definition name.
     pub name: String,
     /// YAML version field as provided by the source file.
     pub version: serde_yaml::Value,
@@ -165,7 +165,7 @@ impl Validator {
         Self { machine }
     }
 
-    /// Validate a parsed saga using the currently configured state machine.
+    /// Validate a parsed saga using the currently configured states.
     pub fn validate(&self, saga: &Saga) -> ValidationReport {
         let mut report = ValidationReport::ok();
 
@@ -374,7 +374,7 @@ states:
   in-progress: { description: "doing" }
   completed: { description: "done" }
 "#;
-        StateMachine::from_yaml_str(yaml).expect("state machine loads")
+        StateMachine::from_yaml_str(yaml).expect("states load")
     }
 
     #[test]
@@ -564,14 +564,14 @@ states:
 
     #[test]
     fn accepts_valid_states_and_escaped_spaces() {
-        // Custom machine with a state containing a space
+        // Custom states definition with a state containing a space
         let yaml = r#"
 name: sm-escaped
 version: 1
 states:
   "in progress": { description: "with space" }
 "#;
-        let machine = StateMachine::from_yaml_str(yaml).expect("state machine loads");
+        let machine = StateMachine::from_yaml_str(yaml).expect("states load");
         let input = r#"# Saga: Example
 ## Tasks
 

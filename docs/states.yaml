@@ -1,7 +1,7 @@
-# State Machine Definition for Markdown Plan Compiler
-# This file defines valid states and transitions for tasks
+# States Definition for Markdown Plan Compiler
+# This file defines valid states for tasks
 
-name: task-state-machine
+name: task-states
 version: 1.0
 
 states:

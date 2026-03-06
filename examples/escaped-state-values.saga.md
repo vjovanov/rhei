@@ -1,7 +1,7 @@
 # Saga: Release Readiness Review
 
 ## Overview
-Show how escaped spaces in `**State:**` values interact with a custom state machine.
+Show how escaped spaces in `**State:**` values interact with a custom states file.
 
 ## Tasks
 

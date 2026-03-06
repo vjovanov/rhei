@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
-/// Default state-machine file used by validation commands when `--state-machine`
+/// Default states file used by validation commands when `--state-machine`
 /// is not provided.
-const DEFAULT_STATE_MACHINE_PATH: &str = "docs/state-machine.yaml";
+const DEFAULT_STATES_PATH: &str = "docs/states.yaml";
 
 /// Command-line interface for the markdown plan compiler.
 #[derive(Parser, Debug)]
@@ -26,8 +26,8 @@ struct Cli {
         long,
         global = true,
         value_name = "PATH",
-        default_value = DEFAULT_STATE_MACHINE_PATH,
-        help = "Path to the state machine YAML used by validation commands"
+        default_value = DEFAULT_STATES_PATH,
+        help = "Path to the states YAML used by validation commands"
     )]
     state_machine: PathBuf,
 
@@ -38,9 +38,9 @@ struct Cli {
 /// Supported CLI subcommands.
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Validate a markdown plan against the configured state machine
+    /// Validate a markdown plan against the configured states
     Validate {
-        /// Re-run validation when the plan or state machine changes
+        /// Re-run validation when the plan or states file changes
         #[arg(long)]
         watch: bool,
         /// Path to the markdown plan file
@@ -139,14 +139,14 @@ fn validate_command(input: &Path, state_machine: &Path, watch: bool) -> MietteRe
     }
 }
 
-/// Parse a plan, load the selected state machine, and print validation results.
+/// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
     let saga = parse_input_file(input)?;
     let report =
         rhei_validator::validate_from_machine_file(&saga, state_machine).map_err(|err| {
             file_io_report(
                 state_machine,
-                "failed to load state machine",
+                "failed to load states",
                 err,
             )
         })?;
@@ -168,7 +168,7 @@ fn print_validation_report(warnings: &[String]) {
     }
 }
 
-/// Watch the plan and state-machine files and re-run validation on relevant changes.
+/// Watch the plan and states files and re-run validation on relevant changes.
 fn watch_validation_command(input: &Path, state_machine: &Path) -> MietteResult<()> {
     let watched_paths = canonical_watched_paths(input, state_machine);
     let watch_roots = watch_roots(input, state_machine);
@@ -389,7 +389,7 @@ fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Rep
 fn validation_report(input: &Path, state_machine: &Path, errors: &[String]) -> Report {
     let details = format_validation_errors(errors);
     miette!(
-        "validation failed for '{}' using state machine '{}'\n{}",
+        "validation failed for '{}' using states '{}'\n{}",
         input.display(),
         state_machine.display(),
         details
@@ -431,7 +431,7 @@ mod tests {
         let cli = Cli::try_parse_from(["rhei", "validate", "docs/markdown-plan-compiler.md"])
             .expect("cli should parse");
 
-        assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATE_MACHINE_PATH));
+        assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATES_PATH));
         match cli.command {
             Commands::Validate { watch, input } => {
                 assert!(!watch);
@@ -451,7 +451,7 @@ mod tests {
         ])
         .expect("cli should parse");
 
-        assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATE_MACHINE_PATH));
+        assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATES_PATH));
         match cli.command {
             Commands::Validate { watch, input } => {
                 assert!(watch);
@@ -606,14 +606,14 @@ mod tests {
     fn path_matches_normalizes_paths() {
         let watched = canonical_watched_paths(
             Path::new("docs/markdown-plan-compiler.md"),
-            Path::new("docs/state-machine.yaml"),
+            Path::new("docs/states.yaml"),
         );
 
         assert!(path_matches(
             Path::new("./docs/markdown-plan-compiler.md"),
             &watched
         ));
-        assert!(path_matches(Path::new("docs/state-machine.yaml"), &watched));
+        assert!(path_matches(Path::new("docs/states.yaml"), &watched));
         assert!(!path_matches(Path::new("docs/plan-language-spec.md"), &watched));
     }
 
@@ -633,7 +633,7 @@ mod tests {
     fn should_revalidate_filters_irrelevant_events() {
         let watched = canonical_watched_paths(
             Path::new("docs/markdown-plan-compiler.md"),
-            Path::new("docs/state-machine.yaml"),
+            Path::new("docs/states.yaml"),
         );
 
         let event = Event {

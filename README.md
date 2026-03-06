@@ -4,7 +4,7 @@ Rhei is a Rust workspace for parsing, validating, and rendering structured markd
 
 Current workspace crates:
 - `rhei-core`: AST types plus markdown plan parsing
-- `rhei-validator`: semantic validation against a YAML state machine
+- `rhei-validator`: semantic validation against a YAML states definition
 - `rhei-output`: JSON, GitHub-style markdown, and progress-report rendering
 - `rhei-cli`: `rhei` command for validation and rendering
 - `rhei-napi`: Node.js bindings
@@ -13,29 +13,29 @@ Current workspace crates:
 
 The markdown plan compiler currently supports:
 - parsing saga/task/subtask structure from markdown plans
-- validating task metadata and dependencies against a state machine in [`docs/state-machine.yaml`](docs/state-machine.yaml)
+- validating task metadata and dependencies against a states definition in [`docs/states.yaml`](docs/states.yaml)
 - rendering parsed plans as JSON, GitHub-style markdown, or terminal-oriented progress output
 
 The primary reference documents are:
 - [`docs/markdown-plan-compiler.md`](docs/markdown-plan-compiler.md) — saga and task breakdown
 - [`docs/plan-language-spec.md`](docs/plan-language-spec.md) — plan language rules
-- [`docs/state-machine.yaml`](docs/state-machine.yaml) — default validation state machine
+- [`docs/states.yaml`](docs/states.yaml) — default validation states definition
 
 ## CLI usage
 
-Validate a plan with the default state machine:
+Validate a plan with the default states definition:
 
 ```bash
 cargo run -p rhei-cli -- validate docs/markdown-plan-compiler.md
 ```
 
-Validate using a specific state machine file:
+Validate using a specific states file:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine docs/state-machine.yaml validate docs/markdown-plan-compiler.md
+cargo run -p rhei-cli -- --state-machine docs/states.yaml validate docs/markdown-plan-compiler.md
 ```
 
-Watch a plan and state machine for changes:
+Watch a plan and states file for changes:
 
 ```bash
 cargo run -p rhei-cli -- validate --watch docs/markdown-plan-compiler.md
@@ -70,7 +70,7 @@ cargo run -p rhei-cli -- version
 Typical flow inside Rust code:
 
 1. Parse markdown with `rhei_core::parse`
-2. Load a state machine with `rhei_validator::StateMachine::from_yaml_file`
+2. Load a states definition with `rhei_validator::StateMachine::from_yaml_file`
 3. Validate with `rhei_validator::validate_with_machine` or `rhei_validator::validate_from_machine_file`
 4. Render with helpers from `rhei_output`
 
