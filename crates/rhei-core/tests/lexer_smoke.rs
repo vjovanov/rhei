@@ -1,5 +1,5 @@
-use rhei_core::{tokenize, Token};
 use rhei_core::ast::TaskId;
+use rhei_core::{Token, tokenize};
 
 #[test]
 fn tokenizes_basic_structure() {
@@ -21,7 +21,9 @@ Some description line
     let expected = vec![
         Token::SagaHeader,
         Token::TasksSection,
-        Token::TaskHeader { id: TaskId::Number(1) },
+        Token::TaskHeader {
+            id: TaskId::Number(1),
+        },
         Token::MetadataState {
             state: "completed".to_string(),
         },
@@ -32,6 +34,48 @@ Some description line
         Token::TextContent,
         Token::MetadataPrior {
             task_ids: vec![TaskId::Number(1), TaskId::Number(2)],
+        },
+    ];
+
+    assert_eq!(tokens, expected);
+}
+
+#[test]
+fn tokenizes_named_task_ids_and_prior_references() {
+    let input = r#"# Saga: Named Tasks
+
+## Tasks
+
+### Task bootstrap_env: Bootstrap environments
+**State:** in-progress
+**Prior:** Task seed_data, Task 2
+
+### Task seed_data: Seed database
+**State:** pending
+"#;
+
+    let tokens: Vec<Token> = tokenize(input).collect();
+
+    let expected = vec![
+        Token::SagaHeader,
+        Token::TasksSection,
+        Token::TaskHeader {
+            id: TaskId::Named("bootstrap_env".to_string()),
+        },
+        Token::MetadataState {
+            state: "in-progress".to_string(),
+        },
+        Token::MetadataPrior {
+            task_ids: vec![
+                TaskId::Named("seed_data".to_string()),
+                TaskId::Number(2),
+            ],
+        },
+        Token::TaskHeader {
+            id: TaskId::Named("seed_data".to_string()),
+        },
+        Token::MetadataState {
+            state: "pending".to_string(),
         },
     ];
 

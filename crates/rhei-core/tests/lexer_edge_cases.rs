@@ -1,8 +1,69 @@
-use rhei_core::{tokenize, Token};
 use rhei_core::ast::TaskId;
+use rhei_core::{Token, tokenize};
 
 #[test]
-fn ignores_structure_inside_fenced_code_blocks_and_unescapes_state_outside() {
+fn malformed_structure_near_misses_fall_back_to_text_tokens() {
+    let input = r#"#Saga: Missing Space
+##Tasks
+###Task 1: Missing Heading Space
+### task 1: Wrong Case
+#### Subtask 1: Missing Decimal Component
+**State** pending
+**Prior** Task 1
+### Task -bad: Invalid Named Id Boundary
+### Task _bad: Invalid Named Id Boundary
+### Task 1bad: Invalid Numeric Boundary
+"#;
+
+    let tokens: Vec<Token> = tokenize(input).collect();
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+        ]
+    );
+}
+
+#[test]
+fn distinguishes_valid_named_task_ids_from_invalid_boundaries() {
+    let input = r#"
+### Task build-1_ok: Valid
+### Task build--stage: Also Valid
+### Task -build: Invalid Leading Hyphen
+### Task 1build: Invalid Numeric Prefix
+### Task build$: Invalid Trailing Character
+"#;
+
+    let tokens: Vec<Token> = tokenize(input).collect();
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token::TaskHeader {
+                id: TaskId::Named("build-1_ok".to_string()),
+            },
+            Token::TaskHeader {
+                id: TaskId::Named("build--stage".to_string()),
+            },
+            Token::TextContent,
+            Token::TextContent,
+            Token::TextContent,
+        ]
+    );
+}
+
+#[test]
+fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
     let input = r#"# Saga: Example
 
 ## Tasks
@@ -11,10 +72,20 @@ fn ignores_structure_inside_fenced_code_blocks_and_unescapes_state_outside() {
 **State:** pending
 
 ```
+# Saga: Hidden Saga
+## Tasks
 ### Task 999: Should Not Tokenize
-**State:** in\ progress
+### task 2: Wrong Case
+#### Subtask 1: Missing Decimal Component
+**State** code-block near-miss
+**Prior** Task 2
 ```
 
+#Saga: Missing Space Outside Fence
+##Tasks
+###Task 2: Missing Heading Space Outside Fence
+**State** pending outside fence
+**Prior** Task 3 outside fence
 **Prior:** Task 1, Task 2
 "#;
 
@@ -23,18 +94,26 @@ fn ignores_structure_inside_fenced_code_blocks_and_unescapes_state_outside() {
     let expected = vec![
         Token::SagaHeader,
         Token::TasksSection,
-        Token::TaskHeader { id: TaskId::Number(1) },
+        Token::TaskHeader {
+            id: TaskId::Number(1),
+        },
         Token::MetadataState {
             state: "pending".to_string(),
         },
-        // Fence start
-        Token::TextContent,
-        // Lines inside code block should not be tokenized structurally
         Token::TextContent,
         Token::TextContent,
-        // Fence end
         Token::TextContent,
-        // After code block, metadata should be recognized again
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
+        Token::TextContent,
         Token::MetadataPrior {
             task_ids: vec![TaskId::Number(1), TaskId::Number(2)],
         },
@@ -45,7 +124,6 @@ fn ignores_structure_inside_fenced_code_blocks_and_unescapes_state_outside() {
 
 #[test]
 fn state_metadata_unescapes_backslash_sequences() {
-    // Ensure \  -> space and \\ -> \ are handled
     let input = "\
 **State:** in\\ progress
 **State:** path\\\\to\\\\file
