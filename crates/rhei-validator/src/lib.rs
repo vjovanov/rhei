@@ -877,4 +877,87 @@ states:
             joined
         );
     }
+
+    #[test]
+    fn reports_metadata_ordering_when_prior_precedes_state() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: A
+**Prior:** Task 2
+**State:** pending
+
+### Task 2: B
+**State:** completed
+"#;
+        let saga = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = validate_with_machine(&saga, &sm);
+
+        assert!(report.has_errors(), "expected metadata ordering error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("Task 1 metadata order invalid"),
+            "expected metadata ordering message; got:\n{}",
+            joined
+        );
+        assert!(
+            joined.contains("**State:** must appear before **Prior:**"),
+            "expected ordering rule details; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn prior_without_state_reports_missing_state_and_ordering_error() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: A
+**Prior:** Task 2
+
+### Task 2: B
+**State:** pending
+"#;
+        let saga = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = validate_with_machine(&saga, &sm);
+
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("Task 1 is missing mandatory **State:** metadata"),
+            "expected missing-state error; got:\n{}",
+            joined
+        );
+        assert!(
+            joined.contains("Task 1 metadata order invalid"),
+            "expected metadata ordering error; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn validation_report_extend_merges_errors_and_warnings() {
+        let mut base = ValidationReport {
+            errors: vec!["e1".to_string()],
+            warnings: vec!["w1".to_string()],
+        };
+        let other = ValidationReport {
+            errors: vec!["e2".to_string()],
+            warnings: vec!["w2".to_string()],
+        };
+
+        base.extend(other);
+
+        assert_eq!(base.errors, vec!["e1".to_string(), "e2".to_string()]);
+        assert_eq!(base.warnings, vec!["w1".to_string(), "w2".to_string()]);
+    }
+
+    #[test]
+    fn unit_type_validate_returns_ok_report() {
+        let report = ().validate();
+
+        assert_eq!(report, ValidationReport::ok());
+        assert!(!report.has_errors());
+    }
 }

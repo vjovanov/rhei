@@ -391,4 +391,103 @@ code block
         let err = parse(input).unwrap_err();
         assert!(err.message.contains("Missing '# Saga"));
     }
+
+    #[test]
+    fn parses_named_task_ids_and_named_prior_dependencies() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task build_api: Build API
+**State:** in-progress
+**Prior:** Task setup_db, Task 2
+
+#### Subtask 1.1: Implement endpoint
+Body
+"#;
+
+        let saga = parse(input).expect("parse ok");
+
+        assert_eq!(saga.tasks.len(), 1);
+        let task = &saga.tasks[0];
+        assert_eq!(task.id, TaskId::Named("build_api".to_string()));
+        assert_eq!(task.title, "Build API");
+        assert_eq!(task.metadata.state.as_deref(), Some("in-progress"));
+        assert_eq!(
+            task.metadata.depends_on,
+            vec![TaskId::Named("setup_db".to_string()), TaskId::Number(2)]
+        );
+    }
+
+    #[test]
+    fn metadata_after_content_is_not_parsed_as_task_metadata() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+Task description closes metadata window.
+**Prior:** Task 2
+
+#### Subtask 1.1: Work
+Done
+"#;
+
+        let saga = parse(input).expect("parse ok");
+
+        assert_eq!(saga.tasks.len(), 1);
+        let task = &saga.tasks[0];
+        assert_eq!(task.metadata.state.as_deref(), Some("pending"));
+        assert!(task.metadata.depends_on.is_empty());
+        assert!(task.metadata.state_first);
+        assert_eq!(task.subtasks.len(), 1);
+        assert!(task.subtasks[0].content.contains("Done"));
+    }
+
+    #[test]
+    fn state_after_prior_keeps_dependency_and_marks_ordering_for_validator() {
+        let input = r#"# Saga: Example
+## Tasks
+
+### Task 1: Alpha
+**Prior:** Task 2
+**State:** pending
+"#;
+
+        let saga = parse(input).expect("parse ok");
+
+        assert_eq!(saga.tasks.len(), 1);
+        let task = &saga.tasks[0];
+        assert_eq!(task.metadata.depends_on, vec![TaskId::Number(2)]);
+        assert_eq!(task.metadata.state.as_deref(), Some("pending"));
+        assert!(!task.metadata.state_first);
+    }
+
+    #[test]
+    fn preserves_saga_content_inside_fenced_code_blocks_before_tasks() {
+        let input = r#"# Saga: Example
+Intro line
+```rust
+### Task 999: not a real task
+**State:** hidden
+```
+## Tasks
+
+### Task 1: Real
+**State:** pending
+"#;
+
+        let saga = parse(input).expect("parse ok");
+
+        assert_eq!(saga.title, "Example");
+        assert_eq!(
+            saga.content,
+            vec![
+                ContentBlock::Text("Intro line".to_string()),
+                ContentBlock::Text("```rust".to_string()),
+                ContentBlock::Text("```".to_string()),
+            ]
+        );
+        assert_eq!(saga.tasks.len(), 1);
+        assert_eq!(saga.tasks[0].id, TaskId::Number(1));
+    }
 }
