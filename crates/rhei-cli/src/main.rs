@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use miette::{miette, Report, Result as MietteResult};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::fs;
@@ -445,6 +445,7 @@ fn line_text(input: &str, line_number: usize) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
     fn parses_validate_command_with_input() {

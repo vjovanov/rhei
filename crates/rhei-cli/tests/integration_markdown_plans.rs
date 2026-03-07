@@ -8,6 +8,7 @@ use rhei_core::parse;
 use rhei_output::{to_github_markdown, to_json_value, ProgressReportOutput};
 use rhei_validator::{validate_with_machine, StateMachine};
 
+#[allow(dead_code)]
 #[path = "../../rhei-core/tests/fixtures.rs"]
 mod fixtures;
 
