@@ -95,7 +95,7 @@ impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(raw) = self.lines.next() {
+        for raw in self.lines.by_ref() {
             let line = raw.trim();
 
             // Toggle code block fences before any matching

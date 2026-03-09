@@ -195,7 +195,7 @@ pub fn validate_from_machine_file<P: AsRef<Path>>(
 // Validation helpers
 // ---------------------------
 
-fn build_task_index<'a>(saga: &'a Saga) -> HashMap<TaskId, &'a Task> {
+fn build_task_index(saga: &Saga) -> HashMap<TaskId, &Task> {
     let mut map = HashMap::with_capacity(saga.tasks.len());
     for t in &saga.tasks {
         map.insert(t.id.clone(), t);

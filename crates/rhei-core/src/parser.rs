@@ -259,13 +259,13 @@ pub fn parse(input: &str) -> Result<Saga> {
             continue;
         }
 
-        if re_subtask_like_heading.is_match(line) {
-            if cur_task.is_some() || re_subtask_heading_prefix.is_match(line) {
-                return Err(ParseError::new(
-                    "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
-                    Some(line_number),
-                ));
-            }
+        if re_subtask_like_heading.is_match(line)
+            && (cur_task.is_some() || re_subtask_heading_prefix.is_match(line))
+        {
+            return Err(ParseError::new(
+                "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
+                Some(line_number),
+            ));
         }
 
         // Metadata: State
@@ -378,11 +378,9 @@ pub fn parse(input: &str) -> Result<Saga> {
         if let Some(st) = cur_subtask.as_mut() {
             st.content.push_str(raw);
             st.content.push('\n');
-        } else {
-            if let Some(t) = cur_task.as_mut() {
-                // Encountering non-metadata content closes the metadata window.
-                t.metadata_closed = true;
-            }
+        } else if let Some(t) = cur_task.as_mut() {
+            // Encountering non-metadata content closes the metadata window.
+            t.metadata_closed = true;
             // Task-level description not modeled; ignore for now.
         }
     }
@@ -487,7 +485,7 @@ code block
 
         assert_eq!(saga.title, "Example");
         assert!(
-            matches!(saga.content.get(0), Some(ContentBlock::Text(s)) if s == "Some intro line")
+            matches!(saga.content.first(), Some(ContentBlock::Text(s)) if s == "Some intro line")
         );
 
         assert_eq!(saga.tasks.len(), 1);

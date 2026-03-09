@@ -124,8 +124,8 @@ fn saga_json(saga: &Saga) -> Value {
     let content = saga
         .content
         .iter()
-        .filter_map(|c| match c {
-            ContentBlock::Text(s) => Some(Value::String(s.clone())),
+        .map(|c| match c {
+            ContentBlock::Text(s) => Value::String(s.clone()),
         })
         .collect::<Vec<Value>>();
 
@@ -181,8 +181,8 @@ impl GithubIssuesOutput {
         let overview_lines = saga
             .content
             .iter()
-            .filter_map(|c| match c {
-                ContentBlock::Text(s) => Some(s.as_str()),
+            .map(|c| match c {
+                ContentBlock::Text(s) => s.as_str(),
             })
             .collect::<Vec<&str>>();
         if !overview_lines.is_empty() {
@@ -279,8 +279,8 @@ impl ProgressReportOutput {
         if let Some(line) = saga
             .content
             .iter()
-            .filter_map(|c| match c {
-                ContentBlock::Text(s) => Some(s.trim()),
+            .map(|c| match c {
+                ContentBlock::Text(s) => s.trim(),
             })
             .find(|s| !s.is_empty())
         {
