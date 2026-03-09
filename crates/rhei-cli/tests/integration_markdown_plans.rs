@@ -123,10 +123,7 @@ fn assert_contains_in_order(haystack: &str, fragments: &[&str], context: &str, r
 
     for fragment in fragments {
         let Some(relative_index) = haystack[search_start..].find(fragment) else {
-            panic!(
-                "expected {context} fragment {:?} in order, got:\n{}",
-                fragment, rendered
-            );
+            panic!("expected {context} fragment {:?} in order, got:\n{}", fragment, rendered);
         };
         search_start += relative_index + fragment.len();
     }
@@ -249,7 +246,8 @@ fn valid_plan_parses_validates_and_renders_across_crates() {
         report.errors
     );
     assert_eq!(report.warnings.len(), 1, "expected named-task numbering warning");
-    assert!(report.warnings[0].contains("Cannot validate subtask numbering for named task 'bootstrap_env'"));
+    assert!(report.warnings[0]
+        .contains("Cannot validate subtask numbering for named task 'bootstrap_env'"));
 
     assert_eq!(saga.title, "Release Automation Rollout");
     assert_eq!(saga.tasks.len(), 3);
@@ -267,15 +265,9 @@ fn valid_plan_parses_validates_and_renders_across_crates() {
     assert!(github.contains("- Prior: Task 1, Task bootstrap_env"));
     assert!(github.contains("- [ ] 3.1: Dry run in staging"));
 
-    let progress = ProgressReportOutput {
-        color: false,
-        show_dependencies: true,
-    }
-    .to_string(&saga);
+    let progress = ProgressReportOutput { color: false, show_dependencies: true }.to_string(&saga);
     assert!(progress.contains("Saga: Release Automation Rollout"));
-    assert!(progress.contains(
-        "* Task bootstrap_env: Bootstrap environments  [IN-PROGRESS]"
-    ));
+    assert!(progress.contains("* Task bootstrap_env: Bootstrap environments  [IN-PROGRESS]"));
     assert!(progress.contains("  - Prior: Task 1, Task bootstrap_env"));
 }
 
@@ -290,9 +282,8 @@ fn invalid_plan_reports_cross_component_validation_failures() {
     let joined = report.errors.join("\n");
 
     assert!(joined.contains("Task 1 metadata order invalid"));
-    assert!(joined.contains(
-        "Subtask 2.1 ('Wrong subtask parent') is under Task 1 but declares parent 2"
-    ));
+    assert!(joined
+        .contains("Subtask 2.1 ('Wrong subtask parent') is under Task 1 but declares parent 2"));
     assert!(joined.contains("Circular dependency detected"));
 }
 
@@ -300,8 +291,7 @@ fn invalid_plan_reports_cross_component_validation_failures() {
 fn cli_validate_and_render_use_real_fixture_files() {
     let temp_dir = unique_temp_dir("integration-cli");
     let plan_path = write_fixture_file(&temp_dir, "valid-plan.md", CLI_VALID_PLAN);
-    let machine_path =
-        write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
+    let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let validate = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("--state-machine")
@@ -346,8 +336,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
 fn cli_validate_surfaces_validation_errors_for_fixture() {
     let temp_dir = unique_temp_dir("integration-cli-invalid");
     let plan_path = write_fixture_file(&temp_dir, "invalid-plan.md", fixtures::INVALID_PLAN);
-    let machine_path =
-        write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
+    let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("--state-machine")
@@ -425,11 +414,7 @@ fn cli_validate_reports_missing_tasks_section_parse_failure() {
         &["Missing", "Tasks", "section"],
         None,
         None,
-        &[
-            "missing mandatory **State:**",
-            "metadata order invalid",
-            "Circular dependency detected",
-        ],
+        &["missing mandatory **State:**", "metadata order invalid", "Circular dependency detected"],
     );
 }
 
@@ -528,7 +513,12 @@ fn cli_validate_reports_late_metadata_after_content_as_parse_failure() {
 
     assert_parse_failure(
         &result,
-        &["Metadata fields", "must appear immediately", "after the task heading", "before task content"],
+        &[
+            "Metadata fields",
+            "must appear immediately",
+            "after the task heading",
+            "before task content",
+        ],
         Some("line 8"),
         Some("**Prior:** Task 2"),
         &["depends on missing Task", "Circular dependency detected"],
@@ -663,9 +653,9 @@ fn cli_validate_surfaces_named_task_warning_on_success() {
     );
     assert!(result.stdout.contains("Validation succeeded"));
     assert!(
-        result.stdout.contains(
-            "warning: Cannot validate subtask numbering for named task 'bootstrap_env'"
-        ),
+        result
+            .stdout
+            .contains("warning: Cannot validate subtask numbering for named task 'bootstrap_env'"),
         "expected named-task warning in stdout, got:\n{}",
         result.stdout
     );

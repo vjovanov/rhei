@@ -36,10 +36,7 @@ pub struct ValidationReport {
 impl ValidationReport {
     /// Construct an empty, successful report.
     pub fn ok() -> Self {
-        Self {
-            errors: Vec::new(),
-            warnings: Vec::new(),
-        }
+        Self { errors: Vec::new(), warnings: Vec::new() }
     }
 
     /// Returns true if any errors are present.
@@ -214,20 +211,13 @@ fn validate_dependency_integrity(
     for task in &saga.tasks {
         for dep in &task.metadata.depends_on {
             if !index.contains_key(dep) {
-                report.errors.push(format!(
-                    "Task {} depends on missing Task {}",
-                    task.id, dep
-                ));
+                report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
             }
         }
     }
 }
 
-fn validate_state_consistency(
-    saga: &Saga,
-    machine: &StateMachine,
-    report: &mut ValidationReport,
-) {
+fn validate_state_consistency(saga: &Saga, machine: &StateMachine, report: &mut ValidationReport) {
     for task in &saga.tasks {
         match task.metadata.state.as_deref() {
             None => {
@@ -238,10 +228,7 @@ fn validate_state_consistency(
             }
             Some(state) => {
                 if !machine.is_valid_state(state) {
-                    let allowed = machine
-                        .allowed_states()
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
                     report.errors.push(format!(
                         "Task {} has invalid state '{}'. Allowed: [{}]",
                         task.id, state, allowed
@@ -317,10 +304,8 @@ fn validate_circular_dependencies(
     }
 
     // Kahn's algorithm
-    let mut q: VecDeque<TaskId> = indegree
-        .iter()
-        .filter_map(|(n, &d)| if d == 0 { Some(n.clone()) } else { None })
-        .collect();
+    let mut q: VecDeque<TaskId> =
+        indegree.iter().filter_map(|(n, &d)| if d == 0 { Some(n.clone()) } else { None }).collect();
     let mut processed = 0usize;
 
     while let Some(n) = q.pop_front() {
@@ -344,10 +329,9 @@ fn validate_circular_dependencies(
             .filter_map(|(n, &d)| if d > 0 { Some(n.to_string()) } else { None })
             .collect();
         if !cyc_nodes.is_empty() {
-            report.errors.push(format!(
-                "Circular dependency detected among tasks: {:?}",
-                cyc_nodes
-            ));
+            report
+                .errors
+                .push(format!("Circular dependency detected among tasks: {:?}", cyc_nodes));
         } else {
             report
                 .errors
@@ -498,11 +482,7 @@ states:
         let sm = sample_machine();
         let report = validate_with_machine(&saga, &sm);
 
-        assert!(
-            !report.has_errors(),
-            "unexpected errors: {:?}",
-            report.errors
-        );
+        assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
@@ -553,12 +533,7 @@ states:
             joined
         );
         for s in ["pending", "in-progress", "completed"] {
-            assert!(
-                joined.contains(s),
-                "allowed list missing state '{}'; errors:\n{}",
-                s,
-                joined
-            );
+            assert!(joined.contains(s), "allowed list missing state '{}'; errors:\n{}", s, joined);
         }
     }
 
@@ -606,11 +581,7 @@ states:
         let sm = sample_machine();
         let report = validate_with_machine(&saga, &sm);
 
-        assert!(
-            !report.has_errors(),
-            "unexpected errors: {:?}",
-            report.errors
-        );
+        assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
@@ -717,11 +688,7 @@ states:
         let sm = sample_machine();
         let report = validate_with_machine(&saga, &sm);
 
-        assert!(
-            !report.has_errors(),
-            "unexpected errors in DAG case: {:?}",
-            report.errors
-        );
+        assert!(!report.has_errors(), "unexpected errors in DAG case: {:?}", report.errors);
     }
 
     #[test]
@@ -799,11 +766,7 @@ states:
         let sm = sample_machine();
         let report = validate_with_machine(&saga, &sm);
 
-        assert!(
-            !report.has_errors(),
-            "unexpected errors: {:?}",
-            report.errors
-        );
+        assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
@@ -852,10 +815,7 @@ states:
         let sm = sample_machine();
         let mut report = validate_with_machine(&saga, &sm);
 
-        assert!(
-            report.has_errors(),
-            "expected exactly one numbering error; got none"
-        );
+        assert!(report.has_errors(), "expected exactly one numbering error; got none");
         // Filter only numbering mismatch errors to be robust to future validators.
         report.errors.retain(|e| e.contains("Subtask 1.2") && e.contains("under Task 2"));
         assert_eq!(
@@ -953,14 +913,10 @@ states:
 
     #[test]
     fn validation_report_extend_merges_errors_and_warnings() {
-        let mut base = ValidationReport {
-            errors: vec!["e1".to_string()],
-            warnings: vec!["w1".to_string()],
-        };
-        let other = ValidationReport {
-            errors: vec!["e2".to_string()],
-            warnings: vec!["w2".to_string()],
-        };
+        let mut base =
+            ValidationReport { errors: vec!["e1".to_string()], warnings: vec!["w1".to_string()] };
+        let other =
+            ValidationReport { errors: vec!["e2".to_string()], warnings: vec!["w2".to_string()] };
 
         base.extend(other);
 

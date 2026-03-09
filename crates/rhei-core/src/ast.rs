@@ -52,11 +52,7 @@ pub struct TaskMetadata {
 
 impl Default for TaskMetadata {
     fn default() -> Self {
-        Self {
-            depends_on: Vec::new(),
-            state: None,
-            state_first: true,
-        }
+        Self { depends_on: Vec::new(), state: None, state_first: true }
     }
 }
 

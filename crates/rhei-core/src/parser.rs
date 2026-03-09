@@ -16,7 +16,7 @@
 //! attempts to continue across unrecognized lines, only raising hard
 //! errors for missing saga title.
 
-use crate::ast::{ContentBlock, Saga, Subtask, Task, TaskMetadata, TaskId};
+use crate::ast::{ContentBlock, Saga, Subtask, Task, TaskId, TaskMetadata};
 use regex::Regex;
 
 /// Parser error with a message and an optional line number.
@@ -28,10 +28,7 @@ pub struct ParseError {
 
 impl ParseError {
     fn new<M: Into<String>>(msg: M, line: Option<usize>) -> Self {
-        Self {
-            message: msg.into(),
-            line,
-        }
+        Self { message: msg.into(), line }
     }
 }
 
@@ -51,8 +48,7 @@ pub fn parse(input: &str) -> Result<Saga> {
     let re_subtask_heading_prefix = Regex::new(r#"^####\s+Subtask\b.*$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
-    let re_prior_task_id =
-        Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
+    let re_prior_task_id = Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
     let re_h2_heading = Regex::new(r#"^##\s+\S.*$"#).unwrap();
     let re_saga_like_heading = Regex::new(r#"^#\S.*$"#).unwrap();
@@ -242,14 +238,9 @@ pub fn parse(input: &str) -> Result<Saga> {
                 }
             }
 
-            let task_number = caps
-                .get(1)
-                .and_then(|m| m.as_str().parse::<u32>().ok())
-                .unwrap_or(0);
-            let subtask_number = caps
-                .get(2)
-                .and_then(|m| m.as_str().parse::<u32>().ok())
-                .unwrap_or(0);
+            let task_number = caps.get(1).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
+            let subtask_number =
+                caps.get(2).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
             let title = caps.get(3).unwrap().as_str().to_string();
 
             // Starting a subtask implies metadata section is closed for the task.
@@ -262,12 +253,8 @@ pub fn parse(input: &str) -> Result<Saga> {
                 ));
             }
 
-            cur_subtask = Some(SubtaskBuilder {
-                task_number,
-                subtask_number,
-                title,
-                content: String::new(),
-            });
+            cur_subtask =
+                Some(SubtaskBuilder { task_number, subtask_number, title, content: String::new() });
 
             continue;
         }
@@ -423,12 +410,7 @@ pub fn parse(input: &str) -> Result<Saga> {
 
     let title = match saga_title {
         Some(t) => t,
-        None => {
-            return Err(ParseError::new(
-                "Missing '# Saga: <title>' header",
-                None,
-            ))
-        }
+        None => return Err(ParseError::new("Missing '# Saga: <title>' header", None)),
     };
 
     if !in_tasks_section {
@@ -449,11 +431,7 @@ pub fn parse(input: &str) -> Result<Saga> {
         ));
     }
 
-    Ok(Saga {
-        title,
-        content: saga_content,
-        tasks,
-    })
+    Ok(Saga { title, content: saga_content, tasks })
 }
 
 /// Unescape simple backslash escapes used in metadata values.
@@ -508,7 +486,9 @@ code block
         let saga = parse(input).expect("parse ok");
 
         assert_eq!(saga.title, "Example");
-        assert!(matches!(saga.content.get(0), Some(ContentBlock::Text(s)) if s == "Some intro line"));
+        assert!(
+            matches!(saga.content.get(0), Some(ContentBlock::Text(s)) if s == "Some intro line")
+        );
 
         assert_eq!(saga.tasks.len(), 1);
         let t1 = &saga.tasks[0];
@@ -556,10 +536,7 @@ code block
         let input = "#Saga: Example\n## Tasks\n";
         let err = parse(input).unwrap_err();
 
-        assert_eq!(
-            err.message,
-            "Malformed saga heading: expected '# Saga: <title>'"
-        );
+        assert_eq!(err.message, "Malformed saga heading: expected '# Saga: <title>'");
         assert_eq!(err.line, Some(1));
     }
 
@@ -728,10 +705,7 @@ Intro line
 "#;
 
         let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed task heading: expected '### Task <id>: <title>'"
-        );
+        assert_eq!(err.message, "Malformed task heading: expected '### Task <id>: <title>'");
         assert_eq!(err.line, Some(4));
     }
 
@@ -745,10 +719,7 @@ Intro line
 "#;
 
         let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed task heading: expected '### Task <id>: <title>'"
-        );
+        assert_eq!(err.message, "Malformed task heading: expected '### Task <id>: <title>'");
         assert_eq!(err.line, Some(4));
     }
 
@@ -762,10 +733,7 @@ Intro line
 "#;
 
         let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed task heading: expected '### Task <id>: <title>'"
-        );
+        assert_eq!(err.message, "Malformed task heading: expected '### Task <id>: <title>'");
         assert_eq!(err.line, Some(4));
     }
 
@@ -817,10 +785,7 @@ Intro line
 "#;
 
         let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed metadata field: expected '**State:** <value>'"
-        );
+        assert_eq!(err.message, "Malformed metadata field: expected '**State:** <value>'");
         assert_eq!(err.line, Some(5));
     }
 

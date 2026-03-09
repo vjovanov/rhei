@@ -1,5 +1,5 @@
 use rhei_core::ast::TaskId;
-use rhei_core::{Token, tokenize};
+use rhei_core::{tokenize, Token};
 
 #[test]
 fn malformed_structure_near_misses_fall_back_to_text_tokens() {
@@ -49,12 +49,8 @@ fn distinguishes_valid_named_task_ids_from_invalid_boundaries() {
     assert_eq!(
         tokens,
         vec![
-            Token::TaskHeader {
-                id: TaskId::Named("build-1_ok".to_string()),
-            },
-            Token::TaskHeader {
-                id: TaskId::Named("build--stage".to_string()),
-            },
+            Token::TaskHeader { id: TaskId::Named("build-1_ok".to_string()) },
+            Token::TaskHeader { id: TaskId::Named("build--stage".to_string()) },
             Token::TextContent,
             Token::TextContent,
             Token::TextContent,
@@ -94,12 +90,8 @@ fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
     let expected = vec![
         Token::SagaHeader,
         Token::TasksSection,
-        Token::TaskHeader {
-            id: TaskId::Number(1),
-        },
-        Token::MetadataState {
-            state: "pending".to_string(),
-        },
+        Token::TaskHeader { id: TaskId::Number(1) },
+        Token::MetadataState { state: "pending".to_string() },
         Token::TextContent,
         Token::TextContent,
         Token::TextContent,
@@ -114,9 +106,7 @@ fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
         Token::TextContent,
         Token::TextContent,
         Token::TextContent,
-        Token::MetadataPrior {
-            task_ids: vec![TaskId::Number(1), TaskId::Number(2)],
-        },
+        Token::MetadataPrior { task_ids: vec![TaskId::Number(1), TaskId::Number(2)] },
     ];
 
     assert_eq!(tokens, expected);
@@ -132,12 +122,8 @@ fn state_metadata_unescapes_backslash_sequences() {
     let tokens: Vec<Token> = tokenize(input).collect();
 
     let expected = vec![
-        Token::MetadataState {
-            state: "in progress".to_string(),
-        },
-        Token::MetadataState {
-            state: "path\\to\\file".to_string(),
-        },
+        Token::MetadataState { state: "in progress".to_string() },
+        Token::MetadataState { state: "path\\to\\file".to_string() },
     ];
 
     assert_eq!(tokens, expected);

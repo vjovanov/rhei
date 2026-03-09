@@ -1,5 +1,5 @@
 use rhei_core::ast::TaskId;
-use rhei_core::{Token, tokenize};
+use rhei_core::{tokenize, Token};
 
 #[test]
 fn tokenizes_basic_structure() {
@@ -21,20 +21,11 @@ Some description line
     let expected = vec![
         Token::SagaHeader,
         Token::TasksSection,
-        Token::TaskHeader {
-            id: TaskId::Number(1),
-        },
-        Token::MetadataState {
-            state: "completed".to_string(),
-        },
-        Token::SubtaskHeader {
-            task_number: 1,
-            subtask_number: 1,
-        },
+        Token::TaskHeader { id: TaskId::Number(1) },
+        Token::MetadataState { state: "completed".to_string() },
+        Token::SubtaskHeader { task_number: 1, subtask_number: 1 },
         Token::TextContent,
-        Token::MetadataPrior {
-            task_ids: vec![TaskId::Number(1), TaskId::Number(2)],
-        },
+        Token::MetadataPrior { task_ids: vec![TaskId::Number(1), TaskId::Number(2)] },
     ];
 
     assert_eq!(tokens, expected);
@@ -59,24 +50,13 @@ fn tokenizes_named_task_ids_and_prior_references() {
     let expected = vec![
         Token::SagaHeader,
         Token::TasksSection,
-        Token::TaskHeader {
-            id: TaskId::Named("bootstrap_env".to_string()),
-        },
-        Token::MetadataState {
-            state: "in-progress".to_string(),
-        },
+        Token::TaskHeader { id: TaskId::Named("bootstrap_env".to_string()) },
+        Token::MetadataState { state: "in-progress".to_string() },
         Token::MetadataPrior {
-            task_ids: vec![
-                TaskId::Named("seed_data".to_string()),
-                TaskId::Number(2),
-            ],
+            task_ids: vec![TaskId::Named("seed_data".to_string()), TaskId::Number(2)],
         },
-        Token::TaskHeader {
-            id: TaskId::Named("seed_data".to_string()),
-        },
-        Token::MetadataState {
-            state: "pending".to_string(),
-        },
+        Token::TaskHeader { id: TaskId::Named("seed_data".to_string()) },
+        Token::MetadataState { state: "pending".to_string() },
     ];
 
     assert_eq!(tokens, expected);

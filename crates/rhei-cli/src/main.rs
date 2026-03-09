@@ -78,7 +78,6 @@ enum RenderFormat {
     Progress,
 }
 
-
 /// Program entry point.
 ///
 /// Delegates to [`run()`](run) so tests can exercise the fallible logic directly.
@@ -94,24 +93,10 @@ fn run() -> MietteResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Validate { watch, input } => {
-            validate_command(&input, &cli.state_machine, watch)
+        Commands::Validate { watch, input } => validate_command(&input, &cli.state_machine, watch),
+        Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
+            render_command(&input, format, pretty, no_color, no_metadata, no_content)
         }
-        Commands::Render {
-            input,
-            format,
-            pretty,
-            no_color,
-            no_metadata,
-            no_content,
-        } => render_command(
-            &input,
-            format,
-            pretty,
-            no_color,
-            no_metadata,
-            no_content,
-        ),
         Commands::Version => {
             print_versions();
             Ok(())
@@ -142,14 +127,8 @@ fn validate_command(input: &Path, state_machine: &Path, watch: bool) -> MietteRe
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
     let saga = parse_input_file(input)?;
-    let report =
-        rhei_validator::validate_from_machine_file(&saga, state_machine).map_err(|err| {
-            file_io_report(
-                state_machine,
-                "failed to load states",
-                err,
-            )
-        })?;
+    let report = rhei_validator::validate_from_machine_file(&saga, state_machine)
+        .map_err(|err| file_io_report(state_machine, "failed to load states", err))?;
 
     if report.has_errors() {
         return Err(validation_report(input, state_machine, &report.errors));
@@ -173,11 +152,7 @@ fn watch_validation_command(input: &Path, state_machine: &Path) -> MietteResult<
     let watched_paths = canonical_watched_paths(input, state_machine);
     let watch_roots = watch_roots(input, state_machine);
 
-    println!(
-        "Watch mode started for '{}' and '{}'",
-        input.display(),
-        state_machine.display()
-    );
+    println!("Watch mode started for '{}' and '{}'", input.display(), state_machine.display());
 
     run_validation_iteration(input, state_machine);
 
@@ -250,10 +225,7 @@ fn should_revalidate(event: &Event, watched_paths: &[PathBuf]) -> bool {
 fn is_relevant_event_kind(kind: &EventKind) -> bool {
     matches!(
         kind,
-        EventKind::Create(_)
-            | EventKind::Modify(_)
-            | EventKind::Remove(_)
-            | EventKind::Any
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Any
     )
 }
 
@@ -338,11 +310,10 @@ fn render_saga(
             include_metadata: !no_metadata,
         }
         .to_markdown(saga)),
-        RenderFormat::Progress => Ok(rhei_output::ProgressReportOutput {
-            color: !no_color,
-            show_dependencies: true,
+        RenderFormat::Progress => {
+            Ok(rhei_output::ProgressReportOutput { color: !no_color, show_dependencies: true }
+                .to_string(saga))
         }
-        .to_string(saga)),
     }
 }
 
@@ -369,7 +340,11 @@ fn validation_report(input: &Path, state_machine: &Path, errors: &[String]) -> R
     miette!("{}", render_validation_diagnostic(input, state_machine, errors))
 }
 
-fn render_parse_diagnostic(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -> String {
+fn render_parse_diagnostic(
+    path: &Path,
+    input: &str,
+    err: &rhei_core::parser::ParseError,
+) -> String {
     let mut lines = vec![format!(
         "-- PARSE ERROR ------------------------------------------------------------- {}",
         path.display()
@@ -384,11 +359,7 @@ fn render_parse_diagnostic(path: &Path, input: &str, err: &rhei_core::parser::Pa
         if let Some(source_line) = line_text(input, line_number) {
             lines.push(String::new());
             lines.push(format!("{line_number}| {source_line}"));
-            lines.push(format!(
-                "{}{}",
-                " ".repeat(line_number.to_string().len() + 2),
-                "^"
-            ));
+            lines.push(format!("{}{}", " ".repeat(line_number.to_string().len() + 2), "^"));
         }
     }
 
@@ -396,8 +367,7 @@ fn render_parse_diagnostic(path: &Path, input: &str, err: &rhei_core::parser::Pa
     lines.push(err.message.replace(" before task content", "\nbefore task content"));
     lines.push(String::new());
     lines.push(
-        "Hint: check the markdown structure around the highlighted line and try again."
-            .to_string(),
+        "Hint: check the markdown structure around the highlighted line and try again.".to_string(),
     );
 
     lines.join("\n")
@@ -416,9 +386,7 @@ fn render_validation_diagnostic(input: &Path, state_machine: &Path, errors: &[St
     lines.push(String::new());
     lines.push(format_validation_errors(errors));
     lines.push(String::new());
-    lines.push(
-        "I recommend fixing the problems above and running the command again.".to_string(),
-    );
+    lines.push("I recommend fixing the problems above and running the command again.".to_string());
 
     lines.join("\n")
 }
@@ -429,10 +397,7 @@ fn format_validation_errors(errors: &[String]) -> String {
     } else {
         let mut lines = vec![format!("I found {} problems:", errors.len()), String::new()];
         lines.extend(
-            errors
-                .iter()
-                .enumerate()
-                .map(|(index, error)| format!("{}. {}", index + 1, error)),
+            errors.iter().enumerate().map(|(index, error)| format!("{}. {}", index + 1, error)),
         );
         lines.join("\n")
     }
@@ -464,13 +429,9 @@ mod tests {
 
     #[test]
     fn parses_validate_watch_command_with_input() {
-        let cli = Cli::try_parse_from([
-            "rhei",
-            "validate",
-            "--watch",
-            "docs/markdown-plan-compiler.md",
-        ])
-        .expect("cli should parse");
+        let cli =
+            Cli::try_parse_from(["rhei", "validate", "--watch", "docs/markdown-plan-compiler.md"])
+                .expect("cli should parse");
 
         assert_eq!(cli.state_machine, PathBuf::from(DEFAULT_STATES_PATH));
         match cli.command {
@@ -495,14 +456,7 @@ mod tests {
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Render {
-                input,
-                format,
-                pretty,
-                no_color,
-                no_metadata,
-                no_content,
-            } => {
+            Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
                 assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
                 assert_eq!(format, RenderFormat::Json);
                 assert!(pretty);
@@ -528,12 +482,7 @@ mod tests {
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Render {
-                format,
-                no_metadata,
-                no_content,
-                ..
-            } => {
+            Commands::Render { format, no_metadata, no_content, .. } => {
                 assert_eq!(format, RenderFormat::Github);
                 assert!(no_metadata);
                 assert!(no_content);
@@ -555,9 +504,7 @@ mod tests {
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Render {
-                format, no_color, ..
-            } => {
+            Commands::Render { format, no_color, .. } => {
                 assert_eq!(format, RenderFormat::Progress);
                 assert!(no_color);
             }
@@ -630,10 +577,7 @@ mod tests {
             Path::new("docs/states.yaml"),
         );
 
-        assert!(path_matches(
-            Path::new("./docs/markdown-plan-compiler.md"),
-            &watched
-        ));
+        assert!(path_matches(Path::new("./docs/markdown-plan-compiler.md"), &watched));
         assert!(path_matches(Path::new("docs/states.yaml"), &watched));
         assert!(!path_matches(Path::new("docs/plan-language-spec.md"), &watched));
     }

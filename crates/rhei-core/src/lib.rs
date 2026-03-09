@@ -8,14 +8,14 @@
 //! Most consumers only need [`parse`](crate::parse) plus the public AST types
 //! from [`crate::ast`].
 
-pub mod tokens;
-pub mod lexer;
 pub mod ast;
+pub mod lexer;
 pub mod parser;
+pub mod tokens;
 
-pub use tokens::Token;
-pub use lexer::{Tokenizer, tokenize};
+pub use lexer::{tokenize, Tokenizer};
 pub use parser::parse;
+pub use tokens::Token;
 
 /// Returns the crate version reported by Cargo metadata.
 pub fn version() -> String {

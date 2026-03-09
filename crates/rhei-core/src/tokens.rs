@@ -15,28 +15,19 @@ pub enum Token {
 
     /// Task header: "### Task <id>: <title>"
     /// where <id> can be numeric (NUMBER) or named (IDENTIFIER).
-    TaskHeader {
-        id: TaskId,
-    },
+    TaskHeader { id: TaskId },
 
     /// Subtask header:
     /// "#### Subtask <task_number>.<subtask_number>: <title>"
     /// Subtask numbers are always numeric as per the specification.
-    SubtaskHeader {
-        task_number: u32,
-        subtask_number: u32,
-    },
+    SubtaskHeader { task_number: u32, subtask_number: u32 },
 
     /// Metadata "Prior": "**Prior:** Task <id1>, Task <id2>, ..."
     /// where each task id may be numeric or named.
-    MetadataPrior {
-        task_ids: Vec<TaskId>,
-    },
+    MetadataPrior { task_ids: Vec<TaskId> },
 
     /// Metadata "State": "**State:** <state>"
-    MetadataState {
-        state: String,
-    },
+    MetadataState { state: String },
 
     /// Any non-heading, non-metadata text content.
     ///

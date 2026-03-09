@@ -98,12 +98,7 @@ fn subtask_json(st: &Subtask) -> Value {
 
 fn task_json(t: &Task) -> Value {
     // depends_on array (possibly empty)
-    let depends_on = t
-        .metadata
-        .depends_on
-        .iter()
-        .map(task_id_json)
-        .collect::<Vec<Value>>();
+    let depends_on = t.metadata.depends_on.iter().map(task_id_json).collect::<Vec<Value>>();
 
     // metadata map with conditional "state"
     let mut meta = Map::new();
@@ -111,10 +106,7 @@ fn task_json(t: &Task) -> Value {
     if let Some(state) = &t.metadata.state {
         meta.insert("state".to_string(), Value::String(state.clone()));
     }
-    meta.insert(
-        "state_first".to_string(),
-        Value::Bool(t.metadata.state_first),
-    );
+    meta.insert("state_first".to_string(), Value::Bool(t.metadata.state_first));
 
     // subtasks
     let subtasks = t.subtasks.iter().map(subtask_json).collect::<Vec<Value>>();
@@ -160,10 +152,7 @@ fn fmt_task_id(id: &TaskId) -> String {
 
 /// Helper: format a list of TaskIds as "Task 1, Task build".
 fn fmt_prior_list(ids: &[TaskId]) -> String {
-    ids.iter()
-        .map(|id| format!("Task {}", fmt_task_id(id)))
-        .collect::<Vec<String>>()
-        .join(", ")
+    ids.iter().map(|id| format!("Task {}", fmt_task_id(id))).collect::<Vec<String>>().join(", ")
 }
 
 /// GitHub issues-style Markdown output generator.
@@ -255,11 +244,7 @@ impl GithubIssuesOutput {
 
 /// Convenience: render saga to GitHub issues-style Markdown with all sections enabled.
 pub fn to_github_markdown(saga: &rhei_core::ast::Saga) -> String {
-    GithubIssuesOutput {
-        include_content: true,
-        include_metadata: true,
-    }
-    .to_markdown(saga)
+    GithubIssuesOutput { include_content: true, include_metadata: true }.to_markdown(saga)
 }
 
 // -----------------------------------------------------------------------------
@@ -307,13 +292,8 @@ impl ProgressReportOutput {
         // Tasks
         for task in &saga.tasks {
             // Determine state (uppercased for display)
-            let state_upper = task
-                .metadata
-                .state
-                .as_deref()
-                .unwrap_or("unknown")
-                .trim()
-                .to_ascii_uppercase();
+            let state_upper =
+                task.metadata.state.as_deref().unwrap_or("unknown").trim().to_ascii_uppercase();
             let badge = badge_for(&state_upper, self.color);
 
             // Task summary line
@@ -353,27 +333,21 @@ fn badge_for(state_upper: &str, color: bool) -> String {
         return format!("[{}]", state_upper);
     }
     // Same mapping as colorize()
-    let key = state_upper
-        .to_ascii_lowercase()
-        .replace(' ', "-");
+    let key = state_upper.to_ascii_lowercase().replace(' ', "-");
     let code = match key.as_str() {
-        "pending" => 34,       // blue
-        "in-progress" => 33,   // yellow
-        "blocked" => 31,       // red
-        "completed" => 32,     // green
-        "cancelled" => 90,     // bright black / gray
-        _ => 35,               // magenta (unknown)
+        "pending" => 34,     // blue
+        "in-progress" => 33, // yellow
+        "blocked" => 31,     // red
+        "completed" => 32,   // green
+        "cancelled" => 90,   // bright black / gray
+        _ => 35,             // magenta (unknown)
     };
     format!("\x1b[{}m[{}]\x1b[0m", code, state_upper)
 }
 
 /// Convenience: render saga to a colored progress report with dependencies shown.
 pub fn to_progress_report(saga: &rhei_core::ast::Saga) -> String {
-    ProgressReportOutput {
-        color: true,
-        show_dependencies: true,
-    }
-    .to_string(saga)
+    ProgressReportOutput { color: true, show_dependencies: true }.to_string(saga)
 }
 
 // -----------------------------------------------------------------------------
@@ -452,10 +426,8 @@ Do B line
         assert_eq!(deps[0]["number"].as_u64(), Some(1));
 
         // Find Task 1 and verify two subtasks with fields
-        let task1 = tasks
-            .iter()
-            .find(|t| t["id"]["number"].as_u64() == Some(1))
-            .expect("task 1 exists");
+        let task1 =
+            tasks.iter().find(|t| t["id"]["number"].as_u64() == Some(1)).expect("task 1 exists");
 
         let subtasks = task1["subtasks"].as_array().unwrap();
         assert_eq!(subtasks.len(), 2);
@@ -582,10 +554,7 @@ Line 1
 Line 2
 "#;
         let saga = parse(input).expect("parse ok");
-        let gen = GithubIssuesOutput {
-            include_content: true,
-            include_metadata: true,
-        };
+        let gen = GithubIssuesOutput { include_content: true, include_metadata: true };
         let s = gen.to_markdown(&saga);
 
         // Checkbox line present
@@ -607,10 +576,7 @@ Line 2
 #### Subtask 1.1: Do A
 "#;
         let saga = parse(input).expect("parse ok");
-        let gen = GithubIssuesOutput {
-            include_content: false,
-            include_metadata: false,
-        };
+        let gen = GithubIssuesOutput { include_content: false, include_metadata: false };
         let s = gen.to_markdown(&saga);
 
         // Task and subtask still render
@@ -637,10 +603,7 @@ Line 2
 "#;
 
         let saga = parse(input).expect("parse ok");
-        let gen = ProgressReportOutput {
-            color: true,
-            show_dependencies: true,
-        };
+        let gen = ProgressReportOutput { color: true, show_dependencies: true };
         let s = gen.to_string(&saga);
 
         assert!(s.contains("Saga: "));
@@ -666,18 +629,16 @@ Line 2
         let saga = parse(input).expect("parse ok");
         let s = to_progress_report(&saga);
 
-                // Second task header appears (don't match exact ANSI-wrapped badge)
-                assert!(s.contains("* Task 2: Two"));
-                // Prior line appears and is below the task line
-                let prior_line = "  - Prior: Task 1";
-                assert!(s.contains(prior_line));
+        // Second task header appears (don't match exact ANSI-wrapped badge)
+        assert!(s.contains("* Task 2: Two"));
+        // Prior line appears and is below the task line
+        let prior_line = "  - Prior: Task 1";
+        assert!(s.contains(prior_line));
 
-                let idx_task = s.find("* Task 2: Two").expect("task 2 line index");
-                let idx_prior = s[idx_task..]
-                    .find(prior_line)
-                    .map(|i| idx_task + i)
-                    .expect("prior line index");
-                assert!(idx_prior > idx_task);
+        let idx_task = s.find("* Task 2: Two").expect("task 2 line index");
+        let idx_prior =
+            s[idx_task..].find(prior_line).map(|i| idx_task + i).expect("prior line index");
+        assert!(idx_prior > idx_task);
     }
 
     #[test]
@@ -706,10 +667,7 @@ Line 2
 "#;
 
         let saga = parse(input).expect("parse ok");
-        let gen = ProgressReportOutput {
-            color: false,
-            show_dependencies: true,
-        };
+        let gen = ProgressReportOutput { color: false, show_dependencies: true };
         let s = gen.to_string(&saga);
 
         assert!(!s.contains("\x1b["));

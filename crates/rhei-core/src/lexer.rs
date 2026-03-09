@@ -10,8 +10,8 @@
 //! Edge cases like fenced code blocks, escapes, and nested markdown will be
 //! addressed in Task 2.3.
 
-use crate::tokens::Token;
 use crate::ast::TaskId;
+use crate::tokens::Token;
 use regex::Regex;
 
 /// Streaming tokenizer over markdown input.
@@ -36,12 +36,10 @@ impl<'a> Tokenizer<'a> {
         let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
         let re_task_header =
             Regex::new(r#"^###\s+Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+):\s+.*$"#).unwrap();
-        let re_subtask_header =
-            Regex::new(r#"^####\s+Subtask\s+(\d+)\.(\d+):\s+.*$"#).unwrap();
+        let re_subtask_header = Regex::new(r#"^####\s+Subtask\s+(\d+)\.(\d+):\s+.*$"#).unwrap();
 
         // For "**Prior:** Task 1, Task 2" or named ids
-        let re_prior_task_id =
-            Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
+        let re_prior_task_id = Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
 
         // For "**State:** value"
         let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
@@ -141,19 +139,13 @@ impl<'a> Iterator for Tokenizer<'a> {
                 let tn = caps.get(1).and_then(|m| m.as_str().parse::<u32>().ok());
                 let sn = caps.get(2).and_then(|m| m.as_str().parse::<u32>().ok());
                 if let (Some(task_number), Some(subtask_number)) = (tn, sn) {
-                    return Some(Token::SubtaskHeader {
-                        task_number,
-                        subtask_number,
-                    });
+                    return Some(Token::SubtaskHeader { task_number, subtask_number });
                 }
             }
 
             // Metadata: State (with unescaping)
             if let Some(caps) = self.re_state.captures(line) {
-                let state_raw = caps
-                    .get(1)
-                    .map(|m| m.as_str().trim())
-                    .unwrap_or_default();
+                let state_raw = caps.get(1).map(|m| m.as_str().trim()).unwrap_or_default();
                 let state = Self::unescape_simple(state_raw);
                 return Some(Token::MetadataState { state });
             }
