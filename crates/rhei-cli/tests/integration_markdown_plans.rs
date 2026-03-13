@@ -374,8 +374,8 @@ fn cli_validate_reports_missing_saga_header_parse_failure() {
     assert_parse_failure(
         &result,
         &["Missing", "Saga:", "header"],
-        None,
-        None,
+        Some("line 1"),
+        Some("## Tasks"),
         &[
             "missing mandatory **State:**",
             "depends on missing Task",
@@ -397,6 +397,29 @@ fn cli_validate_reports_malformed_saga_header_parse_failure() {
         &["Malformed saga heading", "expected", "Saga:", "title"],
         Some("line 1"),
         Some("#Saga: Missing required space"),
+        &["VALIDATION ERROR", "missing mandatory **State:**"],
+    );
+}
+
+#[test]
+fn cli_validate_reports_h1_typo_as_malformed_saga_header_parse_failure() {
+    let result = run_validate(
+        r#"# Sga: Release Automation Rollout
+
+## Tasks
+
+### Task 1: Primary task
+**State:** pending
+"#,
+        fixtures::TEST_STATE_MACHINE,
+        "integration-cli-malformed-saga-heading-typo",
+    );
+
+    assert_parse_failure(
+        &result,
+        &["Malformed saga heading", "expected", "Saga:", "title"],
+        Some("line 1"),
+        Some("# Sga: Release Automation Rollout"),
         &["VALIDATION ERROR", "missing mandatory **State:**"],
     );
 }

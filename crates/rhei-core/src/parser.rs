@@ -51,12 +51,12 @@ pub fn parse(input: &str) -> Result<Saga> {
     let re_prior_task_id = Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
     let re_h2_heading = Regex::new(r#"^##\s+\S.*$"#).unwrap();
-    let re_saga_like_heading = Regex::new(r#"^#\S.*$"#).unwrap();
 
     let mut in_code_block = false;
     let mut in_tasks_section = false;
     let mut tasks_section_line: Option<usize> = None;
     let mut pre_tasks_h2_seen = false;
+    let mut first_nonempty_line: Option<usize> = None;
 
     let mut saga_title: Option<String> = None;
     let mut saga_header_seen = false;
@@ -87,6 +87,11 @@ pub fn parse(input: &str) -> Result<Saga> {
 
     for (idx, raw) in input.lines().enumerate() {
         let line_number = idx + 1;
+        let line = raw.trim();
+
+        if !line.is_empty() {
+            first_nonempty_line.get_or_insert(line_number);
+        }
 
         // Detect fences first (outside of trimming)
         let trimmed_start = raw.trim_start();
@@ -111,8 +116,6 @@ pub fn parse(input: &str) -> Result<Saga> {
             continue;
         }
 
-        let line = raw.trim();
-
         // Skip empty lines unless they are inside a subtask content block.
         if line.is_empty() {
             if in_tasks_section {
@@ -132,6 +135,14 @@ pub fn parse(input: &str) -> Result<Saga> {
                 continue;
             }
 
+            let is_top_level_h1 = line.starts_with('#') && !line.starts_with("##");
+            if !saga_header_seen && is_top_level_h1 {
+                return Err(ParseError::new(
+                    "Malformed saga heading: expected '# Saga: <title>'",
+                    Some(line_number),
+                ));
+            }
+
             if re_tasks.is_match(line) {
                 in_tasks_section = true;
                 tasks_section_line = Some(line_number);
@@ -142,13 +153,6 @@ pub fn parse(input: &str) -> Result<Saga> {
                 pre_tasks_h2_seen = true;
                 saga_content.push(ContentBlock::Text(raw.to_string()));
                 continue;
-            }
-
-            if !saga_header_seen && re_saga_like_heading.is_match(line) {
-                return Err(ParseError::new(
-                    "Malformed saga heading: expected '# Saga: <title>'",
-                    Some(line_number),
-                ));
             }
 
             if re_state_like.is_match(line) || re_prior_like.is_match(line) {
@@ -408,7 +412,12 @@ pub fn parse(input: &str) -> Result<Saga> {
 
     let title = match saga_title {
         Some(t) => t,
-        None => return Err(ParseError::new("Missing '# Saga: <title>' header", None)),
+        None => {
+            return Err(ParseError::new(
+                "Missing '# Saga: <title>' header",
+                first_nonempty_line.or(tasks_section_line),
+            ));
+        }
     };
 
     if !in_tasks_section {
@@ -509,6 +518,16 @@ code block
         let input = "## Tasks\n";
         let err = parse(input).unwrap_err();
         assert!(err.message.contains("Missing '# Saga"));
+        assert_eq!(err.line, Some(1));
+    }
+
+    #[test]
+    fn error_when_missing_saga_title_after_leading_code_fence_points_to_first_line() {
+        let input = "```md\n## Tasks\n```\n";
+        let err = parse(input).unwrap_err();
+
+        assert!(err.message.contains("Missing '# Saga"));
+        assert_eq!(err.line, Some(1));
     }
 
     #[test]
@@ -532,6 +551,15 @@ code block
     #[test]
     fn errors_on_malformed_saga_heading_intended_as_saga_header() {
         let input = "#Saga: Example\n## Tasks\n";
+        let err = parse(input).unwrap_err();
+
+        assert_eq!(err.message, "Malformed saga heading: expected '# Saga: <title>'");
+        assert_eq!(err.line, Some(1));
+    }
+
+    #[test]
+    fn errors_on_h1_heading_with_wrong_keyword_as_malformed_saga_heading() {
+        let input = "# Sga: Example\n## Tasks\n";
         let err = parse(input).unwrap_err();
 
         assert_eq!(err.message, "Malformed saga heading: expected '# Saga: <title>'");
