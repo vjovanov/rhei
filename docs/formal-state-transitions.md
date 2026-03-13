@@ -21,7 +21,8 @@ State transitions will be defined declaratively in YAML and executed through pla
 - Transitions trigger callbacks/functions that receive context about the task
 - Callbacks can reject transitions by returning an error (for conditional logic)
 - Failed transitions should be reportable and recoverable
-- All callbacks must be verified when transitioning states
+- Registered callbacks must be verified as callable before execution begins (callback existence validation)
+- Callbacks (`on_leave`, `on_enter`) are optional per transition - omitted callbacks are treated as implicit success
 
 ---
 
@@ -75,12 +76,20 @@ interface Saga {
 interface TransitionInfo {
   from: string;
   to: string;
-  triggeredBy: 'user' | 'callback' | 'system';
+  /**
+   * How this transition was initiated:
+   * - 'user': Explicitly triggered via API (CLI command, programmatic call)
+   * - 'callback': Triggered by a callback's nextState override
+   * - 'system': Triggered by condition evaluation or timeout
+   * - 'engine': Triggered by the Rhei engine during autonomous workflow execution
+   */
+  triggeredBy: 'user' | 'callback' | 'system' | 'engine';
   timestamp: string;  // ISO 8601 format (e.g., "2024-01-15T10:30:00Z")
 }
 
 /** Execution environment information */
 interface Environment {
+  /** Runtime platform. Use 'nodejs' for JavaScript/TypeScript environments. */
   platform: 'cli' | 'nodejs' | 'python' | 'java';
   version: string;
   workingDirectory: string;
@@ -116,13 +125,38 @@ interface TransitionContext {
 /**
  * The result returned from transition callbacks.
  *
- * Callbacks use this to indicate success/failure and optionally
- * override the target state or pass data to subsequent callbacks.
+ * Callbacks return one of three distinct outcomes:
+ *
+ * 1. **Success**: Transition proceeds to the declared target state.
+ *    ```typescript
+ *    return { success: true };
+ *    return { success: true, data: { ... } };
+ *    ```
+ *
+ * 2. **Redirect**: Transition proceeds, but to a different valid target state.
+ *    The redirected transition MUST be declared in the state machine.
+ *    ```typescript
+ *    return { success: true, nextState: 'other-state' };
+ *    ```
+ *
+ * 3. **Rejection**: Transition is blocked; task remains in current state.
+ *    ```typescript
+ *    return { success: false, error: 'Reason for rejection' };
+ *    ```
+ *
+ * Note: `success: false` with `nextState` is invalid and will be treated as rejection.
  */
 interface TransitionResult {
+  /** Whether the callback approves the transition proceeding */
   success: boolean;
+  /** Error message explaining why the transition was rejected (only when success=false) */
   error?: string;
-  nextState?: string;  // Override: redirect to different state
+  /**
+   * Redirect to a different target state (only when success=true).
+   * The redirect MUST correspond to a declared transition from the current state.
+   */
+  nextState?: string;
+  /** Data to pass to subsequent callbacks in this transition */
   data?: Record<string, any>;
 }
 ```
@@ -169,7 +203,12 @@ rhei.onLeave('pending', 'processing', async (ctx: TransitionContext): Promise<Tr
 
 ## Saga File Metadata Format
 
-Task metadata is stored in a **YAML frontmatter section** within the saga markdown file. The `state` and `prior` (dependsOn) fields are implicit and always present - they don't need to be declared in the metadata section.
+Task metadata is stored in a **YAML frontmatter section** within the saga markdown file. The `state` field and dependency information are implicit and always present - they don't need to be declared in the metadata section.
+
+**Naming conventions:**
+- In markdown syntax: Use `**Prior:** Task N` to declare dependencies
+- In TypeScript/JavaScript: Access via `task.metadata.dependsOn` (camelCase)
+- In Python/CLI JSON: Access via `task.metadata.dependsOn` (camelCase, consistent across all platforms)
 
 ### Metadata Storage Example
 
@@ -222,7 +261,7 @@ rhei.onLeave('retrying', 'processing', (ctx: TransitionContext) => {
 
 ## Transition Triggers
 
-Transitions can be triggered in three ways, reflected in the `triggeredBy` field:
+Transitions can be triggered in four ways, reflected in the `triggeredBy` field:
 
 ### 1. User Trigger (`triggeredBy: 'user'`)
 
@@ -278,6 +317,115 @@ transitions:
     timeout: 24h  # System triggers after timeout
 ```
 
+### 4. Engine Trigger (`triggeredBy: 'engine'`)
+
+When using `rhei.run()` or similar autonomous execution modes, the Rhei engine advances the workflow by triggering transitions on tasks whose dependencies are satisfied:
+
+```typescript
+// Engine-driven execution
+const rhei = new Rhei({ sagaPath: './my-saga.saga.md' });
+await rhei.run();  // Engine triggers transitions as tasks become ready
+```
+
+This is distinct from `system` triggers (which are condition/timer-based) and `user` triggers (which are explicit API calls). Engine triggers represent the normal workflow progression during autonomous execution.
+
+---
+
+## YAML State Machine Format Specification
+
+This section defines the formal structure of YAML state machine configuration files. All state machines must conform to this specification.
+
+### Root-Level Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique identifier for the state machine |
+| `version` | string | Yes | Semantic version of the state machine definition |
+| `states` | object | Yes | Map of state names to state definitions |
+| `transitions` | array | Yes | List of allowed state transitions |
+| `callbacks` | object | No | Platform-specific callback mappings |
+| `error_handling` | object | No | Error handling and recovery configuration |
+
+### State Definition
+
+Each state is defined as a key-value pair in the `states` object:
+
+```yaml
+states:
+  <state-name>:
+    description: <string>   # Required: Human-readable description of the state
+    initial: <boolean>      # Optional: true if this is the starting state (exactly one required)
+    final: <boolean>        # Optional: true if this is a terminal state (no outgoing transitions)
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | string | Yes | Human-readable explanation of what this state represents |
+| `initial` | boolean | No | Marks this as the starting state. Exactly one state must have `initial: true` |
+| `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
+
+### Transition Definition
+
+Each transition in the `transitions` array specifies an allowed state change:
+
+```yaml
+transitions:
+  - from: <state-name|"*">  # Required: Source state or wildcard
+    to: <state-name>        # Required: Target state
+    description: <string>   # Required: Explanation of when/why this transition occurs
+    on_leave: <callback>    # Optional: Callback invoked when leaving the source state
+    on_enter: <callback>    # Optional: Callback invoked when entering the target state
+    condition: <expression> # Optional: Condition that must be true for system-triggered transitions
+    timeout: <duration>     # Optional: Duration after which system triggers this transition
+    max_retries: <integer>  # Optional: Maximum retry attempts for this transition
+    retry_delay: <duration> # Optional: Delay between retry attempts
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `from` | string | Yes | Source state name, or `"*"` for wildcard (matches any non-final state) |
+| `to` | string | Yes | Target state name |
+| `description` | string | Yes | Human-readable explanation of the transition's purpose and when it occurs |
+| `on_leave` | string | No | Callback function identifier invoked before leaving the source state |
+| `on_enter` | string | No | Callback function identifier invoked after entering the target state |
+| `condition` | string | No | Expression evaluated for system-triggered transitions |
+| `timeout` | string | No | Duration (e.g., `24h`, `30m`) after which system triggers this transition |
+| `max_retries` | integer | No | Maximum automatic retry attempts |
+| `retry_delay` | string | No | Delay between retries (e.g., `30s`, `5m`) |
+
+### Wildcard Semantics
+
+The special value `"*"` in the `from` field matches any state with these rules:
+- Matches any state **except** final states (states with `final: true`)
+- Specific transitions take precedence over wildcard transitions
+- A transition from a final state is always forbidden, even with wildcards
+
+### Callback Mappings
+
+Platform-specific callback mappings allow the same logical callback name to resolve to different implementations:
+
+```yaml
+callbacks:
+  <platform>:
+    <callback-name>: <implementation-path>
+```
+
+Platform identifiers must match `Environment.platform` values:
+- `cli`: Command-line execution with bash functions
+- `nodejs`: JavaScript/TypeScript via NAPI
+- `python`: Python via PyO3 bindings
+- `java`: Java via JNI
+
+### Error Handling Configuration
+
+```yaml
+error_handling:
+  on_enter_failure:
+    - <action>              # Actions to take when on_enter callback fails
+  on_leave_rejection:
+    - <action>              # Actions to take when on_leave callback rejects
+```
+
 ---
 
 ## Examples
@@ -316,53 +464,69 @@ states:
     description: Task abandoned
     final: true
 
-# Explicit transition rules - any transition not listed here is FORBIDDEN
+# Explicit transition rules - any transition not listed here is FORBIDDEN.
+# This includes callback redirects: a nextState override must correspond to
+# a declared transition from the current state.
 transitions:
   - from: draft
     to: pending
+    description: Task planning is complete and ready for execution
     on_leave: validate_task_ready      # Called when leaving 'draft'
     on_enter: notify_task_pending      # Called when entering 'pending'
 
   - from: pending
     to: in-progress
+    description: Work begins on the task
     on_leave: acquire_resources
     on_enter: start_work_timer
 
   - from: in-progress
     to: human-review
+    description: Task requires human approval before completion
     on_leave: package_for_review
     on_enter: notify_reviewers
 
   - from: in-progress
     to: agent-review
+    description: Task requires automated validation before completion
     on_leave: prepare_validation_context
     on_enter: run_automated_checks
 
   - from: human-review
     to: in-progress
+    description: Reviewer requested changes, task returns to active work
     on_leave: collect_feedback
     on_enter: apply_review_changes
 
   - from: human-review
     to: completed
+    description: Human reviewer approved the task
     on_leave: finalize_approval
     on_enter: record_completion
 
   - from: agent-review
     to: in-progress
+    description: Automated checks found issues requiring fixes
     on_leave: report_validation_issues
     on_enter: apply_fixes
 
   - from: agent-review
     to: completed
+    description: Automated validation passed successfully
     on_leave: archive_validation_results
     on_enter: record_completion
 
-  # Any state can be cancelled
-  - from: "*"           # Wildcard: matches any non-final state
+  # Any state can be cancelled (wildcard transition)
+  - from: "*"
     to: cancelled
+    description: Task is abandoned and will not be completed
     on_leave: cleanup_resources
     on_enter: log_cancellation
+
+# Wildcard Semantics:
+# - "*" matches any state EXCEPT final states (states with `final: true`)
+# - Specific transitions take precedence over wildcard transitions
+# - A transition from a final state is always forbidden, even with wildcards
 ```
 
 ---
@@ -407,6 +571,12 @@ transitions:
 ```bash
 #!/usr/bin/env bash
 # Handlers sourced by rhei-cli when executing transitions
+#
+# CLI Callback Contract:
+# - Receive TransitionContext as JSON on stdin
+# - Return TransitionResult as JSON on stdout (same format as other platforms)
+# - Exit code 0 = callback executed successfully (check 'success' field for result)
+# - Exit code non-zero = callback crashed (treated as rejection)
 
 # Called when leaving 'pending' state
 validate_preconditions() {
@@ -414,18 +584,19 @@ validate_preconditions() {
     context=$(cat)  # Read JSON from stdin
 
     task_id=$(echo "$context" | jq -r '.task.id')
-    dependencies=$(echo "$context" | jq -r '.task.metadata.depends_on[]')
+    dependencies=$(echo "$context" | jq -r '.task.metadata.dependsOn[]')
 
     # Check all dependencies are completed
     for dep in $dependencies; do
         dep_state=$(echo "$context" | jq -r ".saga.tasks[] | select(.id == \"$dep\") | .metadata.state")
         if [[ "$dep_state" != "completed" ]]; then
-            echo '{"error": "Dependency not met", "dependency": "'$dep'"}' >&2
-            return 1  # Reject transition
+            # Return proper TransitionResult with success=false
+            echo '{"success": false, "error": "Dependency not met: '$dep'"}'
+            return 0  # Exit 0 because callback ran successfully; success=false rejects
         fi
     done
 
-    echo '{"status": "ok", "message": "All preconditions met"}'
+    echo '{"success": true, "data": {"message": "All preconditions met"}}'
     return 0
 }
 
@@ -435,7 +606,7 @@ start_execution() {
     context=$(cat)
 
     task_id=$(echo "$context" | jq -r '.task.id')
-    echo '{"status": "started", "task_id": "'$task_id'", "timestamp": "'$(date -Iseconds)'"}'
+    echo '{"success": true, "data": {"task_id": "'$task_id'", "timestamp": "'$(date -Iseconds)'"}}'
 }
 
 # Called when leaving 'running' to determine next state
@@ -447,9 +618,10 @@ capture_outputs() {
     exit_code=$(echo "$context" | jq -r '.execution.exit_code // 0')
 
     if [[ "$exit_code" -eq 0 ]]; then
-        echo '{"next_state": "completed", "outputs": {}}'
+        echo '{"success": true, "data": {"outputs": {}}}'
     else
-        echo '{"next_state": "failed", "error_code": '$exit_code'}'
+        # Redirect to 'failed' state
+        echo '{"success": true, "nextState": "failed", "data": {"errorCode": '$exit_code'}}'
     fi
 }
 ```
@@ -1001,15 +1173,22 @@ transitions:
     on_enter: cleanup
 
 # Error handling configuration
+#
+# Error Handling Lifecycle:
+# 1. If on_leave callback rejects (success=false): task stays in current state, no further action
+# 2. If on_leave callback redirects (success=true, nextState): redirect is validated, then on_enter runs
+# 3. If on_enter callback fails: rollback to original state FIRST, then error_handling policy applies
+# 4. Error handling policy determines what happens AFTER rollback (e.g., transition to 'retrying')
+#
 error_handling:
-  # What happens when a callback returns an error
-  on_callback_error:
+  # What happens when on_enter callback fails (after rollback to original state)
+  on_enter_failure:
     - log_error
     - increment_retry_count
-    - transition_to: retrying
+    - transition_to: retrying  # This is a NEW transition from the original state
 
-  # What happens when a transition is rejected
-  on_transition_rejected:
+  # What happens when on_leave callback rejects (success=false)
+  on_leave_rejection:
     - log_rejection
     - remain_in_current_state
     - emit_event: transition_rejected
@@ -1037,25 +1216,50 @@ sequenceDiagram
         StateMachine-->>Rhei: TransitionRule
         Rhei->>OnLeaveCallback: invoke with context
 
-        alt Callback rejects
-            OnLeaveCallback-->>Rhei: error or next_state override
+        alt Callback rejects with success=false
+            OnLeaveCallback-->>Rhei: success=false, error message
             Rhei-->>User: Transition rejected + reason
-        else Callback approves
-            OnLeaveCallback-->>Rhei: success + optional data
-            Rhei->>OnEnterCallback: invoke with context + data
-
-            alt Enter callback fails
-                OnEnterCallback-->>Rhei: error
-                Rhei->>Rhei: rollback to original state
-                Rhei-->>User: Transition failed during enter
-            else Enter callback succeeds
-                OnEnterCallback-->>Rhei: success
-                Rhei->>Rhei: update task state in saga
-                Rhei-->>User: Transition complete
+        else Callback redirects with nextState
+            OnLeaveCallback-->>Rhei: success=true, nextState=X
+            Rhei->>StateMachine: validate redirect transition allowed
+            alt Redirect not defined
+                StateMachine-->>Rhei: TransitionForbiddenError
+                Rhei-->>User: Error: redirect transition not allowed
+            else Redirect defined
+                Note over Rhei: Continue with redirected target
             end
+        else Callback approves normally
+            OnLeaveCallback-->>Rhei: success=true, optional data
+        end
+
+        Note over Rhei: Update task state to target BEFORE on_enter
+        Rhei->>Rhei: update task state in saga file
+        Rhei->>OnEnterCallback: invoke with context, task shows new state
+
+        alt Enter callback fails
+            OnEnterCallback-->>Rhei: success=false, error
+            Rhei->>Rhei: rollback task state to original
+            Rhei->>Rhei: apply error_handling.on_enter_failure policy
+            Rhei-->>User: Transition failed during enter
+        else Enter callback succeeds
+            OnEnterCallback-->>Rhei: success=true
+            Rhei-->>User: Transition complete
         end
     end
 ```
+
+**Key Semantics:**
+
+1. **State Update Timing**: The task state is updated to the target state **before** `on_enter` is called. This means `on_enter` callbacks observe the task in its new state via `ctx.task.metadata.state`.
+
+2. **Redirect Validation**: When `on_leave` returns `nextState`, Rhei validates that this redirect corresponds to a declared transition from the original state. Invalid redirects are rejected.
+
+3. **Rollback on Enter Failure**: If `on_enter` fails, the state is rolled back to the original state, then the `error_handling.on_enter_failure` policy is applied.
+
+4. **Rejection vs Redirect**:
+   - `success: false` = rejection, task stays in current state
+   - `success: true, nextState: X` = redirect to valid target X
+   - `success: true` = proceed to originally requested target
 
 ---
 
@@ -1096,6 +1300,13 @@ transitions:
     on_enter: finalize
 
 # Platform-specific callback mappings
+#
+# Platform identifiers (must match Environment.platform values):
+# - cli: Command-line execution with bash functions
+# - nodejs: JavaScript/TypeScript via NAPI (use 'js:' prefix in inline callbacks)
+# - python: Python via PyO3 bindings (use 'py:' prefix in inline callbacks)
+# - java: Java via JNI (use 'java:' prefix in inline callbacks)
+#
 callbacks:
   cli:
     prepare_activation: ./handlers.sh:prepare_activation
@@ -1105,7 +1316,7 @@ callbacks:
     validate_approval: ./handlers.sh:validate_approval
     finalize: ./handlers.sh:finalize
 
-  javascript:
+  nodejs:
     prepare_activation: ./handlers.js:prepareActivation
     start_work: ./handlers.js:startWork
     package_for_review: ./handlers.js:packageForReview
