@@ -17,8 +17,9 @@ The markdown plan compiler currently supports:
 - rendering parsed plans as JSON, GitHub-style markdown, or terminal-oriented progress output
 
 The primary reference documents are:
-- [`docs/markdown-plan-compiler.md`](docs/markdown-plan-compiler.md) — saga and task breakdown
-- [`docs/plan-language-spec.md`](docs/plan-language-spec.md) — plan language rules
+- [`docs/overview.md`](docs/overview.md) — **start here** for tool usage and specification index
+- [`docs/plan-language-spec.md`](docs/plan-language-spec.md) — formal plan language grammar
+- [`docs/formal-state-transitions.md`](docs/formal-state-transitions.md) — state machine and callback system
 - [`docs/states.yaml`](docs/states.yaml) — default validation states definition
 
 ## CLI usage
