@@ -4,43 +4,43 @@ This directory contains example inputs for the current markdown plan compiler im
 
 ## Files
 
-- `release-automation.saga.md`
+- `release-automation.rhei.md`
   Valid example using:
-  - saga overview and requirements sections before `## Tasks`
+  - rhei overview and requirements sections before `## Tasks`
   - numeric and named task identifiers
   - `**Prior:**` dependencies across numeric and named tasks
   - fenced code block content inside a subtask
   - default states from `docs/states.yaml`
 
-- `human-review-loop.saga.md`
+- `human-review-loop.rhei.md`
   Valid example using:
   - numeric task identifiers
   - default workflow states including `human-review` and `agent-review`
   - normal subtask content bodies
   - dependency chaining across multiple tasks
 
-- `escaped-state-values.saga.md`
+- `escaped-state-values.rhei.md`
   Valid example using:
   - escaped spaces in `**State:**` values such as `in\ review`
   - a companion custom states file because those states are not present in the default set
 
 - `states-with-spaces.yaml`
-  Companion states file for `escaped-state-values.saga.md`.
+  Companion states file for `escaped-state-values.rhei.md`.
 
 ## Verification commands
 
 Validate the examples with the CLI:
 
 ```bash
-cargo run -p rhei-cli -- validate examples/release-automation.saga.md
-cargo run -p rhei-cli -- validate examples/human-review-loop.saga.md
-cargo run -p rhei-cli -- --state-machine examples/states-with-spaces.yaml validate examples/escaped-state-values.saga.md
+cargo run -p rhei-cli -- validate examples/release-automation.rhei.md
+cargo run -p rhei-cli -- validate examples/human-review-loop.rhei.md
+cargo run -p rhei-cli -- --state-machine examples/states-with-spaces.yaml validate examples/escaped-state-values.rhei.md
 ```
 
 Render an example as JSON:
 
 ```bash
-cargo run -p rhei-cli -- render examples/release-automation.saga.md --format json --pretty
+cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format json --pretty
 ```
 
 ## Notes on current behavior

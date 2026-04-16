@@ -36,14 +36,14 @@ impl OutputGenerator for NoopOutput {
 
 use serde_json::{json, Map, Value};
 
-use rhei_core::ast::{ContentBlock, Saga, Subtask, Task, TaskId};
+use rhei_core::ast::{ContentBlock, Rhei, Subtask, Task, TaskId};
 
 /// Plan output generator trait for structured outputs.
 ///
 /// Implementations return a serde_json::Value tree without requiring
 /// Serialize on the core AST types.
 pub trait PlanOutputGenerator {
-    fn generate_saga(&self, saga: &rhei_core::ast::Saga) -> serde_json::Value;
+    fn generate_rhei(&self, rhei: &rhei_core::ast::Rhei) -> serde_json::Value;
 }
 
 /// JSON output generator.
@@ -56,8 +56,8 @@ pub struct JsonOutput {
 }
 
 impl PlanOutputGenerator for JsonOutput {
-    fn generate_saga(&self, saga: &rhei_core::ast::Saga) -> serde_json::Value {
-        saga_json(saga)
+    fn generate_rhei(&self, rhei: &rhei_core::ast::Rhei) -> serde_json::Value {
+        rhei_json(rhei)
     }
 }
 
@@ -65,14 +65,14 @@ impl PlanOutputGenerator for JsonOutput {
 // Public convenience functions
 // -----------------------------------------------------------------------------
 
-/// Convert a parsed Saga into a serde_json::Value.
-pub fn to_json_value(saga: &rhei_core::ast::Saga) -> serde_json::Value {
-    JsonOutput { pretty: false }.generate_saga(saga)
+/// Convert a parsed Rhei into a serde_json::Value.
+pub fn to_json_value(rhei: &rhei_core::ast::Rhei) -> serde_json::Value {
+    JsonOutput { pretty: false }.generate_rhei(rhei)
 }
 
-/// Convert a parsed Saga into a pretty-printed JSON string.
-pub fn to_json_string_pretty(saga: &rhei_core::ast::Saga) -> String {
-    let v = to_json_value(saga);
+/// Convert a parsed Rhei into a pretty-printed JSON string.
+pub fn to_json_string_pretty(rhei: &rhei_core::ast::Rhei) -> String {
+    let v = to_json_value(rhei);
     serde_json::to_string_pretty(&v).expect("pretty JSON serialization")
 }
 
@@ -115,24 +115,32 @@ fn task_json(t: &Task) -> Value {
     obj.insert("id".to_string(), task_id_json(&t.id));
     obj.insert("title".to_string(), Value::String(t.title.clone()));
     obj.insert("metadata".to_string(), Value::Object(meta));
+    if !t.content.is_empty() {
+        obj.insert("content".to_string(), Value::String(t.content.clone()));
+    }
     obj.insert("subtasks".to_string(), Value::Array(subtasks));
 
     Value::Object(obj)
 }
 
-fn saga_json(saga: &Saga) -> Value {
-    let content = saga
+fn rhei_json(rhei: &Rhei) -> Value {
+    let content = rhei
         .content
         .iter()
         .map(|c| match c {
             ContentBlock::Text(s) => Value::String(s.clone()),
+            ContentBlock::Section { title, content } => json!({
+                "title": title,
+                "content": content,
+            }),
         })
         .collect::<Vec<Value>>();
 
-    let tasks = saga.tasks.iter().map(task_json).collect::<Vec<Value>>();
+    let tasks = rhei.tasks.iter().map(task_json).collect::<Vec<Value>>();
 
     json!({
-        "title": saga.title,
+        "title": rhei.title,
+        "states": rhei.states,
         "content": content,
         "tasks": tasks
     })
@@ -167,34 +175,41 @@ pub struct GithubIssuesOutput {
 }
 
 impl GithubIssuesOutput {
-    /// Render the provided Saga into a single GitHub-friendly Markdown document.
-    pub fn to_markdown(&self, saga: &rhei_core::ast::Saga) -> String {
+    /// Render the provided Rhei into a single GitHub-friendly Markdown document.
+    pub fn to_markdown(&self, rhei: &rhei_core::ast::Rhei) -> String {
         let mut out = String::new();
 
         // Title
-        out.push_str("# Saga: ");
-        out.push_str(&saga.title);
+        out.push_str("# Rhei: ");
+        out.push_str(&rhei.title);
         out.push('\n');
         out.push('\n');
 
-        // Overview
-        let overview_lines = saga
-            .content
-            .iter()
-            .map(|c| match c {
-                ContentBlock::Text(s) => s.as_str(),
-            })
-            .collect::<Vec<&str>>();
-        if !overview_lines.is_empty() {
-            out.push_str("## Overview\n\n");
-            out.push_str(&overview_lines.join("\n"));
-            out.push('\n');
+        // Content sections
+        for block in &rhei.content {
+            match block {
+                ContentBlock::Text(s) => {
+                    out.push_str(s);
+                    out.push('\n');
+                }
+                ContentBlock::Section { title, content } => {
+                    out.push_str("## ");
+                    out.push_str(title);
+                    out.push('\n');
+                    if !content.is_empty() {
+                        out.push_str(content);
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+        if !rhei.content.is_empty() {
             out.push('\n');
         }
 
         // Tasks
         out.push_str("## Tasks\n\n");
-        for task in &saga.tasks {
+        for task in &rhei.tasks {
             // Task header
             out.push_str("### Task ");
             out.push_str(&fmt_task_id(&task.id));
@@ -214,6 +229,13 @@ impl GithubIssuesOutput {
                     out.push_str(&fmt_prior_list(&task.metadata.depends_on));
                     out.push('\n');
                 }
+            }
+
+            // Task content
+            if self.include_content && !task.content.is_empty() {
+                out.push('\n');
+                out.push_str(&task.content);
+                out.push('\n');
             }
 
             // Subtasks with checkboxes
@@ -242,9 +264,9 @@ impl GithubIssuesOutput {
     }
 }
 
-/// Convenience: render saga to GitHub issues-style Markdown with all sections enabled.
-pub fn to_github_markdown(saga: &rhei_core::ast::Saga) -> String {
-    GithubIssuesOutput { include_content: true, include_metadata: true }.to_markdown(saga)
+/// Convenience: render rhei to GitHub issues-style Markdown with all sections enabled.
+pub fn to_github_markdown(rhei: &rhei_core::ast::Rhei) -> String {
+    GithubIssuesOutput { include_content: true, include_metadata: true }.to_markdown(rhei)
 }
 
 // -----------------------------------------------------------------------------
@@ -261,36 +283,34 @@ pub struct ProgressReportOutput {
 }
 
 impl ProgressReportOutput {
-    /// Render the provided Saga into a concise terminal progress report.
+    /// Render the provided Rhei into a concise terminal progress report.
     ///
     /// Formatting:
-    /// - Header: "Saga: <title>"
-    /// - Optional "Overview: ..." with the first non-empty saga content line.
+    /// - Header: "Rhei: <title>"
+    /// - Optional "Overview: ..." with the first non-empty rhei content line.
     /// - One-line summary per Task, with optional Prior line and subtasks.
-    pub fn to_string(&self, saga: &rhei_core::ast::Saga) -> String {
+    pub fn to_string(&self, rhei: &rhei_core::ast::Rhei) -> String {
         let mut out = String::new();
 
         // Header
-        out.push_str("Saga: ");
-        out.push_str(&saga.title);
+        out.push_str("Rhei: ");
+        out.push_str(&rhei.title);
         out.push('\n');
 
-        // Overview: first non-empty text line if any
-        if let Some(line) = saga
-            .content
-            .iter()
-            .map(|c| match c {
-                ContentBlock::Text(s) => s.trim(),
-            })
-            .find(|s| !s.is_empty())
-        {
+        // Overview: first non-empty content line if any
+        let first_line = rhei.content.iter().find_map(|c| match c {
+            ContentBlock::Text(s) if !s.trim().is_empty() => Some(s.trim()),
+            ContentBlock::Section { title, .. } => Some(title.as_str()),
+            _ => None,
+        });
+        if let Some(line) = first_line {
             out.push_str("Overview: ");
             out.push_str(line);
             out.push('\n');
         }
 
         // Tasks
-        for task in &saga.tasks {
+        for task in &rhei.tasks {
             // Determine state (uppercased for display)
             let state_upper =
                 task.metadata.state.as_deref().unwrap_or("unknown").trim().to_ascii_uppercase();
@@ -345,9 +365,9 @@ fn badge_for(state_upper: &str, color: bool) -> String {
     format!("\x1b[{}m[{}]\x1b[0m", code, state_upper)
 }
 
-/// Convenience: render saga to a colored progress report with dependencies shown.
-pub fn to_progress_report(saga: &rhei_core::ast::Saga) -> String {
-    ProgressReportOutput { color: true, show_dependencies: true }.to_string(saga)
+/// Convenience: render rhei to a colored progress report with dependencies shown.
+pub fn to_progress_report(rhei: &rhei_core::ast::Rhei) -> String {
+    ProgressReportOutput { color: true, show_dependencies: true }.to_string(rhei)
 }
 
 // -----------------------------------------------------------------------------
@@ -361,7 +381,7 @@ mod tests {
 
     #[test]
     fn json_output_minimal_smoke() {
-        let input = r#"# Saga: Minimal
+        let input = r#"# Rhei: Minimal
 
 ## Tasks
 
@@ -369,10 +389,10 @@ mod tests {
 **State:** pending
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let v = to_json_value(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let v = to_json_value(&rhei);
 
-        // Saga title
+        // Rhei title
         assert_eq!(v["title"].as_str().unwrap(), "Minimal");
 
         // Content array exists (may be empty)
@@ -392,7 +412,7 @@ mod tests {
 
     #[test]
     fn json_output_with_named_ids_and_subtasks_and_prior() {
-        let input = r#"# Saga: Complex
+        let input = r#"# Rhei: Complex
 
 ## Tasks
 
@@ -409,8 +429,8 @@ Do B line
 **Prior:** Task 1
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let v = to_json_value(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let v = to_json_value(&rhei);
 
         let tasks = v["tasks"].as_array().unwrap();
 
@@ -448,7 +468,7 @@ Do B line
 
     #[test]
     fn json_output_escaped_state_space() {
-        let input = r#"# Saga: Escape
+        let input = r#"# Rhei: Escape
 
 ## Tasks
 
@@ -456,23 +476,23 @@ Do B line
 **State:** in\ progress
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let v = to_json_value(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let v = to_json_value(&rhei);
         let tasks = v["tasks"].as_array().unwrap();
         assert_eq!(tasks[0]["metadata"]["state"].as_str(), Some("in progress"));
     }
 
     #[test]
     fn omits_missing_state_field() {
-        let input = r#"# Saga: NoState
+        let input = r#"# Rhei: NoState
 
 ## Tasks
 
 ### Task 1: One
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let v = to_json_value(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let v = to_json_value(&rhei);
         let meta = &v["tasks"][0]["metadata"];
         // Ensure the "state" key is omitted entirely (not present)
         assert!(meta.get("state").is_none());
@@ -486,7 +506,7 @@ Do B line
 
     #[test]
     fn github_markdown_tree_smoke() {
-        let input = r#"# Saga: Minimal
+        let input = r#"# Rhei: Minimal
 
 ## Tasks
 
@@ -495,10 +515,10 @@ Do B line
 
 #### Subtask 1.1: Do it
 "#;
-        let saga = parse(input).expect("parse ok");
-        let s = to_github_markdown(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let s = to_github_markdown(&rhei);
 
-        assert!(s.contains("# Saga: Minimal"));
+        assert!(s.contains("# Rhei: Minimal"));
         assert!(s.contains("## Tasks"));
         assert!(s.contains("### Task 1: Alpha"));
         assert!(s.contains("- State: pending"));
@@ -507,7 +527,7 @@ Do B line
 
     #[test]
     fn includes_prior_and_state() {
-        let input = r#"# Saga: Prior
+        let input = r#"# Rhei: Prior
 
 ## Tasks
 
@@ -515,8 +535,8 @@ Do B line
 **State:** pending
 **Prior:** Task 1
 "#;
-        let saga = parse(input).expect("parse ok");
-        let s = to_github_markdown(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let s = to_github_markdown(&rhei);
 
         assert!(s.contains("- State: pending"));
         assert!(s.contains("- Prior: Task 1"));
@@ -524,7 +544,7 @@ Do B line
 
     #[test]
     fn supports_named_ids() {
-        let input = r#"# Saga: Named
+        let input = r#"# Rhei: Named
 
 ## Tasks
 
@@ -533,8 +553,8 @@ Do B line
 
 #### Subtask 1.1: First
 "#;
-        let saga = parse(input).expect("parse ok");
-        let s = to_github_markdown(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let s = to_github_markdown(&rhei);
 
         assert!(s.contains("### Task build: Title"));
         assert!(s.contains("- [ ] 1.1: First"));
@@ -542,7 +562,7 @@ Do B line
 
     #[test]
     fn includes_content_when_enabled() {
-        let input = r#"# Saga: Content
+        let input = r#"# Rhei: Content
 
 ## Tasks
 
@@ -553,9 +573,9 @@ Do B line
 Line 1
 Line 2
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let gen = GithubIssuesOutput { include_content: true, include_metadata: true };
-        let s = gen.to_markdown(&saga);
+        let s = gen.to_markdown(&rhei);
 
         // Checkbox line present
         assert!(s.contains("- [ ] 1.1: Do A"));
@@ -565,7 +585,7 @@ Line 2
 
     #[test]
     fn omits_metadata_when_disabled() {
-        let input = r#"# Saga: NoMeta
+        let input = r#"# Rhei: NoMeta
 
 ## Tasks
 
@@ -575,9 +595,9 @@ Line 2
 
 #### Subtask 1.1: Do A
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let gen = GithubIssuesOutput { include_content: false, include_metadata: false };
-        let s = gen.to_markdown(&saga);
+        let s = gen.to_markdown(&rhei);
 
         // Task and subtask still render
         assert!(s.contains("### Task 1: Alpha"));
@@ -593,7 +613,7 @@ Line 2
 
     #[test]
     fn progress_report_basic_colors_and_structure() {
-        let input = r#"# Saga: Progress
+        let input = r#"# Rhei: Progress
 ## Tasks
 
 ### Task 1: Alpha
@@ -602,11 +622,11 @@ Line 2
 #### Subtask 1.1: Do it
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let gen = ProgressReportOutput { color: true, show_dependencies: true };
-        let s = gen.to_string(&saga);
+        let s = gen.to_string(&rhei);
 
-        assert!(s.contains("Saga: "));
+        assert!(s.contains("Rhei: "));
         assert!(s.contains("* Task 1: Alpha"));
         assert!(s.contains("[PENDING]"));
         // ANSI escape marker present
@@ -615,7 +635,7 @@ Line 2
 
     #[test]
     fn progress_report_includes_dependencies() {
-        let input = r#"# Saga: Prior
+        let input = r#"# Rhei: Prior
 ## Tasks
 
 ### Task 1: One
@@ -626,8 +646,8 @@ Line 2
 **Prior:** Task 1
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let s = to_progress_report(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let s = to_progress_report(&rhei);
 
         // Second task header appears (don't match exact ANSI-wrapped badge)
         assert!(s.contains("* Task 2: Two"));
@@ -643,15 +663,15 @@ Line 2
 
     #[test]
     fn progress_report_handles_named_ids() {
-        let input = r#"# Saga: Named
+        let input = r#"# Rhei: Named
 ## Tasks
 
 ### Task build: Title
 **State:** pending
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let s = to_progress_report(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let s = to_progress_report(&rhei);
 
         assert!(s.contains("* Task build: Title"));
         assert!(s.contains("[PENDING]"));
@@ -659,16 +679,16 @@ Line 2
 
     #[test]
     fn progress_report_no_color_option() {
-        let input = r#"# Saga: NoColor
+        let input = r#"# Rhei: NoColor
 ## Tasks
 
 ### Task 1: Alpha
 **State:** pending
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let gen = ProgressReportOutput { color: false, show_dependencies: true };
-        let s = gen.to_string(&saga);
+        let s = gen.to_string(&rhei);
 
         assert!(!s.contains("\x1b["));
         assert!(s.contains("[PENDING]"));
@@ -676,15 +696,15 @@ Line 2
 
     #[test]
     fn progress_report_escaped_state_space() {
-        let input = r#"# Saga: Escape
+        let input = r#"# Rhei: Escape
 ## Tasks
 
 ### Task 1: One
 **State:** in\ progress
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        let s = to_progress_report(&saga);
+        let rhei = parse(input).expect("parse ok");
+        let s = to_progress_report(&rhei);
 
         assert!(s.contains("[IN PROGRESS]"));
     }

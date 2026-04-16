@@ -1,4 +1,4 @@
-# Saga: Release Automation Rollout
+# Rhei: Release Automation Rollout
 
 ## Overview
 Coordinate the staged rollout of release automation across environments.
@@ -24,7 +24,7 @@ rollback:
   enabled: true
 ```
 
-### Tsk 2: Bootstrap environments
+### Task 2: Bootstrap environments
 **State:** in-progress
 **Prior:** Task 1
 

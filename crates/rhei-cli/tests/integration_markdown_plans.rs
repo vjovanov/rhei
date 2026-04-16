@@ -28,7 +28,7 @@ fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
     path
 }
 
-const CLI_VALID_PLAN: &str = r#"# Saga: Release Automation Rollout
+const CLI_VALID_PLAN: &str = r#"# Rhei: Release Automation Rollout
 
 ## Tasks
 
@@ -44,7 +44,7 @@ rollback:
   enabled: true
 ```
 
-### Task bootstrap_env: Bootstrap environments
+### Task 2: Bootstrap environments
 **State:** in-progress
 **Prior:** Task 1
 
@@ -53,13 +53,13 @@ Create and store staging credentials.
 
 ### Task 3: Roll out release bot
 **State:** pending
-**Prior:** Task 1, Task bootstrap_env
+**Prior:** Task 1, Task 2
 
 #### Subtask 3.1: Dry run in staging
 Run the bot in dry-run mode against staging.
 "#;
 
-const CLI_PRIMARY_ERROR_REGRESSION_PLAN: &str = r#"# Saga: Release Automation Rollout
+const CLI_PRIMARY_ERROR_REGRESSION_PLAN: &str = r#"# Rhei: Release Automation Rollout
 
 ## Tasks
 
@@ -235,48 +235,46 @@ fn assert_validation_failure(
 
 #[test]
 fn valid_plan_parses_validates_and_renders_across_crates() {
-    let saga = parse(CLI_VALID_PLAN).expect("valid fixture should parse");
+    let rhei = parse(CLI_VALID_PLAN).expect("valid fixture should parse");
     let machine =
         StateMachine::from_yaml_str(fixtures::TEST_STATE_MACHINE).expect("machine should load");
-    let report = validate_with_machine(&saga, &machine);
+    let report = validate_with_machine(&rhei, &machine);
 
     assert!(
         !report.has_errors(),
         "expected valid plan fixture to pass validation, got: {:?}",
         report.errors
     );
-    assert_eq!(report.warnings.len(), 1, "expected named-task numbering warning");
-    assert!(report.warnings[0]
-        .contains("Cannot validate subtask numbering for named task 'bootstrap_env'"));
+    assert!(report.warnings.is_empty(), "expected no warnings, got: {:?}", report.warnings);
 
-    assert_eq!(saga.title, "Release Automation Rollout");
-    assert_eq!(saga.tasks.len(), 3);
-    assert_eq!(saga.tasks[0].id, TaskId::Number(1));
-    assert_eq!(saga.tasks[1].id, TaskId::Named("bootstrap_env".to_string()));
-    assert_eq!(saga.tasks[2].metadata.depends_on.len(), 2);
+    assert_eq!(rhei.title, "Release Automation Rollout");
+    assert_eq!(rhei.tasks.len(), 3);
+    assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
+    assert_eq!(rhei.tasks[1].id, TaskId::Number(2));
+    assert_eq!(rhei.tasks[2].metadata.depends_on.len(), 2);
 
-    let json = to_json_value(&saga);
+    let json = to_json_value(&rhei);
     assert_eq!(json["title"].as_str(), Some("Release Automation Rollout"));
     assert_eq!(json["tasks"].as_array().map(Vec::len), Some(3));
 
-    let github = to_github_markdown(&saga);
+    let github = to_github_markdown(&rhei);
     assert!(github.contains("### Task 1: Define pipeline contracts"));
-    assert!(github.contains("### Task bootstrap_env: Bootstrap environments"));
-    assert!(github.contains("- Prior: Task 1, Task bootstrap_env"));
+    assert!(github.contains("### Task 2: Bootstrap environments"));
+    assert!(github.contains("- Prior: Task 1, Task 2"));
     assert!(github.contains("- [ ] 3.1: Dry run in staging"));
 
-    let progress = ProgressReportOutput { color: false, show_dependencies: true }.to_string(&saga);
-    assert!(progress.contains("Saga: Release Automation Rollout"));
-    assert!(progress.contains("* Task bootstrap_env: Bootstrap environments  [IN-PROGRESS]"));
-    assert!(progress.contains("  - Prior: Task 1, Task bootstrap_env"));
+    let progress = ProgressReportOutput { color: false, show_dependencies: true }.to_string(&rhei);
+    assert!(progress.contains("Rhei: Release Automation Rollout"));
+    assert!(progress.contains("* Task 2: Bootstrap environments  [IN-PROGRESS]"));
+    assert!(progress.contains("  - Prior: Task 1, Task 2"));
 }
 
 #[test]
 fn invalid_plan_reports_cross_component_validation_failures() {
-    let saga = parse(fixtures::INVALID_PLAN).expect("invalid semantic fixture should still parse");
+    let rhei = parse(fixtures::INVALID_PLAN).expect("invalid semantic fixture should still parse");
     let machine =
         StateMachine::from_yaml_str(fixtures::TEST_STATE_MACHINE).expect("machine should load");
-    let report = validate_with_machine(&saga, &machine);
+    let report = validate_with_machine(&rhei, &machine);
 
     assert!(report.has_errors(), "expected semantic validation errors");
     let joined = report.errors.join("\n");
@@ -327,7 +325,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
     );
     let render_stdout = String::from_utf8_lossy(&render.stdout);
     assert!(render_stdout.contains("\"title\": \"Release Automation Rollout\""));
-    assert!(render_stdout.contains("\"named\": \"bootstrap_env\""));
+    assert!(render_stdout.contains("\"number\": 2"));
 
     fs::remove_dir_all(temp_dir).expect("temporary directory should be removed");
 }
@@ -364,16 +362,16 @@ fn cli_validate_surfaces_validation_errors_for_fixture() {
 }
 
 #[test]
-fn cli_validate_reports_missing_saga_header_parse_failure() {
+fn cli_validate_reports_missing_rhei_header_parse_failure() {
     let result = run_validate(
-        fixtures::INVALID_FIXTURE_MISSING_SAGA_HEADER,
+        fixtures::INVALID_FIXTURE_MISSING_RHEI_HEADER,
         fixtures::TEST_STATE_MACHINE,
-        "integration-cli-missing-saga",
+        "integration-cli-missing-rhei",
     );
 
     assert_parse_failure(
         &result,
-        &["Missing", "Saga:", "header"],
+        &["Missing", "Rhei:", "header"],
         Some("line 1"),
         Some("## Tasks"),
         &[
@@ -385,24 +383,24 @@ fn cli_validate_reports_missing_saga_header_parse_failure() {
 }
 
 #[test]
-fn cli_validate_reports_malformed_saga_header_parse_failure() {
+fn cli_validate_reports_malformed_rhei_header_parse_failure() {
     let result = run_validate(
-        fixtures::INVALID_FIXTURE_MALFORMED_SAGA_HEADER,
+        fixtures::INVALID_FIXTURE_MALFORMED_RHEI_HEADER,
         fixtures::TEST_STATE_MACHINE,
-        "integration-cli-malformed-saga",
+        "integration-cli-malformed-rhei",
     );
 
     assert_parse_failure(
         &result,
-        &["Malformed saga heading", "expected", "Saga:", "title"],
+        &["Malformed rhei heading", "expected", "Rhei:", "title"],
         Some("line 1"),
-        Some("#Saga: Missing required space"),
+        Some("#Rhei: Missing required space"),
         &["VALIDATION ERROR", "missing mandatory **State:**"],
     );
 }
 
 #[test]
-fn cli_validate_reports_h1_typo_as_malformed_saga_header_parse_failure() {
+fn cli_validate_reports_h1_typo_as_malformed_rhei_header_parse_failure() {
     let result = run_validate(
         r#"# Sga: Release Automation Rollout
 
@@ -412,12 +410,12 @@ fn cli_validate_reports_h1_typo_as_malformed_saga_header_parse_failure() {
 **State:** pending
 "#,
         fixtures::TEST_STATE_MACHINE,
-        "integration-cli-malformed-saga-heading-typo",
+        "integration-cli-malformed-rhei-heading-typo",
     );
 
     assert_parse_failure(
         &result,
-        &["Malformed saga heading", "expected", "Saga:", "title"],
+        &["Malformed rhei heading", "expected", "Rhei:", "title"],
         Some("line 1"),
         Some("# Sga: Release Automation Rollout"),
         &["VALIDATION ERROR", "missing mandatory **State:**"],
@@ -661,31 +659,26 @@ fn cli_validate_reports_subtask_parent_mismatch_as_semantic_failure() {
 }
 
 #[test]
-fn cli_validate_surfaces_named_task_warning_on_success() {
+fn cli_validate_rejects_named_task_with_subtasks() {
+    let plan = r#"# Rhei: Named Subtask Test
+
+## Tasks
+
+### Task build: Build step
+**State:** pending
+
+#### Subtask 1.1: Sub
+"#;
     let result = run_validate(
-        CLI_VALID_PLAN,
+        plan,
         fixtures::TEST_STATE_MACHINE,
-        "integration-cli-warning-success",
+        "integration-cli-named-subtask-error",
     );
 
-    assert!(
-        result.status.success(),
-        "expected successful validation with warning\nstdout:\n{}\nstderr:\n{}",
-        result.stdout,
-        result.stderr
-    );
-    assert!(result.stdout.contains("Validation succeeded"));
-    assert!(
-        result
-            .stdout
-            .contains("warning: Cannot validate subtask numbering for named task 'bootstrap_env'"),
-        "expected named-task warning in stdout, got:\n{}",
-        result.stdout
-    );
-    assert!(
-        !result.stderr.contains("PARSE ERROR") && !result.stderr.contains("VALIDATION ERROR"),
-        "successful warning case should not emit failure diagnostics, got:\n{}",
-        result.stderr
+    assert_validation_failure(
+        &result,
+        &[&["Task 'build'", "named id", "must not declare subtasks"]],
+        &["failed to parse"],
     );
 }
 

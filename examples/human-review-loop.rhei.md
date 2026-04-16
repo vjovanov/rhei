@@ -1,4 +1,4 @@
-# Saga: Human Review Content Refresh
+# Rhei: Human Review Content Refresh
 
 ## Context
 Refresh customer-facing content while preserving explicit human checkpoints in the plan.

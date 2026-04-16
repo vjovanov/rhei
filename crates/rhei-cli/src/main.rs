@@ -66,6 +66,12 @@ enum Commands {
         #[arg(long)]
         no_content: bool,
     },
+    /// Print the states and allowed transitions for the configured state machine
+    States {
+        /// Emit the state machine as JSON instead of plain text
+        #[arg(long)]
+        json: bool,
+    },
     /// Print versions for the CLI and related crates
     Version,
 }
@@ -97,10 +103,126 @@ fn run() -> MietteResult<()> {
         Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
             render_command(&input, format, pretty, no_color, no_metadata, no_content)
         }
+        Commands::States { json } => states_command(&cli.state_machine, json),
         Commands::Version => {
             print_versions();
             Ok(())
         }
+    }
+}
+
+/// Execute the `states` subcommand: load the configured state machine and
+/// print its states and declared transitions.
+fn states_command(state_machine: &Path, as_json: bool) -> MietteResult<()> {
+    let machine = rhei_validator::StateMachine::from_yaml_file(state_machine)
+        .map_err(|err| file_io_report(state_machine, "failed to load states", err))?;
+
+    if as_json {
+        let rendered = render_state_machine_json(&machine)
+            .map_err(|err| miette!("failed to serialize state machine: {err}"))?;
+        println!("{rendered}");
+    } else {
+        println!("{}", render_state_machine_text(&machine));
+    }
+
+    Ok(())
+}
+
+fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("State machine: {} (version: {})\n", machine.name, format_version(&machine.version)));
+
+    out.push_str("\nStates:\n");
+    if machine.states.is_empty() {
+        out.push_str("  (none defined)\n");
+    } else {
+        for (name, def) in &machine.states {
+            let mut flags = Vec::new();
+            if def.initial {
+                flags.push("initial");
+            }
+            if def.terminal {
+                flags.push("final");
+            }
+            let flag_suffix = if flags.is_empty() { String::new() } else { format!(" [{}]", flags.join(", ")) };
+            let description = def.description.as_deref().unwrap_or("");
+            out.push_str(&format!("  {name}{flag_suffix}"));
+            if !description.is_empty() {
+                out.push_str(&format!(" — {description}"));
+            }
+            out.push('\n');
+            if let Some(instructions) = def.instructions.as_deref() {
+                for line in instructions.lines() {
+                    out.push_str(&format!("      {line}\n"));
+                }
+            }
+        }
+    }
+
+    out.push_str("\nTransitions:\n");
+    if machine.transitions.is_empty() {
+        out.push_str("  (none declared)\n");
+    } else {
+        for rule in &machine.transitions {
+            out.push_str(&format!("  {} -> {}", rule.from.0, rule.to.0));
+            let mut annotations = Vec::new();
+            if let Some(cb) = rule.on_leave.as_ref() {
+                annotations.push(format!("on_leave={}", cb.0));
+            }
+            if let Some(cb) = rule.on_enter.as_ref() {
+                annotations.push(format!("on_enter={}", cb.0));
+            }
+            if let Some(cond) = rule.condition.as_ref() {
+                annotations.push(format!("when={cond}"));
+            }
+            if let Some(t) = rule.timeout.as_ref() {
+                annotations.push(format!("timeout={t}"));
+            }
+            if !annotations.is_empty() {
+                out.push_str(&format!(" ({})", annotations.join(", ")));
+            }
+            out.push('\n');
+        }
+    }
+
+    out
+}
+
+fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<String> {
+    let states: Vec<serde_json::Value> = machine
+        .states
+        .iter()
+        .map(|(name, def)| {
+            serde_json::json!({
+                "name": name,
+                "description": def.description,
+                "instructions": def.instructions,
+                "initial": def.initial,
+                "final": def.terminal,
+            })
+        })
+        .collect();
+
+    let transitions = serde_json::to_value(&machine.transitions).context("serialize transitions")?;
+    let version =
+        serde_json::to_value(&machine.version).context("serialize state machine version")?;
+
+    let payload = serde_json::json!({
+        "name": machine.name,
+        "version": version,
+        "states": states,
+        "transitions": transitions,
+    });
+
+    serde_json::to_string_pretty(&payload).context("render state machine as JSON")
+}
+
+fn format_version(value: &serde_yaml::Value) -> String {
+    match value {
+        serde_yaml::Value::String(s) => s.clone(),
+        other => serde_yaml::to_string(other)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "unknown".to_string()),
     }
 }
 
@@ -109,8 +231,8 @@ fn read_input_file(path: &Path) -> MietteResult<String> {
     fs::read_to_string(path).map_err(|err| file_io_report(path, "failed to read input file", err))
 }
 
-/// Read and parse a markdown plan file into a [`rhei_core::ast::Saga`](rhei_core::ast::Saga).
-fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Saga> {
+/// Read and parse a markdown plan file into a [`rhei_core::ast::Rhei`](rhei_core::ast::Rhei).
+fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Rhei> {
     let input = read_input_file(path)?;
     rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))
 }
@@ -126,8 +248,8 @@ fn validate_command(input: &Path, state_machine: &Path, watch: bool) -> MietteRe
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: &Path) -> MietteResult<()> {
-    let saga = parse_input_file(input)?;
-    let report = rhei_validator::validate_from_machine_file(&saga, state_machine)
+    let rhei = parse_input_file(input)?;
+    let report = rhei_validator::validate_from_machine_file(&rhei, state_machine)
         .map_err(|err| file_io_report(state_machine, "failed to load states", err))?;
 
     if report.has_errors() {
@@ -280,16 +402,16 @@ fn render_command(
     no_metadata: bool,
     no_content: bool,
 ) -> MietteResult<()> {
-    let saga = parse_input_file(input)?;
-    let rendered = render_saga(&saga, format, pretty, no_color, no_metadata, no_content)
+    let rhei = parse_input_file(input)?;
+    let rendered = render_rhei(&rhei, format, pretty, no_color, no_metadata, no_content)
         .map_err(|err| miette!("{err}"))?;
     println!("{rendered}");
     Ok(())
 }
 
-/// Render a parsed saga into the requested output representation.
-fn render_saga(
-    saga: &rhei_core::ast::Saga,
+/// Render a parsed rhei into the requested output representation.
+fn render_rhei(
+    rhei: &rhei_core::ast::Rhei,
     format: RenderFormat,
     pretty: bool,
     no_color: bool,
@@ -299,9 +421,9 @@ fn render_saga(
     match format {
         RenderFormat::Json => {
             if pretty {
-                Ok(rhei_output::to_json_string_pretty(saga))
+                Ok(rhei_output::to_json_string_pretty(rhei))
             } else {
-                let value = rhei_output::to_json_value(saga);
+                let value = rhei_output::to_json_value(rhei);
                 serde_json::to_string(&value).context("failed to serialize JSON output")
             }
         }
@@ -309,10 +431,10 @@ fn render_saga(
             include_content: !no_content,
             include_metadata: !no_metadata,
         }
-        .to_markdown(saga)),
+        .to_markdown(rhei)),
         RenderFormat::Progress => {
             Ok(rhei_output::ProgressReportOutput { color: !no_color, show_dependencies: true }
-                .to_string(saga))
+                .to_string(rhei))
         }
     }
 }
@@ -513,6 +635,49 @@ mod tests {
     }
 
     #[test]
+    fn parses_states_command() {
+        let cli = Cli::try_parse_from(["rhei", "states"]).expect("cli should parse");
+        match cli.command {
+            Commands::States { json } => assert!(!json),
+            other => panic!("expected states command, got {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["rhei", "states", "--json"]).expect("cli should parse");
+        match cli.command {
+            Commands::States { json } => assert!(json),
+            other => panic!("expected states command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_state_machine_text_includes_states_and_transitions() {
+        let yaml = r#"
+name: demo
+version: 1
+states:
+  draft:
+    description: planning
+    instructions: Wait until author promotes task.
+    initial: true
+  done:
+    description: finished
+    final: true
+transitions:
+  - from: draft
+    to: done
+    on_enter: cli:record_done
+"#;
+        let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("load");
+        let rendered = render_state_machine_text(&machine);
+
+        assert!(rendered.contains("State machine: demo"));
+        assert!(rendered.contains("draft [initial]"));
+        assert!(rendered.contains("Wait until author promotes task."));
+        assert!(rendered.contains("done [final]"));
+        assert!(rendered.contains("draft -> done (on_enter=cli:record_done)"));
+    }
+
+    #[test]
     fn parses_version_command() {
         let cli = Cli::try_parse_from(["rhei", "version"]).expect("cli should parse");
 
@@ -523,9 +688,9 @@ mod tests {
     }
 
     #[test]
-    fn render_saga_json_smoke() {
-        let saga = rhei_core::parse(
-            r#"# Saga: Smoke
+    fn render_rhei_json_smoke() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Smoke
 
 ## Tasks
 
@@ -536,7 +701,7 @@ mod tests {
         .expect("parse should succeed");
 
         let rendered =
-            render_saga(&saga, RenderFormat::Json, true, false, false, false).expect("render ok");
+            render_rhei(&rhei, RenderFormat::Json, true, false, false, false).expect("render ok");
 
         assert!(rendered.contains("\"title\": \"Smoke\""));
         assert!(rendered.contains("\"tasks\""));

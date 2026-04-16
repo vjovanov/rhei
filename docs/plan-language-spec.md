@@ -1,25 +1,30 @@
-# Saga Plan Language Specification
+# Rhei Plan Language Specification
 
-This document defines the formal grammar and semantics of the Saga Plan language, a structured subset of Markdown for hierarchical task management.
+This document defines the formal grammar and semantics of the Rhei Plan language, a structured subset of Markdown for hierarchical task management.
 
 ## Overview
 
-The Saga Plan language is a **context-sensitive subset of Markdown** designed for:
-- GitHub/ticket system integration
-- AI agent state management
+The Rhei Plan language is a **context-sensitive subset of Markdown** designed for:
+
+- AI agent memory and plan management
 - Human oversight of work progress
+- AI agent orchestration
+- Ticket system interaction
 
 ## Document Structure
 
-A Saga Plan document has a fixed hierarchical structure:
+A Rhei Plan document has a fixed hierarchical structure:
 
 | Component | Heading Level | Format | Required |
 |-----------|---------------|--------|----------|
-| Saga Title | H1 (`#`) | `# Saga: <title>` | Yes |
+| Rhei Title | H1 (`#`) | `# Rhei: <title>` | Yes |
+| States Declaration | — | `**States:** <state-machine-name>` | No (defaults to `rhei`) |
 | Content Sections | H2 (`##`) | `## <section-name>` | No |
 | Tasks Section | H2 (`##`) | `## Tasks` | Yes |
 | Task | H3 (`###`) | `### Task <id>: <title>` | Yes (at least one) |
 | Subtask | H4 (`####`) | `#### Subtask <n>.<m>: <title>` | No |
+
+When present, the `**States:**` field must be the first non-empty line after the `# Rhei:` title. Its value is the `name` of the state machine defined in the associated states configuration (see [States Specification](states-spec.md)). When omitted, the plan uses the built-in `rhei` state machine.
 
 ## Grammar (EBNF)
 
@@ -28,13 +33,20 @@ A Saga Plan document has a fixed hierarchical structure:
 (* DOCUMENT STRUCTURE                             *)
 (* ============================================== *)
 
-saga_document   = saga_header, { content_section }, tasks_section ;
+rhei_document   = rhei_header, { blank_line },
+                  [ states_field, { blank_line } ],
+                  { content_section },
+                  tasks_section ;
 
-saga_header     = "# Saga: ", title, NEWLINE ;
+rhei_header     = "# Rhei: ", title, NEWLINE ;
+
+states_field    = "**States:** ", state_machine_name, NEWLINE ;
+
+state_machine_name = IDENTIFIER ;
 
 content_section = "## ", section_title, NEWLINE, { markdown_block } ;
 
-tasks_section   = "## Tasks", NEWLINE, { task } ;
+tasks_section   = "## Tasks", NEWLINE, task, { task } ;
 
 
 (* ============================================== *)
@@ -52,6 +64,7 @@ task_id         = NUMBER | IDENTIFIER ;
 (* SUBTASK DEFINITION                             *)
 (* ============================================== *)
 
+(* Subtasks are only permitted under tasks with a numeric task_id. *)
 subtask         = subtask_header, NEWLINE, { markdown_block } ;
 
 subtask_header  = "#### Subtask ", NUMBER, ".", NUMBER, ": ", title ;
@@ -72,6 +85,9 @@ task_ref_list   = task_ref, { ", ", task_ref } ;
 
 task_ref        = "Task ", task_id ;
 
+(* The backtick form is required when the state value contains
+   whitespace; it is also accepted (but not required) for single-word
+   values. *)
 state_value     = IDENTIFIER                           (* single word: pending *)
                 | "`", IDENTIFIER, { " ", IDENTIFIER }, "`" ;  (* escaped: `in progress` *)
 
@@ -82,9 +98,20 @@ state_value     = IDENTIFIER                           (* single word: pending *
 
 title           = { ANY_CHAR - NEWLINE }+ ;
 
-section_title   = { ANY_CHAR - NEWLINE }+ ;
+(* Section titles must not equal "Tasks" — that prefix is reserved
+   for the tasks_section. *)
+section_title   = { ANY_CHAR - NEWLINE }+ - "Tasks" ;
 
-markdown_block  = { ANY_CHAR }, NEWLINE ;
+(* A markdown_block is any line that does not introduce a new
+   structural element (i.e. does not start with "# ", "## ",
+   "### Task ", or "#### Subtask "). Blank lines are markdown_blocks. *)
+markdown_block  = ( blank_line
+                  | non_structural_line, NEWLINE ) ;
+
+non_structural_line = ? any line that does not match a header
+                        production above ? ;
+
+blank_line      = NEWLINE ;
 
 NUMBER          = DIGIT, { DIGIT } ;
 
@@ -105,7 +132,7 @@ Beyond the syntactic rules, the following semantic constraints must be validated
 
 ### 1. Dependency Integrity
 
-All task references in `**Prior:**` fields must resolve to existing tasks in the same document.
+All task references in `**Prior:**` fields must resolve to existing tasks in the same document. A `**Prior:**` list must not contain duplicate references and must not reference its own task (self-reference is a 1-cycle).
 
 ```markdown
 ### Task 2: Implementation
@@ -133,7 +160,7 @@ The task dependency graph must be a Directed Acyclic Graph (DAG). Circular depen
 
 ### 4. Subtask Numbering Consistency
 
-Subtask numbers must match their parent task:
+Subtasks are only permitted under tasks with a numeric `task_id`. The first number of every subtask must equal its parent task's id, and subtask numbers must be unique within their parent:
 
 ```markdown
 ### Task 2: Parent Task
@@ -141,11 +168,14 @@ Subtask numbers must match their parent task:
 
 #### Subtask 2.1: Valid      ← Correct: parent is Task 2
 #### Subtask 3.1: Invalid    ← ERROR: parent task number mismatch
+#### Subtask 2.1: Duplicate  ← ERROR: duplicate subtask number under Task 2
 ```
 
-### 5. Metadata Field Order
+A task with a named (non-numeric) `task_id` must not declare any subtasks.
 
-The `**State:**` field must always appear before `**Prior:**` when both are present.
+### 5. Identifier Uniqueness
+
+Task ids must be unique across the document. Two `### Task <id>:` headers with the same id (numeric or named) are an error.
 
 ## Token Types
 
@@ -153,9 +183,10 @@ For lexer implementation, the following token types are needed:
 
 | Token | Pattern | Example |
 |-------|---------|---------|
-| `SagaHeader` | `# Saga: .*` | `# Saga: My Project` |
-| `SectionHeader` | `## [^T].*` or `## T[^a].*` | `## Overview` |
-| `TasksSection` | `## Tasks` | `## Tasks` |
+| `RheiHeader` | `# Rhei: .*` | `# Rhei: My Project` |
+| `MetadataStates` | `\*\*States:\*\* .*` | `**States:** task-states` |
+| `TasksSection` | `^## Tasks\s*$` | `## Tasks` |
+| `SectionHeader` | `^## .+$` (matched only if `TasksSection` did not match) | `## Overview` |
 | `TaskHeader` | `### Task <id>: .*` | `### Task 1: Setup` |
 | `SubtaskHeader` | `#### Subtask <n>.<m>: .*` | `#### Subtask 1.2: Config` |
 | `MetadataState` | `\*\*State:\*\* .*` | `**State:** pending` |
@@ -167,8 +198,9 @@ For lexer implementation, the following token types are needed:
 For parser implementation, the following AST structure is recommended:
 
 ```rust
-struct Saga {
+struct Rhei {
     title: String,
+    states: String, // state machine name; defaults to "rhei" when omitted
     content_sections: Vec<ContentSection>,
     tasks: Vec<Task>,
 }
@@ -202,7 +234,7 @@ enum TaskId {
 
 ## Language Classification
 
-The Saga Plan language is **context-sensitive** because:
+The Rhei Plan language is **context-sensitive** because:
 
 1. Subtask numbers depend on their parent task context
 2. `Prior` references must resolve to existing task definitions
@@ -212,8 +244,10 @@ The language cannot be fully described by a context-free grammar alone; semantic
 
 ## File Extension
 
-The recommended file extension for Saga Plan documents is `.saga.md` or simply `.md` when the context is clear.
+The recommended file extension for Rhei Plan documents is `.rhei.md` or simply `.md` when the context is clear.
 
 ## Related Specifications
 
+- [How Rhei Is Used](how-rhei-is-used.md) - Roles, coordination patterns, and agent workflows
+- [Plan Language Usage Guide](plan-language-usage.md) - Practical authoring patterns and walkthroughs
 - [States Specification](states-spec.md) - Defines the states configuration format

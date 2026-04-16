@@ -3,7 +3,7 @@ use rhei_core::{tokenize, Token};
 
 #[test]
 fn tokenizes_basic_structure() {
-    let input = r#"# Saga: User Authentication System
+    let input = r#"# Rhei: User Authentication System
 
 ## Tasks
 
@@ -19,7 +19,7 @@ Some description line
     let tokens: Vec<Token> = tokenize(input).collect();
 
     let expected = vec![
-        Token::SagaHeader,
+        Token::RheiHeader,
         Token::TasksSection,
         Token::TaskHeader { id: TaskId::Number(1) },
         Token::MetadataState { state: "completed".to_string() },
@@ -33,7 +33,7 @@ Some description line
 
 #[test]
 fn tokenizes_named_task_ids_and_prior_references() {
-    let input = r#"# Saga: Named Tasks
+    let input = r#"# Rhei: Named Tasks
 
 ## Tasks
 
@@ -48,7 +48,7 @@ fn tokenizes_named_task_ids_and_prior_references() {
     let tokens: Vec<Token> = tokenize(input).collect();
 
     let expected = vec![
-        Token::SagaHeader,
+        Token::RheiHeader,
         Token::TasksSection,
         Token::TaskHeader { id: TaskId::Named("bootstrap_env".to_string()) },
         Token::MetadataState { state: "in-progress".to_string() },

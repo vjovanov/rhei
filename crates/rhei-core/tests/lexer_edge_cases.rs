@@ -3,7 +3,7 @@ use rhei_core::{tokenize, Token};
 
 #[test]
 fn malformed_structure_near_misses_fall_back_to_text_tokens() {
-    let input = r#"#Saga: Missing Space
+    let input = r#"#Rhei: Missing Space
 ##Tasks
 ###Task 1: Missing Heading Space
 ### task 1: Wrong Case
@@ -60,7 +60,7 @@ fn distinguishes_valid_named_task_ids_from_invalid_boundaries() {
 
 #[test]
 fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
-    let input = r#"# Saga: Example
+    let input = r#"# Rhei: Example
 
 ## Tasks
 
@@ -68,7 +68,7 @@ fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
 **State:** pending
 
 ```
-# Saga: Hidden Saga
+# Rhei: Hidden Rhei
 ## Tasks
 ### Task 999: Should Not Tokenize
 ### task 2: Wrong Case
@@ -77,7 +77,7 @@ fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
 **Prior** Task 2
 ```
 
-#Saga: Missing Space Outside Fence
+#Rhei: Missing Space Outside Fence
 ##Tasks
 ###Task 2: Missing Heading Space Outside Fence
 **State** pending outside fence
@@ -88,7 +88,7 @@ fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
     let tokens: Vec<Token> = tokenize(input).collect();
 
     let expected = vec![
-        Token::SagaHeader,
+        Token::RheiHeader,
         Token::TasksSection,
         Token::TaskHeader { id: TaskId::Number(1) },
         Token::MetadataState { state: "pending".to_string() },

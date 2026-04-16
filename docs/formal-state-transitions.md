@@ -1,4 +1,4 @@
-# Saga: Define Formal State Transition System for Sagas
+# Rhei: Define Formal State Transition System for Rheis
 
 Enhance the Rhei plan system to support **formal state transitions** with associated function callbacks.
 
@@ -28,7 +28,7 @@ State transitions will be defined declaratively in YAML and executed through pla
 
 ## TransitionContext Data Structure
 
-The `TransitionContext` is the core data structure passed to all transition callbacks. It provides complete context about the saga, the transitioning task, and the execution environment.
+The `TransitionContext` is the core data structure passed to all transition callbacks. It provides complete context about the rhei, the transitioning task, and the execution environment.
 
 ```typescript
 /** A subtask within a task */
@@ -45,7 +45,7 @@ interface Subtask {
  * and don't need to be declared in the metadata section.
  *
  * Custom metadata (like retryCount, priority, etc.) is stored in the YAML
- * metadata section of the saga file and is available here.
+ * metadata section of the rhei file and is available here.
  */
 interface TaskMetadata {
   /** Current state of the task - always present, managed by Rhei */
@@ -56,7 +56,7 @@ interface TaskMetadata {
   [key: string]: any;
 }
 
-/** A task being transitioned within the saga */
+/** A task being transitioned within the rhei */
 interface Task {
   id: string | number;
   title: string;
@@ -64,8 +64,8 @@ interface Task {
   subtasks: Subtask[];
 }
 
-/** The saga containing the transitioning task */
-interface Saga {
+/** The rhei containing the transitioning task */
+interface Rhei {
   title: string;
   /** Path to the plan file, e.g. [`scratchpad/formal-state-transitions.md`](scratchpad/formal-state-transitions.md) */
   path: string;
@@ -99,15 +99,15 @@ interface Environment {
  * The context object passed to all transition callbacks.
  *
  * This provides complete information about:
- * - The saga being executed
+ * - The rhei being executed
  * - The specific task transitioning between states
  * - Details about the transition itself
  * - Data accumulated during this transition
  * - The execution environment
  */
 interface TransitionContext {
-  /** The saga being executed */
-  saga: Saga;
+  /** The rhei being executed */
+  rhei: Rhei;
 
   /** The specific task transitioning */
   task: Task;
@@ -165,45 +165,24 @@ interface TransitionResult {
 
 ```typescript
 rhei.onLeave('pending', 'processing', async (ctx: TransitionContext): Promise<TransitionResult> => {
-  // Access saga information
-  console.log(`Saga: ${ctx.saga.title} at ${ctx.saga.path}`);
-
-  // Access task information
-  const task = ctx.task;
-  console.log(`Task ${task.id}: ${task.title}`);
-  console.log(`Current state: ${task.metadata.state}`);
-
-  // Check dependencies
-  for (const depId of task.metadata.dependsOn) {
-    const depTask = ctx.saga.tasks.find(t => t.id === depId);
+  // Check dependencies before allowing transition
+  for (const depId of ctx.task.metadata.dependsOn) {
+    const depTask = ctx.rhei.tasks.find(t => t.id === depId);
     if (depTask && depTask.metadata.state !== 'completed') {
-      return {
-        success: false,
-        error: `Dependency ${depId} not completed`
-      };
+      return { success: false, error: `Dependency ${depId} not completed` };
     }
   }
-
-  // Access custom metadata
-  const priority = task.metadata.priority ?? 'normal';
-
-  // Access transition details
-  console.log(`Transition: ${ctx.transition.from} -> ${ctx.transition.to}`);
-  console.log(`Triggered by: ${ctx.transition.triggeredBy}`);
-
-  // Return success with data for on_enter callback
-  return {
-    success: true,
-    data: { validatedAt: ctx.transition.timestamp }
-  };
+  return { success: true, data: { validatedAt: ctx.transition.timestamp } };
 });
 ```
 
+> **More examples:** See [`transition-callback-examples.md`](transition-callback-examples.md) for comprehensive examples across all supported languages (TypeScript, Python, Java, Bash) covering dependency validation, data passing, state redirection, custom metadata access, and environment-aware logic.
+
 ---
 
-## Saga File Metadata Format
+## Rhei File Metadata Format
 
-Task metadata is stored in a **YAML frontmatter section** within the saga markdown file. The `state` field and dependency information are implicit and always present - they don't need to be declared in the metadata section.
+Task metadata is stored in a **YAML frontmatter section** within the rhei markdown file. The `state` field and dependency information are implicit and always present - they don't need to be declared in the metadata section.
 
 **Naming conventions:**
 - In markdown syntax: Use `**Prior:** Task N` to declare dependencies
@@ -213,7 +192,7 @@ Task metadata is stored in a **YAML frontmatter section** within the saga markdo
 ### Metadata Storage Example
 
 ```markdown
-# Saga: Feature Branch CI Pipeline
+# Rhei: Feature Branch CI Pipeline
 
 ---
 metadata:
@@ -269,22 +248,22 @@ Explicitly initiated by a human or external system call via the Rhei API:
 
 **CLI:**
 ```bash
-# Transition a specific task to a new state
-rhei-cli transition my-saga.saga.md --task 1 --to running
+# Transition a specific task to a new state (compare-and-swap via --from)
+rhei transition my-rhei.rhei.md --task 1 --from pending --to running
 
 # Or during interactive execution
-rhei-cli run my-saga.saga.md --interactive
+rhei run my-rhei.rhei.md --interactive
 ```
 
 **JavaScript:**
 ```typescript
-const rhei = new Rhei({ sagaPath: './my-saga.saga.md' });
+const rhei = new Rhei({ rheiPath: './my-rhei.rhei.md' });
 await rhei.transition(taskId, 'running');  // triggeredBy: 'user'
 ```
 
 **Python:**
 ```python
-rhei = Rhei(saga_path="./my-saga.saga.md")
+rhei = Rhei(rhei_path="./my-rhei.rhei.md")
 rhei.transition(task_id, "running")  # triggeredBy: 'user'
 ```
 
@@ -323,7 +302,7 @@ When using `rhei.run()` or similar autonomous execution modes, the Rhei engine a
 
 ```typescript
 // Engine-driven execution
-const rhei = new Rhei({ sagaPath: './my-saga.saga.md' });
+const rhei = new Rhei({ rheiPath: './my-rhei.rhei.md' });
 await rhei.run();  // Engine triggers transitions as tasks become ready
 ```
 
@@ -588,7 +567,7 @@ validate_preconditions() {
 
     # Check all dependencies are completed
     for dep in $dependencies; do
-        dep_state=$(echo "$context" | jq -r ".saga.tasks[] | select(.id == \"$dep\") | .metadata.state")
+        dep_state=$(echo "$context" | jq -r ".rhei.tasks[] | select(.id == \"$dep\") | .metadata.state")
         if [[ "$dep_state" != "completed" ]]; then
             # Return proper TransitionResult with success=false
             echo '{"success": false, "error": "Dependency not met: '$dep'"}'
@@ -628,8 +607,8 @@ capture_outputs() {
 
 **CLI invocation:**
 ```bash
-# Execute a saga with custom handlers
-rhei-cli run examples/release-automation.saga.md \
+# Execute a rhei with custom handlers
+rhei-cli run examples/release-automation.rhei.md \
     --state-machine states-cli.yaml \
     --handlers ./workflow-handlers.sh
 ```
@@ -684,7 +663,7 @@ import { Rhei, TransitionContext, TransitionResult } from 'rhei-napi';
 // Initialize Rhei with state machine
 const rhei = new Rhei({
   stateMachine: './states-js.yaml',
-  sagaPath: './my-workflow.saga.md'
+  rheiPath: './my-workflow.rhei.md'
 });
 
 // Register transition handlers
@@ -693,7 +672,7 @@ rhei.onLeave('idle', 'processing', async (ctx: TransitionContext): Promise<Trans
 
   // Validate preconditions
   const allDepsComplete = ctx.task.metadata.dependsOn.every(depId => {
-    const dep = ctx.saga.tasks.find(t => t.id === depId);
+    const dep = ctx.rhei.tasks.find(t => t.id === depId);
     return dep?.metadata.state === 'done';
   });
 
@@ -802,7 +781,7 @@ from typing import Optional
 
 rhei = Rhei(
     state_machine="./states-python.yaml",
-    saga_path="./ml-pipeline.saga.md"
+    rhei_path="./ml-pipeline.rhei.md"
 )
 
 @rhei.on_leave("queued", "preprocessing")
@@ -1027,7 +1006,7 @@ public class Main {
     public static void main(String[] args) {
         RheiConfig config = RheiConfig.builder()
             .stateMachine("./states-java.yaml")
-            .sagaPath("./enterprise-workflow.saga.md")
+            .rheiPath("./enterprise-workflow.rhei.md")
             .build();
 
         Rhei rhei = new Rhei(config);
@@ -1038,13 +1017,13 @@ public class Main {
 
 ---
 
-### Example 6: Saga File Using State Transitions
+### Example 6: Rhei File Using State Transitions
 
-A saga file that would work with the state machine definitions above:
+A rhei file that would work with the state machine definitions above:
 
-**ci-pipeline.saga.md:**
+**ci-pipeline.rhei.md:**
 ```markdown
-# Saga: Feature Branch CI Pipeline
+# Rhei: Feature Branch CI Pipeline
 
 ## Overview
 Automated CI pipeline for feature branch validation and deployment.
@@ -1233,7 +1212,7 @@ sequenceDiagram
         end
 
         Note over Rhei: Update task state to target BEFORE on_enter
-        Rhei->>Rhei: update task state in saga file
+        Rhei->>Rhei: update task state in rhei file
         Rhei->>OnEnterCallback: invoke with context, task shows new state
 
         alt Enter callback fails

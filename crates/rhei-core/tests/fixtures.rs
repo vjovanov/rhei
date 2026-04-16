@@ -1,4 +1,4 @@
-pub const VALID_PLAN: &str = r#"# Saga: Release Automation Rollout
+pub const VALID_PLAN: &str = r#"# Rhei: Release Automation Rollout
 
 ## Overview
 Coordinate the staged rollout of release automation across environments.
@@ -23,7 +23,7 @@ rollback:
   enabled: true
 ```
 
-### Task bootstrap_env: Bootstrap environments
+### Task 2: Bootstrap environments
 **State:** in-progress
 **Prior:** Task 1
 
@@ -34,7 +34,7 @@ Create and store staging credentials.
 
 ### Task 3: Roll out release bot
 **State:** pending
-**Prior:** Task 1, Task bootstrap_env
+**Prior:** Task 1, Task 2
 
 Enable the release bot after environment bootstrap succeeds.
 
@@ -42,7 +42,7 @@ Enable the release bot after environment bootstrap succeeds.
 Run the bot in dry-run mode against staging.
 "#;
 
-pub const INVALID_PLAN: &str = r#"# Saga: Broken Rollout Plan
+pub const INVALID_PLAN: &str = r#"# Rhei: Broken Rollout Plan
 
 ## Tasks
 
@@ -58,13 +58,13 @@ This subtask intentionally mismatches its parent task number.
 **Prior:** Task 1
 "#;
 
-pub const INVALID_FIXTURE_MISSING_SAGA_HEADER: &str = r#"## Tasks
+pub const INVALID_FIXTURE_MISSING_RHEI_HEADER: &str = r#"## Tasks
 
-### Task 1: Missing saga header
+### Task 1: Missing rhei header
 **State:** pending
 "#;
 
-pub const INVALID_FIXTURE_MALFORMED_SAGA_HEADER: &str = r#"#Saga: Missing required space
+pub const INVALID_FIXTURE_MALFORMED_RHEI_HEADER: &str = r#"#Rhei: Missing required space
 
 ## Tasks
 
@@ -72,15 +72,15 @@ pub const INVALID_FIXTURE_MALFORMED_SAGA_HEADER: &str = r#"#Saga: Missing requir
 **State:** pending
 "#;
 
-pub const INVALID_FIXTURE_MISSING_TASKS_SECTION: &str = r#"# Saga: Missing tasks section
+pub const INVALID_FIXTURE_MISSING_TASKS_SECTION: &str = r#"# Rhei: Missing tasks section
 "#;
 
-pub const INVALID_FIXTURE_EMPTY_TASKS_SECTION: &str = r#"# Saga: Empty tasks section
+pub const INVALID_FIXTURE_EMPTY_TASKS_SECTION: &str = r#"# Rhei: Empty tasks section
 
 ## Tasks
 "#;
 
-pub const INVALID_FIXTURE_MALFORMED_TASK_HEADING: &str = r#"# Saga: Malformed task heading
+pub const INVALID_FIXTURE_MALFORMED_TASK_HEADING: &str = r#"# Rhei: Malformed task heading
 
 ## Tasks
 
@@ -88,7 +88,7 @@ pub const INVALID_FIXTURE_MALFORMED_TASK_HEADING: &str = r#"# Saga: Malformed ta
 **State:** pending
 "#;
 
-pub const INVALID_FIXTURE_MALFORMED_SUBTASK_HEADING: &str = r#"# Saga: Malformed subtask heading
+pub const INVALID_FIXTURE_MALFORMED_SUBTASK_HEADING: &str = r#"# Rhei: Malformed subtask heading
 
 ## Tasks
 
@@ -98,7 +98,7 @@ pub const INVALID_FIXTURE_MALFORMED_SUBTASK_HEADING: &str = r#"# Saga: Malformed
 #### Subtask 1: Missing decimal component
 "#;
 
-pub const INVALID_FIXTURE_MISSING_TASK_TITLE: &str = r#"# Saga: Missing task title
+pub const INVALID_FIXTURE_MISSING_TASK_TITLE: &str = r#"# Rhei: Missing task title
 
 ## Tasks
 
@@ -106,7 +106,7 @@ pub const INVALID_FIXTURE_MISSING_TASK_TITLE: &str = r#"# Saga: Missing task tit
 **State:** pending
 "#;
 
-pub const INVALID_FIXTURE_MISSING_SUBTASK_TITLE: &str = r#"# Saga: Missing subtask title
+pub const INVALID_FIXTURE_MISSING_SUBTASK_TITLE: &str = r#"# Rhei: Missing subtask title
 
 ## Tasks
 
@@ -116,7 +116,7 @@ pub const INVALID_FIXTURE_MISSING_SUBTASK_TITLE: &str = r#"# Saga: Missing subta
 #### Subtask 1.1:
 "#;
 
-pub const INVALID_FIXTURE_MALFORMED_STATE_METADATA: &str = r#"# Saga: Malformed state metadata
+pub const INVALID_FIXTURE_MALFORMED_STATE_METADATA: &str = r#"# Rhei: Malformed state metadata
 
 ## Tasks
 
@@ -124,7 +124,7 @@ pub const INVALID_FIXTURE_MALFORMED_STATE_METADATA: &str = r#"# Saga: Malformed 
 **State** pending
 "#;
 
-pub const INVALID_FIXTURE_MALFORMED_PRIOR_METADATA: &str = r#"# Saga: Malformed prior metadata
+pub const INVALID_FIXTURE_MALFORMED_PRIOR_METADATA: &str = r#"# Rhei: Malformed prior metadata
 
 ## Tasks
 
@@ -133,7 +133,7 @@ pub const INVALID_FIXTURE_MALFORMED_PRIOR_METADATA: &str = r#"# Saga: Malformed 
 **Prior** Task 2
 "#;
 
-pub const INVALID_FIXTURE_METADATA_OUTSIDE_TASK: &str = r#"# Saga: Metadata outside task
+pub const INVALID_FIXTURE_METADATA_OUTSIDE_TASK: &str = r#"# Rhei: Metadata outside task
 
 **State:** pending
 
@@ -143,7 +143,7 @@ pub const INVALID_FIXTURE_METADATA_OUTSIDE_TASK: &str = r#"# Saga: Metadata outs
 **State:** pending
 "#;
 
-pub const INVALID_FIXTURE_LATE_METADATA_AFTER_CONTENT: &str = r#"# Saga: Late metadata after content
+pub const INVALID_FIXTURE_LATE_METADATA_AFTER_CONTENT: &str = r#"# Rhei: Late metadata after content
 
 ## Tasks
 
@@ -156,14 +156,14 @@ Task body content appears before late metadata.
 **State:** completed
 "#;
 
-pub const INVALID_FIXTURE_MISSING_STATE: &str = r#"# Saga: Missing state
+pub const INVALID_FIXTURE_MISSING_STATE: &str = r#"# Rhei: Missing state
 
 ## Tasks
 
 ### Task 1: No state metadata
 "#;
 
-pub const INVALID_FIXTURE_PRIOR_BEFORE_STATE: &str = r#"# Saga: Prior before state
+pub const INVALID_FIXTURE_PRIOR_BEFORE_STATE: &str = r#"# Rhei: Prior before state
 
 ## Tasks
 
@@ -175,7 +175,7 @@ pub const INVALID_FIXTURE_PRIOR_BEFORE_STATE: &str = r#"# Saga: Prior before sta
 **State:** completed
 "#;
 
-pub const INVALID_FIXTURE_MISSING_DEPENDENCY: &str = r#"# Saga: Missing dependency
+pub const INVALID_FIXTURE_MISSING_DEPENDENCY: &str = r#"# Rhei: Missing dependency
 
 ## Tasks
 
@@ -184,7 +184,7 @@ pub const INVALID_FIXTURE_MISSING_DEPENDENCY: &str = r#"# Saga: Missing dependen
 **Prior:** Task 99
 "#;
 
-pub const INVALID_FIXTURE_INVALID_STATE: &str = r#"# Saga: Invalid state
+pub const INVALID_FIXTURE_INVALID_STATE: &str = r#"# Rhei: Invalid state
 
 ## Tasks
 
@@ -192,7 +192,7 @@ pub const INVALID_FIXTURE_INVALID_STATE: &str = r#"# Saga: Invalid state
 **State:** blocked
 "#;
 
-pub const INVALID_FIXTURE_SUBTASK_PARENT_MISMATCH: &str = r#"# Saga: Subtask parent mismatch
+pub const INVALID_FIXTURE_SUBTASK_PARENT_MISMATCH: &str = r#"# Rhei: Subtask parent mismatch
 
 ## Tasks
 
@@ -202,7 +202,7 @@ pub const INVALID_FIXTURE_SUBTASK_PARENT_MISMATCH: &str = r#"# Saga: Subtask par
 #### Subtask 1.1: Wrong parent prefix
 "#;
 
-pub const INVALID_FIXTURE_CIRCULAR_DEPENDENCY: &str = r#"# Saga: Circular dependency
+pub const INVALID_FIXTURE_CIRCULAR_DEPENDENCY: &str = r#"# Rhei: Circular dependency
 
 ## Tasks
 

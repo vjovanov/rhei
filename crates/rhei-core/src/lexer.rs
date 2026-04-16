@@ -1,7 +1,7 @@
 //! Line-oriented tokenizer producing a stream of tokens from markdown input.
 //!
 //! This initial implementation focuses on the primary structures:
-//! - Saga header
+//! - Rhei header
 //! - Tasks section
 //! - Task and Subtask headers
 //! - Metadata fields: State and Prior
@@ -18,11 +18,12 @@ use regex::Regex;
 pub struct Tokenizer<'a> {
     lines: std::str::Lines<'a>,
 
-    re_saga: Regex,
+    re_rhei: Regex,
     re_tasks: Regex,
     re_task_header: Regex,
     re_subtask_header: Regex,
     re_prior_task_id: Regex,
+    re_states: Regex,
     re_state: Regex,
 
     in_code_block: bool,
@@ -32,7 +33,7 @@ impl<'a> Tokenizer<'a> {
     /// Construct a new tokenizer over the provided input.
     pub fn new(input: &'a str) -> Self {
         // Compile patterns once per tokenizer instantiation.
-        let re_saga = Regex::new(r#"^#\s+Saga:\s+.*$"#).unwrap();
+        let re_rhei = Regex::new(r#"^#\s+Rhei:\s+.*$"#).unwrap();
         let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
         let re_task_header =
             Regex::new(r#"^###\s+Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+):\s+.*$"#).unwrap();
@@ -41,19 +42,33 @@ impl<'a> Tokenizer<'a> {
         // For "**Prior:** Task 1, Task 2" or named ids
         let re_prior_task_id = Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
 
+        // For "**States:** name" (must be checked before re_state)
+        let re_states = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+
         // For "**State:** value"
         let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
 
         Self {
             lines: input.lines(),
-            re_saga,
+            re_rhei,
             re_tasks,
             re_task_header,
             re_subtask_header,
             re_prior_task_id,
+            re_states,
             re_state,
             in_code_block: false,
         }
+    }
+
+    /// Unescape a state value: supports backtick wrapping or backslash escaping.
+    /// - "`in progress`" -> "in progress" (backtick-wrapped, used verbatim)
+    /// - "in\ progress" -> "in progress" (backslash escaping)
+    fn unescape_state(input: &str) -> String {
+        if input.starts_with('`') && input.ends_with('`') && input.len() >= 2 {
+            return input[1..input.len() - 1].to_string();
+        }
+        Self::unescape_simple(input)
     }
 
     /// Unescape simple backslash escapes used in metadata values.
@@ -115,12 +130,20 @@ impl<'a> Iterator for Tokenizer<'a> {
                 return Some(Token::TextContent);
             }
 
-            if self.re_saga.is_match(line) {
-                return Some(Token::SagaHeader);
+            if self.re_rhei.is_match(line) {
+                return Some(Token::RheiHeader);
             }
 
             if self.re_tasks.is_match(line) {
                 return Some(Token::TasksSection);
+            }
+
+            // Section header: ## <title> (non-Tasks)
+            if line.starts_with("## ") && !self.re_tasks.is_match(line) {
+                let title = line.strip_prefix("## ").unwrap_or("").trim().to_string();
+                if !title.is_empty() {
+                    return Some(Token::SectionHeader { title });
+                }
             }
 
             if let Some(caps) = self.re_task_header.captures(line) {
@@ -143,10 +166,16 @@ impl<'a> Iterator for Tokenizer<'a> {
                 }
             }
 
-            // Metadata: State (with unescaping)
+            // Metadata: States declaration (must be checked before State)
+            if let Some(caps) = self.re_states.captures(line) {
+                let name = caps.get(1).map(|m| m.as_str().trim()).unwrap_or_default();
+                return Some(Token::MetadataStates { name: name.to_string() });
+            }
+
+            // Metadata: State (with unescaping or backtick stripping)
             if let Some(caps) = self.re_state.captures(line) {
                 let state_raw = caps.get(1).map(|m| m.as_str().trim()).unwrap_or_default();
-                let state = Self::unescape_simple(state_raw);
+                let state = Self::unescape_state(state_raw);
                 return Some(Token::MetadataState { state });
             }
 

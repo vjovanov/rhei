@@ -7,11 +7,17 @@ use crate::ast::TaskId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
-    /// Top-level saga header marker (e.g., "# Saga: ...").
-    SagaHeader,
+    /// Top-level rhei header marker (e.g., "# Rhei: ...").
+    RheiHeader,
+
+    /// States declaration: "**States:** <name>"
+    MetadataStates { name: String },
 
     /// Marker for the "## Tasks" section start.
     TasksSection,
+
+    /// Section header: "## <title>" (non-Tasks H2 headers).
+    SectionHeader { title: String },
 
     /// Task header: "### Task <id>: <title>"
     /// where <id> can be numeric (NUMBER) or named (IDENTIFIER).

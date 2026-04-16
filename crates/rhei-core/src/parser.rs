@@ -7,16 +7,16 @@
 //!   once tokens carry sufficient payloads for titles and content.
 //!
 //! Responsibilities:
-//! - Extract saga title and pre-Tasks content
+//! - Extract rhei title and pre-Tasks content
 //! - Extract tasks with metadata (State, Prior)
 //! - Extract subtasks with titles and content
 //! - Provide basic error reporting with line numbers
 //!
 //! Error recovery (Subtask 3.3) is minimally implemented: the parser
 //! attempts to continue across unrecognized lines, only raising hard
-//! errors for missing saga title.
+//! errors for missing rhei title.
 
-use crate::ast::{ContentBlock, Saga, Subtask, Task, TaskId, TaskMetadata};
+use crate::ast::{ContentBlock, Rhei, Subtask, Task, TaskId, TaskMetadata};
 use regex::Regex;
 
 /// Parser error with a message and an optional line number.
@@ -35,9 +35,9 @@ impl ParseError {
 /// Result alias for parser operations.
 pub type Result<T> = std::result::Result<T, ParseError>;
 
-/// Parse a markdown plan into a Saga AST.
-pub fn parse(input: &str) -> Result<Saga> {
-    let re_saga = Regex::new(r#"^#\s+Saga:\s+(.*)$"#).unwrap();
+/// Parse a markdown plan into a Rhei AST.
+pub fn parse(input: &str) -> Result<Rhei> {
+    let re_rhei = Regex::new(r#"^#\s+Rhei:\s+(.*)$"#).unwrap();
     let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
     let re_task_header =
         Regex::new(r#"^###\s+Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+):\s+(.*)$"#).unwrap();
@@ -46,6 +46,7 @@ pub fn parse(input: &str) -> Result<Saga> {
     let re_subtask_header = Regex::new(r#"^####\s+Subtask\s+(\d+)\.(\d+):\s+(.*)$"#).unwrap();
     let re_subtask_like_heading = Regex::new(r#"^####\s+\S.*$"#).unwrap();
     let re_subtask_heading_prefix = Regex::new(r#"^####\s+Subtask\b.*$"#).unwrap();
+    let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
     let re_prior_task_id = Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
@@ -58,9 +59,12 @@ pub fn parse(input: &str) -> Result<Saga> {
     let mut pre_tasks_h2_seen = false;
     let mut first_nonempty_line: Option<usize> = None;
 
-    let mut saga_title: Option<String> = None;
-    let mut saga_header_seen = false;
-    let mut saga_content: Vec<ContentBlock> = Vec::new();
+    let mut rhei_title: Option<String> = None;
+    let mut rhei_header_seen = false;
+    let mut rhei_states: Option<String> = None;
+    let mut rhei_states_checked = false;
+    let mut rhei_content: Vec<ContentBlock> = Vec::new();
+    let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
     let mut tasks: Vec<Task> = Vec::new();
 
     // Builders
@@ -68,6 +72,7 @@ pub fn parse(input: &str) -> Result<Saga> {
         id: TaskId,
         title: String,
         metadata: TaskMetadata,
+        content: String,
         subtasks: Vec<Subtask>,
         // Once a non-metadata token appears after the task header,
         // we stop accepting more metadata for this task.
@@ -104,12 +109,23 @@ pub fn parse(input: &str) -> Result<Saga> {
                 if let Some(st) = cur_subtask.as_mut() {
                     st.content.push_str(raw);
                     st.content.push('\n');
-                } else {
-                    // Task-level content is currently not modeled; ignore.
+                } else if let Some(t) = cur_task.as_mut() {
+                    t.metadata_closed = true;
+                    if !t.content.is_empty() {
+                        t.content.push('\n');
+                    }
+                    t.content.push_str(raw);
                 }
             } else {
-                // Saga-level content
-                saga_content.push(ContentBlock::Text(raw.to_string()));
+                // Rhei-level content: append to current section if one is open
+                if let Some(ContentBlock::Section { content, .. }) = rhei_content.last_mut() {
+                    if !content.is_empty() {
+                        content.push('\n');
+                    }
+                    content.push_str(raw);
+                } else {
+                    rhei_content.push(ContentBlock::Text(raw.to_string()));
+                }
             }
 
             // Continue; fences do not participate in structural matching.
@@ -123,22 +139,41 @@ pub fn parse(input: &str) -> Result<Saga> {
                     st.content.push('\n');
                 }
             } else if in_code_block {
-                saga_content.push(ContentBlock::Text(String::new()));
+                rhei_content.push(ContentBlock::Text(String::new()));
             }
             continue;
         }
 
         if !in_tasks_section && !in_code_block {
-            if let Some(cap) = re_saga.captures(line) {
-                saga_title = Some(cap.get(1).unwrap().as_str().to_string());
-                saga_header_seen = true;
+            if let Some(cap) = re_rhei.captures(line) {
+                rhei_title = Some(cap.get(1).unwrap().as_str().to_string());
+                rhei_header_seen = true;
                 continue;
             }
 
-            let is_top_level_h1 = line.starts_with('#') && !line.starts_with("##");
-            if !saga_header_seen && is_top_level_h1 {
+            // Check for **States:** declaration (must be first non-empty line after rhei header)
+            if rhei_header_seen && !rhei_states_checked {
+                if let Some(cap) = re_states_decl.captures(line) {
+                    rhei_states = Some(cap.get(1).unwrap().as_str().trim().to_string());
+                    rhei_states_checked = true;
+                    continue;
+                }
+                // First non-empty line after header is not **States:** — mark as checked
+                rhei_states_checked = true;
+            }
+
+            // Error if **States:** appears after the first non-empty line
+            if rhei_states_checked && re_states_decl.is_match(line) {
                 return Err(ParseError::new(
-                    "Malformed saga heading: expected '# Saga: <title>'",
+                    "**States:** declaration must be the first non-empty line after the Rhei header",
+                    Some(line_number),
+                ));
+            }
+
+            let is_top_level_h1 = line.starts_with('#') && !line.starts_with("##");
+            if !rhei_header_seen && is_top_level_h1 {
+                return Err(ParseError::new(
+                    "Malformed rhei heading: expected '# Rhei: <title>'",
                     Some(line_number),
                 ));
             }
@@ -151,7 +186,12 @@ pub fn parse(input: &str) -> Result<Saga> {
 
             if re_h2_heading.is_match(line) {
                 pre_tasks_h2_seen = true;
-                saga_content.push(ContentBlock::Text(raw.to_string()));
+                if let Some(cap) = re_section_header.captures(line) {
+                    let section_title = cap.get(1).unwrap().as_str().trim().to_string();
+                    rhei_content.push(ContentBlock::Section { title: section_title, content: String::new() });
+                } else {
+                    rhei_content.push(ContentBlock::Text(raw.to_string()));
+                }
                 continue;
             }
 
@@ -162,8 +202,15 @@ pub fn parse(input: &str) -> Result<Saga> {
                 ));
             }
 
-            // Saga pre-Tasks content
-            saga_content.push(ContentBlock::Text(raw.to_string()));
+            // Rhei pre-Tasks content: append to current section if one is open
+            if let Some(ContentBlock::Section { content, .. }) = rhei_content.last_mut() {
+                if !content.is_empty() {
+                    content.push('\n');
+                }
+                content.push_str(raw);
+            } else {
+                rhei_content.push(ContentBlock::Text(raw.to_string()));
+            }
             continue;
         }
 
@@ -197,6 +244,7 @@ pub fn parse(input: &str) -> Result<Saga> {
                     id: tb.id,
                     title: tb.title,
                     metadata: tb.metadata,
+                    content: tb.content,
                     subtasks: tb.subtasks,
                 });
             }
@@ -214,6 +262,7 @@ pub fn parse(input: &str) -> Result<Saga> {
                 id,
                 title,
                 metadata: TaskMetadata::default(),
+                content: String::new(),
                 subtasks: Vec::new(),
                 metadata_closed: false,
             });
@@ -277,7 +326,7 @@ pub fn parse(input: &str) -> Result<Saga> {
             if let Some(t) = cur_task.as_mut() {
                 if !t.metadata_closed {
                     let raw_state = caps.get(1).unwrap().as_str().trim();
-                    let state = unescape_simple(raw_state);
+                    let state = unescape_state(raw_state);
                     t.metadata.state = Some(state);
                     continue;
                 }
@@ -385,7 +434,10 @@ pub fn parse(input: &str) -> Result<Saga> {
         } else if let Some(t) = cur_task.as_mut() {
             // Encountering non-metadata content closes the metadata window.
             t.metadata_closed = true;
-            // Task-level description not modeled; ignore for now.
+            if !t.content.is_empty() {
+                t.content.push('\n');
+            }
+            t.content.push_str(raw);
         }
     }
 
@@ -406,15 +458,16 @@ pub fn parse(input: &str) -> Result<Saga> {
             id: tb.id,
             title: tb.title,
             metadata: tb.metadata,
+            content: tb.content,
             subtasks: tb.subtasks,
         });
     }
 
-    let title = match saga_title {
+    let title = match rhei_title {
         Some(t) => t,
         None => {
             return Err(ParseError::new(
-                "Missing '# Saga: <title>' header",
+                "Missing '# Rhei: <title>' header",
                 first_nonempty_line.or(tasks_section_line),
             ));
         }
@@ -438,7 +491,15 @@ pub fn parse(input: &str) -> Result<Saga> {
         ));
     }
 
-    Ok(Saga { title, content: saga_content, tasks })
+    Ok(Rhei { title, states: rhei_states.unwrap_or_else(|| "rhei".to_string()), content: rhei_content, tasks })
+}
+
+/// Unescape a state value: supports backtick wrapping or backslash escaping.
+fn unescape_state(input: &str) -> String {
+    if input.starts_with('`') && input.ends_with('`') && input.len() >= 2 {
+        return input[1..input.len() - 1].to_string();
+    }
+    unescape_simple(input)
 }
 
 /// Unescape simple backslash escapes used in metadata values.
@@ -471,7 +532,7 @@ mod tests {
 
     #[test]
     fn parses_minimal_plan_with_task_and_subtasks() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 Some intro line
 
 ## Tasks
@@ -490,15 +551,15 @@ code block
 ```
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
 
-        assert_eq!(saga.title, "Example");
+        assert_eq!(rhei.title, "Example");
         assert!(
-            matches!(saga.content.first(), Some(ContentBlock::Text(s)) if s == "Some intro line")
+            matches!(rhei.content.first(), Some(ContentBlock::Text(s)) if s == "Some intro line")
         );
 
-        assert_eq!(saga.tasks.len(), 1);
-        let t1 = &saga.tasks[0];
+        assert_eq!(rhei.tasks.len(), 1);
+        let t1 = &rhei.tasks[0];
         assert!(matches!(t1.id, TaskId::Number(1)));
         assert_eq!(t1.title, "Alpha");
         assert_eq!(t1.metadata.state.as_deref(), Some("pending"));
@@ -514,25 +575,25 @@ code block
     }
 
     #[test]
-    fn error_when_missing_saga_title() {
+    fn error_when_missing_rhei_title() {
         let input = "## Tasks\n";
         let err = parse(input).unwrap_err();
-        assert!(err.message.contains("Missing '# Saga"));
+        assert!(err.message.contains("Missing '# Rhei"));
         assert_eq!(err.line, Some(1));
     }
 
     #[test]
-    fn error_when_missing_saga_title_after_leading_code_fence_points_to_first_line() {
+    fn error_when_missing_rhei_title_after_leading_code_fence_points_to_first_line() {
         let input = "```md\n## Tasks\n```\n";
         let err = parse(input).unwrap_err();
 
-        assert!(err.message.contains("Missing '# Saga"));
+        assert!(err.message.contains("Missing '# Rhei"));
         assert_eq!(err.line, Some(1));
     }
 
     #[test]
     fn errors_when_missing_tasks_section() {
-        let input = "# Saga: Example\n";
+        let input = "# Rhei: Example\n";
         let err = parse(input).unwrap_err();
 
         assert_eq!(err.message, "Missing '## Tasks' section");
@@ -541,7 +602,7 @@ code block
 
     #[test]
     fn errors_when_tasks_section_is_empty() {
-        let input = "# Saga: Example\n## Tasks\n";
+        let input = "# Rhei: Example\n## Tasks\n";
         let err = parse(input).unwrap_err();
 
         assert_eq!(err.message, "Tasks section must contain at least one task");
@@ -549,26 +610,26 @@ code block
     }
 
     #[test]
-    fn errors_on_malformed_saga_heading_intended_as_saga_header() {
-        let input = "#Saga: Example\n## Tasks\n";
+    fn errors_on_malformed_rhei_heading_intended_as_rhei_header() {
+        let input = "#Rhei: Example\n## Tasks\n";
         let err = parse(input).unwrap_err();
 
-        assert_eq!(err.message, "Malformed saga heading: expected '# Saga: <title>'");
+        assert_eq!(err.message, "Malformed rhei heading: expected '# Rhei: <title>'");
         assert_eq!(err.line, Some(1));
     }
 
     #[test]
-    fn errors_on_h1_heading_with_wrong_keyword_as_malformed_saga_heading() {
+    fn errors_on_h1_heading_with_wrong_keyword_as_malformed_rhei_heading() {
         let input = "# Sga: Example\n## Tasks\n";
         let err = parse(input).unwrap_err();
 
-        assert_eq!(err.message, "Malformed saga heading: expected '# Saga: <title>'");
+        assert_eq!(err.message, "Malformed rhei heading: expected '# Rhei: <title>'");
         assert_eq!(err.line, Some(1));
     }
 
     #[test]
     fn allows_arbitrary_h2_chapters_before_tasks_section() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 
 ## Overview
 High-level context.
@@ -582,25 +643,28 @@ High-level context.
 ### Task 1: Alpha
 **State:** pending
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
 
-        assert_eq!(saga.title, "Example");
-        assert_eq!(saga.tasks.len(), 1);
+        assert_eq!(rhei.title, "Example");
+        assert_eq!(rhei.tasks.len(), 1);
         assert_eq!(
-            saga.content,
+            rhei.content,
             vec![
-                ContentBlock::Text("## Overview".to_string()),
-                ContentBlock::Text("High-level context.".to_string()),
-                ContentBlock::Text("## Requirements".to_string()),
-                ContentBlock::Text("- Preserve audit logs".to_string()),
-                ContentBlock::Text("- Support approvals".to_string()),
+                ContentBlock::Section {
+                    title: "Overview".to_string(),
+                    content: "High-level context.".to_string(),
+                },
+                ContentBlock::Section {
+                    title: "Requirements".to_string(),
+                    content: "- Preserve audit logs\n- Support approvals".to_string(),
+                },
             ]
         );
     }
 
     #[test]
     fn errors_when_tasks_section_is_not_final_h2_chapter() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 
 ## Overview
 Context before tasks.
@@ -624,7 +688,7 @@ Trailing chapter after tasks.
 
     #[test]
     fn parses_named_task_ids_and_named_prior_dependencies() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task build_api: Build API
@@ -635,10 +699,10 @@ Trailing chapter after tasks.
 Body
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
 
-        assert_eq!(saga.tasks.len(), 1);
-        let task = &saga.tasks[0];
+        assert_eq!(rhei.tasks.len(), 1);
+        let task = &rhei.tasks[0];
         assert_eq!(task.id, TaskId::Named("build_api".to_string()));
         assert_eq!(task.title, "Build API");
         assert_eq!(task.metadata.state.as_deref(), Some("in-progress"));
@@ -650,7 +714,7 @@ Body
 
     #[test]
     fn errors_when_metadata_after_content() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
@@ -673,7 +737,7 @@ Done
 
     #[test]
     fn state_after_prior_keeps_dependency_and_marks_ordering_for_validator() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
@@ -681,18 +745,18 @@ Done
 **State:** pending
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
 
-        assert_eq!(saga.tasks.len(), 1);
-        let task = &saga.tasks[0];
+        assert_eq!(rhei.tasks.len(), 1);
+        let task = &rhei.tasks[0];
         assert_eq!(task.metadata.depends_on, vec![TaskId::Number(2)]);
         assert_eq!(task.metadata.state.as_deref(), Some("pending"));
         assert!(!task.metadata.state_first);
     }
 
     #[test]
-    fn preserves_saga_content_inside_fenced_code_blocks_before_tasks() {
-        let input = r#"# Saga: Example
+    fn preserves_rhei_content_inside_fenced_code_blocks_before_tasks() {
+        let input = r#"# Rhei: Example
 Intro line
 ```rust
 ### Task 999: not a real task
@@ -704,24 +768,24 @@ Intro line
 **State:** pending
 "#;
 
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
 
-        assert_eq!(saga.title, "Example");
+        assert_eq!(rhei.title, "Example");
         assert_eq!(
-            saga.content,
+            rhei.content,
             vec![
                 ContentBlock::Text("Intro line".to_string()),
                 ContentBlock::Text("```rust".to_string()),
                 ContentBlock::Text("```".to_string()),
             ]
         );
-        assert_eq!(saga.tasks.len(), 1);
-        assert_eq!(saga.tasks[0].id, TaskId::Number(1));
+        assert_eq!(rhei.tasks.len(), 1);
+        assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
     }
 
     #[test]
     fn errors_on_malformed_task_heading_in_tasks_section() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Tak 3: Broken heading
@@ -737,7 +801,7 @@ Intro line
 
     #[test]
     fn errors_on_task_heading_missing_colon_separator() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1 Broken heading
@@ -751,7 +815,7 @@ Intro line
 
     #[test]
     fn errors_on_empty_task_title() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1:
@@ -765,7 +829,7 @@ Intro line
 
     #[test]
     fn errors_on_malformed_subtask_heading() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
@@ -784,7 +848,7 @@ Intro line
 
     #[test]
     fn errors_on_empty_subtask_title() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
@@ -803,7 +867,7 @@ Intro line
 
     #[test]
     fn errors_on_malformed_state_metadata_line() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
@@ -817,7 +881,7 @@ Intro line
 
     #[test]
     fn errors_on_malformed_prior_metadata_line() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
@@ -834,7 +898,7 @@ Intro line
 
     #[test]
     fn errors_on_metadata_outside_task_before_tasks_section() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 **State:** pending
 ## Tasks
 
@@ -849,7 +913,7 @@ Intro line
 
     #[test]
     fn errors_on_metadata_outside_task_inside_tasks_section() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 **State:** pending
 
@@ -863,11 +927,11 @@ Intro line
     }
 
     #[test]
-    fn does_not_treat_non_task_third_level_heading_as_malformed_inside_saga_content() {
-        let input = r#"# Saga: Example
+    fn does_not_treat_non_task_third_level_heading_as_malformed_inside_rhei_content() {
+        let input = r#"# Rhei: Example
 
 ### Notes
-This is saga content before tasks.
+This is rhei content before tasks.
 
 ## Tasks
 
@@ -875,8 +939,8 @@ This is saga content before tasks.
 **State:** pending
 "#;
 
-        let saga = parse(input).expect("parse ok");
-        assert_eq!(saga.tasks.len(), 1);
-        assert_eq!(saga.tasks[0].id, TaskId::Number(1));
+        let rhei = parse(input).expect("parse ok");
+        assert_eq!(rhei.tasks.len(), 1);
+        assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
     }
 }

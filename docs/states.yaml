@@ -1,27 +1,96 @@
 # States Definition for Markdown Plan Compiler
-# This file defines valid states for tasks
+# This file defines the valid states for tasks and the allowed transitions
+# between them. The CLI can print this machine with `rhei states`.
 
 name: task-states
 version: 1.0
 
 states:
   draft:
-    description: Task not yet started
+    description: Task is still being shaped by the author and is not ready for execution.
+    instructions: |
+      When all dependencies are met, you may expand the description of the task
+      according to the current state of the source code. Pick up when all
+      **Prior:** tasks are `completed`. Transition to `pending` once the
+      description is finalized; transition to `in-progress` only after that.
+    initial: true
 
   pending:
-    description: Task not yet started
+    description: Task is ready to start once its prerequisites are completed.
+    instructions: |
+      Pick up when all **Prior:** tasks are `completed`.
+      Transition to `in-progress` before writing code.
 
   in-progress:
-    description: Task currently being worked on
-
-  completed:
-    description: Task finished successfully
-
-  cancelled:
-    description: Task no longer needed
-
-  human-review:
-    description: Agents stop and leave the human to adjust the saga
+    description: Task is actively being implemented.
+    instructions: |
+      Implement the task and its subtasks, logging progress per subtask.
+      When implementation is complete and self-tested, transition to `agent-review`.
 
   agent-review:
-    description: Agents are currently reviewing the task result
+    description: A separate reviewing agent inspects the result.
+    instructions: |
+      Review the implementation against the task description, subtasks, and
+      repository conventions. On pass, transition to `human-review` (or
+      `completed` if no human gate is required). On fail, transition to
+      `agent-review-fix` with concrete findings.
+
+  agent-review-fix:
+    description: The implementing agent addresses reviewer findings.
+    instructions: |
+      Address the reviewer's findings only — no scope expansion. After
+      applying fixes, transition back to `agent-review` for re-review.
+
+  human-review:
+    description: Work is paused pending human inspection.
+    instructions: |
+      Stop all agent work on this task. Wait for a human to approve, request
+      changes, or edit the rhei. Do not transition out of this state
+      autonomously.
+
+  completed:
+    description: Task finished successfully.
+    instructions: |
+      Treat as immutable. Do not re-open, re-run, or modify unless the user
+      explicitly requests it.
+    final: true
+
+  cancelled:
+    description: Task is no longer needed.
+    instructions: |
+      Skip entirely. Do not execute, review, or reference as a prerequisite
+      for new work.
+    final: true
+
+# Explicit transition rules. Any transition not listed here is forbidden.
+transitions:
+  - from: draft
+    to: pending
+  - from: draft
+    to: cancelled
+  - from: pending
+    to: in-progress
+  - from: pending
+    to: cancelled
+  - from: in-progress
+    to: agent-review
+  - from: in-progress
+    to: human-review
+  - from: in-progress
+    to: cancelled
+  - from: agent-review
+    to: agent-review-fix
+  - from: agent-review
+    to: human-review
+  - from: agent-review
+    to: completed
+  - from: agent-review-fix
+    to: agent-review
+  - from: agent-review-fix
+    to: cancelled
+  - from: human-review
+    to: in-progress
+  - from: human-review
+    to: completed
+  - from: human-review
+    to: cancelled

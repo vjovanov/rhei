@@ -1,5 +1,9 @@
 # Agent Workflow Notes
 
+## Specification
+
+See the [Rhei Plan Language Specification](docs/plan-language-spec.md).
+
 ## CI Verification Commands
 
 Run these commands from the repository root to mirror CI checks:

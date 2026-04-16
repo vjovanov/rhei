@@ -12,7 +12,7 @@ Current workspace crates:
 ## Markdown plan compiler
 
 The markdown plan compiler currently supports:
-- parsing saga/task/subtask structure from markdown plans
+- parsing rhei/task/subtask structure from markdown plans
 - validating task metadata and dependencies against a states definition in [`docs/states.yaml`](docs/states.yaml)
 - rendering parsed plans as JSON, GitHub-style markdown, or terminal-oriented progress output
 
@@ -78,7 +78,7 @@ Typical flow inside Rust code:
 ## Status notes
 
 This documentation reflects the current repository behavior. In particular:
-- parsing retains saga-level text and subtask body content
+- parsing retains rhei-level text and subtask body content
 - validation enforces required `**State:**` metadata, dependency existence, metadata ordering, cycle detection, and subtask numbering checks
 - rendering is available for JSON, GitHub-style markdown, and progress reports
 - examples beyond repository documents are tracked separately by subtask 8.4

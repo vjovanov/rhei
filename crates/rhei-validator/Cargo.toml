@@ -8,4 +8,4 @@ license = "MIT OR Apache-2.0"
 rhei-core = { path = "../rhei-core" }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-indexmap = "=2.2.6"
+indexmap = { version = "=2.2.6", features = ["serde"] }

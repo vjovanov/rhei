@@ -4,14 +4,16 @@
 //! - [`StateMachine`], loaded from YAML, which defines allowed task states
 //! - validation helpers such as [`validate_with_machine`] and
 //!   [`validate_from_machine_file`] that check a parsed
-//!   [`rhei_core::ast::Saga`](rhei_core::ast::Saga)
+//!   [`rhei_core::ast::Rhei`](rhei_core::ast::Rhei)
 //!
 //! The current validator enforces the behaviors implemented in this repository:
 //! dependency existence, required `**State:**` metadata, state validity,
 //! `**State:**` before `**Prior:**`, circular dependency detection, and
 //! subtask parent-number consistency for numeric task identifiers.
 
-use rhei_core::ast::{Saga, Task, TaskId};
+pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
+use indexmap::IndexMap;
+use rhei_core::ast::{Rhei, Task, TaskId};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -107,6 +109,15 @@ impl From<serde_yaml::Error> for StateMachineLoadError {
 pub struct StateDef {
     /// Optional descriptive text; the current schema intentionally keeps this permissive.
     pub description: Option<String>,
+    /// Optional agent-facing instructions for what to do while a task is in this state.
+    #[serde(default)]
+    pub instructions: Option<String>,
+    /// Marks this state as the initial state in the state machine.
+    #[serde(default)]
+    pub initial: bool,
+    /// Marks this state as a final/terminal state in the state machine.
+    #[serde(default, rename = "final")]
+    pub terminal: bool,
 }
 
 /// States data loaded from YAML.
@@ -119,8 +130,11 @@ pub struct StateMachine {
     pub name: String,
     /// YAML version field as provided by the source file.
     pub version: serde_yaml::Value,
-    /// Allowed states keyed by their exact textual names.
-    pub states: HashMap<String, StateDef>,
+    /// Allowed states keyed by their exact textual names, preserving YAML order.
+    pub states: IndexMap<String, StateDef>,
+    /// Declared allowed transitions between states. Empty if unspecified.
+    #[serde(default)]
+    pub transitions: Vec<TransitionRule>,
 }
 
 impl StateMachine {
@@ -145,6 +159,11 @@ impl StateMachine {
     pub fn allowed_states(&self) -> impl Iterator<Item = &str> {
         self.states.keys().map(|s| s.as_str())
     }
+
+    /// Return the declared transitions between states.
+    pub fn transitions(&self) -> &[TransitionRule] {
+        &self.transitions
+    }
 }
 
 // ========================================
@@ -162,53 +181,55 @@ impl Validator {
         Self { machine }
     }
 
-    /// Validate a parsed saga using the currently configured states.
-    pub fn validate(&self, saga: &Saga) -> ValidationReport {
+    /// Validate a parsed rhei using the currently configured states.
+    pub fn validate(&self, rhei: &Rhei) -> ValidationReport {
         let mut report = ValidationReport::ok();
 
-        let index = build_task_index(saga);
-        validate_dependency_integrity(saga, &index, &mut report);
-        validate_state_consistency(saga, &self.machine, &mut report);
-        validate_metadata_ordering(saga, &mut report);
-        validate_subtask_numbering(saga, &mut report);
-        validate_circular_dependencies(saga, &index, &mut report);
+        let index = build_task_index(rhei);
+        validate_task_id_uniqueness(rhei, &mut report);
+        validate_dependency_integrity(rhei, &index, &mut report);
+        validate_state_consistency(rhei, &self.machine, &mut report);
+        validate_metadata_ordering(rhei, &mut report);
+        validate_subtask_numbering(rhei, &mut report);
+        validate_subtask_uniqueness(rhei, &mut report);
+        validate_circular_dependencies(rhei, &index, &mut report);
 
         report
     }
 }
 
-/// Validate a parsed saga using an already-loaded [`StateMachine`].
-pub fn validate_with_machine(saga: &Saga, machine: &StateMachine) -> ValidationReport {
-    Validator::new(machine.clone()).validate(saga)
+/// Validate a parsed rhei using an already-loaded [`StateMachine`].
+pub fn validate_with_machine(rhei: &Rhei, machine: &StateMachine) -> ValidationReport {
+    Validator::new(machine.clone()).validate(rhei)
 }
 
-/// Load a [`StateMachine`] from `machine_path` and validate a parsed saga.
+/// Load a [`StateMachine`] from `machine_path` and validate a parsed rhei.
 pub fn validate_from_machine_file<P: AsRef<Path>>(
-    saga: &Saga,
+    rhei: &Rhei,
     machine_path: P,
 ) -> Result<ValidationReport, StateMachineLoadError> {
     let machine = StateMachine::from_yaml_file(machine_path)?;
-    Ok(Validator::new(machine).validate(saga))
+    Ok(Validator::new(machine).validate(rhei))
 }
 
 // ---------------------------
 // Validation helpers
 // ---------------------------
 
-fn build_task_index(saga: &Saga) -> HashMap<TaskId, &Task> {
-    let mut map = HashMap::with_capacity(saga.tasks.len());
-    for t in &saga.tasks {
+fn build_task_index(rhei: &Rhei) -> HashMap<TaskId, &Task> {
+    let mut map = HashMap::with_capacity(rhei.tasks.len());
+    for t in &rhei.tasks {
         map.insert(t.id.clone(), t);
     }
     map
 }
 
 fn validate_dependency_integrity(
-    saga: &Saga,
+    rhei: &Rhei,
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {
-    for task in &saga.tasks {
+    for task in &rhei.tasks {
         for dep in &task.metadata.depends_on {
             if !index.contains_key(dep) {
                 report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
@@ -217,8 +238,8 @@ fn validate_dependency_integrity(
     }
 }
 
-fn validate_state_consistency(saga: &Saga, machine: &StateMachine, report: &mut ValidationReport) {
-    for task in &saga.tasks {
+fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
+    for task in &rhei.tasks {
         match task.metadata.state.as_deref() {
             None => {
                 // Per spec, State is mandatory.
@@ -239,8 +260,8 @@ fn validate_state_consistency(saga: &Saga, machine: &StateMachine, report: &mut 
     }
 }
 
-fn validate_metadata_ordering(saga: &Saga, report: &mut ValidationReport) {
-    for task in &saga.tasks {
+fn validate_metadata_ordering(rhei: &Rhei, report: &mut ValidationReport) {
+    for task in &rhei.tasks {
         // Ordering only matters if Prior is present alongside State.
         if !task.metadata.depends_on.is_empty() && !task.metadata.state_first {
             report.errors.push(format!(
@@ -251,8 +272,8 @@ fn validate_metadata_ordering(saga: &Saga, report: &mut ValidationReport) {
     }
 }
 
-fn validate_subtask_numbering(saga: &Saga, report: &mut ValidationReport) {
-    for task in &saga.tasks {
+fn validate_subtask_numbering(rhei: &Rhei, report: &mut ValidationReport) {
+    for task in &rhei.tasks {
         for st in &task.subtasks {
             match task.id {
                 TaskId::Number(n) => {
@@ -264,13 +285,36 @@ fn validate_subtask_numbering(saga: &Saga, report: &mut ValidationReport) {
                     }
                 }
                 TaskId::Named(ref name) => {
-                    // Parent task has a named id; subtask numbering refers to numeric parent.
-                    // Emit a warning since we cannot verify numeric consistency against a named id.
-                    report.warnings.push(format!(
-                        "Cannot validate subtask numbering for named task '{}'; subtasks use numeric parent identifiers",
+                    // Per spec, named tasks must not have subtasks.
+                    report.errors.push(format!(
+                        "Task '{}' has a named id and must not declare subtasks",
                         name
                     ));
+                    break; // One error per task is sufficient
                 }
+            }
+        }
+    }
+}
+
+fn validate_task_id_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
+    let mut seen = HashSet::new();
+    for task in &rhei.tasks {
+        if !seen.insert(task.id.clone()) {
+            report.errors.push(format!("Duplicate task id: Task {}", task.id));
+        }
+    }
+}
+
+fn validate_subtask_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
+    for task in &rhei.tasks {
+        let mut seen = HashSet::new();
+        for st in &task.subtasks {
+            if !seen.insert(st.subtask_number) {
+                report.errors.push(format!(
+                    "Duplicate subtask number {}.{} under Task {}",
+                    st.task_number, st.subtask_number, task.id
+                ));
             }
         }
     }
@@ -278,7 +322,7 @@ fn validate_subtask_numbering(saga: &Saga, report: &mut ValidationReport) {
 
 /// Detect cycles using Kahn's algorithm; report a generic cycle set on failure.
 fn validate_circular_dependencies(
-    _saga: &Saga,
+    _rhei: &Rhei,
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {
@@ -363,7 +407,7 @@ states:
 
     #[test]
     fn detects_missing_state_and_bad_dependency_and_cycle() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -379,9 +423,9 @@ states:
 **State:** pending
 **Prior:** Task 1
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors());
         // Expect: Task 1 depends on 3 (exists), Task 3 depends on 1 => cycle
@@ -393,7 +437,7 @@ states:
 
     #[test]
     fn ok_when_valid() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -405,16 +449,16 @@ states:
 **State:** in-progress
 **Prior:** Task 1
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
     fn reports_missing_numeric_dependency() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -424,9 +468,9 @@ states:
 ### Task 2: B
 **State:** in-progress
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected missing dependency error");
         let joined = report.errors.join("\n");
@@ -439,7 +483,7 @@ states:
 
     #[test]
     fn reports_missing_named_dependency() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task build: Build step
@@ -449,9 +493,9 @@ states:
 ### Task test: Test step
 **State:** in-progress
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected missing named dependency error");
         let joined = report.errors.join("\n");
@@ -464,7 +508,7 @@ states:
 
     #[test]
     fn ok_when_all_dependencies_exist_named_and_numeric() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task init: Initialize
@@ -478,16 +522,16 @@ states:
 **State:** completed
 **Prior:** Task 2, Task init
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
     fn reports_missing_state_is_error() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -495,9 +539,9 @@ states:
 
 ### Task 2: B
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected missing state error");
         let joined = report.errors.join("\n");
@@ -510,15 +554,15 @@ states:
 
     #[test]
     fn reports_invalid_state_with_allowed_list() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
 **State:** invalid_state
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected invalid state error");
         let joined = report.errors.join("\n");
@@ -547,14 +591,14 @@ states:
   "in progress": { description: "with space" }
 "#;
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
 **State:** in\ progress
 "#;
-        let saga = parse(input).expect("parse ok");
-        let report = validate_with_machine(&saga, &machine);
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &machine);
 
         assert!(
             !report.has_errors(),
@@ -565,7 +609,7 @@ states:
 
     #[test]
     fn ok_when_all_tasks_have_valid_state() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -577,16 +621,16 @@ states:
 ### Task 3: C
 **State:** completed
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
     fn detects_two_node_cycle() {
-        let input = r#"# Saga: Ex
+        let input = r#"# Rhei: Ex
 ## Tasks
 
 ### Task 1: A
@@ -597,9 +641,9 @@ states:
 **State:** pending
 **Prior:** Task 1
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected cycle error");
         let joined = report.errors.join("\n");
@@ -614,7 +658,7 @@ states:
 
     #[test]
     fn detects_three_node_cycle() {
-        let input = r#"# Saga: Ex
+        let input = r#"# Rhei: Ex
 ## Tasks
 
 ### Task 1: A
@@ -629,9 +673,9 @@ states:
 **State:** completed
 **Prior:** Task 1
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected cycle error");
         let joined = report.errors.join("\n");
@@ -647,16 +691,16 @@ states:
 
     #[test]
     fn detects_self_cycle() {
-        let input = r#"# Saga: Ex
+        let input = r#"# Rhei: Ex
 ## Tasks
 
 ### Task 1: A
 **State:** pending
 **Prior:** Task 1
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected self-cycle error");
         let joined = report.errors.join("\n");
@@ -670,7 +714,7 @@ states:
 
     #[test]
     fn passes_on_dag() {
-        let input = r#"# Saga: Ex
+        let input = r#"# Rhei: Ex
 ## Tasks
 
 ### Task 1: A
@@ -684,16 +728,16 @@ states:
 **State:** completed
 **Prior:** Task 2
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors in DAG case: {:?}", report.errors);
     }
 
     #[test]
     fn no_false_cycle_with_missing_dependency() {
-        let input = r#"# Saga: Ex
+        let input = r#"# Rhei: Ex
 ## Tasks
 
 ### Task 1: A
@@ -703,9 +747,9 @@ states:
 ### Task 2: B
 **State:** in-progress
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected missing dependency error");
         let joined = report.errors.join("\n");
@@ -725,7 +769,7 @@ states:
 
     #[test]
     fn mismatched_parent_number_errors() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 2: B
@@ -733,9 +777,9 @@ states:
 
 #### Subtask 1.1: Wrong parent number
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected numbering mismatch error");
         let joined = report.errors.join("\n");
@@ -753,7 +797,7 @@ states:
 
     #[test]
     fn valid_subtask_numbering_ok() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 3: C
@@ -762,16 +806,16 @@ states:
 #### Subtask 3.1: First
 #### Subtask 3.2: Second
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
     }
 
     #[test]
-    fn named_task_subtasks_warn_only() {
-        let input = r#"# Saga: Example
+    fn named_task_subtasks_produce_error() {
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task build: B
@@ -779,26 +823,25 @@ states:
 
 #### Subtask 1.1: Any number
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(
-            !report.has_errors(),
-            "named task with subtasks should not produce errors; got: {:?}",
-            report.errors
+            report.has_errors(),
+            "named task with subtasks should produce errors"
         );
-        let warnings = report.warnings.join("\n");
+        let joined = report.errors.join("\n");
         assert!(
-            warnings.contains("Cannot validate subtask numbering for named task 'build'"),
-            "expected named-task numbering warning; warnings were:\n{}",
-            warnings
+            joined.contains("Task 'build' has a named id and must not declare subtasks"),
+            "expected named-task subtask error; errors were:\n{}",
+            joined
         );
     }
 
     #[test]
     fn mixed_tasks_ok_and_error() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -811,9 +854,9 @@ states:
 
 #### Subtask 1.2: Incorrect parent
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let mut report = validate_with_machine(&saga, &sm);
+        let mut report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected exactly one numbering error; got none");
         // Filter only numbering mismatch errors to be robust to future validators.
@@ -831,7 +874,7 @@ states:
 
     #[test]
     fn multiple_subtasks_some_bad() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 4: D
@@ -840,9 +883,9 @@ states:
 #### Subtask 4.1: Correct
 #### Subtask 3.2: Incorrect parent
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected at least one numbering error");
         let joined = report.errors.join("\n");
@@ -855,7 +898,7 @@ states:
 
     #[test]
     fn reports_metadata_ordering_when_prior_precedes_state() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -865,9 +908,9 @@ states:
 ### Task 2: B
 **State:** completed
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         assert!(report.has_errors(), "expected metadata ordering error");
         let joined = report.errors.join("\n");
@@ -885,7 +928,7 @@ states:
 
     #[test]
     fn prior_without_state_reports_missing_state_and_ordering_error() {
-        let input = r#"# Saga: Example
+        let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
@@ -894,9 +937,9 @@ states:
 ### Task 2: B
 **State:** pending
 "#;
-        let saga = parse(input).expect("parse ok");
+        let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
-        let report = validate_with_machine(&saga, &sm);
+        let report = validate_with_machine(&rhei, &sm);
 
         let joined = report.errors.join("\n");
         assert!(
