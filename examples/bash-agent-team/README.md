@@ -16,6 +16,7 @@ Run these commands from the repository root:
 ```bash
 cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml validate examples/bash-agent-team
 cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml run examples/bash-agent-team
+cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml reset examples/bash-agent-team
 ```
 
 After `run` completes, inspect:
@@ -23,6 +24,9 @@ After `run` completes, inspect:
 - `examples/bash-agent-team/tasks/*.md` for the final task states
 - `examples/bash-agent-team/runtime/logs/` for the transition log
 - `examples/bash-agent-team/runtime/artifacts/` for per-task outputs
+
+Use `reset` to restore the task files to their initial state and delete the
+generated `runtime/` tree.
 
 ## Current CLI Callback Contract
 
@@ -35,4 +39,3 @@ environment variables:
 - `RHEI_PLAN_PATH`
 
 This example is written against that behavior so it works with the current CLI.
-

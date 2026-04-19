@@ -1184,6 +1184,41 @@ fn run_run_command(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -
     }
 }
 
+fn run_run_command_in_dir(
+    current_dir: &Path,
+    plan_path: &Path,
+    machine_path: &Path,
+    extra_args: &[&str],
+) -> CliRun {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.current_dir(current_dir).arg("--state-machine").arg(machine_path).arg("run").arg(plan_path);
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    let output = cmd.output().expect("run command should execute");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+fn run_reset_command(plan_path: &Path, machine_path: &Path) -> CliRun {
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(machine_path)
+        .arg("reset")
+        .arg(plan_path)
+        .output()
+        .expect("reset command should run");
+
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
 #[test]
 fn run_advances_linear_chain_to_completion() {
     let plan = r#"# Rhei: Linear Chain
@@ -1395,6 +1430,79 @@ transitions:
 }
 
 #[test]
+fn run_executes_relative_callback_from_state_machine_directory() {
+    let dir = unique_temp_dir("run-relative-callback");
+    let workspace_dir = dir.join("examples");
+    let machine_dir = workspace_dir.join("bash-agent-team");
+    fs::create_dir_all(&machine_dir).expect("create machine dir");
+
+    let plan = r#"# Rhei: Relative Callback
+
+## Tasks
+
+### Task 1: Bootstrap
+**State:** pending
+"#;
+    let machine = r#"name: relative-callback
+version: 1
+states:
+  pending:
+    initial: true
+  completed:
+    final: true
+transitions:
+  - from: pending
+    to: completed
+    on_leave: "cli:bash ./workflow.sh"
+"#;
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$(dirname "$RHEI_PLAN_PATH")/runtime"
+printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-path.txt"
+"#;
+
+    let plan_path = write_fixture_file(&workspace_dir, "release-automation.rhei.md", plan);
+    write_fixture_file(&machine_dir, "team-states.yaml", machine);
+    let script_path = write_fixture_file(&machine_dir, "workflow.sh", script);
+    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).expect("chmod workflow");
+    }
+
+    let result = run_run_command_in_dir(
+        &workspace_dir,
+        Path::new("release-automation.rhei.md"),
+        Path::new("bash-agent-team/team-states.yaml"),
+        &[],
+    );
+
+    assert!(
+        result.status.success(),
+        "run should succeed with callbacks relative to the state machine path\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Task 1 transitioned: 'pending' → 'completed'"),
+        "expected transition output; got:\n{}",
+        result.stdout
+    );
+
+    let recorded_plan_path = fs::read_to_string(workspace_dir.join("runtime/plan-path.txt"))
+        .expect("read callback output");
+    assert_eq!(
+        Path::new(recorded_plan_path.trim()),
+        plan_path.canonicalize().expect("canonicalize plan path"),
+        "callbacks should receive an absolute plan path",
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_skips_already_completed_tasks() {
     let plan = r#"# Rhei: Already Done
 
@@ -1482,6 +1590,71 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1");
     assert_eq!(task.state.as_str(), "completed", "task should be completed with --no-callbacks");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn reset_restores_single_file_plan_to_initial_state() {
+    let machine = r#"name: reset-test
+version: 1
+states:
+  draft:
+    description: Start here
+    initial: true
+  pending:
+    description: Ready
+  in-progress:
+    description: Active
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: draft
+    to: pending
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
+"#;
+
+    let plan = r#"# Rhei: Resettable
+
+## Tasks
+
+### Task 1: Alpha
+**State:** completed
+
+#### Subtask 1.1: Detail
+**State:** in-progress
+
+### Task 2: Beta
+**State:** pending
+"#;
+
+    let dir = unique_temp_dir("reset-single-file");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_reset_command(&plan_path, &machine_path);
+
+    assert!(
+        result.status.success(),
+        "reset should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Reset 2 task(s) and 1 subtask(s) to initial state 'draft'."),
+        "unexpected stdout:\n{}",
+        result.stdout
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse reset plan");
+    assert_eq!(rhei.tasks[0].state.as_str(), "draft");
+    assert_eq!(rhei.tasks[0].subtasks[0].state.as_str(), "draft");
+    assert_eq!(rhei.tasks[1].state.as_str(), "draft");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1739,6 +1912,53 @@ fn workspace_run_advances_tasks_to_completion() {
     }
 
     assert!(stdout.contains("Run complete"));
+
+    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
+fn workspace_reset_restores_initial_states_and_removes_runtime() {
+    let (ws, machine_path) = create_workspace(
+        "ws-reset",
+        "# Rhei: Reset Test\n",
+        &[
+            (
+                "a.md",
+                "### Task 1: Alpha\n**State:** completed\n\n#### Subtask 1.1: Detail\n**State:** in-progress\n",
+            ),
+            ("b.md", "### Task 2: Beta\n**State:** in-progress\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let runtime_dir = ws.join("runtime/logs");
+    fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+    fs::write(runtime_dir.join("team.log"), "generated").expect("write runtime log");
+
+    let result = run_reset_command(&ws, &machine_path);
+
+    assert!(
+        result.status.success(),
+        "workspace reset should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Reset 2 task(s) and 1 subtask(s) to initial state 'pending'."),
+        "unexpected stdout:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Removed workspace runtime output."),
+        "expected runtime cleanup message, got:\n{}",
+        result.stdout
+    );
+
+    let loaded = workspace::load_workspace(&ws).expect("reload workspace");
+    assert_eq!(loaded.rhei.tasks[0].state.as_str(), "pending");
+    assert_eq!(loaded.rhei.tasks[0].subtasks[0].state.as_str(), "pending");
+    assert_eq!(loaded.rhei.tasks[1].state.as_str(), "pending");
+    assert!(!ws.join("runtime").exists(), "runtime directory should be removed");
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }

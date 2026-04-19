@@ -47,30 +47,29 @@ transitions:
   - from: pending
     to: coordinator
     description: Start the task with a mock kickoff command.
-    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh kickoff-mock"
+    on_leave: "cli:bash ./workflow.sh kickoff-mock"
 
   - from: coordinator
     to: researcher
     description: Hand off the task from coordination to research.
-    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh handoff-research"
+    on_leave: "cli:bash ./workflow.sh handoff-research"
 
   - from: researcher
     to: implementer
     description: Hand off the task from research to implementation.
-    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh handoff-implementation"
+    on_leave: "cli:bash ./workflow.sh handoff-implementation"
 
   - from: implementer
     to: reviewer
     description: Hand off the task from implementation to review.
-    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh handoff-review"
+    on_leave: "cli:bash ./workflow.sh handoff-review"
 
   - from: reviewer
     to: completed
     description: Finalize the task and record completion.
-    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh finalize"
+    on_leave: "cli:bash ./workflow.sh finalize"
 
   - from: "*"
     to: cancelled
     description: Cancel the task from any non-final state.
-    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh cancel"
-
+    on_leave: "cli:bash ./workflow.sh cancel"

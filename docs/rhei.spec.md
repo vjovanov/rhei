@@ -384,7 +384,7 @@ The `rhei` CLI organizes its subcommands into three groups:
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | **Inspection** | `validate`, `render`, `states` | Read-only commands that examine or render a plan without modifying it |
-| **Execution** | `transition`, `run`, `next`, `complete` | Commands that mutate the plan file via state transitions |
+| **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
 | **Info** | `version`, `help` | Meta commands about the tool itself |
 
 ## Related Specifications
