@@ -588,13 +588,7 @@ fn cli_validate_reports_prior_before_state_as_parse_failure() {
         "integration-cli-prior-before-state",
     );
 
-    assert_parse_failure(
-        &result,
-        &["State:", "must appear before", "Prior:"],
-        None,
-        None,
-        &[],
-    );
+    assert_parse_failure(&result, &["State:", "must appear before", "Prior:"], None, None, &[]);
 }
 
 #[test]

@@ -1,0 +1,76 @@
+name: bash-agent-team
+version: 1.0
+
+states:
+  pending:
+    description: Task is queued and ready for the bash-driven team workflow.
+    instructions: |
+      Wait for `rhei run` to pick up the task. The kickoff callback will create
+      the initial runtime files for the work item.
+    initial: true
+
+  coordinator:
+    description: The coordinator has claimed the task and is dispatching it.
+    instructions: |
+      The bash callback records the mock kickoff command and prepares the first
+      handoff.
+
+  researcher:
+    description: The researcher adds context for implementation.
+    instructions: |
+      The bash callback writes a short research note into the runtime artifact
+      directory before handing off to implementation.
+
+  implementer:
+    description: The implementer creates the deliverable for review.
+    instructions: |
+      The bash callback writes an implementation artifact for the task.
+
+  reviewer:
+    description: The reviewer validates the generated artifact.
+    instructions: |
+      The bash callback appends a review note and finalizes the task.
+
+  completed:
+    description: Task finished successfully.
+    instructions: |
+      No more action is required.
+    final: true
+
+  cancelled:
+    description: Task was cancelled before completion.
+    instructions: |
+      Stop all work and keep the runtime artifacts for inspection.
+    final: true
+
+transitions:
+  - from: pending
+    to: coordinator
+    description: Start the task with a mock kickoff command.
+    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh kickoff-mock"
+
+  - from: coordinator
+    to: researcher
+    description: Hand off the task from coordination to research.
+    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh handoff-research"
+
+  - from: researcher
+    to: implementer
+    description: Hand off the task from research to implementation.
+    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh handoff-implementation"
+
+  - from: implementer
+    to: reviewer
+    description: Hand off the task from implementation to review.
+    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh handoff-review"
+
+  - from: reviewer
+    to: completed
+    description: Finalize the task and record completion.
+    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh finalize"
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the task from any non-final state.
+    on_leave: "cli:bash ./examples/bash-agent-team/workflow.sh cancel"
+

@@ -195,10 +195,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 pre_tasks_h2_seen = true;
                 if let Some(cap) = re_section_header.captures(line) {
                     let section_title = cap.get(1).unwrap().as_str().trim().to_string();
-                    rhei_content.push(ContentSection {
-                        title: section_title,
-                        content: String::new(),
-                    });
+                    rhei_content
+                        .push(ContentSection { title: section_title, content: String::new() });
                 }
                 continue;
             }
@@ -685,7 +683,11 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
 
     let title = title.ok_or_else(|| ParseError::new("Missing '# Rhei: <title>' header", None))?;
 
-    Ok(WorkspaceIndex { title, states: states.unwrap_or_else(|| "rhei".to_string()), content_sections: content })
+    Ok(WorkspaceIndex {
+        title,
+        states: states.unwrap_or_else(|| "rhei".to_string()),
+        content_sections: content,
+    })
 }
 
 /// Parse a workspace task file (a file inside the `tasks/` directory).

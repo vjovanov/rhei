@@ -26,11 +26,7 @@ fn transition_cas_rejects_wrong_from() {
     // Task 1 is in draft, but we claim it's pending.
     let result = run_transition(&plan_path, &machine_path, "1", "pending", "completed");
     assert!(!result.status.success(), "should fail on CAS conflict");
-    assert!(
-        result.stderr.contains("conflict"),
-        "should report conflict; got:\n{}",
-        result.stderr
-    );
+    assert!(result.stderr.contains("conflict"), "should report conflict; got:\n{}", result.stderr);
     assert!(
         result.stderr.contains("draft"),
         "should mention actual state 'draft'; got:\n{}",
@@ -55,11 +51,7 @@ fn transition_cas_rejects_after_concurrent_change() {
     // Second transition with stale --from draft fails.
     let r = run_transition(&plan_path, &machine_path, "1", "draft", "pending");
     assert!(!r.status.success(), "stale CAS should fail");
-    assert!(
-        r.stderr.contains("conflict"),
-        "should report conflict; got:\n{}",
-        r.stderr
-    );
+    assert!(r.stderr.contains("conflict"), "should report conflict; got:\n{}", r.stderr);
 
     // Task stays at pending.
     assert_task_state(&plan_path, &machine_path, "1", "pending");
@@ -84,25 +76,13 @@ fn transition_workspace_updates_correct_file() {
 
     // Only b.md should be modified.
     let b = fs::read_to_string(ws.join("tasks/b.md")).expect("read b.md");
-    assert!(
-        b.contains("**State:** pending"),
-        "b.md should be updated: {}",
-        b
-    );
+    assert!(b.contains("**State:** pending"), "b.md should be updated: {}", b);
 
     // a.md and c.md untouched.
     let a = fs::read_to_string(ws.join("tasks/a.md")).expect("read a.md");
-    assert!(
-        a.contains("**State:** draft"),
-        "a.md should be untouched: {}",
-        a
-    );
+    assert!(a.contains("**State:** draft"), "a.md should be untouched: {}", a);
     let c = fs::read_to_string(ws.join("tasks/c.md")).expect("read c.md");
-    assert!(
-        c.contains("**State:** draft"),
-        "c.md should be untouched: {}",
-        c
-    );
+    assert!(c.contains("**State:** draft"), "c.md should be untouched: {}", c);
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }

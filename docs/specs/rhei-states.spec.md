@@ -2,6 +2,8 @@
 
 This document defines the default states configuration for tasks in the Rhei plan compiler. The authoritative machine-readable form lives in [states.yaml](states.yaml); the writer-skill mirror is [default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
 
+The state-machine schema also permits an optional top-level `personality` string. The default Rhei machine does not set one, but custom machines may use it to inject role framing into `rhei next`.
+
 ## States
 
 | State | Description | Initial | Final |

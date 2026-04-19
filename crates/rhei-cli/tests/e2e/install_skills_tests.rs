@@ -89,7 +89,8 @@ fn local_install_cursor() {
     assert!(project.join(".cursor/rules/rhei-state-machine-writer.mdc").exists());
 
     // Verify MDC format.
-    let mdc = fs::read_to_string(project.join(".cursor/rules/rhei-plan-writer.mdc")).expect("read mdc");
+    let mdc =
+        fs::read_to_string(project.join(".cursor/rules/rhei-plan-writer.mdc")).expect("read mdc");
     assert!(mdc.starts_with("---\n"));
     assert!(mdc.contains("alwaysApply: false"));
 }
@@ -108,10 +109,7 @@ fn link_mode_creates_symlinks() {
 
     let skill_path = home.join(".kilocode/rules/rhei-plan-writer.md");
     assert!(skill_path.exists(), "skill file should exist");
-    assert!(
-        skill_path.symlink_metadata().unwrap().file_type().is_symlink(),
-        "should be a symlink"
-    );
+    assert!(skill_path.symlink_metadata().unwrap().file_type().is_symlink(), "should be a symlink");
 }
 
 #[test]

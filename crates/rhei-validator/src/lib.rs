@@ -12,8 +12,8 @@
 //! subtask parent-number consistency for numeric task identifiers.
 
 use indexmap::IndexMap;
-pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
 use regex::Regex;
+pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
 use rhei_core::ast::{Rhei, Task, TaskId};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -129,6 +129,9 @@ pub struct StateDef {
 pub struct StateMachine {
     /// Human-readable states definition name.
     pub name: String,
+    /// Optional persona/instructions that should frame how an agent approaches tasks.
+    #[serde(default)]
+    pub personality: Option<String>,
     /// YAML version field as provided by the source file.
     pub version: serde_yaml::Value,
     /// Allowed states keyed by their exact textual names, preserving YAML order.
@@ -351,9 +354,7 @@ fn validate_subtask_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
 /// Extract markdown links from a text block, returning `(display_text, target)` pairs.
 fn extract_markdown_links(text: &str) -> Vec<(String, String)> {
     let re = Regex::new(r"\[([^\]]*)\]\(([^)]+)\)").expect("valid regex");
-    re.captures_iter(text)
-        .map(|cap| (cap[1].to_string(), cap[2].to_string()))
-        .collect()
+    re.captures_iter(text).map(|cap| (cap[1].to_string(), cap[2].to_string())).collect()
 }
 
 /// Collect all markdown links from every content field in the plan.
@@ -497,6 +498,7 @@ mod tests {
     fn sample_machine() -> StateMachine {
         let yaml = r#"
 name: test-sm
+personality: You are a careful systems engineer.
 version: 1.0
 states:
   pending: { description: "not started" }
@@ -1151,7 +1153,11 @@ See [section](guide.md#usage) for details.
         let sm = sample_machine();
         let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
 
-        assert!(!report.has_errors(), "file exists, fragment should be stripped: {:?}", report.errors);
+        assert!(
+            !report.has_errors(),
+            "file exists, fragment should be stripped: {:?}",
+            report.errors
+        );
     }
 
     #[test]
@@ -1195,6 +1201,10 @@ See [missing](nowhere.md) for context.
         // validate() does not pass a base path, so link checking is skipped
         let report = validate_with_machine(&rhei, &sm);
 
-        assert!(!report.has_errors(), "without base path, links should not be checked: {:?}", report.errors);
+        assert!(
+            !report.has_errors(),
+            "without base path, links should not be checked: {:?}",
+            report.errors
+        );
     }
 }
