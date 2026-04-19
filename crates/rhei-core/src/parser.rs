@@ -16,8 +16,9 @@
 //! attempts to continue across unrecognized lines, only raising hard
 //! errors for missing rhei title.
 
-use crate::ast::{ContentSection, Rhei, Subtask, Task, TaskId};
+use crate::ast::{ContentSection, Metadata, Rhei, Subtask, Task, TaskId};
 use regex::Regex;
+use serde_yaml::Value as YamlValue;
 
 /// Parser error with a message and an optional line number.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +35,25 @@ impl ParseError {
 
 /// Result alias for parser operations.
 pub type Result<T> = std::result::Result<T, ParseError>;
+
+fn parse_frontmatter(lines: &[String], start_line: usize, kind: &str) -> Result<Metadata> {
+    if lines.is_empty() || lines.iter().all(|line| line.trim().is_empty()) {
+        return Ok(Metadata::new());
+    }
+
+    let yaml = lines.join("\n");
+    let value: YamlValue = serde_yaml::from_str(&yaml).map_err(|err| {
+        ParseError::new(format!("failed to parse {kind} YAML frontmatter: {err}"), Some(start_line))
+    })?;
+
+    match value {
+        YamlValue::Mapping(mapping) => Ok(mapping),
+        _ => Err(ParseError::new(
+            format!("{kind} YAML frontmatter must be a mapping"),
+            Some(start_line),
+        )),
+    }
+}
 
 /// Parse a markdown plan into a Rhei AST.
 pub fn parse(input: &str) -> Result<Rhei> {
@@ -63,6 +83,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let mut rhei_header_seen = false;
     let mut rhei_states: Option<String> = None;
     let mut rhei_states_checked = false;
+    let mut rhei_metadata: Option<Metadata> = None;
+    let mut frontmatter_checked = false;
+    let mut in_frontmatter = false;
+    let mut frontmatter_start_line = 0usize;
+    let mut frontmatter_lines: Vec<String> = Vec::new();
     let mut rhei_content: Vec<ContentSection> = Vec::new();
     let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
     let mut tasks: Vec<Task> = Vec::new();
@@ -101,6 +126,17 @@ pub fn parse(input: &str) -> Result<Rhei> {
 
         if !line.is_empty() {
             first_nonempty_line.get_or_insert(line_number);
+        }
+
+        if in_frontmatter {
+            if line == "---" {
+                rhei_metadata =
+                    Some(parse_frontmatter(&frontmatter_lines, frontmatter_start_line, "plan")?);
+                in_frontmatter = false;
+                continue;
+            }
+            frontmatter_lines.push(raw.to_string());
+            continue;
         }
 
         // Detect fences first (outside of trimming)
@@ -167,6 +203,17 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 }
                 // First non-empty line after header is not **States:** — mark as checked
                 rhei_states_checked = true;
+            }
+
+            if rhei_header_seen && rhei_states_checked && !frontmatter_checked {
+                if line == "---" {
+                    in_frontmatter = true;
+                    frontmatter_checked = true;
+                    frontmatter_start_line = line_number + 1;
+                    frontmatter_lines.clear();
+                    continue;
+                }
+                frontmatter_checked = true;
             }
 
             // Error if **States:** appears after the first non-empty line
@@ -499,6 +546,13 @@ pub fn parse(input: &str) -> Result<Rhei> {
         }
     }
 
+    if in_frontmatter {
+        return Err(ParseError::new(
+            "Unterminated YAML frontmatter: missing closing '---'",
+            Some(frontmatter_start_line.saturating_sub(1).max(1)),
+        ));
+    }
+
     // Finalize builders
     if let Some(st) = cur_subtask.take() {
         if let Some(t) = cur_task.as_mut() {
@@ -569,6 +623,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
     Ok(Rhei {
         title,
         states: rhei_states.unwrap_or_else(|| "rhei".to_string()),
+        metadata: rhei_metadata,
         content_sections: rhei_content,
         tasks,
     })
@@ -582,6 +637,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
 pub struct WorkspaceIndex {
     pub title: String,
     pub states: String,
+    pub metadata: Option<Metadata>,
     pub content_sections: Vec<ContentSection>,
 }
 
@@ -598,6 +654,11 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
     let mut title: Option<String> = None;
     let mut states: Option<String> = None;
     let mut states_checked = false;
+    let mut metadata: Option<Metadata> = None;
+    let mut frontmatter_checked = false;
+    let mut in_frontmatter = false;
+    let mut frontmatter_start_line = 0usize;
+    let mut frontmatter_lines: Vec<String> = Vec::new();
     let mut header_seen = false;
     let mut content: Vec<ContentSection> = Vec::new();
     let mut in_code_block = false;
@@ -605,6 +666,20 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
     for (idx, raw) in input.lines().enumerate() {
         let line_number = idx + 1;
         let line = raw.trim();
+
+        if in_frontmatter {
+            if line == "---" {
+                metadata = Some(parse_frontmatter(
+                    &frontmatter_lines,
+                    frontmatter_start_line,
+                    "workspace index",
+                )?);
+                in_frontmatter = false;
+                continue;
+            }
+            frontmatter_lines.push(raw.to_string());
+            continue;
+        }
 
         let trimmed_start = raw.trim_start();
         if trimmed_start.starts_with("```") {
@@ -658,6 +733,17 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
             states_checked = true;
         }
 
+        if states_checked && !frontmatter_checked {
+            if line == "---" {
+                in_frontmatter = true;
+                frontmatter_checked = true;
+                frontmatter_start_line = line_number + 1;
+                frontmatter_lines.clear();
+                continue;
+            }
+            frontmatter_checked = true;
+        }
+
         if re_tasks.is_match(line) {
             return Err(ParseError::new(
                 "Workspace index file must not contain a '## Tasks' section; tasks belong in the tasks/ directory",
@@ -681,11 +767,19 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
         // Loose text outside a section is silently ignored per spec.
     }
 
+    if in_frontmatter {
+        return Err(ParseError::new(
+            "Unterminated YAML frontmatter: missing closing '---'",
+            Some(frontmatter_start_line.saturating_sub(1).max(1)),
+        ));
+    }
+
     let title = title.ok_or_else(|| ParseError::new("Missing '# Rhei: <title>' header", None))?;
 
     Ok(WorkspaceIndex {
         title,
         states: states.unwrap_or_else(|| "rhei".to_string()),
+        metadata,
         content_sections: content,
     })
 }
@@ -725,6 +819,11 @@ fn unescape_state(input: &str) -> String {
 mod tests {
     use super::*;
     use crate::ast::{ContentSection, TaskId};
+    use serde_yaml::Value as YamlValue;
+
+    fn yaml_key(name: &str) -> YamlValue {
+        YamlValue::String(name.to_string())
+    }
 
     #[test]
     fn parses_minimal_plan_with_task_and_subtasks() {
@@ -771,6 +870,79 @@ code block
         assert_eq!(t1.subtasks[1].state, "completed");
         assert!(t1.subtasks[1].content.contains("```"));
         assert!(t1.subtasks[1].content.contains("code block"));
+    }
+
+    #[test]
+    fn parses_plan_frontmatter_metadata() {
+        let input = r#"# Rhei: Example
+
+---
+metadata:
+  tasks:
+    1:
+      stateIterations:
+        review: 2
+---
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let rhei = parse(input).expect("parse ok");
+        let metadata = rhei.metadata.expect("metadata should be present");
+        let metadata_section = metadata
+            .get(yaml_key("metadata"))
+            .and_then(YamlValue::as_mapping)
+            .expect("metadata section");
+        let tasks = metadata_section
+            .get(yaml_key("tasks"))
+            .and_then(YamlValue::as_mapping)
+            .expect("tasks metadata");
+        let task = tasks
+            .get(YamlValue::Number(1u64.into()))
+            .and_then(YamlValue::as_mapping)
+            .expect("task 1 metadata");
+        let state_iterations = task
+            .get(yaml_key("stateIterations"))
+            .and_then(YamlValue::as_mapping)
+            .expect("stateIterations");
+
+        assert_eq!(state_iterations.get(yaml_key("review")).and_then(YamlValue::as_u64), Some(2));
+    }
+
+    #[test]
+    fn parses_workspace_index_frontmatter_metadata() {
+        let input = r#"# Rhei: Workspace
+**States:** custom
+
+---
+metadata:
+  tasks:
+    setup:
+      retryCount: 1
+---
+
+## Overview
+Context
+"#;
+
+        let index = parse_workspace_index(input).expect("parse ok");
+        assert_eq!(index.states, "custom");
+        let metadata = index.metadata.expect("metadata should be present");
+        let metadata_section = metadata
+            .get(yaml_key("metadata"))
+            .and_then(YamlValue::as_mapping)
+            .expect("metadata section");
+        let tasks = metadata_section
+            .get(yaml_key("tasks"))
+            .and_then(YamlValue::as_mapping)
+            .expect("tasks metadata");
+        let setup =
+            tasks.get(yaml_key("setup")).and_then(YamlValue::as_mapping).expect("setup metadata");
+
+        assert_eq!(setup.get(yaml_key("retryCount")).and_then(YamlValue::as_u64), Some(1));
     }
 
     #[test]

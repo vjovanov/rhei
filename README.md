@@ -1,12 +1,12 @@
 # Rhei
 
-Rhei is a Rust workspace for parsing, validating, and rendering structured markdown plans.
+Rhei is a Rust workspace for parsing, validating, executing, and rendering structured markdown plans.
 
 Current workspace crates:
 - `rhei-core`: AST types plus markdown plan parsing
 - `rhei-validator`: semantic validation against a YAML states definition
 - `rhei-output`: JSON, GitHub-style markdown, and progress-report rendering
-- `rhei-cli`: `rhei` command for validation and rendering
+- `rhei-cli`: `rhei` command for validation, execution, and rendering
 - `rhei-napi`: Node.js bindings
 
 ## Markdown plan compiler
@@ -25,40 +25,52 @@ The primary reference documents are:
 
 ## CLI usage
 
-Validate a plan with the default states definition:
+Validate a plan with the built-in default states definition:
 
 ```bash
-cargo run -p rhei-cli -- validate docs/markdown-plan-compiler.md
+cargo run -p rhei-cli -- validate examples/release-automation.rhei.md
 ```
 
 Validate using a specific states file:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine docs/states.yaml validate docs/markdown-plan-compiler.md
+cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml validate examples/release-automation.rhei.md
 ```
 
 Watch a plan and states file for changes:
 
 ```bash
-cargo run -p rhei-cli -- validate --watch docs/markdown-plan-compiler.md
+cargo run -p rhei-cli -- validate --watch examples/release-automation.rhei.md
 ```
 
 Render a plan as pretty JSON:
 
 ```bash
-cargo run -p rhei-cli -- render docs/markdown-plan-compiler.md --format json --pretty
+cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format json --pretty
 ```
 
 Render a plan as GitHub-style markdown without metadata or subtask body text:
 
 ```bash
-cargo run -p rhei-cli -- render docs/markdown-plan-compiler.md --format github --no-metadata --no-content
+cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format github --no-metadata --no-content
 ```
 
 Render a terminal progress report without ANSI color:
 
 ```bash
-cargo run -p rhei-cli -- render docs/markdown-plan-compiler.md --format progress --no-color
+cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format progress --no-color
+```
+
+Claim the next ready task and inspect its instructions:
+
+```bash
+cargo run -p rhei-cli -- next examples/release-automation.rhei.md
+```
+
+Complete a task and record the result:
+
+```bash
+cargo run -p rhei-cli -- complete examples/release-automation.rhei.md --task 1 --result "Brief approved"
 ```
 
 Print crate versions surfaced by the CLI:
@@ -70,7 +82,7 @@ cargo run -p rhei-cli -- version
 Reset a plan back to the initial state declared in its state machine:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml reset docs/markdown-plan-compiler.md
+cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml reset examples/release-automation.rhei.md
 ```
 
 ## Library usage

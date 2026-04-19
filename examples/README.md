@@ -19,17 +19,30 @@ This directory contains example inputs for the current markdown plan compiler im
   - normal subtask content bodies
   - dependency chaining across multiple tasks
 
+- `pm-onboarding-experiment.rhei.md`
+  Valid example using:
+  - a product-manager-oriented plan with context sections and success metrics
+  - numeric task identifiers and subtasks
+  - a linear dependency chain from planning through launch recommendation
+
 - `escaped-state-values.rhei.md`
   Valid example using:
   - escaped spaces in `**State:**` values such as `in\ review`
   - a companion custom states file because those states are not present in the default set
 
-- `bash-agent-team/`
-  Runnable directory-workspace example using:
-  - `rhei run` against a workspace directory instead of a single file
-  - a custom bash-based state machine with `cli:` callbacks
-  - a mock kickoff command on the first transition
-  - runtime logs and artifacts written under the example directory
+- `claude-code/`
+  Valid example directory using:
+  - `plan.rhei.md`
+  - `states.yaml`
+  - `**States:** claude-code-simple`
+  - a Claude Code least-privilege workflow with only simple states
+
+- `living-review-loop/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/`
+  - `team-states.yaml`
+  - orchestrator callbacks that append new workspace task files during `rhei run`
+  - a shared findings artifact followed by verification and selective fix tasks
 
 - `states-with-spaces.yaml`
   Companion states file for `escaped-state-values.rhei.md`.
@@ -41,8 +54,10 @@ Validate the examples with the CLI:
 ```bash
 cargo run -p rhei-cli -- validate examples/release-automation.rhei.md
 cargo run -p rhei-cli -- validate examples/human-review-loop.rhei.md
+cargo run -p rhei-cli -- validate examples/pm-onboarding-experiment.rhei.md
 cargo run -p rhei-cli -- --state-machine examples/states-with-spaces.yaml validate examples/escaped-state-values.rhei.md
-cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml validate examples/bash-agent-team
+cargo run -p rhei-cli -- --state-machine examples/claude-code/states.yaml validate examples/claude-code/plan.rhei.md
+cargo run -p rhei-cli -- --state-machine examples/living-review-loop/team-states.yaml validate examples/living-review-loop
 ```
 
 Render an example as JSON:
@@ -51,16 +66,12 @@ Render an example as JSON:
 cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format json --pretty
 ```
 
-Execute the bash workspace example end to end:
+Run the living workspace example end to end in a disposable copy:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml run examples/bash-agent-team
-```
-
-Reset the workspace example back to its initial state and remove generated runtime output:
-
-```bash
-cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml reset examples/bash-agent-team
+tmp_dir="$(mktemp -d)"
+cp -R examples/living-review-loop "$tmp_dir/living-review-loop"
+cargo run -p rhei-cli -- --state-machine "$tmp_dir/living-review-loop/team-states.yaml" run "$tmp_dir/living-review-loop"
 ```
 
 ## Notes on current behavior

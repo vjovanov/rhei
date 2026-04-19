@@ -27,9 +27,9 @@ The plan worker picks up an existing plan and makes progress on it. It is driven
 
 Responsibilities:
 - Select the next eligible task (all priors completed, state is ready-to-start).
-- Transition the task into the work state (`pending` -> `in-progress`).
-- Implement the task and its subtasks, logging progress per subtask.
-- Advance the state when exit conditions are met (`in-progress` -> `agent-review`).
+- Transition the task into the work state (`draft` -> `pending`).
+- Implement the task and its subtasks, logging progress per subtask while it is `pending`.
+- Advance the state when exit conditions are met (`pending` -> `agent-review`) or finish directly with `rhei complete` when review is not required.
 - Stop at gating states (`human-review`) and terminal states (`completed`, `cancelled`).
 
 The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. Its edits are limited to `**State:**` values and subtask progress logs.
@@ -40,7 +40,7 @@ The reviewer inspects completed work before it advances to the next state. In th
 
 - **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, subtasks, and repository conventions (lint, format, tests). It records concrete findings in the task body and transitions to `agent-review-fix` (fail), `human-review` (needs human), or `completed` (pass).
 
-- **Human reviewer** (`human-review`): A human inspects the work. No agent may transition out of this state autonomously. The human decides: return to `in-progress` (rework), `completed` (approve), or `cancelled` (abandon).
+- **Human reviewer** (`human-review`): A human inspects the work. No agent may transition out of this state autonomously. The human decides: return to `pending` (rework), `completed` (approve), or `cancelled` (abandon).
 
 ### Human Operator
 
@@ -66,20 +66,20 @@ This means agents do not need to communicate with each other directly. They comm
 ### State Flow (Default Machine)
 
 ```
-draft --> pending --> in-progress --> agent-review --> completed
-  |         |            |               |
-  v         v            v               v
-cancelled cancelled   cancelled    agent-review-fix --> agent-review
-                                         |
-                                         v
-                                      cancelled
-
-human-review --> in-progress
-             --> completed
-             --> cancelled
+draft --> pending --> agent-review --> completed
+  |         |            |               ^
+  v         |            v               |
+cancelled   |       agent-review-fix ----+
+            |            |
+            v            v
+        human-review   cancelled
+            | 
+            +--> pending
+            +--> completed
+            +--> cancelled
 ```
 
-The `human-review` state is deliberately isolated: agents can send work into it (from `in-progress` or `agent-review`), but only a human can transition out of it. This separation ensures that human judgment gates are never bypassed by automated workflows.
+The `human-review` state is deliberately isolated: agents can send work into it (from `pending` or `agent-review`), but only a human can transition out of it. This separation ensures that human judgment gates are never bypassed by automated workflows.
 
 Each arrow is a declared transition. Agents follow the `instructions` field on each state to know when to fire each transition.
 
@@ -114,14 +114,14 @@ When a plan's DAG has independent branches (tasks with no shared dependencies), 
 
 ```markdown
 ### Task 1: Set up database schema
-**State:** `in-progress`
+**State:** pending
 
 ### Task 2: Build API endpoints
 **State:** pending
 **Prior:** Task 1
 
 ### Task 3: Write frontend components
-**State:** `in-progress`
+**State:** pending
 
 ### Task 4: Integration tests
 **State:** pending
@@ -130,10 +130,25 @@ When a plan's DAG has independent branches (tasks with no shared dependencies), 
 
 Here, Task 1 and Task 3 have no dependency relationship. Two workers can implement them concurrently. Task 4 remains blocked until both Task 2 and Task 3 are completed.
 
-Coordination happens through `rhei transition`. Each worker reads the plan, selects an eligible task, and claims it with a compare-and-swap transition:
+Coordination happens through `rhei next`, `rhei transition`, and `rhei complete`. A worker claims a task, implements it, and then completes it:
 
 ```bash
-rhei transition plan.rhei.md --task 3 --from pending --to in-progress
+# Inspect what is next without claiming (read-only, safe for PM browsing)
+rhei next --peek plan.rhei.md
+
+# Claim the next ready task (transitions it forward and prints instructions)
+rhei next plan.rhei.md
+
+# ... agent does the work ...
+
+# Complete: transition to terminal state, write result file, release assignment
+rhei complete plan.rhei.md --task 3 --result "Schema migration applied successfully"
+```
+
+For finer-grained control, workers can use `rhei transition` directly with a compare-and-swap:
+
+```bash
+rhei transition plan.rhei.md --task 3 --from pending --to agent-review
 ```
 
 The `--from` flag is the key: the command acquires a file lock, verifies the task is still in the expected state, and only then writes the new state. If another worker already claimed the task, the command fails with a conflict error — the losing worker re-reads the plan and picks a different task.
@@ -162,7 +177,7 @@ Review: All tests pass. Staging smoke tests succeeded. Ready for production depl
 When a task reaches `human-review`:
 - All agents stop work on that task.
 - The human inspects the implementation, reads review notes, and decides.
-- The human transitions the task to `in-progress` (rework), `completed` (approve), or `cancelled`.
+- The human transitions the task to `pending` (rework), `completed` (approve), or `cancelled`.
 
 Meanwhile, agents continue working on other branches of the DAG that are not blocked by this gate. The plan stays productive even when one branch is waiting on human input.
 
@@ -228,7 +243,63 @@ rhei.run();
 
 Callbacks can approve, reject, or redirect transitions — turning the plan into an executable workflow engine. See [Transitions Specification](rhei-transitions.spec.md) for the formal callback API and [Transition Callback Examples](rhei-callbacks.spec.md) for practical implementations.
 
-### Pattern 7: CI/CD Pipeline as a Plan
+### Pattern 7: Living Workspace Expansion
+
+A directory workspace can stay intentionally incomplete at authoring time and be
+expanded by the orchestrator while `rhei run` is executing. This is useful when
+follow-up work should only exist after a concrete artifact is produced.
+
+One example is a review loop:
+
+1. A seed task runs three reviewers (`claude`, `codex`, and `antigravity`) and writes a shared findings file.
+   When done, the orchestrator calls `rhei complete` to record the result
+   (written to `runtime/results/review-seed.md`), transition to
+   `completed`, and release the assignment.
+2. A `codex` coordinator appends one verification task per consolidated review
+   point.
+3. Each verification task runs on `codex`, records whether the issue is reproducible and
+   relevant, then completes with its own result file.
+4. Only relevant findings cause new fix tasks to be appended to the workspace.
+
+The workspace starts small:
+
+```markdown
+# Rhei: Living Review Loop
+**States:** living-review-loop
+
+## Overview
+The orchestrator expands this workspace as review artifacts arrive.
+```
+
+```markdown
+### Task review-seed: Run three-model review and seed the living workspace
+**State:** review
+
+Write a shared findings file and append verification tasks for each review
+point.
+```
+
+After `review-seed` completes, the orchestrator may append task files such as:
+
+```markdown
+### Task verify-cache-key: Verify and reproduce finding F-001
+**State:** prove
+**Prior:** Task review-seed
+```
+
+And after verification, only the relevant issues become fix tasks:
+
+```markdown
+### Task fix-cache-key: Fix finding F-001 after verified reproduction
+**State:** prove
+**Prior:** Task verify-cache-key
+```
+
+This keeps the Rhei truthful: speculative fixes do not appear in the task graph
+until the review artifact justifies them. The checked-in example lives in
+[`examples/living-review-loop`](../../examples/living-review-loop/README.md).
+
+### Pattern 8: CI/CD Pipeline as a Plan
 
 A Rhei plan can model a CI/CD pipeline where each task is a pipeline stage. The state machine encodes the pipeline's control flow, and callbacks integrate with build systems, test runners, and deployment tools.
 
@@ -276,5 +347,6 @@ The central design principle: **the plan file is the single source of truth**. A
 - [States Specification](rhei-states.spec.md) — state machine format and default states
 - [Transitions Specification](rhei-transitions.spec.md) — formal state transition system, callbacks, and YAML schema
 - [Transition Callback Examples](rhei-callbacks.spec.md) — callback implementations across languages
+- [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract
 - [State Machine Writer](rhei-state-machine-writer.spec.md) — designing custom state machines from project specs and teams
 - [Install Skills](rhei-install-skills.spec.md) — `rhei install-skills` command for agent integration

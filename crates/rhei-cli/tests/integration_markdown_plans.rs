@@ -5,9 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rhei_core::ast::TaskId;
 use rhei_core::parse;
+use rhei_core::parser::parse_workspace_index;
 use rhei_core::workspace;
 use rhei_output::{to_github_markdown, to_json_value, ProgressReportOutput};
 use rhei_validator::{validate_with_machine, StateMachine};
+use serde_yaml::Value as YamlValue;
 
 #[allow(dead_code)]
 #[path = "../../rhei-core/tests/fixtures.rs"]
@@ -27,6 +29,27 @@ fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, contents).expect("fixture file should be written");
     path
+}
+
+fn yaml_key(name: &str) -> YamlValue {
+    YamlValue::String(name.to_string())
+}
+
+fn iteration_count_from_metadata(
+    metadata: Option<&rhei_core::ast::Metadata>,
+    task_id: &TaskId,
+    state_name: &str,
+) -> Option<u64> {
+    let metadata = metadata?;
+    let metadata_section = metadata.get(yaml_key("metadata"))?.as_mapping()?;
+    let tasks = metadata_section.get(yaml_key("tasks"))?.as_mapping()?;
+    let task_key = match task_id {
+        TaskId::Number(n) => serde_yaml::to_value(*n).ok()?,
+        TaskId::Named(name) => yaml_key(name),
+    };
+    let task = tasks.get(task_key)?.as_mapping()?;
+    let state_iterations = task.get(yaml_key("stateIterations"))?.as_mapping()?;
+    state_iterations.get(yaml_key(state_name))?.as_u64()
 }
 
 const CLI_VALID_PLAN: &str = r#"# Rhei: Release Automation Rollout
@@ -749,6 +772,45 @@ const TRANSITION_PLAN: &str = r#"# Rhei: Transition Test
 **Prior:** Task 1
 "#;
 
+const COUNTED_LOOP_STATE_MACHINE: &str = r#"name: counted-loop
+version: 1
+states:
+  pending:
+    description: ready
+    initial: true
+  agent-review:
+    description: review
+    iterations: 1
+  agent-review-fix:
+    description: fix
+  human-review:
+    description: human gate
+  completed:
+    description: done
+    final: true
+transitions:
+  - from: pending
+    to: agent-review
+  - from: agent-review
+    to: agent-review-fix
+    condition: iterationCount < iterations
+  - from: agent-review
+    to: human-review
+    condition: iterationCount >= iterations
+  - from: agent-review-fix
+    to: agent-review
+  - from: human-review
+    to: completed
+"#;
+
+const COUNTED_LOOP_PLAN: &str = r#"# Rhei: Counted Review Loop
+
+## Tasks
+
+### Task 1: Review me
+**State:** pending
+"#;
+
 fn run_transition(
     plan_path: &Path,
     machine_path: &Path,
@@ -811,6 +873,60 @@ fn transition_succeeds_and_updates_file() {
     // Task 2 should be untouched.
     let task2 = rhei.tasks.iter().find(|t| t.id == TaskId::Number(2)).expect("Task 2 exists");
     assert_eq!(task2.state.as_str(), "in-progress");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
+    let dir = unique_temp_dir("transition-counted-loop");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", COUNTED_LOOP_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COUNTED_LOOP_STATE_MACHINE);
+
+    let first = run_transition(&plan_path, &machine_path, "1", "pending", "agent-review");
+    assert!(first.status.success(), "initial review transition should succeed: {}", first.stderr);
+
+    let updated = fs::read_to_string(&plan_path).expect("read plan after first transition");
+    let rhei = parse(&updated).expect("parse updated plan");
+    assert_eq!(
+        iteration_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(0)
+    );
+
+    let fail_then_fix =
+        run_transition(&plan_path, &machine_path, "1", "agent-review", "agent-review-fix");
+    assert!(
+        fail_then_fix.status.success(),
+        "review -> fix should succeed: {}",
+        fail_then_fix.stderr
+    );
+
+    let reenter =
+        run_transition(&plan_path, &machine_path, "1", "agent-review-fix", "agent-review");
+    assert!(reenter.status.success(), "fix -> review should succeed: {}", reenter.stderr);
+
+    let updated = fs::read_to_string(&plan_path).expect("read plan after re-entry");
+    let rhei = parse(&updated).expect("parse re-entered plan");
+    assert_eq!(
+        iteration_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(1)
+    );
+
+    let exhausted =
+        run_transition(&plan_path, &machine_path, "1", "agent-review", "agent-review-fix");
+    assert!(!exhausted.status.success(), "exhausted review loop should reject re-entry");
+    assert!(
+        normalize_for_assertions(&exhausted.stderr).contains("blocked by loop"),
+        "expected loop-budget rejection, got:\n{}",
+        exhausted.stderr
+    );
+
+    let escalate = run_transition(&plan_path, &machine_path, "1", "agent-review", "human-review");
+    assert!(
+        escalate.status.success(),
+        "human review escalation should succeed: {}",
+        escalate.stderr
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1320,6 +1436,50 @@ fn run_advances_parallel_ready_tasks() {
     assert!(
         result.stdout.contains("4 transition(s) made"),
         "should report 4 transitions; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_uses_counted_loop_exit_when_iteration_budget_is_exhausted() {
+    let plan = r#"# Rhei: Exhausted Loop
+
+---
+metadata:
+  tasks:
+    1:
+      stateIterations:
+        agent-review: 1
+---
+
+## Tasks
+
+### Task 1: Needs escalation
+**State:** agent-review
+"#;
+
+    let dir = unique_temp_dir("run-counted-loop");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COUNTED_LOOP_STATE_MACHINE);
+
+    let result = run_run_command(&plan_path, &machine_path, &[]);
+
+    assert!(
+        result.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::Number(1)).expect("task exists");
+    assert_eq!(task.state, "completed");
+    assert!(
+        !result.stdout.contains("agent-review-fix"),
+        "run should escalate instead of looping through fix once exhausted; got:\n{}",
         result.stdout
     );
 
@@ -1874,6 +2034,50 @@ fn workspace_transition_updates_correct_task_file() {
     assert!(b_content.contains("**State:** pending"), "b.md should be untouched: {}", b_content);
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
+fn workspace_transition_updates_index_metadata_for_counted_loops() {
+    let dir = unique_temp_dir("workspace-counted-loop");
+    fs::create_dir_all(dir.join("tasks")).expect("create tasks dir");
+    write_fixture_file(
+        &dir,
+        "index.rhei.md",
+        r#"# Rhei: Workspace Counted Loop
+
+## Overview
+Metadata lives here.
+"#,
+    );
+    write_fixture_file(
+        &dir.join("tasks"),
+        "01-review.md",
+        r#"### Task 1: Review task
+**State:** pending
+"#,
+    );
+    let machine_path = write_fixture_file(&dir, "states.yaml", COUNTED_LOOP_STATE_MACHINE);
+
+    let result = run_transition(&dir, &machine_path, "1", "pending", "agent-review");
+    assert!(
+        result.status.success(),
+        "workspace transition should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    let index_raw = fs::read_to_string(dir.join("index.rhei.md")).expect("read index");
+    let index = parse_workspace_index(&index_raw).expect("parse index");
+    assert_eq!(
+        iteration_count_from_metadata(index.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(0)
+    );
+
+    let task_raw = fs::read_to_string(dir.join("tasks/01-review.md")).expect("read task file");
+    let tasks = rhei_core::parser::parse_workspace_tasks(&task_raw).expect("parse task file");
+    assert_eq!(tasks[0].state, "agent-review");
+
+    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]

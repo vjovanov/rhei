@@ -117,6 +117,141 @@ fn run_workspace_parallel_to_completion() {
 }
 
 #[test]
+fn run_bash_agent_team_fixture_to_completion() {
+    let (dir, workspace_path, machine_path) =
+        copy_workspace_fixture("run-bash-agent-team", "bash-agent-team");
+
+    assert!(
+        workspace_path.starts_with(repo_root().join("scratchpad")),
+        "fixture copy should live under the shared gitignored scratchpad"
+    );
+
+    let result = run_cli("run", &workspace_path, &machine_path, &[]);
+    assert_success(&result);
+
+    assert_all_tasks_in_state(&workspace_path, &machine_path, "completed");
+    assert!(
+        result.stdout.contains("3/3 tasks in terminal state"),
+        "expected all tasks terminal; got:\n{}",
+        result.stdout
+    );
+
+    let team_log =
+        fs::read_to_string(workspace_path.join("runtime/logs/team.log")).expect("read team log");
+    assert!(
+        team_log.contains("mock kickoff command executed"),
+        "expected kickoff log entry; got:\n{}",
+        team_log
+    );
+    assert!(
+        team_log.contains("reviewer finalized task"),
+        "expected finalize log entry; got:\n{}",
+        team_log
+    );
+
+    for task_id in &["1", "2", "3"] {
+        let artifact_dir = workspace_path.join(format!("runtime/artifacts/task-{task_id}"));
+        assert!(
+            artifact_dir.join("40-complete.txt").exists(),
+            "task {} should have a completion artifact",
+            task_id
+        );
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_living_review_loop_fixture_to_completion() {
+    let (dir, workspace_path, machine_path) =
+        copy_workspace_fixture("run-living-review-loop", "living-review-loop");
+
+    let result = run_cli("run", &workspace_path, &machine_path, &[]);
+    assert_success(&result);
+
+    assert_all_tasks_in_state(&workspace_path, &machine_path, "completed");
+    assert!(
+        result.stdout.contains("6/6 tasks in terminal state"),
+        "expected dynamically expanded tasks to complete; got:\n{}",
+        result.stdout
+    );
+
+    let findings = fs::read_to_string(workspace_path.join("runtime/findings/review-findings.md"))
+        .expect("read findings file");
+    assert!(
+        findings.contains("## Model claude"),
+        "expected consolidated findings file; got:\n{}",
+        findings
+    );
+
+    let verify_irrelevant =
+        fs::read_to_string(workspace_path.join("runtime/verifications/F-002.md"))
+            .expect("read verification file");
+    assert!(
+        verify_irrelevant.contains("- Relevant: no"),
+        "expected non-relevant verification outcome; got:\n{}",
+        verify_irrelevant
+    );
+
+    assert!(
+        !workspace_path.join("tasks/13-fix-cli-help.md").exists(),
+        "non-relevant finding should not produce a fix task"
+    );
+    assert!(
+        workspace_path.join("tasks/11-fix-cache-key.md").exists(),
+        "relevant finding F-001 should produce a fix task"
+    );
+    assert!(
+        workspace_path.join("tasks/12-fix-timeout-details.md").exists(),
+        "relevant finding F-003 should produce a fix task"
+    );
+
+    let team_log =
+        fs::read_to_string(workspace_path.join("runtime/logs/team.log")).expect("read team log");
+    assert!(
+        team_log.contains("spawned verification tasks"),
+        "expected review expansion in team log; got:\n{}",
+        team_log
+    );
+    assert!(
+        team_log.contains("spawned a fix task"),
+        "expected selective fix expansion in team log; got:\n{}",
+        team_log
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn reset_bash_agent_team_fixture_restores_initial_state() {
+    let (dir, workspace_path, machine_path) =
+        copy_workspace_fixture("reset-bash-agent-team", "bash-agent-team");
+    let source_fixture = fixture_path("bash-agent-team");
+
+    let run_result = run_cli("run", &workspace_path, &machine_path, &[]);
+    assert_success(&run_result);
+
+    let reset_result = run_cli("reset", &workspace_path, &machine_path, &[]);
+    assert_success(&reset_result);
+
+    assert_all_tasks_in_state(&workspace_path, &machine_path, "pending");
+    assert!(
+        !workspace_path.join("runtime").exists(),
+        "reset should remove generated runtime output"
+    );
+
+    for task_file in &["01-brief.md", "02-research.md", "03-implementation.md"] {
+        let actual = fs::read_to_string(workspace_path.join("tasks").join(task_file))
+            .expect("read reset task file");
+        let expected = fs::read_to_string(source_fixture.join("tasks").join(task_file))
+            .expect("read source fixture task file");
+        assert_eq!(actual, expected, "{} should match the checked-in fixture", task_file);
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_partially_advanced_completes_remaining() {
     let plan = r#"# Rhei: Partial Advance
 

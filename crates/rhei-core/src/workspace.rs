@@ -98,6 +98,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
         rhei: Rhei {
             title: index.title,
             states: index.states,
+            metadata: index.metadata,
             content_sections: index.content_sections,
             tasks: all_tasks,
         },

@@ -207,3 +207,25 @@ parallel-workers pattern.
   specific workflows.
 - Use `rhei render --format github` to produce review-friendly views of
   a plan, or `--format progress` for a terminal overview.
+
+### Progress format
+
+`--format progress` renders the plan as a compact ANSI terminal report intended
+for quick navigation.  Its structure is:
+
+```text
+Rhei: <title>
+<SectionTitle>:
+  <line 1 of section content>
+  <line 2 of section content>
+  …
+* Task <id>: <title>  [STATE]
+  - Prior: Task <id>, …          (omitted when empty)
+  - <id>.<sub>: <subtask title>  [STATE]
+  …
+```
+
+Content sections (e.g. `## Overview`, `## Success Metrics`) are rendered in
+full, with each non-blank line indented by two spaces under the section title.
+No content is truncated.  This ensures the progress view is a useful navigation
+surface even for plans with substantial product context.

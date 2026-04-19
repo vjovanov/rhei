@@ -17,6 +17,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+pub type Metadata = serde_yaml::Mapping;
+
 /// Task identifier supporting either a numeric id or a named identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TaskId {
@@ -75,6 +77,8 @@ pub struct Rhei {
     pub title: String,
     /// Name of the state machine to use. Defaults to "rhei".
     pub states: String,
+    /// Optional YAML frontmatter metadata associated with the plan.
+    pub metadata: Option<Metadata>,
     /// Content sections appearing before the "## Tasks" section.
     pub content_sections: Vec<ContentSection>,
     /// Collection of tasks defined under the "## Tasks" section.

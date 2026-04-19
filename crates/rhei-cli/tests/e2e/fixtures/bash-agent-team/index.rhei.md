@@ -9,4 +9,3 @@ executed end to end with `rhei run`.
 - The workflow is intentionally bash-based.
 - The first transition runs a mock kickoff command.
 - Each callback writes logs and artifacts into `runtime/` inside this example.
-

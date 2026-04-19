@@ -57,7 +57,7 @@ Tell an agent with the `rhei-plan-worker` skill to work the plan:
 /rhei-plan-worker plan.rhei.md
 ```
 
-The worker reads the plan, loads the state machine, and enters a loop: pick the next eligible task (all priors completed, state is `pending`), transition it to `in-progress`, implement it, advance through review states, and repeat. It stops when no eligible tasks remain or a `human-review` gate requires a human decision.
+The worker reads the plan, loads the state machine, and enters a loop: pick the next claimable task (all priors completed, state is initial such as `draft`), transition it to `pending`, implement it, advance through review states or finish with `rhei complete`, and repeat. It stops when no eligible tasks remain or a `human-review` gate requires a human decision.
 
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
@@ -136,7 +136,7 @@ workspace_task_file = [ { blank_line } ], task, { task } ;
 (* ============================================== *)
 
 (* YAML frontmatter stores custom task metadata such as retryCount,
-   priority, assignee, etc. It appears between two `---` fences and
+   stateIterations, priority, assignee, etc. It appears between two `---` fences and
    is parsed as YAML, not Markdown. See the Transitions Specification
    for the metadata access contract. *)
 frontmatter     = "---", NEWLINE,
@@ -178,11 +178,11 @@ metadata        = state_field, [ prior_field ], [ assignee_field ] ;
 
 assignee_field  = "**Assignee:** ", title, NEWLINE ;
 
-(* Result block records the outcome of a completed task. It is inserted
+(* Result block links to the outcome of a completed task. It is inserted
    by the `complete` command after task content and before subtasks.
-   It is free-form content rendered as a Markdown blockquote. *)
-result_block    = "> **Result:** ", title, NEWLINE,
-                  { "> ", non_structural_line, NEWLINE } ;
+   The result detail lives in a file under runtime/results/<task-id>.md;
+   the block contains a markdown link to that file. *)
+result_block    = "> **Result:** ", "[", title, "](", title, ")", NEWLINE ;
 
 state_field     = "**State:** ", state_value, NEWLINE ;
 
@@ -307,6 +307,23 @@ See [section](#overview)                           ← OK: fragment-only, not ch
 See [missing](docs/nonexistent.md)                 ← ERROR: file does not exist
 ```
 
+### 7. Parent-Subtask State Coherence
+
+A task in a terminal state (`completed` or `cancelled`) must have all its subtasks in terminal states. A plan where a parent task is terminal but one or more of its subtasks are non-terminal is logically inconsistent and fails validation.
+
+```markdown
+### Task 2: Implement login
+**State:** completed         ← ERROR: terminal parent with non-terminal subtasks
+
+#### Subtask 2.1: Write handler
+**State:** completed         ← OK
+
+#### Subtask 2.2: Add tests
+**State:** draft             ← ERROR: non-terminal subtask under completed parent
+```
+
+This constraint is also enforced at runtime by `rhei complete`: the command refuses to transition a task to a terminal state while any of its subtasks remain non-terminal. Agents must explicitly advance or cancel all subtasks before completing the parent.
+
 ## Token Types
 
 For lexer implementation, the following token types are needed:
@@ -383,7 +400,7 @@ The `rhei` CLI organizes its subcommands into three groups:
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
-| **Inspection** | `validate`, `render`, `states` | Read-only commands that examine or render a plan without modifying it |
+| **Inspection** | `validate`, `render`, `states`, `next --peek` | Read-only commands that examine or render a plan without modifying it |
 | **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
 | **Info** | `version`, `help` | Meta commands about the tool itself |
 
@@ -393,4 +410,6 @@ The `rhei` CLI organizes its subcommands into three groups:
 - [Plan Language Usage Guide](specs/rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs
 - [States Specification](specs/rhei-states.spec.md) - Defines the states configuration format
 - [Transitions Specification](specs/rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
+- [Next Command](specs/rhei-next.spec.md) - `rhei next` behavioral contract, including `--peek` mode
+- [Complete Command](specs/rhei-complete.spec.md) - `rhei complete` behavioral contract
 - [State Machine Writer](specs/rhei-state-machine-writer.spec.md) - Designing custom state machines from project specs and teams
