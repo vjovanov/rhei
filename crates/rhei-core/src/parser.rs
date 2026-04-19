@@ -16,7 +16,7 @@
 //! attempts to continue across unrecognized lines, only raising hard
 //! errors for missing rhei title.
 
-use crate::ast::{ContentBlock, Rhei, Subtask, Task, TaskId, TaskMetadata};
+use crate::ast::{ContentSection, Rhei, Subtask, Task, TaskId};
 use regex::Regex;
 
 /// Parser error with a message and an optional line number.
@@ -27,7 +27,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    fn new<M: Into<String>>(msg: M, line: Option<usize>) -> Self {
+    pub fn new<M: Into<String>>(msg: M, line: Option<usize>) -> Self {
         Self { message: msg.into(), line }
     }
 }
@@ -63,7 +63,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let mut rhei_header_seen = false;
     let mut rhei_states: Option<String> = None;
     let mut rhei_states_checked = false;
-    let mut rhei_content: Vec<ContentBlock> = Vec::new();
+    let mut rhei_content: Vec<ContentSection> = Vec::new();
     let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
     let mut tasks: Vec<Task> = Vec::new();
 
@@ -71,7 +71,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
     struct TaskBuilder {
         id: TaskId,
         title: String,
-        metadata: TaskMetadata,
+        state: Option<String>,
+        prior: Vec<TaskId>,
         content: String,
         subtasks: Vec<Subtask>,
         // Once a non-metadata token appears after the task header,
@@ -84,7 +85,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
         task_number: u32,
         subtask_number: u32,
         title: String,
+        state: Option<String>,
         content: String,
+        /// Once a non-metadata token appears after the subtask header,
+        /// we stop accepting metadata for this subtask.
+        metadata_closed: bool,
     }
 
     let mut cur_task: Option<TaskBuilder> = None;
@@ -118,14 +123,13 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 }
             } else {
                 // Rhei-level content: append to current section if one is open
-                if let Some(ContentBlock::Section { content, .. }) = rhei_content.last_mut() {
+                if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
                     if !content.is_empty() {
                         content.push('\n');
                     }
                     content.push_str(raw);
-                } else {
-                    rhei_content.push(ContentBlock::Text(raw.to_string()));
                 }
+                // Loose text outside a section is silently ignored per spec.
             }
 
             // Continue; fences do not participate in structural matching.
@@ -139,7 +143,10 @@ pub fn parse(input: &str) -> Result<Rhei> {
                     st.content.push('\n');
                 }
             } else if in_code_block {
-                rhei_content.push(ContentBlock::Text(String::new()));
+                // Empty line inside a code block within a section
+                if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
+                    content.push('\n');
+                }
             }
             continue;
         }
@@ -188,9 +195,10 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 pre_tasks_h2_seen = true;
                 if let Some(cap) = re_section_header.captures(line) {
                     let section_title = cap.get(1).unwrap().as_str().trim().to_string();
-                    rhei_content.push(ContentBlock::Section { title: section_title, content: String::new() });
-                } else {
-                    rhei_content.push(ContentBlock::Text(raw.to_string()));
+                    rhei_content.push(ContentSection {
+                        title: section_title,
+                        content: String::new(),
+                    });
                 }
                 continue;
             }
@@ -203,14 +211,13 @@ pub fn parse(input: &str) -> Result<Rhei> {
             }
 
             // Rhei pre-Tasks content: append to current section if one is open
-            if let Some(ContentBlock::Section { content, .. }) = rhei_content.last_mut() {
+            if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
                 if !content.is_empty() {
                     content.push('\n');
                 }
                 content.push_str(raw);
-            } else {
-                rhei_content.push(ContentBlock::Text(raw.to_string()));
             }
+            // Loose text outside a section is silently ignored per spec.
             continue;
         }
 
@@ -229,10 +236,20 @@ pub fn parse(input: &str) -> Result<Rhei> {
             // Finalize current subtask if present
             if let Some(st) = cur_subtask.take() {
                 if let Some(t) = cur_task.as_mut() {
+                    let state = st.state.ok_or_else(|| {
+                        ParseError::new(
+                            format!(
+                                "Subtask {}.{} is missing mandatory **State:** metadata",
+                                st.task_number, st.subtask_number
+                            ),
+                            Some(line_number),
+                        )
+                    })?;
                     t.subtasks.push(Subtask {
                         task_number: st.task_number,
                         subtask_number: st.subtask_number,
                         title: st.title,
+                        state,
                         content: st.content,
                     });
                 }
@@ -240,10 +257,17 @@ pub fn parse(input: &str) -> Result<Rhei> {
 
             // Finalize previous task
             if let Some(tb) = cur_task.take() {
+                let state = tb.state.ok_or_else(|| {
+                    ParseError::new(
+                        format!("Task {} is missing mandatory **State:** metadata", tb.id),
+                        Some(line_number),
+                    )
+                })?;
                 tasks.push(Task {
                     id: tb.id,
                     title: tb.title,
-                    metadata: tb.metadata,
+                    state,
+                    prior: tb.prior,
                     content: tb.content,
                     subtasks: tb.subtasks,
                 });
@@ -261,7 +285,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
             cur_task = Some(TaskBuilder {
                 id,
                 title,
-                metadata: TaskMetadata::default(),
+                state: None,
+                prior: Vec::new(),
                 content: String::new(),
                 subtasks: Vec::new(),
                 metadata_closed: false,
@@ -282,10 +307,20 @@ pub fn parse(input: &str) -> Result<Rhei> {
             // Close any open subtask
             if let Some(st) = cur_subtask.take() {
                 if let Some(t) = cur_task.as_mut() {
+                    let state = st.state.ok_or_else(|| {
+                        ParseError::new(
+                            format!(
+                                "Subtask {}.{} is missing mandatory **State:** metadata",
+                                st.task_number, st.subtask_number
+                            ),
+                            Some(line_number),
+                        )
+                    })?;
                     t.subtasks.push(Subtask {
                         task_number: st.task_number,
                         subtask_number: st.subtask_number,
                         title: st.title,
+                        state,
                         content: st.content,
                     });
                 }
@@ -306,8 +341,14 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 ));
             }
 
-            cur_subtask =
-                Some(SubtaskBuilder { task_number, subtask_number, title, content: String::new() });
+            cur_subtask = Some(SubtaskBuilder {
+                task_number,
+                subtask_number,
+                title,
+                state: None,
+                content: String::new(),
+                metadata_closed: false,
+            });
 
             continue;
         }
@@ -321,13 +362,28 @@ pub fn parse(input: &str) -> Result<Rhei> {
             ));
         }
 
-        // Metadata: State
+        // Metadata: State (for tasks and subtasks)
         if let Some(caps) = re_state.captures(line) {
+            // Check subtask context first
+            if let Some(st) = cur_subtask.as_mut() {
+                if !st.metadata_closed {
+                    let raw_state = caps.get(1).unwrap().as_str().trim();
+                    let state = unescape_state(raw_state);
+                    st.state = Some(state);
+                    continue;
+                }
+
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the subtask heading before subtask content",
+                    Some(line_number),
+                ));
+            }
+
             if let Some(t) = cur_task.as_mut() {
                 if !t.metadata_closed {
                     let raw_state = caps.get(1).unwrap().as_str().trim();
                     let state = unescape_state(raw_state);
-                    t.metadata.state = Some(state);
+                    t.state = Some(state);
                     continue;
                 }
 
@@ -361,9 +417,12 @@ pub fn parse(input: &str) -> Result<Rhei> {
         if line.starts_with("**Prior:**") {
             if let Some(t) = cur_task.as_mut() {
                 if !t.metadata_closed {
-                    // If this is the first metadata encountered, mark state_first = false.
-                    if t.metadata.state.is_none() && t.metadata.depends_on.is_empty() {
-                        t.metadata.state_first = false;
+                    // Spec: **State:** must appear before **Prior:**
+                    if t.state.is_none() {
+                        return Err(ParseError::new(
+                            format!("**State:** must appear before **Prior:** for Task {}", t.id),
+                            Some(line_number),
+                        ));
                     }
                     let ids = re_prior_task_id
                         .captures_iter(line)
@@ -376,7 +435,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
                                 .unwrap_or_else(|| TaskId::Named(s.to_string()))
                         })
                         .collect::<Vec<TaskId>>();
-                    t.metadata.depends_on.extend(ids);
+                    t.prior.extend(ids);
                     continue;
                 }
 
@@ -429,6 +488,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
 
         // Fallback: content lines
         if let Some(st) = cur_subtask.as_mut() {
+            st.metadata_closed = true;
             st.content.push_str(raw);
             st.content.push('\n');
         } else if let Some(t) = cur_task.as_mut() {
@@ -444,20 +504,37 @@ pub fn parse(input: &str) -> Result<Rhei> {
     // Finalize builders
     if let Some(st) = cur_subtask.take() {
         if let Some(t) = cur_task.as_mut() {
+            let state = st.state.ok_or_else(|| {
+                ParseError::new(
+                    format!(
+                        "Subtask {}.{} is missing mandatory **State:** metadata",
+                        st.task_number, st.subtask_number
+                    ),
+                    None,
+                )
+            })?;
             t.subtasks.push(Subtask {
                 task_number: st.task_number,
                 subtask_number: st.subtask_number,
                 title: st.title,
+                state,
                 content: st.content,
             });
         }
     }
 
     if let Some(tb) = cur_task.take() {
+        let state = tb.state.ok_or_else(|| {
+            ParseError::new(
+                format!("Task {} is missing mandatory **State:** metadata", tb.id),
+                None,
+            )
+        })?;
         tasks.push(Task {
             id: tb.id,
             title: tb.title,
-            metadata: tb.metadata,
+            state,
+            prior: tb.prior,
             content: tb.content,
             subtasks: tb.subtasks,
         });
@@ -491,44 +568,161 @@ pub fn parse(input: &str) -> Result<Rhei> {
         ));
     }
 
-    Ok(Rhei { title, states: rhei_states.unwrap_or_else(|| "rhei".to_string()), content: rhei_content, tasks })
+    Ok(Rhei {
+        title,
+        states: rhei_states.unwrap_or_else(|| "rhei".to_string()),
+        content_sections: rhei_content,
+        tasks,
+    })
 }
 
-/// Unescape a state value: supports backtick wrapping or backslash escaping.
+/// Parsed workspace index file (the root `index.rhei.md` of a directory workspace).
+///
+/// Contains the plan title, optional states declaration, and content sections,
+/// but no tasks (those live in the `tasks/` subdirectory).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceIndex {
+    pub title: String,
+    pub states: String,
+    pub content_sections: Vec<ContentSection>,
+}
+
+/// Parse a workspace index file (`index.rhei.md`).
+///
+/// Expects `# Rhei: <title>`, optional `**States:**`, and content sections.
+/// Returns an error if a `## Tasks` section is present (tasks belong in `tasks/`).
+pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
+    let re_rhei = Regex::new(r#"^#\s+Rhei:\s+(.*)$"#).unwrap();
+    let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+    let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
+    let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
+
+    let mut title: Option<String> = None;
+    let mut states: Option<String> = None;
+    let mut states_checked = false;
+    let mut header_seen = false;
+    let mut content: Vec<ContentSection> = Vec::new();
+    let mut in_code_block = false;
+
+    for (idx, raw) in input.lines().enumerate() {
+        let line_number = idx + 1;
+        let line = raw.trim();
+
+        let trimmed_start = raw.trim_start();
+        if trimmed_start.starts_with("```") {
+            in_code_block = !in_code_block;
+            if let Some(ContentSection { content: ref mut c, .. }) = content.last_mut() {
+                if !c.is_empty() {
+                    c.push('\n');
+                }
+                c.push_str(raw);
+            }
+            continue;
+        }
+
+        if in_code_block {
+            if let Some(ContentSection { content: ref mut c, .. }) = content.last_mut() {
+                if !c.is_empty() {
+                    c.push('\n');
+                }
+                c.push_str(raw);
+            }
+            continue;
+        }
+
+        if line.is_empty() {
+            continue;
+        }
+
+        if !header_seen {
+            if let Some(cap) = re_rhei.captures(line) {
+                title = Some(cap.get(1).unwrap().as_str().to_string());
+                header_seen = true;
+                continue;
+            }
+            let is_h1 = line.starts_with('#') && !line.starts_with("##");
+            if is_h1 {
+                return Err(ParseError::new(
+                    "Malformed rhei heading: expected '# Rhei: <title>'",
+                    Some(line_number),
+                ));
+            }
+            continue;
+        }
+
+        // Check for **States:** declaration (must be first non-empty line after header)
+        if !states_checked {
+            if let Some(cap) = re_states_decl.captures(line) {
+                states = Some(cap.get(1).unwrap().as_str().trim().to_string());
+                states_checked = true;
+                continue;
+            }
+            states_checked = true;
+        }
+
+        if re_tasks.is_match(line) {
+            return Err(ParseError::new(
+                "Workspace index file must not contain a '## Tasks' section; tasks belong in the tasks/ directory",
+                Some(line_number),
+            ));
+        }
+
+        if let Some(cap) = re_section_header.captures(line) {
+            let section_title = cap.get(1).unwrap().as_str().trim().to_string();
+            content.push(ContentSection { title: section_title, content: String::new() });
+            continue;
+        }
+
+        // Content line: append to current section if one is open.
+        if let Some(ContentSection { content: ref mut c, .. }) = content.last_mut() {
+            if !c.is_empty() {
+                c.push('\n');
+            }
+            c.push_str(raw);
+        }
+        // Loose text outside a section is silently ignored per spec.
+    }
+
+    let title = title.ok_or_else(|| ParseError::new("Missing '# Rhei: <title>' header", None))?;
+
+    Ok(WorkspaceIndex { title, states: states.unwrap_or_else(|| "rhei".to_string()), content_sections: content })
+}
+
+/// Parse a workspace task file (a file inside the `tasks/` directory).
+///
+/// These files contain one or more `### Task <id>: <title>` entries directly,
+/// without a `# Rhei:` header or `## Tasks` section.
+pub fn parse_workspace_tasks(input: &str) -> Result<Vec<Task>> {
+    // Prepend a synthetic header so the existing parser can handle the content.
+    let prefix = "# Rhei: _workspace_\n\n## Tasks\n\n";
+    let prefix_line_count = 4; // 4 lines in the prefix
+    let synthetic = format!("{}{}", prefix, input);
+    match parse(&synthetic) {
+        Ok(rhei) => Ok(rhei.tasks),
+        Err(mut e) => {
+            if let Some(ref mut line) = e.line {
+                *line = line.saturating_sub(prefix_line_count);
+                if *line == 0 {
+                    *line = 1;
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Unescape a state value: supports backtick wrapping only.
 fn unescape_state(input: &str) -> String {
     if input.starts_with('`') && input.ends_with('`') && input.len() >= 2 {
         return input[1..input.len() - 1].to_string();
     }
-    unescape_simple(input)
-}
-
-/// Unescape simple backslash escapes used in metadata values.
-///
-/// For now we support:
-/// - "\ " -> " "
-/// - "\\" -> "\"
-fn unescape_simple(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut chars = input.chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            if let Some(next) = chars.next() {
-                out.push(next);
-            } else {
-                // Trailing backslash, keep as-is
-                out.push('\\');
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    input.to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ContentBlock, TaskId};
+    use crate::ast::{ContentSection, TaskId};
 
     #[test]
     fn parses_minimal_plan_with_task_and_subtasks() {
@@ -542,10 +736,12 @@ Some intro line
 **Prior:** Task 2
 
 #### Subtask 1.1: Do A
+**State:** pending
 Line A1
 Line A2
 
 #### Subtask 1.2: Do B
+**State:** completed
 ```
 code block
 ```
@@ -554,22 +750,23 @@ code block
         let rhei = parse(input).expect("parse ok");
 
         assert_eq!(rhei.title, "Example");
-        assert!(
-            matches!(rhei.content.first(), Some(ContentBlock::Text(s)) if s == "Some intro line")
-        );
+        // "Some intro line" is loose text (not inside a section), silently ignored per spec.
+        assert!(rhei.content_sections.is_empty());
 
         assert_eq!(rhei.tasks.len(), 1);
         let t1 = &rhei.tasks[0];
         assert!(matches!(t1.id, TaskId::Number(1)));
         assert_eq!(t1.title, "Alpha");
-        assert_eq!(t1.metadata.state.as_deref(), Some("pending"));
-        assert_eq!(t1.metadata.depends_on, vec![TaskId::Number(2)]);
+        assert_eq!(t1.state, "pending");
+        assert_eq!(t1.prior, vec![TaskId::Number(2)]);
 
         assert_eq!(t1.subtasks.len(), 2);
         assert_eq!(t1.subtasks[0].title, "Do A");
+        assert_eq!(t1.subtasks[0].state, "pending");
         assert!(t1.subtasks[0].content.contains("Line A1"));
         assert!(t1.subtasks[0].content.contains("Line A2"));
 
+        assert_eq!(t1.subtasks[1].state, "completed");
         assert!(t1.subtasks[1].content.contains("```"));
         assert!(t1.subtasks[1].content.contains("code block"));
     }
@@ -648,13 +845,13 @@ High-level context.
         assert_eq!(rhei.title, "Example");
         assert_eq!(rhei.tasks.len(), 1);
         assert_eq!(
-            rhei.content,
+            rhei.content_sections,
             vec![
-                ContentBlock::Section {
+                ContentSection {
                     title: "Overview".to_string(),
                     content: "High-level context.".to_string(),
                 },
-                ContentBlock::Section {
+                ContentSection {
                     title: "Requirements".to_string(),
                     content: "- Preserve audit logs\n- Support approvals".to_string(),
                 },
@@ -696,6 +893,7 @@ Trailing chapter after tasks.
 **Prior:** Task setup_db, Task 2
 
 #### Subtask 1.1: Implement endpoint
+**State:** pending
 Body
 "#;
 
@@ -705,11 +903,8 @@ Body
         let task = &rhei.tasks[0];
         assert_eq!(task.id, TaskId::Named("build_api".to_string()));
         assert_eq!(task.title, "Build API");
-        assert_eq!(task.metadata.state.as_deref(), Some("in-progress"));
-        assert_eq!(
-            task.metadata.depends_on,
-            vec![TaskId::Named("setup_db".to_string()), TaskId::Number(2)]
-        );
+        assert_eq!(task.state, "in-progress");
+        assert_eq!(task.prior, vec![TaskId::Named("setup_db".to_string()), TaskId::Number(2)]);
     }
 
     #[test]
@@ -723,6 +918,7 @@ Task description closes metadata window.
 **Prior:** Task 2
 
 #### Subtask 1.1: Work
+**State:** pending
 Done
 "#;
 
@@ -736,7 +932,7 @@ Done
     }
 
     #[test]
-    fn state_after_prior_keeps_dependency_and_marks_ordering_for_validator() {
+    fn prior_before_state_is_parse_error() {
         let input = r#"# Rhei: Example
 ## Tasks
 
@@ -745,13 +941,8 @@ Done
 **State:** pending
 "#;
 
-        let rhei = parse(input).expect("parse ok");
-
-        assert_eq!(rhei.tasks.len(), 1);
-        let task = &rhei.tasks[0];
-        assert_eq!(task.metadata.depends_on, vec![TaskId::Number(2)]);
-        assert_eq!(task.metadata.state.as_deref(), Some("pending"));
-        assert!(!task.metadata.state_first);
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("**State:** must appear before **Prior:**"));
     }
 
     #[test]
@@ -771,14 +962,8 @@ Intro line
         let rhei = parse(input).expect("parse ok");
 
         assert_eq!(rhei.title, "Example");
-        assert_eq!(
-            rhei.content,
-            vec![
-                ContentBlock::Text("Intro line".to_string()),
-                ContentBlock::Text("```rust".to_string()),
-                ContentBlock::Text("```".to_string()),
-            ]
-        );
+        // Loose text and code fences outside sections are silently ignored.
+        assert!(rhei.content_sections.is_empty());
         assert_eq!(rhei.tasks.len(), 1);
         assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
     }
@@ -836,6 +1021,7 @@ Intro line
 **State:** pending
 
 #### Subtak 1.1: Broken
+**State:** pending
 "#;
 
         let err = parse(input).unwrap_err();
@@ -855,6 +1041,7 @@ Intro line
 **State:** pending
 
 #### Subtask 1.1:
+**State:** pending
 "#;
 
         let err = parse(input).unwrap_err();

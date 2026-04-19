@@ -28,7 +28,8 @@ Use this exact block shape:
 ```
 
 Apply these rules:
-- Keep `**State:**` as the first metadata line, directly under the task heading.
+- **Every task MUST have a `**State:**` field.** A task without `**State:**` is invalid and will fail validation. This is the single most common authoring mistake — always check for it before finishing.
+- Keep `**State:**` as the first metadata line, directly under the task heading — no blank line between the heading and `**State:**`.
 - Place `**Prior:**` second when present.
 - Omit `**Prior:**` when no prerequisites exist.
 - Separate metadata from description with a blank line.
@@ -63,10 +64,14 @@ Use subtasks only with numeric task IDs.
 
 ```markdown
 #### Subtask <n>.<m>: <title>
+**State:** <state>
+
 <description>
 ```
 
 Apply these rules:
+- **Every subtask MUST have a `**State:**` field.** A subtask without `**State:**` is invalid and will fail validation — the same rule as for tasks.
+- Keep `**State:**` as the first line directly under the subtask heading — no blank line between the heading and `**State:**`.
 - Default to including subtasks for every task to support implementation logging.
 - Skip subtasks only when a task is truly simple, atomic, and does not benefit from further decomposition.
 - When skipping subtasks, make the task description explicit enough to act as a single implementation log entry.
@@ -86,6 +91,7 @@ Apply these rules:
    - New plan: set all tasks to `pending`.
    - Existing plan update: preserve truthful `completed` and `cancelled` states unless explicitly changed.
 8. Run the validation checklist before returning output.
+9. **Final scan:** re-read every `### Task` and `#### Subtask` heading in the output and confirm each is immediately followed by a `**State:**` line. If any task or subtask is missing `**State:**`, fix it before returning the plan. This is the most common defect — always perform this check last.
 
 ## Validation Checklist
 
@@ -95,7 +101,7 @@ Validate every response against all checks:
 - If present, place `**States:** <state-machine-name>` as the first non-empty line after the H1, before any H2 section.
 - Keep `## Tasks` present and last.
 - Format every task as `### Task <id>: <title>`.
-- Include `**State:**` on every task with an allowed value.
+- Include `**State:**` on every task and every subtask with an allowed value.
 - Place `**Prior:**` only after `**State:**` when present.
 - Reference only existing tasks in each `**Prior:**` line.
 - Keep dependencies acyclic.
@@ -125,3 +131,15 @@ If required input is missing:
 
 - Ask the user to provide all missing information.
 - If the missing information is project-related, the user can instruct you to summon a researcher.
+
+## Task Granularity
+
+Right-sizing tasks is a balancing act across competing constraints:
+
+- **Too large:** the implementing agent exhausts its context window before finishing.
+- **Too small:** task-management overhead (transitions, re-reads, cold context) dominates useful work.
+- **Right-sized:** a task fits comfortably in one agent session and produces a meaningful, reviewable unit of change. Subtasks should decompose work the agent can reuse context for — shared files, related functions, sequential build steps.
+
+The state machine defines what happens at each stage of a task's lifecycle — read it before deciding granularity. A machine with heavyweight review gates (multi-agent review, human sign-off) justifies larger tasks to amortize that overhead. A lightweight machine (implement → done) allows smaller, more focused tasks. Match task size to the cost of moving through the states.
+
+When a task is simple enough that subtasks would just be a checklist, omit subtasks and use inline TODO lists in the description instead.

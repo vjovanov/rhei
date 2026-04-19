@@ -36,7 +36,7 @@ impl OutputGenerator for NoopOutput {
 
 use serde_json::{json, Map, Value};
 
-use rhei_core::ast::{ContentBlock, Rhei, Subtask, Task, TaskId};
+use rhei_core::ast::{Rhei, Subtask, Task, TaskId};
 
 /// Plan output generator trait for structured outputs.
 ///
@@ -88,33 +88,24 @@ fn task_id_json(id: &TaskId) -> Value {
 }
 
 fn subtask_json(st: &Subtask) -> Value {
-    json!({
-        "task_number": st.task_number,
-        "subtask_number": st.subtask_number,
-        "title": st.title,
-        "content": st.content,
-    })
+    let mut obj = Map::new();
+    obj.insert("task_number".to_string(), json!(st.task_number));
+    obj.insert("subtask_number".to_string(), json!(st.subtask_number));
+    obj.insert("title".to_string(), Value::String(st.title.clone()));
+    obj.insert("state".to_string(), Value::String(st.state.clone()));
+    obj.insert("content".to_string(), Value::String(st.content.clone()));
+    Value::Object(obj)
 }
 
 fn task_json(t: &Task) -> Value {
-    // depends_on array (possibly empty)
-    let depends_on = t.metadata.depends_on.iter().map(task_id_json).collect::<Vec<Value>>();
-
-    // metadata map with conditional "state"
-    let mut meta = Map::new();
-    meta.insert("depends_on".to_string(), Value::Array(depends_on));
-    if let Some(state) = &t.metadata.state {
-        meta.insert("state".to_string(), Value::String(state.clone()));
-    }
-    meta.insert("state_first".to_string(), Value::Bool(t.metadata.state_first));
-
-    // subtasks
+    let prior = t.prior.iter().map(task_id_json).collect::<Vec<Value>>();
     let subtasks = t.subtasks.iter().map(subtask_json).collect::<Vec<Value>>();
 
     let mut obj = Map::new();
     obj.insert("id".to_string(), task_id_json(&t.id));
     obj.insert("title".to_string(), Value::String(t.title.clone()));
-    obj.insert("metadata".to_string(), Value::Object(meta));
+    obj.insert("state".to_string(), Value::String(t.state.clone()));
+    obj.insert("prior".to_string(), Value::Array(prior));
     if !t.content.is_empty() {
         obj.insert("content".to_string(), Value::String(t.content.clone()));
     }
@@ -124,16 +115,13 @@ fn task_json(t: &Task) -> Value {
 }
 
 fn rhei_json(rhei: &Rhei) -> Value {
-    let content = rhei
-        .content
+    let content_sections = rhei
+        .content_sections
         .iter()
-        .map(|c| match c {
-            ContentBlock::Text(s) => Value::String(s.clone()),
-            ContentBlock::Section { title, content } => json!({
-                "title": title,
-                "content": content,
-            }),
-        })
+        .map(|s| json!({
+            "title": s.title,
+            "content": s.content,
+        }))
         .collect::<Vec<Value>>();
 
     let tasks = rhei.tasks.iter().map(task_json).collect::<Vec<Value>>();
@@ -141,7 +129,7 @@ fn rhei_json(rhei: &Rhei) -> Value {
     json!({
         "title": rhei.title,
         "states": rhei.states,
-        "content": content,
+        "content_sections": content_sections,
         "tasks": tasks
     })
 }
@@ -186,24 +174,16 @@ impl GithubIssuesOutput {
         out.push('\n');
 
         // Content sections
-        for block in &rhei.content {
-            match block {
-                ContentBlock::Text(s) => {
-                    out.push_str(s);
-                    out.push('\n');
-                }
-                ContentBlock::Section { title, content } => {
-                    out.push_str("## ");
-                    out.push_str(title);
-                    out.push('\n');
-                    if !content.is_empty() {
-                        out.push_str(content);
-                        out.push('\n');
-                    }
-                }
+        for section in &rhei.content_sections {
+            out.push_str("## ");
+            out.push_str(&section.title);
+            out.push('\n');
+            if !section.content.is_empty() {
+                out.push_str(&section.content);
+                out.push('\n');
             }
         }
-        if !rhei.content.is_empty() {
+        if !rhei.content_sections.is_empty() {
             out.push('\n');
         }
 
@@ -219,14 +199,12 @@ impl GithubIssuesOutput {
 
             // Optional metadata
             if self.include_metadata {
-                if let Some(state) = &task.metadata.state {
-                    out.push_str("- State: ");
-                    out.push_str(state);
-                    out.push('\n');
-                }
-                if !task.metadata.depends_on.is_empty() {
+                out.push_str("- State: ");
+                out.push_str(&task.state);
+                out.push('\n');
+                if !task.prior.is_empty() {
                     out.push_str("- Prior: ");
-                    out.push_str(&fmt_prior_list(&task.metadata.depends_on));
+                    out.push_str(&fmt_prior_list(&task.prior));
                     out.push('\n');
                 }
             }
@@ -247,6 +225,12 @@ impl GithubIssuesOutput {
                 out.push_str(": ");
                 out.push_str(&st.title);
                 out.push('\n');
+
+                if self.include_metadata {
+                    out.push_str("  - State: ");
+                    out.push_str(&st.state);
+                    out.push('\n');
+                }
 
                 if self.include_content && !st.content.is_empty() {
                     for line in st.content.lines() {
@@ -297,12 +281,8 @@ impl ProgressReportOutput {
         out.push_str(&rhei.title);
         out.push('\n');
 
-        // Overview: first non-empty content line if any
-        let first_line = rhei.content.iter().find_map(|c| match c {
-            ContentBlock::Text(s) if !s.trim().is_empty() => Some(s.trim()),
-            ContentBlock::Section { title, .. } => Some(title.as_str()),
-            _ => None,
-        });
+        // Overview: first content section title if any
+        let first_line = rhei.content_sections.first().map(|s| s.title.as_str());
         if let Some(line) = first_line {
             out.push_str("Overview: ");
             out.push_str(line);
@@ -312,8 +292,7 @@ impl ProgressReportOutput {
         // Tasks
         for task in &rhei.tasks {
             // Determine state (uppercased for display)
-            let state_upper =
-                task.metadata.state.as_deref().unwrap_or("unknown").trim().to_ascii_uppercase();
+            let state_upper = task.state.trim().to_ascii_uppercase();
             let badge = badge_for(&state_upper, self.color);
 
             // Task summary line
@@ -326,20 +305,25 @@ impl ProgressReportOutput {
             out.push('\n');
 
             // Optional dependencies ("Prior")
-            if self.show_dependencies && !task.metadata.depends_on.is_empty() {
+            if self.show_dependencies && !task.prior.is_empty() {
                 out.push_str("  - Prior: ");
-                out.push_str(&fmt_prior_list(&task.metadata.depends_on));
+                out.push_str(&fmt_prior_list(&task.prior));
                 out.push('\n');
             }
 
-            // Subtasks (no colorization, focus on task state)
+            // Subtasks with state badge
             for st in &task.subtasks {
+                let st_state_upper = st.state.trim().to_ascii_uppercase();
+                let st_badge = badge_for(&st_state_upper, self.color);
+
                 out.push_str("  - ");
                 out.push_str(&st.task_number.to_string());
                 out.push('.');
                 out.push_str(&st.subtask_number.to_string());
                 out.push_str(": ");
                 out.push_str(&st.title);
+                out.push_str("  ");
+                out.push_str(&st_badge);
                 out.push('\n');
             }
         }
@@ -395,16 +379,16 @@ mod tests {
         // Rhei title
         assert_eq!(v["title"].as_str().unwrap(), "Minimal");
 
-        // Content array exists (may be empty)
-        assert!(v["content"].is_array());
+        // Content sections array exists (may be empty)
+        assert!(v["content_sections"].is_array());
 
         // One task with numeric id 1
         let tasks = v["tasks"].as_array().unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0]["id"]["number"].as_u64(), Some(1));
 
-        // Metadata.state present and set to "pending"
-        assert_eq!(tasks[0]["metadata"]["state"].as_str(), Some("pending"));
+        // State present and set to "pending"
+        assert_eq!(tasks[0]["state"].as_str(), Some("pending"));
 
         // Subtasks empty
         assert!(tasks[0]["subtasks"].as_array().unwrap().is_empty());
@@ -417,11 +401,14 @@ mod tests {
 ## Tasks
 
 ### Task 1: First
+**State:** pending
 
 #### Subtask 1.1: Do A
+**State:** pending
 Do A line
 
 #### Subtask 1.2: Do B
+**State:** completed
 Do B line
 
 ### Task build: Build it
@@ -440,8 +427,8 @@ Do B line
             .find(|t| t["id"]["named"].as_str() == Some("build"))
             .expect("build task exists");
 
-        // build depends_on[0].number == 1
-        let deps = build["metadata"]["depends_on"].as_array().unwrap();
+        // build prior[0].number == 1
+        let deps = build["prior"].as_array().unwrap();
         assert!(!deps.is_empty());
         assert_eq!(deps[0]["number"].as_u64(), Some(1));
 
@@ -461,9 +448,6 @@ Do B line
         assert_eq!(subtasks[1]["task_number"].as_u64(), Some(1));
         assert_eq!(subtasks[1]["subtask_number"].as_u64(), Some(2));
         assert_eq!(subtasks[1]["title"].as_str().unwrap(), "Do B");
-
-        // Ensure state_first signal carried through for build (ordering unaffected by output)
-        assert!(build["metadata"]["state_first"].is_boolean());
     }
 
     #[test]
@@ -473,17 +457,17 @@ Do B line
 ## Tasks
 
 ### Task 1: One
-**State:** in\ progress
+**State:** `in progress`
 "#;
 
         let rhei = parse(input).expect("parse ok");
         let v = to_json_value(&rhei);
         let tasks = v["tasks"].as_array().unwrap();
-        assert_eq!(tasks[0]["metadata"]["state"].as_str(), Some("in progress"));
+        assert_eq!(tasks[0]["state"].as_str(), Some("in progress"));
     }
 
     #[test]
-    fn omits_missing_state_field() {
+    fn missing_state_is_parse_error() {
         let input = r#"# Rhei: NoState
 
 ## Tasks
@@ -491,13 +475,8 @@ Do B line
 ### Task 1: One
 "#;
 
-        let rhei = parse(input).expect("parse ok");
-        let v = to_json_value(&rhei);
-        let meta = &v["tasks"][0]["metadata"];
-        // Ensure the "state" key is omitted entirely (not present)
-        assert!(meta.get("state").is_none());
-        // But depends_on should always be present (possibly empty)
-        assert!(meta["depends_on"].is_array());
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("missing mandatory **State:**"));
     }
 
     // -------------------------------------------------------------------------
@@ -514,6 +493,7 @@ Do B line
 **State:** pending
 
 #### Subtask 1.1: Do it
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let s = to_github_markdown(&rhei);
@@ -552,6 +532,7 @@ Do B line
 **State:** pending
 
 #### Subtask 1.1: First
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let s = to_github_markdown(&rhei);
@@ -570,6 +551,7 @@ Do B line
 **State:** pending
 
 #### Subtask 1.1: Do A
+**State:** pending
 Line 1
 Line 2
 "#;
@@ -594,6 +576,7 @@ Line 2
 **Prior:** Task 2
 
 #### Subtask 1.1: Do A
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let gen = GithubIssuesOutput { include_content: false, include_metadata: false };
@@ -620,6 +603,7 @@ Line 2
 **State:** pending
 
 #### Subtask 1.1: Do it
+**State:** pending
 "#;
 
         let rhei = parse(input).expect("parse ok");
@@ -700,7 +684,7 @@ Line 2
 ## Tasks
 
 ### Task 1: One
-**State:** in\ progress
+**State:** `in progress`
 "#;
 
         let rhei = parse(input).expect("parse ok");

@@ -2,7 +2,10 @@
 
 ## Specification
 
-See the [Rhei Plan Language Specification](docs/plan-language-spec.md).
+- See the [Rhei Plan Language Specification](docs/rhei.spec.md).
+All textual spec files must end with `.spec.<file-ending>`.
+- [ADR (Architecture Decision Record)](docs/adr/adr.md)
+- Follow progressive disclosre in the spec
 
 ## CI Verification Commands
 

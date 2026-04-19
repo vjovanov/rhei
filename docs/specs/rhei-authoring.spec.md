@@ -1,7 +1,7 @@
 # Rhei Plan Language Usage Guide
 
 This guide shows how to author Rhei Plan documents that conform to the
-[Plan Language Specification](plan-language-spec.md). It focuses on practical
+[Rhei Language Specification](../rhei.spec.md). It focuses on practical
 patterns rather than formal grammar — consult the spec for precise rules.
 
 ## A Minimal Plan
@@ -96,7 +96,7 @@ backticks:
 
 The state value must be defined in the active states file — multi-word
 states typically require a custom states file such as
-[`examples/states-with-spaces.yaml`](../examples/states-with-spaces.yaml).
+[`examples/states-with-spaces.yaml`](../../examples/states-with-spaces.yaml).
 
 ### Dependencies
 
@@ -126,7 +126,7 @@ cargo run -p rhei-cli -- --state-machine ./content-workflow.yaml \
     validate plans/content-refresh.rhei.md
 ```
 
-See the [States Specification](states-spec.md) for the states file format.
+See the [States Specification](rhei-states.spec.md) for the states file format.
 
 ## Common Pitfalls
 
@@ -146,14 +146,14 @@ See the [States Specification](states-spec.md) for the states file format.
 
 ## Worked Examples
 
-The [`examples/`](../examples/) directory contains end-to-end plans that
+The [`examples/`](../../examples/) directory contains end-to-end plans that
 exercise the patterns above:
 
-- [`release-automation.rhei.md`](../examples/release-automation.rhei.md) —
+- [`release-automation.rhei.md`](../../examples/release-automation.rhei.md) —
   mixed numeric and named task ids with fenced code inside a subtask.
-- [`human-review-loop.rhei.md`](../examples/human-review-loop.rhei.md) —
+- [`human-review-loop.rhei.md`](../../examples/human-review-loop.rhei.md) —
   multi-state workflow with chained dependencies.
-- [`escaped-state-values.rhei.md`](../examples/escaped-state-values.rhei.md) —
+- [`escaped-state-values.rhei.md`](../../examples/escaped-state-values.rhei.md) —
   multi-word state values paired with a custom states file.
 
 ## Advancing Task States with `rhei transition`
@@ -196,14 +196,14 @@ When multiple agents work on the same plan, `rhei transition` is the
 coordination primitive. Because the `--from` flag acts as a
 compare-and-swap guard, only one agent can win a race on the same task —
 the loser gets a clean error and picks a different task. See
-[How Rhei Is Used — Pattern 3](how-rhei-is-used.md) for the full
+[How Rhei Is Used — Pattern 3](rhei-usage.spec.md) for the full
 parallel-workers pattern.
 
 ## Next Steps
 
-- Read the [Plan Language Specification](plan-language-spec.md) for the
+- Read the [Plan Language Specification](../rhei.spec.md) for the
   formal grammar and semantic constraints.
-- Browse the [States Specification](states-spec.md) to define project-
+- Browse the [States Specification](rhei-states.spec.md) to define project-
   specific workflows.
 - Use `rhei render --format github` to produce review-friendly views of
   a plan, or `--format progress` for a terminal overview.

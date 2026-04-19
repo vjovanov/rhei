@@ -1,6 +1,6 @@
-# Rhei: Define Formal State Transition System for Rheis
+# Rhei Transitions Specification
 
-Enhance the Rhei plan system to support **formal state transitions** with associated function callbacks.
+Formal specification for state transitions with associated function callbacks.
 
 State transitions will be defined declaratively in YAML and executed through platform-specific mechanisms:
 - **CLI**: Bash function calls
@@ -67,7 +67,7 @@ interface Task {
 /** The rhei containing the transitioning task */
 interface Rhei {
   title: string;
-  /** Path to the plan file, e.g. [`scratchpad/formal-state-transitions.md`](scratchpad/formal-state-transitions.md) */
+  /** Path to the plan file */
   path: string;
   tasks: Task[];
 }
@@ -176,7 +176,7 @@ rhei.onLeave('pending', 'processing', async (ctx: TransitionContext): Promise<Tr
 });
 ```
 
-> **More examples:** See [`transition-callback-examples.md`](transition-callback-examples.md) for comprehensive examples across all supported languages (TypeScript, Python, Java, Bash) covering dependency validation, data passing, state redirection, custom metadata access, and environment-aware logic.
+> **More examples:** See [Transition Callback Examples](rhei-callbacks.spec.md) for comprehensive examples across all supported languages (TypeScript, Python, Java, Bash) covering dependency validation, data passing, state redirection, custom metadata access, and environment-aware logic.
 
 ---
 
@@ -411,7 +411,7 @@ error_handling:
 
 ### Example 1: YAML State Machine Definition with Transitions
 
-This extends the existing [`docs/states.yaml`](docs/states.yaml:1) format to include formal transitions and callbacks:
+This extends the existing [`states.yaml`](states.yaml) format to include formal transitions and callbacks:
 
 ```yaml
 # states-with-transitions.yaml
@@ -1319,3 +1319,13 @@ callbacks:
     validate_approval: com.example.Handlers::validateApproval
     finalize: com.example.Handlers::finalize
 ```
+
+---
+
+## Related Documentation
+
+- [Plan Language Specification](../rhei.spec.md) — formal grammar and semantic constraints
+- [States Specification](rhei-states.spec.md) — state machine format and default states
+- [Transition Callback Examples](rhei-callbacks.spec.md) — practical callback implementations across languages
+- [How Rhei Is Used](rhei-usage.spec.md) — roles, coordination patterns, and agent workflows
+- [State Machine Writer](rhei-state-machine-writer.spec.md) — designing custom state machines from project specs and teams

@@ -1,6 +1,6 @@
 # Transition Callback Examples
 
-This document provides practical examples of state transition callbacks across all supported languages (TypeScript, Python, Java, and CLI/Bash). Each example demonstrates a specific use-case with the [`TransitionContext`](formal-state-transitions.md:108) data structure.
+This document provides practical examples of state transition callbacks across all supported languages (TypeScript, Python, Java, and CLI/Bash). Each example demonstrates a specific use-case with the `TransitionContext` data structure.
 
 ## Table of Contents
 
@@ -22,7 +22,7 @@ The simplest callback pattern: approve or reject a transition based on a conditi
 ```typescript
 import { Rhei, TransitionContext, TransitionResult } from 'rhei-napi';
 
-const rhei = new Rhei({ sagaPath: './workflow.saga.md' });
+const rhei = new Rhei({ rheiPath: './workflow.rhei.md' });
 
 rhei.onLeave('draft', 'pending', async (ctx: TransitionContext): Promise<TransitionResult> => {
   // Reject if task title is empty
@@ -38,7 +38,7 @@ rhei.onLeave('draft', 'pending', async (ctx: TransitionContext): Promise<Transit
 ```python
 from rhei import Rhei, TransitionContext, TransitionResult
 
-rhei = Rhei(saga_path="./workflow.saga.md")
+rhei = Rhei(rhei_path="./workflow.rhei.md")
 
 @rhei.on_leave("draft", "pending")
 def validate_title(ctx: TransitionContext) -> TransitionResult:
@@ -96,10 +96,10 @@ Check that all prior tasks are completed before allowing a transition.
 
 ```typescript
 rhei.onLeave('pending', 'in-progress', async (ctx: TransitionContext): Promise<TransitionResult> => {
-  const { task, saga } = ctx;
+  const { task, rhei } = ctx;
 
   for (const depId of task.metadata.dependsOn) {
-    const depTask = saga.tasks.find(t => t.id === depId);
+    const depTask = rhei.tasks.find(t => t.id === depId);
 
     if (!depTask) {
       return { success: false, error: `Dependency ${depId} not found` };
@@ -124,10 +124,10 @@ rhei.onLeave('pending', 'in-progress', async (ctx: TransitionContext): Promise<T
 def check_dependencies(ctx: TransitionContext) -> TransitionResult:
     """Ensure all dependencies are completed."""
     task = ctx.task
-    saga = ctx.saga
+    rhei = ctx.rhei
 
     for dep_id in task.metadata.depends_on:
-        dep_task = next((t for t in saga.tasks if t.id == dep_id), None)
+        dep_task = next((t for t in rhei.tasks if t.id == dep_id), None)
 
         if dep_task is None:
             return TransitionResult(
@@ -149,10 +149,10 @@ def check_dependencies(ctx: TransitionContext) -> TransitionResult:
 ```java
 public static TransitionResult checkDependencies(TransitionContext ctx) {
     Task task = ctx.getTask();
-    Saga saga = ctx.getSaga();
+    Plan plan = ctx.getPlan();
 
     for (Object depId : task.getMetadata().getDependsOn()) {
-        Task depTask = saga.getTasks().stream()
+        Task depTask = plan.getTasks().stream()
             .filter(t -> t.getId().equals(depId))
             .findFirst()
             .orElse(null);
@@ -186,9 +186,9 @@ check_dependencies() {
 
     for dep_id in $dependencies; do
         dep_state=$(echo "$context" | jq -r \
-            ".saga.tasks[] | select(.id == \"$dep_id\" or .id == $dep_id) | .metadata.state")
+            ".rhei.tasks[] | select(.id == \"$dep_id\" or .id == $dep_id) | .metadata.state")
         dep_title=$(echo "$context" | jq -r \
-            ".saga.tasks[] | select(.id == \"$dep_id\" or .id == $dep_id) | .title")
+            ".rhei.tasks[] | select(.id == \"$dep_id\" or .id == $dep_id) | .title")
 
         if [[ -z "$dep_state" ]]; then
             echo "{\"success\": false, \"error\": \"Dependency $dep_id not found\"}"
@@ -490,7 +490,7 @@ EOF
 
 ## 5. Accessing Custom Metadata
 
-Use arbitrary metadata fields stored in the saga file's YAML frontmatter.
+Use arbitrary metadata fields stored in the plan file's YAML frontmatter.
 
 ### TypeScript
 
@@ -623,7 +623,7 @@ Adapt behavior based on the execution environment.
 
 ```typescript
 rhei.onEnter('deploying', async (ctx: TransitionContext): Promise<TransitionResult> => {
-  const { environment, task, saga } = ctx;
+  const { environment, task, rhei } = ctx;
 
   console.log(`Deploying from ${environment.platform} v${environment.version}`);
   console.log(`Working directory: ${environment.workingDirectory}`);
@@ -638,7 +638,7 @@ rhei.onEnter('deploying', async (ctx: TransitionContext): Promise<TransitionResu
     case 'nodejs':
       // Node.js uses programmatic deployment
       await deployService.deploy(task.id, {
-        sagaPath: saga.path,
+        rheiPath: rhei.path,
         dryRun: false
       });
       break;
@@ -646,7 +646,7 @@ rhei.onEnter('deploying', async (ctx: TransitionContext): Promise<TransitionResu
     case 'python':
     case 'java':
       // Other platforms delegate to CLI
-      await execShell(`rhei-cli deploy --task ${task.id} --saga ${saga.path}`);
+      await execShell(`rhei-cli deploy --task ${task.id} --input ${rhei.path}`);
       break;
   }
 
@@ -667,7 +667,7 @@ def deploy_task(ctx: TransitionContext) -> TransitionResult:
     """Deploy with platform-aware logic."""
     env = ctx.environment
     task = ctx.task
-    saga = ctx.saga
+    rhei = ctx.rhei
 
     print(f"Deploying from {env.platform} v{env.version}")
     print(f"Working directory: {env.working_directory}")
@@ -679,14 +679,14 @@ def deploy_task(ctx: TransitionContext) -> TransitionResult:
 
     elif env.platform == "python":
         # Python uses native deployment library
-        deploy_service.deploy(task.id, saga_path=saga.path, dry_run=False)
+        deploy_service.deploy(task.id, rhei_path=rhei.path, dry_run=False)
 
     else:
         # Other platforms delegate to CLI
         subprocess.run([
             "rhei-cli", "deploy",
             "--task", str(task.id),
-            "--saga", saga.path
+            "--input", rhei.path
         ], check=True)
 
     return TransitionResult(
@@ -701,7 +701,7 @@ def deploy_task(ctx: TransitionContext) -> TransitionResult:
 public static TransitionResult deployTask(TransitionContext ctx) {
     Environment env = ctx.getEnvironment();
     Task task = ctx.getTask();
-    Saga saga = ctx.getSaga();
+    Plan plan = ctx.getPlan();
 
     System.out.printf("Deploying from %s v%s%n", env.getPlatform(), env.getVersion());
     System.out.printf("Working directory: %s%n", env.getWorkingDirectory());
@@ -711,7 +711,7 @@ public static TransitionResult deployTask(TransitionContext ctx) {
         switch (env.getPlatform()) {
             case "java":
                 // Java uses native deployment service
-                DeployService.deploy(task.getId(), saga.getPath());
+                DeployService.deploy(task.getId(), plan.getPath());
                 break;
 
             case "cli":
@@ -726,7 +726,7 @@ public static TransitionResult deployTask(TransitionContext ctx) {
                 Runtime.getRuntime().exec(new String[]{
                     "rhei-cli", "deploy",
                     "--task", task.getId().toString(),
-                    "--saga", saga.getPath()
+                    "--input", plan.getPath()
                 });
         }
 
@@ -750,13 +750,13 @@ deploy_task() {
     version=$(echo "$context" | jq -r '.environment.version')
     working_dir=$(echo "$context" | jq -r '.environment.workingDirectory')
     task_id=$(echo "$context" | jq -r '.task.id')
-    saga_path=$(echo "$context" | jq -r '.saga.path')
+    rhei_path=$(echo "$context" | jq -r '.rhei.path')
 
     echo "Deploying from $platform v$version" >&2
     echo "Working directory: $working_dir" >&2
 
     # CLI can run deployment directly
-    if ./deploy.sh --task "$task_id" --saga "$saga_path"; then
+    if ./deploy.sh --task "$task_id" --input "$rhei_path"; then
         cat <<EOF
 {
     "success": true,
@@ -778,7 +778,7 @@ EOF
 
 ## Related Documentation
 
-- [TransitionContext Data Structure](formal-state-transitions.md:29) - Full specification of the context object
-- [TransitionResult Interface](formal-state-transitions.md:125) - Return value format and semantics
-- [YAML State Machine Format](formal-state-transitions.md:334) - State machine configuration
-- [Error Handling and Recovery](formal-state-transitions.md:1113) - Handling failures in callbacks
+- [Transitions Specification](rhei-transitions.spec.md) - TransitionContext, TransitionResult, YAML schema, and execution semantics
+- [States Specification](rhei-states.spec.md) - State machine format and default states
+- [How Rhei Is Used](rhei-usage.spec.md) - Roles, coordination patterns, and agent workflows
+- [Plan Language Specification](../rhei.spec.md) - Formal grammar and semantic constraints

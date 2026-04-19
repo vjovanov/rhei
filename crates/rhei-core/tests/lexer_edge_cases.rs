@@ -113,17 +113,17 @@ fn malformed_structure_inside_fenced_code_blocks_is_not_tokenized() {
 }
 
 #[test]
-fn state_metadata_unescapes_backslash_sequences() {
+fn state_metadata_backtick_escaping() {
     let input = "\
-**State:** in\\ progress
-**State:** path\\\\to\\\\file
+**State:** `in progress`
+**State:** `ready to ship`
 ";
 
     let tokens: Vec<Token> = tokenize(input).collect();
 
     let expected = vec![
         Token::MetadataState { state: "in progress".to_string() },
-        Token::MetadataState { state: "path\\to\\file".to_string() },
+        Token::MetadataState { state: "ready to ship".to_string() },
     ];
 
     assert_eq!(tokens, expected);
