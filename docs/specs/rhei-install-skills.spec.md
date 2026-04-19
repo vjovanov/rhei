@@ -1,6 +1,6 @@
 # `rhei install-skills`
 
-Install rhei skills (plan-writer, plan-worker) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup.
+Install rhei skills (plan-writer, plan-worker) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
 
 ## Usage
 
@@ -9,6 +9,7 @@ rhei install-skills [OPTIONS]
 rhei install-skills --agent claude-code
 rhei install-skills --agent cursor
 rhei install-skills --agent all
+rhei install-skills --local --agent claude-code
 rhei install-skills --uninstall --agent claude-code
 ```
 
@@ -16,22 +17,25 @@ rhei install-skills --uninstall --agent claude-code
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--agent <NAME>` | `all` | Target agent: `claude-code`, `cursor`, `windsurf`, `copilot`, `cline`, `aider`, or `all` |
-| `--link` | (default) | Symlink skill files (stays up-to-date with rhei releases) |
-| `--copy` | | Copy skill files instead of symlinking |
+| `--agent <NAME>` | `all` | Target agent: `claude-code`, `cursor`, `windsurf`, `copilot`, `kilocode`, `pi`, `codex`, `antigravity`, or `all` |
+| `--local` | | Install into the current project directory instead of global user config |
+| `--link` | | Symlink skill files instead of copying (stays up-to-date with rhei releases) |
 | `--uninstall` | | Remove previously installed skills |
 | `--dry-run` | | Print what would be done without changing anything |
-| `--skills <LIST>` | `plan-writer,plan-worker,state-machine-writer` | Comma-separated list of skills to install |
+| `--skills <LIST>` | `rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer` | Comma-separated list of skills to install |
 
 ## Agent Targets
 
-Each agent has a different configuration layout. The command handles each one.
+Each agent has a different configuration layout. The command handles each one. The tables below show global (default) and project-local (`--local`) paths.
 
 ### Claude Code (`claude-code`)
 
-**Skill files:** Symlink `skills/rhei-plan-writer/`, `skills/rhei-plan-worker/`, and `skills/rhei-state-machine-writer/` into `~/.claude/skills/`.
+| Mode | Skill files | Registration |
+|------|-------------|--------------|
+| Global | `~/.claude/skills/rhei-<skill>/` | `~/.claude/CLAUDE.md` |
+| Local | `.claude/skills/rhei-<skill>/` | `.claude/CLAUDE.md` (project root) |
 
-**Registration:** Append a section to `~/.claude/CLAUDE.md`:
+**Registration:** Append a section to the target `CLAUDE.md`:
 
 ```markdown
 # rhei
@@ -41,9 +45,14 @@ Each agent has a different configuration layout. The command handles each one.
 When the user types `/rhei-plan-writer`, `/rhei-plan-worker`, or `/rhei-state-machine-writer`, invoke the Skill tool with the corresponding skill name before doing anything else.
 ```
 
+In local mode, the paths in the registration block use relative paths (e.g., `.claude/skills/rhei-plan-writer/SKILL.md`).
+
 ### Cursor (`cursor`)
 
-**Skill files:** Copy skill content into `~/.cursor/rules/rhei-plan-writer.mdc` and `~/.cursor/rules/rhei-plan-worker.mdc`.
+| Mode | Skill files |
+|------|-------------|
+| Global | `~/.cursor/rules/rhei-<skill>.mdc` |
+| Local | `.cursor/rules/rhei-<skill>.mdc` (project root) |
 
 **Format:** Cursor uses `.mdc` files with YAML frontmatter:
 
@@ -60,35 +69,75 @@ alwaysApply: false
 
 ### Windsurf (`windsurf`)
 
-**Skill files:** Append skill instructions to `~/.windsurfrules` (or `~/.codeium/windsurf/memories/global_rules.md` depending on version).
+| Mode | Skill files |
+|------|-------------|
+| Global | `~/.windsurfrules` (or `~/.codeium/windsurf/memories/global_rules.md`) |
+| Local | `.windsurfrules` (project root) |
 
 **Format:** Plain markdown sections, delimited with `<!-- rhei:start -->` / `<!-- rhei:end -->` markers for clean uninstall.
 
 ### GitHub Copilot (`copilot`)
 
-**Skill files:** Write to `~/.github/copilot-instructions.md` (global) or offer project-level `.github/copilot-instructions.md`.
+| Mode | Skill files |
+|------|-------------|
+| Global | `~/.github/copilot-instructions.md` |
+| Local | `.github/copilot-instructions.md` (project root) |
 
 **Format:** Plain markdown appended between `<!-- rhei:start -->` / `<!-- rhei:end -->` markers.
 
 **Note:** Copilot's instruction file has no skill/trigger system — the content is injected as system context. Skills are presented as "when the user asks to create/execute a Rhei plan, follow these instructions."
 
-### Cline (`cline`)
+### Cline (`kilocode`)
 
-**Skill files:** Write to `~/.cline/rules/rhei-plan-writer.md` and `~/.cline/rules/rhei-plan-worker.md`.
+| Mode | Skill files |
+|------|-------------|
+| Global | `~/.kilocode/rules/rhei-<skill>.md` |
+| Local | `.kilocode/rules/rhei-<skill>.md` (project root) |
 
 **Format:** Plain markdown with Cline's frontmatter if supported, otherwise raw content.
 
-### Aider (`aider`)
+### Pi (`pi`)
 
-**Skill files:** Add `read:` entries in `~/.aider.conf.yml` pointing at the skill markdown:
+| Mode | Skill files |
+|------|-------------|
+| Global | `~/.pi/rules/rhei-<skill>.md` |
+| Local | `.pi/rules/rhei-<skill>.md` (project root) |
 
-```yaml
-read:
-  - ~/.local/share/rhei/skills/rhei-plan-writer/SKILL.md
-  - ~/.local/share/rhei/skills/rhei-plan-worker/SKILL.md
-```
+**Format:** Plain markdown rule files. Pi loads all `.md` files from its rules directory as system context.
+
+### OpenAI Codex (`codex`)
+
+| Mode | Skill files | Registration |
+|------|-------------|--------------|
+| Global | `~/.codex/instructions/rhei-<skill>.md` | `~/.codex/instructions.md` |
+| Local | `.codex/instructions/rhei-<skill>.md` | `.codex/instructions.md` (project root) |
+
+**Format:** Plain markdown appended between `<!-- rhei:start -->` / `<!-- rhei:end -->` markers.
+
+**Note:** Codex has no skill/trigger system — the content is injected as system context. Skills are presented as "when the user asks to create/execute a Rhei plan, follow these instructions."
+
+### Google Antigravity (`antigravity`)
+
+| Mode | Skill files |
+|------|-------------|
+| Global | `~/.antigravity/rules/rhei-<skill>.md` |
+| Local | `.antigravity/rules/rhei-<skill>.md` (project root) |
+
+**Format:** Plain markdown rule files.
 
 ## Behavior
+
+### Local installation
+
+With `--local`, skills are installed into the current project directory instead of the user's home directory. The command resolves the project root by walking up from the current directory to find a `.git` directory, `Cargo.toml`, `package.json`, or similar project marker. If no project root is found, it falls back to the current working directory.
+
+Local installation is useful for:
+
+- Sharing skills with collaborators via version control (with `--copy`).
+- Scoping skills to a specific project without polluting the global config.
+- Overriding global skills with project-specific versions.
+
+When `--local` is combined with `--link`, the symlinks use relative paths so the project stays portable. Files installed with `--local` should be added to `.gitignore` unless `--copy` is used and the intent is to commit them.
 
 ### Detect installed skills
 
@@ -100,7 +149,7 @@ The command finds skill files relative to the `rhei` binary (e.g., `../share/rhe
 
 ### Symlink vs copy
 
-Default is `--link`, which symlinks to the source. `--copy` copies the files — necessary when the rhei repo is not persistently available (e.g., installed via `cargo install`).
+Default is `--copy`, which copies the skill files into the target directory. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
 
 ### Registration
 
@@ -115,6 +164,8 @@ With `--dry-run`, print each action (symlink, copy, append) without executing.
 With `--uninstall`, remove symlinks/copied files and delete the registered section from agent config files.
 
 ## Example Output
+
+### Global (default)
 
 ```
 $ rhei install-skills --agent all
@@ -134,14 +185,38 @@ windsurf:
 copilot:
   ✓ ~/.github/copilot-instructions.md — appended rhei section
 
-cline:
-  ✓ ~/.cline/rules/rhei-plan-writer.md — written
-  ✓ ~/.cline/rules/rhei-plan-worker.md — written
+kilocode:
+  ✓ ~/.kilocode/rules/rhei-plan-writer.md — written
+  ✓ ~/.kilocode/rules/rhei-plan-worker.md — written
 
-aider:
-  ✓ ~/.aider.conf.yml — added 2 read entries
+pi:
+  ✓ ~/.pi/rules/rhei-plan-writer.md — written
+  ✓ ~/.pi/rules/rhei-plan-worker.md — written
 
-Installed rhei skills for 6 agents.
+codex:
+  ✓ ~/.codex/instructions/rhei-plan-writer.md — written
+  ✓ ~/.codex/instructions/rhei-plan-worker.md — written
+  ✓ ~/.codex/instructions.md — appended rhei section
+
+antigravity:
+  ✓ ~/.antigravity/rules/rhei-plan-writer.md — written
+  ✓ ~/.antigravity/rules/rhei-plan-worker.md — written
+
+Installed rhei skills for 8 agents.
+```
+
+### Project-local
+
+```text
+$ rhei install-skills --local --agent claude-code
+
+claude-code (local):
+  ✓ .claude/skills/rhei-plan-writer → ../../target/rhei/skills/rhei-plan-writer
+  ✓ .claude/skills/rhei-plan-worker → ../../target/rhei/skills/rhei-plan-worker
+  ✓ .claude/skills/rhei-state-machine-writer → ../../target/rhei/skills/rhei-state-machine-writer
+  ✓ .claude/CLAUDE.md — registered 3 skills
+
+Installed rhei skills locally for 1 agent.
 ```
 
 ## Implementation Notes

@@ -132,7 +132,7 @@ If required input is missing:
 - Ask the user to provide all missing information.
 - If the missing information is project-related, the user can instruct you to summon a researcher.
 
-## Task Granularity
+## Important: Task Granularity
 
 Right-sizing tasks is a balancing act across competing constraints:
 
