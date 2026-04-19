@@ -1,0 +1,73 @@
+name: review-fix-visits
+version: 1.0
+
+states:
+  review:
+    description: Review pass that appends findings to a shared artifact.
+    instructions: |
+      Review pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Review the current task output and append one numbered review pass to
+      `{output.review-notes.path}`.
+
+      After each review pass, transition to `fix`.
+    initial: true
+    visits: 2
+    outputs:
+      - name: review-notes
+        path: runtime/reviews/task-{task_id}-review-{visit_count}.md
+        description: Review findings for this iteration
+
+  fix:
+    description: Fix step that consumes the review artifact produced by the loop.
+    instructions: |
+      Fix pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Read `{input.review-notes.path}`, extract the accumulated review
+      findings, and update `{output.fix-notes.path}`.
+
+      Transition back to `review` if {visit_count} < {visits}.
+      Otherwise, transition to `completed`.
+    visits: 2
+    inputs:
+      - name: review-notes
+        path: runtime/reviews/task-{task_id}-review-{visit_count}.md
+    outputs:
+      - name: fix-notes
+        path: runtime/fixes/task-{task_id}-fix-{visit_count}.md
+
+  completed:
+    description: Review artifact and fix artifact are both complete.
+    instructions: |
+      Task {task_id} is complete. No more action is required.
+    final: true
+
+  cancelled:
+    description: Workflow stopped before completion.
+    instructions: |
+      Task {task_id} cancelled. Stop all work and keep the generated runtime
+      files for inspection.
+    final: true
+
+transitions:
+  - from: review
+    to: fix
+    description: Append the current review pass and hand off to the next fix pass.
+    on_leave: "cli:bash ./workflow.sh append-review"
+
+  - from: fix
+    to: review
+    description: Write the first fix artifact revision and re-enter review for the second pass.
+    condition: visitCount < visits
+    on_leave: "cli:bash ./workflow.sh write-fix"
+
+  - from: fix
+    to: completed
+    description: Write the final fix artifact revision and finish after the second fix pass.
+    condition: visitCount >= visits
+    on_leave: "cli:bash ./workflow.sh write-fix"
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the task from any non-final state.
+    on_leave: "cli:bash ./workflow.sh cancel"

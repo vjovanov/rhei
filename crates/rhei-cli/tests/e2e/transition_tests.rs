@@ -143,3 +143,49 @@ fn transition_disallowed_path_rejected() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn transition_fails_when_target_state_input_artifact_is_missing() {
+    let plan = r#"# Rhei: Missing Target Input
+
+## Tasks
+
+### Task 1: Review item
+**State:** draft
+"#;
+    let machine = r#"name: artifact-input
+version: 1
+states:
+  draft:
+    description: Planned
+    initial: true
+  review:
+    description: Needs an input artifact
+    inputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: draft
+    to: review
+  - from: review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("trans-missing-input");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_transition(&plan_path, &machine_path, "1", "draft", "review");
+    assert!(!result.status.success(), "transition should fail when target input is missing");
+    assert!(
+        result.stderr.contains("Missing required input artifact: findings (runtime/findings/1.md)"),
+        "expected missing input artifact error; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

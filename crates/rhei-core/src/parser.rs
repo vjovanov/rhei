@@ -880,7 +880,7 @@ code block
 metadata:
   tasks:
     1:
-      stateIterations:
+      stateVisits:
         review: 2
 ---
 
@@ -904,12 +904,10 @@ metadata:
             .get(YamlValue::Number(1u64.into()))
             .and_then(YamlValue::as_mapping)
             .expect("task 1 metadata");
-        let state_iterations = task
-            .get(yaml_key("stateIterations"))
-            .and_then(YamlValue::as_mapping)
-            .expect("stateIterations");
+        let state_visits =
+            task.get(yaml_key("stateVisits")).and_then(YamlValue::as_mapping).expect("stateVisits");
 
-        assert_eq!(state_iterations.get(yaml_key("review")).and_then(YamlValue::as_u64), Some(2));
+        assert_eq!(state_visits.get(yaml_key("review")).and_then(YamlValue::as_u64), Some(2));
     }
 
     #[test]

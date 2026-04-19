@@ -149,10 +149,10 @@ def check_dependencies(ctx: TransitionContext) -> TransitionResult:
 ```java
 public static TransitionResult checkDependencies(TransitionContext ctx) {
     Task task = ctx.getTask();
-    Plan plan = ctx.getPlan();
+    Rhei rhei = ctx.getRhei();
 
     for (Object depId : task.getMetadata().getDependsOn()) {
-        Task depTask = plan.getTasks().stream()
+        Task depTask = rhei.getTasks().stream()
             .filter(t -> t.getId().equals(depId))
             .findFirst()
             .orElse(null);
@@ -701,7 +701,7 @@ def deploy_task(ctx: TransitionContext) -> TransitionResult:
 public static TransitionResult deployTask(TransitionContext ctx) {
     Environment env = ctx.getEnvironment();
     Task task = ctx.getTask();
-    Plan plan = ctx.getPlan();
+    Rhei rhei = ctx.getRhei();
 
     System.out.printf("Deploying from %s v%s%n", env.getPlatform(), env.getVersion());
     System.out.printf("Working directory: %s%n", env.getWorkingDirectory());
@@ -711,7 +711,7 @@ public static TransitionResult deployTask(TransitionContext ctx) {
         switch (env.getPlatform()) {
             case "java":
                 // Java uses native deployment service
-                DeployService.deploy(task.getId(), plan.getPath());
+                DeployService.deploy(task.getId(), rhei.getPath());
                 break;
 
             case "cli":
@@ -726,7 +726,7 @@ public static TransitionResult deployTask(TransitionContext ctx) {
                 Runtime.getRuntime().exec(new String[]{
                     "rhei-cli", "deploy",
                     "--task", task.getId().toString(),
-                    "--input", plan.getPath()
+                    "--input", rhei.getPath()
                 });
         }
 

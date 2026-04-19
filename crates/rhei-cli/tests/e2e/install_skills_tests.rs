@@ -113,6 +113,28 @@ fn link_mode_creates_symlinks() {
 }
 
 #[test]
+fn global_install_copy_codex() {
+    let home = unique_temp_dir("install-codex");
+
+    let result = run_install_skills(&home, &["--agent", "codex"]);
+    assert!(
+        result.status.success(),
+        "install should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    assert!(home.join(".agents/skills/rhei-plan-writer/SKILL.md").exists());
+    assert!(home.join(".agents/skills/rhei-plan-worker/SKILL.md").exists());
+    assert!(home.join(".agents/skills/rhei-state-machine-writer/SKILL.md").exists());
+    assert!(!home.join(".codex/instructions.md").exists());
+
+    assert!(result.stdout.contains("codex:"));
+    assert!(result.stdout.contains(".agents/skills/rhei-plan-writer"));
+    assert!(result.stdout.contains("Installed rhei skills for 1 agent."));
+}
+
+#[test]
 fn uninstall_removes_files() {
     let home = unique_temp_dir("install-uninstall");
 
@@ -158,19 +180,27 @@ fn dry_run_does_not_create_files() {
 }
 
 #[test]
-fn idempotent_install_shows_already_installed() {
+fn reinstall_overwrites_existing_skill_files() {
     let home = unique_temp_dir("install-idempotent");
 
     // First install.
     let result = run_install_skills(&home, &["--agent", "claude-code"]);
     assert!(result.status.success());
 
-    // Second install should detect already installed.
+    let installed_skill = home.join(".claude/skills/rhei-plan-writer/SKILL.md");
+    fs::write(&installed_skill, "stale test content\n").expect("overwrite installed skill");
+
+    // Second install should refresh the installed content.
     let result = run_install_skills(&home, &["--agent", "claude-code"]);
     assert!(result.status.success());
+    let refreshed = fs::read_to_string(&installed_skill).expect("read refreshed skill");
     assert!(
-        result.stdout.contains("already installed"),
-        "second install should print 'already installed'\nstdout:\n{}",
+        !refreshed.contains("stale test content"),
+        "second install should overwrite stale content"
+    );
+    assert!(
+        result.stdout.contains(".claude/skills/rhei-plan-writer"),
+        "second install should rewrite skills\nstdout:\n{}",
         result.stdout
     );
 }

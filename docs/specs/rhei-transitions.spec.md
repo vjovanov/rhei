@@ -64,6 +64,29 @@ interface Task {
   subtasks: Subtask[];
 }
 
+/** A required file artifact declared by the active state */
+interface StateArtifact {
+  name: string;
+  path: string;
+  format?: string;
+  description?: string;
+  exists: boolean;
+}
+
+/** Active state definition after template resolution */
+interface StateDefinition {
+  name: string;
+  description: string;
+  instructions?: string;
+  personality?: string;
+  initial?: boolean;
+  final?: boolean;
+  gating?: boolean;
+  visits?: number;
+  inputs?: StateArtifact[];
+  outputs?: StateArtifact[];
+}
+
 /** The rhei containing the transitioning task */
 interface Rhei {
   title: string;
@@ -111,6 +134,9 @@ interface TransitionContext {
 
   /** The specific task transitioning */
   task: Task;
+
+  /** Active state definition for the task, including resolved artifact contracts */
+  state: StateDefinition;
 
   /** Transition details */
   transition: TransitionInfo;
@@ -187,7 +213,11 @@ Task metadata is stored in a **YAML frontmatter section** within the rhei markdo
 **Naming conventions:**
 - In markdown syntax: Use `**Prior:** Task N` to declare dependencies
 - In TypeScript/JavaScript: Access via `task.metadata.dependsOn` (camelCase)
-- In Python/CLI JSON: Access via `task.metadata.dependsOn` (camelCase, consistent across all platforms)
+- In Python: Access via `task.metadata.depends_on` (snake_case, idiomatic Python)
+- In Java: Access via `task.getMetadata().getDependsOn()` (camelCase getters)
+- In CLI JSON: Access via `task.metadata.dependsOn` (camelCase, raw JSON)
+
+Each platform's SDK exposes the shared data model using its idiomatic naming convention. The bindings handle translation between platform-idiomatic names and the canonical camelCase JSON form.
 
 ### Metadata Storage Example
 
@@ -199,7 +229,7 @@ metadata:
   tasks:
     1:
       retryCount: 2
-      stateIterations:
+      stateVisits:
         agent-review: 1
       lastAttempt: "2024-01-15T10:30:00Z"
       assignee: "alice"
@@ -219,15 +249,25 @@ metadata:
 The YAML frontmatter between `---` markers contains:
 - `metadata.tasks.<id>` - Custom metadata for each task, keyed by task ID
 - Any key-value pairs needed by callbacks or conditions (e.g., `retryCount`, `priority`)
-- `metadata.tasks.<id>.stateIterations.<state-name>` - Runtime-maintained counted-loop counters for states that declare an `iterations` limit
+- `metadata.tasks.<id>.stateVisits.<state-name>` - Runtime-maintained counted-loop counters for states that declare a `visits` limit
 
 ### Counted Loop Metadata
 
-When a state declares `iterations: <n>`, the engine tracks the current per-task loop count in:
+When a state declares `visits: <n>`, the engine tracks the current per-task loop count in:
 
-- `metadata.tasks.<id>.stateIterations.<state-name>`
+- `metadata.tasks.<id>.stateVisits.<state-name>`
 
-These counters are maintained by the runtime rather than authored manually in normal workflows. The first arrival into a state does not consume the loop budget. The counter increments when a task re-enters that same state through a declared loop-back transition.
+These counters are maintained by the runtime rather than authored manually in normal workflows. Entering a counted state records the first visit as `1`, including when a task starts in that state. Each later re-entry increments the counter again.
+
+The active visit is also visible in markdown:
+
+- first visit: `**State:** review`
+- second visit: `**State:** review-2`
+- third visit: `**State:** review-3`
+
+The `-1` suffix is never written; first visit is implicit. The suffixed form is
+valid only when the base state declares `visits`, and the suffix must not
+exceed that state's declared visit budget.
 
 ### Metadata Access in Callbacks
 
@@ -249,9 +289,9 @@ rhei.onLeave('retrying', 'processing', (ctx: TransitionContext) => {
 
 For counted loops, runtimes should additionally expose:
 
-- `ctx.task.metadata.stateIterations` for the persisted per-state counters
-- `ctx.task.metadata.iterationCount` as the active state's current loop count
-- `ctx.state.iterations` as the active state's configured loop budget
+- `ctx.task.metadata.stateVisits` for the persisted per-state counters
+- `ctx.task.metadata.visitCount` as the active state's current loop count
+- `ctx.state.visits` as the active state's configured loop budget
 
 ---
 
@@ -337,14 +377,11 @@ This section defines the formal structure of YAML state machine configuration fi
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier for the state machine |
 | `models` | string array | No | Declared model identifiers available to states in this machine |
-| `personality` | string | No | Optional agent persona or framing text printed alongside the next claimed task |
 | `version` | string | Yes | Semantic version of the state machine definition |
 | `states` | object | Yes | Map of state names to state definitions |
 | `transitions` | array | Yes | List of allowed state transitions |
 | `callbacks` | object | No | Platform-specific callback mappings |
 | `error_handling` | object | No | Error handling and recovery configuration |
-
-When `personality` is present, CLI flows that surface the next task should print it before the task details so the agent receives both the role framing and the work item in one response.
 
 ### State Definition
 
@@ -357,7 +394,8 @@ states:
     instructions: <string>  # Optional: Agent-facing instructions for work in this state
     initial: <boolean>      # Optional: true if this is the starting state (exactly one required)
     final: <boolean>        # Optional: true if this is a terminal state (no outgoing transitions)
-    iterations: <integer>   # Optional: maximum number of loop-back re-entries permitted for this state
+    gating: <boolean>       # Optional: true if no autonomous (agent/engine) transitions are allowed out
+    visits: <integer>   # Optional: maximum number of visits permitted for this state
     all_models: [<string>]  # Optional: list of declared models; run this state once per listed model
     model: <string>         # Optional: one declared model allowed for this state
 ```
@@ -365,12 +403,16 @@ states:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `description` | string | Yes | Human-readable explanation of what this state represents |
-| `instructions` | string | No | Agent-facing guidance for work in this state |
+| `instructions` | string | No | Agent-facing guidance for work in this state. Supports [template variables](rhei-states.spec.md#template-variables-in-instructions-and-personality) resolved by `rhei next` at output time. |
+| `personality` | string | No | Optional role framing printed alongside the next claimed task when this state is active. Supports [template variables](rhei-states.spec.md#template-variables-in-instructions-and-personality). |
 | `initial` | boolean | No | Marks this as the starting state. Exactly one state must have `initial: true` |
 | `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
-| `iterations` | integer | No | Maximum number of loop-back re-entries permitted for this state before the loop budget is exhausted |
+| `gating` | boolean | No | Marks this as a gating state. When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions (`rhei transition` with `triggeredBy: 'user'`) are allowed. |
+| `visits` | integer | No | Maximum number of visits permitted for this state before the loop budget is exhausted |
 | `all_models` | string array | No | Explicit list of declared model identifiers; the state runs once for each listed model |
 | `model` | string | No | Restricts the state to one model declared in the machine-level `models` list |
+| `inputs` | artifact array | No | Required file artifacts that must exist before entering or working this state |
+| `outputs` | artifact array | No | Required file artifacts that must exist before leaving this state |
 
 Model selection rules:
 - The machine-level `models` list is optional. When omitted, states are not model-constrained.
@@ -378,23 +420,50 @@ Model selection rules:
 - `model` must reference a value declared in the machine-level `models` list.
 - `all_models`, when present, must be a non-empty list of unique values declared in the machine-level `models` list.
 - A state with `all_models` is executed once per listed model.
-- `iterations` may be combined with either `all_models` or `model`.
-- `iterations`, when present, must be an integer greater than or equal to `1`.
+- `visits` may be combined with either `all_models` or `model`.
+- `visits`, when present, must be an integer greater than or equal to `1`.
+- `inputs` and `outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
+- Artifact `path` values are workspace-relative templates. After expansion, they must remain within the workspace root.
+
+Artifact definition:
+
+```yaml
+states:
+  review:
+    outputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+        description: Concrete review findings for the task
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Stable identifier for the artifact within that state |
+| `path` | string | Yes | Workspace-relative file path template |
+| `description` | string | No | Human-readable explanation of the artifact |
+
+Supported template variables:
+
+- `{task_id}` - current task id
+- `{state}` - canonical unsuffixed state name
+- `{visit_count}` - current visit number for counted-loop states (only available when the state declares `visits`)
+- `{model}` - current model identifier (only available when the state declares `model` or `all_models`)
 
 ### Counted Loops
 
-`iterations` is a state-level loop budget. It is used when a workflow intentionally cycles through the same state multiple times before taking a non-loop exit.
+`visits` is a state-level loop budget. It is used when a workflow intentionally cycles through the same state multiple times before taking a non-loop exit.
 
 Rules:
 
-- `iterations` applies to re-entries into that state through a declared loop-back transition.
-- The initial entry into a state does not increment the counter.
-- Each loop-back re-entry increments `metadata.tasks.<id>.stateIterations.<state-name>` by `1`.
+- `visits` applies to every entry into that state, including the initial entry and later loop-back re-entries.
+- Starting in a counted state records `metadata.tasks.<id>.stateVisits.<state-name> = 1`.
+- Each later loop-back re-entry increments `metadata.tasks.<id>.stateVisits.<state-name>` by `1`.
+- The task's active `**State:**` value mirrors that count by writing `<state>-<n>` for visits greater than `1`; visit `1` stays as the bare state name.
 - When evaluating transitions from a counted-loop state, runtimes should expose:
-  - `iterationCount`: the current value of `metadata.tasks.<id>.stateIterations.<state-name>`
-  - `iterations`: the configured state-level loop budget
-- Once `iterationCount >= iterations`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
-- When a state also declares `all_models`, iteration accounting is scoped to each model-specific execution of that state.
+  - `visitCount`: the current value of `metadata.tasks.<id>.stateVisits.<state-name>`
+  - `visits`: the configured state-level loop budget
+- Once `visitCount >= visits`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
+- When a state also declares `all_models`, visit accounting is scoped to each model-specific execution of that state.
 
 Example:
 
@@ -406,7 +475,7 @@ states:
       Review the implementation. If changes are needed and loop budget remains,
       transition to `agent-review-fix`. If the loop budget is exhausted,
       transition to `human-review`.
-    iterations: 3
+    visits: 3
 
   agent-review-fix:
     description: Apply reviewer findings
@@ -424,16 +493,16 @@ transitions:
   - from: agent-review
     to: agent-review-fix
     description: Review requested changes while loop budget remains
-    condition: iterationCount < iterations
+    condition: visitCount < visits
 
   - from: agent-review
     to: human-review
     description: Escalate after the counted review/fix loop is exhausted
-    condition: iterationCount >= iterations
+    condition: visitCount >= visits
 
   - from: agent-review-fix
     to: agent-review
-    description: Re-submit after fixes; increments the `agent-review` iteration counter
+    description: Re-submit after fixes; increments the `agent-review` visit counter to the next visit
 ```
 
 ### Transition Definition
@@ -465,12 +534,63 @@ transitions:
 | `max_retries` | integer | No | Maximum automatic retry attempts |
 | `retry_delay` | string | No | Delay between retries (e.g., `30s`, `5m`) |
 
+### Artifact Enforcement
+
+State artifact contracts are enforced around transitions:
+
+1. Before entering a target state, the runtime resolves `target.inputs` and
+   rejects the transition if any required input file does not exist.
+2. After `on_leave` / `on_enter` callbacks complete, but before the state write
+   is committed, the runtime resolves `source.outputs` and rejects the
+   transition if any required output file does not exist.
+3. `rhei complete` is subject to the same output checks as `rhei transition`.
+4. In v1, enforcement is file-existence only. Content validation is out of
+   scope.
+
+This makes artifact production and consumption part of the state-machine
+contract instead of a convention in free-form instructions.
+
 ### Wildcard Semantics
 
 The special value `"*"` in the `from` field matches any state with these rules:
 - Matches any state **except** final states (states with `final: true`)
 - Specific transitions take precedence over wildcard transitions
 - A transition from a final state is always forbidden, even with wildcards
+
+Wildcards are optional. When a machine omits wildcards, only explicitly declared transitions are valid. Engines must not synthesize wildcard transitions; if cancellation from a particular state is desired, it must be declared explicitly (as the default `rhei` machine does).
+
+### Callback Declaration
+
+There are two valid ways to declare callbacks on transitions:
+
+**1. Platform-prefixed inline identifiers.** The `on_leave`/`on_enter` value includes a platform prefix (`cli:`, `js:`, `py:`, `java:`) followed by the implementation reference. No separate `callbacks:` mapping is needed. Use this when the machine targets a single platform or when each transition has a single implementation.
+
+```yaml
+transitions:
+  - from: pending
+    to: running
+    on_leave: cli:validate_preconditions    # Bash function
+    on_enter: js:startWork                  # JavaScript function
+```
+
+**2. Logical names with a `callbacks:` mapping.** The `on_leave`/`on_enter` values use platform-agnostic logical names. A top-level `callbacks:` section maps each logical name to platform-specific implementations. Use this when the same machine must work across multiple platforms.
+
+```yaml
+transitions:
+  - from: pending
+    to: active
+    on_leave: prepare_activation   # Logical name, resolved via callbacks:
+
+callbacks:
+  cli:
+    prepare_activation: ./handlers.sh:prepare_activation
+  nodejs:
+    prepare_activation: ./handlers.js:prepareActivation
+  python:
+    prepare_activation: handlers:prepare_activation
+```
+
+Both models are valid. They must not be mixed within a single transition (a callback value is either prefixed or logical, not both). When both a prefix and a `callbacks:` mapping exist for the same name, the prefix takes precedence.
 
 ### Callback Mappings
 
@@ -524,6 +644,7 @@ states:
 
   human-review:
     description: Awaiting human approval
+    gating: true
 
   agent-review:
     description: Automated validation in progress
@@ -614,12 +735,15 @@ version: 1.0
 
 states:
   pending:
+    description: Task is waiting to be executed
     initial: true
   running:
     description: Script execution in progress
   completed:
+    description: Task finished successfully
     final: true
   failed:
+    description: Task execution failed
     final: true
 
 transitions:
@@ -828,6 +952,7 @@ version: 1.0
 
 states:
   queued:
+    description: Job is registered and waiting for processing
     initial: true
   preprocessing:
     description: Data preparation phase
@@ -836,8 +961,10 @@ states:
   evaluating:
     description: Model evaluation phase
   deployed:
+    description: Model deployed to production
     final: true
   failed:
+    description: Pipeline execution failed
     final: true
 
 transitions:
@@ -977,6 +1104,7 @@ version: 1.0
 
 states:
   submitted:
+    description: Workflow request received and awaiting validation
     initial: true
   validating:
     description: Business rule validation
@@ -985,8 +1113,10 @@ states:
   executing:
     description: Workflow execution in progress
   completed:
+    description: Workflow finished successfully
     final: true
   rejected:
+    description: Workflow request rejected by validation
     final: true
 
 transitions:
@@ -1193,6 +1323,7 @@ version: 1.0
 
 states:
   ready:
+    description: Task is queued and waiting to start
     initial: true
   processing:
     description: Main work phase
@@ -1200,9 +1331,12 @@ states:
     description: Automatic retry in progress
   manual-intervention:
     description: Human operator needed
+    gating: true
   completed:
+    description: Task finished successfully
     final: true
   abandoned:
+    description: Task permanently abandoned after manual review
     final: true
 
 transitions:
@@ -1232,7 +1366,7 @@ transitions:
     to: manual-intervention
     on_leave: escalate
     on_enter: notify_operators
-    condition: retry_count >= max_retries
+    condition: retryCount >= maxRetries
 
   - from: manual-intervention
     to: processing
@@ -1326,9 +1460,11 @@ sequenceDiagram
 
 2. **Redirect Validation**: When `on_leave` returns `nextState`, Rhei validates that this redirect corresponds to a declared transition from the original state. Invalid redirects are rejected.
 
-3. **Rollback on Enter Failure**: If `on_enter` fails, the state is rolled back to the original state, then the `error_handling.on_enter_failure` policy is applied.
+3. **Redirect Callback Execution**: When `on_leave` redirects via `nextState`, only the original `on_leave` callback executes. The redirected transition's `on_leave` is **not** invoked — the original `on_leave` already handled the leave logic. The `data` from the original `on_leave` result flows to the redirected target's `on_enter` via `transitionData`. The redirected transition's `on_enter` **is** invoked normally.
 
-4. **Rejection vs Redirect**:
+4. **Rollback on Enter Failure**: If `on_enter` fails, the state is rolled back to the original state, then the `error_handling.on_enter_failure` policy is applied.
+
+5. **Rejection vs Redirect**:
    - `success: false` = rejection, task stays in current state
    - `success: true, nextState: X` = redirect to valid target X
    - `success: true` = proceed to originally requested target
@@ -1346,12 +1482,14 @@ version: 1.0
 
 states:
   pending:
+    description: Task is waiting to be picked up
     initial: true
   active:
     description: Work in progress
   review:
     description: Awaiting review
   done:
+    description: Task finished successfully
     final: true
 
 transitions:

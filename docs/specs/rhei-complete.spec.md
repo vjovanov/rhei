@@ -59,18 +59,17 @@ Added avatar_url column and migration 0042
 1. Load the state machine and plan (single file or directory workspace). Validate.
 2. Locate the task by ID. Fail if the task does not exist.
 3. Reject if the task is already in a terminal state.
-4. If the task has subtasks, verify that every subtask is in a terminal state. Fail with an error listing the non-terminal subtasks if any remain.
-
-   Example: `Task 2 cannot be completed: subtask(s) 2.2, 2.3 are not in terminal states.`
-
-5. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists. `cancelled` is never treated as a successful completion target.
-6. Execute the state transition (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks).
+4. Reject if the task's current state is a gating state (`gating: true`). Gating states require explicit human-initiated transitions via `rhei transition` and cannot be exited by autonomous commands.
+5. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
+6. Execute the state transition directly (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks). This is performed inline — `rhei complete` does **not** delegate to `rhei transition`, so only one result entry is appended per invocation.
 7. Append a `## <from> → <to>` entry with the `--result` message to `runtime/results/<task-id>.md` (create directories as needed).
 8. Remove the `**Assignee:**` line from the task (no-op if absent).
-9. If this is the first entry in the result file, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
+9. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
 10. Write the task file atomically (temp file + rename).
 
 `rhei transition` also appends a `## <from> → <to>` entry (with no message body) to the same result file. This means the result file accumulates the full transition history regardless of which command performed each transition.
+
+**Note on subtasks:** Subtasks do not carry independent `**State:**` metadata. It is the agent's responsibility to address all subtasks before calling `rhei complete`. The command does not enforce subtask completion.
 
 ### Completion Target Selection
 
@@ -112,13 +111,13 @@ rhei complete ./my-workspace --task review-seed \
 
 | Command            | What it does                                                              |
 |--------------------|---------------------------------------------------------------------------|
-| `rhei next`        | Claims the next ready task; transitions it forward, prints instructions   |
-| `rhei next --peek` | Read-only: prints the next claimable task without transitioning it        |
+| `rhei next`        | Claims the next ready task (assigns without transitioning), prints instructions |
+| `rhei next --peek` | Read-only: prints the next claimable task without claiming it             |
 | `rhei transition`  | Atomically changes a task's state; appends entry to result file           |
 | `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns      |
 | `rhei reset`       | Returns all tasks to initial state, removes `runtime/`                    |
 
-The typical agent loop is: `next` (claim) -> work -> `complete` (finish, record result, release).
+The typical agent loop is: `next` (claim) -> work -> `transition` (advance as needed) -> `complete` (finish, record result, release).
 
 ## Related Specifications
 

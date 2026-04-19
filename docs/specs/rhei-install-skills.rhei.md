@@ -129,7 +129,7 @@ Implemented `remove_marked_section()`: removes `<!-- rhei:start/end -->` blocks 
 **State:** completed
 **Prior:** Task 4, Task 5
 
-Implement `is_agent_installed(agent: &Agent, local: bool) -> bool` that checks whether rhei skills are already present for a given agent. Check for the existence of skill files or marker sections. Print "already installed" and return early when detected, unless `--link` is explicitly passed (which forces an update).
+Implement installation so existing rhei skill files are replaced in place. If a prior install exists, remove or overwrite the existing files and write the requested set again rather than skipping the agent.
 
 #### Subtask 6.1: Check file-based agents
 **State:** `completed`
@@ -235,9 +235,9 @@ Implemented `install_copilot()`. Injects between markers in the copilot instruct
 #### Subtask 10.3: Implement Codex handler
 **State:** `completed`
 
-Copy skill files to `~/.codex/instructions/` and inject registration into `~/.codex/instructions.md`. Handle both global and local paths.
+Install standard Codex skill directories under `~/.agents/skills/` or `.agents/skills/` so Codex discovers them automatically. Do not inject anything into `.codex/instructions.md`; custom agent overrides live separately under `.codex/agents/*.toml`.
 
-Implemented `install_codex()`. Copies/symlinks skill files to `~/.codex/instructions/` and injects registration into `~/.codex/instructions.md` using markers.
+Implemented `install_codex()`. Copies/symlinks each skill directory to `~/.agents/skills/` or `.agents/skills/`, which matches Codex's documented skill discovery paths. No registration file is written because Codex scans those directories automatically; per-agent customization is handled by `.codex/agents/*.toml` and optional `skills.config` overrides.
 
 ### Task 11: Implement uninstall flow
 **State:** completed
@@ -265,7 +265,7 @@ Uses `remove_marked_section()` (from Task 5) which handles both HTML markers and
 
 Implement the `install_skills_command()` body. Resolve the agent list (expand `all`), iterate agents, call each handler, collect results, and print the summary output matching the spec's example format (agent name, indented results with `✓` marks, final count line).
 
-#### Subtask 12.1: Implement agent iteration and dispatch
+#### Subtask 12.1: Implement agent pass and dispatch
 **State:** `completed`
 
 Expand `all` to the full agent list. Loop through agents, call the appropriate handler, and collect success/skip/error status.
@@ -323,6 +323,6 @@ Implemented `dry_run_does_not_create_files` test. Verifies `[dry-run]` output an
 #### Subtask 13.6: Test idempotency
 **State:** `completed`
 
-Run install twice, verify the second run prints "already installed" and doesn't duplicate content.
+Run install twice, mutate one installed file between runs, and verify the second run restores the expected content without duplicating registration blocks.
 
-Implemented `idempotent_install_shows_already_installed` test. Runs install twice and verifies "already installed" message on second run.
+Implemented `reinstall_overwrites_existing_skill_files` test. Runs install twice, corrupts an installed skill file between runs, and verifies the second run restores the packaged skill content.

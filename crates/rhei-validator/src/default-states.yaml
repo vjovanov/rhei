@@ -2,7 +2,7 @@
 # This file defines the valid states for tasks and the allowed transitions
 # between them. The CLI can print this machine with `rhei states`.
 
-name: task-states
+name: rhei
 version: 2.0
 
 states:
@@ -39,6 +39,7 @@ states:
 
   human-review:
     description: Work is paused pending human inspection.
+    gating: true
     instructions: |
       Stop all agent work on this task. Wait for a human to approve, request
       changes, or edit the rhei. Do not transition out of this state
@@ -62,29 +63,43 @@ states:
 transitions:
   - from: draft
     to: pending
+    description: Task analysis complete, description finalized and ready for implementation
   - from: draft
     to: cancelled
+    description: Task abandoned before analysis
   - from: pending
     to: agent-review
+    description: Implementation complete, ready for automated review
   - from: pending
     to: human-review
+    description: Implementation complete, requires human inspection
   - from: pending
     to: completed
+    description: Implementation complete, no review required
   - from: pending
     to: cancelled
+    description: Task abandoned during implementation
   - from: agent-review
     to: agent-review-fix
+    description: Review found issues, implementing agent must apply fixes
   - from: agent-review
     to: human-review
+    description: Review passed but human gate required before completion
   - from: agent-review
     to: completed
+    description: Review passed, task finished successfully
   - from: agent-review-fix
     to: agent-review
+    description: Fixes applied, re-submit for review
   - from: agent-review-fix
     to: cancelled
+    description: Task abandoned during fix phase
   - from: human-review
     to: pending
+    description: Human requested rework, task returns to implementation
   - from: human-review
     to: completed
+    description: Human approved the work
   - from: human-review
     to: cancelled
+    description: Human decided to abandon the task

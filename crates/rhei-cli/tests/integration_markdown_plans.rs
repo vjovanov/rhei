@@ -35,7 +35,7 @@ fn yaml_key(name: &str) -> YamlValue {
     YamlValue::String(name.to_string())
 }
 
-fn iteration_count_from_metadata(
+fn visit_count_from_metadata(
     metadata: Option<&rhei_core::ast::Metadata>,
     task_id: &TaskId,
     state_name: &str,
@@ -48,8 +48,8 @@ fn iteration_count_from_metadata(
         TaskId::Named(name) => yaml_key(name),
     };
     let task = tasks.get(task_key)?.as_mapping()?;
-    let state_iterations = task.get(yaml_key("stateIterations"))?.as_mapping()?;
-    state_iterations.get(yaml_key(state_name))?.as_u64()
+    let state_visits = task.get(yaml_key("stateVisits"))?.as_mapping()?;
+    state_visits.get(yaml_key(state_name))?.as_u64()
 }
 
 const CLI_VALID_PLAN: &str = r#"# Rhei: Release Automation Rollout
@@ -780,7 +780,7 @@ states:
     initial: true
   agent-review:
     description: review
-    iterations: 1
+    visits: 2
   agent-review-fix:
     description: fix
   human-review:
@@ -793,10 +793,10 @@ transitions:
     to: agent-review
   - from: agent-review
     to: agent-review-fix
-    condition: iterationCount < iterations
+    condition: visitCount < visits
   - from: agent-review
     to: human-review
-    condition: iterationCount >= iterations
+    condition: visitCount >= visits
   - from: agent-review-fix
     to: agent-review
   - from: human-review
@@ -889,8 +889,8 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
     let updated = fs::read_to_string(&plan_path).expect("read plan after first transition");
     let rhei = parse(&updated).expect("parse updated plan");
     assert_eq!(
-        iteration_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
-        Some(0)
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(1)
     );
 
     let fail_then_fix =
@@ -908,8 +908,8 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
     let updated = fs::read_to_string(&plan_path).expect("read plan after re-entry");
     let rhei = parse(&updated).expect("parse re-entered plan");
     assert_eq!(
-        iteration_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
-        Some(1)
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(2)
     );
 
     let exhausted =
@@ -929,6 +929,80 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn transition_from_authored_counted_state_treats_start_as_first_visit() {
+    let dir = unique_temp_dir("transition-authored-counted-loop");
+    let plan = r#"# Rhei: Authored Counted Review Loop
+
+## Tasks
+
+### Task 1: Start in review
+**State:** agent-review
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COUNTED_LOOP_STATE_MACHINE);
+
+    let to_fix = run_transition(&plan_path, &machine_path, "1", "agent-review", "agent-review-fix");
+    assert!(to_fix.status.success(), "review -> fix should succeed: {}", to_fix.stderr);
+
+    let updated = fs::read_to_string(&plan_path).expect("read plan after leaving authored review");
+    let rhei = parse(&updated).expect("parse updated plan");
+    assert_eq!(
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(1)
+    );
+
+    let reenter =
+        run_transition(&plan_path, &machine_path, "1", "agent-review-fix", "agent-review");
+    assert!(reenter.status.success(), "fix -> review should succeed: {}", reenter.stderr);
+
+    let updated = fs::read_to_string(&plan_path).expect("read plan after re-entering review");
+    assert!(
+        updated.contains("**State:** agent-review-2"),
+        "expected visible counted visit suffix after re-entry:\n{}",
+        updated
+    );
+    let rhei = parse(&updated).expect("parse re-entered plan");
+    assert_eq!(
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(2)
+    );
+
+    let exhausted =
+        run_transition(&plan_path, &machine_path, "1", "agent-review", "agent-review-fix");
+    assert!(!exhausted.status.success(), "second re-entry should exhaust the visit budget");
+    assert!(
+        normalize_for_assertions(&exhausted.stderr).contains("blocked by loop"),
+        "expected loop-budget rejection, got:\n{}",
+        exhausted.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn validate_accepts_counted_state_suffix_within_budget() {
+    let input = r#"# Rhei: Counted State Suffix
+## Tasks
+
+### Task 1: Review
+**State:** agent-review-2
+"#;
+
+    let rhei = parse(input).expect("parse ok");
+    let report = validate_with_machine(
+        &rhei,
+        &rhei_validator::StateMachine::from_yaml_str(COUNTED_LOOP_STATE_MACHINE)
+            .expect("state machine"),
+    );
+
+    assert!(
+        !report.has_errors(),
+        "counted state suffix within budget should validate: {:?}",
+        report.errors
+    );
 }
 
 #[test]
@@ -1443,15 +1517,15 @@ fn run_advances_parallel_ready_tasks() {
 }
 
 #[test]
-fn run_uses_counted_loop_exit_when_iteration_budget_is_exhausted() {
+fn run_uses_counted_loop_exit_when_visit_budget_is_exhausted() {
     let plan = r#"# Rhei: Exhausted Loop
 
 ---
 metadata:
   tasks:
     1:
-      stateIterations:
-        agent-review: 1
+      stateVisits:
+        agent-review: 2
 ---
 
 ## Tasks
@@ -2069,8 +2143,8 @@ Metadata lives here.
     let index_raw = fs::read_to_string(dir.join("index.rhei.md")).expect("read index");
     let index = parse_workspace_index(&index_raw).expect("parse index");
     assert_eq!(
-        iteration_count_from_metadata(index.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
-        Some(0)
+        visit_count_from_metadata(index.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        Some(1)
     );
 
     let task_raw = fs::read_to_string(dir.join("tasks/01-review.md")).expect("read task file");

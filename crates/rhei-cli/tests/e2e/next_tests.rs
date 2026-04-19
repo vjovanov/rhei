@@ -77,7 +77,7 @@ Configure the build system.
 }
 
 #[test]
-fn next_prints_personality_in_text_and_json_when_configured() {
+fn next_prints_state_personality_in_text_and_json_when_configured() {
     let plan = r#"# Rhei: Personality Output Test
 
 ## Tasks
@@ -87,7 +87,6 @@ fn next_prints_personality_in_text_and_json_when_configured() {
 Explain lock-free tradeoffs.
 "#;
     let machine = r#"name: professor-demo
-personality: You are an MIT professor.
 version: 1
 states:
   draft:
@@ -96,6 +95,7 @@ states:
     instructions: Analyze first.
   pending:
     description: Ready
+    personality: You are an MIT professor.
     instructions: Teach clearly.
 transitions:
   - from: draft
@@ -326,6 +326,114 @@ transitions:
         result.stderr
     );
     assert_task_state(&plan_path, &machine_path, "1", "active");
+    assert!(
+        !dir.join("runtime/results/1.md").exists(),
+        "result file should not be written on failure"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_fails_with_explicit_error_when_current_state_input_artifact_is_missing() {
+    let plan = r#"# Rhei: Missing Current Input
+
+## Tasks
+
+### Task 1: Apply findings
+**State:** fix
+"#;
+    let machine = r#"name: missing-current-input
+version: 1
+states:
+  draft:
+    description: Planned
+    initial: true
+  fix:
+    description: Needs findings
+    inputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: draft
+    to: fix
+  - from: fix
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-missing-input");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
+    assert!(!result.status.success(), "next should fail when current-state input is missing");
+    assert!(
+        result.stderr.contains("Task 1 cannot be claimed in state fix."),
+        "expected explicit claim failure; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("Missing required input artifact: findings (runtime/findings/1.md)"),
+        "expected missing artifact detail; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "fix");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn complete_fails_when_required_output_artifact_is_missing() {
+    let plan = r#"# Rhei: Missing Completion Output
+
+## Tasks
+
+### Task 1: Review item
+**State:** review
+"#;
+    let machine = r#"name: missing-output
+version: 1
+states:
+  review:
+    description: Must produce findings before leaving
+    outputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("complete-missing-output");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--task", "1", "--result", "done", "--no-callbacks"],
+    );
+    assert!(!result.status.success(), "complete should fail when required output is missing");
+    assert!(
+        result.stderr.contains("Task 1 cannot leave state review."),
+        "expected explicit leave failure; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        result
+            .stderr
+            .contains("Missing required output artifact: findings (runtime/findings/1.md)"),
+        "expected missing artifact detail; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "review");
     assert!(
         !dir.join("runtime/results/1.md").exists(),
         "result file should not be written on failure"
