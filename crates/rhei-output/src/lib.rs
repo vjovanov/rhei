@@ -118,10 +118,12 @@ fn rhei_json(rhei: &Rhei) -> Value {
     let content_sections = rhei
         .content_sections
         .iter()
-        .map(|s| json!({
-            "title": s.title,
-            "content": s.content,
-        }))
+        .map(|s| {
+            json!({
+                "title": s.title,
+                "content": s.content,
+            })
+        })
         .collect::<Vec<Value>>();
 
     let tasks = rhei.tasks.iter().map(task_json).collect::<Vec<Value>>();

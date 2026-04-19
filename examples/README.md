@@ -24,6 +24,13 @@ This directory contains example inputs for the current markdown plan compiler im
   - escaped spaces in `**State:**` values such as `in\ review`
   - a companion custom states file because those states are not present in the default set
 
+- `bash-agent-team/`
+  Runnable directory-workspace example using:
+  - `rhei run` against a workspace directory instead of a single file
+  - a custom bash-based state machine with `cli:` callbacks
+  - a mock kickoff command on the first transition
+  - runtime logs and artifacts written under the example directory
+
 - `states-with-spaces.yaml`
   Companion states file for `escaped-state-values.rhei.md`.
 
@@ -35,12 +42,19 @@ Validate the examples with the CLI:
 cargo run -p rhei-cli -- validate examples/release-automation.rhei.md
 cargo run -p rhei-cli -- validate examples/human-review-loop.rhei.md
 cargo run -p rhei-cli -- --state-machine examples/states-with-spaces.yaml validate examples/escaped-state-values.rhei.md
+cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml validate examples/bash-agent-team
 ```
 
 Render an example as JSON:
 
 ```bash
 cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format json --pretty
+```
+
+Execute the bash workspace example end to end:
+
+```bash
+cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml run examples/bash-agent-team
 ```
 
 ## Notes on current behavior

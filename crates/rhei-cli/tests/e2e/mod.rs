@@ -166,10 +166,7 @@ pub fn run_cli(
     extra_args: &[&str],
 ) -> CliRun {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.arg("--state-machine")
-        .arg(machine_path)
-        .arg(subcommand)
-        .arg(plan_path);
+    cmd.arg("--state-machine").arg(machine_path).arg(subcommand).arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);
     }
@@ -213,11 +210,7 @@ pub fn assert_all_tasks_in_state(plan_path: &Path, machine_path: &Path, expected
     for task in tasks {
         let id = &task["id"];
         let state = task["state"].as_str().expect("state field");
-        assert_eq!(
-            state, expected,
-            "Task {} should be '{}', got '{}'",
-            id, expected, state
-        );
+        assert_eq!(state, expected, "Task {} should be '{}', got '{}'", id, expected, state);
     }
 }
 
@@ -240,11 +233,7 @@ pub fn assert_task_state(plan_path: &Path, machine_path: &Path, task_id: &str, e
         })
         .unwrap_or_else(|| panic!("Task {} not found in rendered JSON", task_id));
     let state = task["state"].as_str().expect("state field");
-    assert_eq!(
-        state, expected,
-        "Task {} should be '{}', got '{}'",
-        task_id, expected, state
-    );
+    assert_eq!(state, expected, "Task {} should be '{}', got '{}'", task_id, expected, state);
 }
 
 pub fn assert_success(result: &CliRun) {

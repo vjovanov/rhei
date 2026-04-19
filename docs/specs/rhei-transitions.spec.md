@@ -319,11 +319,14 @@ This section defines the formal structure of YAML state machine configuration fi
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier for the state machine |
+| `personality` | string | No | Optional agent persona or framing text printed alongside the next claimed task |
 | `version` | string | Yes | Semantic version of the state machine definition |
 | `states` | object | Yes | Map of state names to state definitions |
 | `transitions` | array | Yes | List of allowed state transitions |
 | `callbacks` | object | No | Platform-specific callback mappings |
 | `error_handling` | object | No | Error handling and recovery configuration |
+
+When `personality` is present, CLI flows that surface the next task should print it before the task details so the agent receives both the role framing and the work item in one response.
 
 ### State Definition
 

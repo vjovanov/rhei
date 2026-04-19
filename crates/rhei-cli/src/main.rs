@@ -185,7 +185,11 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
         /// Comma-separated list of skills to install
-        #[arg(long, value_delimiter = ',', default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer")]
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer"
+        )]
         skills: Vec<String>,
     },
 }
@@ -306,6 +310,11 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
         machine.name,
         format_version(&machine.version)
     ));
+    if let Some(personality) =
+        machine.personality.as_deref().map(str::trim).filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("Personality: {personality}\n"));
+    }
 
     out.push_str("\nStates:\n");
     if machine.states.is_empty() {
@@ -389,6 +398,7 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
 
     let payload = serde_json::json!({
         "name": machine.name,
+        "personality": machine.personality,
         "version": version,
         "states": states,
         "transitions": transitions,
@@ -1103,7 +1113,8 @@ fn next_command(
         .ok_or_else(|| miette!("task '{}' not found after transition", task_id_str))?;
 
     let instructions = state_instructions(&machine, &final_state);
-    print_next_output(as_json, task, &current_state, &final_state, &instructions);
+    let personality = machine.personality.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    print_next_output(as_json, task, &current_state, &final_state, personality, &instructions);
 
     Ok(())
 }
@@ -1311,6 +1322,7 @@ fn print_next_output(
     task: &rhei_core::ast::Task,
     from_state: &str,
     to_state: &str,
+    personality: Option<&str>,
     instructions: &str,
 ) {
     if as_json {
@@ -1332,6 +1344,7 @@ fn print_next_output(
             "title": task.title,
             "from_state": from_state,
             "state": to_state,
+            "personality": personality,
             "instructions": instructions,
             "content": task.content.trim(),
             "subtasks": subtasks,
@@ -1343,6 +1356,10 @@ fn print_next_output(
             println!("Task {} claimed: '{}' → '{}'", task.id, from_state, to_state);
         } else {
             println!("Task {} (already in '{}')", task.id, to_state);
+        }
+        if let Some(personality) = personality {
+            println!();
+            println!("Personality: {}", personality);
         }
         println!();
         println!("## Task {}: {}", task.id, task.title);
@@ -1524,7 +1541,12 @@ fn home_dir() -> MietteResult<PathBuf> {
 }
 
 /// Check whether rhei skills are already installed for a given agent.
-fn is_agent_installed(agent: &Agent, local: bool, skills: &[String], project_root: Option<&Path>) -> bool {
+fn is_agent_installed(
+    agent: &Agent,
+    local: bool,
+    skills: &[String],
+    project_root: Option<&Path>,
+) -> bool {
     let check = || -> Option<bool> {
         match agent {
             Agent::ClaudeCode => {
@@ -1594,9 +1616,7 @@ fn is_agent_installed(agent: &Agent, local: bool, skills: &[String], project_roo
 
 /// Check if a file contains rhei markers.
 fn has_rhei_markers(path: &Path) -> bool {
-    fs::read_to_string(path)
-        .map(|content| content.contains("<!-- rhei:start -->"))
-        .unwrap_or(false)
+    fs::read_to_string(path).map(|content| content.contains("<!-- rhei:start -->")).unwrap_or(false)
 }
 
 /// Install skills for a single agent.
@@ -1621,10 +1641,21 @@ fn install_agent(
         Agent::Cursor => install_cursor(skill_sources, local, link, dry_run, project_root),
         Agent::Windsurf => install_windsurf(skill_sources, local, dry_run, project_root),
         Agent::Copilot => install_copilot(skill_sources, local, dry_run, project_root),
-        Agent::Kilocode => install_rules_dir_agent(".kilocode", skill_sources, local, link, dry_run, project_root),
-        Agent::Pi => install_rules_dir_agent(".pi", skill_sources, local, link, dry_run, project_root),
+        Agent::Kilocode => {
+            install_rules_dir_agent(".kilocode", skill_sources, local, link, dry_run, project_root)
+        }
+        Agent::Pi => {
+            install_rules_dir_agent(".pi", skill_sources, local, link, dry_run, project_root)
+        }
         Agent::Codex => install_codex(skill_sources, local, link, dry_run, project_root),
-        Agent::Antigravity => install_rules_dir_agent(".antigravity", skill_sources, local, link, dry_run, project_root),
+        Agent::Antigravity => install_rules_dir_agent(
+            ".antigravity",
+            skill_sources,
+            local,
+            link,
+            dry_run,
+            project_root,
+        ),
         Agent::All => Ok(()), // handled by expand_agent_list
     }
 }
@@ -1638,9 +1669,7 @@ fn install_claude_code(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root
-            .ok_or_else(|| miette!("--local requires a project root"))?
-            .join(".claude")
+        project_root.ok_or_else(|| miette!("--local requires a project root"))?.join(".claude")
     } else {
         home_dir()?.join(".claude")
     };
@@ -1677,10 +1706,8 @@ fn install_claude_code(
             "- **{name}** (`{skill_path}`) — {description}. Trigger: `{trigger}`\n"
         ));
     }
-    let trigger_list: Vec<String> = skill_sources
-        .iter()
-        .map(|(name, _)| format!("`/{name}`"))
-        .collect();
+    let trigger_list: Vec<String> =
+        skill_sources.iter().map(|(name, _)| format!("`/{name}`")).collect();
     block.push_str(&format!(
         "When the user types {}, invoke the Skill tool with the corresponding skill name before doing anything else.\n",
         trigger_list.join(", ")
@@ -1689,11 +1716,7 @@ fn install_claude_code(
     // Use heading-based injection for Claude Code (not HTML markers).
     inject_claude_md_section(&claude_md, &block, dry_run)?;
 
-    println!(
-        "  ✓ {} — registered {} skills",
-        claude_md.display(),
-        skill_sources.len()
-    );
+    println!("  ✓ {} — registered {} skills", claude_md.display(), skill_sources.len());
 
     Ok(())
 }
@@ -1701,8 +1724,7 @@ fn install_claude_code(
 /// Inject or replace a `# rhei` section in a CLAUDE.md file.
 fn inject_claude_md_section(file: &Path, content: &str, dry_run: bool) -> MietteResult<()> {
     let existing = if file.exists() {
-        fs::read_to_string(file)
-            .map_err(|e| miette!("failed to read '{}': {e}", file.display()))?
+        fs::read_to_string(file).map_err(|e| miette!("failed to read '{}': {e}", file.display()))?
     } else {
         String::new()
     };
@@ -1785,9 +1807,7 @@ fn install_cursor(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root
-            .ok_or_else(|| miette!("--local requires a project root"))?
-            .join(".cursor")
+        project_root.ok_or_else(|| miette!("--local requires a project root"))?.join(".cursor")
     } else {
         home_dir()?.join(".cursor")
     };
@@ -1832,9 +1852,7 @@ fn install_rules_dir_agent(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root
-            .ok_or_else(|| miette!("--local requires a project root"))?
-            .join(dir_name)
+        project_root.ok_or_else(|| miette!("--local requires a project root"))?.join(dir_name)
     } else {
         home_dir()?.join(dir_name)
     };
@@ -1846,11 +1864,7 @@ fn install_rules_dir_agent(
 
         if link {
             let skill_md = source.join("SKILL.md");
-            let src = if local {
-                relative_path(&rules_dir, &skill_md)
-            } else {
-                skill_md
-            };
+            let src = if local { relative_path(&rules_dir, &skill_md) } else { skill_md };
             link_skill(&src, &dest, dry_run)?;
         } else {
             let skill_md = source.join("SKILL.md");
@@ -1939,9 +1953,7 @@ fn install_codex(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root
-            .ok_or_else(|| miette!("--local requires a project root"))?
-            .join(".codex")
+        project_root.ok_or_else(|| miette!("--local requires a project root"))?.join(".codex")
     } else {
         home_dir()?.join(".codex")
     };
@@ -1954,11 +1966,7 @@ fn install_codex(
 
         if link {
             let skill_md = source.join("SKILL.md");
-            let src = if local {
-                relative_path(&instructions_dir, &skill_md)
-            } else {
-                skill_md
-            };
+            let src = if local { relative_path(&instructions_dir, &skill_md) } else { skill_md };
             link_skill(&src, &dest, dry_run)?;
         } else {
             let skill_md = source.join("SKILL.md");
@@ -2054,7 +2062,11 @@ fn uninstall_agent(
                     .join(".windsurfrules")
             } else {
                 let alt = home_dir()?.join(".codeium/windsurf/memories/global_rules.md");
-                if alt.exists() { alt } else { home_dir()?.join(".windsurfrules") }
+                if alt.exists() {
+                    alt
+                } else {
+                    home_dir()?.join(".windsurfrules")
+                }
             };
             remove_marked_section(&file, dry_run)?;
         }
@@ -2127,8 +2139,7 @@ fn remove_path(path: &Path, dry_run: bool) -> MietteResult<()> {
         fs::remove_dir_all(path)
             .map_err(|e| miette!("failed to remove '{}': {e}", path.display()))?;
     } else {
-        fs::remove_file(path)
-            .map_err(|e| miette!("failed to remove '{}': {e}", path.display()))?;
+        fs::remove_file(path).map_err(|e| miette!("failed to remove '{}': {e}", path.display()))?;
     }
 
     Ok(())
@@ -2206,8 +2217,9 @@ fn link_skill(src: &Path, dest: &Path, dry_run: bool) -> MietteResult<()> {
     }
 
     #[cfg(unix)]
-    std::os::unix::fs::symlink(src, dest)
-        .map_err(|e| miette!("failed to symlink '{}' → '{}': {e}", dest.display(), src.display()))?;
+    std::os::unix::fs::symlink(src, dest).map_err(|e| {
+        miette!("failed to symlink '{}' → '{}': {e}", dest.display(), src.display())
+    })?;
 
     #[cfg(not(unix))]
     return Err(miette!("symlinks are only supported on Unix platforms"));
@@ -2240,11 +2252,8 @@ fn relative_path(from_dir: &Path, to_path: &Path) -> PathBuf {
     let to_components: Vec<_> = to.components().collect();
 
     // Find the common prefix length.
-    let common = from_components
-        .iter()
-        .zip(to_components.iter())
-        .take_while(|(a, b)| a == b)
-        .count();
+    let common =
+        from_components.iter().zip(to_components.iter()).take_while(|(a, b)| a == b).count();
 
     let mut result = PathBuf::new();
     // Go up from `from_dir` to the common ancestor.
@@ -2308,8 +2317,8 @@ fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
 /// `pyproject.toml`, `go.mod`). Falls back to the current working directory
 /// if no marker is found.
 fn find_project_root() -> MietteResult<PathBuf> {
-    let cwd =
-        std::env::current_dir().map_err(|e| miette!("failed to determine working directory: {e}"))?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| miette!("failed to determine working directory: {e}"))?;
 
     let markers = [".git", "Cargo.toml", "package.json", "pyproject.toml", "go.mod"];
     let mut dir = Some(cwd.as_path());
@@ -2337,8 +2346,7 @@ fn inject_marked_section(file: &Path, content: &str, dry_run: bool) -> MietteRes
     let end_marker = "<!-- rhei:end -->";
 
     let existing = if file.exists() {
-        fs::read_to_string(file)
-            .map_err(|e| miette!("failed to read '{}': {e}", file.display()))?
+        fs::read_to_string(file).map_err(|e| miette!("failed to read '{}': {e}", file.display()))?
     } else {
         String::new()
     };
@@ -2400,7 +2408,8 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
     if let (Some(start), Some(end)) = (result.find(start_marker), result.find(end_marker)) {
         let block_end = end + end_marker.len();
         // Also consume the trailing newline if present.
-        let block_end = if result[block_end..].starts_with('\n') { block_end + 1 } else { block_end };
+        let block_end =
+            if result[block_end..].starts_with('\n') { block_end + 1 } else { block_end };
         // Also consume a leading blank line before the block.
         let block_start = if start > 0 && result[..start].ends_with('\n') {
             // Check if there's a double newline before the block.
@@ -2678,6 +2687,7 @@ mod tests {
     fn render_state_machine_text_includes_states_and_transitions() {
         let yaml = r#"
 name: demo
+personality: You are an MIT professor.
 version: 1
 states:
   draft:
@@ -2696,10 +2706,31 @@ transitions:
         let rendered = render_state_machine_text(&machine);
 
         assert!(rendered.contains("State machine: demo"));
+        assert!(rendered.contains("Personality: You are an MIT professor."));
         assert!(rendered.contains("draft [initial]"));
         assert!(rendered.contains("Wait until author promotes task."));
         assert!(rendered.contains("done [final]"));
         assert!(rendered.contains("draft -> done (on_enter=cli:record_done)"));
+    }
+
+    #[test]
+    fn render_state_machine_json_includes_personality() {
+        let yaml = r#"
+name: demo
+personality: You are an MIT professor.
+version: 1
+states:
+  draft:
+    description: planning
+    initial: true
+transitions: []
+"#;
+        let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("load");
+        let rendered = render_state_machine_json(&machine).expect("render JSON");
+        let json: serde_json::Value = serde_json::from_str(&rendered).expect("parse JSON");
+
+        assert_eq!(json["name"], "demo");
+        assert_eq!(json["personality"], "You are an MIT professor.");
     }
 
     #[test]
