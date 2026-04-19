@@ -7,12 +7,12 @@ version: 1.0
 
 states:
   draft:
-    description: Task is still being shaped by the author and is not ready for execution.
+    description: Task requires analysis before execution — the agent studies the project and writes a concrete task description.
     instructions: |
-      When all dependencies are met, you may expand the description of the task
-      according to the current state of the source code. Pick up when all
-      **Prior:** tasks are `completed`. Transition to `pending` once the
-      description is finalized; transition to `in-progress` only after that.
+      Pick up when all **Prior:** tasks are `completed`. Analyze the current
+      state of the project and determine the most elegant way to accomplish
+      the task. Based on that analysis, write a description of what should be
+      done. Transition to `pending` once the description is finalized.
     initial: true
 
   pending:

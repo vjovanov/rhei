@@ -2,7 +2,7 @@
 
 This document describes how Rhei plans are consumed by agents, humans, and programs. It covers the distinct roles that interact with a plan, the coordination patterns they follow, and how the state machine governs the workflow.
 
-For the formal grammar see the [Plan Language Specification](plan-language-spec.md). For authoring patterns see the [Usage Guide](plan-language-usage.md).
+For the formal grammar see the [Plan Language Specification](../rhei.spec.md). For authoring patterns see the [Usage Guide](rhei-authoring.spec.md).
 
 ## Roles
 
@@ -140,6 +140,13 @@ The `--from` flag is the key: the command acquires a file lock, verifies the tas
 
 This eliminates last-write-wins races without requiring an external scheduler. The plan file plus its lock file are the only coordination primitives needed.
 
+### Pattern 3b: Highly Distributed Swarms (Directory Workspaces)
+
+If parallel workers are distributed across multiple branches or machines, the single-file lock approach breaks down (leading to Git merge conflicts). In these highly concurrent scenarios, agents use **Directory Workspaces**.
+
+Instead of a single `plan.rhei.md`, the plan is hosted as a directory with tasks separated into a `tasks/` directory (`tasks/db-schema.md`, `tasks/integration.md`). 
+Because tasks are isolated in distinct files, Git effortlessly merges cross-branch progress without text collisions, mirroring the resilience of database-backed trackers like Beads.
+
 ### Pattern 4: Human-in-the-Loop Checkpoints
 
 Plans that require human approval use the `human-review` state as a gate.
@@ -161,14 +168,14 @@ Meanwhile, agents continue working on other branches of the DAG that are not blo
 
 ### Pattern 5: Draft Expansion
 
-For exploratory or long-running projects, tasks start as `draft` — placeholder descriptions that are not yet ready for execution.
+For exploratory or long-running projects, tasks start as `draft` — placeholder titles that are not yet ready for execution.
 
-1. Plan writer creates tasks in `draft` with rough descriptions.
-2. As prior tasks complete and the codebase evolves, the writer (or worker) refines draft descriptions to match current reality.
-3. The agent or human promotes `draft` -> `pending` when the description is finalized.
+1. Plan writer creates tasks in `draft` with rough titles but minimal descriptions.
+2. When all prior tasks are completed, the agent picks up the draft task, analyzes the current state of the project, and determines the most elegant approach.
+3. Based on that analysis, the agent writes a concrete description of what should be done and transitions `draft` -> `pending`.
 4. The worker picks up the now-pending task.
 
-This prevents agents from implementing against stale or incomplete specifications. The `draft` state is a signal: "this task exists in the plan but is not ready to execute."
+This prevents agents from planning against stale or incomplete project state. The `draft` state is a signal: "this task exists in the plan but needs analysis before it can be specified and executed."
 
 ### Pattern 6: Programmatic State Transitions
 
@@ -219,7 +226,7 @@ Rhei rhei = new Rhei(RheiConfig.builder()
 rhei.run();
 ```
 
-Callbacks can approve, reject, or redirect transitions — turning the plan into an executable workflow engine. See [Formal State Transitions](formal-state-transitions.md) and [Transition Callback Examples](transition-callback-examples.md) for the full callback API.
+Callbacks can approve, reject, or redirect transitions — turning the plan into an executable workflow engine. See [Transitions Specification](rhei-transitions.spec.md) for the formal callback API and [Transition Callback Examples](rhei-callbacks.spec.md) for practical implementations.
 
 ### Pattern 7: CI/CD Pipeline as a Plan
 
@@ -264,8 +271,10 @@ The central design principle: **the plan file is the single source of truth**. A
 
 ## Related Specifications
 
-- [Plan Language Specification](plan-language-spec.md) — formal grammar and semantic constraints
-- [Plan Language Usage Guide](plan-language-usage.md) — authoring patterns and walkthroughs
-- [States Specification](states-spec.md) — state machine format and default states
-- [Formal State Transitions](formal-state-transitions.md) — transition callbacks and programmatic execution
-- [Transition Callback Examples](transition-callback-examples.md) — callback implementations across languages
+- [Plan Language Specification](../rhei.spec.md) — formal grammar and semantic constraints
+- [Plan Language Usage Guide](rhei-authoring.spec.md) — authoring patterns and walkthroughs
+- [States Specification](rhei-states.spec.md) — state machine format and default states
+- [Transitions Specification](rhei-transitions.spec.md) — formal state transition system, callbacks, and YAML schema
+- [Transition Callback Examples](rhei-callbacks.spec.md) — callback implementations across languages
+- [State Machine Writer](rhei-state-machine-writer.spec.md) — designing custom state machines from project specs and teams
+- [Install Skills](rhei-install-skills.spec.md) — `rhei install-skills` command for agent integration

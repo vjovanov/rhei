@@ -1,6 +1,6 @@
-# States Specification
+# Rhei States Specification
 
-This document defines the default states configuration for tasks in the Rhei plan compiler. The authoritative machine-readable form lives in [states.yaml](states.yaml); the writer-skill mirror is [default-states.md](../skills/rhei-plan-writer/references/default-states.md).
+This document defines the default states configuration for tasks in the Rhei plan compiler. The authoritative machine-readable form lives in [states.yaml](states.yaml); the writer-skill mirror is [default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
 
 ## States
 
@@ -27,3 +27,12 @@ See [states.yaml](states.yaml) for the enforced transition table. Summary:
 - `human-review` → `in-progress` | `completed` | `cancelled`
 
 Any transition not listed in `states.yaml` is forbidden.
+
+## Related Documentation
+
+- [Plan Language Specification](../rhei.spec.md) - Formal grammar and semantic constraints
+- [Transitions Specification](rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
+- [How Rhei Is Used](rhei-usage.spec.md) - Roles, coordination patterns, and agent workflows
+- [Plan Language Usage Guide](rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs
+- [Transition Callback Examples](rhei-callbacks.spec.md) - Callback implementations across languages
+- [State Machine Writer](rhei-state-machine-writer.spec.md) - Designing custom state machines from project specs and teams

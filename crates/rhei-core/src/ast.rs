@@ -1,15 +1,14 @@
 //! Abstract Syntax Tree (AST) definitions for the Markdown Plan Compiler.
 //!
 //! These types model the hierarchical structure parsed from plan markdown,
-//! aligning with the specification in docs/plan-language-spec.md.
+//! aligning with the specification in docs/rhei.spec.md.
 //!
 //! High-level model:
 //! - Rhei: holds the plan title, free-form content blocks prior to the Tasks section,
 //!         and the list of tasks.
 //! - Task: a task with an identifier (numeric or named), a title, metadata, and subtasks.
 //! - Subtask: a numbered subtask (scoped to its parent task) with a title and content.
-//! - TaskMetadata: normalized representation of metadata fields (State, Prior).
-//! - ContentBlock: generic carrier for non-structural content at the rhei level.
+//! - ContentSection: a named H2 section with title and content.
 //!
 //! Notes:
 //! - Additional content block types (lists, code blocks, etc.) can be introduced later.
@@ -35,28 +34,9 @@ impl fmt::Display for TaskId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ContentBlock {
-    /// A plain text paragraph or line collected outside of the Tasks section.
-    Text(String),
-    /// A named H2 section with its title and accumulated content.
-    Section { title: String, content: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskMetadata {
-    /// Normalized "Prior" dependencies as task identifiers.
-    pub depends_on: Vec<TaskId>,
-    /// Optional "State" value (raw string, semantic validation deferred).
-    pub state: Option<String>,
-    /// True if the first seen metadata line for this task was **State:**.
-    /// The parser sets this, and the validator enforces the ordering rule.
-    pub state_first: bool,
-}
-
-impl Default for TaskMetadata {
-    fn default() -> Self {
-        Self { depends_on: Vec::new(), state: None, state_first: true }
-    }
+pub struct ContentSection {
+    pub title: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +47,8 @@ pub struct Subtask {
     pub subtask_number: u32,
     /// Title captured from the subtask header.
     pub title: String,
+    /// Mandatory state value for the subtask.
+    pub state: String,
     /// Free-form content accumulated until the next header (or EOF).
     pub content: String,
 }
@@ -77,8 +59,10 @@ pub struct Task {
     pub id: TaskId,
     /// Title captured from the task header.
     pub title: String,
-    /// Metadata normalized into a structured form.
-    pub metadata: TaskMetadata,
+    /// State value (raw string, semantic validation deferred).
+    pub state: String,
+    /// Prior dependencies as task identifiers.
+    pub prior: Vec<TaskId>,
     /// Free-form content accumulated from lines between metadata and the first subtask.
     pub content: String,
     /// List of subtasks parsed under this task.
@@ -91,8 +75,8 @@ pub struct Rhei {
     pub title: String,
     /// Name of the state machine to use. Defaults to "rhei".
     pub states: String,
-    /// Content appearing before the "## Tasks" section.
-    pub content: Vec<ContentBlock>,
+    /// Content sections appearing before the "## Tasks" section.
+    pub content_sections: Vec<ContentSection>,
     /// Collection of tasks defined under the "## Tasks" section.
     pub tasks: Vec<Task>,
 }

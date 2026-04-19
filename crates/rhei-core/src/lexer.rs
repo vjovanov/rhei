@@ -61,36 +61,13 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// Unescape a state value: supports backtick wrapping or backslash escaping.
-    /// - "`in progress`" -> "in progress" (backtick-wrapped, used verbatim)
-    /// - "in\ progress" -> "in progress" (backslash escaping)
+    /// Unescape a state value: supports backtick wrapping only.
+    /// - "`in progress`" -> "in progress" (backtick-wrapped)
     fn unescape_state(input: &str) -> String {
         if input.starts_with('`') && input.ends_with('`') && input.len() >= 2 {
             return input[1..input.len() - 1].to_string();
         }
-        Self::unescape_simple(input)
-    }
-
-    /// Unescape simple backslash escapes used in metadata values.
-    /// For now we support:
-    /// - "\ " -> " "
-    /// - "\\" -> "\"
-    fn unescape_simple(input: &str) -> String {
-        let mut out = String::with_capacity(input.len());
-        let mut chars = input.chars();
-        while let Some(c) = chars.next() {
-            if c == '\\' {
-                if let Some(next) = chars.next() {
-                    out.push(next);
-                } else {
-                    // Trailing backslash, keep as-is
-                    out.push('\\');
-                }
-            } else {
-                out.push(c);
-            }
-        }
-        out
+        input.to_string()
     }
 
     /// Detect start/end of a fenced code block (``` optional language).

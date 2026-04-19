@@ -15,9 +15,11 @@ Coordinate the staged rollout of release automation across environments.
 Document inputs, outputs, and rollback hooks.
 
 #### Subtask 1.1: Capture deployment events
+**State:** completed
 List all event types emitted by the deployment system.
 
 #### Subtask 1.2: Record rollback contract
+**State:** completed
 ```yaml
 rollback:
   enabled: true
@@ -30,6 +32,7 @@ rollback:
 Prepare staging and production credentials.
 
 #### Subtask 2.1: Provision staging secrets
+**State:** in-progress
 Create and store staging credentials.
 
 ### Task 3: Roll out release bot
@@ -39,6 +42,7 @@ Create and store staging credentials.
 Enable the release bot after environment bootstrap succeeds.
 
 #### Subtask 3.1: Dry run in staging
+**State:** pending
 Run the bot in dry-run mode against staging.
 "#;
 
@@ -47,10 +51,11 @@ pub const INVALID_PLAN: &str = r#"# Rhei: Broken Rollout Plan
 ## Tasks
 
 ### Task 1: Ship release bot
-**Prior:** Task deploy
 **State:** blocked
+**Prior:** Task deploy
 
 #### Subtask 2.1: Wrong subtask parent
+**State:** pending
 This subtask intentionally mismatches its parent task number.
 
 ### Task deploy: Deploy release bot
@@ -96,6 +101,7 @@ pub const INVALID_FIXTURE_MALFORMED_SUBTASK_HEADING: &str = r#"# Rhei: Malformed
 **State:** pending
 
 #### Subtask 1: Missing decimal component
+**State:** pending
 "#;
 
 pub const INVALID_FIXTURE_MISSING_TASK_TITLE: &str = r#"# Rhei: Missing task title
@@ -114,6 +120,7 @@ pub const INVALID_FIXTURE_MISSING_SUBTASK_TITLE: &str = r#"# Rhei: Missing subta
 **State:** pending
 
 #### Subtask 1.1:
+**State:** pending
 "#;
 
 pub const INVALID_FIXTURE_MALFORMED_STATE_METADATA: &str = r#"# Rhei: Malformed state metadata
@@ -200,6 +207,7 @@ pub const INVALID_FIXTURE_SUBTASK_PARENT_MISMATCH: &str = r#"# Rhei: Subtask par
 **State:** pending
 
 #### Subtask 1.1: Wrong parent prefix
+**State:** pending
 "#;
 
 pub const INVALID_FIXTURE_CIRCULAR_DEPENDENCY: &str = r#"# Rhei: Circular dependency

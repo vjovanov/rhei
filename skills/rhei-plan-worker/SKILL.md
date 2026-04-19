@@ -25,7 +25,7 @@ All other inputs (state machine, task selection, transitions) are derived from t
 Execute this loop until no eligible task remains or a human gate stops you:
 
 1. **Open the plan at `<plan>`.** If the path does not exist or is not a Rhei Plan, stop and report.
-2. **Load the state machine.** Run `rhei states <plan>` to read allowed states, their agent instructions, and the transition graph for the machine the plan declares via `**States:**`. Add `--json` for structured data. Fall back to the YAML referenced by `**States:**` (or `docs/states.yaml`, or [default-states.md](../rhei-plan-writer/references/default-states.md)) if the CLI is unavailable.
+2. **Load the state machine.** Run `rhei states` to read allowed states, their agent instructions, and the transition graph. The CLI resolves the state machine from the plan's `**States:**` field automatically (override with the global `--state-machine <path>` option if needed). Add `--json` for structured data. Fall back to reading the YAML referenced by `**States:**` (or `docs/states.yaml`, or [default-states.md](../rhei-plan-writer/references/default-states.md)) if the CLI is unavailable.
 3. **Read the plan.** Prefer `rhei render <plan> --format json --pretty` for structured access. Read the raw markdown too — you will edit it in place for progress logging.
 4. **Select the next task.** Apply the rules in *Task Selection* below.
 5. **Claim the task.** Run `rhei transition <plan> --task <id> --from pending --to in-progress`. If the command fails with a conflict (another agent already claimed the task), go back to step 3 — re-read the plan and re-select.
@@ -106,7 +106,8 @@ Never approve a task whose tests or build fail.
 
 State transitions and progress logging are separate concerns:
 
-- **State transitions** — always use `rhei transition`. Never edit `**State:**` fields in the markdown directly.
+- **Task state transitions** — always use `rhei transition`. Never edit task `**State:**` fields in the markdown directly.
+- **Subtask state transitions** — subtasks also carry a mandatory `**State:**` field. Update subtask states directly in the markdown as you complete each subtask (e.g., change from `pending` to `completed`). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
 - **Progress logging** — edit the markdown directly to append subtask progress (see *Progress Logging*). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
 
 General rules:

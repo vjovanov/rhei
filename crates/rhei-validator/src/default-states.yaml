@@ -1,0 +1,88 @@
+# States Definition for Markdown Plan Compiler
+# This file defines the valid states for tasks and the allowed transitions
+# between them. The CLI can print this machine with `rhei states`.
+
+name: task-states
+version: 2.0
+
+states:
+  draft:
+    description: Task requires analysis before execution — the agent studies the project and writes a concrete task description.
+    instructions: |
+      Pick up when all **Prior:** tasks are `completed`. Analyze the current
+      state of the project and determine the most elegant way to accomplish
+      the task. Based on that analysis, write a description of what should be
+      done. Transition to `pending` once the description is finalized.
+    initial: true
+
+  pending:
+    description: Task is ready for implementation. An **Assignee** on a pending task means work is actively in progress.
+    instructions: |
+      Claim with `rhei next --assignee <name>` when all **Prior:** tasks are
+      `completed`. Implement the task and its subtasks, logging progress per
+      subtask. When implementation is complete and self-tested, transition to
+      `agent-review`.
+
+  agent-review:
+    description: A separate reviewing agent inspects the result.
+    instructions: |
+      Review the implementation against the task description, subtasks, and
+      repository conventions. On pass, transition to `human-review` (or
+      `completed` if no human gate is required). On fail, transition to
+      `agent-review-fix` with concrete findings.
+
+  agent-review-fix:
+    description: The implementing agent addresses reviewer findings.
+    instructions: |
+      Address the reviewer's findings only — no scope expansion. After
+      applying fixes, transition back to `agent-review` for re-review.
+
+  human-review:
+    description: Work is paused pending human inspection.
+    instructions: |
+      Stop all agent work on this task. Wait for a human to approve, request
+      changes, or edit the rhei. Do not transition out of this state
+      autonomously.
+
+  completed:
+    description: Task finished successfully.
+    instructions: |
+      Treat as immutable. Do not re-open, re-run, or modify unless the user
+      explicitly requests it.
+    final: true
+
+  cancelled:
+    description: Task is no longer needed.
+    instructions: |
+      Skip entirely. Do not execute, review, or reference as a prerequisite
+      for new work.
+    final: true
+
+# Explicit transition rules. Any transition not listed here is forbidden.
+transitions:
+  - from: draft
+    to: pending
+  - from: draft
+    to: cancelled
+  - from: pending
+    to: agent-review
+  - from: pending
+    to: human-review
+  - from: pending
+    to: cancelled
+  - from: agent-review
+    to: agent-review-fix
+  - from: agent-review
+    to: human-review
+  - from: agent-review
+    to: completed
+  - from: agent-review-fix
+    to: agent-review
+  - from: agent-review-fix
+    to: cancelled
+  - from: human-review
+    to: pending
+  - from: human-review
+    to: completed
+  - from: human-review
+    to: cancelled

@@ -13,14 +13,15 @@ Current workspace crates:
 
 The markdown plan compiler currently supports:
 - parsing rhei/task/subtask structure from markdown plans
-- validating task metadata and dependencies against a states definition in [`docs/states.yaml`](docs/states.yaml)
+- validating task metadata and dependencies against a states definition in [`docs/specs/states.yaml`](docs/specs/states.yaml)
 - rendering parsed plans as JSON, GitHub-style markdown, or terminal-oriented progress output
 
 The primary reference documents are:
 - [`docs/overview.md`](docs/overview.md) — **start here** for tool usage and specification index
-- [`docs/plan-language-spec.md`](docs/plan-language-spec.md) — formal plan language grammar
-- [`docs/formal-state-transitions.md`](docs/formal-state-transitions.md) — state machine and callback system
-- [`docs/states.yaml`](docs/states.yaml) — default validation states definition
+- [`docs/agent-orchestrator-workflow.md`](docs/agent-orchestrator-workflow.md) — orchestrator/worker interaction model
+- [`docs/rhei.spec.md`](docs/rhei.spec.md) — plan language specification
+- [`docs/specs/rhei-states.spec.md`](docs/specs/rhei-states.spec.md) — states specification
+- [`docs/specs/states.yaml`](docs/specs/states.yaml) — default validation states definition
 
 ## CLI usage
 

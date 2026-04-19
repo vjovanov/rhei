@@ -11,8 +11,9 @@
 //! `**State:**` before `**Prior:**`, circular dependency detection, and
 //! subtask parent-number consistency for numeric task identifiers.
 
-pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
 use indexmap::IndexMap;
+pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
+use regex::Regex;
 use rhei_core::ast::{Rhei, Task, TaskId};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -137,7 +138,15 @@ pub struct StateMachine {
     pub transitions: Vec<TransitionRule>,
 }
 
+/// The built-in default states YAML shipped with rhei.
+const DEFAULT_STATES_YAML: &str = include_str!("default-states.yaml");
+
 impl StateMachine {
+    /// Return the built-in default state machine shipped with rhei.
+    pub fn builtin_default() -> Self {
+        Self::from_yaml_str(DEFAULT_STATES_YAML).expect("built-in states YAML is always valid")
+    }
+
     /// Load a StateMachine from YAML string contents.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
         let sm: Self = serde_yaml::from_str(yaml)?;
@@ -182,17 +191,30 @@ impl Validator {
     }
 
     /// Validate a parsed rhei using the currently configured states.
+    ///
+    /// This does not check markdown link targets (no file-system context).
+    /// Use [`validate_with_base`](Self::validate_with_base) to also verify links.
     pub fn validate(&self, rhei: &Rhei) -> ValidationReport {
+        self.validate_with_base(rhei, None)
+    }
+
+    /// Validate a parsed rhei, optionally resolving markdown links relative
+    /// to `base_path` (the directory containing the plan file).
+    pub fn validate_with_base(&self, rhei: &Rhei, base_path: Option<&Path>) -> ValidationReport {
         let mut report = ValidationReport::ok();
 
         let index = build_task_index(rhei);
         validate_task_id_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
-        validate_metadata_ordering(rhei, &mut report);
+        validate_subtask_state_consistency(rhei, &self.machine, &mut report);
         validate_subtask_numbering(rhei, &mut report);
         validate_subtask_uniqueness(rhei, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
+
+        if let Some(base) = base_path {
+            validate_markdown_links(rhei, base, &mut report);
+        }
 
         report
     }
@@ -201,6 +223,16 @@ impl Validator {
 /// Validate a parsed rhei using an already-loaded [`StateMachine`].
 pub fn validate_with_machine(rhei: &Rhei, machine: &StateMachine) -> ValidationReport {
     Validator::new(machine.clone()).validate(rhei)
+}
+
+/// Validate a parsed rhei using an already-loaded [`StateMachine`], resolving
+/// markdown links relative to `base_path`.
+pub fn validate_with_machine_and_base(
+    rhei: &Rhei,
+    machine: &StateMachine,
+    base_path: &Path,
+) -> ValidationReport {
+    Validator::new(machine.clone()).validate_with_base(rhei, Some(base_path))
 }
 
 /// Load a [`StateMachine`] from `machine_path` and validate a parsed rhei.
@@ -230,7 +262,7 @@ fn validate_dependency_integrity(
     report: &mut ValidationReport,
 ) {
     for task in &rhei.tasks {
-        for dep in &task.metadata.depends_on {
+        for dep in &task.prior {
             if !index.contains_key(dep) {
                 report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
             }
@@ -240,34 +272,30 @@ fn validate_dependency_integrity(
 
 fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
     for task in &rhei.tasks {
-        match task.metadata.state.as_deref() {
-            None => {
-                // Per spec, State is mandatory.
-                report
-                    .errors
-                    .push(format!("Task {} is missing mandatory **State:** metadata", task.id));
-            }
-            Some(state) => {
-                if !machine.is_valid_state(state) {
-                    let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
-                    report.errors.push(format!(
-                        "Task {} has invalid state '{}'. Allowed: [{}]",
-                        task.id, state, allowed
-                    ));
-                }
-            }
+        if !machine.is_valid_state(&task.state) {
+            let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
+            report.errors.push(format!(
+                "Task {} has invalid state '{}'. Allowed: [{}]",
+                task.id, task.state, allowed
+            ));
         }
     }
 }
 
-fn validate_metadata_ordering(rhei: &Rhei, report: &mut ValidationReport) {
+fn validate_subtask_state_consistency(
+    rhei: &Rhei,
+    machine: &StateMachine,
+    report: &mut ValidationReport,
+) {
     for task in &rhei.tasks {
-        // Ordering only matters if Prior is present alongside State.
-        if !task.metadata.depends_on.is_empty() && !task.metadata.state_first {
-            report.errors.push(format!(
-                "Task {} metadata order invalid: **State:** must appear before **Prior:**",
-                task.id
-            ));
+        for st in &task.subtasks {
+            if !machine.is_valid_state(&st.state) {
+                let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
+                report.errors.push(format!(
+                    "Subtask {}.{} ('{}') has invalid state '{}'. Allowed: [{}]",
+                    st.task_number, st.subtask_number, st.title, st.state, allowed
+                ));
+            }
         }
     }
 }
@@ -320,6 +348,78 @@ fn validate_subtask_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
     }
 }
 
+/// Extract markdown links from a text block, returning `(display_text, target)` pairs.
+fn extract_markdown_links(text: &str) -> Vec<(String, String)> {
+    let re = Regex::new(r"\[([^\]]*)\]\(([^)]+)\)").expect("valid regex");
+    re.captures_iter(text)
+        .map(|cap| (cap[1].to_string(), cap[2].to_string()))
+        .collect()
+}
+
+/// Collect all markdown links from every content field in the plan.
+///
+/// Returns `(location_label, display_text, target)` triples.
+fn collect_all_links(rhei: &Rhei) -> Vec<(String, String, String)> {
+    let mut links = Vec::new();
+
+    for section in &rhei.content_sections {
+        for (display, target) in extract_markdown_links(&section.content) {
+            links.push((format!("section '{}'", section.title), display, target));
+        }
+    }
+
+    for task in &rhei.tasks {
+        for (display, target) in extract_markdown_links(&task.content) {
+            links.push((format!("Task {}", task.id), display, target));
+        }
+        for st in &task.subtasks {
+            for (display, target) in extract_markdown_links(&st.content) {
+                links.push((
+                    format!("Subtask {}.{}", st.task_number, st.subtask_number),
+                    display,
+                    target,
+                ));
+            }
+        }
+    }
+
+    links
+}
+
+/// Returns true if the link target looks like an external URL or a fragment-only anchor.
+fn is_non_file_link(target: &str) -> bool {
+    target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("mailto:")
+        || target.starts_with('#')
+}
+
+/// Validate that relative markdown links in all content fields point to
+/// existing files, resolved against `base_path`.
+fn validate_markdown_links(rhei: &Rhei, base_path: &Path, report: &mut ValidationReport) {
+    let links = collect_all_links(rhei);
+
+    for (location, display, target) in &links {
+        if is_non_file_link(target) {
+            continue;
+        }
+
+        // Strip fragment (e.g. "file.md#section" → "file.md")
+        let file_part = target.split('#').next().unwrap_or(target);
+        if file_part.is_empty() {
+            continue; // pure fragment link, already handled above
+        }
+
+        let resolved = base_path.join(file_part);
+        if !resolved.exists() {
+            report.errors.push(format!(
+                "{} contains a link [{}]({}) but '{}' does not exist",
+                location, display, target, file_part
+            ));
+        }
+    }
+}
+
 /// Detect cycles using Kahn's algorithm; report a generic cycle set on failure.
 fn validate_circular_dependencies(
     _rhei: &Rhei,
@@ -338,7 +438,7 @@ fn validate_circular_dependencies(
 
     for task in index.values() {
         // task depends on deps; edges: dep -> task.id
-        for dep in &task.metadata.depends_on {
+        for dep in &task.prior {
             // Include unseen dependency as a node to make cycle detection robust even if integrity check was skipped.
             nodes.insert(dep.clone());
             adj.entry(dep.clone()).or_default().push(task.id.clone());
@@ -392,6 +492,7 @@ fn validate_circular_dependencies(
 mod tests {
     use super::*;
     use rhei_core::parse;
+    use std::fs;
 
     fn sample_machine() -> StateMachine {
         let yaml = r#"
@@ -415,6 +516,7 @@ states:
 **Prior:** Task 3
 
 #### Subtask 1.1: s
+**State:** pending
 
 ### Task 2: B
 **State:** invalid_state
@@ -444,6 +546,7 @@ states:
 **State:** pending
 
 #### Subtask 1.1: s
+**State:** pending
 
 ### Task 2: B
 **State:** in-progress
@@ -530,7 +633,7 @@ states:
     }
 
     #[test]
-    fn reports_missing_state_is_error() {
+    fn missing_state_is_parse_error() {
         let input = r#"# Rhei: Example
 ## Tasks
 
@@ -539,16 +642,11 @@ states:
 
 ### Task 2: B
 "#;
-        let rhei = parse(input).expect("parse ok");
-        let sm = sample_machine();
-        let report = validate_with_machine(&rhei, &sm);
-
-        assert!(report.has_errors(), "expected missing state error");
-        let joined = report.errors.join("\n");
+        let err = parse(input).unwrap_err();
         assert!(
-            joined.contains("missing mandatory **State:**"),
-            "did not find missing state message; got:\n{}",
-            joined
+            err.message.contains("missing mandatory **State:**"),
+            "expected parse error about missing state; got: {}",
+            err.message
         );
     }
 
@@ -595,7 +693,7 @@ states:
 ## Tasks
 
 ### Task 1: A
-**State:** in\ progress
+**State:** `in progress`
 "#;
         let rhei = parse(input).expect("parse ok");
         let report = validate_with_machine(&rhei, &machine);
@@ -776,6 +874,7 @@ states:
 **State:** pending
 
 #### Subtask 1.1: Wrong parent number
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
@@ -804,7 +903,9 @@ states:
 **State:** pending
 
 #### Subtask 3.1: First
+**State:** pending
 #### Subtask 3.2: Second
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
@@ -822,15 +923,13 @@ states:
 **State:** pending
 
 #### Subtask 1.1: Any number
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
         let report = validate_with_machine(&rhei, &sm);
 
-        assert!(
-            report.has_errors(),
-            "named task with subtasks should produce errors"
-        );
+        assert!(report.has_errors(), "named task with subtasks should produce errors");
         let joined = report.errors.join("\n");
         assert!(
             joined.contains("Task 'build' has a named id and must not declare subtasks"),
@@ -848,11 +947,13 @@ states:
 **State:** pending
 
 #### Subtask 1.1: Correct
+**State:** pending
 
 ### Task 2: B
 **State:** pending
 
 #### Subtask 1.2: Incorrect parent
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
@@ -881,7 +982,9 @@ states:
 **State:** pending
 
 #### Subtask 4.1: Correct
+**State:** pending
 #### Subtask 3.2: Incorrect parent
+**State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
@@ -897,37 +1000,7 @@ states:
     }
 
     #[test]
-    fn reports_metadata_ordering_when_prior_precedes_state() {
-        let input = r#"# Rhei: Example
-## Tasks
-
-### Task 1: A
-**Prior:** Task 2
-**State:** pending
-
-### Task 2: B
-**State:** completed
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let sm = sample_machine();
-        let report = validate_with_machine(&rhei, &sm);
-
-        assert!(report.has_errors(), "expected metadata ordering error");
-        let joined = report.errors.join("\n");
-        assert!(
-            joined.contains("Task 1 metadata order invalid"),
-            "expected metadata ordering message; got:\n{}",
-            joined
-        );
-        assert!(
-            joined.contains("**State:** must appear before **Prior:**"),
-            "expected ordering rule details; got:\n{}",
-            joined
-        );
-    }
-
-    #[test]
-    fn prior_without_state_reports_missing_state_and_ordering_error() {
+    fn prior_without_state_is_parse_error() {
         let input = r#"# Rhei: Example
 ## Tasks
 
@@ -937,20 +1010,11 @@ states:
 ### Task 2: B
 **State:** pending
 "#;
-        let rhei = parse(input).expect("parse ok");
-        let sm = sample_machine();
-        let report = validate_with_machine(&rhei, &sm);
-
-        let joined = report.errors.join("\n");
+        let err = parse(input).unwrap_err();
         assert!(
-            joined.contains("Task 1 is missing mandatory **State:** metadata"),
-            "expected missing-state error; got:\n{}",
-            joined
-        );
-        assert!(
-            joined.contains("Task 1 metadata order invalid"),
-            "expected metadata ordering error; got:\n{}",
-            joined
+            err.message.contains("**State:** must appear before **Prior:**"),
+            "expected parse error about ordering; got: {}",
+            err.message
         );
     }
 
@@ -973,5 +1037,164 @@ states:
 
         assert_eq!(report, ValidationReport::ok());
         assert!(!report.has_errors());
+    }
+
+    // ---- Markdown link validation tests ----
+
+    #[test]
+    fn extract_markdown_links_finds_all_links() {
+        let text = "See [docs](docs/spec.md) and [site](https://example.com) for details.";
+        let links = extract_markdown_links(text);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0], ("docs".to_string(), "docs/spec.md".to_string()));
+        assert_eq!(links[1], ("site".to_string(), "https://example.com".to_string()));
+    }
+
+    #[test]
+    fn extract_markdown_links_handles_no_links() {
+        let links = extract_markdown_links("No links here.");
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn is_non_file_link_classifies_correctly() {
+        assert!(is_non_file_link("https://example.com"));
+        assert!(is_non_file_link("http://example.com"));
+        assert!(is_non_file_link("mailto:user@example.com"));
+        assert!(is_non_file_link("#section"));
+        assert!(!is_non_file_link("docs/spec.md"));
+        assert!(!is_non_file_link("../README.md"));
+    }
+
+    #[test]
+    fn link_validation_reports_missing_file() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        let input = r#"# Rhei: Example
+## Overview
+See [the spec](specs/nonexistent.md) for details.
+
+## Tasks
+
+### Task 1: A
+**State:** pending
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
+
+        assert!(report.has_errors(), "expected missing link error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("nonexistent.md") && joined.contains("does not exist"),
+            "expected broken link error; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn link_validation_passes_when_file_exists() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let specs_dir = dir.path().join("specs");
+        fs::create_dir_all(&specs_dir).expect("mkdir");
+        fs::write(specs_dir.join("real.md"), "# Real spec").expect("write");
+
+        let input = r#"# Rhei: Example
+## Overview
+See [the spec](specs/real.md) for details.
+
+## Tasks
+
+### Task 1: A
+**State:** pending
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
+
+        assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
+    }
+
+    #[test]
+    fn link_validation_ignores_external_urls() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+
+See [docs](https://example.com/docs) and [anchor](#overview) for info.
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
+
+        assert!(!report.has_errors(), "external links should not be checked: {:?}", report.errors);
+    }
+
+    #[test]
+    fn link_validation_strips_fragment_from_file_link() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        fs::write(dir.path().join("guide.md"), "# Guide").expect("write");
+
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+
+See [section](guide.md#usage) for details.
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
+
+        assert!(!report.has_errors(), "file exists, fragment should be stripped: {:?}", report.errors);
+    }
+
+    #[test]
+    fn link_validation_checks_task_and_subtask_content() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+
+See [missing](nowhere.md) for context.
+
+#### Subtask 1.1: Sub
+**State:** pending
+Also see [gone](also-gone.md).
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
+
+        assert!(report.has_errors());
+        let joined = report.errors.join("\n");
+        assert!(joined.contains("nowhere.md"), "should report task link; got:\n{}", joined);
+        assert!(joined.contains("also-gone.md"), "should report subtask link; got:\n{}", joined);
+    }
+
+    #[test]
+    fn link_validation_skipped_without_base_path() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+
+See [missing](nowhere.md) for context.
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        // validate() does not pass a base path, so link checking is skipped
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(!report.has_errors(), "without base path, links should not be checked: {:?}", report.errors);
     }
 }
