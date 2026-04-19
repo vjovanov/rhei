@@ -67,6 +67,12 @@ Print crate versions surfaced by the CLI:
 cargo run -p rhei-cli -- version
 ```
 
+Reset a plan back to the initial state declared in its state machine:
+
+```bash
+cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml reset docs/markdown-plan-compiler.md
+```
+
 ## Library usage
 
 Typical flow inside Rust code:

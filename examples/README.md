@@ -57,6 +57,12 @@ Execute the bash workspace example end to end:
 cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml run examples/bash-agent-team
 ```
 
+Reset the workspace example back to its initial state and remove generated runtime output:
+
+```bash
+cargo run -p rhei-cli -- --state-machine examples/bash-agent-team/team-states.yaml reset examples/bash-agent-team
+```
+
 ## Notes on current behavior
 
 These examples are aligned to the current repository behavior, including the following implementation details:

@@ -37,6 +37,7 @@ Execution:
   run         Execute a plan by advancing tasks through the state machine in dependency order
   next        Transition the next ready task to the next state
   complete    Mark a task as completed: transition to a terminal state, remove the assignee,\n              and optionally log a result message
+  reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
 Setup:
   install-skills  Install rhei skills into AI coding agent configuration directories
@@ -165,6 +166,12 @@ enum Commands {
         #[arg(long)]
         no_callbacks: bool,
     },
+    /// Reset a plan or workspace to the initial state
+    Reset {
+        /// Path to the markdown plan file (.rhei.md) or workspace directory
+        #[arg(value_name = "RHEI_PLAN")]
+        input: PathBuf,
+    },
     /// Print versions for the CLI and related crates
     Version,
     /// Install rhei skills into AI coding agent configuration directories
@@ -259,6 +266,7 @@ fn run() -> MietteResult<()> {
             result.as_deref(),
             no_callbacks,
         ),
+        Commands::Reset { input } => reset_command(&input, cli.state_machine.as_deref()),
         Commands::Version => {
             print_versions();
             Ok(())
@@ -621,6 +629,33 @@ fn normalize_path(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
 
+struct CallbackPaths {
+    plan_path: PathBuf,
+    working_dir: PathBuf,
+}
+
+fn resolve_callback_paths(
+    state_machine_path: Option<&Path>,
+    plan_path: &Path,
+) -> MietteResult<CallbackPaths> {
+    let plan_path = plan_path.canonicalize().map_err(|err| {
+        file_io_report(plan_path, "failed to resolve plan path for callbacks", err)
+    })?;
+    let base_dir = if let Some(path) = state_machine_path {
+        path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
+    } else if plan_path.is_dir() {
+        plan_path.as_path()
+    } else {
+        plan_path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
+    };
+
+    let working_dir = base_dir.canonicalize().map_err(|err| {
+        file_io_report(base_dir, "failed to resolve callback working directory", err)
+    })?;
+
+    Ok(CallbackPaths { plan_path, working_dir })
+}
+
 /// Execute the `transition` subcommand: atomic compare-and-swap state change.
 ///
 /// Acquires an exclusive file lock, verifies the task's current state matches
@@ -635,6 +670,7 @@ fn transition_command(
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let machine = load_state_machine(state_machine_path)?;
+    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
 
     let task_file = if workspace::is_workspace(input) {
         let loaded = load_plan(input)?;
@@ -643,7 +679,7 @@ fn transition_command(
         input.to_path_buf()
     };
 
-    execute_transition(&task_file, input, &machine, task_id_str, from, to, no_callbacks)?;
+    execute_transition(&task_file, &callback_paths, &machine, task_id_str, from, to, no_callbacks)?;
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, to);
     Ok(())
 }
@@ -661,7 +697,7 @@ fn transition_command(
 /// `plan_path` is the top-level plan path used in callback context.
 fn execute_transition(
     task_file: &Path,
-    plan_path: &Path,
+    callback_paths: &CallbackPaths,
     machine: &rhei_validator::StateMachine,
     task_id_str: &str,
     from: &str,
@@ -724,8 +760,13 @@ fn execute_transition(
         .find(|rule| (rule.from.0 == from || rule.from.0 == "*") && rule.to.0 == to);
 
     // Execute on_leave callback before the state change.
-    let callback_ctx =
-        CallbackContext { task_id: task_id_str, from_state: from, to_state: to, plan_path };
+    let callback_ctx = CallbackContext {
+        task_id: task_id_str,
+        from_state: from,
+        to_state: to,
+        plan_path: &callback_paths.plan_path,
+        callback_cwd: &callback_paths.working_dir,
+    };
 
     if !no_callbacks {
         if let Some(rule) = matching_rule {
@@ -819,6 +860,7 @@ fn run_command(
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let machine = load_state_machine(state_machine_path)?;
+    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
 
     // Initial validation pass.
     let loaded = load_plan(input)?;
@@ -860,7 +902,7 @@ fn run_command(
             let task_file = loaded.task_file(task_id_str, input);
             match execute_transition(
                 &task_file,
-                input,
+                &callback_paths,
                 &machine,
                 task_id_str,
                 current_state,
@@ -1050,6 +1092,7 @@ fn next_command(
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let machine = load_state_machine(state_machine_path)?;
+    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
 
     // Validate the plan first.
     let loaded = load_plan(input)?;
@@ -1090,7 +1133,7 @@ fn next_command(
         })?;
         execute_transition(
             &task_file,
-            input,
+            &callback_paths,
             &machine,
             &task_id_str,
             &current_state,
@@ -1133,6 +1176,7 @@ fn complete_command(
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let machine = load_state_machine(state_machine_path)?;
+    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
 
     // Validate the plan first.
     let loaded = load_plan(input)?;
@@ -1174,7 +1218,7 @@ fn complete_command(
     let task_file = loaded.task_file(task_id_str, input);
     execute_transition(
         &task_file,
-        input,
+        &callback_paths,
         &machine,
         task_id_str,
         current_state,
@@ -1191,6 +1235,148 @@ fn complete_command(
     }
 
     Ok(())
+}
+
+/// Execute the `reset` subcommand: restore every task and subtask to the
+/// state machine's initial state.
+///
+/// For directory workspaces, this also removes the generated `runtime/`
+/// directory so logs and artifacts do not survive the reset.
+fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResult<()> {
+    let machine = load_state_machine(state_machine_path)?;
+    let initial_state = initial_state_name(&machine)?;
+    let loaded = load_plan(input)?;
+    let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
+    if report.has_errors() {
+        return Err(validation_report(input, state_machine_path, &report.errors));
+    }
+
+    let task_count = loaded.rhei.tasks.len();
+    let subtask_count = loaded.rhei.tasks.iter().map(|task| task.subtasks.len()).sum::<usize>();
+
+    for file in reset_target_files(&loaded, input) {
+        reset_plan_file_states(&file, &initial_state)?;
+    }
+
+    let mut removed_runtime = false;
+    if workspace::is_workspace(input) {
+        let runtime_dir = input.join("runtime");
+        if runtime_dir.exists() {
+            fs::remove_dir_all(&runtime_dir).map_err(|err| {
+                file_io_report(&runtime_dir, "failed to remove runtime directory", err)
+            })?;
+            removed_runtime = true;
+        }
+    }
+
+    println!(
+        "Reset {} task(s) and {} subtask(s) to initial state '{}'.",
+        task_count, subtask_count, initial_state
+    );
+    if workspace::is_workspace(input) {
+        if removed_runtime {
+            println!("Removed workspace runtime output.");
+        } else {
+            println!("No workspace runtime output was present.");
+        }
+    }
+
+    Ok(())
+}
+
+fn initial_state_name(machine: &rhei_validator::StateMachine) -> MietteResult<String> {
+    let initial_states = machine
+        .states
+        .iter()
+        .filter(|(_, def)| def.initial)
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+
+    match initial_states.as_slice() {
+        [] => Err(miette!("state machine '{}' does not declare an initial state", machine.name)),
+        [initial] => Ok(initial.clone()),
+        many => Err(miette!(
+            "state machine '{}' declares multiple initial states: {}",
+            machine.name,
+            many.join(", ")
+        )),
+    }
+}
+
+fn reset_target_files(loaded: &LoadedPlan, input: &Path) -> Vec<PathBuf> {
+    if loaded.task_sources.is_empty() {
+        return vec![input.to_path_buf()];
+    }
+
+    let mut files = loaded.task_sources.values().cloned().collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn reset_plan_file_states(path: &Path, initial_state: &str) -> MietteResult<()> {
+    let file = fs::File::open(path)
+        .map_err(|err| file_io_report(path, "failed to open plan file", err))?;
+    file.lock_exclusive()
+        .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
+
+    let raw = fs::read_to_string(path)
+        .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
+    let new_raw = rewrite_all_states_to_initial(&raw, initial_state)?;
+
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|err| miette!("failed to create temp file: {err}"))?;
+    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
+    tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+
+    let _ = file.unlock();
+    Ok(())
+}
+
+fn rewrite_all_states_to_initial(raw: &str, initial_state: &str) -> MietteResult<String> {
+    let lines: Vec<&str> = raw.lines().collect();
+    let mut result = Vec::with_capacity(lines.len());
+    let mut expecting_state = false;
+    let mut rewrites = 0usize;
+
+    for line in &lines {
+        if line.starts_with("### Task ") || line.starts_with("#### Subtask ") {
+            if expecting_state {
+                return Err(miette!("could not find **State:** line before the next task header"));
+            }
+            expecting_state = true;
+            result.push((*line).to_string());
+            continue;
+        }
+
+        if expecting_state && line.starts_with("**State:**") {
+            let formatted = if initial_state.contains(' ') {
+                format!("**State:** `{initial_state}`")
+            } else {
+                format!("**State:** {initial_state}")
+            };
+            result.push(formatted);
+            expecting_state = false;
+            rewrites += 1;
+            continue;
+        }
+
+        result.push((*line).to_string());
+    }
+
+    if expecting_state {
+        return Err(miette!("could not find **State:** line at the end of the plan"));
+    }
+    if rewrites == 0 {
+        return Err(miette!("found no task state metadata to reset"));
+    }
+
+    let mut output = result.join("\n");
+    if raw.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
 }
 
 /// Find a terminal (non-cancelled) state reachable in one transition.
@@ -1557,7 +1743,7 @@ fn is_agent_installed(
                 };
                 // Check for skill directories.
                 let first_skill = skills.first()?;
-                Some(base.join("skills").join(format!("{first_skill}")).exists())
+                Some(base.join("skills").join(first_skill).exists())
             }
             Agent::Cursor => {
                 let base = if local {
@@ -1678,13 +1864,10 @@ fn install_claude_code(
 
     // Install each skill directory.
     for (name, source) in skill_sources {
-        let dest = skills_dir.join(format!("{name}"));
+        let dest = skills_dir.join(name);
         if link {
-            let src = if local {
-                relative_path(&dest.parent().unwrap().to_path_buf(), source)
-            } else {
-                source.clone()
-            };
+            let src =
+                if local { relative_path(dest.parent().unwrap(), source) } else { source.clone() };
             link_skill(&src, &dest, dry_run)?;
         } else {
             copy_skill(source, &dest, dry_run)?;
@@ -2033,7 +2216,7 @@ fn uninstall_agent(
 
             // Remove skill directories.
             for skill in skills {
-                let dest = base.join("skills").join(format!("{skill}"));
+                let dest = base.join("skills").join(skill);
                 remove_path(&dest, dry_run)?;
             }
 
@@ -2887,6 +3070,18 @@ transitions: []
     }
 
     #[test]
+    fn parses_reset_command() {
+        let cli = Cli::try_parse_from(["rhei", "reset", "workspace"]).expect("cli should parse");
+
+        match cli.command {
+            Commands::Reset { input } => {
+                assert_eq!(input, PathBuf::from("workspace"));
+            }
+            other => panic!("expected reset command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn find_completion_state_prefers_non_cancelled_terminal() {
         let yaml = r#"
 name: test
@@ -2989,6 +3184,30 @@ Some work description.
         let content = fs::read_to_string(&path).expect("read");
         assert!(!content.contains("**Assignee:**"));
         assert!(!content.contains("**Result:**"));
+    }
+
+    #[test]
+    fn rewrite_all_states_to_initial_updates_tasks_and_subtasks() {
+        let raw = r#"# Rhei: Reset
+
+## Tasks
+
+### Task 1: Alpha
+**State:** completed
+
+#### Subtask 1.1: Detail
+**State:** in-progress
+
+### Task 2: Beta
+**State:** review
+"#;
+
+        let rewritten = rewrite_all_states_to_initial(raw, "pending").expect("rewrite states");
+
+        assert_eq!(rewritten.matches("**State:** pending").count(), 3);
+        assert!(!rewritten.contains("**State:** completed"));
+        assert!(!rewritten.contains("**State:** in-progress"));
+        assert!(!rewritten.contains("**State:** review"));
     }
 
     #[test]

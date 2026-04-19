@@ -20,6 +20,8 @@ pub struct CallbackContext<'a> {
     pub to_state: &'a str,
     /// Path to the plan file.
     pub plan_path: &'a Path,
+    /// Working directory used to execute shell callbacks.
+    pub callback_cwd: &'a Path,
 }
 
 /// Outcome of a callback invocation.
@@ -72,8 +74,9 @@ pub trait CallbackExecutor {
 
 /// Executes `cli:`-prefixed callbacks as shell commands.
 ///
-/// The command portion after `cli:` is run via `sh -c`, with transition
-/// context exported as environment variables:
+/// The command portion after `cli:` is run via `sh -c` from
+/// [`CallbackContext::callback_cwd`], with transition context exported as
+/// environment variables:
 ///
 /// - `RHEI_TASK_ID` — the task identifier
 /// - `RHEI_FROM_STATE` — the state being left
@@ -97,6 +100,7 @@ impl CallbackExecutor for ShellCallbackExecutor {
         let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(command)
+            .current_dir(context.callback_cwd)
             .env("RHEI_TASK_ID", context.task_id)
             .env("RHEI_FROM_STATE", context.from_state)
             .env("RHEI_TO_STATE", context.to_state)
@@ -138,6 +142,7 @@ mod tests {
             from_state: "pending",
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
+            callback_cwd: Path::new("."),
         };
 
         let err = executor.execute(&callback, &context).unwrap_err();
@@ -154,6 +159,7 @@ mod tests {
             from_state: "pending",
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
+            callback_cwd: Path::new("."),
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -170,6 +176,7 @@ mod tests {
             from_state: "pending",
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
+            callback_cwd: Path::new("."),
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -186,6 +193,7 @@ mod tests {
             from_state: "pending",
             to_state: "in-progress",
             plan_path: Path::new("my-plan.rhei.md"),
+            callback_cwd: Path::new("."),
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -202,6 +210,7 @@ mod tests {
             from_state: "pending",
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
+            callback_cwd: Path::new("."),
         };
 
         let result = executor.execute(&callback, &context).unwrap();
