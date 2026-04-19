@@ -22,6 +22,8 @@ pub struct CallbackContext<'a> {
     pub plan_path: &'a Path,
     /// Working directory used to execute shell callbacks.
     pub callback_cwd: &'a Path,
+    /// Current model identifier when a state declares `all_models`, or `None`.
+    pub model: Option<&'a str>,
 }
 
 /// Outcome of a callback invocation.
@@ -82,6 +84,7 @@ pub trait CallbackExecutor {
 /// - `RHEI_FROM_STATE` — the state being left
 /// - `RHEI_TO_STATE` — the state being entered
 /// - `RHEI_PLAN_PATH` — path to the plan file
+/// - `RHEI_MODEL` — current model identifier (only set when the state declares `all_models`)
 ///
 /// A zero exit code means success; non-zero means failure.
 pub struct ShellCallbackExecutor;
@@ -97,16 +100,19 @@ impl CallbackExecutor for ShellCallbackExecutor {
         let command =
             id.strip_prefix("cli:").ok_or_else(|| CallbackError::UnknownPlatform(id.clone()))?;
 
-        let output = std::process::Command::new("sh")
-            .arg("-c")
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c")
             .arg(command)
             .current_dir(context.callback_cwd)
             .env("RHEI_TASK_ID", context.task_id)
             .env("RHEI_FROM_STATE", context.from_state)
             .env("RHEI_TO_STATE", context.to_state)
-            .env("RHEI_PLAN_PATH", context.plan_path.as_os_str())
-            .output()
-            .map_err(|e| CallbackError::SpawnFailed(command.to_string(), e))?;
+            .env("RHEI_PLAN_PATH", context.plan_path.as_os_str());
+        if let Some(model) = context.model {
+            cmd.env("RHEI_MODEL", model);
+        }
+        let output =
+            cmd.output().map_err(|e| CallbackError::SpawnFailed(command.to_string(), e))?;
 
         Ok(CallbackResult {
             success: output.status.success(),
@@ -143,6 +149,7 @@ mod tests {
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
+            model: None,
         };
 
         let err = executor.execute(&callback, &context).unwrap_err();
@@ -160,6 +167,7 @@ mod tests {
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
+            model: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -177,6 +185,7 @@ mod tests {
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
+            model: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -194,6 +203,7 @@ mod tests {
             to_state: "in-progress",
             plan_path: Path::new("my-plan.rhei.md"),
             callback_cwd: Path::new("."),
+            model: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -211,6 +221,7 @@ mod tests {
             to_state: "in-progress",
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
+            model: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();

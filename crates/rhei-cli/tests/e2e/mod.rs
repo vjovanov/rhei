@@ -126,6 +126,16 @@ pub fn unique_temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
+pub fn unique_scratchpad_dir(prefix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_nanos();
+    let dir = repo_root().join("scratchpad").join(format!("rhei-integ-{prefix}-{nanos}"));
+    fs::create_dir_all(&dir).expect("scratchpad directory should be created");
+    dir
+}
+
 pub fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, contents).expect("fixture file should be written");
@@ -156,6 +166,47 @@ pub fn create_workspace(
     }
     let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
     (ws, machine_path)
+}
+
+pub fn fixture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("e2e").join("fixtures").join(name)
+}
+
+pub fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crate should have workspace parent")
+        .parent()
+        .expect("workspace root should exist")
+        .to_path_buf()
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) {
+    fs::create_dir_all(dst).expect("create fixture directory");
+
+    for entry in fs::read_dir(src).expect("read fixture directory") {
+        let entry = entry.expect("fixture entry");
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        let file_type = entry.file_type().expect("fixture file type");
+
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path);
+            continue;
+        }
+
+        fs::copy(&src_path, &dst_path).expect("copy fixture file");
+        let permissions = fs::metadata(&src_path).expect("fixture metadata").permissions();
+        fs::set_permissions(&dst_path, permissions).expect("fixture permissions");
+    }
+}
+
+pub fn copy_workspace_fixture(prefix: &str, fixture_name: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let dir = unique_scratchpad_dir(prefix);
+    let workspace_path = dir.join(fixture_name);
+    copy_dir_recursive(&fixture_path(fixture_name), &workspace_path);
+    let machine_path = workspace_path.join("team-states.yaml");
+    (dir, workspace_path, machine_path)
 }
 
 /// Run an arbitrary rhei subcommand.

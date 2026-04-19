@@ -3,9 +3,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use fs2::FileExt;
 use miette::{miette, Report, Result as MietteResult};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use rhei_core::ast::TaskId;
+use rhei_core::ast::{Metadata, TaskId};
 use rhei_core::callback::{CallbackContext, CallbackExecutor, ShellCallbackExecutor};
 use rhei_core::workspace;
+use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -36,7 +37,7 @@ Execution:
   transition  Atomically transition a task from one state to another (compare-and-swap)
   run         Execute a plan by advancing tasks through the state machine in dependency order
   next        Transition the next ready task to the next state
-  complete    Mark a task as completed: transition to a terminal state, remove the assignee,\n              and optionally log a result message
+  complete    Complete a task: transition to terminal state, write result file,\n              link it from the task, and remove the assignee
   reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
 Setup:
@@ -150,8 +151,8 @@ enum Commands {
         #[arg(long)]
         no_callbacks: bool,
     },
-    /// Mark a task as completed: transition to a terminal state, remove the
-    /// assignee, and optionally log a result message in the task body.
+    /// Complete a task: transition to terminal state, write result file,
+    /// link it from the task, and remove the assignee.
     Complete {
         /// Path to the markdown plan file (.rhei.md)
         #[arg(value_name = "RHEI_PLAN")]
@@ -159,9 +160,9 @@ enum Commands {
         /// Task identifier (number or name)
         #[arg(long)]
         task: String,
-        /// Result message to record in the task body
+        /// Result message written to runtime/results/<task-id>.md
         #[arg(long)]
-        result: Option<String>,
+        result: String,
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
         no_callbacks: bool,
@@ -259,13 +260,9 @@ fn run() -> MietteResult<()> {
         Commands::Next { input, task, json, no_callbacks } => {
             next_command(&input, cli.state_machine.as_deref(), task.as_deref(), json, no_callbacks)
         }
-        Commands::Complete { input, task, result, no_callbacks } => complete_command(
-            &input,
-            cli.state_machine.as_deref(),
-            &task,
-            result.as_deref(),
-            no_callbacks,
-        ),
+        Commands::Complete { input, task, result, no_callbacks } => {
+            complete_command(&input, cli.state_machine.as_deref(), &task, &result, no_callbacks)
+        }
         Commands::Reset { input } => reset_command(&input, cli.state_machine.as_deref()),
         Commands::Version => {
             print_versions();
@@ -323,6 +320,9 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
     {
         out.push_str(&format!("Personality: {personality}\n"));
     }
+    if !machine.models.is_empty() {
+        out.push_str(&format!("Models: {}\n", machine.models.join(", ")));
+    }
 
     out.push_str("\nStates:\n");
     if machine.states.is_empty() {
@@ -347,6 +347,19 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
                 out.push_str(&format!(" — {description}"));
             }
             out.push('\n');
+            if let Some(iterations) = def.iterations {
+                out.push_str(&format!("      Iterations: {iterations}\n"));
+            }
+            if !def.all_models.is_empty() {
+                out.push_str(&format!("      Models: {}\n", def.all_models.join(", ")));
+            } else if let Some(model) = def.model.as_deref() {
+                out.push_str(&format!("      Model: {model}\n"));
+            }
+            if let Some(personality) =
+                def.personality.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            {
+                out.push_str(&format!("      Personality: {personality}\n"));
+            }
             if let Some(instructions) = def.instructions.as_deref() {
                 for line in instructions.lines() {
                     out.push_str(&format!("      {line}\n"));
@@ -393,8 +406,12 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
                 "name": name,
                 "description": def.description,
                 "instructions": def.instructions,
+                "personality": def.personality,
                 "initial": def.initial,
                 "final": def.terminal,
+                "iterations": def.iterations,
+                "all_models": def.all_models,
+                "model": def.model,
             })
         })
         .collect();
@@ -406,6 +423,7 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
 
     let payload = serde_json::json!({
         "name": machine.name,
+        "models": machine.models,
         "personality": machine.personality,
         "version": version,
         "states": states,
@@ -629,9 +647,275 @@ fn normalize_path(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
 
+fn yaml_key(name: &str) -> YamlValue {
+    YamlValue::String(name.to_string())
+}
+
+fn task_id_yaml_key(task_id: &TaskId) -> YamlValue {
+    match task_id {
+        TaskId::Number(n) => serde_yaml::to_value(*n).expect("numeric task id should serialize"),
+        TaskId::Named(name) => yaml_key(name),
+    }
+}
+
+fn yaml_u64(value: u64) -> YamlValue {
+    serde_yaml::to_value(value).expect("numeric YAML value should serialize")
+}
+
+fn yaml_value_to_u64(value: &YamlValue) -> Option<u64> {
+    match value {
+        YamlValue::Number(number) => number.as_u64(),
+        _ => None,
+    }
+}
+
+fn task_metadata_map<'a>(
+    metadata: Option<&'a Metadata>,
+    task_id: &TaskId,
+) -> Option<&'a YamlMapping> {
+    let root = metadata?;
+    let metadata_section = root.get(yaml_key("metadata"))?.as_mapping()?;
+    let tasks = metadata_section.get(yaml_key("tasks"))?.as_mapping()?;
+    tasks.get(task_id_yaml_key(task_id))?.as_mapping()
+}
+
+fn task_metadata_number(metadata: Option<&Metadata>, task_id: &TaskId, field: &str) -> Option<u64> {
+    task_metadata_map(metadata, task_id)
+        .and_then(|task_map| task_map.get(yaml_key(field)))
+        .and_then(yaml_value_to_u64)
+}
+
+fn task_iteration_count(metadata: Option<&Metadata>, task_id: &TaskId, state_name: &str) -> u64 {
+    task_metadata_map(metadata, task_id)
+        .and_then(|task_map| task_map.get(yaml_key("stateIterations")))
+        .and_then(YamlValue::as_mapping)
+        .and_then(|state_iterations| state_iterations.get(yaml_key(state_name)))
+        .and_then(yaml_value_to_u64)
+        .unwrap_or(0)
+}
+
+fn state_iteration_limit(machine: &rhei_validator::StateMachine, state_name: &str) -> Option<u64> {
+    machine.states.get(state_name).and_then(|def| def.iterations).map(u64::from)
+}
+
+fn resolve_condition_operand(
+    token: &str,
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+    current_state: &str,
+    machine: &rhei_validator::StateMachine,
+) -> MietteResult<i64> {
+    if let Ok(value) = token.parse::<i64>() {
+        return Ok(value);
+    }
+
+    match token {
+        "iterationCount" | "iteration_count" => {
+            Ok(task_iteration_count(metadata, task_id, current_state) as i64)
+        }
+        "iterations" => {
+            let limit = state_iteration_limit(machine, current_state).ok_or_else(|| {
+                miette!("state '{}' does not declare an iterations limit", current_state)
+            })?;
+            Ok(limit as i64)
+        }
+        other => {
+            let value = task_metadata_number(metadata, task_id, other).ok_or_else(|| {
+                miette!("condition operand '{}' is not available in task metadata", other)
+            })?;
+            Ok(value as i64)
+        }
+    }
+}
+
+fn evaluate_transition_condition(
+    condition: &str,
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+    current_state: &str,
+    machine: &rhei_validator::StateMachine,
+) -> MietteResult<bool> {
+    let parts = condition.split_whitespace().collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(miette!(
+            "unsupported transition condition '{}'; expected '<lhs> <op> <rhs>'",
+            condition
+        ));
+    }
+
+    let lhs = resolve_condition_operand(parts[0], metadata, task_id, current_state, machine)?;
+    let rhs = resolve_condition_operand(parts[2], metadata, task_id, current_state, machine)?;
+
+    let outcome = match parts[1] {
+        "<" => lhs < rhs,
+        "<=" => lhs <= rhs,
+        ">" => lhs > rhs,
+        ">=" => lhs >= rhs,
+        "==" => lhs == rhs,
+        "!=" => lhs != rhs,
+        op => {
+            return Err(miette!(
+                "unsupported operator '{}' in transition condition '{}'",
+                op,
+                condition
+            ))
+        }
+    };
+
+    Ok(outcome)
+}
+
+fn loop_reentry_allowed(
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+    to_state: &str,
+) -> bool {
+    let Some(limit) = state_iteration_limit(machine, to_state) else {
+        return true;
+    };
+
+    let current = task_iteration_count(metadata, task_id, to_state);
+    current < limit
+}
+
+fn transition_rule_is_applicable(
+    rule: &rhei_core::ast::TransitionRule,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+    current_state: &str,
+) -> MietteResult<bool> {
+    if !loop_reentry_allowed(machine, metadata, task_id, &rule.to.0) {
+        return Ok(false);
+    }
+
+    if let Some(condition) = rule.condition.as_deref() {
+        return evaluate_transition_condition(condition, metadata, task_id, current_state, machine);
+    }
+
+    Ok(true)
+}
+
+fn render_frontmatter_yaml(metadata: &Metadata) -> MietteResult<String> {
+    let mut rendered = serde_yaml::to_string(metadata)
+        .map_err(|err| miette!("failed to serialize frontmatter: {err}"))?;
+    if let Some(stripped) = rendered.strip_prefix("---\n") {
+        rendered = stripped.to_string();
+    }
+    Ok(rendered.trim_end().to_string())
+}
+
+fn rewrite_frontmatter(raw: &str, metadata: &Metadata) -> MietteResult<String> {
+    let lines = raw.lines().collect::<Vec<_>>();
+    let header_index = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with("# Rhei:"))
+        .ok_or_else(|| miette!("could not find '# Rhei:' header when rewriting frontmatter"))?;
+
+    let mut idx = header_index + 1;
+    while idx < lines.len() && lines[idx].trim().is_empty() {
+        idx += 1;
+    }
+    if idx < lines.len() && lines[idx].trim_start().starts_with("**States:**") {
+        idx += 1;
+    }
+    while idx < lines.len() && lines[idx].trim().is_empty() {
+        idx += 1;
+    }
+
+    let start = idx;
+    let mut end = idx;
+    if start < lines.len() && lines[start].trim() == "---" {
+        end += 1;
+        while end < lines.len() && lines[end].trim() != "---" {
+            end += 1;
+        }
+        if end == lines.len() {
+            return Err(miette!("unterminated YAML frontmatter in plan source"));
+        }
+        end += 1;
+        while end < lines.len() && lines[end].trim().is_empty() {
+            end += 1;
+        }
+    }
+
+    let mut result = Vec::with_capacity(lines.len() + 8);
+    result.extend(lines[..start].iter().map(|line| (*line).to_string()));
+    result.push("---".to_string());
+    let rendered_yaml = render_frontmatter_yaml(metadata)?;
+    if !rendered_yaml.is_empty() {
+        result.extend(rendered_yaml.lines().map(|line| line.to_string()));
+    }
+    result.push("---".to_string());
+    result.push(String::new());
+    result.extend(lines[end..].iter().map(|line| (*line).to_string()));
+
+    let mut output = result.join("\n");
+    if raw.ends_with('\n') || !output.is_empty() {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+fn ensure_mapping(parent: &mut YamlMapping, key: YamlValue) -> &mut YamlMapping {
+    if !matches!(parent.get(&key), Some(YamlValue::Mapping(_))) {
+        parent.insert(key.clone(), YamlValue::Mapping(YamlMapping::new()));
+    }
+
+    match parent.get_mut(&key) {
+        Some(YamlValue::Mapping(mapping)) => mapping,
+        _ => unreachable!("mapping just initialized"),
+    }
+}
+
+fn update_metadata_for_transition(
+    existing: Option<&Metadata>,
+    task_id: &TaskId,
+    to_state: &str,
+    machine: &rhei_validator::StateMachine,
+) -> Option<Metadata> {
+    state_iteration_limit(machine, to_state)?;
+
+    let mut root = existing.cloned().unwrap_or_default();
+    let metadata_section = ensure_mapping(&mut root, yaml_key("metadata"));
+    let tasks = ensure_mapping(metadata_section, yaml_key("tasks"));
+    let task_entry = ensure_mapping(tasks, task_id_yaml_key(task_id));
+    let state_iterations = ensure_mapping(task_entry, yaml_key("stateIterations"));
+    let state_key = yaml_key(to_state);
+    let next =
+        state_iterations.get(&state_key).and_then(yaml_value_to_u64).map(|n| n + 1).unwrap_or(0);
+    state_iterations.insert(state_key, yaml_u64(next));
+    Some(root)
+}
+
+fn clear_runtime_state_iterations(existing: Option<&Metadata>) -> Option<Metadata> {
+    let mut root = existing.cloned()?;
+    let Some(YamlValue::Mapping(metadata_section)) = root.get_mut(yaml_key("metadata")) else {
+        return Some(root);
+    };
+    let Some(YamlValue::Mapping(tasks)) = metadata_section.get_mut(yaml_key("tasks")) else {
+        return Some(root);
+    };
+
+    for value in tasks.values_mut() {
+        if let YamlValue::Mapping(task_map) = value {
+            task_map.remove(yaml_key("stateIterations"));
+        }
+    }
+
+    Some(root)
+}
+
 struct CallbackPaths {
     plan_path: PathBuf,
     working_dir: PathBuf,
+}
+
+#[derive(Clone, Copy)]
+struct TransitionFiles<'a> {
+    task_file: &'a Path,
+    metadata_file: &'a Path,
 }
 
 fn resolve_callback_paths(
@@ -678,8 +962,25 @@ fn transition_command(
     } else {
         input.to_path_buf()
     };
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
 
-    execute_transition(&task_file, &callback_paths, &machine, task_id_str, from, to, no_callbacks)?;
+    execute_transition(
+        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        &callback_paths,
+        &machine,
+        task_id_str,
+        from,
+        to,
+        no_callbacks,
+    )?;
+
+    let root = result_workspace_root(input, &task_file);
+    append_result_entry(&root, task_id_str, from, to, None)?;
+
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, to);
     Ok(())
 }
@@ -696,7 +997,7 @@ fn transition_command(
 ///
 /// `plan_path` is the top-level plan path used in callback context.
 fn execute_transition(
-    task_file: &Path,
+    files: TransitionFiles<'_>,
     callback_paths: &CallbackPaths,
     machine: &rhei_validator::StateMachine,
     task_id_str: &str,
@@ -704,6 +1005,9 @@ fn execute_transition(
     to: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
+    let task_file = files.task_file;
+    let metadata_file = files.metadata_file;
+
     // Validate that both `from` and `to` are valid states.
     if !machine.is_valid_state(from) {
         let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
@@ -714,37 +1018,69 @@ fn execute_transition(
         return Err(miette!("'{}' is not a valid state. Allowed: [{}]", to, allowed));
     }
 
-    // Validate that the from→to transition is allowed by the state machine.
-    let transition_allowed = machine
-        .transitions()
-        .iter()
-        .any(|rule| (rule.from.0 == from || rule.from.0 == "*") && rule.to.0 == to);
-    if !transition_allowed {
+    let matching_rule =
+        machine.transitions().iter().find(|rule| rule.from.0 == from && rule.to.0 == to).or_else(
+            || machine.transitions().iter().find(|rule| rule.from.0 == "*" && rule.to.0 == to),
+        );
+    let Some(matching_rule) = matching_rule else {
         return Err(miette!(
             "transition from '{}' to '{}' is not allowed by the state machine",
             from,
             to
         ));
-    }
+    };
 
-    // Open the file with an exclusive lock for the duration of the operation.
-    let file = fs::File::open(task_file)
-        .map_err(|err| file_io_report(task_file, "failed to open plan file", err))?;
-    file.lock_exclusive()
-        .map_err(|err| file_io_report(task_file, "failed to acquire file lock", err))?;
+    // Open the file(s) with an exclusive lock for the duration of the operation.
+    let metadata_handle = fs::File::open(metadata_file)
+        .map_err(|err| file_io_report(metadata_file, "failed to open plan file", err))?;
+    metadata_handle
+        .lock_exclusive()
+        .map_err(|err| file_io_report(metadata_file, "failed to acquire file lock", err))?;
+    let task_handle = if task_file == metadata_file {
+        None
+    } else {
+        let handle = fs::File::open(task_file)
+            .map_err(|err| file_io_report(task_file, "failed to open plan file", err))?;
+        handle
+            .lock_exclusive()
+            .map_err(|err| file_io_report(task_file, "failed to acquire file lock", err))?;
+        Some(handle)
+    };
 
-    // Read the raw markdown while holding the lock.
-    let raw = fs::read_to_string(task_file)
-        .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
+    // Read the raw markdown while holding the locks.
+    let metadata_raw = fs::read_to_string(metadata_file)
+        .map_err(|err| file_io_report(metadata_file, "failed to read plan file", err))?;
+    let task_raw = if task_file == metadata_file {
+        metadata_raw.clone()
+    } else {
+        fs::read_to_string(task_file)
+            .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?
+    };
 
     // Parse to validate structure and find the task.
     // Try full plan parse first; fall back to workspace task-file parse.
     let target_id = parse_task_id(task_id_str);
-    let current_state = find_task_current_state(&raw, task_file, &target_id, task_id_str)?;
+    let current_state = find_task_current_state(&task_raw, task_file, &target_id, task_id_str)?;
+    let metadata = if task_file == metadata_file {
+        rhei_core::parse(&metadata_raw)
+            .map_err(|err| {
+                miette!("failed to parse plan for transition metadata: {}", err.message)
+            })?
+            .metadata
+    } else {
+        rhei_core::parser::parse_workspace_index(&metadata_raw)
+            .map_err(|err| {
+                miette!("failed to parse workspace index for transition metadata: {}", err.message)
+            })?
+            .metadata
+    };
 
     // Compare-and-swap: verify the task's current state matches `from`.
     if current_state != from {
-        let _ = file.unlock();
+        if let Some(task_handle) = &task_handle {
+            let _ = task_handle.unlock();
+        }
+        let _ = metadata_handle.unlock();
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
             task_id_str,
@@ -753,28 +1089,47 @@ fn execute_transition(
         ));
     }
 
-    // Find the matching transition rule for callback lookup.
-    let matching_rule = machine
-        .transitions()
-        .iter()
-        .find(|rule| (rule.from.0 == from || rule.from.0 == "*") && rule.to.0 == to);
+    if !transition_rule_is_applicable(matching_rule, machine, metadata.as_ref(), &target_id, from)?
+    {
+        if let Some(task_handle) = &task_handle {
+            let _ = task_handle.unlock();
+        }
+        let _ = metadata_handle.unlock();
+        return Err(miette!(
+            "transition from '{}' to '{}' is blocked by loop budget or condition",
+            from,
+            to
+        ));
+    }
+
+    // When the FROM state declares all_models, run on_leave once per model; otherwise run once
+    // without a model (None).
+    let from_models: Vec<Option<String>> = machine
+        .states
+        .get(from)
+        .filter(|s| !s.all_models.is_empty())
+        .map(|s| s.all_models.iter().map(|m| Some(m.clone())).collect())
+        .unwrap_or_else(|| vec![None]);
 
     // Execute on_leave callback before the state change.
-    let callback_ctx = CallbackContext {
-        task_id: task_id_str,
-        from_state: from,
-        to_state: to,
-        plan_path: &callback_paths.plan_path,
-        callback_cwd: &callback_paths.working_dir,
-    };
-
     if !no_callbacks {
-        if let Some(rule) = matching_rule {
-            if let Some(ref cb) = rule.on_leave {
-                let executor = ShellCallbackExecutor;
-                let result = executor.execute(cb, &callback_ctx).map_err(|e| miette!("{e}"))?;
+        if let Some(ref cb) = matching_rule.on_leave {
+            let executor = ShellCallbackExecutor;
+            for model in &from_models {
+                let ctx = CallbackContext {
+                    task_id: task_id_str,
+                    from_state: from,
+                    to_state: to,
+                    plan_path: &callback_paths.plan_path,
+                    callback_cwd: &callback_paths.working_dir,
+                    model: model.as_deref(),
+                };
+                let result = executor.execute(cb, &ctx).map_err(|e| miette!("{e}"))?;
                 if !result.success {
-                    let _ = file.unlock();
+                    if let Some(task_handle) = &task_handle {
+                        let _ = task_handle.unlock();
+                    }
+                    let _ = metadata_handle.unlock();
                     let stderr = result.stderr.trim();
                     let detail =
                         if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
@@ -787,36 +1142,76 @@ fn execute_transition(
         }
     }
 
-    // Perform text-level replacement of the **State:** line for this task.
-    let new_raw = rewrite_task_state(&raw, task_id_str, to)?;
+    let updated_metadata =
+        update_metadata_for_transition(metadata.as_ref(), &target_id, to, machine);
+    let metadata_raw_updated = if task_file == metadata_file {
+        let new_task_raw = rewrite_task_state(&task_raw, task_id_str, to)?;
+        if let Some(updated_metadata) = updated_metadata.as_ref() {
+            rewrite_frontmatter(&new_task_raw, updated_metadata)?
+        } else {
+            new_task_raw
+        }
+    } else if let Some(updated_metadata) = updated_metadata.as_ref() {
+        rewrite_frontmatter(&metadata_raw, updated_metadata)?
+    } else {
+        metadata_raw.clone()
+    };
 
-    // Atomic write: write to a temp file in the same directory, then rename.
-    let parent = task_file.parent().unwrap_or(Path::new("."));
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+    let task_raw_updated = if task_file == metadata_file {
+        None
+    } else {
+        Some(rewrite_task_state(&task_raw, task_id_str, to)?)
+    };
+
+    // Atomic write(s): write to temp file in the same directory, then rename.
+    let metadata_parent = metadata_file.parent().unwrap_or(Path::new("."));
+    let mut metadata_tmp = tempfile::NamedTempFile::new_in(metadata_parent)
         .map_err(|err| miette!("failed to create temp file: {err}"))?;
-    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
-    tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+    metadata_tmp
+        .write_all(metadata_raw_updated.as_bytes())
+        .map_err(|err| miette!("failed to write temp file: {err}"))?;
+    metadata_tmp
+        .persist(metadata_file)
+        .map_err(|err| miette!("failed to persist temp file: {err}"))?;
 
-    // Execute on_enter callback after the state change.
+    if let Some(task_raw_updated) = task_raw_updated {
+        let task_parent = task_file.parent().unwrap_or(Path::new("."));
+        let mut task_tmp = tempfile::NamedTempFile::new_in(task_parent)
+            .map_err(|err| miette!("failed to create temp file: {err}"))?;
+        task_tmp
+            .write_all(task_raw_updated.as_bytes())
+            .map_err(|err| miette!("failed to write temp file: {err}"))?;
+        task_tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+    }
+
+    // Execute on_enter callback after the state change (not model-looped).
+    let callback_ctx = CallbackContext {
+        task_id: task_id_str,
+        from_state: from,
+        to_state: to,
+        plan_path: &callback_paths.plan_path,
+        callback_cwd: &callback_paths.working_dir,
+        model: None,
+    };
     if !no_callbacks {
-        if let Some(rule) = matching_rule {
-            if let Some(ref cb) = rule.on_enter {
-                let executor = ShellCallbackExecutor;
-                let result = executor.execute(cb, &callback_ctx).map_err(|e| miette!("{e}"))?;
-                if !result.success {
-                    let stderr = result.stderr.trim();
-                    let detail =
-                        if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
-                    eprintln!(
-                        "warning: on_enter callback '{}' failed after state change{detail}",
-                        cb.0
-                    );
-                }
+        if let Some(ref cb) = matching_rule.on_enter {
+            let executor = ShellCallbackExecutor;
+            let result = executor.execute(cb, &callback_ctx).map_err(|e| miette!("{e}"))?;
+            if !result.success {
+                let stderr = result.stderr.trim();
+                let detail = if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
+                eprintln!(
+                    "warning: on_enter callback '{}' failed after state change{detail}",
+                    cb.0
+                );
             }
         }
     }
 
-    let _ = file.unlock();
+    if let Some(task_handle) = task_handle {
+        let _ = task_handle.unlock();
+    }
+    let _ = metadata_handle.unlock();
     Ok(())
 }
 
@@ -883,9 +1278,11 @@ fn run_command(
 
         let mut advanced_any = false;
 
-        for (task_id_str, current_state) in &ready {
+        for task in &ready {
+            let task_id_str = task.id.to_string();
+            let current_state = task.state.as_str();
             // Find the next forward transition (explicit from-state match, not wildcard).
-            let next_to = find_next_transition(current_state, &machine);
+            let next_to = find_next_transition(task, &loaded.rhei, &machine)?;
 
             let Some(to_state) = next_to else {
                 continue;
@@ -899,12 +1296,17 @@ fn run_command(
                 continue;
             }
 
-            let task_file = loaded.task_file(task_id_str, input);
+            let task_file = loaded.task_file(&task_id_str, input);
+            let metadata_file = if workspace::is_workspace(input) {
+                input.join("index.rhei.md")
+            } else {
+                task_file.clone()
+            };
             match execute_transition(
-                &task_file,
+                TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
                 &callback_paths,
                 &machine,
-                task_id_str,
+                &task_id_str,
                 current_state,
                 &to_state,
                 no_callbacks,
@@ -956,14 +1358,22 @@ fn run_command(
     Ok(())
 }
 
-/// Find tasks that are ready to advance: not in a terminal state and all
-/// prior dependencies are in terminal states.
+/// Check whether a dependency state satisfies a prerequisite edge.
 ///
-/// Returns a vec of `(task_id_string, current_state)` pairs.
-fn find_ready_tasks(
-    rhei: &rhei_core::ast::Rhei,
+/// Terminal cancellation does not satisfy dependencies: a cancelled task should
+/// not unblock downstream work.
+fn dependency_is_satisfied(state: &str, machine: &rhei_validator::StateMachine) -> bool {
+    state != "cancelled" && is_terminal_state(state, machine)
+}
+
+/// Find tasks that are ready to advance: not in a terminal state and all
+/// prior dependencies are satisfied.
+///
+/// Returns task references in source order.
+fn find_ready_tasks<'a>(
+    rhei: &'a rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
-) -> Vec<(String, String)> {
+) -> Vec<&'a rhei_core::ast::Task> {
     use std::collections::HashMap;
 
     // Build a map of task id → current state for dependency lookups.
@@ -980,17 +1390,33 @@ fn find_ready_tasks(
             continue;
         }
 
-        // Check that all prior dependencies are in terminal states.
+        // Check that all prior dependencies are satisfied.
         let all_priors_done = task.prior.iter().all(|dep_id| {
-            state_map.get(dep_id).map(|s| is_terminal_state(s, machine)).unwrap_or(false)
+            state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
         });
 
         if all_priors_done {
-            ready.push((task.id.to_string(), current_state.to_string()));
+            ready.push(task);
         }
     }
 
     ready
+}
+
+/// Find tasks that are ready to be claimed by `rhei next` in automatic mode.
+///
+/// Only tasks in the initial state are claimable automatically. Already-claimed
+/// work can still be inspected with `rhei next --task <id>`.
+fn find_claimable_tasks<'a>(
+    rhei: &'a rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> Vec<&'a rhei_core::ast::Task> {
+    find_ready_tasks(rhei, machine)
+        .into_iter()
+        .filter(|task| {
+            machine.states.get(task.state.as_str()).map(|def| def.initial).unwrap_or(false)
+        })
+        .collect()
 }
 
 /// Check whether a state is terminal (final) in the state machine.
@@ -1004,13 +1430,24 @@ fn is_terminal_state(state: &str, machine: &rhei_validator::StateMachine) -> boo
 /// transitions to terminal states via wildcards (those are escape hatches
 /// like cancellation, not forward progress).
 fn find_next_transition(
-    current_state: &str,
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
-) -> Option<String> {
+) -> MietteResult<Option<String>> {
+    let current_state = task.state.as_str();
+
     // First, look for an exact from-state match.
     for rule in machine.transitions() {
-        if rule.from.0 == current_state {
-            return Some(rule.to.0.clone());
+        if rule.from.0 == current_state
+            && transition_rule_is_applicable(
+                rule,
+                machine,
+                rhei.metadata.as_ref(),
+                &task.id,
+                current_state,
+            )?
+        {
+            return Ok(Some(rule.to.0.clone()));
         }
     }
 
@@ -1019,13 +1456,21 @@ fn find_next_transition(
         if rule.from.0 == "*" {
             let is_terminal =
                 machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
-            if !is_terminal {
-                return Some(rule.to.0.clone());
+            if !is_terminal
+                && transition_rule_is_applicable(
+                    rule,
+                    machine,
+                    rhei.metadata.as_ref(),
+                    &task.id,
+                    current_state,
+                )?
+            {
+                return Ok(Some(rule.to.0.clone()));
             }
         }
     }
 
-    None
+    Ok(None)
 }
 
 /// Parse a task ID string into a [`TaskId`].
@@ -1110,14 +1555,27 @@ fn next_command(
             .iter()
             .find(|t| t.id == target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
+        let is_initial =
+            machine.states.get(task.state.as_str()).map(|def| def.initial).unwrap_or(false);
+        if is_initial {
+            let state_map: HashMap<&TaskId, &str> =
+                loaded.rhei.tasks.iter().map(|t| (&t.id, t.state.as_str())).collect();
+            let all_priors_done = task.prior.iter().all(|dep_id| {
+                state_map.get(dep_id).map(|s| dependency_is_satisfied(s, &machine)).unwrap_or(false)
+            });
+            if !all_priors_done {
+                return Err(miette!("Task {} is blocked by incomplete prerequisites", tid));
+            }
+        }
         let state = task.state.as_str().to_string();
         (tid.to_string(), state)
     } else {
-        let ready = find_ready_tasks(&loaded.rhei, &machine);
+        let ready = find_claimable_tasks(&loaded.rhei, &machine);
         if ready.is_empty() {
-            return Err(miette!("no tasks are ready to advance"));
+            return Err(miette!("no tasks are ready to claim"));
         }
-        ready.into_iter().next().unwrap()
+        let task = ready.into_iter().next().unwrap();
+        (task.id.to_string(), task.state.to_string())
     };
 
     // Determine whether we need a state transition.
@@ -1125,14 +1583,26 @@ fn next_command(
     let is_initial = machine.states.get(&current_state).map(|d| d.initial).unwrap_or(false);
 
     let task_file = loaded.task_file(&task_id_str, input);
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
 
     let final_state = if is_initial {
         // Advance from the initial state (e.g. draft → pending).
-        let to_state = find_next_transition(&current_state, &machine).ok_or_else(|| {
+        let target_id = parse_task_id(&task_id_str);
+        let task = loaded
+            .rhei
+            .tasks
+            .iter()
+            .find(|task| task.id == target_id)
+            .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+        let to_state = find_next_transition(task, &loaded.rhei, &machine)?.ok_or_else(|| {
             miette!("no forward transition available from state '{}'", current_state)
         })?;
         execute_transition(
-            &task_file,
+            TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
             &callback_paths,
             &machine,
             &task_id_str,
@@ -1142,7 +1612,7 @@ fn next_command(
         )?;
         to_state
     } else {
-        current_state.clone()
+        current_state.to_string()
     };
 
     // Re-load to get the updated task for output.
@@ -1156,14 +1626,21 @@ fn next_command(
         .ok_or_else(|| miette!("task '{}' not found after transition", task_id_str))?;
 
     let instructions = state_instructions(&machine, &final_state);
-    let personality = machine.personality.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let personality = machine
+        .states
+        .get(final_state.as_str())
+        .and_then(|def| def.personality.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| machine.personality.as_deref().map(str::trim).filter(|s| !s.is_empty()));
     print_next_output(as_json, task, &current_state, &final_state, personality, &instructions);
 
     Ok(())
 }
 
 /// Execute the `complete` subcommand: transition a task to a terminal state,
-/// remove its assignee, and optionally append a result message.
+/// write the result to `runtime/results/<task-id>.md`, link it from the task
+/// body, and remove the assignee.
 ///
 /// The target terminal state is chosen automatically: the first non-cancelled
 /// terminal state reachable from the task's current state via a declared
@@ -1172,7 +1649,7 @@ fn complete_command(
     input: &Path,
     state_machine_path: Option<&Path>,
     task_id_str: &str,
-    result_msg: Option<&str>,
+    result_msg: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let machine = load_state_machine(state_machine_path)?;
@@ -1216,8 +1693,13 @@ fn complete_command(
 
     // Execute the state transition (compare-and-swap, callbacks, atomic write).
     let task_file = loaded.task_file(task_id_str, input);
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
     execute_transition(
-        &task_file,
+        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
         &callback_paths,
         &machine,
         task_id_str,
@@ -1226,13 +1708,25 @@ fn complete_command(
         no_callbacks,
     )?;
 
-    // Post-transition: remove assignee and append result.
-    rewrite_task_completion(&task_file, task_id_str, result_msg)?;
+    // Append the completion entry to the result file.
+    let root = result_workspace_root(input, &task_file);
+    let result_link = format!("runtime/results/{}.md", task_id_str);
+    let result_file_existed = root.join(&result_link).exists();
+    append_result_entry(&root, task_id_str, current_state, &to_state, Some(result_msg))?;
 
-    println!("Task {} completed: '{}' → '{}'", task_id_str, current_state, to_state);
-    if let Some(msg) = result_msg {
-        println!("Result: {}", msg);
-    }
+    // Post-transition: remove assignee and link the result file (first time only).
+    rewrite_task_completion(
+        &task_file,
+        task_id_str,
+        task_id_str,
+        &result_link,
+        !result_file_existed,
+    )?;
+
+    println!(
+        "Task {} completed: '{}' → '{}' ({})",
+        task_id_str, current_state, to_state, result_link
+    );
 
     Ok(())
 }
@@ -1256,6 +1750,9 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
 
     for file in reset_target_files(&loaded, input) {
         reset_plan_file_states(&file, &initial_state)?;
+    }
+    if workspace::is_workspace(input) {
+        clear_runtime_metadata_in_file(&input.join("index.rhei.md"), true)?;
     }
 
     let mut removed_runtime = false;
@@ -1323,6 +1820,52 @@ fn reset_plan_file_states(path: &Path, initial_state: &str) -> MietteResult<()> 
     let raw = fs::read_to_string(path)
         .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
     let new_raw = rewrite_all_states_to_initial(&raw, initial_state)?;
+    let new_raw = match rhei_core::parse(&new_raw) {
+        Ok(rhei) => {
+            if let Some(metadata) = clear_runtime_state_iterations(rhei.metadata.as_ref()) {
+                rewrite_frontmatter(&new_raw, &metadata)?
+            } else {
+                new_raw
+            }
+        }
+        Err(_) => new_raw,
+    };
+
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|err| miette!("failed to create temp file: {err}"))?;
+    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
+    tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+
+    let _ = file.unlock();
+    Ok(())
+}
+
+fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteResult<()> {
+    let file = fs::File::open(path)
+        .map_err(|err| file_io_report(path, "failed to open plan file", err))?;
+    file.lock_exclusive()
+        .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
+
+    let raw = fs::read_to_string(path)
+        .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
+    let metadata = if workspace_index {
+        rhei_core::parser::parse_workspace_index(&raw)
+            .map_err(|err| {
+                miette!("failed to parse workspace index for metadata reset: {}", err.message)
+            })?
+            .metadata
+    } else {
+        rhei_core::parse(&raw)
+            .map_err(|err| miette!("failed to parse plan for metadata reset: {}", err.message))?
+            .metadata
+    };
+
+    let new_raw = if let Some(metadata) = clear_runtime_state_iterations(metadata.as_ref()) {
+        rewrite_frontmatter(&raw, &metadata)?
+    } else {
+        raw
+    };
 
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
@@ -1381,25 +1924,19 @@ fn rewrite_all_states_to_initial(raw: &str, initial_state: &str) -> MietteResult
 
 /// Find a terminal (non-cancelled) state reachable in one transition.
 ///
-/// Prefers exact `from` matches over wildcards, and prefers non-cancelled
-/// terminal states over `cancelled`.
+/// Prefers exact `from` matches over wildcards. Cancellation is not considered
+/// a completion target for `rhei complete`.
 fn find_completion_state(
     current_state: &str,
     machine: &rhei_validator::StateMachine,
 ) -> Option<String> {
-    let mut cancelled_fallback: Option<String> = None;
-
     // Exact from-state matches first.
     for rule in machine.transitions() {
         if rule.from.0 == current_state {
             let is_terminal =
                 machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
-            if is_terminal {
-                if rule.to.0 == "cancelled" {
-                    cancelled_fallback.get_or_insert_with(|| rule.to.0.clone());
-                } else {
-                    return Some(rule.to.0.clone());
-                }
+            if is_terminal && rule.to.0 != "cancelled" {
+                return Some(rule.to.0.clone());
             }
         }
     }
@@ -1409,28 +1946,70 @@ fn find_completion_state(
         if rule.from.0 == "*" {
             let is_terminal =
                 machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
-            if is_terminal {
-                if rule.to.0 == "cancelled" {
-                    cancelled_fallback.get_or_insert_with(|| rule.to.0.clone());
-                } else {
-                    return Some(rule.to.0.clone());
-                }
+            if is_terminal && rule.to.0 != "cancelled" {
+                return Some(rule.to.0.clone());
             }
         }
     }
 
-    cancelled_fallback
+    None
 }
 
-/// Rewrite a task's markdown after completion: remove `**Assignee:**` and
-/// optionally append a `> **Result:** <msg>` block to the task body.
+/// Resolve the workspace root for result file placement.
+fn result_workspace_root(input: &Path, task_file: &Path) -> PathBuf {
+    if workspace::is_workspace(input) {
+        input.to_path_buf()
+    } else {
+        task_file.parent().unwrap_or(Path::new(".")).to_path_buf()
+    }
+}
+
+/// Append a state-transition entry to `runtime/results/<task-id>.md`.
+///
+/// Each entry is a markdown heading (`## from → to`) optionally followed by
+/// a message body.  The file is created (with directories) on the first call.
+fn append_result_entry(
+    workspace_root: &Path,
+    task_id: &str,
+    from: &str,
+    to: &str,
+    message: Option<&str>,
+) -> MietteResult<()> {
+    let results_dir = workspace_root.join("runtime").join("results");
+    fs::create_dir_all(&results_dir)
+        .map_err(|err| miette!("failed to create runtime/results directory: {err}"))?;
+    let result_file = results_dir.join(format!("{}.md", task_id));
+
+    use std::fs::OpenOptions;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&result_file)
+        .map_err(|err| miette!("failed to open result file: {err}"))?;
+
+    writeln!(file, "## {} \u{2192} {}", from, to)
+        .map_err(|err| miette!("failed to write result entry: {err}"))?;
+    if let Some(msg) = message {
+        writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
+        writeln!(file, "{}", msg).map_err(|err| miette!("failed to write result entry: {err}"))?;
+    }
+    writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
+
+    Ok(())
+}
+
+/// Rewrite a task's markdown after completion: remove `**Assignee:**` and,
+/// when `insert_link` is true, append a `> **Result:** [link_text](link_path)`
+/// line to the task body.
 ///
 /// Operates on raw text lines so the parser does not need to know about
 /// assignee or result fields.
 fn rewrite_task_completion(
     task_file: &Path,
     task_id: &str,
-    result_msg: Option<&str>,
+    link_text: &str,
+    link_path: &str,
+    insert_link: bool,
 ) -> MietteResult<()> {
     let raw = fs::read_to_string(task_file)
         .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
@@ -1440,20 +2019,19 @@ fn rewrite_task_completion(
     let task_prefix = format!("### Task {}:", task_id);
 
     let mut in_target_task = false;
-    let mut result_inserted = false;
+    let mut link_inserted = !insert_link; // skip insertion when not requested
+    let result_line = format!("> **Result:** [{}]({})", link_text, link_path);
 
     for line in &lines {
         let is_new_task = line.starts_with("### Task ") && !line.starts_with(&task_prefix);
         let is_subtask = line.starts_with("#### Subtask ");
 
         // When we hit a new structural element while still inside the target
-        // task, insert the result block before that element.
-        if in_target_task && !result_inserted && (is_new_task || is_subtask) {
-            if let Some(msg) = result_msg {
-                result_lines.push(String::new());
-                result_lines.push(format!("> **Result:** {}", msg));
-            }
-            result_inserted = true;
+        // task, insert the result link before that element.
+        if in_target_task && !link_inserted && (is_new_task || is_subtask) {
+            result_lines.push(String::new());
+            result_lines.push(result_line.clone());
+            link_inserted = true;
         }
 
         if line.starts_with("### Task ") {
@@ -1469,11 +2047,9 @@ fn rewrite_task_completion(
     }
 
     // If the target task is the last element in the file, append here.
-    if in_target_task && !result_inserted {
-        if let Some(msg) = result_msg {
-            result_lines.push(String::new());
-            result_lines.push(format!("> **Result:** {}", msg));
-        }
+    if in_target_task && !link_inserted {
+        result_lines.push(String::new());
+        result_lines.push(result_line);
     }
 
     let mut output = result_lines.join("\n");
@@ -2872,13 +3448,21 @@ mod tests {
 name: demo
 personality: You are an MIT professor.
 version: 1
+models:
+  - gpt-5
+  - claude-sonnet
 states:
   draft:
     description: planning
     instructions: Wait until author promotes task.
     initial: true
+    iterations: 3
+    all_models:
+      - gpt-5
+      - claude-sonnet
   done:
     description: finished
+    model: gpt-5
     final: true
 transitions:
   - from: draft
@@ -2890,9 +3474,13 @@ transitions:
 
         assert!(rendered.contains("State machine: demo"));
         assert!(rendered.contains("Personality: You are an MIT professor."));
+        assert!(rendered.contains("Models: gpt-5, claude-sonnet"));
         assert!(rendered.contains("draft [initial]"));
+        assert!(rendered.contains("Iterations: 3"));
+        assert!(rendered.contains("Models: gpt-5, claude-sonnet"));
         assert!(rendered.contains("Wait until author promotes task."));
         assert!(rendered.contains("done [final]"));
+        assert!(rendered.contains("Model: gpt-5"));
         assert!(rendered.contains("draft -> done (on_enter=cli:record_done)"));
     }
 
@@ -2902,9 +3490,14 @@ transitions:
 name: demo
 personality: You are an MIT professor.
 version: 1
+models:
+  - gpt-5
 states:
   draft:
     description: planning
+    iterations: 2
+    all_models:
+      - gpt-5
     initial: true
 transitions: []
 "#;
@@ -2914,6 +3507,9 @@ transitions: []
 
         assert_eq!(json["name"], "demo");
         assert_eq!(json["personality"], "You are an MIT professor.");
+        assert_eq!(json["models"], serde_json::json!(["gpt-5"]));
+        assert_eq!(json["states"][0]["iterations"], 2);
+        assert_eq!(json["states"][0]["all_models"], serde_json::json!(["gpt-5"]));
     }
 
     #[test]
@@ -3039,7 +3635,7 @@ transitions: []
             Commands::Complete { input, task, result, no_callbacks } => {
                 assert_eq!(input, PathBuf::from("plan.rhei.md"));
                 assert_eq!(task, "3");
-                assert_eq!(result.as_deref(), Some("All tests pass"));
+                assert_eq!(result, "All tests pass");
                 assert!(!no_callbacks);
             }
             other => panic!("expected complete command, got {other:?}"),
@@ -3047,26 +3643,17 @@ transitions: []
     }
 
     #[test]
-    fn parses_complete_command_without_result() {
-        let cli = Cli::try_parse_from([
+    fn parses_complete_command_requires_result() {
+        // --result is mandatory; omitting it should fail.
+        let err = Cli::try_parse_from([
             "rhei",
             "complete",
             "plan.rhei.md",
             "--task",
             "build",
             "--no-callbacks",
-        ])
-        .expect("cli should parse");
-
-        match cli.command {
-            Commands::Complete { input, task, result, no_callbacks } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
-                assert_eq!(task, "build");
-                assert!(result.is_none());
-                assert!(no_callbacks);
-            }
-            other => panic!("expected complete command, got {other:?}"),
-        }
+        ]);
+        assert!(err.is_err(), "complete without --result should fail");
     }
 
     #[test]
@@ -3102,7 +3689,7 @@ transitions:
     }
 
     #[test]
-    fn find_completion_state_falls_back_to_cancelled() {
+    fn find_completion_state_does_not_fall_back_to_cancelled() {
         let yaml = r#"
 name: test
 version: 1
@@ -3115,7 +3702,7 @@ transitions:
 "#;
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("load");
         let target = find_completion_state("active", &machine);
-        assert_eq!(target.as_deref(), Some("cancelled"));
+        assert!(target.is_none(), "complete should not treat cancellation as success");
     }
 
     #[test]
@@ -3140,7 +3727,7 @@ transitions:
     }
 
     #[test]
-    fn rewrite_task_completion_removes_assignee_and_appends_result() {
+    fn rewrite_task_completion_removes_assignee_and_appends_result_link() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");
         fs::write(
@@ -3157,33 +3744,34 @@ Some work description.
         )
         .expect("write");
 
-        rewrite_task_completion(&path, "1", Some("All tests pass")).expect("rewrite");
+        rewrite_task_completion(&path, "1", "1", "runtime/results/1.md", true).expect("rewrite");
 
         let content = fs::read_to_string(&path).expect("read");
         assert!(!content.contains("**Assignee:**"), "assignee should be removed");
-        assert!(content.contains("> **Result:** All tests pass"), "result should be appended");
+        assert!(
+            content.contains("> **Result:** [1](runtime/results/1.md)"),
+            "result link should be appended"
+        );
         // State line should remain
         assert!(content.contains("**State:** completed"));
     }
 
     #[test]
-    fn rewrite_task_completion_without_result_only_removes_assignee() {
+    fn rewrite_task_completion_without_assignee_still_appends_result_link() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");
         fs::write(
             &path,
             r#"### Task 1: Alpha
 **State:** completed
-**Assignee:** bot
 "#,
         )
         .expect("write");
 
-        rewrite_task_completion(&path, "1", None).expect("rewrite");
+        rewrite_task_completion(&path, "1", "1", "runtime/results/1.md", true).expect("rewrite");
 
         let content = fs::read_to_string(&path).expect("read");
-        assert!(!content.contains("**Assignee:**"));
-        assert!(!content.contains("**Result:**"));
+        assert!(content.contains("> **Result:** [1](runtime/results/1.md)"));
     }
 
     #[test]
@@ -3211,7 +3799,7 @@ Some work description.
     }
 
     #[test]
-    fn rewrite_task_completion_inserts_result_before_subtask() {
+    fn rewrite_task_completion_inserts_result_link_before_subtask() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");
         fs::write(
@@ -3227,10 +3815,11 @@ Body text.
         )
         .expect("write");
 
-        rewrite_task_completion(&path, "2", Some("Done")).expect("rewrite");
+        rewrite_task_completion(&path, "2", "2", "runtime/results/2.md", true).expect("rewrite");
 
         let content = fs::read_to_string(&path).expect("read");
-        let result_pos = content.find("> **Result:** Done").expect("result present");
+        let result_pos =
+            content.find("> **Result:** [2](runtime/results/2.md)").expect("result present");
         let subtask_pos = content.find("#### Subtask 2.1").expect("subtask present");
         assert!(result_pos < subtask_pos, "result should appear before subtask");
     }

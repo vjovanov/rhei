@@ -22,6 +22,9 @@ Produce a YAML state machine file that encodes a project's real workflow as Rhei
 ```yaml
 name: <project-derived-name>
 version: 1.0
+models:
+  - <model-name>
+  - <model-name>
 
 states:
   <state-name>:
@@ -30,6 +33,8 @@ states:
       <agent-facing guidance: what to do, when to transition out>
     initial: true   # exactly one
     final: true     # at least one
+    all_models: [<model-name>, ...]  # optional: run once for each listed declared model
+    model: <model-name> # optional: exactly one declared model may work this state
 
 transitions:
   - from: <source>
@@ -41,6 +46,10 @@ transitions:
     # condition: <expression>
     # timeout: <duration>
 ```
+
+If the machine declares `models`, each state may either omit model selectors,
+set `all_models: [<model-name>, ...]`, or set `model: <model-name>`. Never set
+both on the same state.
 
 ## Inputs
 

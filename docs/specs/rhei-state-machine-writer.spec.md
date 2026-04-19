@@ -6,7 +6,7 @@ For the YAML schema and transition callback system see the [Transitions Specific
 
 ## Purpose
 
-The default `rhei` state machine covers a generic agent workflow (draft, pending, in-progress, review, completed). Many projects need domain-specific workflows:
+The default `rhei` state machine covers a generic agent workflow (draft, pending, review, completed, with optional human review). Many projects need domain-specific workflows:
 
 - A compliance-heavy project may require multiple approval gates from distinct teams.
 - A data pipeline project may model stages like `ingesting`, `transforming`, `validating`, `published`.
@@ -62,6 +62,9 @@ The state machine writer produces a single YAML file conforming to the [YAML Sta
 ```yaml
 name: <project-derived-name>
 version: 1.0
+models:
+  - <model-name>
+  - <model-name>
 
 states:
   <state-name>:
@@ -70,6 +73,8 @@ states:
       <agent-facing guidance: what to do in this state, when to transition out>
     initial: true|false  # exactly one state must be initial
     final: true|false    # at least one state must be final
+    all_models: [<model-name>, ...] # optional: run once for each listed declared model
+    model: <model-name>    # optional: exactly one declared model may work this state
 
 transitions:
   - from: <source-state>
@@ -81,6 +86,14 @@ transitions:
     # condition: <expression>
     # timeout: <duration>
 ```
+
+When a machine declares `models`, each state may either:
+
+- omit model selectors entirely
+- set `all_models: [<model-name>, ...]`
+- set `model: <model-name>`
+
+It must not set both `all_models` and `model` on the same state.
 
 ## Design Rules
 

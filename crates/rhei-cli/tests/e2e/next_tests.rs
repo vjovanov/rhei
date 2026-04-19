@@ -15,8 +15,12 @@ fn drive_to_completion_via_next(plan_path: &std::path::Path, machine_path: &std:
         let json: serde_json::Value = serde_json::from_str(&next_result.stdout).expect("next JSON");
         let task_id = json["task_id"].as_str().expect("task_id field");
 
-        let complete_result =
-            run_cli("complete", plan_path, machine_path, &["--task", task_id, "--no-callbacks"]);
+        let complete_result = run_cli(
+            "complete",
+            plan_path,
+            machine_path,
+            &["--task", task_id, "--result", "done", "--no-callbacks"],
+        );
         assert_success(&complete_result);
     }
 }
@@ -140,16 +144,23 @@ fn next_respects_dependency_order() {
     assert_task_state(&plan_path, &machine_path, "2", "draft");
     assert_task_state(&plan_path, &machine_path, "3", "draft");
 
-    // Second next: Task 1 is pending (not terminal), Task 2 is still blocked.
-    // next finds Task 1 as ready but it's not initial, so it just reports it.
+    // Second next: Task 1 is already claimed and Task 2 is still blocked.
+    // Auto-pick mode should not collide with already-claimed work.
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
-    assert_success(&result);
-    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
-    assert_eq!(json["task_id"], "1", "should still report Task 1");
-    assert_eq!(json["state"], "pending", "Task 1 stays pending (non-initial, no auto-advance)");
+    assert!(!result.status.success(), "no new task should be claimable");
+    assert!(
+        result.stderr.contains("no tasks are ready"),
+        "expected 'no tasks are ready'; got:\n{}",
+        result.stderr
+    );
 
     // Complete Task 1 so Task 2 becomes ready.
-    let r = run_cli("complete", &plan_path, &machine_path, &["--task", "1", "--no-callbacks"]);
+    let r = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--task", "1", "--result", "done", "--no-callbacks"],
+    );
     assert_success(&r);
     assert_task_state(&plan_path, &machine_path, "1", "completed");
 
@@ -236,6 +247,88 @@ fn next_fails_when_all_completed() {
         result.stderr.contains("no tasks are ready"),
         "expected 'no tasks are ready'; got:\n{}",
         result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_does_not_allow_cancelled_prerequisite_to_unblock_dependents() {
+    let plan = r#"# Rhei: Cancelled Dependency
+
+## Tasks
+
+### Task 1: Abandoned
+**State:** cancelled
+
+### Task 2: Still blocked
+**State:** draft
+**Prior:** Task 1
+"#;
+
+    let (dir, plan_path, machine_path) = setup_single_file("next-cancelled-dep", plan);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(!result.status.success(), "cancelled prerequisite should keep Task 2 blocked");
+    assert!(
+        result.stderr.contains("no tasks are ready"),
+        "expected 'no tasks are ready'; got:\n{}",
+        result.stderr
+    );
+
+    let targeted = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "2"]);
+    assert!(!targeted.status.success(), "targeted next should still respect blocked prerequisites");
+    assert!(
+        targeted.stderr.contains("blocked by incomplete prerequisites"),
+        "expected blocked-prerequisite error; got:\n{}",
+        targeted.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn complete_fails_when_only_cancelled_terminal_is_available() {
+    let plan = r#"# Rhei: Cancel Is Not Complete
+
+## Tasks
+
+### Task 1: Work item
+**State:** active
+"#;
+    let machine = r#"name: cancelled-only
+version: 1
+states:
+  active:
+    description: Working
+  cancelled:
+    description: Abandoned
+    final: true
+transitions:
+  - from: active
+    to: cancelled
+"#;
+
+    let dir = unique_temp_dir("complete-no-cancel");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--task", "1", "--result", "done", "--no-callbacks"],
+    );
+    assert!(!result.status.success(), "complete should fail instead of cancelling");
+    assert!(
+        result.stderr.contains("no transition to a terminal state available"),
+        "expected missing-completion-target error; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "active");
+    assert!(
+        !dir.join("runtime/results/1.md").exists(),
+        "result file should not be written on failure"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

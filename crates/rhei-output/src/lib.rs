@@ -131,6 +131,7 @@ fn rhei_json(rhei: &Rhei) -> Value {
     json!({
         "title": rhei.title,
         "states": rhei.states,
+        "metadata": rhei.metadata.as_ref().and_then(|metadata| serde_json::to_value(metadata).ok()),
         "content_sections": content_sections,
         "tasks": tasks
     })
@@ -283,12 +284,21 @@ impl ProgressReportOutput {
         out.push_str(&rhei.title);
         out.push('\n');
 
-        // Overview: first content section title if any
-        let first_line = rhei.content_sections.first().map(|s| s.title.as_str());
-        if let Some(line) = first_line {
-            out.push_str("Overview: ");
-            out.push_str(line);
-            out.push('\n');
+        // Context sections: emit the full content so the progress view is a
+        // meaningful navigation surface.  Each section is rendered as a titled
+        // block with content lines indented by two spaces; blank separator lines
+        // inside the content are collapsed so the report stays compact.
+        for section in &rhei.content_sections {
+            out.push_str(&section.title);
+            out.push_str(":\n");
+            for line in section.content.lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    out.push_str("  ");
+                    out.push_str(trimmed);
+                    out.push('\n');
+                }
+            }
         }
 
         // Tasks
@@ -693,5 +703,44 @@ Line 2
         let s = to_progress_report(&rhei);
 
         assert!(s.contains("[IN PROGRESS]"));
+    }
+
+    #[test]
+    fn progress_report_includes_full_content_sections() {
+        let input = r#"# Rhei: Context
+
+## Overview
+
+This is the rollout summary.
+With a second line of context.
+
+## Success Metrics
+
+- Activation improves by 8%.
+- DAU/MAU ratio rises above 0.4.
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let rhei = parse(input).expect("parse ok");
+        let gen = ProgressReportOutput { color: false, show_dependencies: true };
+        let s = gen.to_string(&rhei);
+
+        // Section titles appear as block headers
+        assert!(s.contains("Overview:\n"));
+        assert!(s.contains("Success Metrics:\n"));
+
+        // Full content is indented — not truncated to first line
+        assert!(s.contains("  This is the rollout summary."));
+        assert!(s.contains("  With a second line of context."));
+        assert!(s.contains("  - Activation improves by 8%."));
+        assert!(s.contains("  - DAU/MAU ratio rises above 0.4."));
+
+        // Old inline "Title: first-line" format must not appear
+        assert!(!s.contains("Overview: This is the rollout summary."));
+        assert!(!s.contains("Success Metrics: - Activation"));
     }
 }

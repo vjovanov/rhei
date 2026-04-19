@@ -80,6 +80,7 @@ impl Validate for () {
 pub enum StateMachineLoadError {
     Io(std::io::Error),
     Yaml(serde_yaml::Error),
+    Invalid(String),
 }
 
 impl std::fmt::Display for StateMachineLoadError {
@@ -87,6 +88,9 @@ impl std::fmt::Display for StateMachineLoadError {
         match self {
             StateMachineLoadError::Io(e) => write!(f, "I/O error: {e}"),
             StateMachineLoadError::Yaml(e) => write!(f, "YAML error: {e}"),
+            StateMachineLoadError::Invalid(message) => {
+                write!(f, "invalid state machine: {message}")
+            }
         }
     }
 }
@@ -113,12 +117,23 @@ pub struct StateDef {
     /// Optional agent-facing instructions for what to do while a task is in this state.
     #[serde(default)]
     pub instructions: Option<String>,
+    /// Optional persona that overrides the machine-level personality for this state.
+    #[serde(default)]
+    pub personality: Option<String>,
     /// Marks this state as the initial state in the state machine.
     #[serde(default)]
     pub initial: bool,
     /// Marks this state as a final/terminal state in the state machine.
     #[serde(default, rename = "final")]
     pub terminal: bool,
+    /// Optional loop budget for re-entering this state.
+    pub iterations: Option<u32>,
+    /// Explicit list of declared models that should each execute this state.
+    #[serde(default)]
+    pub all_models: Vec<String>,
+    /// Restricts this state to one declared model.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// States data loaded from YAML.
@@ -129,6 +144,9 @@ pub struct StateDef {
 pub struct StateMachine {
     /// Human-readable states definition name.
     pub name: String,
+    /// Optional declared model identifiers available to states in this machine.
+    #[serde(default)]
+    pub models: Vec<String>,
     /// Optional persona/instructions that should frame how an agent approaches tasks.
     #[serde(default)]
     pub personality: Option<String>,
@@ -153,6 +171,7 @@ impl StateMachine {
     /// Load a StateMachine from YAML string contents.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
         let sm: Self = serde_yaml::from_str(yaml)?;
+        sm.validate_model_configuration()?;
         Ok(sm)
     }
 
@@ -175,6 +194,84 @@ impl StateMachine {
     /// Return the declared transitions between states.
     pub fn transitions(&self) -> &[TransitionRule] {
         &self.transitions
+    }
+
+    fn validate_model_configuration(&self) -> Result<(), StateMachineLoadError> {
+        let mut seen = HashSet::new();
+        for model in &self.models {
+            let trimmed = model.trim();
+            if trimmed.is_empty() {
+                return Err(StateMachineLoadError::Invalid(
+                    "top-level 'models' entries must be non-empty strings".to_string(),
+                ));
+            }
+            if !seen.insert(trimmed) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "top-level 'models' contains duplicate entry '{trimmed}'"
+                )));
+            }
+        }
+
+        for (state_name, state) in &self.states {
+            if !state.all_models.is_empty() && state.model.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot set both 'all_models' and 'model'"
+                )));
+            }
+
+            if state.iterations == Some(0) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares 'iterations: 0' but iterations must be at least 1"
+                )));
+            }
+
+            if !state.all_models.is_empty() && self.models.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' sets 'all_models' but the machine does not declare any top-level 'models'"
+                )));
+            }
+
+            let mut state_seen = HashSet::new();
+            for model in &state.all_models {
+                let trimmed = model.trim();
+                if trimmed.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' contains an empty 'all_models' entry"
+                    )));
+                }
+                if !state_seen.insert(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' contains duplicate 'all_models' entry '{trimmed}'"
+                    )));
+                }
+                if !seen.contains(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' references unknown model '{trimmed}' in 'all_models'"
+                    )));
+                }
+            }
+
+            if let Some(model) = state.model.as_deref() {
+                let trimmed = model.trim();
+                if trimmed.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares an empty 'model' value"
+                    )));
+                }
+                if self.models.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' sets 'model: {trimmed}' but the machine does not declare any top-level 'models'"
+                    )));
+                }
+                if !seen.contains(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' references unknown model '{trimmed}'"
+                    )));
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -506,6 +603,106 @@ states:
   completed: { description: "done" }
 "#;
         StateMachine::from_yaml_str(yaml).expect("states load")
+    }
+
+    #[test]
+    fn loads_state_machine_with_models_and_state_selectors() {
+        let yaml = r#"
+name: multi-model
+version: 1.0
+models:
+  - gpt-5
+  - claude-sonnet
+states:
+  draft:
+    description: planned
+    iterations: 2
+    all_models:
+      - gpt-5
+      - claude-sonnet
+  review:
+    description: reviewed
+    model: claude-sonnet
+"#;
+
+        let machine = StateMachine::from_yaml_str(yaml).expect("states load");
+        assert_eq!(machine.models, vec!["gpt-5", "claude-sonnet"]);
+        assert_eq!(machine.states["draft"].iterations, Some(2));
+        assert_eq!(machine.states["draft"].all_models, vec!["gpt-5", "claude-sonnet"]);
+        assert_eq!(machine.states["review"].model.as_deref(), Some("claude-sonnet"));
+    }
+
+    #[test]
+    fn rejects_state_machine_with_unknown_state_model() {
+        let yaml = r#"
+name: multi-model
+version: 1.0
+models:
+  - gpt-5
+states:
+  draft:
+    description: planned
+    model: claude-sonnet
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject unknown model");
+        assert!(err.to_string().contains("references unknown model 'claude-sonnet'"));
+    }
+
+    #[test]
+    fn rejects_state_machine_with_conflicting_state_model_selectors() {
+        let yaml = r#"
+name: multi-model
+version: 1.0
+models:
+  - gpt-5
+states:
+  draft:
+    description: planned
+    all_models:
+      - gpt-5
+    model: gpt-5
+"#;
+
+        let err =
+            StateMachine::from_yaml_str(yaml).expect_err("should reject conflicting selectors");
+        assert!(err.to_string().contains("cannot set both 'all_models' and 'model'"));
+    }
+
+    #[test]
+    fn rejects_state_machine_with_unknown_all_models_entry() {
+        let yaml = r#"
+name: multi-model
+version: 1.0
+models:
+  - gpt-5
+states:
+  draft:
+    description: planned
+    all_models:
+      - claude-sonnet
+"#;
+
+        let err =
+            StateMachine::from_yaml_str(yaml).expect_err("should reject unknown all_models entry");
+        assert!(err
+            .to_string()
+            .contains("references unknown model 'claude-sonnet' in 'all_models'"));
+    }
+
+    #[test]
+    fn rejects_state_machine_with_zero_iterations() {
+        let yaml = r#"
+name: multi-model
+version: 1.0
+states:
+  draft:
+    description: planned
+    iterations: 0
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject zero iterations");
+        assert!(err.to_string().contains("iterations: 0"));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 # between them. The CLI can print this machine with `rhei states`.
 
 name: task-states
-version: 1.0
+version: 2.0
 
 states:
   draft:
@@ -16,16 +16,12 @@ states:
     initial: true
 
   pending:
-    description: Task is ready to start once its prerequisites are completed.
+    description: Task is ready for implementation. An **Assignee** on a pending task means work is actively in progress.
     instructions: |
-      Pick up when all **Prior:** tasks are `completed`.
-      Transition to `in-progress` before writing code.
-
-  in-progress:
-    description: Task is actively being implemented.
-    instructions: |
-      Implement the task and its subtasks, logging progress per subtask.
-      When implementation is complete and self-tested, transition to `agent-review`.
+      Pick up when all **Prior:** tasks are `completed`. Implement the task and
+      its subtasks, logging progress per subtask. When implementation is
+      complete and self-tested, either run `rhei complete` to finish directly
+      or transition to `agent-review` when a separate review pass is required.
 
   agent-review:
     description: A separate reviewing agent inspects the result.
@@ -69,14 +65,12 @@ transitions:
   - from: draft
     to: cancelled
   - from: pending
-    to: in-progress
-  - from: pending
-    to: cancelled
-  - from: in-progress
     to: agent-review
-  - from: in-progress
+  - from: pending
     to: human-review
-  - from: in-progress
+  - from: pending
+    to: completed
+  - from: pending
     to: cancelled
   - from: agent-review
     to: agent-review-fix
@@ -89,7 +83,7 @@ transitions:
   - from: agent-review-fix
     to: cancelled
   - from: human-review
-    to: in-progress
+    to: pending
   - from: human-review
     to: completed
   - from: human-review

@@ -199,6 +199,8 @@ metadata:
   tasks:
     1:
       retryCount: 2
+      stateIterations:
+        agent-review: 1
       lastAttempt: "2024-01-15T10:30:00Z"
       assignee: "alice"
     3:
@@ -217,6 +219,15 @@ metadata:
 The YAML frontmatter between `---` markers contains:
 - `metadata.tasks.<id>` - Custom metadata for each task, keyed by task ID
 - Any key-value pairs needed by callbacks or conditions (e.g., `retryCount`, `priority`)
+- `metadata.tasks.<id>.stateIterations.<state-name>` - Runtime-maintained counted-loop counters for states that declare an `iterations` limit
+
+### Counted Loop Metadata
+
+When a state declares `iterations: <n>`, the engine tracks the current per-task loop count in:
+
+- `metadata.tasks.<id>.stateIterations.<state-name>`
+
+These counters are maintained by the runtime rather than authored manually in normal workflows. The first arrival into a state does not consume the loop budget. The counter increments when a task re-enters that same state through a declared loop-back transition.
 
 ### Metadata Access in Callbacks
 
@@ -235,6 +246,12 @@ rhei.onLeave('retrying', 'processing', (ctx: TransitionContext) => {
   return { success: true };
 });
 ```
+
+For counted loops, runtimes should additionally expose:
+
+- `ctx.task.metadata.stateIterations` for the persisted per-state counters
+- `ctx.task.metadata.iterationCount` as the active state's current loop count
+- `ctx.state.iterations` as the active state's configured loop budget
 
 ---
 
@@ -319,6 +336,7 @@ This section defines the formal structure of YAML state machine configuration fi
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier for the state machine |
+| `models` | string array | No | Declared model identifiers available to states in this machine |
 | `personality` | string | No | Optional agent persona or framing text printed alongside the next claimed task |
 | `version` | string | Yes | Semantic version of the state machine definition |
 | `states` | object | Yes | Map of state names to state definitions |
@@ -336,15 +354,87 @@ Each state is defined as a key-value pair in the `states` object:
 states:
   <state-name>:
     description: <string>   # Required: Human-readable description of the state
+    instructions: <string>  # Optional: Agent-facing instructions for work in this state
     initial: <boolean>      # Optional: true if this is the starting state (exactly one required)
     final: <boolean>        # Optional: true if this is a terminal state (no outgoing transitions)
+    iterations: <integer>   # Optional: maximum number of loop-back re-entries permitted for this state
+    all_models: [<string>]  # Optional: list of declared models; run this state once per listed model
+    model: <string>         # Optional: one declared model allowed for this state
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `description` | string | Yes | Human-readable explanation of what this state represents |
+| `instructions` | string | No | Agent-facing guidance for work in this state |
 | `initial` | boolean | No | Marks this as the starting state. Exactly one state must have `initial: true` |
 | `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
+| `iterations` | integer | No | Maximum number of loop-back re-entries permitted for this state before the loop budget is exhausted |
+| `all_models` | string array | No | Explicit list of declared model identifiers; the state runs once for each listed model |
+| `model` | string | No | Restricts the state to one model declared in the machine-level `models` list |
+
+Model selection rules:
+- The machine-level `models` list is optional. When omitted, states are not model-constrained.
+- A state may set `all_models: [<name>, ...]` or `model: <name>`, but not both.
+- `model` must reference a value declared in the machine-level `models` list.
+- `all_models`, when present, must be a non-empty list of unique values declared in the machine-level `models` list.
+- A state with `all_models` is executed once per listed model.
+- `iterations` may be combined with either `all_models` or `model`.
+- `iterations`, when present, must be an integer greater than or equal to `1`.
+
+### Counted Loops
+
+`iterations` is a state-level loop budget. It is used when a workflow intentionally cycles through the same state multiple times before taking a non-loop exit.
+
+Rules:
+
+- `iterations` applies to re-entries into that state through a declared loop-back transition.
+- The initial entry into a state does not increment the counter.
+- Each loop-back re-entry increments `metadata.tasks.<id>.stateIterations.<state-name>` by `1`.
+- When evaluating transitions from a counted-loop state, runtimes should expose:
+  - `iterationCount`: the current value of `metadata.tasks.<id>.stateIterations.<state-name>`
+  - `iterations`: the configured state-level loop budget
+- Once `iterationCount >= iterations`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
+- When a state also declares `all_models`, iteration accounting is scoped to each model-specific execution of that state.
+
+Example:
+
+```yaml
+states:
+  agent-review:
+    description: Review the implementation
+    instructions: |
+      Review the implementation. If changes are needed and loop budget remains,
+      transition to `agent-review-fix`. If the loop budget is exhausted,
+      transition to `human-review`.
+    iterations: 3
+
+  agent-review-fix:
+    description: Apply reviewer findings
+    instructions: |
+      Address reviewer findings only, then transition back to `agent-review`.
+
+  human-review:
+    description: Human escalation after repeated review/fix cycles
+
+transitions:
+  - from: pending
+    to: agent-review
+    description: Submit implementation for review
+
+  - from: agent-review
+    to: agent-review-fix
+    description: Review requested changes while loop budget remains
+    condition: iterationCount < iterations
+
+  - from: agent-review
+    to: human-review
+    description: Escalate after the counted review/fix loop is exhausted
+    condition: iterationCount >= iterations
+
+  - from: agent-review-fix
+    to: agent-review
+    description: Re-submit after fixes; increments the `agent-review` iteration counter
+```
 
 ### Transition Definition
 

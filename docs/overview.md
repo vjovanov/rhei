@@ -1,6 +1,6 @@
 # Rhei Overview
 
-Rhei is a structured markdown plan compiler for hierarchical task management. It enables parsing, validation, and rendering of saga-based workflow documents with support for formal state transitions.
+Rhei is a structured markdown plan system for hierarchical task management. It enables parsing, validation, execution, and rendering of Rhei plans with support for formal state transitions.
 
 ## Purpose
 
@@ -25,19 +25,19 @@ cargo build -p rhei-cli --release
 Validate a plan file:
 
 ```bash
-rhei-cli validate path/to/plan.saga.md
+rhei validate path/to/plan.rhei.md
 ```
 
 Watch for changes:
 
 ```bash
-rhei-cli validate --watch path/to/plan.saga.md
+rhei validate --watch path/to/plan.rhei.md
 ```
 
 Render a plan as JSON for other tools:
 
 ```bash
-rhei-cli render path/to/plan.saga.md --format json --pretty
+rhei render path/to/plan.rhei.md --format json --pretty
 ```
 
 See the [README](../README.md) for complete CLI options.
@@ -46,11 +46,11 @@ See the [README](../README.md) for complete CLI options.
 
 ## Core Concepts
 
-### Sagas
+### Plans
 
-A **saga** is a structured markdown document representing a project or workflow. Each saga contains:
+A **Rhei plan** is a structured markdown document representing a project or workflow. Each plan contains:
 
-- A title (`# Saga: <title>`)
+- A title (`# Rhei: <title>`)
 - Optional content sections (overview, requirements, etc.)
 - A `## Tasks` section with hierarchical task definitions
 
@@ -67,7 +67,7 @@ A **saga** is a structured markdown document representing a project or workflow.
 
 ### States and Transitions
 
-Tasks progress through defined **states** (e.g., `pending` → `in-progress` → `completed`). The state machine can be:
+Tasks progress through defined **states** (for example `draft` → `pending` → `agent-review` → `completed`). The state machine can be:
 
 - Simple: A flat list of valid states for validation
 - Formal: Full transition rules with callbacks for automation
@@ -80,7 +80,7 @@ Tasks progress through defined **states** (e.g., `pending` → `in-progress` →
 
 | Document | Description |
 |----------|-------------|
-| [Plan Language Specification](plan-language-spec.md) | Formal EBNF grammar, token types, and semantic constraints for saga documents |
+| [Plan Language Specification](rhei.spec.md) | Formal EBNF grammar, token types, and semantic constraints for Rhei plan documents |
 | [States Specification](states-spec.md) | Basic states configuration format |
 | [Formal State Transitions](formal-state-transitions.md) | Advanced state machine with transitions, callbacks, and multi-platform integration |
 
@@ -88,18 +88,18 @@ Tasks progress through defined **states** (e.g., `pending` → `in-progress` →
 
 | File | Description |
 |------|-------------|
-| [states.yaml](states.yaml) | Default states definition used for validation |
-| [markdown-plan-compiler.md](markdown-plan-compiler.md) | The compiler implementation saga (also serves as an example) |
+| [states.yaml](specs/states.yaml) | Default states definition used for validation |
+| [release-automation.rhei.md](../examples/release-automation.rhei.md) | A checked-in example plan |
 
 ### Examples
 
-The [`examples/`](../examples/) directory contains working saga documents:
+The [`examples/`](../examples/) directory contains working plan documents:
 
 | Example | Features Demonstrated |
 |---------|----------------------|
-| [`release-automation.saga.md`](../examples/release-automation.saga.md) | Mixed task IDs, dependencies, code blocks |
-| [`human-review-loop.saga.md`](../examples/human-review-loop.saga.md) | Review states, dependency chains |
-| [`escaped-state-values.saga.md`](../examples/escaped-state-values.saga.md) | States with spaces, custom states files |
+| [`release-automation.rhei.md`](../examples/release-automation.rhei.md) | Mixed task IDs, dependencies, code blocks |
+| [`human-review-loop.rhei.md`](../examples/human-review-loop.rhei.md) | Review states, dependency chains |
+| [`escaped-state-values.rhei.md`](../examples/escaped-state-values.rhei.md) | States with spaces, custom states files |
 
 See [`examples/README.md`](../examples/README.md) for verification commands.
 
@@ -193,7 +193,7 @@ See [Formal State Transitions](formal-state-transitions.md) for:
 
 ### File Extensions
 
-- `.saga.md` — Saga plan documents
+- `.rhei.md` — Rhei plan documents
 - `.yaml` — States and state machine definitions
 
 ### State Values
