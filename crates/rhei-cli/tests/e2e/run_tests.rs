@@ -11,6 +11,21 @@ fn run_single_file_linear_to_completion() {
 
     assert_all_tasks_in_state(&plan_path, &machine_path, "completed");
     assert!(
+        result.stdout.contains("Running plan 'Linear Chain' with 3 task(s)"),
+        "expected run header; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Pass 1: 1 ready, 0 terminal, 3 total."),
+        "expected pass summary; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Final states: completed=3"),
+        "expected final state summary; got:\n{}",
+        result.stdout
+    );
+    assert!(
         result.stdout.contains("6 transition(s) made"),
         "expected 6 transitions (2 per task); got:\n{}",
         result.stdout
@@ -170,6 +185,11 @@ fn run_living_review_loop_fixture_to_completion() {
     assert_success(&result);
 
     assert_all_tasks_in_state(&workspace_path, &machine_path, "completed");
+    assert!(
+        result.stdout.contains("Workspace expanded: discovered 3 new task(s)"),
+        "expected dynamic workspace expansion output; got:\n{}",
+        result.stdout
+    );
     assert!(
         result.stdout.contains("6/6 tasks in terminal state"),
         "expected dynamically expanded tasks to complete; got:\n{}",

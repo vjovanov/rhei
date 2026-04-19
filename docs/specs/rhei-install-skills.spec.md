@@ -1,6 +1,6 @@
 # `rhei install-skills`
 
-Install rhei skills (plan-writer, plan-worker) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
+Install rhei skills (plan-writer, plan-worker, state-machine-writer) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
 
 ## Usage
 
@@ -87,14 +87,14 @@ alwaysApply: false
 
 **Note:** Copilot's instruction file has no skill/trigger system — the content is injected as system context. Skills are presented as "when the user asks to create/execute a Rhei plan, follow these instructions."
 
-### Cline (`kilocode`)
+### Kilocode (`kilocode`)
 
 | Mode | Skill files |
 |------|-------------|
 | Global | `~/.kilocode/rules/rhei-<skill>.md` |
 | Local | `.kilocode/rules/rhei-<skill>.md` (project root) |
 
-**Format:** Plain markdown with Cline's frontmatter if supported, otherwise raw content.
+**Format:** Plain markdown with Kilocode's frontmatter if supported, otherwise raw content.
 
 ### Pi (`pi`)
 
@@ -109,12 +109,12 @@ alwaysApply: false
 
 | Mode | Skill files | Registration |
 |------|-------------|--------------|
-| Global | `~/.codex/instructions/rhei-<skill>.md` | `~/.codex/instructions.md` |
-| Local | `.codex/instructions/rhei-<skill>.md` | `.codex/instructions.md` (project root) |
+| Global | `~/.agents/skills/rhei-<skill>/SKILL.md` | None |
+| Local | `.agents/skills/rhei-<skill>/SKILL.md` (project root) | None |
 
-**Format:** Plain markdown appended between `<!-- rhei:start -->` / `<!-- rhei:end -->` markers.
+**Format:** A standard Codex skill directory containing `SKILL.md` and any optional supporting files (`scripts/`, `references/`, `assets/`, `agents/`).
 
-**Note:** Codex has no skill/trigger system — the content is injected as system context. Skills are presented as "when the user asks to create/execute a Rhei plan, follow these instructions."
+**Note:** Codex discovers skills by scanning `.agents/skills` from the current working directory up to the repository root, plus `$HOME/.agents/skills` for user-level skills. No registration or marker injection file is needed. Custom spawned agents are configured separately under `.codex/agents/*.toml` or `~/.codex/agents/*.toml`; they inherit the parent session's available skills unless `skills.config` is explicitly overridden.
 
 ### Google Antigravity (`antigravity`)
 
@@ -133,15 +133,15 @@ With `--local`, skills are installed into the current project directory instead 
 
 Local installation is useful for:
 
-- Sharing skills with collaborators via version control (with `--copy`).
+- Sharing skills with collaborators via version control (the default copies files).
 - Scoping skills to a specific project without polluting the global config.
 - Overriding global skills with project-specific versions.
 
-When `--local` is combined with `--link`, the symlinks use relative paths so the project stays portable. Files installed with `--local` should be added to `.gitignore` unless `--copy` is used and the intent is to commit them.
+When `--local` is combined with `--link`, the symlinks use relative paths so the project stays portable. Files installed with `--local` and `--link` should be added to `.gitignore` unless the intent is to commit them.
 
 ### Detect installed skills
 
-Before writing, check if rhei skills are already installed for the target agent. If so, print "already installed" and skip. Combine with `--copy` or `--link` to force an update.
+Before writing, remove or replace any existing rhei skill files for the target agent and install the requested set again. Re-running `install-skills` refreshes previously installed skills in place instead of skipping.
 
 ### Resolve skill source
 
@@ -149,7 +149,7 @@ The command finds skill files relative to the `rhei` binary (e.g., `../share/rhe
 
 ### Symlink vs copy
 
-Default is `--copy`, which copies the skill files into the target directory. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
+The default behavior copies skill files into the target directory. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
 
 ### Registration
 
@@ -194,9 +194,8 @@ pi:
   ✓ ~/.pi/rules/rhei-plan-worker.md — written
 
 codex:
-  ✓ ~/.codex/instructions/rhei-plan-writer.md — written
-  ✓ ~/.codex/instructions/rhei-plan-worker.md — written
-  ✓ ~/.codex/instructions.md — appended rhei section
+  ✓ ~/.agents/skills/rhei-plan-writer — copied
+  ✓ ~/.agents/skills/rhei-plan-worker — copied
 
 antigravity:
   ✓ ~/.antigravity/rules/rhei-plan-writer.md — written

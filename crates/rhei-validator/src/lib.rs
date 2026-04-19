@@ -15,9 +15,9 @@ use indexmap::IndexMap;
 use regex::Regex;
 pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
 use rhei_core::ast::{Rhei, Task, TaskId};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Component, Path};
 
 /// Returns the crate version reported by Cargo metadata.
 pub fn version() -> String {
@@ -110,6 +110,18 @@ impl From<serde_yaml::Error> for StateMachineLoadError {
 }
 
 /// One entry from the `states` map in a YAML states file.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StateArtifactDef {
+    /// Stable identifier for the artifact within a state.
+    pub name: String,
+    /// Workspace-relative artifact path template.
+    pub path: String,
+    /// Optional human-readable description of the artifact.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// One entry from the `states` map in a YAML states file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateDef {
     /// Optional descriptive text; the current schema intentionally keeps this permissive.
@@ -117,7 +129,7 @@ pub struct StateDef {
     /// Optional agent-facing instructions for what to do while a task is in this state.
     #[serde(default)]
     pub instructions: Option<String>,
-    /// Optional persona that overrides the machine-level personality for this state.
+    /// Optional persona/instructions that frame how an agent approaches tasks in this state.
     #[serde(default)]
     pub personality: Option<String>,
     /// Marks this state as the initial state in the state machine.
@@ -126,14 +138,20 @@ pub struct StateDef {
     /// Marks this state as a final/terminal state in the state machine.
     #[serde(default, rename = "final")]
     pub terminal: bool,
-    /// Optional loop budget for re-entering this state.
-    pub iterations: Option<u32>,
+    /// Optional visit budget for returning to this state.
+    pub visits: Option<u32>,
     /// Explicit list of declared models that should each execute this state.
     #[serde(default)]
     pub all_models: Vec<String>,
     /// Restricts this state to one declared model.
     #[serde(default)]
     pub model: Option<String>,
+    /// Required artifacts that must exist before work can proceed in this state.
+    #[serde(default)]
+    pub inputs: Vec<StateArtifactDef>,
+    /// Required artifacts that must exist before leaving this state.
+    #[serde(default)]
+    pub outputs: Vec<StateArtifactDef>,
 }
 
 /// States data loaded from YAML.
@@ -147,9 +165,6 @@ pub struct StateMachine {
     /// Optional declared model identifiers available to states in this machine.
     #[serde(default)]
     pub models: Vec<String>,
-    /// Optional persona/instructions that should frame how an agent approaches tasks.
-    #[serde(default)]
-    pub personality: Option<String>,
     /// YAML version field as provided by the source file.
     pub version: serde_yaml::Value,
     /// Allowed states keyed by their exact textual names, preserving YAML order.
@@ -219,11 +234,14 @@ impl StateMachine {
                 )));
             }
 
-            if state.iterations == Some(0) {
+            if state.visits == Some(0) {
                 return Err(StateMachineLoadError::Invalid(format!(
-                    "state '{state_name}' declares 'iterations: 0' but iterations must be at least 1"
+                    "state '{state_name}' declares 'visits: 0' but visits must be at least 1"
                 )));
             }
+
+            validate_artifact_definitions(state_name, "inputs", &state.inputs)?;
+            validate_artifact_definitions(state_name, "outputs", &state.outputs)?;
 
             if !state.all_models.is_empty() && self.models.is_empty() {
                 return Err(StateMachineLoadError::Invalid(format!(
@@ -273,6 +291,98 @@ impl StateMachine {
 
         Ok(())
     }
+}
+
+fn validate_artifact_definitions(
+    state_name: &str,
+    field_name: &str,
+    artifacts: &[StateArtifactDef],
+) -> Result<(), StateMachineLoadError> {
+    let mut seen_names = HashSet::new();
+
+    for artifact in artifacts {
+        let name = artifact.name.trim();
+        if name.is_empty() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' contains an artifact in '{field_name}' with an empty 'name'"
+            )));
+        }
+        if !seen_names.insert(name) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' contains duplicate artifact name '{name}' in '{field_name}'"
+            )));
+        }
+
+        let path = artifact.path.trim();
+        if path.is_empty() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' artifact '{name}' in '{field_name}' has an empty 'path'"
+            )));
+        }
+        if Path::new(path).is_absolute() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' artifact '{name}' in '{field_name}' must use a relative path, got '{path}'"
+            )));
+        }
+        if path_escapes_workspace_root(path) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' artifact '{name}' in '{field_name}' escapes the workspace root via path '{path}'"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn path_escapes_workspace_root(path: &str) -> bool {
+    let expanded = path.replace("{task_id}", "task").replace("{state}", "state");
+    let mut depth = 0usize;
+
+    for component in Path::new(&expanded).components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => return true,
+            Component::ParentDir => {
+                if depth == 0 {
+                    return true;
+                }
+                depth -= 1;
+            }
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+        }
+    }
+
+    false
+}
+
+/// Parsed task-state value from markdown, optionally carrying an explicit visit suffix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedTaskState {
+    /// Canonical state name defined in the state machine.
+    pub state: String,
+    /// Explicit visit count encoded in markdown as `<state>-<n>`.
+    pub visit: Option<u32>,
+}
+
+/// Parse a markdown task-state value against a state machine.
+///
+/// Exact state names take precedence. If the raw value is not an exact state
+/// match, Rhei interprets a trailing `-<n>` suffix as a counted-loop visit when
+/// the prefix is a valid state name.
+pub fn parse_task_state(raw: &str, machine: &StateMachine) -> ParsedTaskState {
+    if machine.is_valid_state(raw) {
+        return ParsedTaskState { state: raw.to_string(), visit: None };
+    }
+
+    if let Some((base, visit_text)) = raw.rsplit_once('-') {
+        if let Ok(visit) = visit_text.parse::<u32>() {
+            if machine.is_valid_state(base) {
+                return ParsedTaskState { state: base.to_string(), visit: Some(visit) };
+            }
+        }
+    }
+
+    ParsedTaskState { state: raw.to_string(), visit: None }
 }
 
 // ========================================
@@ -372,13 +482,7 @@ fn validate_dependency_integrity(
 
 fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
     for task in &rhei.tasks {
-        if !machine.is_valid_state(&task.state) {
-            let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
-            report.errors.push(format!(
-                "Task {} has invalid state '{}'. Allowed: [{}]",
-                task.id, task.state, allowed
-            ));
-        }
+        validate_task_state_instance(&format!("Task {}", task.id), &task.state, machine, report);
     }
 }
 
@@ -389,14 +493,57 @@ fn validate_subtask_state_consistency(
 ) {
     for task in &rhei.tasks {
         for st in &task.subtasks {
-            if !machine.is_valid_state(&st.state) {
-                let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
-                report.errors.push(format!(
-                    "Subtask {}.{} ('{}') has invalid state '{}'. Allowed: [{}]",
-                    st.task_number, st.subtask_number, st.title, st.state, allowed
-                ));
-            }
+            validate_task_state_instance(
+                &format!("Subtask {}.{} ('{}')", st.task_number, st.subtask_number, st.title),
+                &st.state,
+                machine,
+                report,
+            );
         }
+    }
+}
+
+fn validate_task_state_instance(
+    subject: &str,
+    raw_state: &str,
+    machine: &StateMachine,
+    report: &mut ValidationReport,
+) {
+    let parsed = parse_task_state(raw_state, machine);
+    if !machine.is_valid_state(&parsed.state) {
+        let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
+        report
+            .errors
+            .push(format!("{} has invalid state '{}'. Allowed: [{}]", subject, raw_state, allowed));
+        return;
+    }
+
+    let Some(visit) = parsed.visit else {
+        return;
+    };
+
+    if visit <= 1 {
+        report.errors.push(format!(
+            "{} has invalid counted state '{}'. Visit suffix '-1' is not allowed; omit the suffix for the first visit.",
+            subject, raw_state
+        ));
+        return;
+    }
+
+    let state_def = &machine.states[&parsed.state];
+    let Some(limit) = state_def.visits else {
+        report.errors.push(format!(
+            "{} has invalid counted state '{}'. State '{}' does not declare 'visits'.",
+            subject, raw_state, parsed.state
+        ));
+        return;
+    };
+
+    if visit > limit {
+        report.errors.push(format!(
+            "{} has invalid counted state '{}'. Visit {} exceeds the declared limit {} for state '{}'.",
+            subject, raw_state, visit, limit, parsed.state
+        ));
     }
 }
 
@@ -595,7 +742,6 @@ mod tests {
     fn sample_machine() -> StateMachine {
         let yaml = r#"
 name: test-sm
-personality: You are a careful systems engineer.
 version: 1.0
 states:
   pending: { description: "not started" }
@@ -616,7 +762,7 @@ models:
 states:
   draft:
     description: planned
-    iterations: 2
+    visits: 2
     all_models:
       - gpt-5
       - claude-sonnet
@@ -627,7 +773,7 @@ states:
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
         assert_eq!(machine.models, vec!["gpt-5", "claude-sonnet"]);
-        assert_eq!(machine.states["draft"].iterations, Some(2));
+        assert_eq!(machine.states["draft"].visits, Some(2));
         assert_eq!(machine.states["draft"].all_models, vec!["gpt-5", "claude-sonnet"]);
         assert_eq!(machine.states["review"].model.as_deref(), Some("claude-sonnet"));
     }
@@ -691,18 +837,95 @@ states:
     }
 
     #[test]
-    fn rejects_state_machine_with_zero_iterations() {
+    fn rejects_state_machine_with_zero_visits() {
         let yaml = r#"
 name: multi-model
 version: 1.0
 states:
   draft:
     description: planned
-    iterations: 0
+    visits: 0
 "#;
 
-        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject zero iterations");
-        assert!(err.to_string().contains("iterations: 0"));
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject zero visits");
+        assert!(err.to_string().contains("visits: 0"));
+    }
+
+    #[test]
+    fn loads_state_machine_with_artifact_contracts() {
+        let yaml = r#"
+name: artifacts
+version: 1.0
+states:
+  review:
+    description: review work
+    inputs:
+      - name: implementation
+        path: runtime/results/{task_id}.md
+        format: markdown
+    outputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+        description: Review findings
+"#;
+
+        let machine = StateMachine::from_yaml_str(yaml).expect("states load");
+        assert_eq!(machine.states["review"].inputs.len(), 1);
+        assert_eq!(machine.states["review"].outputs.len(), 1);
+        assert_eq!(machine.states["review"].outputs[0].name, "findings");
+    }
+
+    #[test]
+    fn rejects_duplicate_artifact_names_in_same_state_field() {
+        let yaml = r#"
+name: artifacts
+version: 1.0
+states:
+  review:
+    description: review work
+    outputs:
+      - name: findings
+        path: runtime/findings/a.md
+      - name: findings
+        path: runtime/findings/b.md
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject duplicate names");
+        assert!(err.to_string().contains("duplicate artifact name 'findings'"));
+    }
+
+    #[test]
+    fn rejects_absolute_artifact_paths() {
+        let yaml = r#"
+name: artifacts
+version: 1.0
+states:
+  review:
+    description: review work
+    outputs:
+      - name: findings
+        path: /tmp/findings.md
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject absolute path");
+        assert!(err.to_string().contains("must use a relative path"));
+    }
+
+    #[test]
+    fn rejects_artifact_paths_that_escape_workspace_root() {
+        let yaml = r#"
+name: artifacts
+version: 1.0
+states:
+  review:
+    description: review work
+    outputs:
+      - name: findings
+        path: ../../outside.md
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject escaping path");
+        assert!(err.to_string().contains("escapes the workspace root"));
     }
 
     #[test]
@@ -756,6 +979,81 @@ states:
         let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
+    }
+
+    #[test]
+    fn accepts_counted_state_suffix_within_budget() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending-2
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let machine = StateMachine::from_yaml_str(
+            r#"
+name: example
+version: 1.0
+states:
+  pending:
+    description: queued
+    visits: 3
+"#,
+        )
+        .expect("states load");
+
+        let report = validate_with_machine(&rhei, &machine);
+        assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
+    }
+
+    #[test]
+    fn rejects_counted_state_suffix_of_one() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending-1
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let machine = StateMachine::from_yaml_str(
+            r#"
+name: example
+version: 1.0
+states:
+  pending:
+    description: queued
+    visits: 3
+"#,
+        )
+        .expect("states load");
+
+        let report = validate_with_machine(&rhei, &machine);
+        assert!(report.has_errors(), "expected counted suffix validation error");
+        assert!(
+            report.errors.iter().any(|err| err.contains("Visit suffix '-1' is not allowed")),
+            "unexpected errors: {:?}",
+            report.errors
+        );
+    }
+
+    #[test]
+    fn rejects_counted_state_suffix_when_state_has_no_visits() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending-2
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let machine = sample_machine();
+
+        let report = validate_with_machine(&rhei, &machine);
+        assert!(report.has_errors(), "expected counted suffix validation error");
+        assert!(
+            report.errors.iter().any(|err| err.contains("does not declare 'visits'")),
+            "unexpected errors: {:?}",
+            report.errors
+        );
     }
 
     #[test]

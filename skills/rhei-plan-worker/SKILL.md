@@ -131,8 +131,8 @@ When stopping, print a short summary: which tasks advanced, which task is blocke
 
 "Unorchestrated" means **no** external process tells the worker what to do next. Consequences:
 
-- The worker reads the plan on every iteration; treat the markdown file as the single source of truth.
-- Do not cache state across iterations beyond the current conversation.
+- The worker reads the plan on every pass; treat the markdown file as the single source of truth.
+- Do not cache state across passes beyond the current conversation.
 - Multiple workers can safely operate on the same plan. The `rhei transition` command's compare-and-swap semantics prevent two workers from claiming the same task — the loser gets a conflict error and re-selects.
 - Do not batch multiple task transitions into one command — one task, one transition, then re-read.
 

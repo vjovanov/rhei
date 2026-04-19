@@ -44,6 +44,13 @@ This directory contains example inputs for the current markdown plan compiler im
   - orchestrator callbacks that append new workspace task files during `rhei run`
   - a shared findings artifact followed by verification and selective fix tasks
 
+- `review-fix-visits/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/`
+  - `states.yaml`
+  - counted `review` and `fix` states with two total passes each
+  - one review artifact file and one fix artifact updated across the loop
+
 - `states-with-spaces.yaml`
   Companion states file for `escaped-state-values.rhei.md`.
 
@@ -58,6 +65,7 @@ cargo run -p rhei-cli -- validate examples/pm-onboarding-experiment.rhei.md
 cargo run -p rhei-cli -- --state-machine examples/states-with-spaces.yaml validate examples/escaped-state-values.rhei.md
 cargo run -p rhei-cli -- --state-machine examples/claude-code/states.yaml validate examples/claude-code/plan.rhei.md
 cargo run -p rhei-cli -- --state-machine examples/living-review-loop/team-states.yaml validate examples/living-review-loop
+cargo run -p rhei-cli -- --state-machine examples/review-fix-visits/states.yaml validate examples/review-fix-visits
 ```
 
 Render an example as JSON:

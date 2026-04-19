@@ -62,29 +62,40 @@ The state machine writer produces a single YAML file conforming to the [YAML Sta
 ```yaml
 name: <project-derived-name>
 version: 1.0
-models:
+personality: <optional agent persona or role framing text>
+models:                              # optional: declare model identifiers
   - <model-name>
   - <model-name>
 
 states:
   <state-name>:
-    description: <what this state means in the project context>
-    instructions: |
+    description: <what this state means in the project context>     # required
+    instructions: |                                                 # optional
       <agent-facing guidance: what to do in this state, when to transition out>
+    personality: <optional state-specific role framing override>
     initial: true|false  # exactly one state must be initial
     final: true|false    # at least one state must be final
+    gating: true|false   # optional: if true, no autonomous exit allowed
+    visits: <integer>    # optional: max counted visits for loop states
     all_models: [<model-name>, ...] # optional: run once for each listed declared model
     model: <model-name>    # optional: exactly one declared model may work this state
 
 transitions:
   - from: <source-state>
     to: <target-state>
-    description: <when and why this transition occurs>
+    description: <when and why this transition occurs>              # required
     # Optional callback fields when automation is needed:
     # on_leave: <callback-name>
     # on_enter: <callback-name>
     # condition: <expression>
     # timeout: <duration>
+
+# Optional: platform-specific callback mappings
+# callbacks:
+#   cli:
+#     <callback-name>: <implementation-path>
+#   nodejs:
+#     <callback-name>: <implementation-path>
 ```
 
 When a machine declares `models`, each state may either:
@@ -136,6 +147,8 @@ The state machine writer follows these rules when designing a state machine:
 2. **State when to transition out.** Every non-terminal state's instructions must describe the exit condition: "transition to X when Y is true."
 
 3. **Reference concrete artifacts.** Don't write "review the work." Write "review the implementation against the task description and subtasks. Check that tests pass and lint is clean."
+
+4. **Use template variables instead of placeholders.** When instructions reference task-specific data, use resolved template variables (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`) instead of prose placeholders like `<id>`. When a state declares artifact contracts, reference them by name (`{input.<name>.path}`, `{output.<name>.path}`) instead of repeating raw paths. See the [States Specification](rhei-states.spec.md#template-variables-in-instructions-and-personality) for the full variable namespace.
 
 ## Workflow
 

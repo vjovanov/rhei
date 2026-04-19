@@ -63,7 +63,9 @@ other tasks depend on — they must not declare subtasks.
 
 Subtasks belong to the task with the matching first number. They track
 fine-grained progress inside a larger task but do not carry their own
-`**State:**` metadata.
+`**State:**` metadata — their status is tracked by the agent writing
+progress logs in the subtask body. It is the agent's responsibility to
+address all subtasks before calling `rhei complete` on the parent task.
 
 ```markdown
 ### Task 2: Implement login flow
@@ -221,7 +223,7 @@ Rhei: <title>
   …
 * Task <id>: <title>  [STATE]
   - Prior: Task <id>, …          (omitted when empty)
-  - <id>.<sub>: <subtask title>  [STATE]
+  - <id>.<sub>: <subtask title>
   …
 ```
 

@@ -48,6 +48,9 @@ rhei validate plan.rhei.md
 ```
 
 The CLI checks syntax, state validity, dependency integrity, and that the dependency graph has no cycles.
+When the active state machine declares artifact contracts, runtime commands also
+enforce required state inputs and outputs as described in the states and
+transitions specifications.
 
 ### 3. Have an agent execute it
 
@@ -136,7 +139,7 @@ workspace_task_file = [ { blank_line } ], task, { task } ;
 (* ============================================== *)
 
 (* YAML frontmatter stores custom task metadata such as retryCount,
-   stateIterations, priority, assignee, etc. It appears between two `---` fences and
+   stateVisits, priority, assignee, etc. It appears between two `---` fences and
    is parsed as YAML, not Markdown. See the Transitions Specification
    for the metadata access contract. *)
 frontmatter     = "---", NEWLINE,
@@ -192,11 +195,12 @@ task_ref_list   = task_ref, { ", ", task_ref } ;
 
 task_ref        = "Task ", task_id ;
 
-(* The backtick form is required when the state value contains
+(* The backtick form is required when the rendered state value contains
    whitespace; it is also accepted (but not required) for single-word
-   values. *)
-state_value     = IDENTIFIER                           (* single word: pending *)
-                | "`", IDENTIFIER, { " ", IDENTIFIER }, "`" ;  (* escaped: `in progress` *)
+   values. Counted-loop states may append `-<n>` to the rendered value to
+   make later visits visible in markdown. The `-1` suffix is omitted. *)
+state_value     = IDENTIFIER, [ "-", NUMBER ]                    (* pending, review-2 *)
+                | "`", IDENTIFIER, { " ", IDENTIFIER }, [ "-", NUMBER ], "`" ;  (* `in progress`, `in progress-2` *)
 
 
 (* ============================================== *)
@@ -250,6 +254,19 @@ All task references in `**Prior:**` fields must resolve to existing tasks in the
 ### 2. State Validity
 
 All state values must be defined in the associated states configuration. The states definition is loaded from an external YAML file.
+
+When a state machine state declares `visits: <n>`, the authored markdown may
+encode later counted visits directly in `**State:**` using a `-<visit>` suffix:
+
+```markdown
+**State:** review      ← first visit (implicit)
+**State:** review-2    ← second visit
+**State:** `human review-3`  ← third visit for a spaced state name
+```
+
+The canonical state machine state is the unsuffixed base name (`review`,
+`human review`). The suffix is only valid for states that declare `visits`, must
+be greater than `1`, and must not exceed the declared visit budget.
 
 ### 3. Acyclic Dependencies
 
@@ -324,6 +341,21 @@ A task in a terminal state (`completed` or `cancelled`) must have all its subtas
 
 This constraint is also enforced at runtime by `rhei complete`: the command refuses to transition a task to a terminal state while any of its subtasks remain non-terminal. Agents must explicitly advance or cancel all subtasks before completing the parent.
 
+### 8. State Artifact Contracts
+
+The active state machine may declare required file `inputs` and `outputs` for a
+state. These contracts are part of execution semantics, not markdown syntax:
+
+- Entering a state may require one or more input files to already exist.
+- Leaving a state may require one or more output files to have been written.
+- Artifact paths are resolved relative to the plan root (single-file plan) or
+  workspace root (directory workspace).
+
+Because artifact existence depends on runtime workspace state, this constraint
+is enforced by execution commands such as `rhei transition`, `rhei complete`,
+`rhei run`, and `rhei next`, rather than by pure syntax validation of markdown
+alone.
+
 ## Token Types
 
 For lexer implementation, the following token types are needed:
@@ -331,7 +363,7 @@ For lexer implementation, the following token types are needed:
 | Token | Pattern | Example |
 |-------|---------|---------|
 | `RheiHeader` | `# Rhei: .*` | `# Rhei: My Project` |
-| `MetadataStates` | `\*\*States:\*\* .*` | `**States:** task-states` |
+| `MetadataStates` | `\*\*States:\*\* .*` | `**States:** rhei` |
 | `TasksSection` | `^## Tasks\s*$` | `## Tasks` |
 | `SectionHeader` | `^## .+$` (matched only if `TasksSection` did not match) | `## Overview` |
 | `TaskHeader` | `### Task <id>: .*` | `### Task 1: Setup` |
@@ -387,6 +419,7 @@ The Rhei Plan language is **context-sensitive** because:
 1. Subtask numbers depend on their parent task context
 2. `Prior` references must resolve to existing task definitions
 3. State values depend on external states configuration
+4. State artifact contracts depend on external workspace files at execution time
 
 The language cannot be fully described by a context-free grammar alone; semantic analysis is required for complete validation.
 

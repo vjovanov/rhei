@@ -26,10 +26,9 @@ The plan writer does **not** execute tasks or advance states during implementati
 The plan worker picks up an existing plan and makes progress on it. It is driven entirely by the plan: the state machine defines what transitions are legal, `**Prior:**` edges define what is ready, and state instructions define what to do.
 
 Responsibilities:
-- Select the next eligible task (all priors completed, state is ready-to-start).
-- Transition the task into the work state (`draft` -> `pending`).
-- Implement the task and its subtasks, logging progress per subtask while it is `pending`.
-- Advance the state when exit conditions are met (`pending` -> `agent-review`) or finish directly with `rhei complete` when review is not required.
+- Claim the next eligible task via `rhei next` (all priors completed, unassigned, not terminal or gating, and all required current-state inputs present).
+- Work in the current state following the state's `instructions`.
+- Advance the state when exit conditions are met (e.g., `draft` → `pending`, `pending` → `agent-review`) or finish directly with `rhei complete` when review is not required.
 - Stop at gating states (`human-review`) and terminal states (`completed`, `cancelled`).
 
 The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. Its edits are limited to `**State:**` values and subtask progress logs.
@@ -38,7 +37,7 @@ The plan worker does **not** add tasks, reorder tasks, change dependencies, or d
 
 The reviewer inspects completed work before it advances to the next state. In the default Rhei state machine, this role appears in two forms:
 
-- **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, subtasks, and repository conventions (lint, format, tests). It records concrete findings in the task body and transitions to `agent-review-fix` (fail), `human-review` (needs human), or `completed` (pass).
+- **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, subtasks, and repository conventions (lint, format, tests). It records concrete findings in the task body or in a required findings artifact when the active state machine declares one, then transitions to `agent-review-fix` (fail), `human-review` (needs human), or `completed` (pass).
 
 - **Human reviewer** (`human-review`): A human inspects the work. No agent may transition out of this state autonomously. The human decides: return to `pending` (rework), `completed` (approve), or `cancelled` (abandon).
 
@@ -67,17 +66,20 @@ This means agents do not need to communicate with each other directly. They comm
 
 ```
 draft --> pending --> agent-review --> completed
-  |         |            |               ^
-  v         |            v               |
-cancelled   |       agent-review-fix ----+
-            |            |
-            v            v
+  |         |  \          |               ^
+  v         |   +-------->+               |
+cancelled   |             v               |
+            |        agent-review-fix ----+
+            |             |
+            v             v
         human-review   cancelled
             | 
             +--> pending
             +--> completed
             +--> cancelled
 ```
+
+The `pending → completed` direct transition allows agents to finish simple tasks that do not require a separate review pass.
 
 The `human-review` state is deliberately isolated: agents can send work into it (from `pending` or `agent-review`), but only a human can transition out of it. This separation ensures that human judgment gates are never bypassed by automated workflows.
 
@@ -136,10 +138,13 @@ Coordination happens through `rhei next`, `rhei transition`, and `rhei complete`
 # Inspect what is next without claiming (read-only, safe for PM browsing)
 rhei next --peek plan.rhei.md
 
-# Claim the next ready task (transitions it forward and prints instructions)
+# Claim the next ready task (assigns without transitioning, prints instructions)
 rhei next plan.rhei.md
 
 # ... agent does the work ...
+
+# Advance state when ready (e.g., draft → pending, or pending → agent-review)
+rhei transition plan.rhei.md --task 3 --from draft --to pending
 
 # Complete: transition to terminal state, write result file, release assignment
 rhei complete plan.rhei.md --task 3 --result "Schema migration applied successfully"
@@ -186,11 +191,12 @@ Meanwhile, agents continue working on other branches of the DAG that are not blo
 For exploratory or long-running projects, tasks start as `draft` — placeholder titles that are not yet ready for execution.
 
 1. Plan writer creates tasks in `draft` with rough titles but minimal descriptions.
-2. When all prior tasks are completed, the agent picks up the draft task, analyzes the current state of the project, and determines the most elegant approach.
-3. Based on that analysis, the agent writes a concrete description of what should be done and transitions `draft` -> `pending`.
-4. The worker picks up the now-pending task.
+2. When all prior tasks are completed, `rhei next` claims the draft task (sets `**Assignee:**` without changing its state).
+3. The agent works in `draft`: it analyzes the current state of the project, determines the most elegant approach, and writes a concrete task description.
+4. The agent transitions `draft` → `pending` via `rhei transition`.
+5. The agent continues working in `pending`, implementing the task per the now-concrete description.
 
-This prevents agents from planning against stale or incomplete project state. The `draft` state is a signal: "this task exists in the plan but needs analysis before it can be specified and executed."
+This prevents agents from planning against stale or incomplete project state. The `draft` state is a signal: "this task exists in the plan but needs analysis before it can be specified and executed." Because `rhei next` claims without transitioning, the agent has a dedicated phase to do the analysis work before advancing the state.
 
 ### Pattern 6: Programmatic State Transitions
 

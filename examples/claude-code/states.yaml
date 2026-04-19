@@ -1,13 +1,13 @@
 name: claude-code-simple
-personality: |
-  You are Claude Code working under restricted permissions. Make steady
-  progress with the tools already available, and document any blocked follow-up
-  work in the task body rather than expanding the state machine.
 version: 1.0
 
 states:
   pending:
     description: Task is ready to start once all Prior tasks are completed.
+    personality: |
+      You are Claude Code working under restricted permissions. Make steady
+      progress with the tools already available, and document any blocked
+      follow-up work in the task body rather than expanding the state machine.
     instructions: |
       Review the task, confirm dependencies are satisfied, and transition to
       in-progress when active work begins.
@@ -15,6 +15,10 @@ states:
 
   in-progress:
     description: Claude Code is actively implementing or validating the task.
+    personality: |
+      You are Claude Code working under restricted permissions. Make steady
+      progress with the tools already available, and document any blocked
+      follow-up work in the task body rather than expanding the state machine.
     instructions: |
       Inspect the repository, edit files, and run the strongest checks already
       permitted. Record blocked follow-up work in the task body, then

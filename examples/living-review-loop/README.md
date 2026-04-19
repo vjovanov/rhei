@@ -5,12 +5,12 @@ multi-model review pass before the orchestrator consolidates findings.
 
 The flow is:
 
-1. `review-seed` starts in the `reviewing` state, which declares
+1. `review-seed` starts in the `review` state, which declares
    `all_models: [claude, codex]`.
 2. The runtime calls `workflow.sh write-review` twice — once per model —
    with `RHEI_MODEL` set to `claude` and `codex` in turn.
 3. Each model writes its findings to `runtime/findings/<model>-findings.md`.
-4. Once all model callbacks complete, `review-seed` advances to `consolidating`.
+4. Once all model callbacks complete, `review-seed` advances to `consolidate`.
 5. The coordinator runs on `codex`, merges the per-model files into a single
    `runtime/findings/review-findings.md` and appends one verification task per
    consolidated review point.
@@ -23,7 +23,10 @@ The flow is:
 By default the example stays deterministic and writes canned findings so the
 checked-in tests do not depend on local model credentials. Set
 `RHEI_LIVING_REVIEW_MODE=live` to make `workflow.sh` dispatch to the local
-`claude` and `codex` CLIs instead.
+`claude` and `codex` CLIs instead. When you run a disposable copy in live mode,
+also set `RHEI_LIVING_REVIEW_SOURCE_ROOT` to the project root so the reviewers
+can still inspect the real repository after the example has been copied to a
+temporary directory.
 
 Validate the checked-in workspace from the repository root:
 
@@ -37,6 +40,17 @@ modifying the tracked example:
 ```bash
 tmp_dir="$(mktemp -d)"
 cp -R examples/living-review-loop "$tmp_dir/living-review-loop"
+cargo run -p rhei-cli -- --state-machine "$tmp_dir/living-review-loop/team-states.yaml" run "$tmp_dir/living-review-loop"
+```
+
+Run the same disposable copy with live `claude` and `codex` reviewers against
+the current repository:
+
+```bash
+tmp_dir="$(mktemp -d)"
+cp -R examples/living-review-loop "$tmp_dir/living-review-loop"
+RHEI_LIVING_REVIEW_MODE=live \
+RHEI_LIVING_REVIEW_SOURCE_ROOT="$PWD" \
 cargo run -p rhei-cli -- --state-machine "$tmp_dir/living-review-loop/team-states.yaml" run "$tmp_dir/living-review-loop"
 ```
 

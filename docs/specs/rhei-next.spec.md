@@ -16,36 +16,59 @@ rhei next <RHEI_PLAN> [--peek]
 
 ## Default Behavior (Claim Mode)
 
-Without `--peek`, `rhei next` atomically claims the next claimable task: it transitions the task forward from its ready-to-start state, prints the task instructions, and returns. This is the standard entry point for agents beginning work.
+Without `--peek`, `rhei next` atomically claims the next claimable task: it assigns the task to the current agent and prints the task instructions. The task's state is **not** advanced — the agent works in the current state and uses `rhei transition` or `rhei complete` to advance when ready. This is the standard entry point for agents beginning work.
 
 A task is *claimable* when:
 
 1. All tasks listed in its `**Prior:**` field are in terminal states (`completed` or `cancelled`).
-2. Its current state is the machine's initial state (e.g., `draft` or `pending`).
-3. No other agent has already claimed it (enforced via file lock and compare-and-swap).
+2. The task has no `**Assignee:**` field (not already claimed by another agent).
+3. Its current state is not terminal (`final: true`) and not gating (`gating: true`).
+4. All required `inputs` declared on the task's current state exist.
 
 ### Behavior
 
 1. Load the state machine and plan. Validate.
-2. Scan all tasks to find claimable candidates (criteria above).
-3. Select the first candidate in plan order.
-4. Acquire a file lock on the plan file.
-5. Re-read and re-validate the task's state under the lock (guards against concurrent claims).
-6. Transition the task to its first non-initial state (the first declared transition out of the initial state).
-7. Append a `## <from> → <to>` entry with no message body to `runtime/results/<task-id>.md`.
-8. Set `**Assignee:** <current-agent>` on the task.
-9. Write the task file atomically (temp file + rename), release lock.
-10. Print the task id, title, new state, and instructions to stdout.
+2. Scan all tasks in plan order. For each task that satisfies dependency,
+   assignee, and state eligibility, resolve the current state's required
+   `inputs`.
+3. If any required input file for the first otherwise-claimable task is
+   missing, stop immediately and fail with an explicit missing-artifact error.
+   Do not skip ahead to later tasks.
+4. Select the first candidate in plan order.
+5. Acquire a file lock on the plan file.
+6. Re-read and re-validate the task's claimability under the lock, including
+   re-checking required `inputs` (guards against concurrent claims and moved
+   files).
+7. Set `**Assignee:** <current-agent>` on the task.
+8. Write the task file atomically (temp file + rename), release lock.
+9. Resolve template variables in the state's `instructions` and `personality`
+   fields (see [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality)).
+10. Print the task id, title, current state, and resolved instructions to stdout.
 
 If no claimable task exists, print a status summary (see [No Tasks Ready](#no-tasks-ready)).
 
 ### Output (claim mode)
 
+Template variables in `instructions` and `personality` are resolved before output. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality) for the full variable namespace and resolution rules.
+
 ```text
 Task <ID>: <title>
-State: <new-state>
+State: <current-state>
 
-<instructions from state definition>
+<resolved instructions from state definition>
+```
+
+### Missing Artifact Error
+
+If the task that would otherwise be claimed is missing one or more required
+input artifacts for its current state, `rhei next` fails and prints an explicit
+error instead of silently skipping the task.
+
+Example:
+
+```text
+Error: Task review-cache-key cannot be claimed in state agent-review-fix.
+Missing required input artifact: findings (runtime/findings/review-cache-key.md)
 ```
 
 ## Peek Mode (`--peek`)
@@ -59,11 +82,15 @@ Peek mode does **not**:
 - Append to result files
 - Set or clear `**Assignee:**`
 
+Peek mode still resolves required `inputs` for the first otherwise-claimable
+task. If any are missing, `--peek` fails with the same missing-artifact error as
+claim mode.
+
 ### Output (peek mode)
 
 ```text
 Next: Task <ID>: <title>
-State: <current-state>  (would transition to: <next-state>)
+State: <current-state>
 ```
 
 If no claimable task exists, the same status summary is printed as in claim mode.
@@ -75,22 +102,22 @@ When no claimable task is found, `rhei next` (with or without `--peek`) prints o
 | Condition                                        | Message                                                                                    |
 |--------------------------------------------------|--------------------------------------------------------------------------------------------|
 | All tasks in terminal states                     | `Plan complete. All <N> tasks are in terminal states.`                                     |
-| One or more tasks in `human-review`              | `Blocked: <N> task(s) waiting on human review: Task <ID>, ...`                             |
+| One or more tasks in a gating state              | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...`                   |
 | All non-terminal tasks are claimed (in-flight)   | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>), ...` |
 
-These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan.
+These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan. Gating states are identified by the `gating: true` field in the state machine definition (e.g., `human-review` in the default machine). Custom machines may define additional gating states such as `security-review` or `legal-review`.
 
 ## Relationship to Other Commands
 
 | Command            | What it does                                                              |
 |--------------------|---------------------------------------------------------------------------|
-| `rhei next`        | Claims the next ready task; transitions it forward, prints instructions   |
-| `rhei next --peek` | Read-only: prints the next claimable task without transitioning it        |
+| `rhei next`        | Claims the next ready task (assigns without transitioning), prints instructions |
+| `rhei next --peek` | Read-only: prints the next claimable task without claiming it             |
 | `rhei transition`  | Atomically changes a task's state; appends entry to result file           |
 | `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns      |
 | `rhei reset`       | Returns all tasks to initial state, removes `runtime/`                    |
 
-The typical agent loop is: `next` (claim) → work → `complete` (finish, record result, release).
+The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 
 ## Related Specifications
 
