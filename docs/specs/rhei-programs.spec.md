@@ -451,7 +451,6 @@ states:
     description: Run linters and formatters
     program: "npm run lint"
     program_timeout: 5m
-    initial: true
 
   build:
     description: Build the project
@@ -571,7 +570,6 @@ states:
     description: Agent analyzes requirements and writes task description
     model: impl-fast
     agent: claude-code
-    initial: true
 
   pending:
     description: Agent implements the feature

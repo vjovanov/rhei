@@ -31,12 +31,7 @@ State transitions will be defined declaratively in YAML and executed through pla
 The `TransitionContext` is the core data structure passed to all transition callbacks. It provides complete context about the rhei, the transitioning task, and the execution environment.
 
 ```typescript
-/** A subtask within a task */
-interface Subtask {
-  id: string | number;
-  title: string;
-  content: string;
-}
+type TaskId = string | number;
 
 /**
  * Metadata associated with a task.
@@ -57,11 +52,13 @@ interface TaskMetadata {
 }
 
 /** A task being transitioned within the rhei */
-interface Task {
-  id: string | number;
+interface TaskNode {
+  id: TaskId;
   title: string;
+  kind: string;
   metadata: TaskMetadata;
-  subtasks: Subtask[];
+  content: string;
+  children: TaskNode[];
 }
 
 /** A required file artifact declared by the active state */
@@ -79,7 +76,6 @@ interface StateDefinition {
   description: string;
   instructions?: string;
   personality?: string;
-  initial?: boolean;
   final?: boolean;
   gating?: boolean;
   visits?: number;
@@ -92,7 +88,7 @@ interface Rhei {
   title: string;
   /** Path to the plan file */
   path: string;
-  tasks: Task[];
+  tasks: TaskNode[];
 }
 
 /** Details about the state transition being performed */
@@ -133,7 +129,7 @@ interface TransitionContext {
   rhei: Rhei;
 
   /** The specific task transitioning */
-  task: Task;
+  task: TaskNode;
 
   /** Active state definition for the task, including resolved artifact contracts */
   state: StateDefinition;
@@ -190,10 +186,19 @@ interface TransitionResult {
 ### Usage Example
 
 ```typescript
+function findTask(nodes: TaskNode[], id: string | number): TaskNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    const nested = findTask(node.children, id);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
 rhei.onLeave('pending', 'processing', async (ctx: TransitionContext): Promise<TransitionResult> => {
   // Check dependencies before allowing transition
   for (const depId of ctx.task.metadata.dependsOn) {
-    const depTask = ctx.rhei.tasks.find(t => t.id === depId);
+    const depTask = findTask(ctx.rhei.tasks, depId);
     if (depTask && depTask.metadata.state !== 'completed') {
       return { success: false, error: `Dependency ${depId} not completed` };
     }
@@ -454,6 +459,72 @@ The `timeout` field on the transition serves dual purpose: it marks the transiti
 
 See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling) for the full timeout configuration and behavior.
 
+### 7. Tooling-Unavailable Trigger (`triggeredBy: 'system'`)
+
+When `rhei run` is about to spawn an agent for a state that declares required
+MCP servers or skills (`optional: false`, the default), the engine first
+checks availability. If any required entry fails its availability check:
+
+1. The engine does not spawn the agent.
+2. It collects the ids of the failed required entries.
+3. It evaluates transitions from the current state whose `mcp_unavailable`
+   or `skill_unavailable` field matches. `true` matches any failure of that
+   kind; an explicit id list matches only when one of the listed ids failed.
+4. If a matching transition exists, it fires with `triggeredBy: 'system'`.
+5. The transition's `on_leave` and `on_enter` callbacks execute normally.
+6. If no matching transition exists, the task remains in its current state
+   and `rhei run` logs an error listing the unavailable ids.
+
+```yaml
+states:
+  agent-review:
+    description: Independent review with required tooling.
+    agent: codex
+    mcp_servers:
+      - id: postgres
+      - id: grafana
+        optional: true
+
+  tooling-missing:
+    gating: true
+    description: Required tooling is unavailable. Human must decide next step.
+
+transitions:
+  - from: agent-review
+    to: tooling-missing
+    description: A required MCP server was unavailable
+    mcp_unavailable: true
+    on_enter: "cli:bash ./workflow.sh notify-tooling-missing"
+
+  - from: tooling-missing
+    to: agent-review
+    description: Human confirmed tooling is back, retry review
+
+  - from: tooling-missing
+    to: cancelled
+    description: Human abandoned after persistent tooling failure
+```
+
+A transition may also target specific ids:
+
+```yaml
+transitions:
+  - from: deploy
+    to: blocked-on-cloud
+    description: Cloud MCP specifically is unavailable
+    mcp_unavailable: [cloud-provider]
+```
+
+The `transitionData` for tooling-triggered transitions includes
+`{ "unavailable": ["<id>", ...], "kind": "mcp" | "skill" }`. Optional
+(`optional: true`) entries never trigger these transitions — they are dropped
+with a warning regardless.
+
+See [Agents Specification — Missing Tooling](rhei-agents.spec.md#missing-tooling)
+for availability semantics and
+[States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills)
+for the per-state `mcp_servers` and `skills` fields.
+
 ---
 
 ## YAML State Machine Format Specification
@@ -481,7 +552,6 @@ states:
   <state-name>:
     description: <string>       # Required: Human-readable description of the state
     instructions: <string>      # Optional: Agent-facing instructions for work in this state
-    initial: <boolean>          # Optional: true if this is the starting state (exactly one required)
     final: <boolean>            # Optional: true if this is a terminal state (no outgoing transitions)
     gating: <boolean>           # Optional: true if no autonomous (agent/engine) transitions are allowed out
     visits: <integer>           # Optional: maximum number of visits permitted for this state
@@ -491,6 +561,8 @@ states:
     agent_timeout: <duration>   # Optional: max time an agent may work in this state (e.g., "30m")
     program: <string|object>    # Optional: deterministic program to execute (see Program States Specification)
     program_timeout: <duration> # Optional: max time a program may run in this state (e.g., "10m")
+    mcp_servers: [<string|object>]  # Optional: MCP servers attached to the agent for this state
+    skills: [<string|object>]       # Optional: agent skills enabled for this state
 ```
 
 | Field | Type | Required | Description |
@@ -498,7 +570,6 @@ states:
 | `description` | string | Yes | Human-readable explanation of what this state represents |
 | `instructions` | string | No | Agent-facing guidance for work in this state. Supports [template variables](rhei-states.spec.md#template-variables-in-instructions-and-personality) resolved by `rhei next` at output time. |
 | `personality` | string | No | Optional role framing printed alongside the next claimed task when this state is active. Supports [template variables](rhei-states.spec.md#template-variables-in-instructions-and-personality). |
-| `initial` | boolean | No | Marks this as the starting state. Exactly one state must have `initial: true` |
 | `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
 | `gating` | boolean | No | Marks this as a gating state. When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions (`rhei transition` with `triggeredBy: 'user'`) are allowed. |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the loop budget is exhausted |
@@ -510,6 +581,8 @@ states:
 | `program_timeout` | string | No | Maximum time a program may run in this state (e.g., `10m`, `1h`). Same timeout mechanism as `agent_timeout`. |
 | `inputs` | artifact array | No | Required file artifacts that must exist before entering or working this state |
 | `outputs` | artifact array | No | Required file artifacts that must exist before leaving this state |
+| `mcp_servers` | array | No | MCP server entries (ids or inline definitions) attached to the agent subprocess. Individual entries may be marked `optional: true`. Mutually exclusive with `gating: true` and `program:`. See [States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills). |
+| `skills` | array | No | Skill entries enabled for the agent in this state. Same shape and exclusions as `mcp_servers`. |
 
 Model selection rules:
 - The machine-level `models` list is optional. When omitted, states are not model-constrained.
@@ -618,6 +691,8 @@ transitions:
     condition: <expression> # Optional: Condition that must be true for system-triggered transitions
     timeout: <duration>     # Optional: Duration after which system triggers this transition
     exit_code: <int|array|"nonzero">  # Optional: Exit-code condition for program state transitions
+    mcp_unavailable: <bool|[<id>, ...]>    # Optional: Fires when a required MCP server is unavailable
+    skill_unavailable: <bool|[<id>, ...]>  # Optional: Fires when a required skill is unavailable
     max_retries: <integer>  # Optional: Maximum retry attempts for this transition
     retry_delay: <duration> # Optional: Delay between retry attempts
 ```
@@ -632,6 +707,8 @@ transitions:
 | `condition` | string | No | Expression evaluated for system-triggered transitions |
 | `timeout` | string | No | Duration (e.g., `24h`, `30m`) after which system triggers this transition |
 | `exit_code` | integer, integer array, or `"nonzero"` | No | Exit-code condition for transitions from program states. Only evaluated when a program exits without calling `rhei transition`. See [Program States Specification](rhei-programs.spec.md#exit-code-transitions). |
+| `mcp_unavailable` | boolean or string array | No | When `true`, fires when any required MCP server on the source state fails its availability check. When an array, fires only when one of the listed ids failed. Only valid on transitions from agent states. See [Tooling-Unavailable Trigger](#7-tooling-unavailable-trigger-triggeredby-system). |
+| `skill_unavailable` | boolean or string array | No | Same shape as `mcp_unavailable`, for skills. |
 | `max_retries` | integer | No | Maximum automatic retry attempts |
 | `retry_delay` | string | No | Delay between retries (e.g., `30s`, `5m`) |
 
@@ -723,6 +800,13 @@ error_handling:
 
 ## Examples
 
+> The examples in this section focus on state definitions, transitions, and
+> callback wiring. For readability they omit the top-level `profiles` and
+> `node_policy` blocks that a complete state machine YAML must declare. See
+> the [States Specification](rhei-states.spec.md#profiles) for the full
+> profile and node-policy model and the
+> [reference machine](states.yaml) for a complete example.
+
 ### Example 1: YAML State Machine Definition with Transitions
 
 This extends the existing [`states.yaml`](states.yaml) format to include formal transitions and callbacks:
@@ -735,7 +819,6 @@ version: 2.0
 states:
   draft:
     description: Task is being planned
-    initial: true
 
   pending:
     description: Task ready to start
@@ -837,7 +920,6 @@ version: 1.0
 states:
   pending:
     description: Task is waiting to be executed
-    initial: true
   running:
     description: Script execution in progress
   completed:
@@ -944,7 +1026,6 @@ version: 1.0
 
 states:
   idle:
-    initial: true
   processing:
     description: Async operation in progress
   awaiting-confirmation:
@@ -984,13 +1065,22 @@ const rhei = new Rhei({
   rheiPath: './my-workflow.rhei.md'
 });
 
+function findTask(nodes, id) {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    const nested = findTask(node.children, id);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
 // Register transition handlers
 rhei.onLeave('idle', 'processing', async (ctx: TransitionContext): Promise<TransitionResult> => {
   console.log(`Preparing task ${ctx.task.id} for processing...`);
 
   // Validate preconditions
   const allDepsComplete = ctx.task.metadata.dependsOn.every(depId => {
-    const dep = ctx.rhei.tasks.find(t => t.id === depId);
+    const dep = findTask(ctx.rhei.tasks, depId);
     return dep?.metadata.state === 'done';
   });
 
@@ -1054,7 +1144,6 @@ version: 1.0
 states:
   queued:
     description: Job is registered and waiting for processing
-    initial: true
   preprocessing:
     description: Data preparation phase
   training:
@@ -1206,7 +1295,6 @@ version: 1.0
 states:
   submitted:
     description: Workflow request received and awaiting validation
-    initial: true
   validating:
     description: Business rule validation
   approved:
@@ -1359,10 +1447,12 @@ Automated CI pipeline for feature branch validation and deployment.
 
 Run static analysis and linting on the feature branch.
 
-#### Subtask 1.1: Run linters
+#### Task 1.1: Run linters
+**State:** pending
 Execute ESLint, Prettier, and type checking.
 
-#### Subtask 1.2: Security scan
+#### Task 1.2: Security scan
+**State:** pending
 Run dependency vulnerability scanning.
 
 ### Task 2: Unit Tests
@@ -1371,10 +1461,12 @@ Run dependency vulnerability scanning.
 
 Execute unit test suite with coverage reporting.
 
-#### Subtask 2.1: Run test suite
+#### Task 2.1: Run test suite
+**State:** pending
 Execute all unit tests with Jest.
 
-#### Subtask 2.2: Generate coverage report
+#### Task 2.2: Generate coverage report
+**State:** pending
 Create coverage report and check thresholds.
 
 ### Task 3: Integration Tests
@@ -1383,10 +1475,12 @@ Create coverage report and check thresholds.
 
 Run integration tests against staging services.
 
-#### Subtask 3.1: Spin up test environment
+#### Task 3.1: Spin up test environment
+**State:** draft
 Deploy ephemeral test infrastructure.
 
-#### Subtask 3.2: Execute integration suite
+#### Task 3.2: Execute integration suite
+**State:** draft
 Run API and E2E integration tests.
 
 ### Task 4: Human Review
@@ -1395,7 +1489,8 @@ Run API and E2E integration tests.
 
 Code review by team member before merge.
 
-#### Subtask 4.1: Request review
+#### Task 4.1: Request review
+**State:** draft
 Assign reviewers and notify via Slack.
 
 ### Task 5: Deploy to Staging
@@ -1404,10 +1499,12 @@ Assign reviewers and notify via Slack.
 
 Deploy approved changes to staging environment.
 
-#### Subtask 5.1: Deploy artifacts
+#### Task 5.1: Deploy artifacts
+**State:** draft
 Push built artifacts to staging.
 
-#### Subtask 5.2: Smoke tests
+#### Task 5.2: Smoke tests
+**State:** draft
 Run smoke test suite against staging.
 ```
 
@@ -1425,7 +1522,6 @@ version: 1.0
 states:
   ready:
     description: Task is queued and waiting to start
-    initial: true
   processing:
     description: Main work phase
   retrying:
@@ -1584,7 +1680,6 @@ version: 1.0
 states:
   pending:
     description: Task is waiting to be picked up
-    initial: true
   active:
     description: Work in progress
   review:

@@ -10,7 +10,8 @@ Rhei can spawn coding agents directly from `rhei run`. Instead of requiring hand
 
 ## Agent Configuration
 
-Rhei settings separate **model identity** from **agent transport**:
+Rhei settings separate **model identity** from **agent transport** and
+**tooling**:
 
 - A **model profile** is the semantic identity used by state machines, callbacks,
   templates, logs, and multi-model execution.
@@ -18,9 +19,14 @@ Rhei settings separate **model identity** from **agent transport**:
   autonomous coding agent.
 - A model profile names the concrete provider/model pair and may define
   agent-specific launch overrides for autonomous execution.
+- An **MCP server profile** describes a Model Context Protocol server the agent
+  can connect to for tool access during a state.
+- A **skill profile** describes a reusable agent-side prompt/resource bundle
+  enabled for a state.
 
 This separation keeps callback-only workflows model-centric while still letting
-`rhei run` resolve the exact subprocess invocation when agent mode is enabled.
+`rhei run` resolve the exact subprocess invocation, tool surface, and skill
+bundle when agent mode is enabled.
 
 ### Global and Project Settings
 
@@ -38,18 +44,23 @@ key rather than replacing the whole file.
     "model": "impl-fast",
     "agent": null,
     "agent_timeout": "30m",
-    "program_timeout": "10m"
+    "program_timeout": "10m",
+    "mcp_servers": [],
+    "skills": []
   },
   "agents": {
     "claude-code": {
       "command": ["claude"],
       "prompt_flag": "-p",
       "model_flag": "--model",
+      "mcp_config_flag": "--mcp-config",
+      "skill_flag": "--skill",
       "stdin_prompt": false
     },
     "codex": {
       "command": ["codex", "exec", "--"],
       "model_flag": "--model",
+      "mcp_flag": "--mcp",
       "stdin_prompt": true
     }
   },
@@ -80,6 +91,24 @@ key rather than replacing the whole file.
         }
       }
     }
+  },
+  "mcp_servers": {
+    "linear": {
+      "command": ["npx", "-y", "@modelcontextprotocol/server-linear"],
+      "env": { "LINEAR_WORKSPACE": "${LINEAR_WORKSPACE}" }
+    },
+    "postgres": {
+      "command": ["mcp-postgres", "--readonly"],
+      "env": { "DATABASE_URL": "${DATABASE_URL}" }
+    },
+    "grafana": {
+      "url": "https://grafana.internal/mcp",
+      "transport": "sse"
+    }
+  },
+  "skills": {
+    "security-review": { "path": "~/.claude/skills/security-review" },
+    "test-authoring":  { "path": ".rhei/skills/test-authoring" }
   }
 }
 ```
@@ -92,6 +121,8 @@ key rather than replacing the whole file.
 | `agent` | string or object or null | No | Default agent transport id or inline custom agent profile |
 | `agent_timeout` | string or null | No | Default autonomous agent timeout |
 | `program_timeout` | string or null | No | Default program timeout |
+| `mcp_servers` | array | No | Default MCP server entries applied to every agent state. Entries are ids or inline definitions. See [MCP Servers](#mcp-servers). |
+| `skills` | array | No | Default skill entries applied to every agent state. Entries are ids or inline definitions. See [Skills](#skills). |
 
 #### `agents`
 
@@ -118,10 +149,45 @@ Each `models.<id>.agents.<agent-id>` binding has this shape:
 | `autonomous_args` | string array | No | Arguments preferred by `rhei run` when launching autonomously |
 | `timeout` | string | No | Timeout default specific to this model-agent binding |
 
+#### `mcp_servers`
+
+`mcp_servers` is a registry of named MCP server profiles keyed by server id.
+Entries describe how to launch or connect to a Model Context Protocol server
+so it can be attached to an agent subprocess.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string array | One of `command` / `url` | Command and arguments to launch a local MCP server |
+| `url` | string | One of `command` / `url` | URL of a remote MCP server. Requires `transport`. |
+| `transport` | string | No | Transport for remote servers. Supported values: `sse`, `websocket`. Ignored for `command`-based servers. |
+| `env` | object | No | Environment variables for the server process. Values may reference host environment with `${VAR}` syntax. Only meaningful for `command`-based servers. |
+| `working_directory` | string | No | Working directory for the server process. Only meaningful for `command`-based servers. |
+| `startup_timeout` | string | No | Maximum time to wait for the server to complete its MCP handshake after launch. Duration format (`30s`, `10s`, …). Default: `10s`. |
+
+`command` and `url` are mutually exclusive. An entry must declare exactly one.
+
+#### `skills`
+
+`skills` is a registry of named skill profiles keyed by skill id. Each entry
+identifies an agent-side skill bundle that should be enabled for states that
+list it.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | string | Yes | Filesystem path to the skill bundle. Leading `~` expands to the user's home directory. |
+| `description` | string | No | Human-readable description of the skill's purpose. |
+
+Skills are agent-specific capabilities. A resolved skill is wired to the agent
+only when the resolved agent profile declares a `skill_flag`; otherwise the
+skill is skipped with a warning (see [Missing Tooling](#missing-tooling)). This
+keeps state machines portable across agents that do not implement skills.
+
 ### Per-State Settings
 
-The `model` / `all_models` and optional `agent` fields on state definitions in
-`states.yaml`. See [States Specification — Agent Field](rhei-states.spec.md#agent-field).
+The `model` / `all_models`, optional `agent`, `mcp_servers`, and `skills` fields
+on state definitions in `states.yaml`. See
+[States Specification — Agent Field](rhei-states.spec.md#agent-field) and
+[States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills).
 
 ### Merge Semantics
 
@@ -131,7 +197,15 @@ Global settings load first, then project settings compose over them:
 - `agents` merge by agent id.
 - `models` merge by model id.
 - `models.<id>.agents` merge by agent id.
+- `mcp_servers` merge by server id.
+- `skills` merge by skill id.
 - `null` explicitly clears an inherited optional field.
+
+`defaults.mcp_servers` and `defaults.skills` are replaced wholesale by the
+project list when the project defines them, not concatenated. Use an empty
+array (`"mcp_servers": []`) to clear inherited defaults, or repeat entries
+explicitly to extend them. This keeps the precedence predictable — every
+level's effective tooling default is the one written there.
 
 This lets a project override only a model's concrete provider/model pair or
 only a model-agent binding's autonomous arguments without redefining unrelated
@@ -168,6 +242,25 @@ error: no agent configured for model 'impl-fast'.
 Set defaults.agent, the state's agent, models.impl-fast.default_agent, or pass --agent <AGENT> to rhei run.
 ```
 
+When `rhei run` composes the tool surface for a state, it resolves the
+effective MCP server and skill sets:
+
+1. Start from `defaults.mcp_servers` (and `defaults.skills`) as resolved by the
+   merged settings.
+2. Union with the state's `mcp_servers` (and `skills`) list, if any. An empty
+   list on the state clears the defaults for that state.
+3. Deduplicate by id. Within a single effective set, later entries for the same
+   id override earlier ones — a state-level override wins over a defaults
+   entry.
+4. Resolve each id against the merged `mcp_servers` / `skills` registry. Inline
+   object entries on the state (or in `defaults`) do not require a registry
+   entry; they are used as-is.
+5. An id with no registry match and no inline definition is a validation
+   error.
+
+The resolved sets are distinct per state and per invocation. Changing the
+current state or restarting `rhei run` recomputes them.
+
 ### Partial Overrides
 
 Each level can override model and agent independently:
@@ -198,15 +291,20 @@ Rhei ships with built-in invocation profiles for known coding agents. Each
 profile defines how to spawn the agent, deliver the prompt, pass the concrete
 provider model name, and set transport-level defaults.
 
-| Agent ID | Binary | Prompt Delivery | Model Flag | Default Args |
-|----------|--------|-----------------|------------|--------------|
-| `claude-code` | `claude` | `-p <prompt>` | `--model <m>` | `--permission-mode bypassPermissions` |
-| `codex` | `codex` | `exec -- -` (stdin) | `--model <m>` | `--sandbox danger-full-access` |
-| `aider` | `aider` | `--message <prompt>` | `--model <m>` | |
-| `kilocode` | `kilo` | `-p <prompt>` | `--model <m>` | |
-| `cursor` | `cursor` | `--prompt <prompt>` | `--model <m>` | |
+| Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | Default Args |
+|----------|--------|-----------------|------------|------------|--------------|--------------|
+| `claude-code` | `claude` | `-p <prompt>` | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
+| `codex` | `codex` | `exec -- -` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access` |
+| `aider` | `aider` | `--message <prompt>` | `--model <m>` | unsupported | unsupported | |
+| `kilocode` | `kilo` | `-p <prompt>` | `--model <m>` | unsupported | unsupported | |
+| `cursor` | `cursor` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | |
 
 The agent IDs match those used by `rhei install-skills --agent`.
+
+Agents marked `unsupported` for MCP or skills receive a warning at spawn time
+when the resolved state's effective set includes entries they cannot consume.
+Required MCP entries (see [Missing Tooling](#missing-tooling)) escalate the
+warning to an error.
 
 ### Custom Agent Profiles
 
@@ -235,6 +333,9 @@ When the built-in profiles don't fit, specify a custom agent profile inline in
 | `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
 | `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag. Default: `false`. |
 | `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
+| `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
+| `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
+| `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
 
 Custom agent profiles can appear in `settings.json` (global or project) or
 inline in `states.yaml`:
@@ -302,6 +403,10 @@ callback environment:
 | `RHEI_MODEL_PROVIDER` | Resolved provider id, if configured |
 | `RHEI_MODEL_NAME` | Resolved provider model name, if configured |
 | `RHEI_AGENT` | Agent identifier, if configured |
+| `RHEI_MCP_SERVERS` | Comma-separated list of resolved MCP server ids that started successfully. Empty when none are attached. |
+| `RHEI_MCP_<NAME>_AVAILABLE` | `true` or `false` for each declared MCP server in the state's effective set. `<NAME>` is the server id uppercased with hyphens and spaces replaced by underscores. |
+| `RHEI_SKILLS` | Comma-separated list of resolved skill ids enabled for this state. Empty when none are attached. |
+| `RHEI_SKILL_<ID>_AVAILABLE` | `true` or `false` for each declared skill in the state's effective set. `<ID>` follows the same transformation as MCP names. |
 
 The agent's working directory is set to the workspace root (for directory workspaces) or the plan file's parent directory (for single-file plans).
 
@@ -388,6 +493,61 @@ Task {id} is in gating state '{state}'. Waiting for human action.
 ```
 
 The task is skipped and the engine continues with other claimable tasks. When the human transitions the task out of the gating state (via `rhei transition`), the next run pass picks it up.
+
+## Missing Tooling
+
+Tooling — MCP servers and skills — can fail to be available for reasons that
+only surface at spawn time: a binary is not on `PATH`, a remote MCP URL is
+unreachable, an env var is unset, or a skill path does not exist. Rhei
+distinguishes three failure classes:
+
+| Failure | When detected | Default behavior |
+|---------|---------------|------------------|
+| Id referenced in a state but not in the merged registry and not an inline entry | `rhei validate` / settings load | Hard error. Same class as a dangling `model:` or `agent:` reference. |
+| Registry entry exists but the MCP server cannot start, URL is unreachable, the handshake times out, or a skill path does not exist | Agent spawn | Depends on the entry's `optional` flag (see below). |
+| MCP server starts but crashes mid-session | During agent execution | The agent surfaces the protocol error; Rhei does not intervene. The failure appears in the agent log. |
+
+An MCP server or skill is considered **available** when:
+
+- For `command`-based MCP servers: the subprocess launched, the MCP handshake
+  completed, and the server remained alive, all within its `startup_timeout`
+  (default `10s`).
+- For `url`-based MCP servers: the transport-level connection completed and
+  the MCP handshake succeeded within `startup_timeout`.
+- For skills: the configured `path` exists and is readable.
+
+### Required vs optional entries
+
+Per-state `mcp_servers` and `skills` entries may be declared required (the
+default) or `optional: true`. The `defaults` lists in `settings.json` follow
+the same rules.
+
+- **Required (default):** if the entry fails its availability check,
+  `rhei run` does not spawn the agent. The engine looks for an
+  `mcp_unavailable` or `skill_unavailable` transition from the current state
+  in `states.yaml`:
+  - If one is declared, it fires with `triggeredBy: 'system'`. The callback
+    receives the unavailable ids in `transitionData.unavailable`.
+  - Otherwise the task stays in its current state and the engine logs
+    `error: required tooling unavailable for task {id} in state '{state}':
+    <id1>, <id2>`. `--continue-on-error` behaves the same way it does for
+    agent exits: the engine logs and skips the task.
+- **Optional (`optional: true`):** if the entry fails, `rhei run` logs a
+  warning and spawns the agent with the remaining resolved tooling. The
+  prompt's template variables and env vars reflect availability so
+  instructions and callbacks can branch. Missing optional skills are always
+  non-fatal and emit the same warning regardless of agent support.
+
+An unsupported agent (one whose profile declares no `mcp_flag` /
+`mcp_config_flag` for a required MCP entry, or no `skill_flag` for a required
+skill entry) is treated identically to an availability failure: required
+entries escalate to the `*_unavailable` path; optional entries produce a
+warning and are dropped.
+
+See [Transitions Specification](rhei-transitions.spec.md) for declaring
+`mcp_unavailable` / `skill_unavailable` transitions and
+[States Specification — Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality)
+for `{mcp.<name>.available}` and `{skill.<id>.available}` in prompts.
 
 ## Timeout Handling
 
@@ -556,6 +716,8 @@ state: pending
 started: 2026-04-20T10:30:00Z
 timeout: 30m
 plan: /home/user/project/plan.rhei.md
+mcp_servers: postgres,grafana?
+skills: test-authoring
 ===
 
 <raw agent stdout and stderr, interleaved>
@@ -568,6 +730,11 @@ ended: 2026-04-20T10:34:23Z
 ```
 
 The header and footer are added by `rhei run`. The `v1` suffix is the log format version — increment it when the header/footer structure changes. The body is the raw, unmodified output of the agent process.
+
+Each entry in `mcp_servers:` and `skills:` is the resolved id; an entry
+suffixed with `?` was declared `optional: true` and failed its availability
+check — it was dropped before spawn and is recorded for diagnostics. A
+missing line means the state declared no entries of that kind.
 
 ### Log Directory
 

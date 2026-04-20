@@ -41,6 +41,32 @@ Render the avatar in the profile header and comment list. Fall back to initials 
 
 `**Prior:**` declares dependencies — Task 2 cannot be claimed until Task 1 is in a terminal state as defined by the active state machine (`final: true`; in the built-in `rhei` machine, `completed` and `cancelled`). Tasks without `**Prior:**` are immediately dependency-ready.
 
+Tasks may also be decomposed hierarchically when the plan's optional
+`structure.maxLevels` setting allows more than one level:
+
+```markdown
+# Rhei: Stabilize release
+---
+structure:
+  maxLevels: 3
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+
+### Task 1: Release readiness
+**State:** pending
+
+#### Task 1.1: Verify release notes
+**State:** pending
+
+##### Task 1.1.1: Compare changelog and notes
+**State:** pending
+
+#### Bug 1.2: Fix null-cache panic
+**State:** pending
+```
+
 ### 2. Validate the plan
 
 ```bash
@@ -72,7 +98,7 @@ A Rhei plan can be authored as either a **Single-File Plan** or a **Directory Wo
 
 ### Single-File Plan (1 Agent, or low concurrency)
 
-The single-file format is a fixed hierarchical structure:
+The single-file format is a hierarchical structure:
 
 | Component | Heading Level | Format | Required |
 |-----------|---------------|--------|----------|
@@ -80,10 +106,22 @@ The single-file format is a fixed hierarchical structure:
 | States Declaration | — | `**States:** <state-machine-name>` | No (defaults to `rhei`) |
 | Content Sections | H2 (`##`) | `## <section-name>` | No |
 | Tasks Section | H2 (`##`) | `## Tasks` | Yes |
-| Task | H3 (`###`) | `### Task <id>: <title>` | Yes (at least one) |
-| Subtask | H4 (`####`) | `#### Subtask <n>.<m>: <title>` | No |
+| Root Node | H3 (`###`) | `### <kind> <id>: <title>` | Yes (at least one) |
+| Child Node | H4-H6 (`####`-`######`) | `<heading> <kind> <id>: <title>` | No |
 
 When present, the `**States:**` field must be the first non-empty line after the `# Rhei:` title. Its value is the `name` of the state machine defined in the associated states configuration (see [States Specification](specs/rhei-states.spec.md)). For a single-file plan, the CLI resolves that configuration from a sibling `states.yaml`. For a directory workspace, it resolves from `<workspace>/states.yaml`. The resolved YAML file's `name` must match the declared `**States:**` value. `--state-machine <path>` overrides this automatic lookup. When the field is omitted, the plan uses the built-in `rhei` state machine.
+
+When frontmatter omits a `structure` block, the default structure is:
+
+```yaml
+structure:
+  maxLevels: 2
+  nodeKinds: [task]
+```
+
+This establishes the default hierarchical structure for the current language
+revision. Plans that still use the historical `Subtask` syntax must be migrated
+to declared node-kind headings such as `Task` and `Bug`.
 
 ### Directory Workspace (Agent Teams, High Concurrency)
 
@@ -93,7 +131,9 @@ A Directory Workspace consists of:
 
 1. **`index.rhei.md`**: The root configuration. Contains the `Rhei Title`, `States Declaration`, and any `Content Sections`. It does **not** contain a `## Tasks` section.
 2. **`tasks/` directory**: A folder containing arbitrary `.md` files.
-3. **Workspace Task Files**: Files within `tasks/` that contain one or more `Task` definitions (starting directly with `### Task <id>:`). They do not require the `# Rhei:` header.
+3. **Workspace Task Files**: Files within `tasks/` that contain one or more
+   node definitions (starting directly with `### <kind> <id>:`). They do not
+   require the `# Rhei:` header.
 
 In a Directory Workspace, all tasks are parsed and merged into a single global task graph at runtime. Dependency validation (`**Prior:**`) resolves globally across all files in the `tasks/` directory.
 
@@ -117,9 +157,9 @@ written to the frontmatter in `index.rhei.md`, keyed by the global task id.
 Persistence ownership is normative:
 
 - Markdown task fields remain the source of truth for `**State:**`,
-  `**Prior:**`, `**Assignee:**`, and `> **Result:**`. In a Directory
-  Workspace, those fields are persisted in the workspace task file that
-  contains the task.
+  `**Prior:**`, `**Assignee:**`, and `> **Result:**`. In a
+  Directory Workspace, those fields are persisted in the workspace task file
+  that contains the task.
 - YAML frontmatter under `metadata.tasks.<id>.*` stores auxiliary per-task
   metadata only, such as `stateVisits` counters and custom callback data. It
   must not become a second source of truth for state, dependencies, assignee,
@@ -157,8 +197,6 @@ state_machine_name = title ;
 
 content_section = "## ", section_title, NEWLINE, { markdown_block } ;
 
-tasks_section   = "## Tasks", NEWLINE, { blank_line }, task, { task } ;
-
 (* ============================================== *)
 (* DIRECTORY WORKSPACE STRUCTURE                  *)
 (* ============================================== *)
@@ -168,7 +206,7 @@ workspace_index = rhei_header, { blank_line },
                   [ frontmatter, { blank_line } ],
                   { content_section } ;
 
-workspace_task_file = [ { blank_line } ], task, { task } ;
+workspace_task_file = [ { blank_line } ], task_level_1, { task_level_1 } ;
 
 
 (* ============================================== *)
@@ -176,10 +214,11 @@ workspace_task_file = [ { blank_line } ], task, { task } ;
 (* ============================================== *)
 
 (* YAML frontmatter stores custom task metadata such as retryCount,
-   stateVisits, priority, and callback data. Core task fields such as state,
-   prior, assignee, and result links remain in markdown. It appears between two
-   `---` fences and is parsed as YAML, not Markdown. See the Transitions
-   Specification for the metadata access contract. *)
+   stateVisits, priority, callback data, and optional plan structure settings.
+   Core task fields such as state, prior, assignee, and result links remain in
+   markdown. It appears between two `---` fences and is parsed as YAML, not
+   Markdown. See the Transitions Specification for the metadata access
+   contract. *)
 frontmatter     = "---", NEWLINE,
                   { yaml_line },
                   "---", NEWLINE ;
@@ -188,26 +227,34 @@ yaml_line       = ? any line that is not exactly "---" ?, NEWLINE ;
 
 
 (* ============================================== *)
-(* TASK DEFINITION                                *)
+(* TASK TREE                                      *)
 (* ============================================== *)
 
-task            = task_header, NEWLINE, metadata, { task_markdown_block },
-                  [ result_block ], { subtask } ;
+tasks_section   = "## Tasks", NEWLINE, { blank_line },
+                  task_level_1, { task_level_1 } ;
 
-task_header     = "### Task ", task_id, ": ", title ;
+task_level_1    = node_header_level_1, NEWLINE, metadata, { task_markdown_block },
+                  [ result_block ], { task_level_2 } ;
 
-task_id         = NUMBER | IDENTIFIER ;
+task_level_2    = node_header_level_2, NEWLINE, metadata, { task_markdown_block },
+                  [ result_block ], { task_level_3 } ;
 
+task_level_3    = node_header_level_3, NEWLINE, metadata, { task_markdown_block },
+                  [ result_block ], { task_level_4 } ;
 
-(* ============================================== *)
-(* SUBTASK DEFINITION                             *)
-(* ============================================== *)
+task_level_4    = node_header_level_4, NEWLINE, metadata, { task_markdown_block },
+                  [ result_block ] ;
 
-(* Subtasks are only permitted under tasks with a numeric task_id.
-   They are checklist items and do not carry task metadata such as state. *)
-subtask         = subtask_header, NEWLINE, { markdown_block } ;
+node_header_level_1 = "### ", node_kind_keyword, " ", task_id, ": ", title ;
+node_header_level_2 = "#### ", node_kind_keyword, " ", task_id, ": ", title ;
+node_header_level_3 = "##### ", node_kind_keyword, " ", task_id, ": ", title ;
+node_header_level_4 = "###### ", node_kind_keyword, " ", task_id, ": ", title ;
 
-subtask_header  = "#### Subtask ", NUMBER, ".", NUMBER, ": ", title ;
+node_kind_keyword = IDENTIFIER ;
+
+task_id         = task_id_segment, { ".", task_id_segment } ;
+
+task_id_segment = NUMBER | IDENTIFIER ;
 
 
 (* ============================================== *)
@@ -215,13 +262,14 @@ subtask_header  = "#### Subtask ", NUMBER, ".", NUMBER, ": ", title ;
 (* ============================================== *)
 
 (* State field is mandatory and must appear first.
-   Assignee is optional; the `complete` command strips it on completion. *)
+   Prior and Assignee are optional; the `complete` command strips the assignee
+   on completion. *)
 metadata        = state_field, [ prior_field ], [ assignee_field ] ;
 
 assignee_field  = "**Assignee:** ", title, NEWLINE ;
 
 (* Result block links to the outcome of a completed task. It is inserted
-   by the `complete` command after task content and before subtasks.
+   by the `complete` command after task content and before child tasks.
    The link text is the task id itself, and the target is always
    runtime/results/<task-id>.md. *)
 result_block    = "> **Result:** ", "[", task_id, "](", result_path, ")", NEWLINE ;
@@ -234,7 +282,7 @@ prior_field     = "**Prior:** ", task_ref_list, NEWLINE ;
 
 task_ref_list   = task_ref, { ", ", task_ref } ;
 
-task_ref        = "Task ", task_id ;
+task_ref        = node_kind_keyword, " ", task_id ;
 
 (* State values have two rendered forms:
    - bare form for canonical names that match IDENTIFIER exactly
@@ -272,8 +320,8 @@ section_title   = { ANY_CHAR - NEWLINE }+ - "Tasks" ;
 task_markdown_block = ( blank_line
                       | task_body_line, NEWLINE ) ;
 
-(* A markdown_block is any non-structural content line for use in sections and
-   subtasks. Blank lines are markdown_blocks. *)
+(* A markdown_block is any non-structural content line for use in sections.
+   Blank lines are markdown_blocks. *)
 markdown_block  = ( blank_line
                   | non_structural_line, NEWLINE ) ;
 
@@ -310,6 +358,12 @@ The grammar tolerates optional blank lines immediately after `## Tasks` in a
 single-file plan and at the start of a workspace task file. Implementations
 should accept those blank lines in both formats.
 
+Throughout this specification, a *task node* means any authored node entry at
+heading level `###`, `####`, `#####`, or `######` whose keyword is declared in
+`structure.nodeKinds` (or the default `[task]` when omitted). Root task nodes
+live directly under `## Tasks`; deeper task nodes are children of the nearest
+shallower task node above them.
+
 Throughout this specification, a *terminal state* means any state marked
 `final: true` in the active state machine. In the built-in `rhei` machine, the
 terminal states are `completed` and `cancelled`.
@@ -320,9 +374,41 @@ a terminal state. State-machine `instructions` text is descriptive guidance for
 agents and must not narrow or override this readiness rule unless the machine
 introduces a separate normative field for that purpose.
 
+When frontmatter defines a `structure` map, the following keys are meaningful
+to this specification:
+
+- `structure.maxLevels` — maximum allowed task depth, counted from level 1 at
+  `### <kind> ...`. Valid values are `1` through `4`. If omitted, the default
+  is `2`.
+- `structure.nodeKinds` — allowed node-kind keywords for task nodes. Values
+  must be unique `IDENTIFIER`s. Parsing and validation normalize them
+  case-insensitively. If omitted, the default is `[task]`.
+
+`rhei` is a reserved node-kind name. It denotes the plan itself and is
+always the kind of the single root node at level 0. `rhei` must not appear
+in `structure.nodeKinds`, and it must not appear as a key under
+`node_policy.by_type` in the active state machine. A non-root node must
+never use the `rhei` kind.
+
+The heading keyword is the node kind. By convention, authored headings render
+that keyword in Title Case (`task` -> `Task`, `bug` -> `Bug`), but semantic
+matching is case-insensitive.
+
+Each node's state policy — which state it starts in and which states it may
+ever hold — is resolved from the active state machine's `profiles` and
+`node_policy` blocks. The root (always `rhei`) resolves through
+`node_policy.root`; all other nodes resolve through `node_policy.overrides`,
+then `node_policy.by_type[<kind>]`, then `node_policy.default`. See the
+[States Specification](specs/rhei-states.spec.md#node-policy) for the full
+resolution order and validation rules.
+
 ### 1. Dependency Integrity
 
-All task references in `**Prior:**` fields must resolve to existing tasks in the same logical plan: in a Single-File Plan that means the same document, and in a Directory Workspace that means the merged workspace graph across all task files under `tasks/`. A `**Prior:**` list must not contain duplicate references and must not reference its own task (self-reference is a 1-cycle).
+All task references in `**Prior:**` fields must resolve to existing task nodes
+in the same logical plan: in a Single-File Plan that means the same document,
+and in a Directory Workspace that means the merged workspace graph across all
+task files under `tasks/`. A `**Prior:**` list must not contain duplicate
+references and must not reference its own task (self-reference is a 1-cycle).
 
 ```markdown
 ### Task 2: Implementation
@@ -343,9 +429,18 @@ Directory Workspace example:
 **Prior:** Task api    ← Valid: resolves across the merged workspace graph
 ```
 
+When a dependency reference includes a node kind, that kind must match the
+declared kind of the referenced node.
+
 ### 2. State Validity
 
 All state values must be defined in the associated states configuration. By default, that configuration is loaded from the plan's auto-discovered `states.yaml` when `**States:**` is declared, or from the built-in `rhei` state machine when it is omitted. `--state-machine <path>` may override the auto-discovered file.
+
+In addition, each authored `**State:**` must be a member of the node's
+resolved profile's `allowed` set, as determined by the active state
+machine's `node_policy`. A state that is defined in the global `states`
+block but excluded from the node's resolved profile is a validation error
+on that node.
 
 State-name rendering is normative across the plan and state-machine specs:
 
@@ -410,38 +505,66 @@ The task dependency graph must be a Directed Acyclic Graph (DAG). Circular depen
 **Prior:** Task 1    ← ERROR: creates cycle
 ```
 
-### 4. Subtask Numbering Consistency
+### 4. Hierarchical Task Consistency
 
-Subtasks are only permitted under tasks with a numeric `task_id`. The first number of every subtask must equal its parent task's id, and subtask numbers must be unique within their parent. Subtasks do not carry independent `**State:**` metadata; they are lightweight checklist items nested under the parent task:
+Task nodes form a tree. Authored heading depth and task-id path depth must
+match:
+
+- a `### <kind> ...` node must use a one-segment id such as `1` or `api`
+- a `#### <kind> ...` node must use a two-segment id such as `1.1` or `api.cache`
+- a `##### <kind> ...` node must use a three-segment id
+- a `###### <kind> ...` node must use a four-segment id
+
+Child task ids must extend their parent id by exactly one segment, and sibling
+task ids must be unique within the same parent.
 
 ```markdown
 ### Task 2: Parent Task
 **State:** pending
 
-#### Subtask 2.1: Valid
-Document the database migration steps.    ← Correct: parent is Task 2
+#### Task 2.1: Valid child
+**State:** pending
 
-#### Subtask 3.1: Invalid
-Document the rollback path.               ← ERROR: parent task number mismatch
+#### Task 3.1: Invalid child
+**State:** pending
+                         ← ERROR: child id does not extend parent id `2`
 
-#### Subtask 2.1: Duplicate
-Add verification notes.                   ← ERROR: duplicate subtask number under Task 2
+#### Task 2.1: Duplicate sibling
+**State:** pending
+                         ← ERROR: duplicate child id under Task 2
 ```
 
-A task with a named (non-numeric) `task_id` must not declare any subtasks.
+Mixed numeric and named path segments are valid so long as the full child id
+extends the parent id by one segment:
+
+```markdown
+### Task api: Build API
+**State:** pending
+
+#### Task api.cache: Add cache layer
+**State:** pending
+
+##### Task api.cache.1: Verify cache key behavior
+**State:** pending
+```
+
+Task depth must not exceed `structure.maxLevels`.
 
 ### 5. Identifier Uniqueness
 
-Task ids must be unique across the entire plan. In a Single-File Plan, two `### Task <id>:` headers with the same id are an error. In a Directory Workspace, two tasks with the same id across *any* files within the `tasks/` directory are an error.
+Task ids must be unique across the entire plan. In a Single-File Plan, two
+task nodes with the same id are an error. In a Directory Workspace, two task
+nodes with the same id across *any* files within the `tasks/` directory are an
+error.
 
 ### 6. Link Integrity
 
-All relative markdown links (`[text](target)`) in content sections, task
-content, and subtask content must resolve to existing files. In a Single-File
-Plan, links resolve relative to the directory containing the plan file. In a
-Directory Workspace, they resolve relative to the workspace root, meaning the
-directory containing `index.rhei.md`, even when the link appears in a nested
-file under `tasks/`.
+All relative markdown links (`[text](target)`) in content sections and task
+node content must resolve to existing files. In a Single-File Plan, links
+resolve relative to the directory containing the plan file. In a Directory
+Workspace, they resolve relative to the workspace root, meaning the directory
+containing `index.rhei.md`, even when the link appears in a nested file under
+`tasks/`.
 
 External URLs (`http://`, `https://`, `mailto:`), and fragment-only anchors (`#section`) are not checked. When a link contains a fragment (`file.md#section`), only the file portion is verified.
 
@@ -479,7 +602,32 @@ See [protocol](specs/http.md#post)  ← checks <workspace>/specs/http.md only
 See [notes](#api-notes)             ← fragment-only anchor, not checked
 ```
 
-### 7. Result Block Consistency
+### 7. Node Kind Validity
+
+The heading keyword for each task node must be listed in `structure.nodeKinds`.
+When `structure.nodeKinds` is omitted, only `Task` is valid.
+
+Example:
+
+```markdown
+---
+structure:
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+
+### Task 1: Stabilize release
+**State:** pending
+
+#### Bug 1.1: Fix crash in cache warmer
+**State:** pending        ← Valid
+
+#### Spike 1.2: Unknown category
+**State:** pending        ← ERROR: `spike` is not a declared node kind
+```
+
+### 8. Result Block Consistency
 
 When a task contains a `> **Result:**` block, that block must describe the
 enclosing task itself:
@@ -504,7 +652,19 @@ Example:
 link-integrity check above. The file may be created later by runtime commands
 such as `rhei complete`.
 
-### 8. State Artifact Contracts
+### 9. Terminal Tree Coherence
+
+A task node in a terminal state must not contain any non-terminal descendants.
+
+```markdown
+### Task 2: Parent
+**State:** completed
+
+#### Task 2.1: Still open
+**State:** pending        ← ERROR: terminal parent with non-terminal child
+```
+
+### 10. State Artifact Contracts
 
 The active state machine may declare required file `inputs` and `outputs` for a
 state. These contracts are part of execution semantics, not markdown syntax:
@@ -559,10 +719,9 @@ For lexer implementation, the following token types are a reasonable minimum:
 | `FrontmatterYamlLine` | Any line inside frontmatter that is not `---` | `metadata:` |
 | `TasksSection` | `^## Tasks\s*$` | `## Tasks` |
 | `SectionHeader` | `^## .+$` (matched only if `TasksSection` did not match) | `## Overview` |
-| `TaskHeader` | `### Task <id>: .*` | `### Task 1: Setup` |
-| `SubtaskHeader` | `#### Subtask <n>.<m>: .*` | `#### Subtask 1.2: Config` |
+| `NodeHeader` | `^(###|####|#####|######) <kind> <id>: .*` | `#### Bug 1.2: Config` |
 | `MetadataState` | `\*\*State:\*\* .*` | `**State:** pending` |
-| `MetadataPrior` | `\*\*Prior:\*\* .*` | `**Prior:** Task 1` |
+| `MetadataPrior` | `\*\*Prior:\*\* .*` | `**Prior:** Bug 1.2` |
 | `MetadataAssignee` | `\*\*Assignee:\*\* .*` | `**Assignee:** alice` |
 | `ResultBlock` | `^> \*\*Result:\*\* \[[^]]+\]\([^)]+\)\s*$` | `> **Result:** [task-1](runtime/results/task-1.md)` |
 | `Text` | Any other line | Description text |
@@ -580,7 +739,7 @@ struct Rhei {
     states: String, // state machine name; defaults to "rhei" when omitted
     frontmatter: Option<YamlValue>,
     content_sections: Vec<ContentSection>,
-    tasks: Vec<Task>,
+    tasks: Vec<TaskNode>,
 }
 
 struct ContentSection {
@@ -588,25 +747,23 @@ struct ContentSection {
     content: String,
 }
 
-struct Task {
+struct TaskNode {
     id: TaskId,
     title: String,
     state: String,
+    kind: String,
     prior: Vec<TaskId>,
     assignee: Option<String>,
     content: String,
     result: Option<ResultLink>,
-    subtasks: Vec<Subtask>,
+    children: Vec<TaskNode>,
 }
 
-struct Subtask {
-    task_number: u32,
-    subtask_number: u32,
-    title: String,
-    content: String,
+struct TaskId {
+    segments: Vec<TaskIdSegment>,
 }
 
-enum TaskId {
+enum TaskIdSegment {
     Number(u32),
     Named(String),
 }
@@ -621,10 +778,11 @@ struct ResultLink {
 
 The Rhei Plan language is **context-sensitive** because:
 
-1. Subtask numbers depend on their parent task context
+1. Child task ids must align with parent task ids and heading depth
 2. `Prior` references must resolve to existing task definitions
-3. State values depend on external states configuration
-4. State artifact contracts depend on external workspace files at execution time
+3. Node-kind keywords depend on plan-level `structure` configuration
+4. State values depend on external states configuration
+5. State artifact contracts depend on external workspace files at execution time
 
 The language cannot be fully described by a context-free grammar alone; semantic analysis is required for complete validation.
 

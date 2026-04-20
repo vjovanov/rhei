@@ -115,7 +115,7 @@ These distinct messages allow a PM or orchestrator to tell apart a finished plan
 | `rhei next --peek` | Read-only: prints the next claimable task without claiming it             |
 | `rhei transition`  | Atomically changes a task's state; appends entry to result file           |
 | `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns      |
-| `rhei reset`       | Returns all tasks to initial state, removes `runtime/`                    |
+| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
 
 The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 

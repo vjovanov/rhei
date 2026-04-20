@@ -15,7 +15,7 @@ The plan writer creates and restructures plans. It translates a goal into a depe
 Responsibilities:
 - Decompose work into independently completable tasks.
 - Assign dependencies (`**Prior:**`) to encode sequencing.
-- Set initial states (typically `draft` or `pending`).
+- Set each task's authored `**State:**` to the starting state of its node's resolved profile (typically `draft` or `pending`).
 - Maintain the DAG invariant — no cycles, no dangling references.
 - Add or reorganize context sections (`## Overview`, `## Requirements`, etc.) before `## Tasks`.
 

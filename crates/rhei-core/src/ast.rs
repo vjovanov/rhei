@@ -132,6 +132,15 @@ pub struct TransitionRule {
     /// Optional exit-code condition for transitions from program states.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<serde_yaml::Value>,
+    /// Optional tooling-unavailable trigger for required MCP servers.
+    ///
+    /// `true` matches any required MCP unavailability; a list matches only
+    /// when one of the listed ids failed its availability check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_unavailable: Option<serde_yaml::Value>,
+    /// Optional tooling-unavailable trigger for required skills. Same shape as `mcp_unavailable`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_unavailable: Option<serde_yaml::Value>,
 }
 
 #[cfg(test)]
@@ -197,6 +206,8 @@ mod tests {
             condition: None,
             timeout: None,
             exit_code: None,
+            mcp_unavailable: None,
+            skill_unavailable: None,
         };
 
         let value = serde_json::to_value(&rule).expect("serialize TransitionRule");
@@ -221,6 +232,8 @@ mod tests {
             condition: Some("retryCount >= 3".to_string()),
             timeout: Some("24h".to_string()),
             exit_code: None,
+            mcp_unavailable: None,
+            skill_unavailable: None,
         };
 
         let value = serde_json::to_value(&original).expect("serialize TransitionRule");
@@ -282,6 +295,8 @@ mod tests {
             condition: Some("priority == \"high\"".to_string()),
             timeout: Some("30m".to_string()),
             exit_code: None,
+            mcp_unavailable: None,
+            skill_unavailable: None,
         };
 
         let obj = serde_json::to_value(&rule).expect("serialize TransitionRule");

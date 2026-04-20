@@ -73,7 +73,6 @@ states:
     instructions: |                                                 # optional
       <agent-facing guidance: what to do in this state, when to transition out>
     personality: <optional state-specific role framing override>
-    initial: true|false  # exactly one state must be initial
     final: true|false    # at least one state must be final
     gating: true|false   # optional: if true, no autonomous exit allowed
     visits: <integer>    # optional: max counted visits for loop states
@@ -89,6 +88,20 @@ transitions:
     # on_enter: <callback-name>
     # condition: <expression>
     # timeout: <duration>
+
+profiles:                            # required: named state policies
+  <profile-name>:
+    initial: <state-name>            # starting state for nodes using this profile
+    allowed: [<state-name>, ...]     # states any such node may ever hold
+
+node_policy:                         # required: maps nodes to profiles
+  root: <profile-name>               # profile the (always-rhei) root runs
+  default: <profile-name>            # fallback for non-root kinds not listed
+  by_type:                           # optional: per-kind overrides
+    <kind>: <profile-name>
+  overrides:                         # optional: ordered, first-match-wins
+    - match: { type: <kind>, level: <n> }
+      profile: <profile-name>
 
 # Optional: platform-specific callback mappings
 # callbacks:
@@ -116,7 +129,7 @@ The state machine writer follows these rules when designing a state machine:
 
 2. **Name states after what is happening, not who is doing it.** Prefer `security-review` over `security-team`. The state describes the phase; the instructions describe the actor.
 
-3. **Mark exactly one state as `initial: true`.** This is the entry point. Tasks start here. In most workflows, this is a "ready" or "pending" state — not an active work state.
+3. **Declare starting states on profiles, not on states.** A state definition never carries an `initial: true` flag. Each profile in the top-level `profiles` block declares its own `initial` state; a node resolves to a profile through `node_policy`, and that profile's `initial` is where the node starts. In most workflows, the initial is a "ready" or "pending" state — not an active work state.
 
 4. **Mark at least one state as `final: true`.** Terminal states are absorbing — no outgoing transitions. Every workflow needs at least a success terminal (`completed`, `deployed`, `published`) and typically a cancellation terminal (`cancelled`, `abandoned`).
 
@@ -134,11 +147,23 @@ The state machine writer follows these rules when designing a state machine:
 
 3. **Fan-out from a state represents decisions.** When a state has multiple outgoing transitions, each target represents a different outcome. Document in the transition's `description` when each path is taken.
 
-4. **The transition graph must be connected.** Every non-initial state must be reachable from the initial state. Every non-terminal state must have a path to at least one terminal state. Unreachable or dead-end states are design errors.
+4. **The transition graph must be connected.** For every profile, every state in that profile's `allowed` set other than its `initial` must be reachable from the `initial` state using transitions whose `to` also lies in `allowed`. Every non-terminal state in `allowed` must have a path to at least one final state in `allowed`. Unreachable or dead-end states in a profile are design errors.
 
 5. **Provide a cancellation path.** Use a wildcard transition (`from: "*"`) to a `cancelled` terminal state, or declare explicit cancellation transitions from each non-terminal state. Every task must be cancellable.
 
 6. **Team handoffs are transitions.** When work passes from one team to another, model it as a transition between team-owned states. The `on_leave` callback on the source state packages the deliverable; the `on_enter` callback on the target state notifies the receiving team.
+
+### Profile and Node Policy Design
+
+1. **Start with a single default profile.** If every node kind in the plan follows the same flow, define one profile (for example `default`) whose `allowed` set is the full list of states, and point both `node_policy.root` and `node_policy.default` at it. Only split into multiple profiles once you have concrete evidence that different kinds need different flows — it's easier to split later than to collapse prematurely fractured profiles.
+
+2. **Name profiles for the policy, not the kind.** Prefer `reviewed`, `simple`, `light-review` over `task-profile`, `bug-profile`. A profile can apply to multiple kinds; naming it after a kind implies a coupling that isn't there.
+
+3. **Each profile's `allowed` is wholesale.** Profiles are referenced by name, never merged. Two profiles that share most of their states still list each state explicitly. This keeps the meaning of `allowed` predictable and removes any "what wins where" resolution rules.
+
+4. **The root always resolves through `node_policy.root`.** The root node's kind is always `rhei` (a reserved kind), so it's never matched by `by_type` or `overrides`. Pick its profile explicitly — often it shares a profile with the top-level work kind, but there's no requirement to.
+
+5. **Use `overrides` only when `by_type` cannot express the rule.** `by_type` covers the common case ("all tasks follow this flow"). Add an `overrides` entry only for genuinely multi-dimensional cases — for example, "leaf-level tasks skip review." Entries are first-match-wins in declaration order; keep the list short enough to read top to bottom.
 
 ### Instructions Design
 
@@ -160,27 +185,31 @@ The state machine writer follows this process:
 
 3. **Identify actors.** Map each phase to its actor: which team or agent type performs work in that phase, and who approves the exit.
 
-4. **Draft states.** For each phase, write a state with a description and instructions. Mark initial and final states.
+4. **Draft states.** For each phase, write a state with a description and instructions. Mark final states. Do not mark initial states here — initial states belong to profiles (step 6).
 
 5. **Draft transitions.** For each pair of phases that have a direct handoff, declare a transition. Add a description explaining when the transition fires.
 
-6. **Add safety paths.** Ensure every state has a path to a terminal state. Add cancellation transitions. Add recovery/retry paths for phases that can fail.
+6. **Draft profiles and node policy.** Identify which node kinds in the plan need distinct flows (often there's only one). For each distinct flow, define a profile with an `initial` and `allowed` set. Point `node_policy.root` and `node_policy.default` at profiles, and add `by_type` entries for any non-root kind whose flow differs from `default`. Add `overrides` only for multi-dimensional rules.
 
-7. **Add callbacks (optional).** If the project uses programmatic transitions, assign `on_leave` and `on_enter` callback names to transitions that integrate with external systems.
+7. **Add safety paths.** For every profile, ensure every non-final state in `allowed` has a path to a final state in `allowed`, using only transitions whose `to` is also in `allowed`. Add cancellation transitions. Add recovery/retry paths for phases that can fail.
 
-8. **Validate the design.**
-   - Exactly one initial state.
-   - At least one final state (typically two: success and cancellation).
-   - Every non-initial state reachable from the initial state.
-   - Every non-terminal state has a path to at least one terminal state.
-   - No orphan states (states with no incoming or outgoing transitions, except initial/terminal).
-   - Transition graph is connected.
+8. **Add callbacks (optional).** If the project uses programmatic transitions, assign `on_leave` and `on_enter` callback names to transitions that integrate with external systems.
+
+9. **Validate the design.**
+   - Every profile declares an `initial` and a non-empty `allowed` set.
+   - Every profile's `initial` is a member of its `allowed` set.
+   - Every profile's `allowed` contains at least one final state.
+   - `node_policy.root` and `node_policy.default` reference defined profiles.
+   - Every `by_type` key is a declared non-root node kind; `rhei` is not used as a `by_type` key.
+   - For every profile, every non-final state in `allowed` has a path to a final state in `allowed` using transitions confined to `allowed`.
+   - At least one final state exists globally (typically two: success and cancellation).
+   - No orphan states (defined in `states` but not referenced by any profile's `allowed`, transition, or override).
    - State names are lowercase, hyphenated identifiers (matching the `IDENTIFIER` grammar production).
    - Instructions describe exit conditions for every non-terminal state.
 
-9. **Write the YAML file.** Emit the file conforming to the YAML State Machine Format.
+10. **Write the YAML file.** Emit the file conforming to the YAML State Machine Format.
 
-10. **Validate with the CLI.** If the `rhei` CLI is available, run `rhei states --state-machine <path>` to verify the file parses correctly.
+11. **Validate with the CLI.** If the `rhei` CLI is available, run `rhei states --state-machine <path>` to verify the file parses correctly.
 
 ## Examples
 
@@ -202,7 +231,6 @@ states:
     instructions: |
       Pick up when all Prior tasks are completed. Transition to ingesting
       to begin processing.
-    initial: true
 
   ingesting:
     description: Raw data is being loaded from source systems.
@@ -281,6 +309,23 @@ transitions:
   - from: "*"
     to: cancelled
     description: Processing abandoned at any stage
+
+profiles:
+  default:
+    initial: queued
+    allowed:
+      - queued
+      - ingesting
+      - transforming
+      - validating
+      - quarantined
+      - publication-review
+      - published
+      - cancelled
+
+node_policy:
+  root: default
+  default: default
 ```
 
 ### Example 2: Multi-Team Feature Delivery
@@ -301,7 +346,6 @@ states:
     instructions: |
       Write the feature specification including acceptance criteria.
       Transition to ready-for-dev when the spec is complete and reviewed.
-    initial: true
 
   ready-for-dev:
     description: Feature spec is approved, waiting for engineering pickup.
@@ -385,6 +429,24 @@ transitions:
   - from: "*"
     to: cancelled
     description: Feature abandoned at any stage
+
+profiles:
+  default:
+    initial: design
+    allowed:
+      - design
+      - ready-for-dev
+      - implementing
+      - security-review
+      - security-fix
+      - qa
+      - release-ready
+      - released
+      - cancelled
+
+node_policy:
+  root: default
+  default: default
 ```
 
 ## Relationship to Other Roles
