@@ -97,7 +97,11 @@ A Directory Workspace consists of:
 
 In a Directory Workspace, all tasks are parsed and merged into a single global task graph at runtime. Dependency validation (`**Prior:**`) resolves globally across all files in the `tasks/` directory.
 
-To prevent creation collisions in highly distributed swarms, relying on `IDENTIFIER` (alphanumeric hashes or UUIDs) rather than sequential `NUMBER` for `task_id` is strongly recommended for Directory Workspaces.
+To prevent creation collisions in highly distributed swarms, letter-prefixed
+`IDENTIFIER` values rather than sequential `NUMBER` task ids are strongly
+recommended for Directory Workspaces. Because the grammar requires an
+`IDENTIFIER` to start with a letter, distributed ids should use forms such as
+`task-550e8400-e29b-41d4-a716-446655440000` rather than a bare UUID or hash.
 
 ### Directory Workspace Metadata
 
@@ -232,14 +236,24 @@ task_ref_list   = task_ref, { ", ", task_ref } ;
 
 task_ref        = "Task ", task_id ;
 
-(* The backtick form is required when the rendered state value contains
-   whitespace; it is also accepted (but not required) for single-word
-   values. Counted-loop states may append `-<n>` to the rendered value to
-   make later visits visible in markdown. The `-1` suffix is omitted.
-   Exact-match resolution against loaded state names happens before any
-   `-<n>` suffix is interpreted as a counted visit. *)
+(* State values have two rendered forms:
+   - bare form for canonical names that match IDENTIFIER exactly
+   - backticked form for any other canonical state name, including names
+     with spaces or punctuation such as `human review`, `qa/review`, or
+     `security.review`
+   Counted-loop states may append `-<n>` to the rendered value to make later
+   visits visible in markdown. The `-1` suffix is omitted. Exact-match
+   resolution against loaded state names happens before any `-<n>` suffix is
+   interpreted as a counted visit. Inside backticks, `\\` escapes a
+   backslash and `\`` escapes a literal backtick. *)
 state_value     = IDENTIFIER, [ "-", NUMBER ]                    (* pending, review-2 *)
-                | "`", IDENTIFIER, { " ", IDENTIFIER }, [ "-", NUMBER ], "`" ;  (* `in progress`, `in progress-2` *)
+                | "`", quoted_state_text, "`" ;                 (* `human review`, `qa/review`, `human review-2` *)
+
+quoted_state_text = quoted_state_char, { quoted_state_char } ;
+
+quoted_state_char = ESCAPED_BACKSLASH
+                  | ESCAPED_BACKTICK
+                  | ? any Unicode character except NEWLINE, "`", and "\" ? ;
 
 
 (* ============================================== *)
@@ -281,6 +295,10 @@ LETTER          = "a" | "b" | ... | "z" | "A" | "B" | ... | "Z" ;
 
 ANY_CHAR        = ? any Unicode character ? ;
 
+ESCAPED_BACKSLASH = "\\\\" ;
+
+ESCAPED_BACKTICK = "\\`" ;
+
 NEWLINE         = ? line terminator (LF or CRLF) ? ;
 ```
 
@@ -295,6 +313,12 @@ should accept those blank lines in both formats.
 Throughout this specification, a *terminal state* means any state marked
 `final: true` in the active state machine. In the built-in `rhei` machine, the
 terminal states are `completed` and `cancelled`.
+
+Dependency readiness is defined by that terminal-state rule alone: a task is
+ready with respect to `**Prior:**` only when every referenced dependency is in
+a terminal state. State-machine `instructions` text is descriptive guidance for
+agents and must not narrow or override this readiness rule unless the machine
+introduces a separate normative field for that purpose.
 
 ### 1. Dependency Integrity
 
@@ -323,6 +347,19 @@ Directory Workspace example:
 
 All state values must be defined in the associated states configuration. By default, that configuration is loaded from the plan's auto-discovered `states.yaml` when `**States:**` is declared, or from the built-in `rhei` state machine when it is omitted. `--state-machine <path>` may override the auto-discovered file.
 
+State-name rendering is normative across the plan and state-machine specs:
+
+- A canonical state name that matches `IDENTIFIER` exactly may be written bare:
+  `**State:** pending`.
+- Any canonical state name containing whitespace or any character outside
+  `IDENTIFIER` must be written in backticks, using the backticked forms shown
+  in the examples below.
+- Inside the backticked form, `\\` encodes a literal backslash and `\`` encodes
+  a literal backtick.
+- When related specs describe artifact or transition state names as arbitrary
+  YAML strings, this markdown encoding is the corresponding representation in a
+  plan file.
+
 When a state machine state declares `visits: <n>`, the authored markdown may
 encode later counted visits directly in `**State:**` using a `-<visit>` suffix:
 
@@ -348,6 +385,16 @@ Parsing rule for ambiguous names:
 This means a machine that defines a literal state named `review-2` treats
 `**State:** review-2` as that canonical state on visit 1. It is only parsed as
 "state `review`, visit 2" when no literal `review-2` state exists.
+
+Additional examples:
+
+```markdown
+**State:** pending                 ← canonical state `pending`
+**State:** `human review`          ← canonical state `human review`
+**State:** `qa/review`             ← canonical state `qa/review`
+**State:** `security.review-2`     ← canonical state `security.review`, visit 2
+**State:** `review-2`              ← either literal state `review-2` or, if absent, state `review` visit 2
+```
 
 ### 3. Acyclic Dependencies
 
@@ -403,6 +450,10 @@ against the physical path of the task file that contains the link. This keeps
 links stable when tasks move between files or when task files are nested under
 `tasks/`.
 
+For workspace-relative validation, implementations must join the relative
+target to the workspace root and then normalize `.` and `..` path segments. If
+the normalized path escapes the workspace root, the link is invalid.
+
 ```markdown
 ## Overview
 See [the spec](specs/language.md) for details.    ← specs/language.md must exist
@@ -423,12 +474,37 @@ Directory Workspace example with a nested task file:
 **State:** pending
 
 See [guide](./docs/guide.md)        ← resolves to <workspace>/docs/guide.md
-See [shared](../shared.md)          ← resolves relative to <workspace>, not tasks/backend/
+See [shared](shared.md)             ← resolves to <workspace>/shared.md
 See [protocol](specs/http.md#post)  ← checks <workspace>/specs/http.md only
 See [notes](#api-notes)             ← fragment-only anchor, not checked
 ```
 
-### 7. State Artifact Contracts
+### 7. Result Block Consistency
+
+When a task contains a `> **Result:**` block, that block must describe the
+enclosing task itself:
+
+- The link text must equal the enclosing task's `task_id`.
+- The target path must be exactly `runtime/results/<task-id>.md` using that
+  same id.
+
+Example:
+
+```markdown
+### Task api: Build API
+**State:** completed
+> **Result:** [api](runtime/results/api.md)    ← Valid
+
+### Task ui: Build UI
+**State:** completed
+> **Result:** [api](runtime/results/api.md)    ← ERROR: references a different task id
+```
+
+`result_block` is validated by this task-local rule rather than by the general
+link-integrity check above. The file may be created later by runtime commands
+such as `rhei complete`.
+
+### 8. State Artifact Contracts
 
 The active state machine may declare required file `inputs` and `outputs` for a
 state. These contracts are part of execution semantics, not markdown syntax:
@@ -438,10 +514,34 @@ state. These contracts are part of execution semantics, not markdown syntax:
 - Artifact paths are resolved relative to the plan root (single-file plan) or
   workspace root (directory workspace).
 
+This section is normative for artifact-path resolution across the Rhei spec
+set. The execution root is defined as:
+
+- The directory containing the `.rhei.md` plan file for a Single-File Plan.
+- The directory containing `index.rhei.md` for a Directory Workspace.
+
+When related specs describe artifact `path` values as "workspace-relative"
+templates, they mean relative to this execution root. In other words, the same
+artifact template is interpreted relative to the single-file plan directory in
+single-file mode and relative to the workspace root in directory-workspace
+mode.
+
 Because artifact existence depends on runtime workspace state, this constraint
 is enforced by execution commands such as `rhei transition`, `rhei complete`,
 `rhei run`, and `rhei next`, rather than by pure syntax validation of markdown
 alone.
+
+Examples:
+
+```markdown
+# Single-file plan at /repo/plans/release.rhei.md
+Artifact path: runtime/reviews/release.md
+Resolves to: /repo/plans/runtime/reviews/release.md
+
+# Directory workspace at /repo/release/index.rhei.md
+Artifact path: runtime/reviews/release.md
+Resolves to: /repo/release/runtime/reviews/release.md
+```
 
 ## Token Types
 
@@ -534,12 +634,14 @@ The recommended file extension for Rhei Plan documents is `.rhei.md` or simply `
 
 ## CLI Command Groups
 
-The `rhei` CLI organizes its subcommands into three groups:
+The `rhei` CLI help currently organizes its subcommands into five groups:
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
-| **Inspection** | `validate`, `render`, `states`, `next --peek` | Read-only commands that examine or render a plan without modifying it |
+| **Inspection** | `validate`, `render`, `states` | Read-only commands that examine or render a plan without modifying it |
+| **Templates** | `templates`, `instantiate` | Discover and instantiate reusable plan and workspace templates |
 | **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
+| **Setup** | `install-skills` | Install packaged Rhei skills for supported agent environments |
 | **Info** | `version`, `help` | Meta commands about the tool itself |
 
 ## Related Specifications
