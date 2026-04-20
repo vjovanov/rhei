@@ -465,7 +465,7 @@ This section defines the formal structure of YAML state machine configuration fi
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier for the state machine |
-| `models` | string array | No | Declared model identifiers available to states in this machine |
+| `models` | string array | No | Declared model profile identifiers available to states in this machine |
 | `version` | string | Yes | Semantic version of the state machine definition |
 | `states` | object | Yes | Map of state names to state definitions |
 | `transitions` | array | Yes | List of allowed state transitions |
@@ -485,8 +485,8 @@ states:
     final: <boolean>            # Optional: true if this is a terminal state (no outgoing transitions)
     gating: <boolean>           # Optional: true if no autonomous (agent/engine) transitions are allowed out
     visits: <integer>           # Optional: maximum number of visits permitted for this state
-    all_models: [<string>]      # Optional: list of declared models; run this state once per listed model
-    model: <string>             # Optional: one declared model allowed for this state
+    all_models: [<string>]      # Optional: list of declared model profiles; run this state once per listed model
+    model: <string>             # Optional: one declared model profile allowed for this state
     agent: <string|object>      # Optional: coding agent CLI for this state (see Agents Specification)
     agent_timeout: <duration>   # Optional: max time an agent may work in this state (e.g., "30m")
     program: <string|object>    # Optional: deterministic program to execute (see Program States Specification)
@@ -502,8 +502,8 @@ states:
 | `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
 | `gating` | boolean | No | Marks this as a gating state. When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions (`rhei transition` with `triggeredBy: 'user'`) are allowed. |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the loop budget is exhausted |
-| `all_models` | string array | No | Explicit list of declared model identifiers; the state runs once for each listed model |
-| `model` | string | No | Restricts the state to one model declared in the machine-level `models` list |
+| `all_models` | string array | No | Explicit list of declared model profile identifiers; the state runs once for each listed model |
+| `model` | string | No | Restricts the state to one model profile declared in the machine-level `models` list |
 | `agent` | string or object | No | Coding agent CLI for this state. String form: known agent ID. Object form: custom profile. See [Agents Specification](rhei-agents.spec.md). |
 | `agent_timeout` | string | No | Maximum time an agent may work in this state (e.g., `30m`, `1h`). When exceeded, `rhei run` kills the agent and fires a timeout transition if one is declared. |
 | `program` | string or object | No | Deterministic program command for this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
@@ -544,7 +544,9 @@ Supported template variables:
 - `{task_id}` - current task id
 - `{state}` - canonical unsuffixed state name
 - `{visit_count}` - current visit number for counted-loop states (only available when the state declares `visits`)
-- `{model}` - current model identifier (only available when the state declares `model` or `all_models`)
+- `{model}` - current model profile identifier (only available when the state declares `model` or `all_models`)
+- `{model.provider}` - current model provider id
+- `{model.name}` - current provider model name
 
 ### Counted Loops
 

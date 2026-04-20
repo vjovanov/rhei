@@ -10,79 +10,193 @@ Rhei can spawn coding agents directly from `rhei run`. Instead of requiring hand
 
 ## Agent Configuration
 
-### Global Settings
+Rhei settings separate **model identity** from **agent transport**:
 
-File: `~/.config/rhei/settings.json`
+- A **model profile** is the semantic identity used by state machines, callbacks,
+  templates, logs, and multi-model execution.
+- An **agent profile** is the CLI transport used when `rhei run` spawns an
+  autonomous coding agent.
+- A model profile names the concrete provider/model pair and may define
+  agent-specific launch overrides for autonomous execution.
+
+This separation keeps callback-only workflows model-centric while still letting
+`rhei run` resolve the exact subprocess invocation when agent mode is enabled.
+
+### Global and Project Settings
+
+Files:
+
+- Global: `~/.config/rhei/settings.json`
+- Project: `.rhei/settings.json` in the workspace or plan directory
+
+Both files use the same schema. Project settings compose with global settings by
+key rather than replacing the whole file.
 
 ```json
 {
-  "agent": "claude-code",
-  "model": null
+  "defaults": {
+    "model": "impl-fast",
+    "agent": null,
+    "agent_timeout": "30m",
+    "program_timeout": "10m"
+  },
+  "agents": {
+    "claude-code": {
+      "command": ["claude"],
+      "prompt_flag": "-p",
+      "model_flag": "--model",
+      "stdin_prompt": false
+    },
+    "codex": {
+      "command": ["codex", "exec", "--"],
+      "model_flag": "--model",
+      "stdin_prompt": true
+    }
+  },
+  "models": {
+    "impl-fast": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "default_agent": "claude-code",
+      "agents": {
+        "claude-code": {
+          "args": ["--permission-mode", "default"],
+          "autonomous_args": ["--permission-mode", "bypassPermissions"]
+        }
+      }
+    },
+    "review-deep": {
+      "provider": "openai",
+      "model": "o3",
+      "default_agent": "codex",
+      "agents": {
+        "codex": {
+          "args": ["--sandbox", "workspace-write"],
+          "autonomous_args": [
+            "--sandbox",
+            "danger-full-access",
+            "--skip-git-repo-check"
+          ]
+        }
+      }
+    }
+  }
 }
 ```
+
+#### `defaults`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `agent` | string or object | Yes | Agent identifier (known ID) or custom agent profile |
-| `model` | string or null | No | Default model override passed to the agent CLI |
+| `model` | string or null | No | Default model profile id |
+| `agent` | string or object or null | No | Default agent transport id or inline custom agent profile |
+| `agent_timeout` | string or null | No | Default autonomous agent timeout |
+| `program_timeout` | string or null | No | Default program timeout |
 
-### Project Settings
+#### `agents`
 
-File: `.rhei/settings.json` in the workspace or plan directory.
+`agents` is a registry of named agent transport profiles keyed by agent id. The
+entry schema is the same as the custom agent profile object described below.
+Built-in agent ids remain valid even when they are not declared in the file.
 
-Same schema as global settings. When present, overrides global settings.
+#### `models`
 
-```json
-{
-  "agent": "claude-code",
-  "model": "claude-sonnet-4-6"
-}
-```
+`models` is a registry of named model profiles keyed by model id.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | string | Yes | Provider identifier such as `openai` or `anthropic` |
+| `model` | string | Yes | Concrete provider model name such as `o3` or `claude-sonnet-4-6` |
+| `default_agent` | string | No | Preferred agent id when `rhei run` needs to spawn this model autonomously |
+| `agents` | object | No | Per-agent launch overrides for this model, keyed by agent id |
+
+Each `models.<id>.agents.<agent-id>` binding has this shape:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `args` | string array | No | Additional agent arguments for normal/inherited invocation |
+| `autonomous_args` | string array | No | Arguments preferred by `rhei run` when launching autonomously |
+| `timeout` | string | No | Timeout default specific to this model-agent binding |
 
 ### Per-State Settings
 
-The `agent` and `model` fields on state definitions in `states.yaml`. See [States Specification — Agent Field](rhei-states.spec.md#agent-field).
+The `model` / `all_models` and optional `agent` fields on state definitions in
+`states.yaml`. See [States Specification — Agent Field](rhei-states.spec.md#agent-field).
+
+### Merge Semantics
+
+Global settings load first, then project settings compose over them:
+
+- `defaults` shallow-override by field.
+- `agents` merge by agent id.
+- `models` merge by model id.
+- `models.<id>.agents` merge by agent id.
+- `null` explicitly clears an inherited optional field.
+
+This lets a project override only a model's concrete provider/model pair or
+only a model-agent binding's autonomous arguments without redefining unrelated
+global entries.
 
 ### Resolution Order
 
-When `rhei run` needs an agent for a task in a given state, it resolves the agent/model pair using this precedence (first match wins):
+When `rhei run` or a callback needs model context for a task in a given state,
+it resolves the model id in this order:
 
-1. **State-level** — `agent` and/or `model` on the state definition in `states.yaml`.
-2. **Project-level** — `.rhei/settings.json` in the workspace or plan directory.
-3. **Global-level** — `~/.config/rhei/settings.json`.
-4. **CLI override** — `--agent` and `--model` flags on `rhei run` override all levels.
+1. **CLI override** — `--model <MODEL>`
+2. **State-level** — `model` on the state definition in `states.yaml`
+3. **Project defaults** — `.rhei/settings.json` `defaults.model`
+4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.model`
 
-If no agent is configured at any level and no `--agent` flag is passed, `rhei run` fails:
+The resolved model id must exist in the merged `models` registry. If no model
+is configured at any level, model-specific callback and template fields are
+omitted.
+
+When `rhei run` is launching an autonomous agent, it resolves the agent in this
+order:
+
+1. **CLI override** — `--agent <AGENT>`
+2. **State-level** — `agent` on the state definition in `states.yaml`
+3. **Project defaults** — `.rhei/settings.json` `defaults.agent`
+4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.agent`
+5. **Model default** — `models.<id>.default_agent`
+
+If no agent is configured at any level and the resolved model does not declare a
+`default_agent`, `rhei run` fails:
 
 ```
-error: no agent configured.
-Set one in ~/.config/rhei/settings.json, .rhei/settings.json, or the state machine.
-Alternatively, pass --agent <AGENT> to rhei run.
+error: no agent configured for model 'impl-fast'.
+Set defaults.agent, the state's agent, models.impl-fast.default_agent, or pass --agent <AGENT> to rhei run.
 ```
-
-The `model` field is optional at every level. When omitted, the agent is spawned without a model flag and uses its own default.
 
 ### Partial Overrides
 
-Each level can override `agent`, `model`, or both independently. The resolution merges across levels:
+Each level can override model and agent independently:
 
 ```yaml
-# states.yaml — state overrides only the model
+# states.yaml — state overrides only the model profile
 states:
   agent-review:
-    model: o3        # uses project-level agent, but forces model to o3
+    model: review-deep
 ```
 
 ```json
-// .rhei/settings.json — project sets the agent
-{ "agent": "claude-code" }
+// .rhei/settings.json — project sets the default agent transport
+{
+  "defaults": {
+    "agent": "codex"
+  }
+}
 ```
 
-Result for `agent-review`: agent=`claude-code` (from project), model=`o3` (from state).
+Result for `agent-review`: model=`review-deep` (from state), agent=`codex`
+(from project defaults unless `review-deep.default_agent` or a CLI override
+supersedes it).
 
 ## Known Agent Profiles
 
-Rhei ships with built-in invocation profiles for known coding agents. Each profile defines how to spawn the agent, deliver the prompt, pass the model, and set default flags.
+Rhei ships with built-in invocation profiles for known coding agents. Each
+profile defines how to spawn the agent, deliver the prompt, pass the concrete
+provider model name, and set transport-level defaults.
 
 | Agent ID | Binary | Prompt Delivery | Model Flag | Default Args |
 |----------|--------|-----------------|------------|--------------|
@@ -96,16 +210,19 @@ The agent IDs match those used by `rhei install-skills --agent`.
 
 ### Custom Agent Profiles
 
-When the built-in profiles don't fit, specify a custom agent as an object:
+When the built-in profiles don't fit, specify a custom agent profile inline in
+`defaults.agent`, in the `agents` registry, or directly on a state:
 
 ```json
 {
-  "agent": {
-    "id": "my-agent",
-    "command": ["my-agent", "--autonomous"],
-    "prompt_flag": "--prompt",
-    "model_flag": "--model",
-    "stdin_prompt": false
+  "agents": {
+    "my-agent": {
+      "id": "my-agent",
+      "command": ["my-agent", "--autonomous"],
+      "prompt_flag": "--prompt",
+      "model_flag": "--model",
+      "stdin_prompt": false
+    }
   }
 }
 ```
@@ -115,11 +232,12 @@ When the built-in profiles don't fit, specify a custom agent as an object:
 | `id` | string | Yes | Identifier for logs and diagnostics |
 | `command` | string array | Yes | Base command and fixed arguments |
 | `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
-| `model_flag` | string | No | Flag to pass the model. Omit if the agent doesn't support model selection. |
+| `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
 | `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag. Default: `false`. |
 | `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
 
-Custom agent profiles can appear in `settings.json` (global or project) or inline in `states.yaml`:
+Custom agent profiles can appear in `settings.json` (global or project) or
+inline in `states.yaml`:
 
 ```yaml
 states:
@@ -164,21 +282,26 @@ Available transitions from `{state}`:
 Do not modify **State:** lines in the plan directly. Use the rhei CLI.
 ```
 
-Template variables (`{task_id}`, `{model}`, `{visit_count}`, etc.) are resolved before the prompt is sent, using the same resolution rules as `rhei next`. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality).
+Template variables (`{task_id}`, `{model}`, `{model.provider}`,
+`{model.name}`, `{visit_count}`, etc.) are resolved before the prompt is sent,
+using the same resolution rules as `rhei next`. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality).
 
 The prompt is delivered to the agent via its configured prompt delivery mechanism (flag or stdin).
 
 ## Environment Variables
 
-The agent subprocess inherits these environment variables, consistent with the callback environment:
+The agent subprocess inherits these environment variables, consistent with the
+callback environment:
 
 | Variable | Value |
 |----------|-------|
 | `RHEI_PLAN_PATH` | Absolute path to the plan file or workspace directory |
 | `RHEI_TASK_ID` | Current task identifier |
 | `RHEI_STATE` | Current state name |
-| `RHEI_MODEL` | Model identifier, if configured |
-| `RHEI_AGENT` | Agent identifier |
+| `RHEI_MODEL` | Model profile id, if configured |
+| `RHEI_MODEL_PROVIDER` | Resolved provider id, if configured |
+| `RHEI_MODEL_NAME` | Resolved provider model name, if configured |
+| `RHEI_AGENT` | Agent identifier, if configured |
 
 The agent's working directory is set to the workspace root (for directory workspaces) or the plan file's parent directory (for single-file plans).
 
@@ -198,8 +321,8 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 | `--no-callbacks` | false | Skip `on_leave`/`on_enter` callbacks |
 | `--no-agent` | false | Disable agent spawning; fall back to callback-only advancement (pre-agent behavior) |
 | `--no-program` | false | Disable program spawning; fall back to callback-only advancement for program states |
-| `--agent <AGENT>` | | Override agent for this run (ignores settings files and state-level config) |
-| `--model <MODEL>` | | Override model for this run |
+| `--agent <AGENT>` | | Override the agent transport for this run |
+| `--model <MODEL>` | | Override the model profile id for this run |
 | `--continue-on-error` | false | Continue to the next task when an agent or program exits non-zero |
 | `--parallel <N>` | 1 | Maximum number of agents/programs to run concurrently. `0` means unlimited. |
 | `--program-timeout <DURATION>` | | Override program timeout for this run (e.g., `10m`, `1h`). See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
@@ -210,8 +333,8 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 
 1. Load plan and state machine. Validate.
 2. Find the next claimable task (same eligibility as `rhei next`).
-3. Resolve the agent for the task's current state (resolution order above).
-4. If no agent is configured, fail with an error.
+3. Resolve the model and, if agent mode is enabled, the agent for the task's current state (resolution order above).
+4. If agent mode is enabled and no agent is configured, fail with an error.
 5. Compose the prompt (see [Prompt Composition](#prompt-composition)).
 6. Log the spawn to `runtime/logs/task-{task_id}-{state}[-{visit_count}].log`.
 7. Spawn the agent CLI as a subprocess with the composed prompt.
@@ -229,7 +352,7 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 1. Load plan and state machine. Validate.
 2. Find all claimable tasks (same eligibility as `rhei next`, but collect all candidates).
 3. Select up to N tasks that are mutually independent (no dependency edges between them). When N = 0, select all independent claimable tasks.
-4. For each selected task, resolve the agent, compose the prompt, and spawn the agent subprocess concurrently. Each agent writes to its own log file.
+4. For each selected task, resolve the model and agent, compose the prompt, and spawn the agent subprocess concurrently. Each agent writes to its own log file.
 5. Wait for any agent to exit (timeout or completion).
 6. When an agent exits:
    a. Re-read the plan.
@@ -270,7 +393,7 @@ The task is skipped and the engine continues with other claimable tasks. When th
 
 ### Configuration
 
-Timeout can be set at three levels:
+Timeout can be set at four levels:
 
 1. **Per-state** — `agent_timeout` field on a state definition:
    ```yaml
@@ -279,17 +402,37 @@ Timeout can be set at three levels:
        agent_timeout: 30m
    ```
 
-2. **Per-agent profile** — `timeout` field in custom agent definitions:
+2. **Per-model/agent binding** — `timeout` field in a model profile's `agents` binding:
    ```json
-   { "agent": { "id": "my-agent", "command": ["my-agent"], "timeout": "1h" } }
+   {
+     "models": {
+       "impl-fast": {
+         "provider": "anthropic",
+         "model": "claude-sonnet-4-6",
+         "agents": {
+           "claude-code": { "timeout": "45m" }
+         }
+       }
+     }
+   }
    ```
 
-3. **Global default** — `agent_timeout` in settings:
+3. **Per-agent profile** — `timeout` field in custom agent definitions:
    ```json
-   { "agent": "claude-code", "agent_timeout": "30m" }
+   {
+     "agents": {
+       "my-agent": { "id": "my-agent", "command": ["my-agent"], "timeout": "1h" }
+     }
+   }
    ```
 
-Resolution: state-level > agent-profile > settings-level. If no timeout is configured at any level, there is no timeout (the engine waits indefinitely).
+4. **Defaults** — `defaults.agent_timeout` in settings:
+   ```json
+   { "defaults": { "agent_timeout": "30m" } }
+   ```
+
+Resolution: state-level > model-agent binding > agent-profile > settings defaults.
+If no timeout is configured at any level, there is no timeout (the engine waits indefinitely).
 
 ### Duration Format
 
@@ -332,7 +475,7 @@ Example:
 states:
   pending:
     description: Task is ready for implementation.
-    agent: claude-code
+    model: impl-fast
     agent_timeout: 30m
 
   timed-out:
@@ -405,7 +548,9 @@ Each log file contains:
 ```
 === rhei agent log v1 ===
 agent: claude-code
-model: claude-sonnet-4-6
+model: impl-fast
+provider: anthropic
+model_name: claude-sonnet-4-6
 task: 3
 state: pending
 started: 2026-04-20T10:30:00Z
@@ -437,12 +582,12 @@ Pass 1: 2 ready, 0 terminal, 5 total.
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
   Task 1: Set up database schema [draft -> pending]
-  Agent: claude-code, Model: claude-sonnet-4-6, Timeout: 30m
+  Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
   Log: runtime/logs/task-1-pending.log
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
   Task 3: Write frontend components [draft -> pending]
-  Agent: claude-code, Model: claude-sonnet-4-6, Timeout: 30m
+  Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
   Log: runtime/logs/task-3-pending.log
 
 Dry run complete - no agents were spawned.
@@ -454,7 +599,7 @@ When `--no-agent` is passed, `rhei run` reverts to pre-agent behavior: it advanc
 
 ## Related Specifications
 
-- [States Specification](rhei-states.spec.md) — state machine format, `agent` field, template variables
+- [States Specification](rhei-states.spec.md) — state machine format, `model`/`agent` fields, template variables
 - [Program States Specification](rhei-programs.spec.md) — deterministic program execution (the algorithmic complement to agent states)
 - [Transitions Specification](rhei-transitions.spec.md) — transition callbacks, timeout transitions, exit-code transitions
 - [How Rhei Is Used](rhei-usage.spec.md) — roles, coordination patterns, agent workflows
