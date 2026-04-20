@@ -2250,6 +2250,24 @@ fn resolve_runtime_template_variable(
             }
 
             if let Some(name) =
+                variable.strip_prefix("input.").and_then(|v| v.strip_suffix(".exists"))
+            {
+                return state_def.inputs.iter().find(|artifact| artifact.name == name).map(
+                    |artifact| {
+                        let (_, path) = resolve_artifact_path(
+                            context.workspace_root,
+                            artifact,
+                            &context.task.id.to_string(),
+                            context.state_name,
+                            visit_count,
+                            context.model,
+                        );
+                        path.exists().to_string()
+                    },
+                );
+            }
+
+            if let Some(name) =
                 variable.strip_prefix("output.").and_then(|v| v.strip_suffix(".path"))
             {
                 return state_def.outputs.iter().find(|artifact| artifact.name == name).map(
@@ -2270,7 +2288,145 @@ fn resolve_runtime_template_variable(
     }
 }
 
+/// Evaluate a condition expression for `{if <condition>}` blocks.
+///
+/// Currently supports only `input.<name>.exists`.
+fn evaluate_if_condition(condition: &str, context: &RuntimeTemplateContext<'_>) -> bool {
+    if let Some(name) = condition.strip_prefix("input.").and_then(|s| s.strip_suffix(".exists")) {
+        let visit_count = Some(render_visit_count(
+            context.metadata,
+            &context.task.id,
+            context.state_name,
+            context.current_state_raw,
+            context.machine,
+        ));
+        if let Some(state_def) = context.machine.states.get(context.state_name) {
+            if let Some(artifact) = state_def.inputs.iter().find(|a| a.name == name) {
+                let (_, path) = resolve_artifact_path(
+                    context.workspace_root,
+                    artifact,
+                    &context.task.id.to_string(),
+                    context.state_name,
+                    visit_count,
+                    context.model,
+                );
+                return path.exists();
+            }
+        }
+    }
+    false
+}
+
+/// Parse the body of an `{if}` block (text after the opening `{if ...}\n`).
+///
+/// Returns `(true_branch, optional_false_branch, text_after_endif)`.
+/// Tag lines (`{else}`, `{endif}`) are consumed and excluded from all slices.
+fn parse_if_block(body: &str) -> (&str, Option<&str>, &str) {
+    if let Some(else_pos) = body.find("{else}") {
+        let true_branch = &body[..else_pos];
+        let after_else_tag = else_pos + "{else}".len();
+        let false_start = if body[after_else_tag..].starts_with('\n') {
+            after_else_tag + 1
+        } else {
+            after_else_tag
+        };
+        if let Some(endif_rel) = body[false_start..].find("{endif}") {
+            let false_branch = &body[false_start..false_start + endif_rel];
+            let after_endif_tag = false_start + endif_rel + "{endif}".len();
+            let after_endif = if body[after_endif_tag..].starts_with('\n') {
+                &body[after_endif_tag + 1..]
+            } else {
+                &body[after_endif_tag..]
+            };
+            return (true_branch, Some(false_branch), after_endif);
+        }
+        // Malformed: {else} but no {endif} — treat whole body as true branch
+        return (body, None, "");
+    }
+
+    if let Some(endif_pos) = body.find("{endif}") {
+        let true_branch = &body[..endif_pos];
+        let after_endif_tag = endif_pos + "{endif}".len();
+        let after_endif = if body[after_endif_tag..].starts_with('\n') {
+            &body[after_endif_tag + 1..]
+        } else {
+            &body[after_endif_tag..]
+        };
+        return (true_branch, None, after_endif);
+    }
+
+    // Malformed: no {endif} — treat whole body as true branch
+    (body, None, "")
+}
+
+/// Collapse runs of three or more consecutive newlines to exactly two.
+///
+/// Two newlines (`\n\n`) represent a single blank line in prose. When a
+/// conditional block is removed, adjacent blank lines from the surrounding text
+/// and the removed block merge into a run of 3+; this collapses them back to
+/// one blank line so the output stays clean.
+fn collapse_extra_blank_lines(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut newline_run = 0usize;
+    for ch in text.chars() {
+        if ch == '\n' {
+            newline_run += 1;
+            if newline_run <= 2 {
+                result.push(ch);
+            }
+        } else {
+            newline_run = 0;
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Pre-pass over `text` that resolves `{if condition}…{else}…{endif}` blocks
+/// before variable substitution runs.
+///
+/// Supported conditions (v1): `input.<name>.exists`
+/// Nesting is not supported in v1.
+fn process_conditional_blocks(text: &str, context: &RuntimeTemplateContext<'_>) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut remaining = text;
+
+    while let Some(if_start) = remaining.find("{if ") {
+        let after_open = if_start + "{if ".len();
+        let Some(close_brace) = remaining[after_open..].find('}') else {
+            // Malformed opening tag — pass through the '{' and move on
+            result.push_str(&remaining[..if_start + 1]);
+            remaining = &remaining[if_start + 1..];
+            continue;
+        };
+        let condition = &remaining[after_open..after_open + close_brace];
+        let tag_end = after_open + close_brace + 1; // position after '}'
+
+        // Consume the newline that follows the opening tag line
+        let body_start = if remaining[tag_end..].starts_with('\n') { tag_end + 1 } else { tag_end };
+
+        // Emit everything before the opening tag unchanged
+        result.push_str(&remaining[..if_start]);
+
+        let (true_branch, false_branch, after_endif) = parse_if_block(&remaining[body_start..]);
+
+        if evaluate_if_condition(condition, context) {
+            result.push_str(true_branch);
+        } else if let Some(fb) = false_branch {
+            result.push_str(fb);
+        }
+        // else: block removed entirely
+
+        remaining = after_endif;
+    }
+
+    result.push_str(remaining);
+    collapse_extra_blank_lines(&result)
+}
+
 fn resolve_runtime_template_text(text: &str, context: &RuntimeTemplateContext<'_>) -> String {
+    let preprocessed = process_conditional_blocks(text, context);
+    let text = preprocessed.as_str();
     let mut rendered = String::with_capacity(text.len());
     let mut idx = 0usize;
 
@@ -2314,6 +2470,9 @@ fn ensure_state_inputs_exist(
     context: &str,
 ) -> MietteResult<()> {
     for artifact in &state_def.inputs {
+        if artifact.optional {
+            continue;
+        }
         let (relative, path) = resolve_artifact_path(
             workspace_root,
             artifact,
@@ -3459,6 +3618,31 @@ fn build_program_command(
     }
     if let Some(model) = render_context.model {
         cmd.env("RHEI_MODEL", model);
+    }
+
+    // Expose declared input artifact paths and existence flags so programs
+    // can branch on optional inputs without shelling out to test -f.
+    let input_visit_count = Some(render_visit_count(
+        render_context.metadata,
+        &render_context.task.id,
+        render_context.state_name,
+        render_context.current_state_raw,
+        render_context.machine,
+    ));
+    if let Some(state_def) = render_context.machine.states.get(render_context.state_name) {
+        for artifact in &state_def.inputs {
+            let env_base = artifact.name.to_uppercase().replace(['-', ' '], "_");
+            let (relative, path) = resolve_artifact_path(
+                render_context.workspace_root,
+                artifact,
+                &render_context.task.id.to_string(),
+                render_context.state_name,
+                input_visit_count,
+                render_context.model,
+            );
+            cmd.env(format!("RHEI_INPUT_{env_base}_EXISTS"), path.exists().to_string());
+            cmd.env(format!("RHEI_INPUT_{env_base}_PATH"), relative);
+        }
     }
 
     for (key, value) in &resolved.program.env {

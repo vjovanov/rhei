@@ -63,9 +63,9 @@ The state machine writer produces a single YAML file conforming to the [YAML Sta
 name: <project-derived-name>
 version: 1.0
 personality: <optional agent persona or role framing text>
-models:                              # optional: declare model identifiers
-  - <model-name>
-  - <model-name>
+models:                              # optional: declare model profile identifiers
+  - <model-id>
+  - <model-id>
 
 states:
   <state-name>:
@@ -77,8 +77,8 @@ states:
     final: true|false    # at least one state must be final
     gating: true|false   # optional: if true, no autonomous exit allowed
     visits: <integer>    # optional: max counted visits for loop states
-    all_models: [<model-name>, ...] # optional: run once for each listed declared model
-    model: <model-name>    # optional: exactly one declared model may work this state
+    all_models: [<model-id>, ...] # optional: run once for each listed declared model profile
+    model: <model-id>      # optional: exactly one declared model profile may work this state
 
 transitions:
   - from: <source-state>
@@ -101,8 +101,8 @@ transitions:
 When a machine declares `models`, each state may either:
 
 - omit model selectors entirely
-- set `all_models: [<model-name>, ...]`
-- set `model: <model-name>`
+- set `all_models: [<model-id>, ...]`
+- set `model: <model-id>`
 
 It must not set both `all_models` and `model` on the same state.
 

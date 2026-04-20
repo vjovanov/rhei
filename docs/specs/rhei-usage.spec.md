@@ -114,12 +114,12 @@ For state-specific agents (e.g., a different agent or model for review):
 # states.yaml
 states:
   pending:
+    model: impl-fast
     agent: claude-code
-    model: claude-sonnet-4-6
     agent_timeout: 30m
   agent-review:
+    model: review-deep
     agent: codex
-    model: o3
     agent_timeout: 20m
 ```
 

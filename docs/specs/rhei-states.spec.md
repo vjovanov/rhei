@@ -6,19 +6,26 @@ The state-machine schema also permits these optional fields for richer workflows
 
 - Per-state `personality: <string>` to inject role framing into `rhei next` for that specific state (supports template variables)
 - Template variables in `instructions` and `personality` fields, resolved by `rhei next` at output time
-- Top-level `models: [<model-name>, ...]` to declare the model identifiers available to the machine
-- Per-state `all_models: [<model-name>, ...]` to declare the full model set that may execute that state
-- Per-state `model: <model-name>` to bind a state to exactly one declared model
+- Top-level `models: [<model-id>, ...]` to declare the model profile identifiers available to the machine
+- Per-state `all_models: [<model-id>, ...]` to declare the full model set that may execute that state
+- Per-state `model: <model-id>` to bind a state to exactly one declared model profile
 - Per-state `agent: <agent-id>` to bind a state to a specific coding agent CLI
 - Per-state `agent_timeout: <duration>` to set the maximum time an agent may work in this state
 - Per-state `program: <string|object>` to bind a state to a deterministic program command (mutually exclusive with `agent`)
 - Per-state `program_timeout: <duration>` to set the maximum time a program may run in this state
 - Per-state `visits: <integer>` to cap total counted visits for that state
-- Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit
+- Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit; individual inputs may be marked `optional: true` to skip the existence check while still exposing the path and an existence flag to agents and programs
 
-When `models` is omitted, the machine behaves as it does today and states are not model-constrained. When `models` is present, a state may either omit both selector fields, set `all_models: [<name>, ...]`, or set `model: <name>`. Setting both `all_models` and `model` on the same state is invalid. `visits` is orthogonal to model selection and may be used together with either `all_models` or `model`.
+When `models` is omitted, the machine behaves as it does today and states are not model-constrained. When `models` is present, a state may either omit both selector fields, set `all_models: [<id>, ...]`, or set `model: <id>`. Setting both `all_models` and `model` on the same state is invalid. `visits` is orthogonal to model selection and may be used together with either `all_models` or `model`.
 
-When `agent` is set on a state, `rhei run` uses that agent to execute work in the state instead of relying on callbacks alone. The agent/model pair together define who does the work: the agent is the CLI tool, the model is the specific model variant within that tool. See [Agents Specification](rhei-agents.spec.md) for configuration, resolution order, and invocation details.
+The `model` field is the semantic execution identity for the state. It resolves
+through settings to a provider/model combo and is available to callbacks,
+templates, logs, and multi-model execution. When `agent` is set on a state,
+`rhei run` uses that agent transport to execute work in the state instead of
+relying on callbacks alone. When `agent` is omitted, callbacks still resolve the
+model; autonomous agent execution falls back to settings defaults and then the
+model profile's `default_agent`. See [Agents Specification](rhei-agents.spec.md)
+for configuration, resolution order, and invocation details.
 
 ## Schema Additions
 
@@ -26,7 +33,7 @@ When `agent` is set on a state, `rhei run` uses that agent to execute work in th
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `models` | string array | No | The complete set of model identifiers available to the machine |
+| `models` | string array | No | The complete set of model profile identifiers available to the machine |
 
 ### Per-state fields
 
@@ -35,18 +42,18 @@ When `agent` is set on a state, `rhei run` uses that agent to execute work in th
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
-| `all_models` | string array | No | The complete set of declared model identifiers allowed to work this state |
-| `model` | string | No | A single model identifier from the machine-level `models` list |
+| `all_models` | string array | No | The complete set of declared model profile identifiers allowed to work this state |
+| `model` | string | No | A single model profile identifier from the machine-level `models` list |
 | `agent` | string or object | No | The coding agent CLI that executes work in this state. String form references a known agent ID (e.g., `claude-code`, `codex`). Object form defines a custom agent profile. See [Agents Specification](rhei-agents.spec.md). |
 | `agent_timeout` | string | No | Maximum time an agent may work in this state before being killed (e.g., `30m`, `1h`). See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling). |
 | `program` | string or object | No | The program command to execute in this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
 | `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
-| `inputs` | artifact array | No | Required artifacts that must exist before the task can enter or continue in this state |
+| `inputs` | artifact array | No | Artifacts that must exist before the task can enter this state. Individual entries may be marked `optional: true` to skip the existence check. |
 | `outputs` | artifact array | No | Required artifacts that must exist before the task can leave this state |
 
 ### Validation Rules
 
-- `models`, when present, must be a list of unique non-empty strings.
+- `models`, when present, must be a list of unique non-empty strings naming model profiles defined in settings.
 - `state.model`, when present, must match an entry from the machine-level `models` list.
 - `state.all_models`, when present, must be a list of unique non-empty strings drawn from the machine-level `models` list.
 - A state must not declare both `all_models: [..]` and `model: <name>`.
@@ -63,6 +70,8 @@ When `agent` is set on a state, `rhei run` uses that agent to execute work in th
 - `state.program_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
 - `state.inputs` / `state.outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
 - Artifact `path` values must be relative to the plan root (single-file plan) or workspace root (directory workspace) and must not escape that root after template expansion.
+- `artifact.optional`, when present, must be a boolean. Only valid on `inputs` entries; declaring `optional: true` on an `outputs` entry is a validation error (required outputs are always enforced).
+- An `optional: true` input that is missing does not block state entry. Its `{input.<name>.exists}` variable resolves to `false` and its `{input.<name>.path}` resolves to the declared path regardless.
 
 Counted-loop counters are task-instance data, not state-definition data. The state machine declares the cap with `visits`; runtimes persist the current per-task counts in task metadata and mirror the active visit in markdown by appending `-<n>` to `**State:**` for visits greater than `1`.
 
@@ -81,21 +90,31 @@ Each artifact definition has this shape:
 | `name` | string | Yes | Stable identifier for the artifact within that state |
 | `path` | string | Yes | Workspace-relative file path template |
 | `description` | string | No | Human-readable explanation of what the artifact contains |
+| `optional` | boolean | No | When `true`, a missing file does not block state entry. Only valid on `inputs` entries. Default: `false`. |
 
 Supported path template variables:
 
 - `{task_id}` - the current task id as rendered in the plan
 - `{state}` - the canonical unsuffixed state name
 - `{visit_count}` - the current visit number for counted-loop states (only available when the state declares `visits`)
-- `{model}` - the current model identifier (only available when the state declares `model` or `all_models`)
+- `{model}` - the current model profile identifier (only available when the state declares `model` or `all_models`)
+- `{model.provider}` - the resolved provider id for the current model profile
+- `{model.name}` - the resolved provider model name for the current model profile
 
 Runtime semantics:
 
 - `inputs` are checked before entering the state and before work begins in that
-  state. If any required input file is missing, the transition is rejected.
+  state. If any required (`optional: false`, the default) input file is missing,
+  the transition is rejected. Optional inputs (`optional: true`) are not checked;
+  entry proceeds regardless of whether the file exists.
 - `outputs` are checked after callbacks complete and before the transition out
   of the state is committed. If any required output file is missing, the
   transition is rejected.
+- For every declared input — required or optional — the engine resolves the path
+  and checks whether the file exists. The result is exposed as:
+  - `{input.<name>.exists}` template variable: `true` or `false`.
+  - `RHEI_INPUT_<NAME>_EXISTS` environment variable for programs: `true` or `false`
+    (name uppercased, hyphens and spaces replaced with underscores).
 - Artifact contracts are file-existence contracts in v1. They do not yet define
   JSON schemas, required headings, or content-level validation.
 
@@ -122,6 +141,63 @@ states:
         description: Findings produced by `agent-review`
 ```
 
+### Optional Inputs
+
+Optional inputs are declared with `optional: true`. The engine does not block
+state entry when an optional input is absent, but still resolves the path and
+exposes `{input.<name>.exists}` so the agent or program can branch on presence.
+
+```yaml
+states:
+  implement:
+    description: Implement the task, incorporating prior-iteration notes when available.
+    agent: claude-code
+    inputs:
+      - name: continuation-notes
+        path: runtime/continuation/{task_id}.md
+        optional: true
+        description: Notes written by the check-continue program on the previous loop iteration.
+    instructions: |
+      Implement Task {task_id}: {task_title}.
+
+      {if input.continuation-notes.exists}
+      A previous iteration left the following notes. Read
+      `{input.continuation-notes.path}` before starting and address any
+      outstanding issues it identifies.
+      {else}
+      This is the first iteration. Start from the task description above.
+      {endif}
+
+      When finished, transition to `check-continue`.
+```
+
+When `continuation-notes` is absent (first loop iteration), the resolved
+instructions become:
+
+```text
+Implement Task 4: Add retry logic.
+
+This is the first iteration. Start from the task description above.
+
+When finished, transition to `check-continue`.
+```
+
+When it is present (subsequent iterations):
+
+```text
+Implement Task 4: Add retry logic.
+
+A previous iteration left the following notes. Read
+`runtime/continuation/4.md` before starting and address any
+outstanding issues it identifies.
+
+When finished, transition to `check-continue`.
+```
+
+The surrounding blank lines are preserved when the block is included and
+collapsed to a single blank line when it is removed, so the output is clean in
+both cases.
+
 ## Template Variables in Instructions and Personality
 
 The `instructions` and `personality` fields support template variable substitution. Variables use the same `{variable}` syntax as artifact path templates. `rhei next` resolves all template variables before printing output, so agents receive fully expanded prompts with no manual variable resolution required.
@@ -135,11 +211,14 @@ The `instructions` and `personality` fields support template variable substituti
 | `{state}` | state machine | Canonical unsuffixed state name | `review` |
 | `{visit_count}` | runtime counter | Current visit number for counted-loop states | `2` |
 | `{visits}` | state definition | Configured loop budget for the state | `3` |
-| `{model}` | model selector | Current model identifier (requires `model` or `all_models`) | `claude-sonnet` |
+| `{model}` | model selector | Current model profile identifier (requires `model` or `all_models`) | `impl-fast` |
+| `{model.provider}` | model selector | Resolved provider id for the current model profile | `anthropic` |
+| `{model.name}` | model selector | Resolved provider model name for the current model profile | `claude-sonnet-4-6` |
 | `{agent}` | agent selector | Current agent identifier (requires `agent` on the state or in settings) | `claude-code` |
 | `{plan_title}` | plan header | Title from the `# Rhei: <title>` header | `Feature Branch CI Pipeline` |
 | `{plan_path}` | filesystem | Path to the plan file | `./ci-pipeline.rhei.md` |
 | `{input.<name>.path}` | artifact contract | Resolved path of a declared input artifact | `runtime/results/3.md` |
+| `{input.<name>.exists}` | artifact contract | Whether the input artifact file exists on disk at resolution time | `true`, `false` |
 | `{output.<name>.path}` | artifact contract | Resolved path of a declared output artifact | `runtime/findings/3.md` |
 | `{meta.<key>}` | task metadata | Value from the task's YAML metadata section | `alice`, `2` |
 
@@ -150,6 +229,7 @@ The `instructions` and `personality` fields support template variable substituti
 - **Pure substitution, no expressions.** Templates produce text, not decisions. Conditional logic belongs in transition `condition` fields, not in instructions. The resolved text tells the agent "you are on pass 2 of 3" — the agent reads that to decide what to do.
 - **Artifact references create a single source of truth.** Using `{input.<name>.path}` or `{output.<name>.path}` instead of repeating raw paths means the artifact contract defines the path once. If the path changes, instructions stay correct automatically.
 - **`{visit_count}` and `{visits}` are only meaningful for counted-loop states.** For states without a `visits` declaration, `{visits}` is left unresolved and `{visit_count}` resolves to `1`.
+- **Conditional blocks suppress whole paragraphs.** Use `{if input.<name>.exists}` … `{endif}` to include a block of text only when an optional input is present. Use `{else}` between the opening tag and `{endif}` for an alternative block. The entire block — including surrounding blank lines — is removed from the output when the condition is false. Conditional blocks may not be nested in v1.
 
 ### Example
 
@@ -205,20 +285,21 @@ Otherwise, transition to `completed`.
 
 ```yaml
 models:
-  - claude
-  - codex
+  - claude-review
+  - openai-review
 
 states:
   review:
     description: Independent review by each model
     personality: |
-      You are {model}. Provide a review from your perspective.
+      You are reviewing as {model} ({model.provider}/{model.name}).
+      Provide a review from your perspective.
       Do not attempt to emulate or defer to another model's style.
     instructions: |
       Review the implementation for Task {task_id}.
       Read `{input.implementation.path}` and write your findings to
       `{output.findings.path}`.
-    all_models: [claude, codex]
+    all_models: [claude-review, openai-review]
     inputs:
       - name: implementation
         path: runtime/results/{task_id}.md
@@ -231,33 +312,35 @@ Here `{model}` appears in both the artifact path and the instructions. The artif
 
 ## Agent Field
 
-States can declare which coding agent executes work in that state. The `agent` field names a known agent ID (matching the IDs used by `rhei install-skills --agent`) or provides a custom agent profile object.
+States can declare which coding agent transport executes work in that state. The
+`agent` field names a known agent ID (matching the IDs used by
+`rhei install-skills --agent`) or provides a custom agent profile object.
 
 ```yaml
 states:
   draft:
     description: Task requires analysis before execution.
+    model: impl-deep
     agent: claude-code
-    model: claude-opus-4-6
     agent_timeout: 15m
     initial: true
 
   pending:
     description: Task is ready for implementation.
+    model: impl-fast
     agent: claude-code
-    model: claude-sonnet-4-6
     agent_timeout: 30m
 
   agent-review:
     description: A separate reviewing agent inspects the result.
+    model: review-deep
     agent: codex
-    model: o3
     agent_timeout: 20m
 
   agent-review-fix:
     description: The implementing agent addresses reviewer findings.
+    model: impl-fast
     agent: claude-code
-    model: claude-sonnet-4-6
     agent_timeout: 30m
 
   human-review:
@@ -270,9 +353,16 @@ states:
     final: true
 ```
 
-When `agent` is set on a state, `rhei run` spawns that agent to execute work. When `agent` is omitted, `rhei run` falls back to project-level or global-level settings. See [Agents Specification](rhei-agents.spec.md) for full resolution order, invocation profiles, and timeout handling.
+When `agent` is set on a state, `rhei run` spawns that agent transport to
+execute work. When `agent` is omitted, `rhei run` falls back to project-level
+or global-level settings and then the resolved model profile's `default_agent`.
+See [Agents Specification](rhei-agents.spec.md) for full resolution order,
+invocation profiles, and timeout handling.
 
-The `agent` and `model` fields form a pair: the agent is the CLI tool, the model is the variant within that tool. Either can be set independently at any configuration level, and the resolution merges across levels.
+The `model` field names a model profile, which resolves to a provider/model
+combo in settings. The `agent` field is an optional transport for autonomous
+execution. Either can be set independently at any configuration level, and the
+resolution merges across levels.
 
 ## Program States
 

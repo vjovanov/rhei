@@ -12,3 +12,4 @@ Each ADR follows the naming convention `NNNN-<short-title>.md` and uses the stru
 |------------------------------------|-------------------------------|----------|
 | [0000](0000-adr-template.md)       | ADR Template                  | accepted |
 | [0001](0001-complete-command.md)   | Introduce `complete` command  | accepted |
+| [0002](0002-hierarchical-task-nodes.md) | Replace `Subtask` with hierarchical task nodes and configurable node kinds | proposed |

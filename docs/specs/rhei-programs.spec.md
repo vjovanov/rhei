@@ -78,6 +78,8 @@ Program subprocesses inherit the same base environment as agent subprocesses:
 | `RHEI_TASK_ID` | Current task identifier |
 | `RHEI_STATE` | Current state name |
 | `RHEI_VISIT_COUNT` | Current visit number (for counted-loop states) |
+| `RHEI_INPUT_<NAME>_EXISTS` | `true` or `false` — whether the declared input artifact exists on disk. Set for every declared input, required or optional. `<NAME>` is the artifact `name` uppercased with hyphens and spaces replaced by underscores (e.g., `continuation-notes` → `RHEI_INPUT_CONTINUATION_NOTES_EXISTS`). |
+| `RHEI_INPUT_<NAME>_PATH` | Resolved path of the declared input artifact. Set for every declared input regardless of whether the file exists. Same name transform as `RHEI_INPUT_<NAME>_EXISTS`. |
 
 Additional variables declared in `program.env` are merged on top of this base set. When a `program.env` key collides with a base variable, the `program.env` value wins.
 
@@ -292,7 +294,7 @@ Would run: npm run build
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
   Task 3: Write documentation [draft -> pending]
-  Agent: claude-code, Model: claude-sonnet-4-6, Timeout: 30m
+  Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
   Log: runtime/logs/task-3-pending.log
 
 Dry run complete - nothing was executed.
@@ -567,14 +569,14 @@ version: 1.0
 states:
   draft:
     description: Agent analyzes requirements and writes task description
+    model: impl-fast
     agent: claude-code
-    model: claude-sonnet-4-6
     initial: true
 
   pending:
     description: Agent implements the feature
+    model: impl-fast
     agent: claude-code
-    model: claude-sonnet-4-6
     agent_timeout: 30m
 
   build:
@@ -589,14 +591,14 @@ states:
 
   agent-review:
     description: A separate agent reviews the implementation
+    model: review-deep
     agent: claude-code
-    model: claude-opus-4-6
     agent_timeout: 20m
 
   agent-review-fix:
     description: Implementing agent addresses reviewer findings
+    model: impl-fast
     agent: claude-code
-    model: claude-sonnet-4-6
     agent_timeout: 30m
 
   completed:

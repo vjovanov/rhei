@@ -129,19 +129,22 @@ When a state declares an `agent` field (or an agent is resolved from project/glo
   "title": "Implement caching layer",
   "state": "pending",
   "agent": "claude-code",
-  "model": "claude-sonnet-4-6",
+  "model": "impl-fast",
+  "model_provider": "anthropic",
+  "model_name": "claude-sonnet-4-6",
   "instructions": "..."
 }
 ```
 
-The `agent` and `model` fields are omitted from JSON output when no agent or model is configured.
+The `agent`, `model`, `model_provider`, and `model_name` fields are omitted
+from JSON output when no agent or model is configured.
 
 In text output mode, the agent is shown after the state line:
 
 ```text
 Task 3: Implement caching layer
 State: pending
-Agent: claude-code (claude-sonnet-4-6)
+Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 
 <resolved instructions>
 ```

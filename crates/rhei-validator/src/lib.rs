@@ -120,6 +120,11 @@ pub struct StateArtifactDef {
     /// Optional human-readable description of the artifact.
     #[serde(default)]
     pub description: Option<String>,
+    /// When `true`, a missing file does not block state entry.
+    /// Only valid on `inputs` entries; declaring `optional: true` on an
+    /// `outputs` entry is a validation error.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 /// Agent configuration: either a known agent ID string or a custom profile.
@@ -245,6 +250,7 @@ impl StateMachine {
         let sm: Self = serde_yaml::from_str(yaml)?;
         sm.validate_model_configuration()?;
         sm.validate_program_configuration()?;
+        sm.validate_template_conditions()?;
         Ok(sm)
     }
 
@@ -436,6 +442,60 @@ impl StateMachine {
 
         Ok(())
     }
+
+    /// Validate that every `{if <condition>}` tag in `instructions` and
+    /// `personality` fields references a condition the engine can evaluate.
+    ///
+    /// Currently the only supported condition form is `input.<name>.exists`,
+    /// where `<name>` must match a declared input artifact on the same state.
+    /// Any other condition is a load-time error.
+    fn validate_template_conditions(&self) -> Result<(), StateMachineLoadError> {
+        for (state_name, state) in &self.states {
+            for (field_name, text) in [
+                ("instructions", state.instructions.as_deref()),
+                ("personality", state.personality.as_deref()),
+            ] {
+                let Some(text) = text else { continue };
+                for condition in extract_if_conditions(text) {
+                    if let Some(input_name) =
+                        condition.strip_prefix("input.").and_then(|s| s.strip_suffix(".exists"))
+                    {
+                        if !state.inputs.iter().any(|a| a.name == input_name) {
+                            return Err(StateMachineLoadError::Invalid(format!(
+                                "state '{state_name}' {field_name} contains \
+                                 '{{if {condition}}}' but '{input_name}' is not a declared input \
+                                 on this state"
+                            )));
+                        }
+                    } else {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' {field_name} contains \
+                             '{{if {condition}}}' which is not a recognised condition; \
+                             supported form: 'input.<name>.exists'"
+                        )));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Extract every condition string from `{if <condition>}` tags in `text`.
+fn extract_if_conditions(text: &str) -> Vec<&str> {
+    let mut conditions = Vec::new();
+    let mut remaining = text;
+    while let Some(start) = remaining.find("{if ") {
+        let after_open = start + "{if ".len();
+        if let Some(close) = remaining[after_open..].find('}') {
+            conditions.push(&remaining[after_open..after_open + close]);
+            remaining = &remaining[after_open + close + 1..];
+        } else {
+            break;
+        }
+    }
+    conditions
 }
 
 fn validate_program_value(
@@ -593,6 +653,11 @@ fn validate_artifact_definitions(
         if path.is_empty() {
             return Err(StateMachineLoadError::Invalid(format!(
                 "state '{state_name}' artifact '{name}' in '{field_name}' has an empty 'path'"
+            )));
+        }
+        if artifact.optional && field_name == "outputs" {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' artifact '{name}' in 'outputs' may not be marked 'optional'; only inputs may be optional"
             )));
         }
         if Path::new(path).is_absolute() {
@@ -1260,6 +1325,86 @@ states:
 
         let err = StateMachine::from_yaml_str(yaml).expect_err("should reject absolute path");
         assert!(err.to_string().contains("must use a relative path"));
+    }
+
+    #[test]
+    fn rejects_if_condition_referencing_undeclared_input() {
+        let yaml = r#"
+name: test
+version: 1.0
+states:
+  implement:
+    description: do work
+    instructions: |
+      {if input.typo.exists}
+      Read the notes.
+      {endif}
+    inputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+        optional: true
+"#;
+        let err =
+            StateMachine::from_yaml_str(yaml).expect_err("should reject unknown input reference");
+        assert!(err.to_string().contains("'typo' is not a declared input"));
+    }
+
+    #[test]
+    fn rejects_if_condition_with_unsupported_form() {
+        let yaml = r#"
+name: test
+version: 1.0
+states:
+  implement:
+    description: do work
+    instructions: |
+      {if meta.flag}
+      Extra instructions.
+      {endif}
+"#;
+        let err =
+            StateMachine::from_yaml_str(yaml).expect_err("should reject unsupported condition");
+        assert!(err.to_string().contains("not a recognised condition"));
+    }
+
+    #[test]
+    fn accepts_if_condition_referencing_declared_input() {
+        let yaml = r#"
+name: test
+version: 1.0
+states:
+  implement:
+    description: do work
+    instructions: |
+      {if input.notes.exists}
+      Read the notes.
+      {endif}
+    inputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+        optional: true
+"#;
+        StateMachine::from_yaml_str(yaml).expect("valid condition should load");
+    }
+
+    #[test]
+    fn accepts_if_condition_in_personality_referencing_declared_input() {
+        let yaml = r#"
+name: test
+version: 1.0
+states:
+  implement:
+    description: do work
+    personality: |
+      {if input.context.exists}
+      Use context from {input.context.path}.
+      {endif}
+    inputs:
+      - name: context
+        path: runtime/context/{task_id}.md
+        optional: true
+"#;
+        StateMachine::from_yaml_str(yaml).expect("valid condition in personality should load");
     }
 
     #[test]
