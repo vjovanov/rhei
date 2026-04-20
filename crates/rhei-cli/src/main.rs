@@ -370,6 +370,62 @@ fn load_state_machine(path: Option<&Path>) -> MietteResult<rhei_validator::State
     }
 }
 
+struct ResolvedStateMachine {
+    machine: rhei_validator::StateMachine,
+    path: Option<PathBuf>,
+}
+
+fn auto_state_machine_path(input: &Path) -> PathBuf {
+    if workspace::is_workspace(input) {
+        input.join("states.yaml")
+    } else {
+        input.parent().unwrap_or_else(|| Path::new(".")).join("states.yaml")
+    }
+}
+
+fn resolve_state_machine_for_loaded_plan(
+    input: &Path,
+    loaded: &LoadedPlan,
+    state_machine_path: Option<&Path>,
+) -> MietteResult<ResolvedStateMachine> {
+    if let Some(path) = state_machine_path {
+        return Ok(ResolvedStateMachine {
+            machine: load_state_machine(Some(path))?,
+            path: Some(path.to_path_buf()),
+        });
+    }
+
+    let builtin = rhei_validator::StateMachine::builtin_default();
+    let declared_name = loaded.rhei.states.trim();
+    let candidate = auto_state_machine_path(input);
+
+    if candidate.is_file() {
+        let machine = load_state_machine(Some(&candidate))?;
+        if machine.name == declared_name {
+            return Ok(ResolvedStateMachine { machine, path: Some(candidate) });
+        }
+
+        if declared_name != builtin.name {
+            return Err(miette!(
+                "plan declares state machine '{}', but auto-discovered states file '{}' declares '{}'",
+                declared_name,
+                candidate.display(),
+                machine.name
+            ));
+        }
+    }
+
+    if declared_name != builtin.name {
+        return Err(miette!(
+            "plan declares state machine '{}', but no auto-discovered states file was found at '{}'.\nUse --state-machine <path> to override the default location.",
+            declared_name,
+            candidate.display()
+        ));
+    }
+
+    Ok(ResolvedStateMachine { machine: builtin, path: None })
+}
+
 /// Human-readable label for the state machine source, used in diagnostics.
 fn state_machine_label(path: Option<&Path>) -> String {
     match path {
@@ -463,6 +519,24 @@ mod template_impl_unused {
         fn required_input_count(&self) -> usize {
             self.inputs.iter().filter(|input| input.is_required()).count()
         }
+
+        fn inputs_summary(&self) -> String {
+            if self.inputs.is_empty() {
+                return "none".to_string();
+            }
+
+            self.inputs
+                .iter()
+                .map(|input| {
+                    if input.is_required() {
+                        input.name.clone()
+                    } else {
+                        format!("{}?", input.name)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -546,6 +620,16 @@ mod template_impl_unused {
                         "source": template.source.as_str(),
                         "path": template.path,
                         "required_inputs": template.manifest.required_input_count(),
+                        "inputs": template.manifest.inputs.iter().map(|input| {
+                            serde_json::json!({
+                                "name": input.name,
+                                "type": input.value_type.as_str(),
+                                "required": input.is_required(),
+                                "description": input.description,
+                                "default": input.default,
+                                "validate": input.validate,
+                            })
+                        }).collect::<Vec<_>>(),
                     })
                 })
                 .collect::<Vec<_>>();
@@ -563,14 +647,13 @@ mod template_impl_unused {
         println!("Templates:");
         for template in templates {
             println!(
-                "{}  {}  {}  {} required",
+                "{}  {}  {}",
                 template.manifest.name,
                 template.manifest.version_string(),
                 template.source.as_str(),
-                template.manifest.required_input_count()
             );
             println!("  {}", template.manifest.description);
-            println!("  {}", template.path.display());
+            println!("  inputs: {}", template.manifest.inputs_summary());
         }
 
         Ok(())
@@ -1443,13 +1526,14 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
-    let rhei = parse_input_file(input)?;
-    let machine = load_state_machine(state_machine)?;
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
     let base_path = input.parent().unwrap_or(Path::new("."));
-    let report = rhei_validator::validate_with_machine_and_base(&rhei, &machine, base_path);
+    let report =
+        rhei_validator::validate_with_machine_and_base(&loaded.rhei, &resolved.machine, base_path);
 
     if report.has_errors() {
-        return Err(validation_report(input, state_machine, &report.errors));
+        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
     print_validation_report(&report.warnings);
@@ -1467,11 +1551,13 @@ fn print_validation_report(warnings: &[String]) {
 
 /// Watch the plan and states files and re-run validation on relevant changes.
 fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
-    let watched_paths = match state_machine {
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
+    let watched_paths = match resolved.path.as_deref() {
         Some(sm) => canonical_watched_paths(input, sm),
         None => canonical_watched_paths(input, input), // only watch the plan itself
     };
-    let watch_roots = match state_machine {
+    let watch_roots = match resolved.path.as_deref() {
         Some(sm) => watch_roots(input, sm),
         None => watch_roots(input, input),
     };
@@ -1479,7 +1565,7 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
     println!(
         "Watch mode started for '{}' (states: {})",
         input.display(),
-        state_machine_label(state_machine),
+        state_machine_label(resolved.path.as_deref()),
     );
 
     run_validation_pass(input, state_machine);
@@ -2292,11 +2378,12 @@ fn transition_command(
     to: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
-    let machine = load_state_machine(state_machine_path)?;
-    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machine = resolved.machine;
+    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
 
     let task_file = if workspace::is_workspace(input) {
-        let loaded = load_plan(input)?;
         loaded.task_file(task_id_str, input)
     } else {
         input.to_path_buf()
@@ -3185,6 +3272,7 @@ fn agent_log_path(runtime_dir: &Path, task_id: &str, state_name: &str) -> PathBu
 /// Spawn an agent, capture output to a log file, and wait with timeout.
 ///
 /// Returns the exit status (or an error on timeout/failure).
+#[allow(clippy::too_many_arguments)]
 fn spawn_and_wait_agent(
     resolved: &ResolvedAgent,
     prompt: &str,
@@ -3560,8 +3648,10 @@ fn run_command(
     state_machine_path: Option<&Path>,
     opts: RunOptions,
 ) -> MietteResult<()> {
-    let machine = load_state_machine(state_machine_path)?;
-    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machine = resolved.machine;
+    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let settings = load_merged_settings(&workspace_root);
 
@@ -3578,10 +3668,9 @@ fn run_command(
     };
 
     // Initial validation pass.
-    let loaded = load_plan(input)?;
     let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
     if report.has_errors() {
-        return Err(validation_report(input, state_machine_path, &report.errors));
+        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
     let initial_terminal_count = loaded
@@ -4598,15 +4687,16 @@ fn next_command(
     as_json: bool,
     no_callbacks: bool,
 ) -> MietteResult<()> {
-    let machine = load_state_machine(state_machine_path)?;
-    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machine = resolved.machine;
+    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
 
     // Validate the plan first.
-    let loaded = load_plan(input)?;
     let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
     if report.has_errors() {
-        return Err(validation_report(input, state_machine_path, &report.errors));
+        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
     // Find the target task to claim.
@@ -4798,14 +4888,15 @@ fn complete_command(
     result_msg: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
-    let machine = load_state_machine(state_machine_path)?;
-    let callback_paths = resolve_callback_paths(state_machine_path, input)?;
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machine = resolved.machine;
+    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
 
     // Validate the plan first.
-    let loaded = load_plan(input)?;
     let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
     if report.has_errors() {
-        return Err(validation_report(input, state_machine_path, &report.errors));
+        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
     // Find the task and its current state.
@@ -4893,9 +4984,9 @@ fn complete_command(
 /// For directory workspaces, this also removes the generated `runtime/`
 /// directory so logs and artifacts do not survive the reset.
 fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResult<()> {
-    let machine = load_state_machine(state_machine_path)?;
-    let initial_state = initial_state_name(&machine)?;
     let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let initial_state = initial_state_name(&resolved.machine)?;
 
     let task_count = loaded.rhei.tasks.len();
     let subtask_count = loaded.rhei.tasks.iter().map(|task| task.subtasks.len()).sum::<usize>();

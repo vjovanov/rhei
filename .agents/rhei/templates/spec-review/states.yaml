@@ -1,0 +1,81 @@
+name: spec-review
+version: 1.0.0
+
+states:
+  review:
+    description: Review the specification and produce findings.
+    agent: codex
+    instructions: |
+      Review pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Read the specification at `{{spec}}` and review it for:
+      - Internal consistency (do definitions, examples, and grammar agree?)
+      - Completeness (are edge cases, error handling, and defaults specified?)
+      - Correctness (are claims accurate given the rest of the project?)
+      - Clarity (can an implementer build from this without guessing?)
+      {{criteria}}
+      Stay scoped to `{{spec}}` and files that it explicitly references.
+      Do not broaden into unrelated repository-wide review.
+
+      Write your findings to `{output.review-notes.path}`.
+      Record only the most important findings for this pass.
+      Each finding should state the section, the issue, and a concrete suggestion.
+      After writing the artifact, immediately transition to `fix`.
+    initial: true
+    visits: 2
+    outputs:
+      - name: review-notes
+        path: runtime/reviews/task-{task_id}-review-{visit_count}.md
+        description: Review findings for this pass
+
+  fix:
+    description: Fix the specification based on review findings.
+    agent: codex
+    instructions: |
+      Fix pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Read the review findings at `{input.review-notes.path}`.
+      Apply each suggested fix directly to the specification at `{{spec}}`.
+      Keep changes limited to the target specification file unless a finding explicitly requires an adjacent referenced file.
+      Write a summary of changes made to `{output.fix-summary.path}`.
+      After writing the artifact, immediately transition back to `review` when `{visit_count} < {visits}`;
+      otherwise transition to `completed`.
+    visits: 2
+    inputs:
+      - name: review-notes
+        path: runtime/reviews/task-{task_id}-review-{visit_count}.md
+    outputs:
+      - name: fix-summary
+        path: runtime/fixes/task-{task_id}-fix-{visit_count}.md
+        description: Summary of changes applied in this fix pass
+
+  completed:
+    description: Spec review and fixes complete.
+    instructions: |
+      Task {task_id} is complete. The specification has been reviewed and updated.
+    final: true
+
+  cancelled:
+    description: Review cancelled.
+    instructions: |
+      Task {task_id} cancelled. No further action required.
+    final: true
+
+transitions:
+  - from: review
+    to: fix
+    description: Review pass done, apply fixes to the spec.
+
+  - from: fix
+    to: review
+    condition: visitCount < visits
+    description: Return for another review pass.
+
+  - from: fix
+    to: completed
+    condition: visitCount >= visits
+    description: Both review-fix passes complete.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel from any state.

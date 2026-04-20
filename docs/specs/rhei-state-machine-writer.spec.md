@@ -419,7 +419,11 @@ State machine YAML files should be placed in the project at a conventional locat
 - `docs/states.yaml` — for projects with a single state machine.
 - `docs/states/<name>.yaml` — for projects with multiple state machines.
 
-The file path is then referenced by the plan's `**States:**` declaration, and by the `rhei` CLI via `--state-machine <path>`.
+Plans normally pick up a sibling or workspace-root `states.yaml`
+automatically when they declare `**States:** <name>`. The YAML file's
+`name` must match that declaration. Use `--state-machine <path>` when you
+need to override the conventional auto-discovered file, for example when
+reusing one shared machine from a non-standard location.
 
 ## Related Specifications
 

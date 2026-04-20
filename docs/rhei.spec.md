@@ -39,7 +39,7 @@ Create a POST /api/users/:id/avatar endpoint that accepts an image, stores it in
 Render the avatar in the profile header and comment list. Fall back to initials when no avatar is set.
 ```
 
-`**Prior:**` declares dependencies — Task 2 cannot start until Task 1 is completed. Tasks without `**Prior:**` are immediately eligible.
+`**Prior:**` declares dependencies — Task 2 cannot be claimed until Task 1 is in a terminal state as defined by the active state machine (`final: true`; in the built-in `rhei` machine, `completed` and `cancelled`). Tasks without `**Prior:**` are immediately dependency-ready.
 
 ### 2. Validate the plan
 
@@ -60,7 +60,7 @@ Tell an agent with the `rhei-plan-worker` skill to work the plan:
 /rhei-plan-worker plan.rhei.md
 ```
 
-The worker reads the plan, loads the state machine, and enters a loop: pick the next claimable task (all priors completed, state is initial such as `draft`), transition it to `pending`, implement it, advance through review states or finish with `rhei complete`, and repeat. It stops when no eligible tasks remain or a `human-review` gate requires a human decision.
+The worker reads the plan, loads the state machine, and enters a loop: claim the next eligible task with `rhei next`, work in that task's current state, use `rhei transition` when the workflow requires an explicit state change (for example `draft` to `pending`), finish with `rhei complete` when the task reaches a terminal outcome, and repeat. It stops when no eligible tasks remain or a gating state such as `human-review` requires a human decision.
 
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
@@ -83,7 +83,7 @@ The single-file format is a fixed hierarchical structure:
 | Task | H3 (`###`) | `### Task <id>: <title>` | Yes (at least one) |
 | Subtask | H4 (`####`) | `#### Subtask <n>.<m>: <title>` | No |
 
-When present, the `**States:**` field must be the first non-empty line after the `# Rhei:` title. Its value is the `name` of the state machine defined in the associated states configuration (see [States Specification](specs/rhei-states.spec.md)). When omitted, the plan uses the built-in `rhei` state machine.
+When present, the `**States:**` field must be the first non-empty line after the `# Rhei:` title. Its value is the `name` of the state machine defined in the associated states configuration (see [States Specification](specs/rhei-states.spec.md)). For a single-file plan, the CLI resolves that configuration from a sibling `states.yaml`. For a directory workspace, it resolves from `<workspace>/states.yaml`. The resolved YAML file's `name` must match the declared `**States:**` value. `--state-machine <path>` overrides this automatic lookup. When the field is omitted, the plan uses the built-in `rhei` state machine.
 
 ### Directory Workspace (Agent Teams, High Concurrency)
 
@@ -98,6 +98,39 @@ A Directory Workspace consists of:
 In a Directory Workspace, all tasks are parsed and merged into a single global task graph at runtime. Dependency validation (`**Prior:**`) resolves globally across all files in the `tasks/` directory.
 
 To prevent creation collisions in highly distributed swarms, relying on `IDENTIFIER` (alphanumeric hashes or UUIDs) rather than sequential `NUMBER` for `task_id` is strongly recommended for Directory Workspaces.
+
+### Directory Workspace Metadata
+
+YAML frontmatter for a Directory Workspace belongs in `index.rhei.md`. Workspace
+task files start directly with task definitions and must not introduce
+independent frontmatter blocks, so the workspace has exactly one authoritative
+`metadata.tasks.<id>` map.
+
+Runtime-managed metadata that is defined in the transitions specification, such
+as `metadata.tasks.<id>.stateVisits.<state-name>`, is therefore read from and
+written to the frontmatter in `index.rhei.md`, keyed by the global task id.
+
+Persistence ownership is normative:
+
+- Markdown task fields remain the source of truth for `**State:**`,
+  `**Prior:**`, `**Assignee:**`, and `> **Result:**`. In a Directory
+  Workspace, those fields are persisted in the workspace task file that
+  contains the task.
+- YAML frontmatter under `metadata.tasks.<id>.*` stores auxiliary per-task
+  metadata only, such as `stateVisits` counters and custom callback data. It
+  must not become a second source of truth for state, dependencies, assignee,
+  or result links.
+- Runtimes may project the current markdown assignee into callback-facing APIs
+  such as `task.metadata.assignee` for convenience, but that value remains a
+  view over the markdown `**Assignee:**` line rather than a separately
+  persisted frontmatter field.
+
+This keeps task descriptions, `**Assignee:**` changes, and `> **Result:**`
+blocks localized to task files, which preserves most of the concurrency benefit
+of the workspace format. However, features that persist data through
+frontmatter-backed task metadata still serialize through `index.rhei.md`, so
+metadata-heavy workflows reintroduce a narrow shared-write hotspot until a
+workspace-local metadata format is specified.
 
 ## Grammar (EBNF)
 
@@ -116,11 +149,11 @@ rhei_header     = "# Rhei: ", title, NEWLINE ;
 
 states_field    = "**States:** ", state_machine_name, NEWLINE ;
 
-state_machine_name = IDENTIFIER ;
+state_machine_name = title ;
 
 content_section = "## ", section_title, NEWLINE, { markdown_block } ;
 
-tasks_section   = "## Tasks", NEWLINE, task, { task } ;
+tasks_section   = "## Tasks", NEWLINE, { blank_line }, task, { task } ;
 
 (* ============================================== *)
 (* DIRECTORY WORKSPACE STRUCTURE                  *)
@@ -139,9 +172,10 @@ workspace_task_file = [ { blank_line } ], task, { task } ;
 (* ============================================== *)
 
 (* YAML frontmatter stores custom task metadata such as retryCount,
-   stateVisits, priority, assignee, etc. It appears between two `---` fences and
-   is parsed as YAML, not Markdown. See the Transitions Specification
-   for the metadata access contract. *)
+   stateVisits, priority, and callback data. Core task fields such as state,
+   prior, assignee, and result links remain in markdown. It appears between two
+   `---` fences and is parsed as YAML, not Markdown. See the Transitions
+   Specification for the metadata access contract. *)
 frontmatter     = "---", NEWLINE,
                   { yaml_line },
                   "---", NEWLINE ;
@@ -153,7 +187,7 @@ yaml_line       = ? any line that is not exactly "---" ?, NEWLINE ;
 (* TASK DEFINITION                                *)
 (* ============================================== *)
 
-task            = task_header, NEWLINE, metadata, { markdown_block },
+task            = task_header, NEWLINE, metadata, { task_markdown_block },
                   [ result_block ], { subtask } ;
 
 task_header     = "### Task ", task_id, ": ", title ;
@@ -165,8 +199,9 @@ task_id         = NUMBER | IDENTIFIER ;
 (* SUBTASK DEFINITION                             *)
 (* ============================================== *)
 
-(* Subtasks are only permitted under tasks with a numeric task_id. *)
-subtask         = subtask_header, NEWLINE, state_field, { markdown_block } ;
+(* Subtasks are only permitted under tasks with a numeric task_id.
+   They are checklist items and do not carry task metadata such as state. *)
+subtask         = subtask_header, NEWLINE, { markdown_block } ;
 
 subtask_header  = "#### Subtask ", NUMBER, ".", NUMBER, ": ", title ;
 
@@ -183,9 +218,11 @@ assignee_field  = "**Assignee:** ", title, NEWLINE ;
 
 (* Result block links to the outcome of a completed task. It is inserted
    by the `complete` command after task content and before subtasks.
-   The result detail lives in a file under runtime/results/<task-id>.md;
-   the block contains a markdown link to that file. *)
-result_block    = "> **Result:** ", "[", title, "](", title, ")", NEWLINE ;
+   The link text is the task id itself, and the target is always
+   runtime/results/<task-id>.md. *)
+result_block    = "> **Result:** ", "[", task_id, "](", result_path, ")", NEWLINE ;
+
+result_path     = "runtime/results/", task_id, ".md" ;
 
 state_field     = "**State:** ", state_value, NEWLINE ;
 
@@ -198,7 +235,9 @@ task_ref        = "Task ", task_id ;
 (* The backtick form is required when the rendered state value contains
    whitespace; it is also accepted (but not required) for single-word
    values. Counted-loop states may append `-<n>` to the rendered value to
-   make later visits visible in markdown. The `-1` suffix is omitted. *)
+   make later visits visible in markdown. The `-1` suffix is omitted.
+   Exact-match resolution against loaded state names happens before any
+   `-<n>` suffix is interpreted as a counted visit. *)
 state_value     = IDENTIFIER, [ "-", NUMBER ]                    (* pending, review-2 *)
                 | "`", IDENTIFIER, { " ", IDENTIFIER }, [ "-", NUMBER ], "`" ;  (* `in progress`, `in progress-2` *)
 
@@ -213,11 +252,19 @@ title           = { ANY_CHAR - NEWLINE }+ ;
    for the tasks_section. *)
 section_title   = { ANY_CHAR - NEWLINE }+ - "Tasks" ;
 
-(* A markdown_block is any line that does not introduce a new
-   structural element (i.e. does not start with "# ", "## ",
-   "### Task ", or "#### Subtask "). Blank lines are markdown_blocks. *)
+(* A task_markdown_block is ordinary task body content. The `> **Result:** `
+   prefix is reserved for the dedicated result_block production so the grammar
+   can distinguish result metadata from freeform prose. *)
+task_markdown_block = ( blank_line
+                      | task_body_line, NEWLINE ) ;
+
+(* A markdown_block is any non-structural content line for use in sections and
+   subtasks. Blank lines are markdown_blocks. *)
 markdown_block  = ( blank_line
                   | non_structural_line, NEWLINE ) ;
+
+task_body_line  = ? any line that does not match a header production above
+                   and does not begin with "> **Result:** " ? ;
 
 non_structural_line = ? any line that does not match a header
                         production above ? ;
@@ -241,9 +288,17 @@ NEWLINE         = ? line terminator (LF or CRLF) ? ;
 
 Beyond the syntactic rules, the following semantic constraints must be validated:
 
+The grammar tolerates optional blank lines immediately after `## Tasks` in a
+single-file plan and at the start of a workspace task file. Implementations
+should accept those blank lines in both formats.
+
+Throughout this specification, a *terminal state* means any state marked
+`final: true` in the active state machine. In the built-in `rhei` machine, the
+terminal states are `completed` and `cancelled`.
+
 ### 1. Dependency Integrity
 
-All task references in `**Prior:**` fields must resolve to existing tasks in the same document. A `**Prior:**` list must not contain duplicate references and must not reference its own task (self-reference is a 1-cycle).
+All task references in `**Prior:**` fields must resolve to existing tasks in the same logical plan: in a Single-File Plan that means the same document, and in a Directory Workspace that means the merged workspace graph across all task files under `tasks/`. A `**Prior:**` list must not contain duplicate references and must not reference its own task (self-reference is a 1-cycle).
 
 ```markdown
 ### Task 2: Implementation
@@ -251,9 +306,22 @@ All task references in `**Prior:**` fields must resolve to existing tasks in the
 **Prior:** Task 1, Task 3    ← Task 1 and Task 3 must exist
 ```
 
+Directory Workspace example:
+
+```markdown
+# tasks/backend.md
+### Task api: Build API
+**State:** pending
+
+# tasks/frontend.md
+### Task ui: Build UI
+**State:** pending
+**Prior:** Task api    ← Valid: resolves across the merged workspace graph
+```
+
 ### 2. State Validity
 
-All state values must be defined in the associated states configuration. The states definition is loaded from an external YAML file.
+All state values must be defined in the associated states configuration. By default, that configuration is loaded from the plan's auto-discovered `states.yaml` when `**States:**` is declared, or from the built-in `rhei` state machine when it is omitted. `--state-machine <path>` may override the auto-discovered file.
 
 When a state machine state declares `visits: <n>`, the authored markdown may
 encode later counted visits directly in `**State:**` using a `-<visit>` suffix:
@@ -267,6 +335,19 @@ encode later counted visits directly in `**State:**` using a `-<visit>` suffix:
 The canonical state machine state is the unsuffixed base name (`review`,
 `human review`). The suffix is only valid for states that declare `visits`, must
 be greater than `1`, and must not exceed the declared visit budget.
+
+Parsing rule for ambiguous names:
+
+1. Remove optional surrounding backticks and first try to match the rendered
+   value exactly against a loaded state name.
+2. Only if no exact match exists may an implementation interpret a trailing
+   `-<digits>` suffix as a counted visit.
+3. In that case, the unsuffixed base name must itself exactly match a loaded
+   state name, and the parsed visit count becomes the suffix value.
+
+This means a machine that defines a literal state named `review-2` treats
+`**State:** review-2` as that canonical state on visit 1. It is only parsed as
+"state `review`, visit 2" when no literal `review-2` state exists.
 
 ### 3. Acyclic Dependencies
 
@@ -284,20 +365,20 @@ The task dependency graph must be a Directed Acyclic Graph (DAG). Circular depen
 
 ### 4. Subtask Numbering Consistency
 
-Subtasks are only permitted under tasks with a numeric `task_id`. The first number of every subtask must equal its parent task's id, and subtask numbers must be unique within their parent:
+Subtasks are only permitted under tasks with a numeric `task_id`. The first number of every subtask must equal its parent task's id, and subtask numbers must be unique within their parent. Subtasks do not carry independent `**State:**` metadata; they are lightweight checklist items nested under the parent task:
 
 ```markdown
 ### Task 2: Parent Task
 **State:** pending
 
 #### Subtask 2.1: Valid
-**State:** pending              ← Correct: parent is Task 2, has required State
+Document the database migration steps.    ← Correct: parent is Task 2
 
 #### Subtask 3.1: Invalid
-**State:** pending              ← ERROR: parent task number mismatch
+Document the rollback path.               ← ERROR: parent task number mismatch
 
 #### Subtask 2.1: Duplicate
-**State:** pending              ← ERROR: duplicate subtask number under Task 2
+Add verification notes.                   ← ERROR: duplicate subtask number under Task 2
 ```
 
 A task with a named (non-numeric) `task_id` must not declare any subtasks.
@@ -308,9 +389,19 @@ Task ids must be unique across the entire plan. In a Single-File Plan, two `### 
 
 ### 6. Link Integrity
 
-All relative markdown links (`[text](target)`) in content sections, task content, and subtask content must resolve to existing files. Links are resolved relative to the directory containing the plan file (or `index.rhei.md` for Directory Workspaces).
+All relative markdown links (`[text](target)`) in content sections, task
+content, and subtask content must resolve to existing files. In a Single-File
+Plan, links resolve relative to the directory containing the plan file. In a
+Directory Workspace, they resolve relative to the workspace root, meaning the
+directory containing `index.rhei.md`, even when the link appears in a nested
+file under `tasks/`.
 
 External URLs (`http://`, `https://`, `mailto:`), and fragment-only anchors (`#section`) are not checked. When a link contains a fragment (`file.md#section`), only the file portion is verified.
+
+For Directory Workspaces, implementations must not resolve `./` or `../`
+against the physical path of the task file that contains the link. This keeps
+links stable when tasks move between files or when task files are nested under
+`tasks/`.
 
 ```markdown
 ## Overview
@@ -324,24 +415,20 @@ See [section](#overview)                           ← OK: fragment-only, not ch
 See [missing](docs/nonexistent.md)                 ← ERROR: file does not exist
 ```
 
-### 7. Parent-Subtask State Coherence
-
-A task in a terminal state (`completed` or `cancelled`) must have all its subtasks in terminal states. A plan where a parent task is terminal but one or more of its subtasks are non-terminal is logically inconsistent and fails validation.
+Directory Workspace example with a nested task file:
 
 ```markdown
-### Task 2: Implement login
-**State:** completed         ← ERROR: terminal parent with non-terminal subtasks
+# <workspace>/tasks/backend/api.md
+### Task api: Build API
+**State:** pending
 
-#### Subtask 2.1: Write handler
-**State:** completed         ← OK
-
-#### Subtask 2.2: Add tests
-**State:** draft             ← ERROR: non-terminal subtask under completed parent
+See [guide](./docs/guide.md)        ← resolves to <workspace>/docs/guide.md
+See [shared](../shared.md)          ← resolves relative to <workspace>, not tasks/backend/
+See [protocol](specs/http.md#post)  ← checks <workspace>/specs/http.md only
+See [notes](#api-notes)             ← fragment-only anchor, not checked
 ```
 
-This constraint is also enforced at runtime by `rhei complete`: the command refuses to transition a task to a terminal state while any of its subtasks remain non-terminal. Agents must explicitly advance or cancel all subtasks before completing the parent.
-
-### 8. State Artifact Contracts
+### 7. State Artifact Contracts
 
 The active state machine may declare required file `inputs` and `outputs` for a
 state. These contracts are part of execution semantics, not markdown syntax:
@@ -358,21 +445,32 @@ alone.
 
 ## Token Types
 
-For lexer implementation, the following token types are needed:
+This section is illustrative and non-normative. A complete implementation must
+support every normative grammar production above, including YAML frontmatter,
+`**Assignee:**`, and `> **Result:**` blocks.
+
+For lexer implementation, the following token types are a reasonable minimum:
 
 | Token | Pattern | Example |
 |-------|---------|---------|
 | `RheiHeader` | `# Rhei: .*` | `# Rhei: My Project` |
 | `MetadataStates` | `\*\*States:\*\* .*` | `**States:** rhei` |
+| `FrontmatterFence` | `^---\s*$` | `---` |
+| `FrontmatterYamlLine` | Any line inside frontmatter that is not `---` | `metadata:` |
 | `TasksSection` | `^## Tasks\s*$` | `## Tasks` |
 | `SectionHeader` | `^## .+$` (matched only if `TasksSection` did not match) | `## Overview` |
 | `TaskHeader` | `### Task <id>: .*` | `### Task 1: Setup` |
 | `SubtaskHeader` | `#### Subtask <n>.<m>: .*` | `#### Subtask 1.2: Config` |
 | `MetadataState` | `\*\*State:\*\* .*` | `**State:** pending` |
 | `MetadataPrior` | `\*\*Prior:\*\* .*` | `**Prior:** Task 1` |
+| `MetadataAssignee` | `\*\*Assignee:\*\* .*` | `**Assignee:** alice` |
+| `ResultBlock` | `^> \*\*Result:\*\* \[[^]]+\]\([^)]+\)\s*$` | `> **Result:** [task-1](runtime/results/task-1.md)` |
 | `Text` | Any other line | Description text |
 
 ## AST Node Types
+
+This section is also illustrative and non-normative. It shows one viable shape
+for a parser AST, but it is not a complete or exclusive contract.
 
 For parser implementation, the following AST structure is recommended:
 
@@ -380,6 +478,7 @@ For parser implementation, the following AST structure is recommended:
 struct Rhei {
     title: String,
     states: String, // state machine name; defaults to "rhei" when omitted
+    frontmatter: Option<YamlValue>,
     content_sections: Vec<ContentSection>,
     tasks: Vec<Task>,
 }
@@ -394,7 +493,9 @@ struct Task {
     title: String,
     state: String,
     prior: Vec<TaskId>,
+    assignee: Option<String>,
     content: String,
+    result: Option<ResultLink>,
     subtasks: Vec<Subtask>,
 }
 
@@ -402,13 +503,17 @@ struct Subtask {
     task_number: u32,
     subtask_number: u32,
     title: String,
-    state: String,
     content: String,
 }
 
 enum TaskId {
     Number(u32),
     Named(String),
+}
+
+struct ResultLink {
+    task_id: TaskId,
+    path: String,
 }
 ```
 
