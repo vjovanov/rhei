@@ -87,9 +87,53 @@ Each arrow is a declared transition. Agents follow the `instructions` field on e
 
 ## Usage Patterns
 
+### Pattern 0: Zero-Config Agent Execution
+
+The simplest way to use Rhei. No callbacks, no `workflow.sh`, no glue code.
+
+1. Configure your default agent once:
+
+   ```bash
+   mkdir -p ~/.config/rhei
+   echo '{"agent": "claude-code"}' > ~/.config/rhei/settings.json
+   ```
+
+2. Create a plan (manually or via `rhei-plan-writer`).
+
+3. Run it:
+
+   ```bash
+   rhei run plan.rhei.md
+   ```
+
+Rhei spawns the configured agent for each task, composing a prompt from the state machine instructions and the task content. The agent does the work and calls `rhei complete` when done. No scaffolding required.
+
+For state-specific agents (e.g., a different agent or model for review):
+
+```yaml
+# states.yaml
+states:
+  pending:
+    agent: claude-code
+    model: claude-sonnet-4-6
+    agent_timeout: 30m
+  agent-review:
+    agent: codex
+    model: o3
+    agent_timeout: 20m
+```
+
+For parallel execution of independent tasks:
+
+```bash
+rhei run plan.rhei.md --parallel 4
+```
+
+See [Agents Specification](rhei-agents.spec.md) for configuration, resolution order, timeout handling, and log capture.
+
 ### Pattern 1: Single Agent, Start to Finish
 
-The simplest pattern. One agent session acts as both writer and worker.
+One agent session acts as both writer and worker. This is useful when the agent session itself drives the workflow rather than `rhei run`.
 
 1. User describes the goal.
 2. Agent invokes the plan writer to produce a `.rhei.md` file.
@@ -97,7 +141,7 @@ The simplest pattern. One agent session acts as both writer and worker.
 4. Worker iterates through tasks, advancing states, implementing, and logging progress.
 5. Worker stops when all tasks are `completed` or blocked on `human-review`.
 
-This is the default for small, well-scoped work. The plan still provides value: it gives the human a structured view of progress, and the agent a memory of what it has and hasn't done.
+This is the default for small, well-scoped work within a single agent session. The plan still provides value: it gives the human a structured view of progress, and the agent a memory of what it has and hasn't done. For larger work or multi-agent workflows, Pattern 0 (`rhei run`) is preferred.
 
 ### Pattern 2: Writer and Worker as Separate Sessions
 
@@ -305,7 +349,49 @@ This keeps the Rhei truthful: speculative fixes do not appear in the task graph
 until the review artifact justifies them. The checked-in example lives in
 [`examples/living-review-loop`](../../examples/living-review-loop/README.md).
 
-### Pattern 8: CI/CD Pipeline as a Plan
+### Pattern 8: Program States for Deterministic Steps
+
+Program states execute a fixed command instead of spawning an AI agent. Use them for deterministic workflow steps — builds, tests, linting, deployment — where an agent would add latency and cost without value.
+
+Programs communicate outcomes through exit codes. Transitions from program states can declare an `exit_code` condition that routes automatically based on the result:
+
+```yaml
+states:
+  build:
+    program: "make build"
+    program_timeout: 10m
+  test:
+    program: "make test"
+    program_timeout: 15m
+
+transitions:
+  - from: build
+    to: test
+    exit_code: 0
+  - from: build
+    to: failed
+    exit_code: nonzero
+```
+
+Program and agent states coexist in the same state machine. A common pattern is an agent-program feedback loop: the agent implements code, deterministic build/test steps verify the result, and failures return control to the agent for fixes:
+
+```yaml
+transitions:
+  - from: pending
+    to: build
+    description: Implementation complete, verify it builds
+  - from: build
+    to: test
+    exit_code: 0
+  - from: build
+    to: pending
+    description: Build failed, agent must fix the code
+    exit_code: nonzero
+```
+
+See [Program States Specification](rhei-programs.spec.md) for the full exit-code evaluation algorithm, timeout handling, and validation rules.
+
+### Pattern 9: CI/CD Pipeline as a Plan
 
 A Rhei plan can model a CI/CD pipeline where each task is a pipeline stage. The state machine encodes the pipeline's control flow, and callbacks integrate with build systems, test runners, and deployment tools.
 
@@ -351,6 +437,8 @@ The central design principle: **the plan file is the single source of truth**. A
 - [Plan Language Specification](../rhei.spec.md) — formal grammar and semantic constraints
 - [Plan Language Usage Guide](rhei-authoring.spec.md) — authoring patterns and walkthroughs
 - [States Specification](rhei-states.spec.md) — state machine format and default states
+- [Agents Specification](rhei-agents.spec.md) — agent configuration, invocation, timeout, and log capture
+- [Program States Specification](rhei-programs.spec.md) — deterministic program execution, exit-code transitions
 - [Transitions Specification](rhei-transitions.spec.md) — formal state transition system, callbacks, and YAML schema
 - [Transition Callback Examples](rhei-callbacks.spec.md) — callback implementations across languages
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract

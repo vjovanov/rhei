@@ -131,6 +131,62 @@ transitions:
 }
 
 #[test]
+fn next_resolves_runtime_template_variables_in_instructions() {
+    let plan = r#"# Rhei: Template Resolution
+
+## Tasks
+
+### Task 1: Review cache layer
+**State:** draft
+Check the implementation carefully.
+"#;
+    let machine = r#"name: template-demo
+version: 1
+states:
+  draft:
+    initial: true
+    description: Planned
+  review:
+    description: Review work
+    visits: 2
+    instructions: |
+      Review pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+      Plan: {plan_title}
+      Write findings to {output.findings.path}.
+    outputs:
+      - name: findings
+        path: runtime/findings/{task_id}-{visit_count}.md
+transitions:
+  - from: draft
+    to: review
+"#;
+
+    let dir = unique_temp_dir("next-template-vars");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("Review pass 1 of 2 for Task 1: Review cache layer."),
+        "expected visit/task placeholders to resolve; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Plan: Template Resolution"),
+        "expected plan_title placeholder to resolve; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("runtime/findings/1-1.md"),
+        "expected output artifact path placeholder to resolve; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn next_respects_dependency_order() {
     let (dir, plan_path, machine_path) = setup_single_file("next-deps", LINEAR_PLAN);
 

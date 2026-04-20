@@ -119,10 +119,38 @@ These distinct messages allow a PM or orchestrator to tell apart a finished plan
 
 The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 
+## Agent Context
+
+When a state declares an `agent` field (or an agent is resolved from project/global settings), `rhei next` includes the agent identifier in its JSON output:
+
+```json
+{
+  "task_id": "3",
+  "title": "Implement caching layer",
+  "state": "pending",
+  "agent": "claude-code",
+  "model": "claude-sonnet-4-6",
+  "instructions": "..."
+}
+```
+
+The `agent` and `model` fields are omitted from JSON output when no agent or model is configured.
+
+In text output mode, the agent is shown after the state line:
+
+```text
+Task 3: Implement caching layer
+State: pending
+Agent: claude-code (claude-sonnet-4-6)
+
+<resolved instructions>
+```
+
 ## Related Specifications
 
 - [Plan Language Specification](../rhei.spec.md) — grammar and semantic constraints
 - [How Rhei Is Used](rhei-usage.spec.md) — roles and coordination patterns
 - [States Specification](rhei-states.spec.md) — state machine format
+- [Agents Specification](rhei-agents.spec.md) — agent configuration, invocation, and timeout
 - [Transitions Specification](rhei-transitions.spec.md) — state transition system
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract

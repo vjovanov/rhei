@@ -9,10 +9,16 @@ The state-machine schema also permits these optional fields for richer workflows
 - Top-level `models: [<model-name>, ...]` to declare the model identifiers available to the machine
 - Per-state `all_models: [<model-name>, ...]` to declare the full model set that may execute that state
 - Per-state `model: <model-name>` to bind a state to exactly one declared model
+- Per-state `agent: <agent-id>` to bind a state to a specific coding agent CLI
+- Per-state `agent_timeout: <duration>` to set the maximum time an agent may work in this state
+- Per-state `program: <string|object>` to bind a state to a deterministic program command (mutually exclusive with `agent`)
+- Per-state `program_timeout: <duration>` to set the maximum time a program may run in this state
 - Per-state `visits: <integer>` to cap total counted visits for that state
 - Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit
 
 When `models` is omitted, the machine behaves as it does today and states are not model-constrained. When `models` is present, a state may either omit both selector fields, set `all_models: [<name>, ...]`, or set `model: <name>`. Setting both `all_models` and `model` on the same state is invalid. `visits` is orthogonal to model selection and may be used together with either `all_models` or `model`.
+
+When `agent` is set on a state, `rhei run` uses that agent to execute work in the state instead of relying on callbacks alone. The agent/model pair together define who does the work: the agent is the CLI tool, the model is the specific model variant within that tool. See [Agents Specification](rhei-agents.spec.md) for configuration, resolution order, and invocation details.
 
 ## Schema Additions
 
@@ -31,6 +37,10 @@ When `models` is omitted, the machine behaves as it does today and states are no
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
 | `all_models` | string array | No | The complete set of declared model identifiers allowed to work this state |
 | `model` | string | No | A single model identifier from the machine-level `models` list |
+| `agent` | string or object | No | The coding agent CLI that executes work in this state. String form references a known agent ID (e.g., `claude-code`, `codex`). Object form defines a custom agent profile. See [Agents Specification](rhei-agents.spec.md). |
+| `agent_timeout` | string | No | Maximum time an agent may work in this state before being killed (e.g., `30m`, `1h`). See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling). |
+| `program` | string or object | No | The program command to execute in this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
+| `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
 | `inputs` | artifact array | No | Required artifacts that must exist before the task can enter or continue in this state |
 | `outputs` | artifact array | No | Required artifacts that must exist before the task can leave this state |
 
@@ -42,6 +52,15 @@ When `models` is omitted, the machine behaves as it does today and states are no
 - A state must not declare both `all_models: [..]` and `model: <name>`.
 - `state.all_models: []` is treated the same as omitting the field.
 - `state.visits`, when present, must be an integer greater than or equal to `1`.
+- `state.agent`, when present, must be a non-empty string (known agent ID) or a valid agent profile object with at least `id` and `command` fields.
+- `state.agent` on a `final: true` state is a validation error (terminal states have no work to execute).
+- `state.agent` on a `gating: true` state is a validation warning (gating states are human-only; the agent will never be invoked by `rhei run`).
+- `state.agent_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
+- A state must not declare both `agent` and `program`.
+- `state.program`, when present, must be a non-empty string or a valid program object with at least a `command` field. See [Program States Specification](rhei-programs.spec.md).
+- `state.program` on a `final: true` state is a validation error (terminal states have no work to execute).
+- `state.program` on a `gating: true` state is a validation error (gating states require human action; programs execute autonomously).
+- `state.program_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
 - `state.inputs` / `state.outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
 - Artifact `path` values must be relative to the plan root (single-file plan) or workspace root (directory workspace) and must not escape that root after template expansion.
 
@@ -117,6 +136,7 @@ The `instructions` and `personality` fields support template variable substituti
 | `{visit_count}` | runtime counter | Current visit number for counted-loop states | `2` |
 | `{visits}` | state definition | Configured loop budget for the state | `3` |
 | `{model}` | model selector | Current model identifier (requires `model` or `all_models`) | `claude-sonnet` |
+| `{agent}` | agent selector | Current agent identifier (requires `agent` on the state or in settings) | `claude-code` |
 | `{plan_title}` | plan header | Title from the `# Rhei: <title>` header | `Feature Branch CI Pipeline` |
 | `{plan_path}` | filesystem | Path to the plan file | `./ci-pipeline.rhei.md` |
 | `{input.<name>.path}` | artifact contract | Resolved path of a declared input artifact | `runtime/results/3.md` |
@@ -209,6 +229,97 @@ states:
 
 Here `{model}` appears in both the artifact path and the instructions. The artifact contract defines the per-model output path once; instructions reference it by name.
 
+## Agent Field
+
+States can declare which coding agent executes work in that state. The `agent` field names a known agent ID (matching the IDs used by `rhei install-skills --agent`) or provides a custom agent profile object.
+
+```yaml
+states:
+  draft:
+    description: Task requires analysis before execution.
+    agent: claude-code
+    model: claude-opus-4-6
+    agent_timeout: 15m
+    initial: true
+
+  pending:
+    description: Task is ready for implementation.
+    agent: claude-code
+    model: claude-sonnet-4-6
+    agent_timeout: 30m
+
+  agent-review:
+    description: A separate reviewing agent inspects the result.
+    agent: codex
+    model: o3
+    agent_timeout: 20m
+
+  agent-review-fix:
+    description: The implementing agent addresses reviewer findings.
+    agent: claude-code
+    model: claude-sonnet-4-6
+    agent_timeout: 30m
+
+  human-review:
+    gating: true
+    # No agent - humans act here
+
+  completed:
+    final: true
+  cancelled:
+    final: true
+```
+
+When `agent` is set on a state, `rhei run` spawns that agent to execute work. When `agent` is omitted, `rhei run` falls back to project-level or global-level settings. See [Agents Specification](rhei-agents.spec.md) for full resolution order, invocation profiles, and timeout handling.
+
+The `agent` and `model` fields form a pair: the agent is the CLI tool, the model is the variant within that tool. Either can be set independently at any configuration level, and the resolution merges across levels.
+
+## Program States
+
+States can declare a deterministic program to execute instead of spawning an AI agent. The `program` field names a command (string form) or provides a structured command definition (object form). Program states are the right choice for build, test, lint, deploy, and other steps where the behavior is fixed and an AI agent adds no value.
+
+```yaml
+states:
+  build:
+    description: Build the project
+    program: "make build"
+    program_timeout: 10m
+
+  test:
+    description: Run the test suite
+    program:
+      command: ["npm", "test", "--", "--coverage"]
+      env:
+        NODE_ENV: test
+    program_timeout: 15m
+    outputs:
+      - name: coverage
+        path: coverage/lcov.info
+
+  deploy:
+    description: Deploy to staging
+    program:
+      command: ["./scripts/deploy.sh", "{meta.deploy_env}"]
+      working_directory: ./infra
+    program_timeout: 20m
+```
+
+When `program` is set, `rhei run` spawns the command as a subprocess instead of an agent. The program communicates its outcome via exit code, and transitions from program states can declare `exit_code` conditions for automatic routing:
+
+```yaml
+transitions:
+  - from: build
+    to: test
+    exit_code: 0
+  - from: build
+    to: failed
+    exit_code: nonzero
+```
+
+A state must not declare both `agent` and `program` — they are mutually exclusive. The `program` field is also incompatible with `gating: true` (programs run autonomously).
+
+See [Program States Specification](rhei-programs.spec.md) for the complete specification including program declaration forms, exit-code transitions, environment variables, timeout handling, and validation rules.
+
 ## States
 
 | State | Description | Initial | Final | Gating |
@@ -244,6 +355,8 @@ Not every state can be completed directly via `rhei complete`. The command requi
 ## Related Documentation
 
 - [Plan Language Specification](../rhei.spec.md) - Formal grammar and semantic constraints
+- [Agents Specification](rhei-agents.spec.md) - Agent configuration, invocation profiles, timeout, and log capture
+- [Program States Specification](rhei-programs.spec.md) - Deterministic program execution, exit-code transitions
 - [Transitions Specification](rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
 - [How Rhei Is Used](rhei-usage.spec.md) - Roles, coordination patterns, and agent workflows
 - [Plan Language Usage Guide](rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs

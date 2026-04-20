@@ -22,8 +22,10 @@ pub struct CallbackContext<'a> {
     pub plan_path: &'a Path,
     /// Working directory used to execute shell callbacks.
     pub callback_cwd: &'a Path,
-    /// Current model identifier when a state declares `all_models`, or `None`.
+    /// Current model identifier when a state declares `all_models` or `model`, or `None`.
     pub model: Option<&'a str>,
+    /// Current agent identifier when a state declares `agent`, or `None`.
+    pub agent: Option<&'a str>,
 }
 
 /// Outcome of a callback invocation.
@@ -111,6 +113,9 @@ impl CallbackExecutor for ShellCallbackExecutor {
         if let Some(model) = context.model {
             cmd.env("RHEI_MODEL", model);
         }
+        if let Some(agent) = context.agent {
+            cmd.env("RHEI_AGENT", agent);
+        }
         let output =
             cmd.output().map_err(|e| CallbackError::SpawnFailed(command.to_string(), e))?;
 
@@ -150,6 +155,7 @@ mod tests {
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
             model: None,
+            agent: None,
         };
 
         let err = executor.execute(&callback, &context).unwrap_err();
@@ -168,6 +174,7 @@ mod tests {
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
             model: None,
+            agent: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -186,6 +193,7 @@ mod tests {
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
             model: None,
+            agent: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -204,6 +212,7 @@ mod tests {
             plan_path: Path::new("my-plan.rhei.md"),
             callback_cwd: Path::new("."),
             model: None,
+            agent: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -222,6 +231,7 @@ mod tests {
             plan_path: Path::new("plan.rhei.md"),
             callback_cwd: Path::new("."),
             model: None,
+            agent: None,
         };
 
         let result = executor.execute(&callback, &context).unwrap();

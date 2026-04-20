@@ -8,8 +8,9 @@
 //!
 //! The current validator enforces the behaviors implemented in this repository:
 //! dependency existence, required `**State:**` metadata, state validity,
-//! `**State:**` before `**Prior:**`, circular dependency detection, and
-//! subtask parent-number consistency for numeric task identifiers.
+//! `**State:**` before `**Prior:**`, circular dependency detection,
+//! subtask parent-number consistency for numeric task identifiers, and
+//! terminal parent/subtask coherence.
 
 use indexmap::IndexMap;
 use regex::Regex;
@@ -121,6 +122,47 @@ pub struct StateArtifactDef {
     pub description: Option<String>,
 }
 
+/// Agent configuration: either a known agent ID string or a custom profile.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum AgentConfig {
+    /// Known agent identifier (e.g., `"claude-code"`, `"codex"`).
+    Known(String),
+    /// Custom agent profile with command and flags.
+    Custom(CustomAgentProfile),
+}
+
+impl AgentConfig {
+    /// Return the agent identifier regardless of variant.
+    pub fn id(&self) -> &str {
+        match self {
+            AgentConfig::Known(id) => id,
+            AgentConfig::Custom(profile) => &profile.id,
+        }
+    }
+}
+
+/// Custom agent profile for agents not in the built-in list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct CustomAgentProfile {
+    /// Identifier for logs and diagnostics.
+    pub id: String,
+    /// Base command and fixed arguments.
+    pub command: Vec<String>,
+    /// Flag to pass the prompt (e.g., `"--prompt"`, `"-p"`). Omit if using stdin.
+    #[serde(default)]
+    pub prompt_flag: Option<String>,
+    /// Flag to pass the model. Omit if the agent doesn't support model selection.
+    #[serde(default)]
+    pub model_flag: Option<String>,
+    /// When `true`, the prompt is piped to stdin instead of passed via flag.
+    #[serde(default)]
+    pub stdin_prompt: bool,
+    /// Default timeout for this agent (e.g., `"30m"`).
+    #[serde(default)]
+    pub timeout: Option<String>,
+}
+
 /// One entry from the `states` map in a YAML states file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateDef {
@@ -138,6 +180,9 @@ pub struct StateDef {
     /// Marks this state as a final/terminal state in the state machine.
     #[serde(default, rename = "final")]
     pub terminal: bool,
+    /// When `true`, autonomous commands must not transition out of this state.
+    #[serde(default)]
+    pub gating: bool,
     /// Optional visit budget for returning to this state.
     pub visits: Option<u32>,
     /// Explicit list of declared models that should each execute this state.
@@ -146,6 +191,18 @@ pub struct StateDef {
     /// Restricts this state to one declared model.
     #[serde(default)]
     pub model: Option<String>,
+    /// The coding agent CLI that executes work in this state.
+    #[serde(default)]
+    pub agent: Option<AgentConfig>,
+    /// Maximum time an agent may work in this state (e.g., `"30m"`, `"1h"`).
+    #[serde(default)]
+    pub agent_timeout: Option<String>,
+    /// Deterministic program command for this state (mutually exclusive with `agent`).
+    #[serde(default)]
+    pub program: Option<serde_yaml::Value>,
+    /// Maximum time the program may run in this state (e.g., `"10m"`, `"1h"`).
+    #[serde(default)]
+    pub program_timeout: Option<String>,
     /// Required artifacts that must exist before work can proceed in this state.
     #[serde(default)]
     pub inputs: Vec<StateArtifactDef>,
@@ -187,6 +244,7 @@ impl StateMachine {
     pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
         let sm: Self = serde_yaml::from_str(yaml)?;
         sm.validate_model_configuration()?;
+        sm.validate_program_configuration()?;
         Ok(sm)
     }
 
@@ -243,6 +301,57 @@ impl StateMachine {
             validate_artifact_definitions(state_name, "inputs", &state.inputs)?;
             validate_artifact_definitions(state_name, "outputs", &state.outputs)?;
 
+            // Agent validation.
+            if let Some(agent) = &state.agent {
+                if state.terminal {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' is final and cannot declare an 'agent' (terminal states have no work to execute)"
+                    )));
+                }
+                match agent {
+                    AgentConfig::Known(id) => {
+                        if id.trim().is_empty() {
+                            return Err(StateMachineLoadError::Invalid(format!(
+                                "state '{state_name}' declares an empty 'agent' value"
+                            )));
+                        }
+                    }
+                    AgentConfig::Custom(profile) => {
+                        if profile.id.trim().is_empty() {
+                            return Err(StateMachineLoadError::Invalid(format!(
+                                "state '{state_name}' custom agent profile has an empty 'id'"
+                            )));
+                        }
+                        if profile.command.is_empty() {
+                            return Err(StateMachineLoadError::Invalid(format!(
+                                "state '{state_name}' custom agent profile has an empty 'command'"
+                            )));
+                        }
+                    }
+                }
+            }
+            if let Some(timeout) = &state.agent_timeout {
+                if parse_duration_secs(timeout).is_none() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' has invalid 'agent_timeout' value '{timeout}' \
+                         (expected format like '30s', '5m', '1h', '2h30m')"
+                    )));
+                }
+            }
+            if let Some(timeout) = &state.program_timeout {
+                if parse_duration_secs(timeout).is_none() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' has invalid 'program_timeout' value '{timeout}' \
+                         (expected format like '30s', '5m', '1h', '2h30m')"
+                    )));
+                }
+            }
+            if state.agent.is_some() && state.program.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot declare both 'agent' and 'program' (they are mutually exclusive)"
+                )));
+            }
+
             if !state.all_models.is_empty() && self.models.is_empty() {
                 return Err(StateMachineLoadError::Invalid(format!(
                     "state '{state_name}' sets 'all_models' but the machine does not declare any top-level 'models'"
@@ -291,6 +400,173 @@ impl StateMachine {
 
         Ok(())
     }
+
+    fn validate_program_configuration(&self) -> Result<(), StateMachineLoadError> {
+        for (state_name, state) in &self.states {
+            if let Some(program) = &state.program {
+                validate_program_value(state_name, program)?;
+                if state.terminal {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' is final and cannot declare a 'program' (terminal states have no work to execute)"
+                    )));
+                }
+                if state.gating {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' is gating and cannot declare a 'program' (gating states require human action)"
+                    )));
+                }
+            }
+        }
+
+        for transition in &self.transitions {
+            if transition.exit_code.is_none() {
+                continue;
+            }
+
+            let Some(from_state) = self.states.get(&transition.from.0) else {
+                continue;
+            };
+            if from_state.program.is_none() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "transition from '{}' to '{}' declares 'exit_code' but source state '{}' does not declare a program",
+                    transition.from.0, transition.to.0, transition.from.0
+                )));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_program_value(
+    state_name: &str,
+    value: &serde_yaml::Value,
+) -> Result<(), StateMachineLoadError> {
+    match value {
+        serde_yaml::Value::String(command) => {
+            if command.trim().is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares an empty 'program' value"
+                )));
+            }
+        }
+        serde_yaml::Value::Mapping(mapping) => {
+            let Some(command) = mapping.get(serde_yaml::Value::String("command".to_string()))
+            else {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' program object must include a 'command' field"
+                )));
+            };
+            validate_program_command(state_name, command)?;
+
+            if let Some(env) = mapping.get(serde_yaml::Value::String("env".to_string())) {
+                match env {
+                    serde_yaml::Value::Mapping(env_map) => {
+                        for (key, value) in env_map {
+                            let Some(key) = key.as_str() else {
+                                return Err(StateMachineLoadError::Invalid(format!(
+                                    "state '{state_name}' program.env keys must be strings"
+                                )));
+                            };
+                            if key.trim().is_empty() {
+                                return Err(StateMachineLoadError::Invalid(format!(
+                                    "state '{state_name}' program.env contains an empty key"
+                                )));
+                            }
+                            if !matches!(
+                                value,
+                                serde_yaml::Value::Null
+                                    | serde_yaml::Value::Bool(_)
+                                    | serde_yaml::Value::Number(_)
+                                    | serde_yaml::Value::String(_)
+                            ) {
+                                return Err(StateMachineLoadError::Invalid(format!(
+                                    "state '{state_name}' program.env['{key}'] must be a scalar value"
+                                )));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' program.env must be a mapping"
+                        )))
+                    }
+                }
+            }
+
+            if let Some(working_directory) =
+                mapping.get(serde_yaml::Value::String("working_directory".to_string()))
+            {
+                match working_directory {
+                    serde_yaml::Value::String(path) if !path.trim().is_empty() => {}
+                    serde_yaml::Value::String(_) => {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' program.working_directory must be a non-empty string"
+                        )))
+                    }
+                    _ => {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' program.working_directory must be a string"
+                        )))
+                    }
+                }
+            }
+
+            if let Some(shell) = mapping.get(serde_yaml::Value::String("shell".to_string())) {
+                if !matches!(shell, serde_yaml::Value::Bool(_)) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' program.shell must be a boolean"
+                    )));
+                }
+            }
+        }
+        _ => {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' program must be a non-empty string or an object"
+            )))
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_program_command(
+    state_name: &str,
+    command: &serde_yaml::Value,
+) -> Result<(), StateMachineLoadError> {
+    match command {
+        serde_yaml::Value::String(value) => {
+            if value.trim().is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' program.command must be a non-empty string"
+                )));
+            }
+        }
+        serde_yaml::Value::Sequence(values) => {
+            if values.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' program.command array must not be empty"
+                )));
+            }
+            for value in values {
+                match value {
+                    serde_yaml::Value::String(item) if !item.trim().is_empty() => {}
+                    _ => {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' program.command entries must be non-empty strings"
+                        )))
+                    }
+                }
+            }
+        }
+        _ => {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' program.command must be a string or string array"
+            )))
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_artifact_definitions(
@@ -353,6 +629,44 @@ fn path_escapes_workspace_root(path: &str) -> bool {
     }
 
     false
+}
+
+/// Parse a human-readable duration string into seconds.
+///
+/// Supported formats: `30s`, `5m`, `1h`, `2h30m`, `1h15m30s`.
+/// Returns `None` if the string is not a valid duration.
+pub fn parse_duration_secs(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    let mut total: u64 = 0;
+    let mut current_num = String::new();
+    let mut found_any = false;
+
+    for ch in s.chars() {
+        if ch.is_ascii_digit() {
+            current_num.push(ch);
+        } else {
+            let n: u64 = current_num.parse().ok()?;
+            current_num.clear();
+            match ch {
+                'h' => total = total.checked_add(n.checked_mul(3600)?)?,
+                'm' => total = total.checked_add(n.checked_mul(60)?)?,
+                's' => total = total.checked_add(n)?,
+                _ => return None,
+            }
+            found_any = true;
+        }
+    }
+
+    // Reject trailing digits without a unit suffix or empty input.
+    if !current_num.is_empty() || !found_any {
+        return None;
+    }
+
+    Some(total)
 }
 
 /// Parsed task-state value from markdown, optionally carrying an explicit visit suffix.
@@ -418,6 +732,7 @@ impl Validator {
         validate_dependency_integrity(rhei, &index, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
         validate_subtask_state_consistency(rhei, &self.machine, &mut report);
+        validate_terminal_parent_subtask_coherence(rhei, &self.machine, &mut report);
         validate_subtask_numbering(rhei, &mut report);
         validate_subtask_uniqueness(rhei, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
@@ -595,6 +910,42 @@ fn validate_subtask_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
     }
 }
 
+fn validate_terminal_parent_subtask_coherence(
+    rhei: &Rhei,
+    machine: &StateMachine,
+    report: &mut ValidationReport,
+) {
+    for task in &rhei.tasks {
+        let parent_state = parse_task_state(&task.state, machine);
+        let Some(parent_def) = machine.states.get(&parent_state.state) else {
+            continue;
+        };
+        if !parent_def.terminal {
+            continue;
+        }
+
+        for st in &task.subtasks {
+            let subtask_state = parse_task_state(&st.state, machine);
+            let Some(subtask_def) = machine.states.get(&subtask_state.state) else {
+                continue;
+            };
+            if subtask_def.terminal {
+                continue;
+            }
+
+            report.errors.push(format!(
+                "Task {} is in terminal state '{}' but Subtask {}.{} ('{}') is in non-terminal state '{}'",
+                task.id,
+                task.state,
+                st.task_number,
+                st.subtask_number,
+                st.title,
+                st.state
+            ));
+        }
+    }
+}
+
 /// Extract markdown links from a text block, returning `(display_text, target)` pairs.
 fn extract_markdown_links(text: &str) -> Vec<(String, String)> {
     let re = Regex::new(r"\[([^\]]*)\]\(([^)]+)\)").expect("valid regex");
@@ -746,7 +1097,7 @@ version: 1.0
 states:
   pending: { description: "not started" }
   in-progress: { description: "doing" }
-  completed: { description: "done" }
+  completed: { description: "done", final: true }
 "#;
         StateMachine::from_yaml_str(yaml).expect("states load")
     }
@@ -1412,6 +1763,75 @@ states:
     }
 
     #[test]
+    fn terminal_parent_with_non_terminal_subtask_errors() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 2: Parent
+**State:** completed
+
+#### Subtask 2.1: Still open
+**State:** pending
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = StateMachine::from_yaml_str(
+            r#"
+name: terminal-parent-test
+version: 1.0
+states:
+  pending: { description: "not started" }
+  completed: { description: "done", final: true }
+"#,
+        )
+        .expect("states load");
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected terminal parent coherence error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("Task 2 is in terminal state 'completed'"),
+            "expected terminal parent state in error; got:\n{}",
+            joined
+        );
+        assert!(
+            joined.contains("Subtask 2.1 ('Still open') is in non-terminal state 'pending'"),
+            "expected non-terminal subtask in error; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn terminal_parent_with_terminal_subtasks_is_valid() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 2: Parent
+**State:** completed
+
+#### Subtask 2.1: Done
+**State:** completed
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = StateMachine::from_yaml_str(
+            r#"
+name: terminal-parent-test
+version: 1.0
+states:
+  pending: { description: "not started" }
+  completed: { description: "done", final: true }
+"#,
+        )
+        .expect("states load");
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(
+            !report.has_errors(),
+            "terminal parent with terminal subtasks should validate: {:?}",
+            report.errors
+        );
+    }
+
+    #[test]
     fn named_task_subtasks_produce_error() {
         let input = r#"# Rhei: Example
 ## Tasks
@@ -1701,5 +2121,42 @@ See [missing](nowhere.md) for context.
             "without base path, links should not be checked: {:?}",
             report.errors
         );
+    }
+
+    #[test]
+    fn rejects_program_on_gating_state() {
+        let yaml = r#"name: demo
+version: 1
+states:
+  review:
+    description: Human review
+    gating: true
+    program: "echo nope"
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("should reject program on gating");
+        assert!(err.to_string().contains("cannot declare a 'program'"));
+    }
+
+    #[test]
+    fn rejects_exit_code_transition_from_non_program_state() {
+        let yaml = r#"name: demo
+version: 1
+states:
+  pending:
+    description: Agent work
+    agent: codex
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: completed
+    exit_code: 0
+"#;
+
+        let err =
+            StateMachine::from_yaml_str(yaml).expect_err("should reject exit_code on non-program");
+        assert!(err.to_string().contains("declares 'exit_code'"));
     }
 }
