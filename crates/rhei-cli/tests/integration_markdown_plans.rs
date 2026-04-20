@@ -2144,6 +2144,80 @@ fn workspace_loads_and_validates_correctly() {
 }
 
 #[test]
+fn validate_auto_discovers_workspace_root_state_machine_from_states_declaration() {
+    let dir = unique_temp_dir("ws-auto-states");
+    let ws = dir.join("workspace");
+    let tasks_dir = ws.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(
+        ws.join("index.rhei.md"),
+        "# Rhei: Workspace Auto States\n**States:** workspace-test-machine\n",
+    )
+    .expect("write index");
+    fs::write(tasks_dir.join("alpha.md"), "### Task 1: Alpha\n**State:** pending\n")
+        .expect("write task file");
+    write_fixture_file(&ws, "states.yaml", WORKSPACE_STATE_MACHINE);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&ws)
+        .output()
+        .expect("validate command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "validate should succeed\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Validation succeeded"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn validate_reports_mismatched_auto_discovered_state_machine_name() {
+    let dir = unique_temp_dir("auto-states-mismatch");
+    let plan_path = write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        "# Rhei: Auto States Mismatch\n**States:** custom-review\n\n## Tasks\n\n### Task 1: Review docs\n**State:** draft\n",
+    );
+    write_fixture_file(
+        &dir,
+        "states.yaml",
+        "name: wrong-machine\nversion: 1\nstates:\n  draft:\n    initial: true\n    description: Start\n  completed:\n    final: true\n    description: Done\ntransitions:\n  - from: draft\n    to: completed\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&plan_path)
+        .output()
+        .expect("validate command should run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "validate should fail when auto-discovered machine name mismatches\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("plan declares state machine 'custom-review'"),
+        "expected mismatch diagnostic, got:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("declares 'wrong-machine'"),
+        "expected discovered machine name in diagnostic, got:\n{}",
+        stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn workspace_render_json_includes_all_tasks() {
     let (ws, machine_path) = create_workspace(
         "ws-render",

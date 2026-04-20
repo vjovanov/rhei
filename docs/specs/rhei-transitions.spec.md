@@ -208,7 +208,11 @@ rhei.onLeave('pending', 'processing', async (ctx: TransitionContext): Promise<Tr
 
 ## Rhei File Metadata Format
 
-Task metadata is stored in a **YAML frontmatter section** within the rhei markdown file. The `state` field and dependency information are implicit and always present - they don't need to be declared in the metadata section.
+Auxiliary task metadata is stored in a **YAML frontmatter section** at the plan
+root: in the plan file for single-file plans, or in `index.rhei.md` for
+Directory Workspaces. Core markdown task fields such as `**State:**`,
+`**Prior:**`, `**Assignee:**`, and `> **Result:**` remain authored in markdown
+rather than frontmatter.
 
 **Naming conventions:**
 - In markdown syntax: Use `**Prior:** Task N` to declare dependencies
@@ -232,7 +236,6 @@ metadata:
       stateVisits:
         agent-review: 1
       lastAttempt: "2024-01-15T10:30:00Z"
-      assignee: "alice"
     3:
       priority: "high"
       estimatedDuration: "30m"
@@ -250,6 +253,10 @@ The YAML frontmatter between `---` markers contains:
 - `metadata.tasks.<id>` - Custom metadata for each task, keyed by task ID
 - Any key-value pairs needed by callbacks or conditions (e.g., `retryCount`, `priority`)
 - `metadata.tasks.<id>.stateVisits.<state-name>` - Runtime-maintained counted-loop counters for states that declare a `visits` limit
+
+Markdown-owned task fields are not duplicated in frontmatter. In particular,
+`**Assignee:**` remains a markdown field even when runtimes expose it through
+callback APIs.
 
 ### Counted Loop Metadata
 
@@ -286,6 +293,12 @@ rhei.onLeave('retrying', 'processing', (ctx: TransitionContext) => {
   return { success: true };
 });
 ```
+
+Runtimes may additionally project markdown-owned fields into the callback view
+for convenience. For example, `task.metadata.assignee` may mirror the current
+`**Assignee:**` line when one exists. This is a computed projection for callback
+consumers, not a second persisted `metadata.tasks.<id>.assignee` source of
+truth.
 
 For counted loops, runtimes should additionally expose:
 

@@ -230,6 +230,21 @@ pub fn run_cli(
     }
 }
 
+/// Run an arbitrary rhei subcommand without passing `--state-machine`.
+pub fn run_cli_without_machine(subcommand: &str, plan_path: &Path, extra_args: &[&str]) -> CliRun {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.arg(subcommand).arg(plan_path);
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    let output = cmd.output().expect("rhei command should run");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
 /// Run `rhei transition`.
 pub fn run_transition(
     plan_path: &Path,

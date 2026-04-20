@@ -2,6 +2,59 @@ use std::fs;
 
 use super::*;
 
+#[test]
+fn next_auto_discovers_sibling_state_machine_from_states_declaration() {
+    let plan = r#"# Rhei: Auto-discovered Machine
+**States:** custom-review
+
+## Tasks
+
+### Task 1: Review API surface
+**State:** draft
+Inspect public interfaces.
+"#;
+    let machine = r#"name: custom-review
+version: 1
+states:
+  draft:
+    initial: true
+    description: Planned
+  review:
+    description: Review in progress
+    instructions: Follow the custom review workflow.
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: review
+  - from: review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-auto-states");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli_without_machine("next", &plan_path, &["--no-callbacks", "--json"]);
+    assert_success(&result);
+
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
+    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["state"], "review");
+    assert_eq!(json["from_state"], "draft");
+    assert!(
+        json["instructions"]
+            .as_str()
+            .expect("instructions string")
+            .contains("Follow the custom review workflow."),
+        "expected custom machine instructions; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// Drive a plan to completion using `next` (to claim from initial state)
 /// followed by `complete` (to finish the task). This simulates the agent
 /// workflow: orchestrator calls `next`, agent does work, agent calls `complete`.

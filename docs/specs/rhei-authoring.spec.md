@@ -25,7 +25,7 @@ cargo run -p rhei-cli -- validate my-plan.rhei.md
 ```
 
 When no `**States:**` field is declared, the plan uses the built-in `rhei`
-state machine from [`docs/states.yaml`](states.yaml).
+state machine.
 
 ## Authoring Workflow
 
@@ -120,12 +120,14 @@ after the `# Rhei:` title:
 **States:** content-workflow
 ```
 
-The `name` field in the referenced YAML file must match this value. Pass
-the states file to the CLI with `--state-machine`:
+The `name` field in the resolved YAML file must match this value. By
+default, Rhei resolves that file automatically from `states.yaml` next to
+the plan (single-file plans) or at the workspace root (directory
+workspaces). Pass `--state-machine <path>` only when you want to override
+that automatic lookup:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine ./content-workflow.yaml \
-    validate plans/content-refresh.rhei.md
+cargo run -p rhei-cli -- validate plans/content-refresh.rhei.md
 ```
 
 See the [States Specification](rhei-states.spec.md) for the states file format.

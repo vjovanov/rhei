@@ -8,7 +8,10 @@ license = "MIT OR Apache-2.0"
 rhei-core = { path = "../rhei-core" }
 rhei-validator = { path = "../rhei-validator" }
 rhei-output = { path = "../rhei-output" }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "=4.5.60", features = ["derive"] }
+# `cargo install --path` ignores the workspace lockfile, so pin clap_lex to a
+# Cargo 1.82-compatible release instead of letting resolution float to 1.1.x.
+clap_lex = "=1.0.0"
 anyhow = "1"
 miette = { version = "7", default-features = false, features = ["fancy-no-backtrace", "derive"] }
 notify = "6"
