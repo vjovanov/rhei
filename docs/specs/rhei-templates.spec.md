@@ -40,6 +40,7 @@ Discovery errors are handled per command:
 <name>/
 ├── template.yaml          # Manifest (required)
 ├── states.yaml            # State machine (optional)
+├── settings.json          # Template-shipped project settings (optional)
 ├── plan.rhei.md           # Single-file plan skeleton
 │   ── OR ──
 ├── index.rhei.md          # Directory-workspace index skeleton
@@ -79,6 +80,71 @@ inputs:
 - An input with `required: false` and no `default` resolves to the empty string when not supplied by the user. Templates are pure text substitution in v1, so authors should tolerate that empty string directly or prefer declaring a `default`.
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
 - `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the value and anchored to the entire rendered value.
+
+## Template-Shipped Settings
+
+A template may bundle a `settings.json` file alongside `template.yaml` to
+declare project-scoped settings that the instantiated workspace should start
+with — most commonly, the MCP server and skill profiles the state machine
+references.
+
+The file uses the standard project settings schema documented in
+[Agents Specification — Global and Project Settings](rhei-agents.spec.md#global-and-project-settings).
+It is treated as a text template file: instantiation variables (`{{name}}`)
+are resolved at instantiation time so a template can parameterize
+workspace-specific values (workspace ids, paths, hostnames) without exposing
+host secrets.
+
+On instantiation the rendered file is written to `.rhei/settings.json` in the
+output tree, where `rhei run` and `rhei validate` automatically pick it up and
+compose it over the user's global `~/.config/rhei/settings.json`.
+
+Example:
+
+```json
+// settings.json inside the template
+{
+  "mcp_servers": {
+    "linear": {
+      "command": ["npx", "-y", "@modelcontextprotocol/server-linear"],
+      "env": { "LINEAR_WORKSPACE": "{{linear_workspace_id}}" }
+    }
+  },
+  "skills": {
+    "review-checklist": { "path": ".rhei/skills/review-checklist" }
+  },
+  "defaults": {
+    "mcp_servers": ["linear"]
+  }
+}
+```
+
+With the matching manifest input:
+
+```yaml
+# template.yaml
+inputs:
+  - name: linear_workspace_id
+    description: Linear workspace id used by the Linear MCP server
+    type: string
+    required: true
+```
+
+Rules:
+
+- `settings.json` must be a UTF-8 JSON file. Instantiation fails if parsing
+  the rendered file fails.
+- References to host secrets use the settings file's standard `${VAR}`
+  expansion — **not** template variables — so secrets are resolved at
+  `rhei run` time on the user's machine, not baked into the output.
+- A template that references MCP or skill ids in its `states.yaml` must
+  declare matching registry entries either in its bundled `settings.json`
+  or expect the user to provide them in their global settings. `rhei
+  validate` (step 6 above) surfaces any remaining dangling references as
+  errors.
+- Users may edit `.rhei/settings.json` after instantiation to replace
+  template-declared entries, add project-specific overrides, or clear the
+  `defaults` lists.
 
 ## Instantiation Variable Syntax
 
@@ -131,8 +197,8 @@ Options:
 2. **Load manifest.** Parse `template.yaml`, validate schema.
 3. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs. Validate types and `validate` patterns. Type validation applies to the raw input value only; downstream type errors (for example, a `string` value substituted into a YAML integer field) surface at step 6 as plan validation failures.
 4. **Resolve variables.** Walk all materialized text files in the template directory. Replace every `{{name}}` with its resolved value. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved `{{...}}` reference.
-5. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output.
-6. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
+5. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.rhei/settings.json` under the output root; all other files preserve their template-relative paths.
+6. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then output-root `.rhei/settings.json`) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
 7. **Execute (optional).** When `--execute` is passed, invoke `rhei run <output>` after successful validation. `rhei run` uses the instantiated output's root `states.yaml` by default when present; otherwise it falls back to the built-in default.
 
 #### Exit Codes
@@ -227,7 +293,6 @@ states:
       Review pass {visit_count} of {visits} for Task {task_id}: {task_title}.
       Focus on `{{target}}`.
       Write findings to `{output.review-notes.path}`.
-    initial: true
     visits: {{review_passes}}
     outputs:
       - name: review-notes
@@ -270,6 +335,15 @@ transitions:
   - from: "*"
     to: cancelled
     description: Cancel from any state.
+
+profiles:
+  default:
+    initial: review
+    allowed: [review, fix, completed, cancelled]
+
+node_policy:
+  root: default
+  default: default
 ```
 
 ### Instantiation

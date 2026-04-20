@@ -15,6 +15,7 @@ The state-machine schema also permits these optional fields for richer workflows
 - Per-state `program_timeout: <duration>` to set the maximum time a program may run in this state
 - Per-state `visits: <integer>` to cap total counted visits for that state
 - Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit; individual inputs may be marked `optional: true` to skip the existence check while still exposing the path and an existence flag to agents and programs
+- Per-state `mcp_servers:` and `skills:` lists to attach MCP servers and agent skills to the agent subprocess for that state; individual entries may be marked `optional: true` to warn-and-continue rather than block when the tool is unavailable
 
 When `models` is omitted, the machine behaves as it does today and states are not model-constrained. When `models` is present, a state may either omit both selector fields, set `all_models: [<id>, ...]`, or set `model: <id>`. Setting both `all_models` and `model` on the same state is invalid. `visits` is orthogonal to model selection and may be used together with either `all_models` or `model`.
 
@@ -34,6 +35,13 @@ for configuration, resolution order, and invocation details.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `models` | string array | No | The complete set of model profile identifiers available to the machine |
+| `profiles` | map of name to `{initial, allowed}` | Yes | Named, reusable state profiles. Each profile declares the `initial` state and the `allowed` state subset for any node assigned to it. Referenced by `node_policy`. |
+| `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` and `default`. Optionally defines `by_type` and `overrides`. See [Node Policy](#node-policy). |
+
+The `profiles` and `node_policy` blocks replace the earlier per-state
+`initial: true` boolean. A state definition no longer carries its own initial
+flag; the initial state is a property of each profile, so different node kinds
+can start in different states within the same state machine.
 
 ### Per-state fields
 
@@ -50,9 +58,21 @@ for configuration, resolution order, and invocation details.
 | `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
 | `inputs` | artifact array | No | Artifacts that must exist before the task can enter this state. Individual entries may be marked `optional: true` to skip the existence check. |
 | `outputs` | artifact array | No | Required artifacts that must exist before the task can leave this state |
+| `mcp_servers` | array | No | MCP servers attached to the agent subprocess for this state. Entries are ids from the `mcp_servers` settings registry or inline server definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#mcp-servers-and-skills). |
+| `skills` | array | No | Agent skills enabled for this state. Entries are ids from the `skills` settings registry or inline skill definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#mcp-servers-and-skills). |
 
 ### Validation Rules
 
+- `profiles` must be present and non-empty. Each entry must declare `initial`
+  (a state name) and `allowed` (a list of state names). See
+  [Profiles](#profiles) for per-profile validation.
+- `node_policy.root` and `node_policy.default` are required and must name
+  defined profiles. `node_policy.by_type`, when present, maps each declared
+  non-root node kind to a defined profile. `node_policy.overrides`, when
+  present, is an ordered list of `{match, profile}` entries. See
+  [Node Policy](#node-policy) for resolution and validation rules.
+- A state definition must not declare `initial: true`. The initial state is
+  a property of each profile, not of the state itself.
 - `models`, when present, must be a list of unique non-empty strings naming model profiles defined in settings.
 - `state.model`, when present, must match an entry from the machine-level `models` list.
 - `state.all_models`, when present, must be a list of unique non-empty strings drawn from the machine-level `models` list.
@@ -72,6 +92,13 @@ for configuration, resolution order, and invocation details.
 - Artifact `path` values must be relative to the plan root (single-file plan) or workspace root (directory workspace) and must not escape that root after template expansion.
 - `artifact.optional`, when present, must be a boolean. Only valid on `inputs` entries; declaring `optional: true` on an `outputs` entry is a validation error (required outputs are always enforced).
 - An `optional: true` input that is missing does not block state entry. Its `{input.<name>.exists}` variable resolves to `false` and its `{input.<name>.path}` resolves to the declared path regardless.
+- `state.mcp_servers` / `state.skills`, when present, must be arrays. Each entry is either a non-empty string (registry id) or an object with at least an `id` field plus the inline definition fields accepted by the corresponding settings registry.
+- Every string id and every `id` field in an inline entry must be unique within the state's list for that kind.
+- Every registry id in `state.mcp_servers` must resolve in the merged `mcp_servers` settings registry. Every id in `state.skills` must resolve in the merged `skills` registry. Inline entries do not require a registry match.
+- An `mcp_servers` or `skills` entry may declare `optional: true` (default `false`). When `optional: true`, a failure to start the server or locate the skill at spawn time does not block the agent; when `false`, it does. See [Agents Specification — Missing Tooling](rhei-agents.spec.md#missing-tooling).
+- `state.mcp_servers` and `state.skills` on a `gating: true` state are a validation error (gating states are human-only; the agent will never be invoked).
+- `state.mcp_servers` and `state.skills` on a state with `program:` set are a validation error (programs execute deterministically and do not consume tool surfaces).
+- `state.mcp_servers: []` and `state.skills: []` are valid and mean "clear the inherited `defaults` tooling for this state" — not "ignore the field".
 
 Counted-loop counters are task-instance data, not state-definition data. The state machine declares the cap with `visits`; runtimes persist the current per-task counts in task metadata and mirror the active visit in markdown by appending `-<n>` to `**State:**` for visits greater than `1`.
 
@@ -220,6 +247,8 @@ The `instructions` and `personality` fields support template variable substituti
 | `{input.<name>.path}` | artifact contract | Resolved path of a declared input artifact | `runtime/results/3.md` |
 | `{input.<name>.exists}` | artifact contract | Whether the input artifact file exists on disk at resolution time | `true`, `false` |
 | `{output.<name>.path}` | artifact contract | Resolved path of a declared output artifact | `runtime/findings/3.md` |
+| `{mcp.<name>.available}` | tooling | Whether the MCP server with id `<name>` started successfully and is attached to the current agent | `true`, `false` |
+| `{skill.<id>.available}` | tooling | Whether the skill with id `<id>` is enabled for the current agent | `true`, `false` |
 | `{meta.<key>}` | task metadata | Value from the task's YAML metadata section | `alice`, `2` |
 
 ### Resolution Rules
@@ -229,7 +258,7 @@ The `instructions` and `personality` fields support template variable substituti
 - **Pure substitution, no expressions.** Templates produce text, not decisions. Conditional logic belongs in transition `condition` fields, not in instructions. The resolved text tells the agent "you are on pass 2 of 3" — the agent reads that to decide what to do.
 - **Artifact references create a single source of truth.** Using `{input.<name>.path}` or `{output.<name>.path}` instead of repeating raw paths means the artifact contract defines the path once. If the path changes, instructions stay correct automatically.
 - **`{visit_count}` and `{visits}` are only meaningful for counted-loop states.** For states without a `visits` declaration, `{visits}` is left unresolved and `{visit_count}` resolves to `1`.
-- **Conditional blocks suppress whole paragraphs.** Use `{if input.<name>.exists}` … `{endif}` to include a block of text only when an optional input is present. Use `{else}` between the opening tag and `{endif}` for an alternative block. The entire block — including surrounding blank lines — is removed from the output when the condition is false. Conditional blocks may not be nested in v1.
+- **Conditional blocks suppress whole paragraphs.** Use `{if input.<name>.exists}`, `{if mcp.<name>.available}`, or `{if skill.<id>.available}` … `{endif}` to include a block of text only when the referenced artifact, server, or skill is present. Use `{else}` between the opening tag and `{endif}` for an alternative block. The entire block — including surrounding blank lines — is removed from the output when the condition is false. Conditional blocks may not be nested in v1.
 
 ### Example
 
@@ -244,7 +273,6 @@ states:
       `{output.review-notes.path}`.
 
       After each review pass, transition to `fix`.
-    initial: true
     visits: 2
     outputs:
       - name: review-notes
@@ -323,7 +351,6 @@ states:
     model: impl-deep
     agent: claude-code
     agent_timeout: 15m
-    initial: true
 
   pending:
     description: Task is ready for implementation.
@@ -410,17 +437,282 @@ A state must not declare both `agent` and `program` — they are mutually exclus
 
 See [Program States Specification](rhei-programs.spec.md) for the complete specification including program declaration forms, exit-code transitions, environment variables, timeout handling, and validation rules.
 
+## MCP Servers and Skills
+
+States can attach **MCP servers** and **skills** to the agent subprocess. MCP
+servers expose tools through the Model Context Protocol; skills bundle
+agent-side prompts and resources. Both are tooling that shapes what an agent
+can do in a given phase — research, implementation, review, and so on.
+
+The `mcp_servers` and `skills` fields are lists. Each entry is either a
+**registry id** (a string naming an entry in the merged
+[`mcp_servers`](rhei-agents.spec.md#mcp_servers) or
+[`skills`](rhei-agents.spec.md#skills) settings registry) or an **inline
+object** for one-offs that shouldn't pollute global settings.
+
+### Entry forms
+
+```yaml
+states:
+  pending:
+    agent: claude-code
+    mcp_servers: [postgres]                         # registry id
+    skills: [test-authoring]
+
+  agent-review:
+    agent: codex
+    mcp_servers:
+      - id: postgres                                # registry id (long form)
+      - id: grafana
+        optional: true                              # warn-and-continue if missing
+    skills:
+      - id: security-review
+      - id: ad-hoc-review                           # inline (no registry entry required)
+        path: ./.rhei/skills/ad-hoc-review
+        optional: true
+```
+
+The object form accepts `id`, `optional`, and the fields of the corresponding
+registry entry (`command`/`url`/`transport`/`env`/... for MCP servers; `path`
+and `description` for skills). The string form is shorthand for `{id: <name>}`
+with `optional: false`.
+
+### Effective set
+
+The **effective set** for a state is `defaults.<kind>` ∪ `state.<kind>`,
+deduplicated by id. State-level entries override identically-ided defaults.
+Passing `mcp_servers: []` or `skills: []` on a state clears the inherited
+`defaults` tooling for that state — leaving the field out inherits the
+defaults unchanged. See
+[Agents Specification — Resolution Order](rhei-agents.spec.md#resolution-order)
+for the full algorithm.
+
+### Runtime semantics
+
+- Entries are resolved and availability-checked by `rhei run` at agent spawn
+  time — not at `rhei next`.
+- Required entries (the default) that fail their availability check block the
+  agent spawn. The engine fires an `mcp_unavailable` or `skill_unavailable`
+  transition if one is declared from the current state; otherwise the task
+  stays in place with an error logged.
+- Optional entries (`optional: true`) that fail produce a warning and are
+  dropped from the effective set. The agent still spawns with the remaining
+  resolved tooling.
+- For every declared entry — required or optional — the engine exposes:
+  - `{mcp.<name>.available}` / `{skill.<id>.available}` template variables
+    resolved to `true` or `false`.
+  - `RHEI_MCP_<NAME>_AVAILABLE` / `RHEI_SKILL_<ID>_AVAILABLE` environment
+    variables (name uppercased, hyphens and spaces replaced with underscores).
+- The aggregate resolved set is also exposed via `RHEI_MCP_SERVERS` and
+  `RHEI_SKILLS` as comma-separated id lists containing only the entries that
+  started successfully.
+
+See [Agents Specification — Missing Tooling](rhei-agents.spec.md#missing-tooling)
+for availability semantics, timeout behavior, and the
+`mcp_unavailable` / `skill_unavailable` transition contract. See
+[Transitions Specification](rhei-transitions.spec.md) for declaring those
+transitions.
+
+### Example
+
+```yaml
+states:
+  draft:
+    description: Research phase — agent needs read access to the issue tracker.
+    agent: claude-code
+    mcp_servers: [linear]
+    instructions: |
+      Read Task {task_id}: {task_title} and linked Linear tickets.
+
+      {if mcp.linear.available}
+      Use the Linear MCP to fetch related tickets and comments before writing
+      the task description.
+      {else}
+      Linear is unavailable — rely on the task body only and flag any missing
+      context in your description.
+      {endif}
+
+      Transition to `pending` once the description is finalized.
+
+  pending:
+    description: Implementation phase.
+    agent: claude-code
+    mcp_servers: [postgres]
+    skills: [test-authoring]
+
+  agent-review:
+    description: Independent review.
+    agent: codex
+    mcp_servers:
+      - id: postgres
+      - id: grafana
+        optional: true
+    skills: [security-review]
+    instructions: |
+      Review Task {task_id}.
+
+      {if mcp.grafana.available}
+      Pull relevant latency panels from Grafana for any request-path changes
+      and cite them in your findings.
+      {else}
+      Grafana is unavailable — note the omission in findings but do not block
+      the review on it.
+      {endif}
+```
+
+## Profiles
+
+A **profile** is a named bundle of `{initial, allowed}` that defines a
+per-node state policy. Profiles are defined once at the top level of the
+state machine YAML and referenced from `node_policy`.
+
+Separating policy from state definitions means:
+
+- One canonical definition of each state and transition.
+- Multiple node kinds can share a profile without duplicating `allowed`
+  arrays.
+- The root node can use a different profile than task or bug nodes, without
+  cloning the state graph.
+- `rhei reset` resets each node to its resolved profile's `initial` — there is
+  no single machine-wide initial state.
+
+> The `profiles` block in this spec is distinct from the `models` list of
+> *model profiles*. A `models` entry names a model profile identifier
+> resolved through settings to a provider/model combination. A `profiles`
+> entry is a state policy assigned to nodes. They live at different layers
+> of the machine and never resolve against each other.
+
+### Shape
+
+```yaml
+profiles:
+  <profile-name>:
+    initial: <state-name>        # starting state for any node using this profile
+    allowed: [<state-name>, ...] # states any such node may ever hold
+```
+
+### Per-profile validation
+
+- `initial` must be defined in `states`.
+- Every entry in `allowed` must be defined in `states`.
+- `initial` must appear in `allowed`.
+- `allowed` must contain at least one state marked `final: true`.
+- Every non-final state in `allowed` must have a path — using only
+  transitions whose `to` is also in `allowed` — to some final state in
+  `allowed`. This reachability check prevents a narrowed `allowed` set from
+  silently producing a policy where a node can enter a state it can never
+  leave.
+
+### Example
+
+```yaml
+profiles:
+  simple:
+    initial: pending
+    allowed: [pending, completed, cancelled]
+
+  reviewed:
+    initial: draft
+    allowed: [draft, pending, agent-review, agent-review-fix, human-review, completed, cancelled]
+
+  light-review:
+    initial: pending
+    allowed: [pending, agent-review, completed, cancelled]
+```
+
+`allowed` is always a wholesale set — profiles are referenced by name, never
+merged. Two profiles that share most of their states still list each state
+explicitly.
+
+## Node Policy
+
+`node_policy` maps each node in a plan to a profile. It has four keys: the
+required `root` and `default`, and the optional `by_type` and `overrides`.
+
+### Shape
+
+```yaml
+node_policy:
+  root: <profile-name>           # required: profile the (always-rhei) root runs
+  default: <profile-name>        # required: fallback for any non-root kind not listed
+  by_type:                       # optional: per-kind overrides
+    <kind>: <profile-name>
+  overrides:                     # optional: ordered list for multi-dimensional cases
+    - match: { type: <kind>, level: <n> }
+      profile: <profile-name>
+```
+
+### Resolution
+
+For a given node, resolve its profile in this order:
+
+1. If the node is the root (level 0, kind `rhei`), use `node_policy.root`.
+2. Otherwise, walk `node_policy.overrides` in declaration order. Use the
+   profile of the first entry whose `match` matches the node. A `match`
+   block may include `type` and/or `level`; every specified field must
+   match the node.
+3. Otherwise, if `node_policy.by_type[<kind>]` is defined for the node's
+   kind, use it.
+4. Otherwise, use `node_policy.default`.
+
+The resolved profile's `initial` is the node's starting state; its `allowed`
+set is the authoritative list of states that node may ever hold. `rhei reset`
+returns each node to its resolved profile's `initial`.
+
+### Validation
+
+- `node_policy.root` is required; it must reference a profile defined in
+  `profiles`.
+- `node_policy.default` is required; it must reference a profile defined in
+  `profiles`.
+- Every key of `node_policy.by_type` must appear in `structure.nodeKinds`.
+  The reserved name `rhei` must not appear as a `by_type` key — the root is
+  configured through `node_policy.root`, not here.
+- Every profile reference in `by_type` and `overrides[].profile` must
+  resolve to a profile defined in `profiles`.
+- `overrides[].match` keys are limited to `type` and `level`. `type` values
+  must be in `structure.nodeKinds`. `level` values must be integers in
+  `[1, structure.maxLevels]`. The root is not matchable through `overrides`;
+  use `node_policy.root`.
+- Each profile referenced by `node_policy` must pass the per-profile
+  validation rules above.
+- Any authored `**State:**` on a node must appear in that node's resolved
+  profile's `allowed` set.
+
+### Example
+
+```yaml
+node_policy:
+  root: reviewed        # the root runs through the full review flow
+  default: simple       # nodes without a type-specific mapping use this
+  by_type:
+    task: reviewed
+    bug:  light-review
+  overrides:
+    - match: { type: task, level: 3 }   # leaf-level tasks skip review
+      profile: simple
+```
+
+In this configuration, a level-3 `task` uses `simple` (via `overrides`), a
+level-2 `task` uses `reviewed` (via `by_type`), a `bug` at any level uses
+`light-review`, and a `story` — a declared kind without a `by_type` entry —
+uses `simple`.
+
 ## States
 
-| State | Description | Initial | Final | Gating |
-|-------|-------------|---------|-------|--------|
-| `draft` | Task is still being shaped; description not ready for execution | Yes | No | No |
-| `pending` | Task ready for implementation once prerequisites are `completed` | No | No | No |
-| `agent-review` | A separate reviewing agent inspects the result | No | No | No |
-| `agent-review-fix` | Implementing agent applies reviewer findings, no scope change | No | No | No |
-| `human-review` | Work paused pending human inspection; no autonomous exit | No | No | Yes |
-| `completed` | Task finished successfully; immutable | No | Yes | No |
-| `cancelled` | Task no longer needed; skip entirely | No | Yes | No |
+| State | Description | Final | Gating |
+|-------|-------------|-------|--------|
+| `draft` | Task is still being shaped; description not ready for execution | No | No |
+| `pending` | Task ready for implementation once prerequisites are `completed` | No | No |
+| `agent-review` | A separate reviewing agent inspects the result | No | No |
+| `agent-review-fix` | Implementing agent applies reviewer findings, no scope change | No | No |
+| `human-review` | Work paused pending human inspection; no autonomous exit | No | Yes |
+| `completed` | Task finished successfully; immutable | Yes | No |
+| `cancelled` | Task no longer needed; skip entirely | Yes | No |
+
+Whether a state is a node's starting state is determined by the node's
+resolved profile (see [Profiles](#profiles) and [Node Policy](#node-policy)),
+not by a per-state flag.
 
 ## Transitions
 

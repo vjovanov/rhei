@@ -155,27 +155,26 @@ structure:
   nodeKinds:
     - task
     - bug
-  defaultKind: task
 ```
 
-The initial syntax should keep headings stable and express kind as metadata:
+Node kind should be parsed from the heading keyword, using the configured
+`structure.nodeKinds` set:
 
 ```markdown
-#### Task 1.2: Fix null-cache panic
-**Type:** bug
+#### Bug 1.2: Fix null-cache panic
 **State:** pending
 ```
 
-This is the recommended first step because it:
+Parsing rule:
 
-- avoids making dependency syntax depend on configurable heading keywords
-- keeps parsing simple
-- preserves the existing `### Task ...` heading family
-- allows renderers and UIs to show `Bug` distinctly without changing the core
-  heading grammar again
+- the parser reads `structure.nodeKinds`
+- each declared kind enables a corresponding heading keyword
+- matching is case-insensitive in configuration, but headings render in Title
+  Case by convention (`task` -> `Task`, `bug` -> `Bug`)
+- when `structure.nodeKinds` is omitted, the default is `[task]`
 
-If the project later wants author-facing `### Bug ...` headings, that can be
-added as a rendering and parser alias on top of the same `kind` field.
+This makes kind part of the authored syntax instead of redundant metadata, and
+it lets the parser determine node kind directly from the heading line.
 
 ### 6. Execution semantics
 
@@ -203,17 +202,16 @@ Validation should generalize today's parent/subtask checks into tree checks:
 
 `**Prior:**` should resolve against any task node, not only roots.
 
-Dependencies should reference the full hierarchical id:
+Dependencies should reference the full hierarchical id, and may use any
+declared node-kind keyword:
 
 ```markdown
 #### Task 2.2: Ship the fix
 **State:** pending
-**Prior:** Task 1.2, Task 1.3.1
+**Prior:** Bug 1.2, Task 1.3.1
 ```
 
-The dependency keyword should remain `Task` in the first version even when the
-target node kind is `bug`. Dependencies are about workflow nodes, not display
-kind.
+The referenced kind must match the declared kind of the target node.
 
 ### 8. Migration plan
 
@@ -222,7 +220,7 @@ Deliver the change in phases:
 1. Add recursive AST support and compatibility parsing for `Subtask`
 2. Rename validator logic from subtask-specific rules to generic tree rules
 3. Switch CLI/output/rendering code from `subtasks` to `children`
-4. Add `**Type:**` validation and JSON output for `kind`
+4. Add node-kind parsing/validation and JSON output for `kind`
 5. Deprecate authored `Subtask` syntax in docs and examples
 6. Remove `Subtask` compatibility parsing in the next major version
 
@@ -232,8 +230,8 @@ Deliver the change in phases:
   already stateful workflow nodes, and this proposal removes the naming fiction.
 - Plans can use progressive disclosure beyond two levels without inventing
   external linked plans or fake top-level tasks.
-- Bugs become first-class plan nodes via `kind`, without needing a separate
-  workflow mechanism.
+- Bugs become first-class plan nodes via parsed heading kind, without needing a
+  separate workflow mechanism.
 - `rhei next`, `rhei run`, validators, renderers, and JSON output all need a
   breaking internal refactor from `subtasks` to recursive `children`.
 - Existing plans can be supported with a compatibility window because

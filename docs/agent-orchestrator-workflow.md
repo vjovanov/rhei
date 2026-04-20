@@ -260,7 +260,7 @@ The orchestrator advances tasks through states based on the state machine defini
                           │         State Machine YAML          │
                           │                                     │
                           │  states:                            │
-                          │    pending:     {initial: true}     │
+                          │    pending:     {}                  │
                           │    in-progress: {}                  │
                           │    review:      {}                  │
                           │    completed:   {final: true}       │
@@ -271,6 +271,16 @@ The orchestrator advances tasks through states based on the state machine defini
                           │      on_leave: validate_deps       │
                           │      on_enter: start_work          │
                           │    ...                              │
+                          │                                     │
+                          │  profiles:                          │
+                          │    default:                         │
+                          │      initial: pending               │
+                          │      allowed: [pending,             │
+                          │        in-progress, review,         │
+                          │        completed]                   │
+                          │  node_policy:                       │
+                          │    root: default                    │
+                          │    default: default                 │
                           └───────────────┬─────────────────────┘
                                           │
                                           ▼

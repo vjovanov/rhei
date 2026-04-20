@@ -9,7 +9,10 @@ use regex::Regex;
 use rhei_core::ast::{Metadata, TaskId};
 use rhei_core::callback::{CallbackContext, CallbackExecutor, ShellCallbackExecutor};
 use rhei_core::workspace;
-use rhei_validator::AgentConfig;
+use rhei_validator::{
+    AgentConfig, McpServerProfile, SkillProfile, StateMcpEntry, StateMcpEntryObject,
+    StateSkillEntry,
+};
 use serde::Deserialize;
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -1231,7 +1234,20 @@ mod template_impl_unused {
                 continue;
             }
 
-            let dest_path = dest_dir.join(&name);
+            // A root-level `settings.json` in the template is relocated to
+            // `.rhei/settings.json` in the output, where `rhei run` and
+            // `rhei validate` pick it up as project-scoped settings. Any
+            // non-root `settings.json` is left where it is.
+            let at_template_root = src_dir == template_root;
+            let dest_path = if at_template_root && name_str == "settings.json" {
+                let rhei_dir = dest_dir.join(".rhei");
+                fs::create_dir_all(&rhei_dir).map_err(|err| {
+                    file_io_report(&rhei_dir, "failed to create .rhei directory", err)
+                })?;
+                rhei_dir.join("settings.json")
+            } else {
+                dest_dir.join(&name)
+            };
             let metadata = entry.metadata().map_err(|err| {
                 file_io_report(&src_path, "failed to read template metadata", err)
             })?;
@@ -1258,6 +1274,16 @@ mod template_impl_unused {
                     file_io_report(&src_path, "failed to read template text file", err)
                 })?;
                 let rendered = render_template_text(&raw, values, &src_path)?;
+                // Template-shipped settings.json must parse as JSON after
+                // instantiation-variable substitution. Catching this here
+                // surfaces malformed bundles before `rhei validate` runs.
+                if at_template_root && name_str == "settings.json" {
+                    serde_json::from_str::<serde_json::Value>(&rendered).map_err(|err| {
+                        miette!(
+                            "template settings.json is not valid JSON after instantiation: {err}"
+                        )
+                    })?;
+                }
                 fs::write(&dest_path, rendered).map_err(|err| {
                     file_io_report(&dest_path, "failed to write output file", err)
                 })?;
@@ -2141,6 +2167,10 @@ struct RuntimeTemplateContext<'a> {
     metadata: Option<&'a Metadata>,
     model: Option<&'a str>,
     agent: Option<&'a str>,
+    /// Resolved MCP servers and skills for the current state (Half A).
+    /// Availability here reflects registry resolution only; Half B will
+    /// overlay real handshake results.
+    tooling: Option<&'a ResolvedTooling>,
 }
 
 fn yaml_value_to_template_string(value: &YamlValue) -> Option<String> {
@@ -2283,6 +2313,18 @@ fn resolve_runtime_template_variable(
                 );
             }
 
+            if let Some(name) = variable.strip_prefix("mcp.").and_then(|v| v.strip_suffix(".available")) {
+                return context
+                    .tooling
+                    .map(|t| t.mcp_available(name).to_string());
+            }
+
+            if let Some(id) = variable.strip_prefix("skill.").and_then(|v| v.strip_suffix(".available")) {
+                return context
+                    .tooling
+                    .map(|t| t.skill_available(id).to_string());
+            }
+
             None
         }
     }
@@ -2290,7 +2332,8 @@ fn resolve_runtime_template_variable(
 
 /// Evaluate a condition expression for `{if <condition>}` blocks.
 ///
-/// Currently supports only `input.<name>.exists`.
+/// Supported forms: `input.<name>.exists`, `mcp.<name>.available`,
+/// `skill.<id>.available`.
 fn evaluate_if_condition(condition: &str, context: &RuntimeTemplateContext<'_>) -> bool {
     if let Some(name) = condition.strip_prefix("input.").and_then(|s| s.strip_suffix(".exists")) {
         let visit_count = Some(render_visit_count(
@@ -2313,7 +2356,17 @@ fn evaluate_if_condition(condition: &str, context: &RuntimeTemplateContext<'_>) 
                 return path.exists();
             }
         }
+        return false;
     }
+
+    if let Some(name) = condition.strip_prefix("mcp.").and_then(|s| s.strip_suffix(".available")) {
+        return context.tooling.map_or(false, |t| t.mcp_available(name));
+    }
+
+    if let Some(id) = condition.strip_prefix("skill.").and_then(|s| s.strip_suffix(".available")) {
+        return context.tooling.map_or(false, |t| t.skill_available(id));
+    }
+
     false
 }
 
@@ -3001,15 +3054,47 @@ struct RheiSettings {
     agent_timeout: Option<String>,
     #[serde(default)]
     program_timeout: Option<String>,
+    /// Spec-aligned nested defaults. Only `mcp_servers` and `skills` are read here
+    /// today; `model` / `agent` remain readable at the top level for backward
+    /// compatibility.
+    #[serde(default)]
+    defaults: SettingsDefaults,
+    /// Registry of MCP server profiles keyed by server id.
+    #[serde(default)]
+    mcp_servers: BTreeMap<String, McpServerProfile>,
+    /// Registry of skill profiles keyed by skill id.
+    #[serde(default)]
+    skills: BTreeMap<String, SkillProfile>,
+}
+
+/// Nested `defaults` section in settings.
+///
+/// `mcp_servers` and `skills` use `Option<Vec<_>>` so the merge layer can
+/// distinguish "unset" (inherit) from "empty" (explicitly clear inherited).
+#[derive(Debug, Default, Deserialize, Clone)]
+struct SettingsDefaults {
+    #[serde(default)]
+    mcp_servers: Option<Vec<StateMcpEntry>>,
+    #[serde(default)]
+    skills: Option<Vec<StateSkillEntry>>,
 }
 
 /// Built-in invocation profile for a known agent CLI.
+///
+/// The `mcp_flag`, `mcp_config_flag`, and `skill_flag` fields are wired into
+/// actual command-line args in Half B (MCP subprocess lifecycle). Half A
+/// records them so the metadata is in one place and Half B can pick them up
+/// without churn.
+#[allow(dead_code)]
 struct KnownAgentProfile {
     binary: &'static str,
     prompt_flag: Option<&'static str>,
     model_flag: Option<&'static str>,
     stdin_prompt: bool,
     default_args: &'static [&'static str],
+    mcp_flag: Option<&'static str>,
+    mcp_config_flag: Option<&'static str>,
+    skill_flag: Option<&'static str>,
 }
 
 fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
@@ -3020,6 +3105,9 @@ fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
             model_flag: Some("--model"),
             stdin_prompt: false,
             default_args: &["--permission-mode", "bypassPermissions"],
+            mcp_flag: None,
+            mcp_config_flag: Some("--mcp-config"),
+            skill_flag: Some("--skill"),
         }),
         "codex" => Some(KnownAgentProfile {
             binary: "codex",
@@ -3033,6 +3121,9 @@ fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
                 "--skip-git-repo-check",
                 "--",
             ],
+            mcp_flag: Some("--mcp"),
+            mcp_config_flag: None,
+            skill_flag: None,
         }),
         "aider" => Some(KnownAgentProfile {
             binary: "aider",
@@ -3040,6 +3131,9 @@ fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
             model_flag: Some("--model"),
             stdin_prompt: false,
             default_args: &[],
+            mcp_flag: None,
+            mcp_config_flag: None,
+            skill_flag: None,
         }),
         "kilocode" => Some(KnownAgentProfile {
             binary: "kilo",
@@ -3047,6 +3141,9 @@ fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
             model_flag: Some("--model"),
             stdin_prompt: false,
             default_args: &[],
+            mcp_flag: None,
+            mcp_config_flag: None,
+            skill_flag: None,
         }),
         "cursor" => Some(KnownAgentProfile {
             binary: "cursor",
@@ -3054,6 +3151,9 @@ fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
             model_flag: Some("--model"),
             stdin_prompt: false,
             default_args: &[],
+            mcp_flag: None,
+            mcp_config_flag: None,
+            skill_flag: None,
         }),
         _ => None,
     }
@@ -3076,11 +3176,234 @@ fn load_merged_settings(plan_root: &Path) -> RheiSettings {
 
     let project = load_settings(&plan_root.join(".rhei/settings.json"));
 
+    // Registries merge by id: start with global, override by project.
+    let mut mcp_servers = global.mcp_servers.clone();
+    for (id, profile) in project.mcp_servers {
+        mcp_servers.insert(id, profile);
+    }
+    let mut skills = global.skills.clone();
+    for (id, profile) in project.skills {
+        skills.insert(id, profile);
+    }
+
+    // `defaults.mcp_servers` / `defaults.skills`: project replaces global
+    // wholesale when present (including an explicit empty list).
+    let defaults = SettingsDefaults {
+        mcp_servers: project.defaults.mcp_servers.or(global.defaults.mcp_servers),
+        skills: project.defaults.skills.or(global.defaults.skills),
+    };
+
     RheiSettings {
         agent: project.agent.or(global.agent),
         model: project.model.or(global.model),
         agent_timeout: project.agent_timeout.or(global.agent_timeout),
         program_timeout: project.program_timeout.or(global.program_timeout),
+        defaults,
+        mcp_servers,
+        skills,
+    }
+}
+
+/// One fully-resolved MCP server entry in a state's effective set.
+///
+/// `definition` is `Some` when the entry resolves against the merged registry
+/// or carries inline fields, and `None` only when the id is unknown — callers
+/// treat the latter as a validation error.
+#[derive(Debug, Clone)]
+struct ResolvedMcpEntry {
+    id: String,
+    /// `optional: true` on the declaring entry. Used by Half B to decide
+    /// whether a failed availability check blocks the agent or is downgraded
+    /// to a warning. Carried in Half A so the resolution path is complete.
+    #[allow(dead_code)]
+    optional: bool,
+    definition: Option<McpServerProfile>,
+}
+
+/// One fully-resolved skill entry in a state's effective set.
+#[derive(Debug, Clone)]
+struct ResolvedSkillEntry {
+    id: String,
+    #[allow(dead_code)]
+    optional: bool,
+    definition: Option<SkillProfile>,
+}
+
+/// The tooling a state contributes to the agent subprocess.
+///
+/// Half A: availability is computed from registry resolution only — an entry
+/// whose id resolves (or carries an inline definition) is reported available.
+/// Half B will hook actual MCP handshake checks and skill-path probes into
+/// the same struct, leaving call sites unchanged.
+#[derive(Debug, Clone, Default)]
+struct ResolvedTooling {
+    mcp_servers: Vec<ResolvedMcpEntry>,
+    skills: Vec<ResolvedSkillEntry>,
+}
+
+impl ResolvedTooling {
+    /// Ids whose definition resolved — used for `{mcp.<name>.available}` and
+    /// the `RHEI_MCP_<NAME>_AVAILABLE` env vars.
+    fn mcp_available(&self, id: &str) -> bool {
+        self.mcp_servers.iter().any(|e| e.id == id && e.definition.is_some())
+    }
+
+    fn skill_available(&self, id: &str) -> bool {
+        self.skills.iter().any(|e| e.id == id && e.definition.is_some())
+    }
+
+    /// Comma-separated ids of resolved MCP servers (available only).
+    fn mcp_servers_csv(&self) -> String {
+        self.mcp_servers
+            .iter()
+            .filter(|e| e.definition.is_some())
+            .map(|e| e.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn skills_csv(&self) -> String {
+        self.skills
+            .iter()
+            .filter(|e| e.definition.is_some())
+            .map(|e| e.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+/// Normalize an id into the env-var segment used by `RHEI_*_<NAME>_AVAILABLE`.
+fn env_id_segment(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Compute the effective tooling set for a state given the merged settings.
+fn resolve_tooling(
+    machine: &rhei_validator::StateMachine,
+    state_name: &str,
+    settings: &RheiSettings,
+) -> ResolvedTooling {
+    let state_def = machine.states.get(state_name);
+
+    // MCP: start from defaults (if any), then override/extend with state-level.
+    let mcp_entries = effective_mcp_entries(
+        settings.defaults.mcp_servers.as_deref().unwrap_or(&[]),
+        state_def.and_then(|d| d.mcp_servers.as_deref()),
+    );
+    let mcp_servers: Vec<ResolvedMcpEntry> = mcp_entries
+        .into_iter()
+        .map(|entry| resolve_mcp_entry(&entry, &settings.mcp_servers))
+        .collect();
+
+    let skill_entries = effective_skill_entries(
+        settings.defaults.skills.as_deref().unwrap_or(&[]),
+        state_def.and_then(|d| d.skills.as_deref()),
+    );
+    let skills: Vec<ResolvedSkillEntry> = skill_entries
+        .into_iter()
+        .map(|entry| resolve_skill_entry(&entry, &settings.skills))
+        .collect();
+
+    ResolvedTooling { mcp_servers, skills }
+}
+
+/// Union `defaults.mcp_servers` with a state's `mcp_servers`, deduped by id.
+///
+/// `None` on the state = inherit defaults. `Some(empty)` = clear defaults.
+/// `Some(non-empty)` = append/override defaults by id (state wins).
+fn effective_mcp_entries(
+    defaults: &[StateMcpEntry],
+    state: Option<&[StateMcpEntry]>,
+) -> Vec<StateMcpEntry> {
+    match state {
+        None => defaults.to_vec(),
+        Some(list) if list.is_empty() => Vec::new(),
+        Some(list) => {
+            let mut out: Vec<StateMcpEntry> = defaults.to_vec();
+            for entry in list {
+                if let Some(pos) = out.iter().position(|e| e.id() == entry.id()) {
+                    out[pos] = entry.clone();
+                } else {
+                    out.push(entry.clone());
+                }
+            }
+            out
+        }
+    }
+}
+
+fn effective_skill_entries(
+    defaults: &[StateSkillEntry],
+    state: Option<&[StateSkillEntry]>,
+) -> Vec<StateSkillEntry> {
+    match state {
+        None => defaults.to_vec(),
+        Some(list) if list.is_empty() => Vec::new(),
+        Some(list) => {
+            let mut out: Vec<StateSkillEntry> = defaults.to_vec();
+            for entry in list {
+                if let Some(pos) = out.iter().position(|e| e.id() == entry.id()) {
+                    out[pos] = entry.clone();
+                } else {
+                    out.push(entry.clone());
+                }
+            }
+            out
+        }
+    }
+}
+
+/// Resolve one entry against the registry. Inline definitions on the entry
+/// take precedence over registry lookups.
+fn resolve_mcp_entry(
+    entry: &StateMcpEntry,
+    registry: &BTreeMap<String, McpServerProfile>,
+) -> ResolvedMcpEntry {
+    let id = entry.id().to_string();
+    let optional = entry.is_optional();
+    let inline = match entry {
+        StateMcpEntry::Object(obj) if obj.command.is_some() || obj.url.is_some() => {
+            Some(inline_mcp_profile(obj))
+        }
+        _ => None,
+    };
+    let definition = inline.or_else(|| registry.get(&id).cloned());
+    ResolvedMcpEntry { id, optional, definition }
+}
+
+fn resolve_skill_entry(
+    entry: &StateSkillEntry,
+    registry: &BTreeMap<String, SkillProfile>,
+) -> ResolvedSkillEntry {
+    let id = entry.id().to_string();
+    let optional = entry.is_optional();
+    let inline = match entry {
+        StateSkillEntry::Object(obj) if obj.path.is_some() => Some(SkillProfile {
+            path: obj.path.clone().unwrap_or_default(),
+            description: obj.description.clone(),
+        }),
+        _ => None,
+    };
+    let definition = inline.or_else(|| registry.get(&id).cloned());
+    ResolvedSkillEntry { id, optional, definition }
+}
+
+fn inline_mcp_profile(obj: &StateMcpEntryObject) -> McpServerProfile {
+    McpServerProfile {
+        command: obj.command.clone(),
+        url: obj.url.clone(),
+        transport: obj.transport.clone(),
+        env: obj.env.clone(),
+        working_directory: obj.working_directory.clone(),
+        startup_timeout: obj.startup_timeout.clone(),
     }
 }
 
@@ -3347,6 +3670,7 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
 }
 
 /// Build a `Command` for the resolved agent.
+#[allow(clippy::too_many_arguments)]
 fn build_agent_command(
     resolved: &ResolvedAgent,
     prompt: &str,
@@ -3355,6 +3679,7 @@ fn build_agent_command(
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
+    tooling: &ResolvedTooling,
 ) -> std::process::Command {
     match &resolved.agent {
         AgentConfig::Known(id) => {
@@ -3392,6 +3717,7 @@ fn build_agent_command(
             if let Some(model) = &resolved.model {
                 cmd.env("RHEI_MODEL", model);
             }
+            inject_tooling_env(&mut cmd, tooling);
             cmd
         }
         AgentConfig::Custom(profile) => {
@@ -3418,8 +3744,57 @@ fn build_agent_command(
             if let Some(model) = &resolved.model {
                 cmd.env("RHEI_MODEL", model);
             }
+            inject_tooling_env(&mut cmd, tooling);
             cmd
         }
+    }
+}
+
+/// Format the `mcp_servers:` / `skills:` line in the agent log header.
+///
+/// Returns `None` when the slice is empty (no line is written). An entry
+/// suffixed with `?` is `optional: true` and failed its availability check —
+/// it was dropped before spawn but appears here for diagnostics.
+fn format_tooling_log_line<T, F>(entries: &[T], project: F) -> Option<String>
+where
+    F: Fn(&T) -> (&str, bool, bool),
+{
+    if entries.is_empty() {
+        return None;
+    }
+    let rendered: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            let (id, optional, available) = project(entry);
+            if optional && !available { format!("{id}?") } else { id.to_string() }
+        })
+        .collect();
+    Some(rendered.join(","))
+}
+
+/// Set `RHEI_MCP_*` and `RHEI_SKILL_*` env vars on the agent command.
+///
+/// Aggregates exposed:
+/// - `RHEI_MCP_SERVERS`: comma-separated ids whose registry lookup succeeded
+/// - `RHEI_SKILLS`: same, for skills
+///
+/// Per-entry availability is exposed as `RHEI_MCP_<NAME>_AVAILABLE` and
+/// `RHEI_SKILL_<ID>_AVAILABLE` with `<NAME>` / `<ID>` normalized by
+/// [`env_id_segment`].
+fn inject_tooling_env(cmd: &mut std::process::Command, tooling: &ResolvedTooling) {
+    cmd.env("RHEI_MCP_SERVERS", tooling.mcp_servers_csv());
+    cmd.env("RHEI_SKILLS", tooling.skills_csv());
+    for entry in &tooling.mcp_servers {
+        cmd.env(
+            format!("RHEI_MCP_{}_AVAILABLE", env_id_segment(&entry.id)),
+            entry.definition.is_some().to_string(),
+        );
+    }
+    for entry in &tooling.skills {
+        cmd.env(
+            format!("RHEI_SKILL_{}_AVAILABLE", env_id_segment(&entry.id)),
+            entry.definition.is_some().to_string(),
+        );
     }
 }
 
@@ -3440,6 +3815,7 @@ fn spawn_and_wait_agent(
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
+    tooling: &ResolvedTooling,
     log_path: &Path,
 ) -> MietteResult<std::process::ExitStatus> {
     // Ensure log directory exists.
@@ -3466,6 +3842,14 @@ fn spawn_and_wait_agent(
             let _ = writeln!(f, "timeout: {t}s");
         }
         let _ = writeln!(f, "plan: {}", plan_path.display());
+        let mcp_line = format_tooling_log_line(&tooling.mcp_servers, |e| (e.id.as_str(), e.optional, e.definition.is_some()));
+        if let Some(line) = mcp_line {
+            let _ = writeln!(f, "mcp_servers: {line}");
+        }
+        let skill_line = format_tooling_log_line(&tooling.skills, |e| (e.id.as_str(), e.optional, e.definition.is_some()));
+        if let Some(line) = skill_line {
+            let _ = writeln!(f, "skills: {line}");
+        }
         let _ = writeln!(f, "===\n");
     }
 
@@ -3482,6 +3866,7 @@ fn spawn_and_wait_agent(
         state_machine_path,
         task_id,
         state_name,
+        tooling,
     );
     cmd.stdout(log_stdout).stderr(log_stderr);
 
@@ -4056,6 +4441,7 @@ fn run_agent_mode(
                     metadata: loaded.rhei.metadata.as_ref(),
                     model: None,
                     agent: None,
+                    tooling: None,
                 };
                 let log = program_log_path(&runtime_dir, task_id_str, current_state);
 
@@ -4214,6 +4600,7 @@ fn run_agent_mode(
             let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
             let Some(task) = task else { continue };
 
+            let tooling = resolve_tooling(machine, current_state, &settings);
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root,
                 plan_path: &callback_paths.plan_path,
@@ -4226,6 +4613,7 @@ fn run_agent_mode(
                 metadata: loaded.rhei.metadata.as_ref(),
                 model: resolved.model.as_deref(),
                 agent: Some(resolved.agent.id()),
+                tooling: Some(&tooling),
             };
             let prompt = compose_agent_prompt(&render_context);
             let log = agent_log_path(&runtime_dir, task_id_str, current_state);
@@ -4249,6 +4637,7 @@ fn run_agent_mode(
                 callback_paths.state_machine_path.as_deref(),
                 task_id_str,
                 current_state,
+                &tooling,
                 &log,
             ) {
                 Ok(status) => {
@@ -4330,6 +4719,7 @@ fn run_agent_mode(
                 let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
                 let Some(task) = task else { continue };
 
+                let tooling = resolve_tooling(machine, current_state, &settings);
                 let render_context = RuntimeTemplateContext {
                     workspace_root: &workspace_root,
                     plan_path: &callback_paths.plan_path,
@@ -4342,6 +4732,7 @@ fn run_agent_mode(
                     metadata: loaded.rhei.metadata.as_ref(),
                     model: resolved.model.as_deref(),
                     agent: Some(resolved.agent.id()),
+                    tooling: Some(&tooling),
                 };
                 let prompt = compose_agent_prompt(&render_context);
                 let log = agent_log_path(&runtime_dir, task_id_str, current_state);
@@ -4363,6 +4754,7 @@ fn run_agent_mode(
                 let agent_cfg = resolved.agent.clone();
                 let model_cfg = resolved.model.clone();
                 let timeout_cfg = resolved.timeout_secs;
+                let tooling_for_thread = tooling.clone();
 
                 let handle = std::thread::spawn(move || {
                     let resolved = ResolvedAgent {
@@ -4378,6 +4770,7 @@ fn run_agent_mode(
                         state_machine_path.as_deref(),
                         &tid,
                         &sname,
+                        &tooling_for_thread,
                         &log,
                     );
                     (tid, sname, result)
@@ -5019,6 +5412,7 @@ fn next_command(
     let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts);
     let agent_id_str = resolved.as_ref().map(|r| r.agent.id().to_string());
     let model_id_str = resolved.as_ref().and_then(|r| r.model.clone());
+    let tooling = resolve_tooling(&machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {
         workspace_root: &workspace_root,
         plan_path: &callback_paths.plan_path,
@@ -5031,6 +5425,7 @@ fn next_command(
         metadata: loaded.rhei.metadata.as_ref(),
         model: model_id_str.as_deref(),
         agent: agent_id_str.as_deref(),
+        tooling: Some(&tooling),
     };
     let instructions = resolve_runtime_template_text(
         state_instructions(&machine, &final_state).as_str(),
@@ -6991,6 +7386,7 @@ transitions:
             metadata: None,
             model: None,
             agent: Some("codex"),
+            tooling: None,
         };
 
         let prompt = compose_agent_prompt(&context);
@@ -7289,5 +7685,168 @@ Body text.
     #[test]
     fn clap_command_factory_builds() {
         Cli::command().debug_assert();
+    }
+
+    // ---- MCP / skills resolution ----
+
+    fn machine_with_tooling(state_yaml: &str) -> rhei_validator::StateMachine {
+        let yaml = format!(
+            "name: tooling-test\nversion: 1\nstates:\n{state_yaml}\n  completed:\n    description: done\n    final: true\n"
+        );
+        rhei_validator::StateMachine::from_yaml_str(&yaml).expect("valid state machine")
+    }
+
+    fn settings_with(
+        defaults_mcp: Option<Vec<StateMcpEntry>>,
+        registry: BTreeMap<String, McpServerProfile>,
+    ) -> RheiSettings {
+        RheiSettings {
+            agent: None,
+            model: None,
+            agent_timeout: None,
+            program_timeout: None,
+            defaults: SettingsDefaults { mcp_servers: defaults_mcp, skills: None },
+            mcp_servers: registry,
+            skills: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn resolve_tooling_unions_defaults_with_state_overrides_by_id() {
+        let machine = machine_with_tooling(
+            r#"  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers:
+      - id: linear
+        optional: true
+"#,
+        );
+        let mut registry = BTreeMap::new();
+        registry.insert("linear".to_string(), McpServerProfile::default());
+        registry.insert("postgres".to_string(), McpServerProfile::default());
+        let settings = settings_with(
+            Some(vec![
+                StateMcpEntry::Id("postgres".to_string()),
+                StateMcpEntry::Id("linear".to_string()),
+            ]),
+            registry,
+        );
+
+        let tooling = resolve_tooling(&machine, "pending", &settings);
+        // postgres from defaults stays first; linear from defaults is replaced
+        // by the state-level entry that flips optional to true.
+        let ids: Vec<&str> = tooling.mcp_servers.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["postgres", "linear"]);
+        let linear = tooling.mcp_servers.iter().find(|e| e.id == "linear").unwrap();
+        assert!(linear.optional, "state override should win");
+        assert!(linear.definition.is_some(), "registry entry resolves");
+    }
+
+    #[test]
+    fn resolve_tooling_empty_state_list_clears_defaults() {
+        let machine = machine_with_tooling(
+            r#"  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers: []
+"#,
+        );
+        let mut registry = BTreeMap::new();
+        registry.insert("postgres".to_string(), McpServerProfile::default());
+        let settings = settings_with(
+            Some(vec![StateMcpEntry::Id("postgres".to_string())]),
+            registry,
+        );
+
+        let tooling = resolve_tooling(&machine, "pending", &settings);
+        assert!(tooling.mcp_servers.is_empty(), "explicit empty clears defaults");
+    }
+
+    #[test]
+    fn resolve_tooling_omitted_state_inherits_defaults() {
+        let machine = machine_with_tooling(
+            r#"  pending:
+    description: Work
+    agent: claude-code
+"#,
+        );
+        let mut registry = BTreeMap::new();
+        registry.insert("postgres".to_string(), McpServerProfile::default());
+        let settings = settings_with(
+            Some(vec![StateMcpEntry::Id("postgres".to_string())]),
+            registry,
+        );
+
+        let tooling = resolve_tooling(&machine, "pending", &settings);
+        assert_eq!(tooling.mcp_servers.len(), 1);
+        assert_eq!(tooling.mcp_servers[0].id, "postgres");
+    }
+
+    #[test]
+    fn resolve_tooling_inline_definition_does_not_require_registry() {
+        let machine = machine_with_tooling(
+            r#"  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers:
+      - id: adhoc
+        command: ["mcp-adhoc", "--port", "8080"]
+"#,
+        );
+        let settings = settings_with(None, BTreeMap::new());
+        let tooling = resolve_tooling(&machine, "pending", &settings);
+        assert_eq!(tooling.mcp_servers.len(), 1);
+        let entry = &tooling.mcp_servers[0];
+        assert_eq!(entry.id, "adhoc");
+        assert!(entry.definition.is_some(), "inline definition resolves");
+        assert_eq!(entry.definition.as_ref().unwrap().command.as_deref().unwrap()[0], "mcp-adhoc");
+    }
+
+    #[test]
+    fn resolve_tooling_unknown_id_resolves_to_unavailable() {
+        let machine = machine_with_tooling(
+            r#"  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers: [missing]
+"#,
+        );
+        let settings = settings_with(None, BTreeMap::new());
+        let tooling = resolve_tooling(&machine, "pending", &settings);
+        assert_eq!(tooling.mcp_servers.len(), 1);
+        assert!(
+            tooling.mcp_servers[0].definition.is_none(),
+            "unknown id has no definition (Half B reports it as unavailable)"
+        );
+        assert!(!tooling.mcp_available("missing"));
+    }
+
+    #[test]
+    fn env_id_segment_normalizes_id() {
+        assert_eq!(env_id_segment("linear"), "LINEAR");
+        assert_eq!(env_id_segment("ad-hoc"), "AD_HOC");
+        assert_eq!(env_id_segment("foo bar"), "FOO_BAR");
+        assert_eq!(env_id_segment("a.b.c"), "A_B_C");
+    }
+
+    #[test]
+    fn format_tooling_log_line_marks_unavailable_optional_with_question_mark() {
+        let entries = vec![
+            ResolvedMcpEntry {
+                id: "postgres".to_string(),
+                optional: false,
+                definition: Some(McpServerProfile::default()),
+            },
+            ResolvedMcpEntry {
+                id: "grafana".to_string(),
+                optional: true,
+                definition: None,
+            },
+        ];
+        let line = format_tooling_log_line(&entries, |e| {
+            (e.id.as_str(), e.optional, e.definition.is_some())
+        });
+        assert_eq!(line.as_deref(), Some("postgres,grafana?"));
     }
 }

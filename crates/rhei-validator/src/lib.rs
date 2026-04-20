@@ -17,7 +17,7 @@ use regex::Regex;
 pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
 use rhei_core::ast::{Rhei, Task, TaskId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Component, Path};
 
 /// Returns the crate version reported by Cargo metadata.
@@ -166,6 +166,162 @@ pub struct CustomAgentProfile {
     /// Default timeout for this agent (e.g., `"30m"`).
     #[serde(default)]
     pub timeout: Option<String>,
+    /// Flag used to attach one MCP server per occurrence (e.g., `"--mcp"`).
+    /// Mutually exclusive with `mcp_config_flag`.
+    #[serde(default)]
+    pub mcp_flag: Option<String>,
+    /// Flag used to attach a generated MCP config file (e.g., `"--mcp-config"`).
+    /// Mutually exclusive with `mcp_flag`.
+    #[serde(default)]
+    pub mcp_config_flag: Option<String>,
+    /// Flag used to enable one skill per occurrence (e.g., `"--skill"`).
+    /// Omit to declare the agent does not support skills.
+    #[serde(default)]
+    pub skill_flag: Option<String>,
+}
+
+/// Registry entry for an MCP server profile.
+///
+/// An entry must declare exactly one of `command` (local subprocess) or `url`
+/// (remote transport). This is enforced at load time via [`validate_mcp_server_profile`].
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
+pub struct McpServerProfile {
+    /// Command and arguments to launch a local MCP server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// URL of a remote MCP server. Requires `transport`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Transport for remote servers (`"sse"`, `"websocket"`). Ignored for command-based servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    /// Environment variables for the server process. Values may reference host env via `${VAR}`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// Working directory for the server process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
+    /// Maximum time to wait for the server's MCP handshake (e.g., `"10s"`). Default: `"10s"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_timeout: Option<String>,
+}
+
+/// Registry entry for a skill profile.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct SkillProfile {
+    /// Filesystem path to the skill bundle. Leading `~` expands to the user's home directory.
+    pub path: String,
+    /// Human-readable description of the skill's purpose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// One entry in a state-level `mcp_servers` list or in `defaults.mcp_servers`.
+///
+/// Strings are registry ids with `optional: false`; objects allow `optional: true`
+/// and inline definitions that do not require a registry entry.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum StateMcpEntry {
+    /// Shorthand for `{ id: "<name>" }` with `optional: false`.
+    Id(String),
+    /// Full object form with optional inline definition fields.
+    Object(StateMcpEntryObject),
+}
+
+/// Object form of a state-level MCP entry.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
+pub struct StateMcpEntryObject {
+    /// Stable identifier. Must match a registry entry unless inline fields are provided.
+    pub id: String,
+    /// When `true`, a missing server does not block agent spawn.
+    #[serde(default)]
+    pub optional: bool,
+    /// Inline command form (mutually exclusive with `url`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// Inline url form (mutually exclusive with `command`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_timeout: Option<String>,
+}
+
+impl StateMcpEntry {
+    /// Registry id for this entry (always present).
+    pub fn id(&self) -> &str {
+        match self {
+            StateMcpEntry::Id(id) => id,
+            StateMcpEntry::Object(obj) => &obj.id,
+        }
+    }
+
+    /// Whether this entry is marked optional.
+    pub fn is_optional(&self) -> bool {
+        match self {
+            StateMcpEntry::Id(_) => false,
+            StateMcpEntry::Object(obj) => obj.optional,
+        }
+    }
+
+    /// Whether this entry carries an inline definition (rather than referring to a registry id).
+    pub fn is_inline(&self) -> bool {
+        match self {
+            StateMcpEntry::Id(_) => false,
+            StateMcpEntry::Object(obj) => obj.command.is_some() || obj.url.is_some(),
+        }
+    }
+}
+
+/// One entry in a state-level `skills` list or in `defaults.skills`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum StateSkillEntry {
+    /// Shorthand for `{ id: "<name>" }` with `optional: false`.
+    Id(String),
+    /// Full object form with optional inline definition fields.
+    Object(StateSkillEntryObject),
+}
+
+/// Object form of a state-level skill entry.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
+pub struct StateSkillEntryObject {
+    pub id: String,
+    #[serde(default)]
+    pub optional: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl StateSkillEntry {
+    pub fn id(&self) -> &str {
+        match self {
+            StateSkillEntry::Id(id) => id,
+            StateSkillEntry::Object(obj) => &obj.id,
+        }
+    }
+
+    pub fn is_optional(&self) -> bool {
+        match self {
+            StateSkillEntry::Id(_) => false,
+            StateSkillEntry::Object(obj) => obj.optional,
+        }
+    }
+
+    pub fn is_inline(&self) -> bool {
+        match self {
+            StateSkillEntry::Id(_) => false,
+            StateSkillEntry::Object(obj) => obj.path.is_some(),
+        }
+    }
 }
 
 /// One entry from the `states` map in a YAML states file.
@@ -214,6 +370,56 @@ pub struct StateDef {
     /// Required artifacts that must exist before leaving this state.
     #[serde(default)]
     pub outputs: Vec<StateArtifactDef>,
+    /// MCP servers attached to the agent subprocess in this state.
+    ///
+    /// `None` = field omitted → inherit `defaults.mcp_servers` unchanged.
+    /// `Some(vec![])` = explicitly clear inherited defaults for this state.
+    /// `Some(non-empty)` = state-level entries override/extend defaults by id.
+    #[serde(default)]
+    pub mcp_servers: Option<Vec<StateMcpEntry>>,
+    /// Agent skills enabled for this state. Same tri-state semantics as `mcp_servers`.
+    #[serde(default)]
+    pub skills: Option<Vec<StateSkillEntry>>,
+}
+
+/// A named, reusable `{initial, allowed}` state policy referenced from
+/// [`NodePolicy`]. See the States Specification — Profiles section.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Profile {
+    /// Initial state that nodes bound to this profile start in.
+    pub initial: String,
+    /// Complete set of state names that nodes bound to this profile may hold.
+    pub allowed: Vec<String>,
+}
+
+/// Node-policy resolution: maps node kinds and id patterns to named profiles.
+///
+/// See the States Specification — Node Policy section for the resolution order
+/// (`overrides` → `by_type[<kind>]` → `default`) and validation rules.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NodePolicy {
+    /// Profile bound to the plan-root node (always the `rhei` kind).
+    pub root: String,
+    /// Fallback profile for non-root nodes that match neither `overrides`
+    /// nor `by_type`.
+    pub default: String,
+    /// Optional map from declared node kind to profile name.
+    #[serde(default)]
+    pub by_type: IndexMap<String, String>,
+    /// Optional ordered list of `{match, profile}` overrides that win over
+    /// `by_type` and `default`.
+    #[serde(default)]
+    pub overrides: Vec<NodePolicyOverride>,
+}
+
+/// Ordered override in [`NodePolicy`]. `match` is a task id or glob.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NodePolicyOverride {
+    /// Task id or glob pattern this override applies to.
+    #[serde(rename = "match")]
+    pub pattern: String,
+    /// Profile name bound to matched nodes.
+    pub profile: String,
 }
 
 /// States data loaded from YAML.
@@ -234,6 +440,16 @@ pub struct StateMachine {
     /// Declared allowed transitions between states. Empty if unspecified.
     #[serde(default)]
     pub transitions: Vec<TransitionRule>,
+    /// Named reusable state policies referenced from `node_policy`.
+    ///
+    /// The current schema revision makes this required, but the field is
+    /// decoded optionally so legacy YAML without profiles still loads. When
+    /// present, [`NodePolicy`] must be present as well.
+    #[serde(default)]
+    pub profiles: Option<IndexMap<String, Profile>>,
+    /// Node-policy block that binds nodes to profiles. See [`NodePolicy`].
+    #[serde(default)]
+    pub node_policy: Option<NodePolicy>,
 }
 
 /// The built-in default states YAML shipped with rhei.
@@ -250,8 +466,43 @@ impl StateMachine {
         let sm: Self = serde_yaml::from_str(yaml)?;
         sm.validate_model_configuration()?;
         sm.validate_program_configuration()?;
+        sm.validate_tooling_configuration()?;
         sm.validate_template_conditions()?;
+        sm.validate_profiles_and_node_policy()?;
         Ok(sm)
+    }
+
+    /// Resolve the profile that applies to a node with the given kind and id.
+    ///
+    /// Resolution order matches the States Specification — Node Policy:
+    /// `overrides` (first matching `pattern`) → `by_type[<kind>]` →
+    /// `default`. Returns `None` when the machine does not declare
+    /// `profiles` / `node_policy`.
+    ///
+    /// The `pattern` in `overrides` is currently matched as an exact
+    /// task-id string. Glob semantics will follow when task ids carry
+    /// hierarchical segments in the AST.
+    pub fn profile_for(&self, kind: Option<&str>, task_id: Option<&str>) -> Option<&Profile> {
+        let (profiles, policy) = self.profiles.as_ref().zip(self.node_policy.as_ref())?;
+        let resolved_name = if let Some(id) = task_id {
+            policy
+                .overrides
+                .iter()
+                .find(|ov| ov.pattern == id)
+                .map(|ov| ov.profile.as_str())
+                .or_else(|| kind.and_then(|k| policy.by_type.get(k).map(|s| s.as_str())))
+                .unwrap_or(policy.default.as_str())
+        } else {
+            kind.and_then(|k| policy.by_type.get(k).map(|s| s.as_str()))
+                .unwrap_or(policy.default.as_str())
+        };
+        profiles.get(resolved_name)
+    }
+
+    /// Resolve the profile bound to the plan-root node.
+    pub fn root_profile(&self) -> Option<&Profile> {
+        let (profiles, policy) = self.profiles.as_ref().zip(self.node_policy.as_ref())?;
+        profiles.get(policy.root.as_str())
     }
 
     /// Load a StateMachine from a file path.
@@ -443,12 +694,221 @@ impl StateMachine {
         Ok(())
     }
 
+    /// Validate the per-state `mcp_servers` and `skills` lists and the
+    /// matching `mcp_unavailable` / `skill_unavailable` transition triggers.
+    ///
+    /// This pass is purely structural — it rejects malformed entries,
+    /// duplicate ids, and the gating/program/final exclusions. Cross-file
+    /// reference resolution against settings registries happens elsewhere
+    /// (the CLI merges settings and checks id resolution at load time).
+    fn validate_tooling_configuration(&self) -> Result<(), StateMachineLoadError> {
+        for (state_name, state) in &self.states {
+            validate_state_mcp_entries(state_name, state)?;
+            validate_state_skill_entries(state_name, state)?;
+        }
+
+        for transition in &self.transitions {
+            validate_transition_tooling_trigger(
+                transition,
+                transition.mcp_unavailable.as_ref(),
+                "mcp_unavailable",
+            )?;
+            validate_transition_tooling_trigger(
+                transition,
+                transition.skill_unavailable.as_ref(),
+                "skill_unavailable",
+            )?;
+
+            if transition.mcp_unavailable.is_some() || transition.skill_unavailable.is_some() {
+                if let Some(from_state) = self.states.get(&transition.from.0) {
+                    if from_state.program.is_some() {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "transition from '{}' to '{}' declares a tooling-unavailable trigger \
+                             but source state '{}' is a program state (tooling triggers are agent-only)",
+                            transition.from.0, transition.to.0, transition.from.0
+                        )));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate the `profiles` and `node_policy` blocks introduced by the
+    /// current schema revision.
+    ///
+    /// When both are absent, the machine is treated as legacy and no
+    /// additional checks run. When either is present, both must be present
+    /// and consistent:
+    ///
+    /// - `profiles` is non-empty.
+    /// - Every profile's `initial` names a defined state and is a member of
+    ///   its own `allowed` list; every `allowed` entry names a defined state;
+    ///   `allowed` has no duplicates.
+    /// - `node_policy.root` and `node_policy.default` name defined profiles.
+    /// - Every `by_type` value names a defined profile. Keys must be
+    ///   non-empty and unique; `rhei` is reserved and rejected here.
+    /// - Every `overrides` entry has a non-empty `match` and names a defined
+    ///   profile.
+    fn validate_profiles_and_node_policy(&self) -> Result<(), StateMachineLoadError> {
+        match (self.profiles.as_ref(), self.node_policy.as_ref()) {
+            (None, None) => return Ok(()),
+            (Some(_), None) => {
+                return Err(StateMachineLoadError::Invalid(
+                    "state machine declares 'profiles' but no 'node_policy' block".to_string(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(StateMachineLoadError::Invalid(
+                    "state machine declares 'node_policy' but no 'profiles' block".to_string(),
+                ));
+            }
+            (Some(_), Some(_)) => {}
+        }
+
+        let profiles = self.profiles.as_ref().expect("profiles present");
+        let policy = self.node_policy.as_ref().expect("node_policy present");
+
+        if profiles.is_empty() {
+            return Err(StateMachineLoadError::Invalid(
+                "'profiles' must declare at least one profile".to_string(),
+            ));
+        }
+
+        for (profile_name, profile) in profiles {
+            if profile_name.trim().is_empty() {
+                return Err(StateMachineLoadError::Invalid(
+                    "'profiles' contains an entry with an empty name".to_string(),
+                ));
+            }
+
+            if profile.initial.trim().is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "profile '{profile_name}' declares an empty 'initial'"
+                )));
+            }
+
+            if !self.states.contains_key(&profile.initial) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "profile '{profile_name}' has 'initial: {}' but no such state is defined",
+                    profile.initial
+                )));
+            }
+
+            if profile.allowed.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "profile '{profile_name}' declares an empty 'allowed' list"
+                )));
+            }
+
+            let mut seen = HashSet::new();
+            for allowed in &profile.allowed {
+                let trimmed = allowed.trim();
+                if trimmed.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "profile '{profile_name}' contains an empty entry in 'allowed'"
+                    )));
+                }
+                if !seen.insert(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "profile '{profile_name}' contains duplicate 'allowed' entry '{trimmed}'"
+                    )));
+                }
+                if !self.states.contains_key(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "profile '{profile_name}' lists unknown state '{trimmed}' in 'allowed'"
+                    )));
+                }
+            }
+
+            if !profile.allowed.iter().any(|s| s == &profile.initial) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "profile '{profile_name}' 'initial: {}' is not in its own 'allowed' list",
+                    profile.initial
+                )));
+            }
+        }
+
+        if !profiles.contains_key(&policy.root) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "'node_policy.root' references undefined profile '{}'",
+                policy.root
+            )));
+        }
+        if !profiles.contains_key(&policy.default) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "'node_policy.default' references undefined profile '{}'",
+                policy.default
+            )));
+        }
+
+        let mut seen_kinds = HashSet::new();
+        for (kind, profile_name) in &policy.by_type {
+            let trimmed_kind = kind.trim();
+            if trimmed_kind.is_empty() {
+                return Err(StateMachineLoadError::Invalid(
+                    "'node_policy.by_type' contains an empty node-kind key".to_string(),
+                ));
+            }
+            if trimmed_kind.eq_ignore_ascii_case("rhei") {
+                return Err(StateMachineLoadError::Invalid(
+                    "'node_policy.by_type' must not declare the reserved kind 'rhei' \
+                     (the root node is bound via 'node_policy.root')"
+                        .to_string(),
+                ));
+            }
+            if !seen_kinds.insert(trimmed_kind.to_ascii_lowercase()) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "'node_policy.by_type' contains duplicate kind '{trimmed_kind}' \
+                     (kind matching is case-insensitive)"
+                )));
+            }
+            if !profiles.contains_key(profile_name) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "'node_policy.by_type.{trimmed_kind}' references undefined profile \
+                     '{profile_name}'"
+                )));
+            }
+        }
+
+        for (idx, ov) in policy.overrides.iter().enumerate() {
+            if ov.pattern.trim().is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "'node_policy.overrides[{idx}]' has an empty 'match'"
+                )));
+            }
+            if !profiles.contains_key(&ov.profile) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "'node_policy.overrides[{idx}]' references undefined profile '{}'",
+                    ov.profile
+                )));
+            }
+        }
+
+        for (state_name, state) in &self.states {
+            if state.initial {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares 'initial: true', but the machine uses \
+                     'profiles' — the initial state is a property of each profile"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate that every `{if <condition>}` tag in `instructions` and
     /// `personality` fields references a condition the engine can evaluate.
     ///
-    /// Currently the only supported condition form is `input.<name>.exists`,
-    /// where `<name>` must match a declared input artifact on the same state.
-    /// Any other condition is a load-time error.
+    /// Supported forms:
+    /// - `input.<name>.exists` — `<name>` must be a declared input artifact
+    ///   on the same state.
+    /// - `mcp.<name>.available` — `<name>` must appear in the state's
+    ///   `mcp_servers` list (including `defaults.mcp_servers` ids when
+    ///   inherited is not cleared; this layer only checks the state-level
+    ///   declaration since defaults live in settings, not the machine).
+    /// - `skill.<id>.available` — same rule for the `skills` list.
     fn validate_template_conditions(&self) -> Result<(), StateMachineLoadError> {
         for (state_name, state) in &self.states {
             for (field_name, text) in [
@@ -467,11 +927,41 @@ impl StateMachine {
                                  on this state"
                             )));
                         }
+                    } else if let Some(mcp_id) =
+                        condition.strip_prefix("mcp.").and_then(|s| s.strip_suffix(".available"))
+                    {
+                        let declared = state
+                            .mcp_servers
+                            .as_deref()
+                            .map(|entries| entries.iter().any(|e| e.id() == mcp_id))
+                            .unwrap_or(false);
+                        if !declared {
+                            return Err(StateMachineLoadError::Invalid(format!(
+                                "state '{state_name}' {field_name} contains \
+                                 '{{if {condition}}}' but '{mcp_id}' is not declared in this state's \
+                                 'mcp_servers' list"
+                            )));
+                        }
+                    } else if let Some(skill_id) =
+                        condition.strip_prefix("skill.").and_then(|s| s.strip_suffix(".available"))
+                    {
+                        let declared = state
+                            .skills
+                            .as_deref()
+                            .map(|entries| entries.iter().any(|e| e.id() == skill_id))
+                            .unwrap_or(false);
+                        if !declared {
+                            return Err(StateMachineLoadError::Invalid(format!(
+                                "state '{state_name}' {field_name} contains \
+                                 '{{if {condition}}}' but '{skill_id}' is not declared in this state's \
+                                 'skills' list"
+                            )));
+                        }
                     } else {
                         return Err(StateMachineLoadError::Invalid(format!(
                             "state '{state_name}' {field_name} contains \
                              '{{if {condition}}}' which is not a recognised condition; \
-                             supported form: 'input.<name>.exists'"
+                             supported forms: 'input.<name>.exists', 'mcp.<name>.available', 'skill.<id>.available'"
                         )));
                     }
                 }
@@ -496,6 +986,173 @@ fn extract_if_conditions(text: &str) -> Vec<&str> {
         }
     }
     conditions
+}
+
+fn validate_state_mcp_entries(
+    state_name: &str,
+    state: &StateDef,
+) -> Result<(), StateMachineLoadError> {
+    let Some(entries) = state.mcp_servers.as_deref() else {
+        return Ok(());
+    };
+
+    if !entries.is_empty() {
+        if state.gating {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' is gating and cannot declare 'mcp_servers' (gating states are human-only)"
+            )));
+        }
+        if state.program.is_some() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' declares 'program' and cannot declare 'mcp_servers' (programs execute deterministically)"
+            )));
+        }
+        if state.terminal {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' is final and cannot declare 'mcp_servers' (terminal states have no work)"
+            )));
+        }
+    }
+
+    let mut seen = HashSet::new();
+    for entry in entries {
+        let id = entry.id();
+        if id.trim().is_empty() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' has an mcp_servers entry with an empty id"
+            )));
+        }
+        if !seen.insert(id.to_string()) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' has a duplicate mcp_servers id '{id}'"
+            )));
+        }
+        if let StateMcpEntry::Object(obj) = entry {
+            if obj.command.is_some() && obj.url.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' mcp_servers entry '{id}' declares both 'command' and 'url' (mutually exclusive)"
+                )));
+            }
+            if let Some(command) = &obj.command {
+                if command.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' mcp_servers entry '{id}' has an empty 'command'"
+                    )));
+                }
+            }
+            if let Some(url) = &obj.url {
+                if url.trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' mcp_servers entry '{id}' has an empty 'url'"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_state_skill_entries(
+    state_name: &str,
+    state: &StateDef,
+) -> Result<(), StateMachineLoadError> {
+    let Some(entries) = state.skills.as_deref() else {
+        return Ok(());
+    };
+
+    if !entries.is_empty() {
+        if state.gating {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' is gating and cannot declare 'skills' (gating states are human-only)"
+            )));
+        }
+        if state.program.is_some() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' declares 'program' and cannot declare 'skills' (programs execute deterministically)"
+            )));
+        }
+        if state.terminal {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' is final and cannot declare 'skills' (terminal states have no work)"
+            )));
+        }
+    }
+
+    let mut seen = HashSet::new();
+    for entry in entries {
+        let id = entry.id();
+        if id.trim().is_empty() {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' has a skills entry with an empty id"
+            )));
+        }
+        if !seen.insert(id.to_string()) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' has a duplicate skills id '{id}'"
+            )));
+        }
+        if let StateSkillEntry::Object(obj) = entry {
+            if let Some(path) = &obj.path {
+                if path.trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' skills entry '{id}' has an empty 'path'"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate the shape of a tooling-unavailable trigger: either `true` or a
+/// non-empty list of non-empty string ids. `false` and other shapes are rejected.
+fn validate_transition_tooling_trigger(
+    transition: &TransitionRule,
+    value: Option<&serde_yaml::Value>,
+    field_name: &str,
+) -> Result<(), StateMachineLoadError> {
+    let Some(value) = value else { return Ok(()) };
+    match value {
+        serde_yaml::Value::Bool(true) => Ok(()),
+        serde_yaml::Value::Bool(false) => Err(StateMachineLoadError::Invalid(format!(
+            "transition from '{}' to '{}' declares '{field_name}: false' — omit the field instead",
+            transition.from.0, transition.to.0
+        ))),
+        serde_yaml::Value::Sequence(items) => {
+            if items.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "transition from '{}' to '{}' declares an empty '{field_name}' list",
+                    transition.from.0, transition.to.0
+                )));
+            }
+            let mut seen = HashSet::new();
+            for item in items {
+                let Some(id) = item.as_str() else {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "transition from '{}' to '{}' '{field_name}' entries must be strings",
+                        transition.from.0, transition.to.0
+                    )));
+                };
+                if id.trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "transition from '{}' to '{}' '{field_name}' contains an empty id",
+                        transition.from.0, transition.to.0
+                    )));
+                }
+                if !seen.insert(id.to_string()) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "transition from '{}' to '{}' '{field_name}' contains duplicate id '{id}'",
+                        transition.from.0, transition.to.0
+                    )));
+                }
+            }
+            Ok(())
+        }
+        _ => Err(StateMachineLoadError::Invalid(format!(
+            "transition from '{}' to '{}' '{field_name}' must be `true` or a list of ids",
+            transition.from.0, transition.to.0
+        ))),
+    }
 }
 
 fn validate_program_value(
@@ -862,7 +1519,19 @@ fn validate_dependency_integrity(
 
 fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
     for task in &rhei.tasks {
-        validate_task_state_instance(&format!("Task {}", task.id), &task.state, machine, report);
+        let task_id_str = task.id.to_string();
+        let subject = format!("Task {}", task.id);
+        validate_task_state_instance(&subject, &task.state, machine, report);
+        // Node kind tracking is not yet in the AST; treat all tasks as kind
+        // `task` so `node_policy.by_type.task` can bind them.
+        validate_task_state_against_profile(
+            &subject,
+            &task.state,
+            Some("task"),
+            Some(task_id_str.as_str()),
+            machine,
+            report,
+        );
     }
 }
 
@@ -873,13 +1542,48 @@ fn validate_subtask_state_consistency(
 ) {
     for task in &rhei.tasks {
         for st in &task.subtasks {
-            validate_task_state_instance(
-                &format!("Subtask {}.{} ('{}')", st.task_number, st.subtask_number, st.title),
+            let subtask_id_str = format!("{}.{}", st.task_number, st.subtask_number);
+            let subject = format!("Subtask {} ('{}')", subtask_id_str, st.title);
+            validate_task_state_instance(&subject, &st.state, machine, report);
+            validate_task_state_against_profile(
+                &subject,
                 &st.state,
+                Some("task"),
+                Some(subtask_id_str.as_str()),
                 machine,
                 report,
             );
         }
+    }
+}
+
+/// Enforce that the authored state (ignoring any `-<visit>` suffix) is a
+/// member of the resolved profile's `allowed` set. No-op when the machine
+/// declares no `profiles` / `node_policy`.
+fn validate_task_state_against_profile(
+    subject: &str,
+    raw_state: &str,
+    kind: Option<&str>,
+    task_id: Option<&str>,
+    machine: &StateMachine,
+    report: &mut ValidationReport,
+) {
+    let Some(profile) = machine.profile_for(kind, task_id) else {
+        return;
+    };
+
+    let parsed = parse_task_state(raw_state, machine);
+    if !machine.is_valid_state(&parsed.state) {
+        // `validate_task_state_instance` already reported the invalid state.
+        return;
+    }
+
+    if !profile.allowed.iter().any(|s| s == &parsed.state) {
+        let allowed = profile.allowed.join(", ");
+        report.errors.push(format!(
+            "{} has state '{}' which is not allowed by its resolved profile. Profile allows: [{}]",
+            subject, parsed.state, allowed
+        ));
     }
 }
 
@@ -2303,5 +3007,271 @@ transitions:
         let err =
             StateMachine::from_yaml_str(yaml).expect_err("should reject exit_code on non-program");
         assert!(err.to_string().contains("declares 'exit_code'"));
+    }
+
+    // ---- MCP servers / skills per-state validation ----
+
+    #[test]
+    fn state_mcp_servers_accepts_string_and_object_forms() {
+        let yaml = r#"
+name: mcp-basic
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers:
+      - postgres
+      - id: grafana
+        optional: true
+    skills:
+      - test-authoring
+      - id: adhoc
+        path: ./skills/adhoc
+        optional: true
+  completed:
+    description: Done
+    final: true
+"#;
+        let sm = StateMachine::from_yaml_str(yaml).expect("should accept both forms");
+        let pending = sm.states.get("pending").expect("pending state");
+        let mcp = pending.mcp_servers.as_ref().expect("mcp_servers declared");
+        assert_eq!(mcp.len(), 2);
+        assert_eq!(mcp[0].id(), "postgres");
+        assert!(!mcp[0].is_optional());
+        assert_eq!(mcp[1].id(), "grafana");
+        assert!(mcp[1].is_optional());
+
+        let skills = pending.skills.as_ref().expect("skills declared");
+        assert_eq!(skills.len(), 2);
+        assert!(matches!(&skills[1], StateSkillEntry::Object(obj) if obj.path.as_deref() == Some("./skills/adhoc")));
+    }
+
+    #[test]
+    fn state_mcp_servers_empty_list_preserved_as_clear_marker() {
+        let yaml = r#"
+name: mcp-clear
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers: []
+  completed:
+    description: Done
+    final: true
+"#;
+        let sm = StateMachine::from_yaml_str(yaml).expect("empty list is valid");
+        let pending = sm.states.get("pending").expect("pending");
+        assert_eq!(pending.mcp_servers.as_deref().map(<[_]>::len), Some(0));
+    }
+
+    #[test]
+    fn state_mcp_servers_rejects_duplicate_ids() {
+        let yaml = r#"
+name: mcp-dup
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers:
+      - postgres
+      - id: postgres
+        optional: true
+  completed:
+    description: Done
+    final: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("duplicate ids");
+        assert!(err.to_string().contains("duplicate mcp_servers id 'postgres'"));
+    }
+
+    #[test]
+    fn state_mcp_servers_rejects_both_command_and_url() {
+        let yaml = r#"
+name: mcp-inline-both
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers:
+      - id: inline
+        command: ["mcp-server"]
+        url: "https://example/mcp"
+  completed:
+    description: Done
+    final: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("mutually exclusive");
+        assert!(err.to_string().contains("both 'command' and 'url'"));
+    }
+
+    #[test]
+    fn state_mcp_servers_rejected_on_gating_state() {
+        let yaml = r#"
+name: mcp-gating
+version: 1.0
+states:
+  pending:
+    description: Work
+    gating: true
+    mcp_servers: [postgres]
+  completed:
+    description: Done
+    final: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("gating excludes mcp");
+        assert!(err.to_string().contains("gating"));
+    }
+
+    #[test]
+    fn state_mcp_servers_rejected_on_program_state() {
+        let yaml = r#"
+name: mcp-program
+version: 1.0
+states:
+  build:
+    description: Build
+    program: "make"
+    mcp_servers: [postgres]
+  completed:
+    description: Done
+    final: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("program excludes mcp");
+        assert!(err.to_string().contains("program"));
+    }
+
+    #[test]
+    fn state_skills_rejected_on_terminal_state() {
+        let yaml = r#"
+name: skill-final
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+  completed:
+    description: Done
+    final: true
+    skills: [review-checklist]
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("final excludes skills");
+        assert!(err.to_string().contains("final"));
+    }
+
+    #[test]
+    fn template_condition_accepts_mcp_and_skill_when_declared() {
+        let yaml = r#"
+name: cond-ok
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    instructions: |
+      {if mcp.postgres.available}Use Postgres.{endif}
+      {if skill.test-authoring.available}Use test skill.{endif}
+    mcp_servers: [postgres]
+    skills: [test-authoring]
+  completed:
+    description: Done
+    final: true
+"#;
+        StateMachine::from_yaml_str(yaml).expect("valid references");
+    }
+
+    #[test]
+    fn template_condition_rejects_mcp_not_declared() {
+        let yaml = r#"
+name: cond-bad-mcp
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    instructions: "{if mcp.other.available}X{endif}"
+    mcp_servers: [postgres]
+  completed:
+    description: Done
+    final: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("other is not declared");
+        assert!(err.to_string().contains("'other'"));
+        assert!(err.to_string().contains("mcp_servers"));
+    }
+
+    #[test]
+    fn transition_mcp_unavailable_accepts_true_and_list() {
+        let yaml = r#"
+name: trig-ok
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+    mcp_servers: [postgres]
+  tooling-missing:
+    description: Blocked
+    gating: true
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: tooling-missing
+    mcp_unavailable: true
+  - from: pending
+    to: tooling-missing
+    mcp_unavailable: [postgres]
+"#;
+        StateMachine::from_yaml_str(yaml).expect("valid trigger shapes");
+    }
+
+    #[test]
+    fn transition_mcp_unavailable_rejects_false() {
+        let yaml = r#"
+name: trig-false
+version: 1.0
+states:
+  pending:
+    description: Work
+    agent: claude-code
+  tooling-missing:
+    description: Blocked
+    gating: true
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: tooling-missing
+    mcp_unavailable: false
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("false is invalid");
+        assert!(err.to_string().contains("mcp_unavailable: false"));
+    }
+
+    #[test]
+    fn transition_mcp_unavailable_rejects_on_program_state() {
+        let yaml = r#"
+name: trig-prog
+version: 1.0
+states:
+  build:
+    description: Build
+    program: "make"
+  failed:
+    description: Build failed
+    final: true
+transitions:
+  - from: build
+    to: failed
+    mcp_unavailable: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("program source state");
+        assert!(err.to_string().contains("agent-only"));
     }
 }

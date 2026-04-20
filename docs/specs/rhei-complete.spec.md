@@ -24,7 +24,9 @@ Each task has a result file at a fixed path:
 runtime/results/<task-id>.md
 ```
 
-The `runtime/results/` directory is created if it does not exist. A markdown link to the result file is appended to the task body (after task content, before subtasks):
+The `runtime/results/` directory is created if it does not exist. A markdown
+link to the result file is appended to the task body (after task content,
+before child nodes):
 
 ```markdown
 > **Result:** [<task-id>](runtime/results/<task-id>.md)
@@ -60,20 +62,22 @@ Added avatar_url column and migration 0042
 2. Locate the task by ID. Fail if the task does not exist.
 3. Reject if the task is already in a terminal state.
 4. Reject if the task's current state is a gating state (`gating: true`). Gating states require explicit human-initiated transitions via `rhei transition` and cannot be exited by autonomous commands.
-5. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
-6. Execute the state transition directly (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks). This is performed inline — `rhei complete` does **not** delegate to `rhei transition`, so only one result entry is appended per invocation.
-7. Append a `## <from> → <to>` entry with the `--result` message to `runtime/results/<task-id>.md` (create directories as needed).
-8. Remove the `**Assignee:**` line from the task (no-op if absent).
-9. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
-10. Write the task file atomically (temp file + rename).
+5. Reject if any descendant task node of the target task is still in a
+   non-terminal state. A parent task must not be completed while any child,
+   grandchild, or deeper descendant remains open.
+6. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
+7. Execute the state transition directly (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks). This is performed inline — `rhei complete` does **not** delegate to `rhei transition`, so only one result entry is appended per invocation.
+8. Append a `## <from> → <to>` entry with the `--result` message to `runtime/results/<task-id>.md` (create directories as needed).
+9. Remove the `**Assignee:**` line from the task (no-op if absent).
+10. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
+11. Write the task file atomically (temp file + rename).
 
 `rhei transition` also appends a `## <from> → <to>` entry (with no message body) to the same result file. This means the result file accumulates the full transition history regardless of which command performed each transition.
 
-**Note on subtasks:** Subtasks are checklist-style markdown content and do not
-carry independent `**State:**` metadata in the core language. `rhei complete`
-therefore does not inspect subtasks for terminality. Workflows that need
-independently stateful child items must model them as full tasks with
-`**Prior:**` dependencies instead of subtasks.
+**Note on child nodes:** In the current hierarchical node model, child nodes
+are full stateful task nodes. `rhei complete` must therefore inspect all
+descendants of the target task and reject completion until every descendant is
+in a terminal state.
 
 ### Completion Target Selection
 
@@ -119,7 +123,7 @@ rhei complete ./my-workspace --task review-seed \
 | `rhei next --peek` | Read-only: prints the next claimable task without claiming it             |
 | `rhei transition`  | Atomically changes a task's state; appends entry to result file           |
 | `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns      |
-| `rhei reset`       | Returns all tasks to initial state, removes `runtime/`                    |
+| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
 
 The typical agent loop is: `next` (claim) -> work -> `transition` (advance as needed) -> `complete` (finish, record result, release).
 
