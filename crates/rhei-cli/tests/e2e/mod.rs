@@ -1,6 +1,7 @@
 mod install_skills_tests;
 mod next_tests;
 mod run_tests;
+mod templates_tests;
 mod transition_tests;
 
 use std::fs;

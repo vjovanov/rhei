@@ -145,6 +145,17 @@ fn run_validate(plan: &str, machine: &str, prefix: &str) -> CliRun {
     result
 }
 
+fn run_cli_without_args() -> CliRun {
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_rhei")).output().expect("rhei command should run");
+
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
 fn normalize_for_assertions(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -219,6 +230,33 @@ fn assert_parse_failure(
             result.stderr
         );
     }
+}
+
+#[test]
+fn bare_cli_prints_help_and_exits_successfully() {
+    let result = run_cli_without_args();
+
+    assert!(
+        result.status.success(),
+        "bare CLI invocation should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.trim().is_empty(),
+        "help output should not be written to stderr:\n{}",
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Usage: rhei [OPTIONS] <COMMAND>"),
+        "help output should include usage:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Validate and compile markdown plans into structured outputs"),
+        "help output should include the CLI summary:\n{}",
+        result.stdout
+    );
 }
 
 fn assert_validation_failure(
@@ -811,6 +849,24 @@ const COUNTED_LOOP_PLAN: &str = r#"# Rhei: Counted Review Loop
 **State:** pending
 "#;
 
+const COMPLETE_STATE_MACHINE: &str = r#"name: complete-test-machine
+version: 1
+states:
+  pending:
+    description: Task currently being worked on
+  completed:
+    description: Task finished successfully
+    final: true
+  cancelled:
+    description: Task cancelled
+    final: true
+transitions:
+  - from: pending
+    to: completed
+  - from: "*"
+    to: cancelled
+"#;
+
 fn run_transition(
     plan_path: &Path,
     machine_path: &Path,
@@ -831,6 +887,27 @@ fn run_transition(
         .arg(to)
         .output()
         .expect("transition command should run");
+
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+fn run_complete(plan_path: &Path, machine_path: &Path, task: &str, result_msg: &str) -> CliRun {
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(machine_path)
+        .arg("complete")
+        .arg(plan_path)
+        .arg("--task")
+        .arg(task)
+        .arg("--result")
+        .arg(result_msg)
+        .arg("--no-callbacks")
+        .output()
+        .expect("complete command should run");
 
     CliRun {
         status: output.status,
@@ -1136,6 +1213,92 @@ fn transition_wildcard_from_allows_any_source() {
     let rhei = parse(&updated).expect("parse updated plan");
     let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
     assert_eq!(task1.state.as_str(), "cancelled");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn complete_rejects_parent_with_non_terminal_subtasks() {
+    let plan = r#"# Rhei: Parent Completion Guard
+
+## Tasks
+
+### Task 1: Parent task
+**State:** pending
+
+#### Subtask 1.1: Open item
+**State:** pending
+"#;
+
+    let dir = unique_temp_dir("complete-open-subtasks");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COMPLETE_STATE_MACHINE);
+
+    let result = run_complete(&plan_path, &machine_path, "1", "done");
+
+    assert!(!result.status.success(), "complete should fail when subtasks are non-terminal");
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("cannot be completed while subtasks remain non-terminal"),
+        "expected subtask guard in stderr, got:\n{}",
+        result.stderr
+    );
+    assert!(
+        normalized.contains("Subtask 1.1"),
+        "expected offending subtask id in stderr, got:\n{}",
+        result.stderr
+    );
+    assert!(
+        normalized.contains("('Open item') [pending]"),
+        "expected offending subtask state in stderr, got:\n{}",
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    assert_eq!(task.state.as_str(), "pending");
+    assert_eq!(task.subtasks[0].state.as_str(), "pending");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn complete_succeeds_when_all_subtasks_are_terminal() {
+    let plan = r#"# Rhei: Parent Completion Success
+
+## Tasks
+
+### Task 1: Parent task
+**State:** pending
+
+#### Subtask 1.1: Closed item
+**State:** completed
+"#;
+
+    let dir = unique_temp_dir("complete-terminal-subtasks");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COMPLETE_STATE_MACHINE);
+
+    let result = run_complete(&plan_path, &machine_path, "1", "done");
+
+    assert!(
+        result.status.success(),
+        "complete should succeed when subtasks are terminal\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    assert_eq!(task.state.as_str(), "completed");
+    assert_eq!(task.subtasks[0].state.as_str(), "completed");
+    assert!(
+        updated.contains("> **Result:** [1](runtime/results/1.md)"),
+        "expected result link in updated plan:\n{}",
+        updated
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

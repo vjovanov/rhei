@@ -365,6 +365,82 @@ await rhei.run();  // Engine triggers transitions as tasks become ready
 
 This is distinct from `system` triggers (which are condition/timer-based) and `user` triggers (which are explicit API calls). Engine triggers represent the normal workflow progression during autonomous execution.
 
+### 5. Program Exit-Code Trigger (`triggeredBy: 'system'`)
+
+When a program state's subprocess exits and has not already advanced the task (via `rhei transition` or `rhei complete`), the engine evaluates exit-code transitions:
+
+1. Collect all transitions from the current state that declare an `exit_code` field.
+2. Match the actual exit code against specific integers and arrays first.
+3. If no specific match and exit code is non-zero, try `"nonzero"` transitions.
+4. If multiple transitions match, evaluate `condition` fields to disambiguate.
+5. The matching transition fires with `triggeredBy: 'system'`.
+6. The transition's `on_leave` and `on_enter` callbacks execute normally.
+
+```yaml
+states:
+  build:
+    program: "make build"
+    program_timeout: 10m
+
+  test:
+    description: Run tests
+    program: "make test"
+
+transitions:
+  - from: build
+    to: test
+    description: Build succeeded
+    exit_code: 0
+
+  - from: build
+    to: failed
+    description: Build failed
+    exit_code: nonzero
+    on_enter: "cli:bash ./workflow.sh notify-build-failure"
+```
+
+The `exit_code` field on the transition is only meaningful for program states. Declaring `exit_code` on a transition from a non-program state is a validation error. See [Program States Specification](rhei-programs.spec.md) for the complete exit-code evaluation algorithm and validation rules.
+
+### 6. Agent Timeout Trigger (`triggeredBy: 'system'`)
+
+When `rhei run` spawns an agent for a state that declares `agent_timeout`, the engine monitors the agent process duration. If the agent exceeds the timeout:
+
+1. The engine sends `SIGTERM` to the agent, then `SIGKILL` after a 10-second grace period.
+2. The engine evaluates transitions from the current state that have a `timeout` field.
+3. If a matching timeout transition exists, it fires with `triggeredBy: 'system'`.
+4. The transition's `on_leave` and `on_enter` callbacks execute normally.
+5. If no timeout transition exists, the task remains in its current state and a warning is logged.
+
+```yaml
+states:
+  pending:
+    agent: claude-code
+    agent_timeout: 30m
+
+  timed-out:
+    gating: true
+    description: Agent exceeded time budget. Human must decide next step.
+
+transitions:
+  - from: pending
+    to: timed-out
+    description: Agent exceeded the time budget
+    timeout: 30m
+    on_enter: "cli:bash ./workflow.sh notify-timeout"
+
+  - from: timed-out
+    to: pending
+    description: Human decided to retry after timeout
+
+  - from: timed-out
+    to: cancelled
+    description: Human decided to abandon after timeout
+```
+
+The `timeout` field on the transition serves dual purpose: it marks the transition as a timeout handler for `rhei run` agent mode, and it can be used by other runtimes for time-based system triggers. The `transitionData` for timeout-triggered transitions includes `{ "timeout": "<duration>", "agent": "<agent-id>" }`.
+
+See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling) for the full timeout configuration and behavior.
+
 ---
 
 ## YAML State Machine Format Specification
@@ -390,14 +466,18 @@ Each state is defined as a key-value pair in the `states` object:
 ```yaml
 states:
   <state-name>:
-    description: <string>   # Required: Human-readable description of the state
-    instructions: <string>  # Optional: Agent-facing instructions for work in this state
-    initial: <boolean>      # Optional: true if this is the starting state (exactly one required)
-    final: <boolean>        # Optional: true if this is a terminal state (no outgoing transitions)
-    gating: <boolean>       # Optional: true if no autonomous (agent/engine) transitions are allowed out
-    visits: <integer>   # Optional: maximum number of visits permitted for this state
-    all_models: [<string>]  # Optional: list of declared models; run this state once per listed model
-    model: <string>         # Optional: one declared model allowed for this state
+    description: <string>       # Required: Human-readable description of the state
+    instructions: <string>      # Optional: Agent-facing instructions for work in this state
+    initial: <boolean>          # Optional: true if this is the starting state (exactly one required)
+    final: <boolean>            # Optional: true if this is a terminal state (no outgoing transitions)
+    gating: <boolean>           # Optional: true if no autonomous (agent/engine) transitions are allowed out
+    visits: <integer>           # Optional: maximum number of visits permitted for this state
+    all_models: [<string>]      # Optional: list of declared models; run this state once per listed model
+    model: <string>             # Optional: one declared model allowed for this state
+    agent: <string|object>      # Optional: coding agent CLI for this state (see Agents Specification)
+    agent_timeout: <duration>   # Optional: max time an agent may work in this state (e.g., "30m")
+    program: <string|object>    # Optional: deterministic program to execute (see Program States Specification)
+    program_timeout: <duration> # Optional: max time a program may run in this state (e.g., "10m")
 ```
 
 | Field | Type | Required | Description |
@@ -411,6 +491,10 @@ states:
 | `visits` | integer | No | Maximum number of visits permitted for this state before the loop budget is exhausted |
 | `all_models` | string array | No | Explicit list of declared model identifiers; the state runs once for each listed model |
 | `model` | string | No | Restricts the state to one model declared in the machine-level `models` list |
+| `agent` | string or object | No | Coding agent CLI for this state. String form: known agent ID. Object form: custom profile. See [Agents Specification](rhei-agents.spec.md). |
+| `agent_timeout` | string | No | Maximum time an agent may work in this state (e.g., `30m`, `1h`). When exceeded, `rhei run` kills the agent and fires a timeout transition if one is declared. |
+| `program` | string or object | No | Deterministic program command for this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
+| `program_timeout` | string | No | Maximum time a program may run in this state (e.g., `10m`, `1h`). Same timeout mechanism as `agent_timeout`. |
 | `inputs` | artifact array | No | Required file artifacts that must exist before entering or working this state |
 | `outputs` | artifact array | No | Required file artifacts that must exist before leaving this state |
 
@@ -518,6 +602,7 @@ transitions:
     on_enter: <callback>    # Optional: Callback invoked when entering the target state
     condition: <expression> # Optional: Condition that must be true for system-triggered transitions
     timeout: <duration>     # Optional: Duration after which system triggers this transition
+    exit_code: <int|array|"nonzero">  # Optional: Exit-code condition for program state transitions
     max_retries: <integer>  # Optional: Maximum retry attempts for this transition
     retry_delay: <duration> # Optional: Delay between retry attempts
 ```
@@ -531,6 +616,7 @@ transitions:
 | `on_enter` | string | No | Callback function identifier invoked after entering the target state |
 | `condition` | string | No | Expression evaluated for system-triggered transitions |
 | `timeout` | string | No | Duration (e.g., `24h`, `30m`) after which system triggers this transition |
+| `exit_code` | integer, integer array, or `"nonzero"` | No | Exit-code condition for transitions from program states. Only evaluated when a program exits without calling `rhei transition`. See [Program States Specification](rhei-programs.spec.md#exit-code-transitions). |
 | `max_retries` | integer | No | Maximum automatic retry attempts |
 | `retry_delay` | string | No | Delay between retries (e.g., `30s`, `5m`) |
 
@@ -1557,6 +1643,8 @@ callbacks:
 
 - [Plan Language Specification](../rhei.spec.md) — formal grammar and semantic constraints
 - [States Specification](rhei-states.spec.md) — state machine format and default states
+- [Agents Specification](rhei-agents.spec.md) — agent configuration, invocation, timeout, and log capture
+- [Program States Specification](rhei-programs.spec.md) — deterministic program execution, exit-code transitions
 - [Transition Callback Examples](rhei-callbacks.spec.md) — practical callback implementations across languages
 - [How Rhei Is Used](rhei-usage.spec.md) — roles, coordination patterns, and agent workflows
 - [State Machine Writer](rhei-state-machine-writer.spec.md) — designing custom state machines from project specs and teams

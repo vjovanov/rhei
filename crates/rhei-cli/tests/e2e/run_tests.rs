@@ -243,6 +243,56 @@ fn run_living_review_loop_fixture_to_completion() {
 }
 
 #[test]
+fn run_executes_program_states_and_routes_on_exit_code() {
+    let plan = r#"# Rhei: Program State Run
+
+## Tasks
+
+### Task 1: Build artifact
+**State:** build
+"#;
+    let machine = r#"name: program-demo
+version: 1
+states:
+  build:
+    description: Build the artifact
+    program: "mkdir -p runtime && echo ok > runtime/program-1.txt"
+  completed:
+    description: Done
+    final: true
+  failed:
+    description: Failed
+    final: true
+transitions:
+  - from: build
+    to: completed
+    exit_code: 0
+  - from: build
+    to: failed
+    exit_code: nonzero
+"#;
+
+    let dir = unique_temp_dir("run-program-state");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert!(
+        dir.join("runtime/program-1.txt").exists(),
+        "program should have produced its output artifact"
+    );
+    assert!(
+        result.stdout.contains("program(s) spawned"),
+        "expected program summary in output; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn reset_bash_agent_team_fixture_restores_initial_state() {
     let (dir, workspace_path, machine_path) =
         copy_workspace_fixture("reset-bash-agent-team", "bash-agent-team");

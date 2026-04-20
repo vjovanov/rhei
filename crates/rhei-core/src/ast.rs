@@ -129,6 +129,9 @@ pub struct TransitionRule {
     /// Optional timeout duration (for example `24h`, `30m`, `45s`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
+    /// Optional exit-code condition for transitions from program states.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<serde_yaml::Value>,
 }
 
 #[cfg(test)]
@@ -193,6 +196,7 @@ mod tests {
             on_enter: None,
             condition: None,
             timeout: None,
+            exit_code: None,
         };
 
         let value = serde_json::to_value(&rule).expect("serialize TransitionRule");
@@ -216,6 +220,7 @@ mod tests {
             )),
             condition: Some("retryCount >= 3".to_string()),
             timeout: Some("24h".to_string()),
+            exit_code: None,
         };
 
         let value = serde_json::to_value(&original).expect("serialize TransitionRule");
@@ -276,6 +281,7 @@ mod tests {
             on_enter: Some(CallbackRef("cli:notify_reviewers".to_string())),
             condition: Some("priority == \"high\"".to_string()),
             timeout: Some("30m".to_string()),
+            exit_code: None,
         };
 
         let obj = serde_json::to_value(&rule).expect("serialize TransitionRule");
