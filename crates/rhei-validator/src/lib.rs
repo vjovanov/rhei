@@ -127,31 +127,42 @@ pub struct StateArtifactDef {
     pub optional: bool,
 }
 
-/// Agent configuration: either a known agent ID string or a custom profile.
+/// Reference to an agent defined in the `agents` registry.
+///
+/// In `states.yaml` (`agent:`) and `settings.json` (`defaults.agent`), agents
+/// are always referenced by string id. The concrete transport profile lives
+/// in the `agents` registry in `settings.json` (global or project). See ADR
+/// 0003 for the rationale.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum AgentConfig {
-    /// Known agent identifier (e.g., `"claude-code"`, `"codex"`).
-    Known(String),
-    /// Custom agent profile with command and flags.
-    Custom(CustomAgentProfile),
-}
+#[serde(transparent)]
+pub struct AgentConfig(pub String);
 
 impl AgentConfig {
-    /// Return the agent identifier regardless of variant.
+    /// Return the agent identifier.
     pub fn id(&self) -> &str {
-        match self {
-            AgentConfig::Known(id) => id,
-            AgentConfig::Custom(profile) => &profile.id,
-        }
+        &self.0
     }
 }
 
-/// Custom agent profile for agents not in the built-in list.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+impl From<String> for AgentConfig {
+    fn from(id: String) -> Self {
+        AgentConfig(id)
+    }
+}
+
+impl From<&str> for AgentConfig {
+    fn from(id: &str) -> Self {
+        AgentConfig(id.to_string())
+    }
+}
+
+/// Agent transport profile. An entry in the `agents` registry in
+/// `settings.json` (global or project), or the value of a built-in profile.
+///
+/// The registry key is the agent id; the id is not repeated inside this
+/// value.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub struct CustomAgentProfile {
-    /// Identifier for logs and diagnostics.
-    pub id: String,
     /// Base command and fixed arguments.
     pub command: Vec<String>,
     /// Flag to pass the prompt (e.g., `"--prompt"`, `"-p"`). Omit if using stdin.
@@ -178,6 +189,11 @@ pub struct CustomAgentProfile {
     /// Omit to declare the agent does not support skills.
     #[serde(default)]
     pub skill_flag: Option<String>,
+    /// Named modes. Each mode is an ordered flag list appended to the
+    /// command at spawn time. A well-known mode name is `yolo`, but any
+    /// name is allowed — Rhei does not interpret mode names.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modes: BTreeMap<String, Vec<String>>,
 }
 
 /// Registry entry for an MCP server profile.
@@ -352,9 +368,15 @@ pub struct StateDef {
     /// Restricts this state to one declared model.
     #[serde(default)]
     pub model: Option<String>,
-    /// The coding agent CLI that executes work in this state.
+    /// The coding agent CLI that executes work in this state. Must be a
+    /// string id resolved against the merged `agents` registry (built-ins →
+    /// global → project).
     #[serde(default)]
     pub agent: Option<AgentConfig>,
+    /// Optional agent mode (named flag set) applied for this state. Must
+    /// name a key in the resolved agent's `modes` map, if any.
+    #[serde(default)]
+    pub agent_mode: Option<String>,
     /// Maximum time an agent may work in this state (e.g., `"30m"`, `"1h"`).
     #[serde(default)]
     pub agent_timeout: Option<String>,
@@ -565,26 +587,22 @@ impl StateMachine {
                         "state '{state_name}' is final and cannot declare an 'agent' (terminal states have no work to execute)"
                     )));
                 }
-                match agent {
-                    AgentConfig::Known(id) => {
-                        if id.trim().is_empty() {
-                            return Err(StateMachineLoadError::Invalid(format!(
-                                "state '{state_name}' declares an empty 'agent' value"
-                            )));
-                        }
-                    }
-                    AgentConfig::Custom(profile) => {
-                        if profile.id.trim().is_empty() {
-                            return Err(StateMachineLoadError::Invalid(format!(
-                                "state '{state_name}' custom agent profile has an empty 'id'"
-                            )));
-                        }
-                        if profile.command.is_empty() {
-                            return Err(StateMachineLoadError::Invalid(format!(
-                                "state '{state_name}' custom agent profile has an empty 'command'"
-                            )));
-                        }
-                    }
+                if agent.id().trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares an empty 'agent' value"
+                    )));
+                }
+            }
+            if let Some(mode) = &state.agent_mode {
+                if state.agent.is_none() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares 'agent_mode' without declaring an 'agent'"
+                    )));
+                }
+                if mode.trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares an empty 'agent_mode' value"
+                    )));
                 }
             }
             if let Some(timeout) = &state.agent_timeout {
@@ -3044,7 +3062,9 @@ states:
 
         let skills = pending.skills.as_ref().expect("skills declared");
         assert_eq!(skills.len(), 2);
-        assert!(matches!(&skills[1], StateSkillEntry::Object(obj) if obj.path.as_deref() == Some("./skills/adhoc")));
+        assert!(
+            matches!(&skills[1], StateSkillEntry::Object(obj) if obj.path.as_deref() == Some("./skills/adhoc"))
+        );
     }
 
     #[test]
@@ -3273,5 +3293,230 @@ transitions:
 "#;
         let err = StateMachine::from_yaml_str(yaml).expect_err("program source state");
         assert!(err.to_string().contains("agent-only"));
+    }
+
+    // ---- profiles / node_policy ----
+
+    fn profiles_machine_yaml() -> &'static str {
+        r#"
+name: profiled
+version: 3.0
+states:
+  pending:
+    description: Work
+  review:
+    description: Inspect
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: review
+  - from: review
+    to: completed
+profiles:
+  default:
+    initial: pending
+    allowed: [pending, review, completed]
+  fast-track:
+    initial: pending
+    allowed: [pending, completed]
+node_policy:
+  root: default
+  default: default
+  by_type:
+    bug: fast-track
+"#
+    }
+
+    #[test]
+    fn loads_profiles_and_node_policy() {
+        let sm = StateMachine::from_yaml_str(profiles_machine_yaml()).expect("load ok");
+        let profiles = sm.profiles.as_ref().expect("profiles present");
+        assert_eq!(profiles.len(), 2);
+        let default = sm.profile_for(Some("task"), Some("1")).expect("default resolves");
+        assert_eq!(default.initial, "pending");
+        let fast = sm.profile_for(Some("bug"), Some("2")).expect("bug resolves to fast-track");
+        assert_eq!(fast.allowed, vec!["pending".to_string(), "completed".to_string()]);
+        let root = sm.root_profile().expect("root profile");
+        assert_eq!(root.initial, "pending");
+    }
+
+    #[test]
+    fn profile_for_returns_none_when_not_declared() {
+        let sm = sample_machine();
+        assert!(sm.profile_for(Some("task"), None).is_none());
+        assert!(sm.root_profile().is_none());
+    }
+
+    #[test]
+    fn rejects_profiles_without_node_policy() {
+        let yaml = r#"
+name: half-config
+version: 1.0
+states:
+  pending: { description: Work }
+profiles:
+  default:
+    initial: pending
+    allowed: [pending]
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("missing node_policy");
+        assert!(err.to_string().contains("no 'node_policy'"));
+    }
+
+    #[test]
+    fn rejects_node_policy_without_profiles() {
+        let yaml = r#"
+name: half-config
+version: 1.0
+states:
+  pending: { description: Work }
+node_policy:
+  root: default
+  default: default
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("missing profiles");
+        assert!(err.to_string().contains("no 'profiles'"));
+    }
+
+    #[test]
+    fn rejects_profile_with_initial_not_in_allowed() {
+        let yaml = r#"
+name: bad-initial
+version: 1.0
+states:
+  pending: { description: Work }
+  review: { description: Inspect }
+profiles:
+  default:
+    initial: review
+    allowed: [pending]
+node_policy:
+  root: default
+  default: default
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("initial not in allowed");
+        assert!(err.to_string().contains("is not in its own 'allowed' list"));
+    }
+
+    #[test]
+    fn rejects_profile_with_unknown_state_in_allowed() {
+        let yaml = r#"
+name: unknown-allowed
+version: 1.0
+states:
+  pending: { description: Work }
+profiles:
+  default:
+    initial: pending
+    allowed: [pending, missing]
+node_policy:
+  root: default
+  default: default
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("unknown allowed");
+        assert!(err.to_string().contains("unknown state 'missing'"));
+    }
+
+    #[test]
+    fn rejects_node_policy_default_with_undefined_profile() {
+        let yaml = r#"
+name: dangling-default
+version: 1.0
+states:
+  pending: { description: Work }
+profiles:
+  default:
+    initial: pending
+    allowed: [pending]
+node_policy:
+  root: default
+  default: nonexistent
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("dangling profile");
+        assert!(err.to_string().contains("'node_policy.default' references undefined profile"));
+    }
+
+    #[test]
+    fn rejects_node_policy_by_type_with_reserved_kind() {
+        let yaml = r#"
+name: reserved-kind
+version: 1.0
+states:
+  pending: { description: Work }
+profiles:
+  default:
+    initial: pending
+    allowed: [pending]
+node_policy:
+  root: default
+  default: default
+  by_type:
+    rhei: default
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("reserved kind");
+        assert!(err.to_string().contains("reserved kind 'rhei'"));
+    }
+
+    #[test]
+    fn rejects_state_initial_true_when_profiles_present() {
+        let yaml = r#"
+name: legacy-initial
+version: 1.0
+states:
+  pending:
+    description: Work
+    initial: true
+profiles:
+  default:
+    initial: pending
+    allowed: [pending]
+node_policy:
+  root: default
+  default: default
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("initial forbidden with profiles");
+        assert!(err.to_string().contains("declares 'initial: true'"));
+    }
+
+    #[test]
+    fn enforces_profile_allowed_on_task_state() {
+        let sm = StateMachine::from_yaml_str(profiles_machine_yaml()).expect("load ok");
+        let input = "# Rhei: profile-check\n**States:** profiled\n\n## Tasks\n\n### Task 1: First\n**State:** review\n";
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &sm);
+        assert!(!report.has_errors(), "review is allowed: {:?}", report.errors);
+    }
+
+    #[test]
+    fn rejects_task_state_outside_profile_allowed() {
+        // Build a machine where `default` profile excludes `review`, then
+        // author a task in `review` — it's a defined state but disallowed
+        // for this node.
+        let yaml = r#"
+name: restricted
+version: 1.0
+states:
+  pending: { description: Work }
+  review: { description: Inspect }
+  completed: { description: Done, final: true }
+profiles:
+  default:
+    initial: pending
+    allowed: [pending, completed]
+node_policy:
+  root: default
+  default: default
+"#;
+        let sm = StateMachine::from_yaml_str(yaml).expect("load ok");
+        let input = "# Rhei: restricted-check\n**States:** restricted\n\n## Tasks\n\n### Task 1: First\n**State:** review\n";
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &sm);
+        assert!(
+            report.errors.iter().any(|e| e.contains("not allowed by its resolved profile")),
+            "expected profile-allowed error, got {:?}",
+            report.errors
+        );
     }
 }
