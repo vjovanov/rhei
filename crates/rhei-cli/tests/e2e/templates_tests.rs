@@ -185,8 +185,7 @@ inputs:
     let parsed: serde_json::Value =
         serde_json::from_str(&rendered_settings).expect("rendered settings.json is valid JSON");
     assert_eq!(
-        parsed["mcp_servers"]["linear"]["env"]["LINEAR_WORKSPACE"],
-        "acme-engineering",
+        parsed["mcp_servers"]["linear"]["env"]["LINEAR_WORKSPACE"], "acme-engineering",
         "instantiation variable should be substituted in settings.json"
     );
 
