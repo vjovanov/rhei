@@ -555,9 +555,12 @@ states:
     final: <boolean>            # Optional: true if this is a terminal state (no outgoing transitions)
     gating: <boolean>           # Optional: true if no autonomous (agent/engine) transitions are allowed out
     visits: <integer>           # Optional: maximum number of visits permitted for this state
+    target: <string>            # Optional: inline execution target selector
+    all_targets: [<string>]     # Optional: run this state once per listed target
     all_models: [<string>]      # Optional: list of declared model profiles; run this state once per listed model
     model: <string>             # Optional: one declared model profile allowed for this state
-    agent: <string|object>      # Optional: coding agent CLI for this state (see Agents Specification)
+    agent: <string>             # Optional: coding agent id for this state (see Agents Specification)
+    agent_mode: <string>        # Optional: named mode on the resolved agent
     agent_timeout: <duration>   # Optional: max time an agent may work in this state (e.g., "30m")
     program: <string|object>    # Optional: deterministic program to execute (see Program States Specification)
     program_timeout: <duration> # Optional: max time a program may run in this state (e.g., "10m")
@@ -573,9 +576,12 @@ states:
 | `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
 | `gating` | boolean | No | Marks this as a gating state. When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions (`rhei transition` with `triggeredBy: 'user'`) are allowed. |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the loop budget is exhausted |
+| `target` | string | No | Inline execution target selector. Preferred over the legacy `model` + `agent` split for new workflows. |
+| `all_targets` | string array | No | Explicit list of execution target selectors; the state runs once for each listed target. Preferred over `all_models` for new fanout workflows. |
 | `all_models` | string array | No | Explicit list of declared model profile identifiers; the state runs once for each listed model |
 | `model` | string | No | Restricts the state to one model profile declared in the machine-level `models` list |
-| `agent` | string or object | No | Coding agent CLI for this state. String form: known agent ID. Object form: custom profile. See [Agents Specification](rhei-agents.spec.md). |
+| `agent` | string | No | Coding agent id for this state. Must resolve against the merged `agents` registry (built-ins + `settings.json`). Inline agent objects are not accepted — declare custom agents in `agents.<id>` first. See [Agents Specification](rhei-agents.spec.md). |
+| `agent_mode` | string | No | Named flag set from the resolved agent's `modes` map (e.g., `yolo`, `safe`). See [Agents Specification — Modes](rhei-agents.spec.md#modes). |
 | `agent_timeout` | string | No | Maximum time an agent may work in this state (e.g., `30m`, `1h`). When exceeded, `rhei run` kills the agent and fires a timeout transition if one is declared. |
 | `program` | string or object | No | Deterministic program command for this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
 | `program_timeout` | string | No | Maximum time a program may run in this state (e.g., `10m`, `1h`). Same timeout mechanism as `agent_timeout`. |
@@ -586,11 +592,29 @@ states:
 
 Model selection rules:
 - The machine-level `models` list is optional. When omitted, states are not model-constrained.
+- A state may set `target: <selector>` or `all_targets: [<selector>, ...]` as
+  an inline execution selector.
+- `target` and `all_targets` are mutually exclusive.
+- `target` / `all_targets` must not be combined with `model`, `all_models`,
+  `agent`, or `agent_mode`.
+- Target selectors must use one of these forms:
+  `<agent>:<model>`, `<agent>[<mode>]:<model>`,
+  `<agent>:<provider>:<model>`, or
+  `<agent>[<mode>]:<provider>:<model>`.
+- `all_targets`, when present, must be a non-empty list of unique selectors.
+- In a target selector, `<agent>` must resolve against the merged `agents`
+  registry.
+- In a target selector, `<mode>`, when present, must resolve against the
+  selected agent's declared modes.
+- In a target selector, `<provider>`, when present, must be non-empty.
+- In a target selector, `<model>` must be non-empty.
 - A state may set `all_models: [<name>, ...]` or `model: <name>`, but not both.
 - `model` must reference a value declared in the machine-level `models` list.
 - `all_models`, when present, must be a non-empty list of unique values declared in the machine-level `models` list.
 - A state with `all_models` is executed once per listed model.
+- A state with `all_targets` is executed once per listed target.
 - `visits` may be combined with either `all_models` or `model`.
+- `visits` may also be combined with either `all_targets` or `target`.
 - `visits`, when present, must be an integer greater than or equal to `1`.
 - `inputs` and `outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
 - Artifact `path` values are workspace-relative templates. After expansion, they must remain within the workspace root.
@@ -617,7 +641,11 @@ Supported template variables:
 - `{task_id}` - current task id
 - `{state}` - canonical unsuffixed state name
 - `{visit_count}` - current visit number for counted-loop states (only available when the state declares `visits`)
-- `{model}` - current model profile identifier (only available when the state declares `model` or `all_models`)
+- `{target}` - current execution target selector (only available when the state declares `target` or `all_targets`)
+- `{target.slug}` - filesystem-safe slug for the current target selector
+- `{agent}` - current agent id
+- `{agent.mode}` - current agent mode, if any
+- `{model}` - current model identifier (available when the state declares `target`, `all_targets`, `model`, or `all_models`)
 - `{model.provider}` - current model provider id
 - `{model.name}` - current provider model name
 
@@ -636,6 +664,7 @@ Rules:
   - `visits`: the configured state-level loop budget
 - Once `visitCount >= visits`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
 - When a state also declares `all_models`, visit accounting is scoped to each model-specific execution of that state.
+- When a state also declares `all_targets`, visit accounting is scoped to each target-specific execution of that state.
 
 Example:
 

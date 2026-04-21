@@ -28,16 +28,17 @@ The plan worker picks up an existing plan and makes progress on it. It is driven
 Responsibilities:
 - Claim the next eligible task via `rhei next` (all priors completed, unassigned, not terminal or gating, and all required current-state inputs present).
 - Work in the current state following the state's `instructions`.
-- Advance the state when exit conditions are met (e.g., `draft` → `pending`, `pending` → `agent-review`) or finish directly with `rhei complete` when review is not required.
+- In interactive/manual execution, advance the state when exit conditions are met (e.g., `draft` → `pending`, `pending` → `agent-review`) or finish directly with `rhei complete` when review is not required.
+- In `rhei run` execution, leave state mutation to the orchestrator: the worker produces the required artifacts and exits, and `rhei run` performs the transition.
 - Stop at gating states (`human-review`) and terminal states (`completed`, `cancelled`).
 
-The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. Its edits are limited to `**State:**` values and subtask progress logs.
+The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. In interactive/manual execution it may edit `**State:**` values and subtask progress logs. Under `rhei run`, spawned workers leave `**State:**` changes to the orchestrator and only produce the work and artifacts for the current state.
 
 ### Reviewer
 
 The reviewer inspects completed work before it advances to the next state. In the default Rhei state machine, this role appears in two forms:
 
-- **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, subtasks, and repository conventions (lint, format, tests). It records concrete findings in the task body or in a required findings artifact when the active state machine declares one, then transitions to `agent-review-fix` (fail), `human-review` (needs human), or `completed` (pass).
+- **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, subtasks, and repository conventions (lint, format, tests). It records concrete findings in the task body or in a required findings artifact when the active state machine declares one. The next transition is then chosen by the active execution model: manually by an interactive worker, or by `rhei run` after the reviewer subprocess exits.
 
 - **Human reviewer** (`human-review`): A human inspects the work. No agent may transition out of this state autonomously. The human decides: return to `pending` (rework), `completed` (approve), or `cancelled` (abandon).
 
@@ -60,7 +61,7 @@ The state machine is the single coordination protocol between all roles. It defi
 2. **What transitions are legal** — any transition not declared is forbidden.
 3. **Who acts in each state** — the `instructions` field tells the current role what to do and when to hand off.
 
-This means agents do not need to communicate with each other directly. They communicate through the plan file: one agent writes a state, the next agent reads it and acts accordingly.
+This means agents do not need to communicate with each other directly. They communicate through artifacts and the authoritative plan state managed by the orchestrator: one agent writes outputs for its state, `rhei run` advances the task, and the next agent reads the resulting state and artifacts.
 
 ### State Flow (Default Machine)
 
@@ -83,7 +84,7 @@ The `pending → completed` direct transition allows agents to finish simple tas
 
 The `human-review` state is deliberately isolated: agents can send work into it (from `pending` or `agent-review`), but only a human can transition out of it. This separation ensures that human judgment gates are never bypassed by automated workflows.
 
-Each arrow is a declared transition. Agents follow the `instructions` field on each state to know when to fire each transition.
+Each arrow is a declared transition. Agents follow the `instructions` field on each state to know what work must be completed before the next handoff. The transition itself is then performed either by an interactive/manual worker or by the `rhei run` orchestrator.
 
 ## Usage Patterns
 
@@ -106,7 +107,7 @@ The simplest way to use Rhei. No callbacks, no `workflow.sh`, no glue code.
    rhei run plan.rhei.md
    ```
 
-Rhei spawns the configured agent for each task, composing a prompt from the state machine instructions and the task content. The agent does the work and calls `rhei complete` when done. No scaffolding required.
+Rhei spawns the configured agent for each task, composing a prompt from the state machine instructions and the task content. The agent does the work for the current state, writes any required artifacts, and exits. `rhei run` then performs the state transition. No scaffolding required.
 
 For state-specific agents (e.g., a different agent or model for review):
 
@@ -116,12 +117,21 @@ states:
   pending:
     model: impl-fast
     agent: claude-code
+    agent_mode: yolo
     agent_timeout: 30m
   agent-review:
     model: review-deep
     agent: codex
+    agent_mode: safe
     agent_timeout: 20m
 ```
+
+Agents are referenced by string id only — `agent:` is resolved against the
+merged `agents` registry (built-ins + `~/.config/rhei/settings.json` +
+`<plan-root>/.rhei/settings.json`). To use a CLI that isn't a built-in, add
+it to the registry instead of inlining it on the state. Run-time overrides
+are available via `--agent <AGENT>`, `--agent-mode <MODE>`, and `--model
+<MODEL>` on `rhei run`.
 
 For parallel execution of independent tasks:
 
@@ -176,7 +186,7 @@ When a plan's DAG has independent branches (tasks with no shared dependencies), 
 
 Here, Task 1 and Task 3 have no dependency relationship. Two workers can implement them concurrently. Task 4 remains blocked until both Task 2 and Task 3 are completed.
 
-Coordination happens through `rhei next`, `rhei transition`, and `rhei complete`. A worker claims a task, implements it, and then completes it:
+For manual workers, coordination happens through `rhei next`, `rhei transition`, and `rhei complete`. A worker claims a task, implements it, and then completes it:
 
 ```bash
 # Inspect what is next without claiming (read-only, safe for PM browsing)
@@ -203,6 +213,8 @@ rhei transition plan.rhei.md --task 3 --from pending --to agent-review
 The `--from` flag is the key: the command acquires a file lock, verifies the task is still in the expected state, and only then writes the new state. If another worker already claimed the task, the command fails with a conflict error — the losing worker re-reads the plan and picks a different task.
 
 This eliminates last-write-wins races without requiring an external scheduler. The plan file plus its lock file are the only coordination primitives needed.
+
+For `rhei run --parallel N`, the same concurrency rule applies, but the spawned agents are not the ones issuing transition commands. Each spawned agent works only on the current state of its assigned task and exits. `rhei run` serializes the resulting state changes, which keeps transition authority centralized even when task work is distributed across multiple agents.
 
 ### Pattern 3b: Highly Distributed Swarms (Directory Workspaces)
 
@@ -237,8 +249,8 @@ For exploratory or long-running projects, tasks start as `draft` — placeholder
 1. Plan writer creates tasks in `draft` with rough titles but minimal descriptions.
 2. When all prior tasks are completed, `rhei next` claims the draft task (sets `**Assignee:**` without changing its state).
 3. The agent works in `draft`: it analyzes the current state of the project, determines the most elegant approach, and writes a concrete task description.
-4. The agent transitions `draft` → `pending` via `rhei transition`.
-5. The agent continues working in `pending`, implementing the task per the now-concrete description.
+4. In interactive/manual execution, the agent transitions `draft` → `pending` via `rhei transition`. Under `rhei run`, the spawned agent exits after writing the concrete task description and any required draft artifacts, and `rhei run` performs the `draft` → `pending` transition.
+5. Work then continues in `pending`, either in the same manual session or through the next `rhei run` pass.
 
 This prevents agents from planning against stale or incomplete project state. The `draft` state is a signal: "this task exists in the plan but needs analysis before it can be specified and executed." Because `rhei next` claims without transitioning, the agent has a dedicated phase to do the analysis work before advancing the state.
 
@@ -293,23 +305,70 @@ rhei.run();
 
 Callbacks can approve, reject, or redirect transitions — turning the plan into an executable workflow engine. See [Transitions Specification](rhei-transitions.spec.md) for the formal callback API and [Transition Callback Examples](rhei-callbacks.spec.md) for practical implementations.
 
-### Pattern 7: Living Workspace Expansion
+### Pattern 7: Multi-Target Analysis with `all_targets`
+
+When the same task should be run once per model and then synthesized, prefer
+one shared task state with `all_targets` over cloning one state or one task per
+model. This keeps the workflow compact and lets artifact paths and prompts
+template on `{target}`, `{target.slug}`, `{agent}`, `{agent.mode}`, and
+`{model}` directly.
+
+Example state machine shape:
+
+```yaml
+states:
+  analyze:
+    description: Independent analysis pass by each configured target.
+    all_targets:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - gemini[yolo]:google:gemini-3.1-pro-preview
+      - codex[yolo]:openai:gpt-5-codex
+    personality: |
+      You are {agent} in mode {agent.mode} running target {target}.
+      Produce an independent analysis pass.
+    instructions: |
+      Analyze Task {task_id}: {task_title}.
+      Write your result to `{output.analysis.path}`.
+    outputs:
+      - name: analysis
+        path: runtime/analyses/{target.slug}.md
+
+  summarize:
+    description: Synthesize the target-specific analyses.
+    agent: claude-code
+    model: claude-opus-4-7
+    inputs:
+      - name: claude-analysis
+        path: runtime/analyses/claude-code-yolo-anthropic-claude-opus-4-7.md
+      - name: gemini-analysis
+        path: runtime/analyses/gemini-yolo-google-gemini-3-1-pro-preview.md
+      - name: codex-analysis
+        path: runtime/analyses/codex-yolo-openai-gpt-5-codex.md
+    outputs:
+      - name: final-document
+        path: runtime/final-analysis.md
+```
+
+In this pattern, `rhei run` executes the `analyze` state once per listed
+target. Each selector is validated up front: the agent must exist, the mode
+must exist on that agent when specified, and the selector must follow the
+target grammar. The synthesis step then consumes the target-specific artifacts
+and writes one final result.
+
+### Pattern 8: Living Workspace Expansion
 
 A directory workspace can stay intentionally incomplete at authoring time and be
 expanded by the orchestrator while `rhei run` is executing. This is useful when
 follow-up work should only exist after a concrete artifact is produced.
 
-One example is a review loop:
+One example is a multi-agent review loop:
 
-1. A seed task runs three reviewers (`claude`, `codex`, and `antigravity`) and writes a shared findings file.
-   When done, the orchestrator calls `rhei complete` to record the result
-   (written to `runtime/results/review-seed.md`), transition to
-   `completed`, and release the assignment.
-2. A `codex` coordinator appends one verification task per consolidated review
-   point.
-3. Each verification task runs on `codex`, records whether the issue is reproducible and
-   relevant, then completes with its own result file.
-4. Only relevant findings cause new fix tasks to be appended to the workspace.
+1. A seed review task fans out into one agent run per configured model and writes per-model findings files.
+2. After each spawned reviewer exits successfully, `rhei run` advances the task according to the declared transitions and records the consolidated result artifact for the review pass.
+3. A coordinator step appends one verification task per consolidated review point.
+4. Each verification task is then executed by its assigned agent. The agent records whether the issue is reproducible and relevant, writes its result artifact, and exits.
+5. `rhei run` advances each verification task after the subprocess exits.
+6. Only relevant findings cause new fix tasks to be appended to the workspace.
 
 The workspace starts small:
 
@@ -322,11 +381,11 @@ The orchestrator expands this workspace as review artifacts arrive.
 ```
 
 ```markdown
-### Task review-seed: Run three-model review and seed the living workspace
+### Task review-seed: Run multi-model review and seed the living workspace
 **State:** review
 
-Write a shared findings file and append verification tasks for each review
-point.
+Write the review findings for this pass. The orchestrator will append
+verification tasks after the review pass completes.
 ```
 
 After `review-seed` completes, the orchestrator may append task files such as:
@@ -349,7 +408,7 @@ This keeps the Rhei truthful: speculative fixes do not appear in the task graph
 until the review artifact justifies them. The checked-in example lives in
 [`examples/living-review-loop`](../../examples/living-review-loop/README.md).
 
-### Pattern 8: Program States for Deterministic Steps
+### Pattern 9: Program States for Deterministic Steps
 
 Program states execute a fixed command instead of spawning an AI agent. Use them for deterministic workflow steps — builds, tests, linting, deployment — where an agent would add latency and cost without value.
 
