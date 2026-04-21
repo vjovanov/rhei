@@ -7,6 +7,8 @@ The state-machine schema also permits these optional fields for richer workflows
 - Per-state `personality: <string>` to inject role framing into `rhei next` for that specific state (supports template variables)
 - Template variables in `instructions` and `personality` fields, resolved by `rhei next` at output time
 - Top-level `models: [<model-id>, ...]` to declare the model profile identifiers available to the machine
+- Per-state `target: <selector>` to bind a state to one inline execution target
+- Per-state `all_targets: [<selector>, ...]` to fan a state out across multiple execution targets
 - Per-state `all_models: [<model-id>, ...]` to declare the full model set that may execute that state
 - Per-state `model: <model-id>` to bind a state to exactly one declared model profile
 - Per-state `agent: <agent-id>` to bind a state to a specific coding agent CLI
@@ -17,7 +19,12 @@ The state-machine schema also permits these optional fields for richer workflows
 - Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit; individual inputs may be marked `optional: true` to skip the existence check while still exposing the path and an existence flag to agents and programs
 - Per-state `mcp_servers:` and `skills:` lists to attach MCP servers and agent skills to the agent subprocess for that state; individual entries may be marked `optional: true` to warn-and-continue rather than block when the tool is unavailable
 
-When `models` is omitted, the machine behaves as it does today and states are not model-constrained. When `models` is present, a state may either omit both selector fields, set `all_models: [<id>, ...]`, or set `model: <id>`. Setting both `all_models` and `model` on the same state is invalid. `visits` is orthogonal to model selection and may be used together with either `all_models` or `model`.
+When `models` is omitted, the machine behaves as it does today and states are
+not model-constrained. For new workflows, prefer `target` / `all_targets`
+because they encode the full execution identity: agent, optional mode, optional
+provider, and model. The older `model` / `all_models` fields remain supported
+as compatibility forms for model-centric workflows. `visits` is orthogonal to
+both forms and may be combined with either single-target or fanout execution.
 
 The `model` field is the semantic execution identity for the state. It resolves
 through settings to a provider/model combo and is available to callbacks,
@@ -27,6 +34,21 @@ relying on callbacks alone. When `agent` is omitted, callbacks still resolve the
 model; autonomous agent execution falls back to settings defaults and then the
 model profile's `default_agent`. See [Agents Specification](rhei-agents.spec.md)
 for configuration, resolution order, and invocation details.
+
+An execution target selector is an inline shorthand for the full execution
+identity. It uses one of these forms:
+
+- `<agent>:<model>`
+- `<agent>[<mode>]:<model>`
+- `<agent>:<provider>:<model>`
+- `<agent>[<mode>]:<provider>:<model>`
+
+Examples:
+
+- `claude-code:claude-opus-4-7`
+- `claude-code[yolo]:anthropic:claude-opus-4-7`
+- `gemini[yolo]:google:gemini-3.1-pro-preview`
+- `codex[safe]:openai:gpt-5-codex`
 
 ## Schema Additions
 
@@ -50,9 +72,12 @@ can start in different states within the same state machine.
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
+| `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. |
+| `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
 | `all_models` | string array | No | The complete set of declared model profile identifiers allowed to work this state |
 | `model` | string | No | A single model profile identifier from the machine-level `models` list |
-| `agent` | string or object | No | The coding agent CLI that executes work in this state. String form references a known agent ID (e.g., `claude-code`, `codex`). Object form defines a custom agent profile. See [Agents Specification](rhei-agents.spec.md). |
+| `agent` | string | No | The coding agent CLI that executes work in this state. Must be an agent id resolved against the merged `agents` registry (built-ins → global → project `settings.json`). Inline agent objects are not permitted — define custom agents in the `agents` registry. See [Agents Specification](rhei-agents.spec.md). |
+| `agent_mode` | string | No | Named flag set applied to the resolved agent for this state. Must match a key in the resolved agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#modes). |
 | `agent_timeout` | string | No | Maximum time an agent may work in this state before being killed (e.g., `30m`, `1h`). See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling). |
 | `program` | string or object | No | The program command to execute in this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
 | `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
@@ -73,15 +98,31 @@ can start in different states within the same state machine.
   [Node Policy](#node-policy) for resolution and validation rules.
 - A state definition must not declare `initial: true`. The initial state is
   a property of each profile, not of the state itself.
+- `state.target`, when present, must be a non-empty string matching one of:
+  `<agent>:<model>`, `<agent>[<mode>]:<model>`,
+  `<agent>:<provider>:<model>`, or
+  `<agent>[<mode>]:<provider>:<model>`.
+- `state.all_targets`, when present, must be a non-empty list of unique
+  selectors following the same grammar as `state.target`.
+- `state.target` and `state.all_targets` are mutually exclusive.
+- `state.target` and `state.all_targets` must not be combined with any of
+  `state.model`, `state.all_models`, `state.agent`, or `state.agent_mode`.
+- In a target selector, `<agent>` must resolve against the merged `agents`
+  registry at validation time.
+- In a target selector, `<mode>`, when present, must be a non-empty string and
+  must match a key in the resolved agent's `modes` map when that map exists.
+- In a target selector, `<provider>`, when present, must be a non-empty string.
+- In a target selector, `<model>` must be a non-empty string.
 - `models`, when present, must be a list of unique non-empty strings naming model profiles defined in settings.
 - `state.model`, when present, must match an entry from the machine-level `models` list.
 - `state.all_models`, when present, must be a list of unique non-empty strings drawn from the machine-level `models` list.
 - A state must not declare both `all_models: [..]` and `model: <name>`.
 - `state.all_models: []` is treated the same as omitting the field.
 - `state.visits`, when present, must be an integer greater than or equal to `1`.
-- `state.agent`, when present, must be a non-empty string (known agent ID) or a valid agent profile object with at least `id` and `command` fields.
+- `state.agent`, when present, must be a non-empty string id. Object-valued `agent:` entries are rejected: define the custom agent in the `agents` registry in `settings.json` and reference it by id. The id must resolve against the merged `agents` registry at run time (built-ins → global → project).
 - `state.agent` on a `final: true` state is a validation error (terminal states have no work to execute).
 - `state.agent` on a `gating: true` state is a validation warning (gating states are human-only; the agent will never be invoked by `rhei run`).
+- `state.agent_mode`, when present, must be a non-empty string and requires `state.agent` to be set. The mode name must match a key in the resolved agent's `modes` map, or the agent must declare no modes. See [Agents Specification — Mode Resolution Order](rhei-agents.spec.md#mode-resolution-order).
 - `state.agent_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
 - A state must not declare both `agent` and `program`.
 - `state.program`, when present, must be a non-empty string or a valid program object with at least a `command` field. See [Program States Specification](rhei-programs.spec.md).
@@ -102,7 +143,9 @@ can start in different states within the same state machine.
 
 Counted-loop counters are task-instance data, not state-definition data. The state machine declares the cap with `visits`; runtimes persist the current per-task counts in task metadata and mirror the active visit in markdown by appending `-<n>` to `**State:**` for visits greater than `1`.
 
-When a state declares both `all_models` and `visits`, the engine runs the state once per listed model and each model-specific execution tracks its own visit budget.
+When a state declares `all_targets` and `visits`, the engine runs the state
+once per listed target and each target-specific execution tracks its own visit
+budget. The same scoping rule applies to `all_models`.
 
 ## Artifact Contracts
 
@@ -124,7 +167,11 @@ Supported path template variables:
 - `{task_id}` - the current task id as rendered in the plan
 - `{state}` - the canonical unsuffixed state name
 - `{visit_count}` - the current visit number for counted-loop states (only available when the state declares `visits`)
-- `{model}` - the current model profile identifier (only available when the state declares `model` or `all_models`)
+- `{target}` - the current execution target selector (only available when the state declares `target` or `all_targets`)
+- `{target.slug}` - a filesystem-safe slug derived from `{target}` (only available when the state declares `target` or `all_targets`)
+- `{agent}` - the current agent id (available when resolved from `target`, `agent`, or settings)
+- `{agent.mode}` - the current agent mode (only available when resolved from `target` or `agent_mode`)
+- `{model}` - the current model identifier (available when resolved from `target`, `all_targets`, `model`, or `all_models`)
 - `{model.provider}` - the resolved provider id for the current model profile
 - `{model.name}` - the resolved provider model name for the current model profile
 
@@ -238,10 +285,13 @@ The `instructions` and `personality` fields support template variable substituti
 | `{state}` | state machine | Canonical unsuffixed state name | `review` |
 | `{visit_count}` | runtime counter | Current visit number for counted-loop states | `2` |
 | `{visits}` | state definition | Configured loop budget for the state | `3` |
-| `{model}` | model selector | Current model profile identifier (requires `model` or `all_models`) | `impl-fast` |
+| `{target}` | target selector | Current execution target selector (requires `target` or `all_targets`) | `codex[yolo]:openai:gpt-5-codex` |
+| `{target.slug}` | target selector | Filesystem-safe slug derived from the current target selector | `codex-yolo-openai-gpt-5-codex` |
+| `{model}` | model selector | Current model identifier (requires `target`, `all_targets`, `model`, or `all_models`) | `impl-fast` |
 | `{model.provider}` | model selector | Resolved provider id for the current model profile | `anthropic` |
 | `{model.name}` | model selector | Resolved provider model name for the current model profile | `claude-sonnet-4-6` |
-| `{agent}` | agent selector | Current agent identifier (requires `agent` on the state or in settings) | `claude-code` |
+| `{agent}` | agent selector | Current agent identifier (requires `target`, `all_targets`, `agent`, or settings) | `claude-code` |
+| `{agent.mode}` | agent selector | Current agent mode, if one was selected | `yolo` |
 | `{plan_title}` | plan header | Title from the `# Rhei: <title>` header | `Feature Branch CI Pipeline` |
 | `{plan_path}` | filesystem | Path to the plan file | `./ci-pipeline.rhei.md` |
 | `{input.<name>.path}` | artifact contract | Resolved path of a declared input artifact | `runtime/results/3.md` |
@@ -258,6 +308,7 @@ The `instructions` and `personality` fields support template variable substituti
 - **Pure substitution, no expressions.** Templates produce text, not decisions. Conditional logic belongs in transition `condition` fields, not in instructions. The resolved text tells the agent "you are on pass 2 of 3" — the agent reads that to decide what to do.
 - **Artifact references create a single source of truth.** Using `{input.<name>.path}` or `{output.<name>.path}` instead of repeating raw paths means the artifact contract defines the path once. If the path changes, instructions stay correct automatically.
 - **`{visit_count}` and `{visits}` are only meaningful for counted-loop states.** For states without a `visits` declaration, `{visits}` is left unresolved and `{visit_count}` resolves to `1`.
+- **`{target}` and `{target.slug}` are only available for target-based execution.** For states that use the legacy `model` / `all_models` fields, `{target}` is left unresolved.
 - **Conditional blocks suppress whole paragraphs.** Use `{if input.<name>.exists}`, `{if mcp.<name>.available}`, or `{if skill.<id>.available}` … `{endif}` to include a block of text only when the referenced artifact, server, or skill is present. Use `{else}` between the opening tag and `{endif}` for an alternative block. The entire block — including surrounding blank lines — is removed from the output when the condition is false. Conditional blocks may not be nested in v1.
 
 ### Example
@@ -309,40 +360,61 @@ Transition back to `review` if 2 < 2.
 Otherwise, transition to `completed`.
 ```
 
-### Multi-Model Example
+### Multi-Target Example
 
 ```yaml
-models:
-  - claude-review
-  - openai-review
-
 states:
   review:
-    description: Independent review by each model
+    description: Independent review by each target
     personality: |
-      You are reviewing as {model} ({model.provider}/{model.name}).
+      You are reviewing as {agent} in mode {agent.mode} for target {target}.
       Provide a review from your perspective.
-      Do not attempt to emulate or defer to another model's style.
+      Do not attempt to emulate or defer to another target's style.
     instructions: |
       Review the implementation for Task {task_id}.
       Read `{input.implementation.path}` and write your findings to
       `{output.findings.path}`.
-    all_models: [claude-review, openai-review]
+    all_targets:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - gemini[yolo]:google:gemini-3.1-pro-preview
+      - codex[yolo]:openai:gpt-5-codex
     inputs:
       - name: implementation
         path: runtime/results/{task_id}.md
     outputs:
       - name: findings
-        path: runtime/findings/{task_id}-{model}.md
+        path: runtime/findings/{task_id}-{target.slug}.md
 ```
 
-Here `{model}` appears in both the artifact path and the instructions. The artifact contract defines the per-model output path once; instructions reference it by name.
+Here `{target}` and `{target.slug}` appear in both the instructions and the
+artifact path. The artifact contract defines the per-target output path once;
+instructions reference it by name.
+
+Recommended authoring pattern for heterogeneous multi-target runs:
+
+- Declare one shared state with `all_targets` instead of cloning one state per
+  target.
+- Use `{target.slug}` in output artifact paths so each execution writes to a
+  distinct file, for example `runtime/findings/{task_id}-{target.slug}.md`.
+- Prefer the full selector form `<agent>[<mode>]:<provider>:<model>` when the
+  workflow depends on all four dimensions. Shorter forms are valid when some
+  dimensions are intentionally omitted.
+- Add a later synthesis state that consumes the per-target artifacts and writes
+  one final document.
 
 ## Agent Field
 
 States can declare which coding agent transport executes work in that state. The
-`agent` field names a known agent ID (matching the IDs used by
-`rhei install-skills --agent`) or provides a custom agent profile object.
+`agent` field is always a string id. Rhei resolves the id against the merged
+`agents` registry — the built-in agents (`claude-code`, `codex`, `gemini`,
+`kilocode`, `cursor`) plus any entries declared in
+`~/.config/rhei/settings.json` and `<plan-root>/.rhei/settings.json`. Inline
+object-shaped agent definitions are not accepted on a state; a custom agent
+must be declared in the registry first.
+
+The optional `agent_mode` field selects a named flag set from the resolved
+agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#modes)
+for the common `yolo` / `safe` conventions and the full mode resolution order.
 
 ```yaml
 states:
@@ -356,12 +428,14 @@ states:
     description: Task is ready for implementation.
     model: impl-fast
     agent: claude-code
+    agent_mode: yolo
     agent_timeout: 30m
 
   agent-review:
     description: A separate reviewing agent inspects the result.
     model: review-deep
     agent: codex
+    agent_mode: safe
     agent_timeout: 20m
 
   agent-review-fix:
@@ -382,9 +456,9 @@ states:
 
 When `agent` is set on a state, `rhei run` spawns that agent transport to
 execute work. When `agent` is omitted, `rhei run` falls back to project-level
-or global-level settings and then the resolved model profile's `default_agent`.
-See [Agents Specification](rhei-agents.spec.md) for full resolution order,
-invocation profiles, and timeout handling.
+or global-level `defaults.agent`. See
+[Agents Specification](rhei-agents.spec.md) for full resolution order,
+invocation profiles, modes, and timeout handling.
 
 The `model` field names a model profile, which resolves to a provider/model
 combo in settings. The `agent` field is an optional transport for autonomous

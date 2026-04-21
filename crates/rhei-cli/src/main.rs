@@ -10,8 +10,8 @@ use rhei_core::ast::{Metadata, TaskId};
 use rhei_core::callback::{CallbackContext, CallbackExecutor, ShellCallbackExecutor};
 use rhei_core::workspace;
 use rhei_validator::{
-    AgentConfig, McpServerProfile, SkillProfile, StateMcpEntry, StateMcpEntryObject,
-    StateSkillEntry,
+    AgentConfig, CustomAgentProfile, McpServerProfile, SkillProfile, StateMcpEntry,
+    StateMcpEntryObject, StateSkillEntry,
 };
 use serde::Deserialize;
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
@@ -2313,16 +2313,16 @@ fn resolve_runtime_template_variable(
                 );
             }
 
-            if let Some(name) = variable.strip_prefix("mcp.").and_then(|v| v.strip_suffix(".available")) {
-                return context
-                    .tooling
-                    .map(|t| t.mcp_available(name).to_string());
+            if let Some(name) =
+                variable.strip_prefix("mcp.").and_then(|v| v.strip_suffix(".available"))
+            {
+                return context.tooling.map(|t| t.mcp_available(name).to_string());
             }
 
-            if let Some(id) = variable.strip_prefix("skill.").and_then(|v| v.strip_suffix(".available")) {
-                return context
-                    .tooling
-                    .map(|t| t.skill_available(id).to_string());
+            if let Some(id) =
+                variable.strip_prefix("skill.").and_then(|v| v.strip_suffix(".available"))
+            {
+                return context.tooling.map(|t| t.skill_available(id).to_string());
             }
 
             None
@@ -2969,6 +2969,9 @@ struct AgentExecutionFlags {
     /// Override the agent for this run
     #[arg(long, value_name = "AGENT")]
     agent: Option<String>,
+    /// Override the agent mode (named flag set) for this run
+    #[arg(long, value_name = "MODE")]
+    agent_mode: Option<String>,
     /// Override the model for this run
     #[arg(long, value_name = "MODEL")]
     model: Option<String>,
@@ -3018,6 +3021,10 @@ impl RunOptions {
         self.agent.agent.as_deref()
     }
 
+    fn agent_mode_override(&self) -> Option<&str> {
+        self.agent.agent_mode.as_deref()
+    }
+
     fn model_override(&self) -> Option<&str> {
         self.agent.model.as_deref()
     }
@@ -3049,6 +3056,8 @@ struct RheiSettings {
     #[serde(default)]
     agent: Option<AgentConfig>,
     #[serde(default)]
+    agent_mode: Option<String>,
+    #[serde(default)]
     model: Option<String>,
     #[serde(default)]
     agent_timeout: Option<String>,
@@ -3059,6 +3068,9 @@ struct RheiSettings {
     /// compatibility.
     #[serde(default)]
     defaults: SettingsDefaults,
+    /// Registry of agent transport profiles keyed by agent id.
+    #[serde(default)]
+    agents: BTreeMap<String, CustomAgentProfile>,
     /// Registry of MCP server profiles keyed by server id.
     #[serde(default)]
     mcp_servers: BTreeMap<String, McpServerProfile>,
@@ -3073,90 +3085,104 @@ struct RheiSettings {
 /// distinguish "unset" (inherit) from "empty" (explicitly clear inherited).
 #[derive(Debug, Default, Deserialize, Clone)]
 struct SettingsDefaults {
+    /// Default agent mode applied when a state does not set `agent_mode`.
+    /// `null` explicitly clears an inherited default.
+    #[serde(default)]
+    agent_mode: Option<String>,
     #[serde(default)]
     mcp_servers: Option<Vec<StateMcpEntry>>,
     #[serde(default)]
     skills: Option<Vec<StateSkillEntry>>,
 }
 
-/// Built-in invocation profile for a known agent CLI.
+/// Built-in agent registry.
 ///
-/// The `mcp_flag`, `mcp_config_flag`, and `skill_flag` fields are wired into
-/// actual command-line args in Half B (MCP subprocess lifecycle). Half A
-/// records them so the metadata is in one place and Half B can pick them up
-/// without churn.
-#[allow(dead_code)]
-struct KnownAgentProfile {
-    binary: &'static str,
-    prompt_flag: Option<&'static str>,
-    model_flag: Option<&'static str>,
-    stdin_prompt: bool,
-    default_args: &'static [&'static str],
-    mcp_flag: Option<&'static str>,
-    mcp_config_flag: Option<&'static str>,
-    skill_flag: Option<&'static str>,
-}
+/// Each entry is a ready-to-use `CustomAgentProfile` for one of the agents
+/// that Rhei supports out of the box. The per-agent "autonomous" flag set
+/// that was hard-coded as `default_args` is now exposed as a named `yolo`
+/// mode so states and defaults can select it explicitly via `agent_mode`.
+///
+/// A user-written entry with the same id in global or project settings
+/// replaces the built-in entry wholesale (see `load_merged_settings`).
+fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
+    fn flags(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
 
-fn known_agent_profile(id: &str) -> Option<KnownAgentProfile> {
-    match id {
-        "claude-code" => Some(KnownAgentProfile {
-            binary: "claude",
-            prompt_flag: Some("-p"),
-            model_flag: Some("--model"),
+    let modes_yolo_only = |yolo: Vec<String>| {
+        let mut modes = BTreeMap::new();
+        modes.insert("yolo".to_string(), yolo);
+        modes
+    };
+
+    let mut agents = BTreeMap::new();
+
+    agents.insert(
+        "claude-code".to_string(),
+        CustomAgentProfile {
+            command: flags(&["claude"]),
+            prompt_flag: Some("-p".to_string()),
+            model_flag: Some("--model".to_string()),
             stdin_prompt: false,
-            default_args: &["--permission-mode", "bypassPermissions"],
-            mcp_flag: None,
-            mcp_config_flag: Some("--mcp-config"),
-            skill_flag: Some("--skill"),
-        }),
-        "codex" => Some(KnownAgentProfile {
-            binary: "codex",
+            mcp_config_flag: Some("--mcp-config".to_string()),
+            skill_flag: Some("--skill".to_string()),
+            modes: modes_yolo_only(flags(&["--permission-mode", "bypassPermissions"])),
+            ..Default::default()
+        },
+    );
+
+    agents.insert(
+        "codex".to_string(),
+        CustomAgentProfile {
+            command: flags(&["codex", "exec"]),
             prompt_flag: None,
-            model_flag: Some("--model"),
+            model_flag: Some("--model".to_string()),
             stdin_prompt: true,
-            default_args: &[
-                "exec",
+            mcp_flag: Some("--mcp".to_string()),
+            modes: modes_yolo_only(flags(&[
                 "--sandbox",
                 "danger-full-access",
                 "--skip-git-repo-check",
-                "--",
-            ],
-            mcp_flag: Some("--mcp"),
-            mcp_config_flag: None,
-            skill_flag: None,
-        }),
-        "aider" => Some(KnownAgentProfile {
-            binary: "aider",
-            prompt_flag: Some("--message"),
-            model_flag: Some("--model"),
+            ])),
+            ..Default::default()
+        },
+    );
+
+    agents.insert(
+        "gemini".to_string(),
+        CustomAgentProfile {
+            command: flags(&["gemini"]),
+            prompt_flag: Some("--prompt".to_string()),
+            model_flag: Some("--model".to_string()),
             stdin_prompt: false,
-            default_args: &[],
-            mcp_flag: None,
-            mcp_config_flag: None,
-            skill_flag: None,
-        }),
-        "kilocode" => Some(KnownAgentProfile {
-            binary: "kilo",
-            prompt_flag: Some("-p"),
-            model_flag: Some("--model"),
+            modes: modes_yolo_only(flags(&["--approval-mode", "auto_edit"])),
+            ..Default::default()
+        },
+    );
+
+    agents.insert(
+        "kilocode".to_string(),
+        CustomAgentProfile {
+            command: flags(&["kilo"]),
+            prompt_flag: Some("-p".to_string()),
+            model_flag: Some("--model".to_string()),
             stdin_prompt: false,
-            default_args: &[],
-            mcp_flag: None,
-            mcp_config_flag: None,
-            skill_flag: None,
-        }),
-        "cursor" => Some(KnownAgentProfile {
-            binary: "cursor",
-            prompt_flag: Some("--prompt"),
-            model_flag: Some("--model"),
+            ..Default::default()
+        },
+    );
+
+    agents.insert(
+        "cursor".to_string(),
+        CustomAgentProfile {
+            command: flags(&["cursor"]),
+            prompt_flag: Some("--prompt".to_string()),
+            model_flag: Some("--model".to_string()),
             stdin_prompt: false,
-            default_args: &[],
-            mcp_flag: None,
-            mcp_config_flag: None,
-            skill_flag: None,
-        }),
-        _ => None,
-    }
+            ..Default::default()
+        },
+    );
+
+    agents
 }
 
 /// Load settings from a JSON file, returning defaults if the file doesn't exist.
@@ -3167,7 +3193,7 @@ fn load_settings(path: &Path) -> RheiSettings {
     }
 }
 
-/// Load merged settings: global then project-level overrides.
+/// Load merged settings: built-ins, then global, then project-level overrides.
 fn load_merged_settings(plan_root: &Path) -> RheiSettings {
     let global = home_dir()
         .map(|h| h.join(".config/rhei/settings.json"))
@@ -3175,6 +3201,16 @@ fn load_merged_settings(plan_root: &Path) -> RheiSettings {
         .unwrap_or_default();
 
     let project = load_settings(&plan_root.join(".rhei/settings.json"));
+
+    // Agent registry: built-ins seed the map; global then project entries
+    // replace an id wholesale when present.
+    let mut agents = built_in_agents();
+    for (id, profile) in global.agents {
+        agents.insert(id, profile);
+    }
+    for (id, profile) in project.agents {
+        agents.insert(id, profile);
+    }
 
     // Registries merge by id: start with global, override by project.
     let mut mcp_servers = global.mcp_servers.clone();
@@ -3189,16 +3225,19 @@ fn load_merged_settings(plan_root: &Path) -> RheiSettings {
     // `defaults.mcp_servers` / `defaults.skills`: project replaces global
     // wholesale when present (including an explicit empty list).
     let defaults = SettingsDefaults {
+        agent_mode: project.defaults.agent_mode.or(global.defaults.agent_mode),
         mcp_servers: project.defaults.mcp_servers.or(global.defaults.mcp_servers),
         skills: project.defaults.skills.or(global.defaults.skills),
     };
 
     RheiSettings {
         agent: project.agent.or(global.agent),
+        agent_mode: project.agent_mode.or(global.agent_mode),
         model: project.model.or(global.model),
         agent_timeout: project.agent_timeout.or(global.agent_timeout),
         program_timeout: project.program_timeout.or(global.program_timeout),
         defaults,
+        agents,
         mcp_servers,
         skills,
     }
@@ -3275,13 +3314,7 @@ impl ResolvedTooling {
 /// Normalize an id into the env-var segment used by `RHEI_*_<NAME>_AVAILABLE`.
 fn env_id_segment(id: &str) -> String {
     id.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
         .collect()
 }
 
@@ -3409,7 +3442,13 @@ fn inline_mcp_profile(obj: &StateMcpEntryObject) -> McpServerProfile {
 
 /// Resolved agent and model for a specific task invocation.
 struct ResolvedAgent {
+    /// Agent id (key into the merged `agents` registry).
     agent: AgentConfig,
+    /// The registry-resolved transport profile for `agent`.
+    profile: CustomAgentProfile,
+    /// Resolved mode name, or `None` if the agent has no modes or none was
+    /// selected.
+    mode: Option<String>,
     model: Option<String>,
     timeout_secs: Option<u64>,
 }
@@ -3433,31 +3472,57 @@ struct ResolvedProgram {
     timeout_secs: Option<u64>,
 }
 
-/// Resolve the agent/model/timeout for a task's current state.
+/// Resolve the agent/model/mode/timeout for a task's current state.
 ///
-/// Resolution order: CLI override > state-level > project-level > global.
+/// Agent id:  CLI override > state-level > project/global settings.
+/// Model:     CLI override > state-level > settings.
+/// Mode:      CLI override > state-level `agent_mode` > `defaults.agent_mode`
+///            > top-level `agent_mode` > the profile's first declared mode.
+/// Timeout:   state `agent_timeout` > profile `timeout` > settings `agent_timeout`.
+///
+/// The resolved agent id must match an entry in the merged `agents` registry;
+/// unknown ids produce a `MietteResult` error.
 fn resolve_agent(
     machine: &rhei_validator::StateMachine,
     state_name: &str,
     settings: &RheiSettings,
     opts: &RunOptions,
-) -> Option<ResolvedAgent> {
+) -> MietteResult<Option<ResolvedAgent>> {
     if opts.no_agent() {
-        return None;
+        return Ok(None);
     }
 
     let state_def = machine.states.get(state_name);
 
-    // Agent resolution: CLI > state > settings.
+    // Agent id resolution: CLI > state > settings.
     let agent = if let Some(ovr) = opts.agent_override() {
-        Some(AgentConfig::Known(ovr.to_string()))
+        Some(AgentConfig::from(ovr))
     } else if let Some(a) = state_def.and_then(|d| d.agent.clone()) {
         Some(a)
     } else {
         settings.agent.clone()
     };
 
-    let agent = agent?;
+    let Some(agent) = agent else {
+        return Ok(None);
+    };
+
+    // Registry lookup. An id that is not in the merged registry is a
+    // configuration error — no silent fallback to treating the id as a raw
+    // binary name.
+    let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
+        miette!(
+            "agent '{}' is not defined. Add an entry to agents.<id> in \
+             .rhei/settings.json or ~/.config/rhei/settings.json, or \
+             reference one of the built-in ids ({}).",
+            agent.id(),
+            built_in_agents()
+                .keys()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })?;
 
     // Model resolution: CLI > state > settings.
     let model = if let Some(ovr) = opts.model_override() {
@@ -3468,21 +3533,45 @@ fn resolve_agent(
         settings.model.clone()
     };
 
-    // Timeout resolution: state > custom agent profile > settings.
+    // Mode resolution.
+    let mode = if let Some(ovr) = opts.agent_mode_override() {
+        Some(ovr.to_string())
+    } else if let Some(m) = state_def.and_then(|d| d.agent_mode.clone()) {
+        Some(m)
+    } else if let Some(m) = settings.defaults.agent_mode.clone() {
+        Some(m)
+    } else if let Some(m) = settings.agent_mode.clone() {
+        Some(m)
+    } else {
+        profile.modes.keys().next().cloned()
+    };
+
+    if let Some(name) = &mode {
+        if !profile.modes.contains_key(name) && !profile.modes.is_empty() {
+            return Err(miette!(
+                "agent '{}' has no mode '{}'. Available modes: {}.",
+                agent.id(),
+                name,
+                profile
+                    .modes
+                    .keys()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+
+    // Timeout resolution: state > profile > settings.
     let timeout_secs = state_def
         .and_then(|d| d.agent_timeout.as_deref())
         .and_then(rhei_validator::parse_duration_secs)
-        .or_else(|| match &agent {
-            AgentConfig::Custom(p) => {
-                p.timeout.as_deref().and_then(rhei_validator::parse_duration_secs)
-            }
-            _ => None,
-        })
+        .or_else(|| profile.timeout.as_deref().and_then(rhei_validator::parse_duration_secs))
         .or_else(|| {
             settings.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs)
         });
 
-    Some(ResolvedAgent { agent, model, timeout_secs })
+    Ok(Some(ResolvedAgent { agent, profile, mode, model, timeout_secs }))
 }
 
 fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
@@ -3670,6 +3759,11 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
 }
 
 /// Build a `Command` for the resolved agent.
+///
+/// Flag order:
+/// `<command...> <mode flags...> <prompt_flag> <prompt>? <model_flag> <model>?`
+/// `-- ` is appended after the model flag when `stdin_prompt` is `true`, to
+/// match `codex exec -- `-style invocations that expect stdin.
 #[allow(clippy::too_many_arguments)]
 fn build_agent_command(
     resolved: &ResolvedAgent,
@@ -3681,73 +3775,55 @@ fn build_agent_command(
     state_name: &str,
     tooling: &ResolvedTooling,
 ) -> std::process::Command {
-    match &resolved.agent {
-        AgentConfig::Known(id) => {
-            let mut cmd;
-            if let Some(profile) = known_agent_profile(id) {
-                cmd = std::process::Command::new(profile.binary);
-                cmd.current_dir(working_dir);
-                for arg in profile.default_args {
-                    cmd.arg(arg);
-                }
-                if profile.stdin_prompt {
-                    cmd.stdin(std::process::Stdio::piped());
-                } else if let Some(flag) = profile.prompt_flag {
-                    cmd.arg(flag).arg(prompt);
-                }
-                if let (Some(flag), Some(model)) = (profile.model_flag, &resolved.model) {
-                    cmd.arg(flag).arg(model);
-                }
-            } else {
-                // Unknown agent ID — treat the ID as the binary name.
-                cmd = std::process::Command::new(id);
-                cmd.current_dir(working_dir);
-                cmd.arg("-p").arg(prompt);
-                if let Some(model) = &resolved.model {
-                    cmd.arg("--model").arg(model);
-                }
-            }
-            cmd.env("RHEI_PLAN_PATH", plan_path)
-                .env("RHEI_TASK_ID", task_id)
-                .env("RHEI_STATE", state_name)
-                .env("RHEI_AGENT", id);
-            if let Some(path) = state_machine_path {
-                cmd.env("RHEI_STATE_MACHINE_PATH", path);
-            }
-            if let Some(model) = &resolved.model {
-                cmd.env("RHEI_MODEL", model);
-            }
-            inject_tooling_env(&mut cmd, tooling);
-            cmd
-        }
-        AgentConfig::Custom(profile) => {
-            let mut cmd = std::process::Command::new(&profile.command[0]);
-            cmd.current_dir(working_dir);
-            for arg in &profile.command[1..] {
+    let profile = &resolved.profile;
+    let id = resolved.agent.id();
+
+    let (program, base_args) =
+        profile.command.split_first().expect("registry profile has non-empty command");
+
+    let mut cmd = std::process::Command::new(program);
+    cmd.current_dir(working_dir);
+    for arg in base_args {
+        cmd.arg(arg);
+    }
+
+    if let Some(mode) = resolved.mode.as_deref() {
+        if let Some(flags) = profile.modes.get(mode) {
+            for arg in flags {
                 cmd.arg(arg);
             }
-            if profile.stdin_prompt {
-                cmd.stdin(std::process::Stdio::piped());
-            } else if let Some(ref flag) = profile.prompt_flag {
-                cmd.arg(flag).arg(prompt);
-            }
-            if let (Some(ref flag), Some(model)) = (&profile.model_flag, &resolved.model) {
-                cmd.arg(flag).arg(model);
-            }
-            cmd.env("RHEI_PLAN_PATH", plan_path)
-                .env("RHEI_TASK_ID", task_id)
-                .env("RHEI_STATE", state_name)
-                .env("RHEI_AGENT", &profile.id);
-            if let Some(path) = state_machine_path {
-                cmd.env("RHEI_STATE_MACHINE_PATH", path);
-            }
-            if let Some(model) = &resolved.model {
-                cmd.env("RHEI_MODEL", model);
-            }
-            inject_tooling_env(&mut cmd, tooling);
-            cmd
         }
     }
+
+    if profile.stdin_prompt {
+        cmd.stdin(std::process::Stdio::piped());
+    } else if let Some(flag) = &profile.prompt_flag {
+        cmd.arg(flag).arg(prompt);
+    }
+
+    if let (Some(flag), Some(model)) = (&profile.model_flag, &resolved.model) {
+        cmd.arg(flag).arg(model);
+    }
+
+    if profile.stdin_prompt {
+        cmd.arg("--");
+    }
+
+    cmd.env("RHEI_PLAN_PATH", plan_path)
+        .env("RHEI_TASK_ID", task_id)
+        .env("RHEI_STATE", state_name)
+        .env("RHEI_AGENT", id);
+    if let Some(path) = state_machine_path {
+        cmd.env("RHEI_STATE_MACHINE_PATH", path);
+    }
+    if let Some(model) = &resolved.model {
+        cmd.env("RHEI_MODEL", model);
+    }
+    if let Some(mode) = &resolved.mode {
+        cmd.env("RHEI_AGENT_MODE", mode);
+    }
+    inject_tooling_env(&mut cmd, tooling);
+    cmd
 }
 
 /// Format the `mcp_servers:` / `skills:` line in the agent log header.
@@ -3766,7 +3842,11 @@ where
         .iter()
         .map(|entry| {
             let (id, optional, available) = project(entry);
-            if optional && !available { format!("{id}?") } else { id.to_string() }
+            if optional && !available {
+                format!("{id}?")
+            } else {
+                id.to_string()
+            }
         })
         .collect();
     Some(rendered.join(","))
@@ -3833,6 +3913,9 @@ fn spawn_and_wait_agent(
         let mut f = &log_file;
         let _ = writeln!(f, "=== rhei agent log ===");
         let _ = writeln!(f, "agent: {}", resolved.agent.id());
+        if let Some(mode) = &resolved.mode {
+            let _ = writeln!(f, "mode: {mode}");
+        }
         if let Some(m) = &resolved.model {
             let _ = writeln!(f, "model: {m}");
         }
@@ -3842,11 +3925,15 @@ fn spawn_and_wait_agent(
             let _ = writeln!(f, "timeout: {t}s");
         }
         let _ = writeln!(f, "plan: {}", plan_path.display());
-        let mcp_line = format_tooling_log_line(&tooling.mcp_servers, |e| (e.id.as_str(), e.optional, e.definition.is_some()));
+        let mcp_line = format_tooling_log_line(&tooling.mcp_servers, |e| {
+            (e.id.as_str(), e.optional, e.definition.is_some())
+        });
         if let Some(line) = mcp_line {
             let _ = writeln!(f, "mcp_servers: {line}");
         }
-        let skill_line = format_tooling_log_line(&tooling.skills, |e| (e.id.as_str(), e.optional, e.definition.is_some()));
+        let skill_line = format_tooling_log_line(&tooling.skills, |e| {
+            (e.id.as_str(), e.optional, e.definition.is_some())
+        });
         if let Some(line) = skill_line {
             let _ = writeln!(f, "skills: {line}");
         }
@@ -3874,11 +3961,7 @@ fn spawn_and_wait_agent(
         cmd.spawn().map_err(|e| miette!("failed to spawn agent '{}': {e}", resolved.agent.id()))?;
 
     // If stdin_prompt, write prompt to stdin.
-    let needs_stdin = match &resolved.agent {
-        AgentConfig::Known(id) => known_agent_profile(id).map(|p| p.stdin_prompt).unwrap_or(false),
-        AgentConfig::Custom(p) => p.stdin_prompt,
-    };
-    if needs_stdin {
+    if resolved.profile.stdin_prompt {
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write as _;
             let _ = stdin.write_all(prompt.as_bytes());
@@ -4257,12 +4340,20 @@ fn run_command(
     );
     println!("Initial states: {}", format_state_counts(&loaded.rhei));
 
-    let use_standalone_mode = machine.states.iter().any(|(name, def)| {
+    let mut use_standalone_mode = false;
+    for (name, def) in &machine.states {
         if def.terminal || def.gating {
-            return false;
+            continue;
         }
-        def.program.is_some() || resolve_agent(&machine, name, &settings, &opts).is_some()
-    });
+        if def.program.is_some() {
+            use_standalone_mode = true;
+            break;
+        }
+        if resolve_agent(&machine, name, &settings, &opts)?.is_some() {
+            use_standalone_mode = true;
+            break;
+        }
+    }
 
     if use_standalone_mode {
         run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
@@ -4343,7 +4434,7 @@ fn run_agent_mode(
                 if let Some(resolved) = resolve_program(machine, &current_state, settings, opts)? {
                     program_tasks.push((task_id_str, current_state_raw, current_state, resolved));
                 }
-            } else if let Some(resolved) = resolve_agent(machine, &current_state, settings, opts) {
+            } else if let Some(resolved) = resolve_agent(machine, &current_state, settings, opts)? {
                 agent_tasks.push((task_id_str, current_state_raw, current_state, resolved));
             } else if opts.no_agent() {
                 callback_tasks.push((task_id_str, current_state_raw, current_state));
@@ -4670,10 +4761,34 @@ fn run_agent_mode(
                             }
                         }
                     } else if status.success() {
-                        eprintln!(
-                            "  warning: agent exited 0 but task {} did not advance from '{}'",
-                            task_id_str, state_before
-                        );
+                        match try_auto_advance_task(
+                            input,
+                            machine,
+                            callback_paths,
+                            task_id_str,
+                            state_before,
+                            opts.no_callbacks(),
+                        ) {
+                            Ok(Some(to_state)) => {
+                                println!(
+                                    "  Task {} auto-advanced: '{}' -> '{}'",
+                                    task_id_str, state_before, to_state
+                                );
+                                advanced_any = true;
+                            }
+                            Ok(None) => {
+                                eprintln!(
+                                    "  warning: agent exited 0 but task {} did not advance from '{}'",
+                                    task_id_str, state_before
+                                );
+                            }
+                            Err(err) => {
+                                eprintln!(
+                                    "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
+                                    task_id_str, state_before, err
+                                );
+                            }
+                        }
                     } else {
                         let code = status.code().unwrap_or(-1);
                         eprintln!(
@@ -4752,6 +4867,8 @@ fn run_agent_mode(
 
                 // Clone what we need for the thread.
                 let agent_cfg = resolved.agent.clone();
+                let profile_cfg = resolved.profile.clone();
+                let mode_cfg = resolved.mode.clone();
                 let model_cfg = resolved.model.clone();
                 let timeout_cfg = resolved.timeout_secs;
                 let tooling_for_thread = tooling.clone();
@@ -4759,6 +4876,8 @@ fn run_agent_mode(
                 let handle = std::thread::spawn(move || {
                     let resolved = ResolvedAgent {
                         agent: agent_cfg,
+                        profile: profile_cfg,
+                        mode: mode_cfg,
                         model: model_cfg,
                         timeout_secs: timeout_cfg,
                     };
@@ -4797,10 +4916,34 @@ fn run_agent_mode(
                             );
                             advanced_any = true;
                         } else if status.success() {
-                            eprintln!(
-                                "  warning: agent exited 0 but task {} did not advance from '{}'",
-                                task_id_str, state_name
-                            );
+                            match try_auto_advance_task(
+                                input,
+                                machine,
+                                callback_paths,
+                                &task_id_str,
+                                &state_name,
+                                opts.no_callbacks(),
+                            ) {
+                                Ok(Some(to_state)) => {
+                                    println!(
+                                        "  Task {} auto-advanced: '{}' -> '{}'",
+                                        task_id_str, state_name, to_state
+                                    );
+                                    advanced_any = true;
+                                }
+                                Ok(None) => {
+                                    eprintln!(
+                                        "  warning: agent exited 0 but task {} did not advance from '{}'",
+                                        task_id_str, state_name
+                                    );
+                                }
+                                Err(err) => {
+                                    eprintln!(
+                                        "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
+                                        task_id_str, state_name, err
+                                    );
+                                }
+                            }
                         } else {
                             let code = status.code().unwrap_or(-1);
                             eprintln!(
@@ -5206,6 +5349,43 @@ fn find_next_transition(
     Ok(None)
 }
 
+fn try_auto_advance_task(
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    task_id_str: &str,
+    current_state: &str,
+    no_callbacks: bool,
+) -> MietteResult<Option<String>> {
+    let loaded = load_plan(input)?;
+    let target_id = parse_task_id(task_id_str);
+    let Some(task) = loaded.rhei.tasks.iter().find(|t| t.id == target_id) else {
+        return Ok(None);
+    };
+    let Some(to_state) = find_next_transition(task, &loaded.rhei, machine)? else {
+        return Ok(None);
+    };
+
+    let task_file = loaded.task_file(task_id_str, input);
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
+
+    execute_transition(
+        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        callback_paths,
+        machine,
+        task_id_str,
+        current_state,
+        &to_state,
+        no_callbacks,
+    )?;
+
+    Ok(Some(to_state))
+}
+
 /// Parse a task ID string into a [`TaskId`].
 fn parse_task_id(s: &str) -> TaskId {
     match s.parse::<u32>() {
@@ -5406,10 +5586,15 @@ fn next_command(
             continue_on_error: false,
             parallel: 1,
         },
-        agent: AgentExecutionFlags { no_agent: false, agent: None, model: None },
+        agent: AgentExecutionFlags {
+            no_agent: false,
+            agent: None,
+            agent_mode: None,
+            model: None,
+        },
         program: ProgramExecutionFlags::default(),
     };
-    let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts);
+    let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts)?;
     let agent_id_str = resolved.as_ref().map(|r| r.agent.id().to_string());
     let model_id_str = resolved.as_ref().and_then(|r| r.model.clone());
     let tooling = resolve_tooling(&machine, &final_state, &settings);
@@ -7702,10 +7887,16 @@ Body text.
     ) -> RheiSettings {
         RheiSettings {
             agent: None,
+            agent_mode: None,
             model: None,
             agent_timeout: None,
             program_timeout: None,
-            defaults: SettingsDefaults { mcp_servers: defaults_mcp, skills: None },
+            defaults: SettingsDefaults {
+                agent_mode: None,
+                mcp_servers: defaults_mcp,
+                skills: None,
+            },
+            agents: built_in_agents(),
             mcp_servers: registry,
             skills: BTreeMap::new(),
         }
@@ -7754,10 +7945,8 @@ Body text.
         );
         let mut registry = BTreeMap::new();
         registry.insert("postgres".to_string(), McpServerProfile::default());
-        let settings = settings_with(
-            Some(vec![StateMcpEntry::Id("postgres".to_string())]),
-            registry,
-        );
+        let settings =
+            settings_with(Some(vec![StateMcpEntry::Id("postgres".to_string())]), registry);
 
         let tooling = resolve_tooling(&machine, "pending", &settings);
         assert!(tooling.mcp_servers.is_empty(), "explicit empty clears defaults");
@@ -7773,10 +7962,8 @@ Body text.
         );
         let mut registry = BTreeMap::new();
         registry.insert("postgres".to_string(), McpServerProfile::default());
-        let settings = settings_with(
-            Some(vec![StateMcpEntry::Id("postgres".to_string())]),
-            registry,
-        );
+        let settings =
+            settings_with(Some(vec![StateMcpEntry::Id("postgres".to_string())]), registry);
 
         let tooling = resolve_tooling(&machine, "pending", &settings);
         assert_eq!(tooling.mcp_servers.len(), 1);
@@ -7838,11 +8025,7 @@ Body text.
                 optional: false,
                 definition: Some(McpServerProfile::default()),
             },
-            ResolvedMcpEntry {
-                id: "grafana".to_string(),
-                optional: true,
-                definition: None,
-            },
+            ResolvedMcpEntry { id: "grafana".to_string(), optional: true, definition: None },
         ];
         let line = format_tooling_log_line(&entries, |e| {
             (e.id.as_str(), e.optional, e.definition.is_some())

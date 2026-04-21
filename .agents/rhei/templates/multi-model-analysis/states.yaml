@@ -1,0 +1,198 @@
+name: multi-model-analysis
+version: 1.0.0
+models:
+  - claude-opus-4-7
+  - {{gemini_model}}
+  - gpt-5-codex
+
+states:
+  claude-analyze:
+    description: Claude performs one independent analysis pass.
+    agent: claude-code
+    agent_mode: yolo
+    model: claude-opus-4-7
+    personality: |
+      You are Claude running one independent analytical pass. Do not imitate
+      the other agents. Produce your own reasoning, assumptions, risks, and
+      recommendation.
+    instructions: |
+      Analyze Task {task_id}: {task_title}.
+
+      Read the task body carefully and produce a self-contained analysis note at
+      `{output.analysis.path}`. The note should include:
+      - task interpretation
+      - assumptions and unknowns
+      - key observations
+      - risks or tradeoffs
+      - recommended next action
+
+      If your toolset does not expose a dedicated file-write tool, create the
+      output file using available shell or filesystem commands instead.
+    outputs:
+      - name: analysis
+        path: {{analysis_output_dir}}/claude.md
+        description: Claude analysis note for the shared task
+
+  gemini-analyze:
+    description: Gemini performs one independent analysis pass.
+    agent: gemini
+    agent_mode: yolo
+    model: {{gemini_model}}
+    personality: |
+      You are Gemini running one independent analytical pass. Do not
+      imitate the other agents. Produce your own reasoning, assumptions, risks,
+      and recommendation.
+    instructions: |
+      Analyze Task {task_id}: {task_title}.
+
+      Read the task body carefully and produce a self-contained analysis note at
+      `{output.analysis.path}`. The note should include:
+      - task interpretation
+      - assumptions and unknowns
+      - key observations
+      - risks or tradeoffs
+      - recommended next action
+
+      If your toolset does not expose a dedicated file-write tool, create the
+      output file using available shell or filesystem commands instead.
+
+    outputs:
+      - name: analysis
+        path: {{analysis_output_dir}}/gemini.md
+        description: Gemini analysis note for the shared task
+
+  codex-analyze:
+    description: Codex performs one independent analysis pass.
+    agent: codex
+    agent_mode: yolo
+    model: gpt-5-codex
+    personality: |
+      You are Codex running one independent analytical pass. Do not imitate the
+      other agents. Produce your own reasoning, assumptions, risks, and
+      recommendation.
+    instructions: |
+      Analyze Task {task_id}: {task_title}.
+
+      Read the task body carefully and produce a self-contained analysis note at
+      `{output.analysis.path}`. The note should include:
+      - task interpretation
+      - assumptions and unknowns
+      - key observations
+      - risks or tradeoffs
+      - recommended next action
+
+      If your toolset does not expose a dedicated file-write tool, create the
+      output file using available shell or filesystem commands instead.
+
+    outputs:
+      - name: analysis
+        path: {{analysis_output_dir}}/codex.md
+        description: Codex analysis note for the shared task
+
+  summarize:
+    description: Claude synthesizes the independent model analyses into one final document.
+    agent: claude-code
+    agent_mode: yolo
+    model: claude-opus-4-7
+    personality: |
+      You are Claude acting as the final synthesizer. Read the analysis notes,
+      reconcile overlap and disagreement, and produce one clear final document
+      for the user.
+    instructions: |
+      Summarize Task {task_id}: {task_title}.
+
+      Read:
+      - `{input.claude-analysis.path}`
+      - `{input.gemini-analysis.path}`
+      - `{input.codex-analysis.path}`
+
+      Write a final document to `{output.final-document.path}` that:
+      - synthesizes the shared conclusions
+      - calls out meaningful disagreements or uncertainty
+      - recommends the final answer or next step
+
+      If your toolset does not expose a dedicated file-write tool, create the
+      output file using available shell or filesystem commands instead.
+
+      When the final document is written, run `rhei complete`.
+    inputs:
+      - name: claude-analysis
+        path: {{analysis_output_dir}}/claude.md
+        description: Claude analysis note
+      - name: gemini-analysis
+        path: {{analysis_output_dir}}/gemini.md
+        description: Gemini analysis note
+      - name: codex-analysis
+        path: {{analysis_output_dir}}/codex.md
+        description: Codex analysis note
+    outputs:
+      - name: final-document
+        path: {{final_document_path}}
+        description: Final synthesized document across all model analysis notes
+
+  completed:
+    description: The multi-model analysis workflow is finished.
+    instructions: |
+      No more action is required.
+    final: true
+
+  cancelled:
+    description: The workflow was cancelled.
+    instructions: |
+      Stop work and leave existing artifacts unchanged.
+    final: true
+
+transitions:
+  - from: claude-analyze
+    to: completed
+    description: Claude wrote its analysis note.
+
+  - from: claude-analyze
+    to: cancelled
+    description: Cancel Claude's analysis task.
+
+  - from: gemini-analyze
+    to: completed
+    description: Gemini wrote its analysis note.
+
+  - from: gemini-analyze
+    to: cancelled
+    description: Cancel Gemini's analysis task.
+
+  - from: codex-analyze
+    to: completed
+    description: Codex wrote its analysis note.
+
+  - from: codex-analyze
+    to: cancelled
+    description: Cancel Codex's analysis task.
+
+  - from: summarize
+    to: completed
+    description: Claude wrote the final synthesized document.
+
+  - from: summarize
+    to: cancelled
+    description: Cancel the workflow during synthesis.
+
+profiles:
+  workspace:
+    initial: completed
+    allowed:
+      - completed
+
+  analysis-task:
+    initial: claude-analyze
+    allowed:
+      - claude-analyze
+      - gemini-analyze
+      - codex-analyze
+      - summarize
+      - completed
+      - cancelled
+
+node_policy:
+  root: workspace
+  default: analysis-task
+  by_type:
+    task: analysis-task

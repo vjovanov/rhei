@@ -6,7 +6,7 @@ For the state machine format see [States Specification](rhei-states.spec.md). Fo
 
 ## Overview
 
-Rhei can spawn coding agents directly from `rhei run`. Instead of requiring hand-written `workflow.sh` callback scripts, the run command resolves an agent for each task, composes a prompt from the state machine instructions, and spawns the agent as a subprocess. The agent does the work and calls `rhei transition` or `rhei complete` to advance the task. Callbacks still fire on transitions — agents and callbacks are complementary.
+Rhei can spawn coding agents directly from `rhei run`. Instead of requiring hand-written `workflow.sh` callback scripts, the run command resolves an agent for each task, composes a prompt from the state machine instructions, and spawns the agent as a subprocess. The spawned agent does the work for the current state, writes any required artifacts, and exits. `rhei run` remains the transition authority: after the subprocess exits, the engine evaluates the declared forward transitions and performs the state change itself. Callbacks still fire on transitions — agents and callbacks are complementary.
 
 ## Agent Configuration
 
@@ -43,6 +43,7 @@ key rather than replacing the whole file.
   "defaults": {
     "model": "impl-fast",
     "agent": null,
+    "agent_mode": "yolo",
     "agent_timeout": "30m",
     "program_timeout": "10m",
     "mcp_servers": [],
@@ -55,13 +56,22 @@ key rather than replacing the whole file.
       "model_flag": "--model",
       "mcp_config_flag": "--mcp-config",
       "skill_flag": "--skill",
-      "stdin_prompt": false
+      "stdin_prompt": false,
+      "modes": {
+        "yolo":   ["--permission-mode", "bypassPermissions"],
+        "safe":   ["--permission-mode", "default"],
+        "review": ["--permission-mode", "plan"]
+      }
     },
     "codex": {
-      "command": ["codex", "exec", "--"],
+      "command": ["codex", "exec"],
       "model_flag": "--model",
       "mcp_flag": "--mcp",
-      "stdin_prompt": true
+      "stdin_prompt": true,
+      "modes": {
+        "yolo": ["--sandbox", "danger-full-access", "--skip-git-repo-check"],
+        "safe": ["--sandbox", "workspace-write"]
+      }
     }
   },
   "models": {
@@ -118,7 +128,8 @@ key rather than replacing the whole file.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `model` | string or null | No | Default model profile id |
-| `agent` | string or object or null | No | Default agent transport id or inline custom agent profile |
+| `agent` | string or null | No | Default agent id resolved against the `agents` registry. Inline agent objects are not accepted — define custom agents in `agents.<id>` and reference them here by id. |
+| `agent_mode` | string or null | No | Default agent mode (named flag set) applied when a state does not set `agent_mode`. |
 | `agent_timeout` | string or null | No | Default autonomous agent timeout |
 | `program_timeout` | string or null | No | Default program timeout |
 | `mcp_servers` | array | No | Default MCP server entries applied to every agent state. Entries are ids or inline definitions. See [MCP Servers](#mcp-servers). |
@@ -126,9 +137,27 @@ key rather than replacing the whole file.
 
 #### `agents`
 
-`agents` is a registry of named agent transport profiles keyed by agent id. The
-entry schema is the same as the custom agent profile object described below.
-Built-in agent ids remain valid even when they are not declared in the file.
+`agents` is a registry of agent transport profiles keyed by agent id. States
+and defaults reference agents by id — inline agent definitions are not
+permitted on a state or on `defaults.agent`. The registry is the only place an
+agent's `command`, flags, and modes are declared.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string array | Yes | Base command and fixed arguments |
+| `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
+| `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
+| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag. Default: `false`. |
+| `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
+| `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
+| `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
+| `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
+| `modes` | object | No | Named flag sets, keyed by mode name. Values are ordered string arrays appended to the command at spawn time. See [Modes](#modes). |
+
+Built-in agent ids (see [Known Agent Profiles](#known-agent-profiles)) are
+preloaded as the default agents registry. A user entry with the same id in
+global or project settings replaces the built-in entry wholesale — `command`,
+flags, and `modes` are taken from the user entry without field-level merging.
 
 #### `models`
 
@@ -184,17 +213,23 @@ keeps state machines portable across agents that do not implement skills.
 
 ### Per-State Settings
 
-The `model` / `all_models`, optional `agent`, `mcp_servers`, and `skills` fields
-on state definitions in `states.yaml`. See
+The `target` / `all_targets` fields are the preferred execution selectors on
+state definitions in `states.yaml`. The legacy `model` / `all_models`,
+optional `agent`, `mcp_servers`, and `skills` fields remain supported for
+compatibility. See
 [States Specification — Agent Field](rhei-states.spec.md#agent-field) and
 [States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills).
 
 ### Merge Semantics
 
-Global settings load first, then project settings compose over them:
+Built-in agents load first, global settings compose over them, then project
+settings compose over the result:
 
 - `defaults` shallow-override by field.
-- `agents` merge by agent id.
+- `agents` merge by agent id. A user entry with the same id as a built-in or a
+  global entry **replaces that entry wholesale** — there is no field-level
+  merge within a single agent entry. To tweak just one mode of a built-in
+  agent, redeclare the whole entry.
 - `models` merge by model id.
 - `models.<id>.agents` merge by agent id.
 - `mcp_servers` merge by server id.
@@ -225,8 +260,8 @@ The resolved model id must exist in the merged `models` registry. If no model
 is configured at any level, model-specific callback and template fields are
 omitted.
 
-When `rhei run` is launching an autonomous agent, it resolves the agent in this
-order:
+When `rhei run` is launching an autonomous agent, it resolves the agent id in
+this order:
 
 1. **CLI override** — `--agent <AGENT>`
 2. **State-level** — `agent` on the state definition in `states.yaml`
@@ -234,13 +269,46 @@ order:
 4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.agent`
 5. **Model default** — `models.<id>.default_agent`
 
-If no agent is configured at any level and the resolved model does not declare a
-`default_agent`, `rhei run` fails:
+The resolved id must match an entry in the merged `agents` registry
+(built-ins → global → project). An id with no matching entry is a
+configuration error:
+
+```
+error: agent 'my-agent' is not defined. Add an entry to agents.<id> in
+.rhei/settings.json or ~/.config/rhei/settings.json, or reference one of the
+built-in ids (claude-code, codex, cursor, gemini, kilocode).
+```
+
+If no agent is configured at any level and the resolved model does not declare
+a `default_agent`, `rhei run` fails:
 
 ```
 error: no agent configured for model 'impl-fast'.
 Set defaults.agent, the state's agent, models.impl-fast.default_agent, or pass --agent <AGENT> to rhei run.
 ```
+
+For a state that declares `all_targets`, this resolution is bypassed for the
+fields encoded directly in each selector: the agent id, optional mode, optional
+provider, and model name come from the selector itself. Validation must still
+verify that the referenced agent exists and that any referenced mode exists on
+that agent. For the legacy `all_models` form, agent resolution still runs
+independently for each model-specific execution of the state through the normal
+order above.
+
+#### Mode Resolution Order
+
+When the resolved agent declares `modes`, `rhei run` picks one at spawn time:
+
+1. **CLI override** — `--agent-mode <MODE>`
+2. **State-level** — `agent_mode` on the state definition in `states.yaml`
+3. **Project defaults** — `.rhei/settings.json` `defaults.agent_mode`
+4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.agent_mode`
+5. **Registry default** — the first declared mode in the agent entry's
+   `modes` map
+6. **None** — if the agent entry has no `modes`, no mode flags are appended
+
+The resolved mode name must be a key in the agent entry's `modes` map when
+the map is non-empty. A missing mode is a spawn-time error.
 
 When `rhei run` composes the tool surface for a state, it resolves the
 effective MCP server and skill sets:
@@ -289,15 +357,17 @@ supersedes it).
 
 Rhei ships with built-in invocation profiles for known coding agents. Each
 profile defines how to spawn the agent, deliver the prompt, pass the concrete
-provider model name, and set transport-level defaults.
+provider model name, and set transport-level defaults. Each built-in also
+declares a `yolo` mode carrying the autonomous/dangerous flag set that was
+historically the agent's default.
 
-| Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | Default Args |
-|----------|--------|-----------------|------------|------------|--------------|--------------|
+| Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | `yolo` Mode Flags |
+|----------|--------|-----------------|------------|------------|--------------|-------------------|
 | `claude-code` | `claude` | `-p <prompt>` | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
-| `codex` | `codex` | `exec -- -` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access` |
-| `aider` | `aider` | `--message <prompt>` | `--model <m>` | unsupported | unsupported | |
-| `kilocode` | `kilo` | `-p <prompt>` | `--model <m>` | unsupported | unsupported | |
-| `cursor` | `cursor` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | |
+| `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check` |
+| `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode auto_edit` |
+| `kilocode` | `kilo` | `-p <prompt>` | `--model <m>` | unsupported | unsupported | (no modes declared) |
+| `cursor` | `cursor` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | (no modes declared) |
 
 The agent IDs match those used by `rhei install-skills --agent`.
 
@@ -306,49 +376,76 @@ when the resolved state's effective set includes entries they cannot consume.
 Required MCP entries (see [Missing Tooling](#missing-tooling)) escalate the
 warning to an error.
 
-### Custom Agent Profiles
+A user-written entry for one of these ids in `settings.json` replaces the
+built-in entry wholesale (see [Merge Semantics](#merge-semantics)).
 
-When the built-in profiles don't fit, specify a custom agent profile inline in
-`defaults.agent`, in the `agents` registry, or directly on a state:
+### Custom Agents
+
+When the built-in profiles don't fit, declare a new agent in the `agents`
+registry — **never inline** on a state or on `defaults.agent`:
 
 ```json
 {
   "agents": {
     "my-agent": {
-      "id": "my-agent",
       "command": ["my-agent", "--autonomous"],
       "prompt_flag": "--prompt",
       "model_flag": "--model",
-      "stdin_prompt": false
+      "stdin_prompt": false,
+      "modes": {
+        "yolo": ["--permissions", "full"],
+        "safe": ["--permissions", "read-only"]
+      }
     }
   }
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Identifier for logs and diagnostics |
-| `command` | string array | Yes | Base command and fixed arguments |
-| `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
-| `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
-| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag. Default: `false`. |
-| `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
-| `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
-| `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
-| `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
-
-Custom agent profiles can appear in `settings.json` (global or project) or
-inline in `states.yaml`:
+States and defaults then reference the agent by id:
 
 ```yaml
 states:
   pending:
-    agent:
-      id: my-agent
-      command: ["my-agent", "--autonomous"]
-      prompt_flag: "--prompt"
-      stdin_prompt: false
+    agent: my-agent
+    agent_mode: yolo
 ```
+
+```json
+{
+  "defaults": {
+    "agent": "my-agent",
+    "agent_mode": "safe"
+  }
+}
+```
+
+Inline agent objects are rejected by the validator. This keeps state
+machines portable — the transport surface lives in `settings.json` where a
+project or a user can replace it without touching `states.yaml`.
+
+### Modes
+
+A mode is a named ordered list of extra CLI flags. When `rhei run` spawns the
+agent, the resolved mode's flags are appended right after the base
+`command`, before the prompt and model flags. The full flag order is:
+
+```
+<command...> <mode flags...> <prompt_flag> <prompt>? <model_flag> <model>? <mcp/skill flags...>
+```
+
+(When `stdin_prompt` is `true`, the prompt is written to stdin instead of
+being passed via `prompt_flag`, and `--` is appended after the model flag so
+agents like `codex exec --` get a clean positional-arg separator.)
+
+Mode names are free-form. `yolo` is a widely-used convention for
+"autonomous, dangerous posture"; `safe`, `review`, `plan`, and `audit` are
+other common choices. Rhei does not interpret mode names — it only injects
+the named flag list.
+
+An agent entry may declare zero, one, or many modes. When no modes are
+declared, no mode flags are appended and `agent_mode` must not be set for
+states that use this agent. See
+[Mode Resolution Order](#mode-resolution-order) for how a mode is selected.
 
 ## Prompt Composition
 
@@ -372,15 +469,13 @@ When `rhei run` spawns an agent for a task, it composes a prompt from the state 
 ## Rhei Commands
 
 You are working in a rhei-managed plan at `{plan_path}`.
-Use these commands to advance the task:
-
-- `rhei transition {plan_path} --task {task_id} --from {state} --to <target>` — advance to the next state
-- `rhei complete {plan_path} --task {task_id} --result "<message>"` — complete the task
+The `rhei run` process that spawned you is responsible for advancing the task after you exit successfully.
+Do not run `rhei transition` or `rhei complete` from this spawned agent process unless the workflow explicitly instructs you to launch a nested or delegated execution that manages its own state independently.
 
 Available transitions from `{state}`:
 {list of declared transitions from current state, with descriptions}
 
-Do not modify **State:** lines in the plan directly. Use the rhei CLI.
+Before you stop, create every required output artifact for this state and then exit. Do not modify **State:** lines in the plan directly.
 ```
 
 Template variables (`{task_id}`, `{model}`, `{model.provider}`,
@@ -388,6 +483,19 @@ Template variables (`{task_id}`, `{model}`, `{model.provider}`,
 using the same resolution rules as `rhei next`. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality).
 
 The prompt is delivered to the agent via its configured prompt delivery mechanism (flag or stdin).
+
+### Spawned-Agent Contract
+
+When an agent is launched by `rhei run`, the following contract is normative:
+
+- The agent owns the work of the current state: code changes, analysis, and required artifacts.
+- The agent does not own plan-state mutation. It must not call `rhei transition` or `rhei complete`, and it must not edit `**State:**` lines directly.
+- The agent signals success by exiting `0` after finishing the current state's work.
+- The agent signals failure by exiting non-zero.
+- The only exception is an explicitly nested execution model started from within the agent itself. In that nested context, the inner executor manages its own state independently of the outer `rhei run` process.
+
+This separation keeps state transitions serialized through one orchestrator even
+when many agents run in parallel.
 
 ## Environment Variables
 
@@ -444,9 +552,9 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 6. Log the spawn to `runtime/logs/task-{task_id}-{state}[-{visit_count}].log`.
 7. Spawn the agent CLI as a subprocess with the composed prompt.
 8. Wait for the agent process to exit (subject to timeout — see [Timeout Handling](#timeout-handling)).
-9. Re-read the plan. Check whether the task's state changed.
-10. If the task advanced or completed, log the transition and continue the loop.
-11. If the task state did not change and the agent exited 0, log a warning: `warning: agent exited 0 but task {id} did not advance from '{state}'`. Continue to the next task.
+9. Re-read the plan. If some external actor changed the task's state while the agent was running, respect that authoritative plan state and continue the loop from there.
+10. Otherwise, if the agent exited `0`, evaluate the current state's declared forward transitions in normal transition-selection order. If one transition matches, `rhei run` executes it and logs the resulting state change.
+11. If the agent exited `0` and no forward transition matches, log a warning: `warning: agent exited 0 but task {id} did not advance from '{state}'`. Continue to the next task.
 12. If the agent exited non-zero:
     - Without `--continue-on-error`: log the error and stop.
     - With `--continue-on-error`: log the error, skip this task, continue.
@@ -457,11 +565,11 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 1. Load plan and state machine. Validate.
 2. Find all claimable tasks (same eligibility as `rhei next`, but collect all candidates).
 3. Select up to N tasks that are mutually independent (no dependency edges between them). When N = 0, select all independent claimable tasks.
-4. For each selected task, resolve the model and agent, compose the prompt, and spawn the agent subprocess concurrently. Each agent writes to its own log file.
+4. For each selected task, resolve the model and agent, compose the prompt, and spawn the agent subprocess concurrently. Each agent writes to its own log file and is treated as a worker for the task's current state, not as a transition authority.
 5. Wait for any agent to exit (timeout or completion).
 6. When an agent exits:
    a. Re-read the plan.
-   b. Process the result (same rules as sequential mode: check state change, handle errors).
+   b. Process the result using the same rules as sequential mode: if an external actor already changed the task state, respect it; otherwise, on exit `0`, let `rhei run` evaluate and execute the next matching forward transition; on non-zero exit, apply the error path.
    c. Scan for newly claimable tasks (dependencies may have been unblocked).
    d. If new tasks are claimable and the pool is below N, spawn agents for them.
 7. Repeat until no claimable tasks remain or all tasks are terminal.
@@ -474,13 +582,15 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 
 Agents and callbacks are complementary, not exclusive:
 
-- **Agent** does the work (coding, reviewing, fixing).
-- **Callbacks** handle side effects (creating artifacts, spawning tasks, notifying systems).
+- **Agent** does the work of the current state (coding, reviewing, fixing, writing artifacts).
+- **`rhei run`** evaluates success or failure and performs the state transition.
+- **Callbacks** handle side effects of that transition (creating artifacts, spawning tasks, notifying systems).
 
 When `rhei run` is in agent mode:
 1. The agent is spawned for the current state.
-2. When the agent calls `rhei transition` or `rhei complete`, callbacks fire as usual.
-3. After the agent exits, `rhei run` checks the plan state and continues.
+2. The agent performs work and exits.
+3. `rhei run` selects and executes the transition.
+4. `on_leave` / `on_enter` callbacks fire as part of that engine-driven transition.
 
 `--no-callbacks` suppresses callbacks but not agent or program spawning. `--no-agent` suppresses agent spawning but not program spawning or callbacks. `--no-program` suppresses program spawning but not agent spawning or callbacks. All three can be combined independently.
 
@@ -577,11 +687,12 @@ Timeout can be set at four levels:
    }
    ```
 
-3. **Per-agent profile** — `timeout` field in custom agent definitions:
+3. **Per-agent profile** — `timeout` field on an entry in the `agents`
+   registry:
    ```json
    {
      "agents": {
-       "my-agent": { "id": "my-agent", "command": ["my-agent"], "timeout": "1h" }
+       "my-agent": { "command": ["my-agent"], "timeout": "1h" }
      }
    }
    ```

@@ -86,7 +86,7 @@ Tell an agent with the `rhei-plan-worker` skill to work the plan:
 /rhei-plan-worker plan.rhei.md
 ```
 
-The worker reads the plan, loads the state machine, and enters a loop: claim the next eligible task with `rhei next`, work in that task's current state, use `rhei transition` when the workflow requires an explicit state change (for example `draft` to `pending`), finish with `rhei complete` when the task reaches a terminal outcome, and repeat. It stops when no eligible tasks remain or a gating state such as `human-review` requires a human decision.
+The worker reads the plan, loads the state machine, and enters a loop: claim the next eligible task with `rhei next`, work in that task's current state, use `rhei transition` when the workflow requires an explicit state change (for example `draft` to `pending`), finish with `rhei complete` when the task reaches a terminal outcome, and repeat. This manual worker flow is distinct from `rhei run` agent mode, where spawned agents do the work of the current state and the `rhei run` orchestrator performs the transition after the subprocess exits. The worker stops when no eligible tasks remain or a gating state such as `human-review` requires a human decision.
 
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
