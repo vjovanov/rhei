@@ -7482,10 +7482,14 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
         }
     }
 
-    println!(
-        "Reset {} task(s) (and {} descendant task(s)) to initial state '{}'.",
-        task_count, descendant_count, initial_state
-    );
+    if descendant_count == 0 {
+        println!("Reset {} task(s) to initial state '{}'.", task_count, initial_state);
+    } else {
+        println!(
+            "Reset {} task(s) (and {} descendant task(s)) to initial state '{}'.",
+            task_count, descendant_count, initial_state
+        );
+    }
     if removed_runtime {
         println!("Removed runtime output.");
     } else {

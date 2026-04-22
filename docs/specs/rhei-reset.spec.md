@@ -37,13 +37,22 @@ Because reset operates under a file lock, it is safe against concurrent `rhei ne
 
 ## Output
 
-On success:
+On success, two lines are printed:
 
 ```text
-Reset <N> task(s) to initial state. Removed runtime/ directory.
+Reset <N> task(s) to initial state '<initial>'.
+Removed runtime output.
 ```
 
-If the `runtime/` directory did not exist, the removal notice is omitted.
+When the task graph contains child tasks, the first line also reports the
+descendant count:
+
+```text
+Reset <N> task(s) (and <M> descendant task(s)) to initial state '<initial>'.
+```
+
+The second line is `No runtime output was present.` when the `runtime/`
+directory did not exist.
 
 ## Relationship to Other Commands
 
