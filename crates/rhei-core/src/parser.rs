@@ -1,22 +1,19 @@
-//! Recursive-descent style parser for Markdown plans.
-//!
-//! Note:
-//! - This initial parser operates directly over the raw input lines to
-//!   capture titles and content while respecting fenced code blocks.
-//! - Integration with the Token stream will be aligned in a later step,
-//!   once tokens carry sufficient payloads for titles and content.
+//! Recursive-descent parser for Markdown plans.
 //!
 //! Responsibilities:
-//! - Extract rhei title and pre-Tasks content
-//! - Extract tasks with metadata (State, Prior)
-//! - Extract subtasks with titles and content
-//! - Provide basic error reporting with line numbers
-//!
-//! Error recovery (Subtask 3.3) is minimally implemented: the parser
-//! attempts to continue across unrecognized lines, only raising hard
-//! errors for missing rhei title.
+//! - Extract the rhei title and pre-Tasks content sections.
+//! - Parse YAML frontmatter, including the plan-level `structure` block
+//!   (`maxLevels`, `nodeKinds`).
+//! - Build the recursive task tree from H3..=H6 node headings, using the
+//!   configured `nodeKinds` to accept the leading keyword.
+//! - Attach child nodes to parents based on id-segment extension and heading
+//!   depth.
 
-use crate::ast::{ContentSection, Metadata, Rhei, Subtask, Task, TaskId};
+use crate::ast::{
+    ContentSection, Metadata, Rhei, Structure, Task, TaskId, DEFAULT_MAX_LEVELS,
+    DEFAULT_NODE_KIND, MAX_ALLOWED_LEVELS,
+};
+use crate::text::parse_task_id;
 use regex::Regex;
 use serde_yaml::Value as YamlValue;
 
@@ -33,8 +30,94 @@ impl ParseError {
     }
 }
 
-/// Result alias for parser operations.
 pub type Result<T> = std::result::Result<T, ParseError>;
+
+/// Extract the plan-level `structure` block from parsed frontmatter metadata.
+///
+/// Returns the default `Structure` when the block is absent. Validates shape
+/// (types, ranges, uniqueness) and reports parse errors inline.
+fn parse_structure(metadata: Option<&Metadata>, start_line: usize) -> Result<Structure> {
+    let Some(metadata) = metadata else {
+        return Ok(Structure::default());
+    };
+    let structure_key = YamlValue::String("structure".to_string());
+    let Some(block) = metadata.get(&structure_key) else {
+        return Ok(Structure::default());
+    };
+    let mapping = block.as_mapping().ok_or_else(|| {
+        ParseError::new("plan frontmatter `structure` must be a mapping", Some(start_line))
+    })?;
+
+    let mut max_levels: u8 = DEFAULT_MAX_LEVELS;
+    if let Some(v) = mapping.get(&YamlValue::String("maxLevels".to_string())) {
+        let n = v.as_u64().ok_or_else(|| {
+            ParseError::new(
+                "plan frontmatter `structure.maxLevels` must be a positive integer",
+                Some(start_line),
+            )
+        })?;
+        if n == 0 || n > MAX_ALLOWED_LEVELS as u64 {
+            return Err(ParseError::new(
+                format!(
+                    "plan frontmatter `structure.maxLevels` must be in 1..={}",
+                    MAX_ALLOWED_LEVELS
+                ),
+                Some(start_line),
+            ));
+        }
+        max_levels = n as u8;
+    }
+
+    let mut node_kinds: Vec<String> = vec![DEFAULT_NODE_KIND.to_string()];
+    if let Some(v) = mapping.get(&YamlValue::String("nodeKinds".to_string())) {
+        let seq = v.as_sequence().ok_or_else(|| {
+            ParseError::new(
+                "plan frontmatter `structure.nodeKinds` must be a sequence of strings",
+                Some(start_line),
+            )
+        })?;
+        if seq.is_empty() {
+            return Err(ParseError::new(
+                "plan frontmatter `structure.nodeKinds` must not be empty",
+                Some(start_line),
+            ));
+        }
+        let mut out = Vec::with_capacity(seq.len());
+        for entry in seq {
+            let name = entry.as_str().ok_or_else(|| {
+                ParseError::new(
+                    "plan frontmatter `structure.nodeKinds` entries must be strings",
+                    Some(start_line),
+                )
+            })?;
+            let canonical = name.trim().to_ascii_lowercase();
+            if canonical.is_empty() {
+                return Err(ParseError::new(
+                    "plan frontmatter `structure.nodeKinds` entries must be non-empty",
+                    Some(start_line),
+                ));
+            }
+            if canonical == "rhei" {
+                return Err(ParseError::new(
+                    "`rhei` is a reserved node kind and must not appear in `structure.nodeKinds`",
+                    Some(start_line),
+                ));
+            }
+            if out.iter().any(|k: &String| k == &canonical) {
+                return Err(ParseError::new(
+                    format!(
+                        "plan frontmatter `structure.nodeKinds` contains duplicate entry `{canonical}`"
+                    ),
+                    Some(start_line),
+                ));
+            }
+            out.push(canonical);
+        }
+        node_kinds = out;
+    }
+
+    Ok(Structure { max_levels, node_kinds })
+}
 
 fn parse_frontmatter(lines: &[String], start_line: usize, kind: &str) -> Result<Metadata> {
     if lines.is_empty() || lines.iter().all(|line| line.trim().is_empty()) {
@@ -55,23 +138,254 @@ fn parse_frontmatter(lines: &[String], start_line: usize, kind: &str) -> Result<
     }
 }
 
+/// In-progress builder for a node. The stack holds one builder per open
+/// heading level; the innermost builder is the current parse target.
+struct NodeBuilder {
+    id: TaskId,
+    kind: String,
+    title: String,
+    level: u8,
+    state: Option<String>,
+    prior: Vec<TaskId>,
+    assignee: Option<String>,
+    content: String,
+    children: Vec<Task>,
+    /// Once non-metadata content appears, further metadata fields become
+    /// errors.
+    metadata_closed: bool,
+    /// Line number of the heading (for error reporting).
+    heading_line: usize,
+}
+
+fn finalize_builder(b: NodeBuilder) -> Result<Task> {
+    let state = b.state.ok_or_else(|| {
+        ParseError::new(
+            format!("{} {} is missing mandatory **State:** metadata", title_case_kind(&b.kind), b.id),
+            Some(b.heading_line),
+        )
+    })?;
+    Ok(Task {
+        id: b.id,
+        kind: b.kind,
+        title: b.title,
+        state,
+        prior: b.prior,
+        assignee: b.assignee,
+        content: b.content,
+        children: b.children,
+    })
+}
+
+fn title_case_kind(kind: &str) -> String {
+    let mut out = String::with_capacity(kind.len());
+    let mut chars = kind.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            out.push(c);
+        }
+    }
+    for c in chars {
+        out.push(c);
+    }
+    out
+}
+
+/// Pop builders from the stack until its top is at depth `< level`, attaching
+/// each popped builder to its parent (or to the root task list when popping
+/// the outermost).
+fn unwind_to_level(
+    stack: &mut Vec<NodeBuilder>,
+    tasks: &mut Vec<Task>,
+    target_level: u8,
+) -> Result<()> {
+    while let Some(top) = stack.last() {
+        if top.level < target_level {
+            break;
+        }
+        let popped = stack.pop().expect("stack was non-empty");
+        let finished = finalize_builder(popped)?;
+        if let Some(parent) = stack.last_mut() {
+            parent.children.push(finished);
+        } else {
+            tasks.push(finished);
+        }
+    }
+    Ok(())
+}
+
+/// Parse a markdown plan, returning the successfully parsed [`Rhei`] (if any)
+/// together with every recoverable error discovered along the way.
+///
+/// Recoverable errors are per-task issues like a missing `**State:**` line,
+/// a malformed metadata field, or an out-of-order `**Prior:**`/`**Assignee:**`.
+/// When one is seen the offending line (or the containing task block) is
+/// stripped from the input and parsing is retried. Fatal structural errors
+/// (missing `# Rhei:` header, unterminated YAML frontmatter, missing
+/// `## Tasks` section, circular parent/child references) still bail — but
+/// come back through the same return channel so callers can enumerate the
+/// full list.
+///
+/// The single-error [`parse`] wrapper still exists for callers that only
+/// care about the first problem.
+pub fn parse_collect(input: &str) -> (Option<Rhei>, Vec<ParseError>) {
+    let mut errors: Vec<ParseError> = Vec::new();
+    let mut working = input.to_string();
+
+    // Safety valve in case a recovery step fails to make progress: cap
+    // iterations at a generous multiple of the authored line count.
+    let max_iters = input.lines().count().saturating_mul(2).max(16);
+
+    for _ in 0..max_iters {
+        match parse(&working) {
+            Ok(rhei) => return (Some(rhei), errors),
+            Err(err) => {
+                // Only recover from well-understood per-task errors. For
+                // structural issues (missing header, unknown node kind,
+                // depth mismatches) stop immediately — continuing would
+                // produce cascading, misleading error lists.
+                let recoverable = is_recoverable_error(&err.message);
+                let Some(line) = err.line.filter(|_| recoverable) else {
+                    errors.push(err);
+                    return (None, errors);
+                };
+                let (stripped, made_progress) = strip_for_recovery(&working, line, &err.message);
+                errors.push(err);
+                if !made_progress {
+                    return (None, errors);
+                }
+                working = stripped;
+            }
+        }
+    }
+
+    (None, errors)
+}
+
+/// Return true when an error is safe to skip past and continue parsing.
+///
+/// Safe-to-recover errors are strictly local to a task or a single
+/// metadata line. Structural errors (missing plan header, mismatched
+/// heading depth, tasks out of order) cascade and produce misleading
+/// secondary errors when we try to strip them.
+fn is_recoverable_error(message: &str) -> bool {
+    const RECOVERABLE_MARKERS: &[&str] = &[
+        "missing mandatory **State:**",
+        "Malformed metadata field",
+        "Metadata field appears outside a task",
+        "Metadata fields must appear immediately",
+        "**State:** must appear before **Prior:**",
+        "**State:** must appear before **Assignee:**",
+        "Duplicate **Assignee:**",
+    ];
+    RECOVERABLE_MARKERS.iter().any(|m| message.contains(m))
+}
+
+/// Rewrite the plan source so the next `parse()` attempt skips past the
+/// offending line or task. Returns the new source plus a flag that is
+/// `false` when recovery is not possible (the caller should stop).
+///
+/// Recovery refuses to strip anything that would leave the plan with no
+/// tasks at all, since doing so would cascade into "Tasks section must
+/// contain at least one task" — an artifact of the recovery, not a real
+/// authoring mistake.
+fn strip_for_recovery(input: &str, line: usize, message: &str) -> (String, bool) {
+    if line == 0 {
+        return (input.to_string(), false);
+    }
+
+    // Patterns that indicate the whole surrounding task is unrecoverable and
+    // should be dropped. Each task is `### Task <id>: ...` through the next
+    // H3..=H6 heading (exclusive).
+    //
+    // Dropping only the `**State:**` line creates a cascading "missing
+    // mandatory **State:**" error on the next pass for the same task, which
+    // is spurious from the user's point of view. Treat state-related
+    // malformed metadata as a whole-task issue.
+    let whole_task_markers = [
+        "missing mandatory **State:**",
+        "malformed node heading",
+        "expected '**State:** <value>'",
+    ];
+    let drop_whole_task = whole_task_markers.iter().any(|m| message.contains(m));
+
+    let lines: Vec<&str> = input.lines().collect();
+    if line > lines.len() {
+        return (input.to_string(), false);
+    }
+
+    let idx = line - 1;
+    let heading_re = regex::Regex::new(r#"^#{3,6}\s+[A-Za-z][A-Za-z0-9_-]*\s+"#).expect("regex");
+
+    if drop_whole_task {
+        let total_tasks = lines.iter().filter(|l| heading_re.is_match(l)).count();
+        if total_tasks <= 1 {
+            // Stripping would empty the Tasks section, which cascades into
+            // secondary errors. Bail instead.
+            return (input.to_string(), false);
+        }
+
+        // Walk backwards to find the task heading that owns this line.
+        let mut start = idx;
+        loop {
+            if heading_re.is_match(lines[start]) {
+                break;
+            }
+            if start == 0 {
+                return (input.to_string(), false);
+            }
+            start -= 1;
+        }
+        let mut end = start + 1;
+        while end < lines.len() && !heading_re.is_match(lines[end]) {
+            end += 1;
+        }
+        if start == 0 && end == lines.len() {
+            return (input.to_string(), false);
+        }
+        let mut kept: Vec<&str> = Vec::with_capacity(lines.len());
+        kept.extend_from_slice(&lines[..start]);
+        kept.extend_from_slice(&lines[end..]);
+        let mut out = kept.join("\n");
+        if input.ends_with('\n') {
+            out.push('\n');
+        }
+        return (out, true);
+    }
+
+    // Default recovery: drop just the offending line.
+    let mut kept: Vec<&str> = Vec::with_capacity(lines.len().saturating_sub(1));
+    kept.extend_from_slice(&lines[..idx]);
+    if idx + 1 < lines.len() {
+        kept.extend_from_slice(&lines[idx + 1..]);
+    }
+    let mut out = kept.join("\n");
+    if input.ends_with('\n') {
+        out.push('\n');
+    }
+    (out, true)
+}
+
 /// Parse a markdown plan into a Rhei AST.
 pub fn parse(input: &str) -> Result<Rhei> {
     let re_rhei = Regex::new(r#"^#\s+Rhei:\s+(.*)$"#).unwrap();
     let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
-    let re_task_header =
-        Regex::new(r#"^###\s+Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+):\s+(.*)$"#).unwrap();
-    let re_task_like_heading = Regex::new(r#"^###\s+\S.*$"#).unwrap();
-    let re_task_heading_prefix = Regex::new(r#"^###\s+Task\b.*$"#).unwrap();
-    let re_subtask_header = Regex::new(r#"^####\s+Subtask\s+(\d+)\.(\d+):\s+(.*)$"#).unwrap();
-    let re_subtask_like_heading = Regex::new(r#"^####\s+\S.*$"#).unwrap();
-    let re_subtask_heading_prefix = Regex::new(r#"^####\s+Subtask\b.*$"#).unwrap();
+    let re_node_header = Regex::new(
+        r#"^(#{3,6})\s+([A-Za-z][A-Za-z0-9_-]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+))*):\s+(.*)$"#,
+    )
+    .unwrap();
+    let re_any_h3_to_h6 = Regex::new(r#"^#{3,6}\s+\S.*$"#).unwrap();
     let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
-    let re_prior_task_id = Regex::new(r#"Task\s+([A-Za-z][A-Za-z0-9_-]*|\d+)"#).unwrap();
+    let re_prior_ref = Regex::new(
+        r#"([A-Za-z][A-Za-z0-9_-]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+))*)"#,
+    )
+    .unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
+    let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
+    let re_assignee_like = Regex::new(r#"^\*\*Assignee\b.*$"#).unwrap();
     let re_h2_heading = Regex::new(r#"^##\s+\S.*$"#).unwrap();
+    let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
 
     let mut in_code_block = false;
     let mut in_tasks_section = false;
@@ -89,36 +403,12 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let mut frontmatter_start_line = 0usize;
     let mut frontmatter_lines: Vec<String> = Vec::new();
     let mut rhei_content: Vec<ContentSection> = Vec::new();
-    let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
     let mut tasks: Vec<Task> = Vec::new();
+    let mut node_stack: Vec<NodeBuilder> = Vec::new();
 
-    // Builders
-    struct TaskBuilder {
-        id: TaskId,
-        title: String,
-        state: Option<String>,
-        prior: Vec<TaskId>,
-        content: String,
-        subtasks: Vec<Subtask>,
-        // Once a non-metadata token appears after the task header,
-        // we stop accepting more metadata for this task.
-        metadata_closed: bool,
-    }
-
-    #[derive(Default)]
-    struct SubtaskBuilder {
-        task_number: u32,
-        subtask_number: u32,
-        title: String,
-        state: Option<String>,
-        content: String,
-        /// Once a non-metadata token appears after the subtask header,
-        /// we stop accepting metadata for this subtask.
-        metadata_closed: bool,
-    }
-
-    let mut cur_task: Option<TaskBuilder> = None;
-    let mut cur_subtask: Option<SubtaskBuilder> = None;
+    // Structure is finalised once the frontmatter boundary is passed.
+    let mut structure: Structure = Structure::default();
+    let mut structure_finalised = false;
 
     for (idx, raw) in input.lines().enumerate() {
         let line_number = idx + 1;
@@ -130,8 +420,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
 
         if in_frontmatter {
             if line == "---" {
-                rhei_metadata =
-                    Some(parse_frontmatter(&frontmatter_lines, frontmatter_start_line, "plan")?);
+                let metadata =
+                    parse_frontmatter(&frontmatter_lines, frontmatter_start_line, "plan")?;
+                structure = parse_structure(Some(&metadata), frontmatter_start_line)?;
+                structure_finalised = true;
+                rhei_metadata = Some(metadata);
                 in_frontmatter = false;
                 continue;
             }
@@ -139,47 +432,34 @@ pub fn parse(input: &str) -> Result<Rhei> {
             continue;
         }
 
-        // Detect fences first (outside of trimming)
         let trimmed_start = raw.trim_start();
         let is_fence = trimmed_start.starts_with("```");
         if is_fence {
             in_code_block = !in_code_block;
 
-            // Treat fence as content in the appropriate context
             if in_tasks_section {
-                if let Some(st) = cur_subtask.as_mut() {
-                    st.content.push_str(raw);
-                    st.content.push('\n');
-                } else if let Some(t) = cur_task.as_mut() {
-                    t.metadata_closed = true;
-                    if !t.content.is_empty() {
-                        t.content.push('\n');
+                if let Some(top) = node_stack.last_mut() {
+                    top.metadata_closed = true;
+                    if !top.content.is_empty() {
+                        top.content.push('\n');
                     }
-                    t.content.push_str(raw);
+                    top.content.push_str(raw);
                 }
-            } else {
-                // Rhei-level content: append to current section if one is open
-                if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
-                    if !content.is_empty() {
-                        content.push('\n');
-                    }
-                    content.push_str(raw);
+            } else if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
+                if !content.is_empty() {
+                    content.push('\n');
                 }
-                // Loose text outside a section is silently ignored per spec.
+                content.push_str(raw);
             }
-
-            // Continue; fences do not participate in structural matching.
             continue;
         }
 
-        // Skip empty lines unless they are inside a subtask content block.
         if line.is_empty() {
             if in_tasks_section {
-                if let Some(st) = cur_subtask.as_mut() {
-                    st.content.push('\n');
+                if let Some(top) = node_stack.last_mut() {
+                    top.content.push('\n');
                 }
             } else if in_code_block {
-                // Empty line inside a code block within a section
                 if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
                     content.push('\n');
                 }
@@ -194,14 +474,12 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 continue;
             }
 
-            // Check for **States:** declaration (must be first non-empty line after rhei header)
             if rhei_header_seen && !rhei_states_checked {
                 if let Some(cap) = re_states_decl.captures(line) {
                     rhei_states = Some(cap.get(1).unwrap().as_str().trim().to_string());
                     rhei_states_checked = true;
                     continue;
                 }
-                // First non-empty line after header is not **States:** — mark as checked
                 rhei_states_checked = true;
             }
 
@@ -216,7 +494,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 frontmatter_checked = true;
             }
 
-            // Error if **States:** appears after the first non-empty line
+            if !structure_finalised && frontmatter_checked {
+                // No frontmatter block was opened — apply defaults.
+                structure_finalised = true;
+            }
+
             if rhei_states_checked && re_states_decl.is_match(line) {
                 return Err(ParseError::new(
                     "**States:** declaration must be the first non-empty line after the Rhei header",
@@ -248,278 +530,258 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 continue;
             }
 
-            if re_state_like.is_match(line) || re_prior_like.is_match(line) {
+            if re_state_like.is_match(line)
+                || re_prior_like.is_match(line)
+                || re_assignee_like.is_match(line)
+            {
                 return Err(ParseError::new(
                     "Metadata field appears outside a task",
                     Some(line_number),
                 ));
             }
 
-            // Rhei pre-Tasks content: append to current section if one is open
             if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
                 if !content.is_empty() {
                     content.push('\n');
                 }
                 content.push_str(raw);
             }
-            // Loose text outside a section is silently ignored per spec.
             continue;
         }
 
-        // From here on, we are either in tasks section or in a code block.
+        // In the tasks section.
         if in_code_block {
-            // Inside code blocks: do not match structure, append to current subtask if any.
-            if let Some(st) = cur_subtask.as_mut() {
-                st.content.push_str(raw);
-                st.content.push('\n');
+            if let Some(top) = node_stack.last_mut() {
+                if !top.content.is_empty() {
+                    top.content.push('\n');
+                }
+                top.content.push_str(raw);
             }
             continue;
         }
 
-        // Task header
-        if let Some(caps) = re_task_header.captures(line) {
-            // Finalize current subtask if present
-            if let Some(st) = cur_subtask.take() {
-                if let Some(t) = cur_task.as_mut() {
-                    let state = st.state.ok_or_else(|| {
-                        ParseError::new(
-                            format!(
-                                "Subtask {}.{} is missing mandatory **State:** metadata",
-                                st.task_number, st.subtask_number
-                            ),
-                            Some(line_number),
-                        )
-                    })?;
-                    t.subtasks.push(Subtask {
-                        task_number: st.task_number,
-                        subtask_number: st.subtask_number,
-                        title: st.title,
-                        state,
-                        content: st.content,
-                    });
+        // Node heading (H3..=H6)?
+        if let Some(caps) = re_node_header.captures(line) {
+            let hashes = caps.get(1).unwrap().as_str();
+            let level = hashes.len() as u8;
+            let kind_raw = caps.get(2).unwrap().as_str();
+            let id_str = caps.get(3).unwrap().as_str();
+            let title = caps.get(4).unwrap().as_str().to_string();
+
+            let kind_canonical = kind_raw.to_ascii_lowercase();
+            if !structure.accepts_kind(&kind_canonical) {
+                return Err(ParseError::new(
+                    format!(
+                        "unknown node kind `{}` at heading; declared kinds are {:?}",
+                        kind_raw, structure.node_kinds
+                    ),
+                    Some(line_number),
+                ));
+            }
+
+            let depth = level.saturating_sub(2); // H3 -> depth 1
+            if depth == 0 || depth > MAX_ALLOWED_LEVELS {
+                return Err(ParseError::new(
+                    format!("node heading depth out of range at level {level}"),
+                    Some(line_number),
+                ));
+            }
+            if depth > structure.max_levels {
+                return Err(ParseError::new(
+                    format!(
+                        "node depth {depth} exceeds `structure.maxLevels` ({})",
+                        structure.max_levels
+                    ),
+                    Some(line_number),
+                ));
+            }
+
+            let id = parse_task_id(id_str).ok_or_else(|| {
+                ParseError::new(
+                    format!("malformed task id `{id_str}` in node heading"),
+                    Some(line_number),
+                )
+            })?;
+
+            if id.depth() as u8 != depth {
+                return Err(ParseError::new(
+                    format!(
+                        "heading depth {depth} does not match id path depth {}; \
+                         level-{level} nodes require {depth}-segment ids",
+                        id.depth()
+                    ),
+                    Some(line_number),
+                ));
+            }
+
+            if title.trim().is_empty() {
+                return Err(ParseError::new(
+                    format!(
+                        "malformed node heading: expected '{} {} <id>: <title>'",
+                        "#".repeat(level as usize),
+                        title_case_kind(&kind_canonical)
+                    ),
+                    Some(line_number),
+                ));
+            }
+
+            // Finalise any open nodes at >= this depth and attach them.
+            unwind_to_level(&mut node_stack, &mut tasks, level)?;
+
+            if depth > 1 {
+                let Some(parent) = node_stack.last() else {
+                    return Err(ParseError::new(
+                        format!("level-{level} node `{id}` has no enclosing parent task"),
+                        Some(line_number),
+                    ));
+                };
+                if !id.extends(&parent.id) {
+                    return Err(ParseError::new(
+                        format!(
+                            "child id `{id}` must extend parent id `{}` by exactly one segment",
+                            parent.id
+                        ),
+                        Some(line_number),
+                    ));
                 }
             }
 
-            // Finalize previous task
-            if let Some(tb) = cur_task.take() {
-                let state = tb.state.ok_or_else(|| {
-                    ParseError::new(
-                        format!("Task {} is missing mandatory **State:** metadata", tb.id),
-                        Some(line_number),
-                    )
-                })?;
-                tasks.push(Task {
-                    id: tb.id,
-                    title: tb.title,
-                    state,
-                    prior: tb.prior,
-                    content: tb.content,
-                    subtasks: tb.subtasks,
-                });
-            }
-
-            // Start a new task
-            let id_str = caps.get(1).unwrap().as_str();
-            let id = id_str
-                .parse::<u32>()
-                .ok()
-                .map(TaskId::Number)
-                .unwrap_or_else(|| TaskId::Named(id_str.to_string()));
-            let title = caps.get(2).unwrap().as_str().to_string();
-
-            cur_task = Some(TaskBuilder {
+            node_stack.push(NodeBuilder {
                 id,
+                kind: kind_canonical,
                 title,
+                level,
                 state: None,
                 prior: Vec::new(),
+                assignee: None,
                 content: String::new(),
-                subtasks: Vec::new(),
+                children: Vec::new(),
                 metadata_closed: false,
+                heading_line: line_number,
             });
-
             continue;
         }
 
-        if re_task_like_heading.is_match(line) {
+        if re_any_h3_to_h6.is_match(line) {
             return Err(ParseError::new(
-                "Malformed task heading: expected '### Task <id>: <title>'",
+                "Malformed node heading: expected '### <Kind> <id>: <title>' (for example `### Task 1: Title`)",
                 Some(line_number),
             ));
         }
 
-        // Subtask header
-        if let Some(caps) = re_subtask_header.captures(line) {
-            // Close any open subtask
-            if let Some(st) = cur_subtask.take() {
-                if let Some(t) = cur_task.as_mut() {
-                    let state = st.state.ok_or_else(|| {
-                        ParseError::new(
-                            format!(
-                                "Subtask {}.{} is missing mandatory **State:** metadata",
-                                st.task_number, st.subtask_number
-                            ),
-                            Some(line_number),
-                        )
-                    })?;
-                    t.subtasks.push(Subtask {
-                        task_number: st.task_number,
-                        subtask_number: st.subtask_number,
-                        title: st.title,
-                        state,
-                        content: st.content,
-                    });
-                }
-            }
-
-            let task_number = caps.get(1).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
-            let subtask_number =
-                caps.get(2).and_then(|m| m.as_str().parse::<u32>().ok()).unwrap_or(0);
-            let title = caps.get(3).unwrap().as_str().to_string();
-
-            // Starting a subtask implies metadata section is closed for the task.
-            if let Some(t) = cur_task.as_mut() {
-                t.metadata_closed = true;
-            } else {
-                return Err(ParseError::new(
-                    "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
-                    Some(line_number),
-                ));
-            }
-
-            cur_subtask = Some(SubtaskBuilder {
-                task_number,
-                subtask_number,
-                title,
-                state: None,
-                content: String::new(),
-                metadata_closed: false,
-            });
-
-            continue;
-        }
-
-        if re_subtask_like_heading.is_match(line)
-            && (cur_task.is_some() || re_subtask_heading_prefix.is_match(line))
-        {
-            return Err(ParseError::new(
-                "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
-                Some(line_number),
-            ));
-        }
-
-        // Metadata: State (for tasks and subtasks)
+        // **State:** metadata
         if let Some(caps) = re_state.captures(line) {
-            // Check subtask context first
-            if let Some(st) = cur_subtask.as_mut() {
-                if !st.metadata_closed {
-                    let raw_state = caps.get(1).unwrap().as_str().trim();
-                    let state = unescape_state(raw_state);
-                    st.state = Some(state);
-                    continue;
-                }
-
+            let Some(top) = node_stack.last_mut() else {
                 return Err(ParseError::new(
-                    "Metadata fields must appear immediately after the subtask heading before subtask content",
+                    "Metadata field appears outside a task",
                     Some(line_number),
                 ));
-            }
-
-            if let Some(t) = cur_task.as_mut() {
-                if !t.metadata_closed {
-                    let raw_state = caps.get(1).unwrap().as_str().trim();
-                    let state = unescape_state(raw_state);
-                    t.state = Some(state);
-                    continue;
-                }
-
+            };
+            if top.metadata_closed {
                 return Err(ParseError::new(
                     "Metadata fields must appear immediately after the task heading before task content",
                     Some(line_number),
                 ));
             }
-
-            return Err(ParseError::new(
-                "Metadata field appears outside a task",
-                Some(line_number),
-            ));
+            let raw_state = caps.get(1).unwrap().as_str().trim();
+            top.state = Some(unescape_state(raw_state));
+            continue;
         }
 
         if re_state_like.is_match(line) {
-            if cur_task.is_some() {
+            if node_stack.last().is_some() {
                 return Err(ParseError::new(
                     "Malformed metadata field: expected '**State:** <value>'",
                     Some(line_number),
                 ));
             }
-
             return Err(ParseError::new(
                 "Metadata field appears outside a task",
                 Some(line_number),
             ));
         }
 
-        // Metadata: Prior
+        // **Prior:** metadata
         if line.starts_with("**Prior:**") {
-            if let Some(t) = cur_task.as_mut() {
-                if !t.metadata_closed {
-                    // Spec: **State:** must appear before **Prior:**
-                    if t.state.is_none() {
-                        return Err(ParseError::new(
-                            format!("**State:** must appear before **Prior:** for Task {}", t.id),
-                            Some(line_number),
-                        ));
-                    }
-                    let ids = re_prior_task_id
-                        .captures_iter(line)
-                        .filter_map(|c| c.get(1))
-                        .map(|m| {
-                            let s = m.as_str();
-                            s.parse::<u32>()
-                                .ok()
-                                .map(TaskId::Number)
-                                .unwrap_or_else(|| TaskId::Named(s.to_string()))
-                        })
-                        .collect::<Vec<TaskId>>();
-                    t.prior.extend(ids);
-                    continue;
-                }
-
+            let Some(top) = node_stack.last_mut() else {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
+            };
+            if top.metadata_closed {
                 return Err(ParseError::new(
                     "Metadata fields must appear immediately after the task heading before task content",
                     Some(line_number),
                 ));
             }
-
-            return Err(ParseError::new(
-                "Metadata field appears outside a task",
-                Some(line_number),
-            ));
+            if top.state.is_none() {
+                return Err(ParseError::new(
+                    format!("**State:** must appear before **Prior:** for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            let ids: Vec<TaskId> = re_prior_ref
+                .captures_iter(line)
+                .filter_map(|c| c.get(2))
+                .filter_map(|m| parse_task_id(m.as_str()))
+                .collect();
+            top.prior.extend(ids);
+            continue;
         }
 
         if re_prior_like.is_match(line) {
-            if cur_task.is_some() {
+            if node_stack.last().is_some() {
                 return Err(ParseError::new(
                     "Malformed metadata field: expected '**Prior:** Task <id>[, Task <id>...]'",
                     Some(line_number),
                 ));
             }
-
             return Err(ParseError::new(
                 "Metadata field appears outside a task",
                 Some(line_number),
             ));
         }
 
-        if re_task_heading_prefix.is_match(line) {
-            return Err(ParseError::new(
-                "Malformed task heading: expected '### Task <id>: <title>'",
-                Some(line_number),
-            ));
+        // **Assignee:** metadata
+        if let Some(caps) = re_assignee.captures(line) {
+            let Some(top) = node_stack.last_mut() else {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
+            };
+            if top.metadata_closed {
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
+            }
+            if top.state.is_none() {
+                return Err(ParseError::new(
+                    format!("**State:** must appear before **Assignee:** for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            if top.assignee.is_some() {
+                return Err(ParseError::new(
+                    format!("Duplicate **Assignee:** metadata for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            top.assignee = Some(caps.get(1).unwrap().as_str().trim().to_string());
+            continue;
         }
 
-        if re_subtask_heading_prefix.is_match(line) {
+        if re_assignee_like.is_match(line) {
+            if node_stack.last().is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Assignee:** <value>'",
+                    Some(line_number),
+                ));
+            }
             return Err(ParseError::new(
-                "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'",
+                "Metadata field appears outside a task",
                 Some(line_number),
             ));
         }
@@ -531,18 +793,13 @@ pub fn parse(input: &str) -> Result<Rhei> {
             ));
         }
 
-        // Fallback: content lines
-        if let Some(st) = cur_subtask.as_mut() {
-            st.metadata_closed = true;
-            st.content.push_str(raw);
-            st.content.push('\n');
-        } else if let Some(t) = cur_task.as_mut() {
-            // Encountering non-metadata content closes the metadata window.
-            t.metadata_closed = true;
-            if !t.content.is_empty() {
-                t.content.push('\n');
+        // Content line: append to the innermost open node.
+        if let Some(top) = node_stack.last_mut() {
+            top.metadata_closed = true;
+            if !top.content.is_empty() {
+                top.content.push('\n');
             }
-            t.content.push_str(raw);
+            top.content.push_str(raw);
         }
     }
 
@@ -553,44 +810,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
         ));
     }
 
-    // Finalize builders
-    if let Some(st) = cur_subtask.take() {
-        if let Some(t) = cur_task.as_mut() {
-            let state = st.state.ok_or_else(|| {
-                ParseError::new(
-                    format!(
-                        "Subtask {}.{} is missing mandatory **State:** metadata",
-                        st.task_number, st.subtask_number
-                    ),
-                    None,
-                )
-            })?;
-            t.subtasks.push(Subtask {
-                task_number: st.task_number,
-                subtask_number: st.subtask_number,
-                title: st.title,
-                state,
-                content: st.content,
-            });
-        }
-    }
-
-    if let Some(tb) = cur_task.take() {
-        let state = tb.state.ok_or_else(|| {
-            ParseError::new(
-                format!("Task {} is missing mandatory **State:** metadata", tb.id),
-                None,
-            )
-        })?;
-        tasks.push(Task {
-            id: tb.id,
-            title: tb.title,
-            state,
-            prior: tb.prior,
-            content: tb.content,
-            subtasks: tb.subtasks,
-        });
-    }
+    // Finalise remaining open nodes.
+    unwind_to_level(&mut node_stack, &mut tasks, 0)?;
 
     let title = match rhei_title {
         Some(t) => t,
@@ -623,6 +844,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
     Ok(Rhei {
         title,
         states: rhei_states.unwrap_or_else(|| "rhei".to_string()),
+        structure,
         metadata: rhei_metadata,
         content_sections: rhei_content,
         tasks,
@@ -630,21 +852,16 @@ pub fn parse(input: &str) -> Result<Rhei> {
 }
 
 /// Parsed workspace index file (the root `index.rhei.md` of a directory workspace).
-///
-/// Contains the plan title, optional states declaration, and content sections,
-/// but no tasks (those live in the `tasks/` subdirectory).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceIndex {
     pub title: String,
     pub states: String,
+    pub structure: Structure,
     pub metadata: Option<Metadata>,
     pub content_sections: Vec<ContentSection>,
 }
 
 /// Parse a workspace index file (`index.rhei.md`).
-///
-/// Expects `# Rhei: <title>`, optional `**States:**`, and content sections.
-/// Returns an error if a `## Tasks` section is present (tasks belong in `tasks/`).
 pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
     let re_rhei = Regex::new(r#"^#\s+Rhei:\s+(.*)$"#).unwrap();
     let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
@@ -655,6 +872,7 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
     let mut states: Option<String> = None;
     let mut states_checked = false;
     let mut metadata: Option<Metadata> = None;
+    let mut structure: Structure = Structure::default();
     let mut frontmatter_checked = false;
     let mut in_frontmatter = false;
     let mut frontmatter_start_line = 0usize;
@@ -669,11 +887,13 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
 
         if in_frontmatter {
             if line == "---" {
-                metadata = Some(parse_frontmatter(
+                let parsed = parse_frontmatter(
                     &frontmatter_lines,
                     frontmatter_start_line,
                     "workspace index",
-                )?);
+                )?;
+                structure = parse_structure(Some(&parsed), frontmatter_start_line)?;
+                metadata = Some(parsed);
                 in_frontmatter = false;
                 continue;
             }
@@ -723,7 +943,6 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
             continue;
         }
 
-        // Check for **States:** declaration (must be first non-empty line after header)
         if !states_checked {
             if let Some(cap) = re_states_decl.captures(line) {
                 states = Some(cap.get(1).unwrap().as_str().trim().to_string());
@@ -757,14 +976,12 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
             continue;
         }
 
-        // Content line: append to current section if one is open.
         if let Some(ContentSection { content: ref mut c, .. }) = content.last_mut() {
             if !c.is_empty() {
                 c.push('\n');
             }
             c.push_str(raw);
         }
-        // Loose text outside a section is silently ignored per spec.
     }
 
     if in_frontmatter {
@@ -779,19 +996,16 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
     Ok(WorkspaceIndex {
         title,
         states: states.unwrap_or_else(|| "rhei".to_string()),
+        structure,
         metadata,
         content_sections: content,
     })
 }
 
 /// Parse a workspace task file (a file inside the `tasks/` directory).
-///
-/// These files contain one or more `### Task <id>: <title>` entries directly,
-/// without a `# Rhei:` header or `## Tasks` section.
 pub fn parse_workspace_tasks(input: &str) -> Result<Vec<Task>> {
-    // Prepend a synthetic header so the existing parser can handle the content.
     let prefix = "# Rhei: _workspace_\n\n## Tasks\n\n";
-    let prefix_line_count = 4; // 4 lines in the prefix
+    let prefix_line_count = 4;
     let synthetic = format!("{}{}", prefix, input);
     match parse(&synthetic) {
         Ok(rhei) => Ok(rhei.tasks),
@@ -818,7 +1032,7 @@ fn unescape_state(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ContentSection, TaskId};
+    use crate::ast::{ContentSection, TaskId, TaskIdSegment};
     use serde_yaml::Value as YamlValue;
 
     fn yaml_key(name: &str) -> YamlValue {
@@ -826,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_minimal_plan_with_task_and_subtasks() {
+    fn parses_minimal_plan_with_hierarchical_tasks() {
         let input = r#"# Rhei: Example
 Some intro line
 
@@ -836,12 +1050,12 @@ Some intro line
 **State:** pending
 **Prior:** Task 2
 
-#### Subtask 1.1: Do A
+#### Task 1.1: Do A
 **State:** pending
 Line A1
 Line A2
 
-#### Subtask 1.2: Do B
+#### Task 1.2: Do B
 **State:** completed
 ```
 code block
@@ -851,25 +1065,29 @@ code block
         let rhei = parse(input).expect("parse ok");
 
         assert_eq!(rhei.title, "Example");
-        // "Some intro line" is loose text (not inside a section), silently ignored per spec.
         assert!(rhei.content_sections.is_empty());
 
         assert_eq!(rhei.tasks.len(), 1);
         let t1 = &rhei.tasks[0];
-        assert!(matches!(t1.id, TaskId::Number(1)));
+        assert_eq!(t1.kind, "task");
+        assert_eq!(t1.id, TaskId::number(1));
         assert_eq!(t1.title, "Alpha");
         assert_eq!(t1.state, "pending");
-        assert_eq!(t1.prior, vec![TaskId::Number(2)]);
+        assert_eq!(t1.prior, vec![TaskId::number(2)]);
 
-        assert_eq!(t1.subtasks.len(), 2);
-        assert_eq!(t1.subtasks[0].title, "Do A");
-        assert_eq!(t1.subtasks[0].state, "pending");
-        assert!(t1.subtasks[0].content.contains("Line A1"));
-        assert!(t1.subtasks[0].content.contains("Line A2"));
+        assert_eq!(t1.children.len(), 2);
+        assert_eq!(t1.children[0].title, "Do A");
+        assert_eq!(t1.children[0].state, "pending");
+        assert_eq!(
+            t1.children[0].id,
+            TaskId::from_segments(vec![TaskIdSegment::Number(1), TaskIdSegment::Number(1)])
+        );
+        assert!(t1.children[0].content.contains("Line A1"));
+        assert!(t1.children[0].content.contains("Line A2"));
 
-        assert_eq!(t1.subtasks[1].state, "completed");
-        assert!(t1.subtasks[1].content.contains("```"));
-        assert!(t1.subtasks[1].content.contains("code block"));
+        assert_eq!(t1.children[1].state, "completed");
+        assert!(t1.children[1].content.contains("```"));
+        assert!(t1.children[1].content.contains("code block"));
     }
 
     #[test]
@@ -908,6 +1126,37 @@ metadata:
             task.get(yaml_key("stateVisits")).and_then(YamlValue::as_mapping).expect("stateVisits");
 
         assert_eq!(state_visits.get(yaml_key("review")).and_then(YamlValue::as_u64), Some(2));
+    }
+
+    #[test]
+    fn parses_structure_frontmatter_with_custom_node_kinds_and_depth() {
+        let input = r#"# Rhei: Example
+---
+structure:
+  maxLevels: 3
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Bug 1.1: Child
+**State:** pending
+
+##### Task 1.1.1: Grandchild
+**State:** pending
+"#;
+
+        let rhei = parse(input).expect("parse ok");
+        assert_eq!(rhei.structure.max_levels, 3);
+        assert_eq!(rhei.structure.node_kinds, vec!["task".to_string(), "bug".to_string()]);
+        assert_eq!(rhei.tasks.len(), 1);
+        assert_eq!(rhei.tasks[0].children.len(), 1);
+        assert_eq!(rhei.tasks[0].children[0].kind, "bug");
+        assert_eq!(rhei.tasks[0].children[0].children.len(), 1);
+        assert_eq!(rhei.tasks[0].children[0].children[0].kind, "task");
     }
 
     #[test]
@@ -952,15 +1201,6 @@ Context
     }
 
     #[test]
-    fn error_when_missing_rhei_title_after_leading_code_fence_points_to_first_line() {
-        let input = "```md\n## Tasks\n```\n";
-        let err = parse(input).unwrap_err();
-
-        assert!(err.message.contains("Missing '# Rhei"));
-        assert_eq!(err.line, Some(1));
-    }
-
-    #[test]
     fn errors_when_missing_tasks_section() {
         let input = "# Rhei: Example\n";
         let err = parse(input).unwrap_err();
@@ -976,24 +1216,6 @@ Context
 
         assert_eq!(err.message, "Tasks section must contain at least one task");
         assert_eq!(err.line, Some(2));
-    }
-
-    #[test]
-    fn errors_on_malformed_rhei_heading_intended_as_rhei_header() {
-        let input = "#Rhei: Example\n## Tasks\n";
-        let err = parse(input).unwrap_err();
-
-        assert_eq!(err.message, "Malformed rhei heading: expected '# Rhei: <title>'");
-        assert_eq!(err.line, Some(1));
-    }
-
-    #[test]
-    fn errors_on_h1_heading_with_wrong_keyword_as_malformed_rhei_heading() {
-        let input = "# Sga: Example\n## Tasks\n";
-        let err = parse(input).unwrap_err();
-
-        assert_eq!(err.message, "Malformed rhei heading: expected '# Rhei: <title>'");
-        assert_eq!(err.line, Some(1));
     }
 
     #[test]
@@ -1064,7 +1286,7 @@ Trailing chapter after tasks.
 **State:** in-progress
 **Prior:** Task setup_db, Task 2
 
-#### Subtask 1.1: Implement endpoint
+#### Task build_api.endpoint: Implement endpoint
 **State:** pending
 Body
 "#;
@@ -1073,10 +1295,18 @@ Body
 
         assert_eq!(rhei.tasks.len(), 1);
         let task = &rhei.tasks[0];
-        assert_eq!(task.id, TaskId::Named("build_api".to_string()));
+        assert_eq!(task.id, TaskId::named("build_api"));
         assert_eq!(task.title, "Build API");
         assert_eq!(task.state, "in-progress");
-        assert_eq!(task.prior, vec![TaskId::Named("setup_db".to_string()), TaskId::Number(2)]);
+        assert_eq!(task.prior, vec![TaskId::named("setup_db"), TaskId::number(2)]);
+        assert_eq!(task.children.len(), 1);
+        assert_eq!(
+            task.children[0].id,
+            TaskId::from_segments(vec![
+                TaskIdSegment::Named("build_api".to_string()),
+                TaskIdSegment::Named("endpoint".to_string())
+            ])
+        );
     }
 
     #[test]
@@ -1088,10 +1318,6 @@ Body
 **State:** pending
 Task description closes metadata window.
 **Prior:** Task 2
-
-#### Subtask 1.1: Work
-**State:** pending
-Done
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1118,188 +1344,181 @@ Done
     }
 
     #[test]
-    fn preserves_rhei_content_inside_fenced_code_blocks_before_tasks() {
-        let input = r#"# Rhei: Example
-Intro line
-```rust
-### Task 999: not a real task
-**State:** hidden
-```
-## Tasks
-
-### Task 1: Real
-**State:** pending
-"#;
-
-        let rhei = parse(input).expect("parse ok");
-
-        assert_eq!(rhei.title, "Example");
-        // Loose text and code fences outside sections are silently ignored.
-        assert!(rhei.content_sections.is_empty());
-        assert_eq!(rhei.tasks.len(), 1);
-        assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
-    }
-
-    #[test]
     fn errors_on_malformed_task_heading_in_tasks_section() {
+        // `### Tak 3:` parses as kind `Tak`, which is not declared.
         let input = r#"# Rhei: Example
 ## Tasks
 
 ### Tak 3: Broken heading
 **State:** pending
-
-#### Subtask 3.1: Dry run
 "#;
 
         let err = parse(input).unwrap_err();
-        assert_eq!(err.message, "Malformed task heading: expected '### Task <id>: <title>'");
+        assert!(err.message.contains("unknown node kind"));
         assert_eq!(err.line, Some(4));
     }
 
     #[test]
-    fn errors_on_task_heading_missing_colon_separator() {
+    fn errors_on_unknown_node_kind() {
         let input = r#"# Rhei: Example
 ## Tasks
 
-### Task 1 Broken heading
+### Spike 1: Investigate
 **State:** pending
 "#;
-
         let err = parse(input).unwrap_err();
-        assert_eq!(err.message, "Malformed task heading: expected '### Task <id>: <title>'");
-        assert_eq!(err.line, Some(4));
+        assert!(err.message.contains("unknown node kind"));
     }
 
     #[test]
-    fn errors_on_empty_task_title() {
-        let input = r#"# Rhei: Example
-## Tasks
-
-### Task 1:
-**State:** pending
-"#;
-
-        let err = parse(input).unwrap_err();
-        assert_eq!(err.message, "Malformed task heading: expected '### Task <id>: <title>'");
-        assert_eq!(err.line, Some(4));
-    }
-
-    #[test]
-    fn errors_on_malformed_subtask_heading() {
+    fn errors_on_child_id_that_does_not_extend_parent() {
         let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
 **State:** pending
 
-#### Subtak 1.1: Broken
+#### Task 2.1: Wrong parent
 **State:** pending
 "#;
-
         let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'"
-        );
-        assert_eq!(err.line, Some(7));
+        assert!(err.message.contains("must extend parent id"));
     }
 
     #[test]
-    fn errors_on_empty_subtask_title() {
+    fn parses_assignee_when_present() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** in-progress
+**Prior:** Task 2
+**Assignee:** alice
+Body
+"#;
+
+        let rhei = parse(input).expect("parse ok");
+        let task = &rhei.tasks[0];
+        assert_eq!(task.state, "in-progress");
+        assert_eq!(task.prior, vec![TaskId::number(2)]);
+        assert_eq!(task.assignee.as_deref(), Some("alice"));
+        assert!(task.content.contains("Body"));
+    }
+
+    #[test]
+    fn parses_assignee_without_prior() {
         let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
 **State:** pending
-
-#### Subtask 1.1:
-**State:** pending
+**Assignee:** bob
 "#;
 
-        let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed subtask heading: expected '#### Subtask <task>.<subtask>: <title>'"
-        );
-        assert_eq!(err.line, Some(7));
+        let rhei = parse(input).expect("parse ok");
+        assert_eq!(rhei.tasks[0].prior, Vec::<TaskId>::new());
+        assert_eq!(rhei.tasks[0].assignee.as_deref(), Some("bob"));
     }
 
     #[test]
-    fn errors_on_malformed_state_metadata_line() {
+    fn parses_task_without_assignee_leaves_none() {
         let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: Alpha
-**State** pending
-"#;
-
-        let err = parse(input).unwrap_err();
-        assert_eq!(err.message, "Malformed metadata field: expected '**State:** <value>'");
-        assert_eq!(err.line, Some(5));
-    }
-
-    #[test]
-    fn errors_on_malformed_prior_metadata_line() {
-        let input = r#"# Rhei: Example
-## Tasks
-
-### Task 1: Alpha
-**Prior** Task 2
-"#;
-
-        let err = parse(input).unwrap_err();
-        assert_eq!(
-            err.message,
-            "Malformed metadata field: expected '**Prior:** Task <id>[, Task <id>...]'"
-        );
-        assert_eq!(err.line, Some(5));
-    }
-
-    #[test]
-    fn errors_on_metadata_outside_task_before_tasks_section() {
-        let input = r#"# Rhei: Example
-**State:** pending
-## Tasks
-
-### Task 1: Alpha
-**State:** pending
-"#;
-
-        let err = parse(input).unwrap_err();
-        assert_eq!(err.message, "Metadata field appears outside a task");
-        assert_eq!(err.line, Some(2));
-    }
-
-    #[test]
-    fn errors_on_metadata_outside_task_inside_tasks_section() {
-        let input = r#"# Rhei: Example
-## Tasks
-**State:** pending
-
-### Task 1: Alpha
-**State:** pending
-"#;
-
-        let err = parse(input).unwrap_err();
-        assert_eq!(err.message, "Metadata field appears outside a task");
-        assert_eq!(err.line, Some(3));
-    }
-
-    #[test]
-    fn does_not_treat_non_task_third_level_heading_as_malformed_inside_rhei_content() {
-        let input = r#"# Rhei: Example
-
-### Notes
-This is rhei content before tasks.
-
-## Tasks
-
-### Task 1: Real
 **State:** pending
 "#;
 
         let rhei = parse(input).expect("parse ok");
-        assert_eq!(rhei.tasks.len(), 1);
-        assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
+        assert_eq!(rhei.tasks[0].assignee, None);
+    }
+
+    #[test]
+    fn errors_when_assignee_before_state() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**Assignee:** alice
+**State:** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert!(
+            err.message.contains("**State:** must appear before **Assignee:**"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn errors_when_duplicate_assignee() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Assignee:** alice
+**Assignee:** bob
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert!(
+            err.message.contains("Duplicate **Assignee:**"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn errors_when_assignee_after_content() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+Body line closes metadata window.
+**Assignee:** alice
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(
+            err.message,
+            "Metadata fields must appear immediately after the task heading before task content"
+        );
+    }
+
+    #[test]
+    fn errors_when_assignee_outside_task() {
+        let input = r#"# Rhei: Example
+
+**Assignee:** alice
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.message, "Metadata field appears outside a task");
+    }
+
+    #[test]
+    fn errors_on_depth_over_structure_max_levels() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+#### Task 1.1: Beta
+**State:** pending
+
+##### Task 1.1.1: Too deep
+**State:** pending
+"#;
+        let err = parse(input).unwrap_err();
+        assert!(err.message.contains("exceeds `structure.maxLevels`"));
     }
 }

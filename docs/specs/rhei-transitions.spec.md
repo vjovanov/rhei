@@ -219,7 +219,7 @@ Directory Workspaces. Core markdown task fields such as `**State:**`,
 `**Prior:**`, `**Assignee:**`, and `> **Result:**` remain authored in markdown
 rather than frontmatter.
 
-**Naming conventions:**
+### Naming conventions
 - In markdown syntax: Use `**Prior:** Task N` to declare dependencies
 - In TypeScript/JavaScript: Access via `task.metadata.dependsOn` (camelCase)
 - In Python: Access via `task.metadata.depends_on` (snake_case, idiomatic Python)
@@ -315,7 +315,7 @@ For counted loops, runtimes should additionally expose:
 
 ## Transition Triggers
 
-Transitions can be triggered in four ways, reflected in the `triggeredBy` field:
+Transitions can be produced by seven distinct mechanisms. The `triggeredBy` field has four values (`user`, `callback`, `system`, `engine`) that classify these mechanisms — the three system-driven mechanisms (program exit-code, agent timeout, tooling-unavailable) all report `triggeredBy: 'system'`:
 
 ### 1. User Trigger (`triggeredBy: 'user'`)
 
@@ -617,7 +617,7 @@ Model selection rules:
 - `visits` may also be combined with either `all_targets` or `target`.
 - `visits`, when present, must be an integer greater than or equal to `1`.
 - `inputs` and `outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
-- Artifact `path` values are workspace-relative templates. After expansion, they must remain within the workspace root.
+- Artifact `path` values are execution-root-relative templates; see [main spec — State Artifact Contracts](../rhei.spec.md#10-state-artifact-contracts) for the definition of execution root. After expansion, they must remain within that root.
 
 Artifact definition:
 
@@ -650,6 +650,11 @@ Supported template variables:
 - `{model.name}` - current provider model name
 
 ### Counted Loops
+
+This section describes the runtime semantics of the `visits` field, also
+called *counted visits* in the main plan specification and the states
+specification. The three terms — `visits`, *counted visits*, and *counted
+loops* — refer to the same mechanism.
 
 `visits` is a state-level loop budget. It is used when a workflow intentionally cycles through the same state multiple times before taking a non-loop exit.
 
@@ -743,7 +748,7 @@ transitions:
 
 ### Artifact Enforcement
 
-State artifact contracts are enforced around transitions:
+State artifact contracts (see [States Specification — Artifact Contracts](rhei-states.spec.md#artifact-contracts) for the schema) are enforced around transitions:
 
 1. Before entering a target state, the runtime resolves `target.inputs` and
    rejects the transition if any required input file does not exist.

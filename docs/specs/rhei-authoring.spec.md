@@ -21,7 +21,7 @@ one task with a `**State:**` field:
 Save this file with a `.rhei.md` extension, then validate it:
 
 ```bash
-cargo run -p rhei-cli -- validate my-plan.rhei.md
+rhei validate my-plan.rhei.md
 ```
 
 When no `**States:**` field is declared, the plan uses the built-in `rhei`
@@ -36,19 +36,19 @@ A typical plan grows in three passes:
 2. **Break down** — add a `## Tasks` section and enumerate tasks with
    numeric or named ids. Give every task a `**State:**` (usually `draft`
    or `pending`) and a short description.
-3. **Refine** — add `**Prior:**` dependencies, split tasks into subtasks,
-   and transition states as work progresses.
+3. **Refine** — add `**Prior:**` dependencies, split tasks into child
+   task nodes, and transition states as work progresses.
 
 Keep content sections before `## Tasks`. Everything after `## Tasks` is
 parsed as task structure.
 
-## Tasks and Subtasks
+## Tasks and Child Tasks
 
 ### Numeric vs named tasks
 
-Numeric task ids (`### Task 1:`) are ordered and may contain subtasks.
+Numeric task ids (`### Task 1:`) are ordered and may contain child tasks.
 Named task ids (`### Task setup:`) are useful for conceptual anchors that
-other tasks depend on — they must not declare subtasks.
+other tasks depend on — they must not declare child tasks.
 
 ```markdown
 ### Task infra: Provision cloud resources
@@ -59,21 +59,49 @@ other tasks depend on — they must not declare subtasks.
 **Prior:** Task infra
 ```
 
-### Subtasks
+### Child task nodes
 
-Subtasks belong to the task with the matching first number. They track
-fine-grained progress inside a larger task but do not carry their own
-`**State:**` metadata — their status is tracked by the agent writing
-progress logs in the subtask body. It is the agent's responsibility to
-address all subtasks before calling `rhei complete` on the parent task.
+Root tasks live at `###` (H3). Child tasks are declared at the next heading
+level (`####`, H4), their children at `#####` (H5), and so on. A child task
+is a full task node — it carries its own `**State:**` line and may declare
+`**Prior:**` dependencies just like a root task.
+
+Child ids extend the parent id by exactly one segment, joined with a dot.
+So children of `Task 2` are `Task 2.1`, `Task 2.2`, …; a child of
+`Task api.cache` is `Task api.cache.fix`. Numeric segments are ordered;
+named segments are arbitrary labels. Duplicate sibling ids under one parent
+are rejected.
 
 ```markdown
 ### Task 2: Implement login flow
-**State:** in-progress
+**State:** pending
 
-#### Subtask 2.1: Wire OAuth callback
-#### Subtask 2.2: Persist session tokens
+#### Task 2.1: Wire OAuth callback
+**State:** pending
+
+#### Task 2.2: Persist session tokens
+**State:** pending
+**Prior:** Task 2.1
 ```
+
+### Depth and node kinds
+
+By default a plan permits a root task plus one level of children, using
+only the `Task` node kind. Plans that need deeper trees or additional
+kinds (for example `Bug`) may declare a `structure` block in the plan
+frontmatter:
+
+```yaml
+structure:
+  maxLevels: 4
+  nodeKinds: [task, bug]
+```
+
+`maxLevels` counts from the root (a root task alone has `maxLevels: 1`;
+root plus direct children is `maxLevels: 2`). Validation rejects nodes
+that exceed the declared depth or use a heading kind not listed in
+`nodeKinds`. When `structure` is omitted, the defaults are
+`maxLevels: 2, nodeKinds: [task]`.
 
 ## Metadata
 
@@ -110,6 +138,12 @@ acyclic.
 **Prior:** Task 1, Task design, Task 4
 ```
 
+`**Prior:**` is the markdown authoring form. SDKs expose the same data under
+idiomatic names — `task.metadata.dependsOn` (TypeScript/JavaScript, Java,
+CLI JSON) or `task.metadata.depends_on` (Python). See
+[Transitions Specification — Naming conventions](rhei-transitions.spec.md#naming-conventions)
+for the full table.
+
 ## Using a Custom State Machine
 
 To reuse one state machine across plans, declare it on the line directly
@@ -127,7 +161,7 @@ workspaces). Pass `--state-machine <path>` only when you want to override
 that automatic lookup:
 
 ```bash
-cargo run -p rhei-cli -- validate plans/content-refresh.rhei.md
+rhei validate plans/content-refresh.rhei.md
 ```
 
 See the [States Specification](rhei-states.spec.md) for the states file format.
@@ -138,15 +172,15 @@ See the [States Specification](rhei-states.spec.md) for the states file format.
   `**State:**` line.
 - **Metadata out of order** — `**Prior:**` must come after `**State:**`,
   not before.
-- **Subtask under a named task** — only numeric task ids may own
-  subtasks.
+- **Child task under a named task** — only numeric task ids may own
+  child tasks.
 - **Cross-plan references** — `**Prior:**` only resolves within one
   document; to model cross-plan dependencies, keep those tasks in the
   same file.
 - **Unknown state** — validation fails if a `**State:**` value is not
   declared in the active states file.
 - **Duplicate ids** — two tasks with the same id (numeric or named) are
-  rejected, as are duplicate subtask numbers under one parent.
+  rejected, as are duplicate child task ids under one parent.
 
 ## Worked Examples
 
@@ -154,7 +188,7 @@ The [`examples/`](../../examples/) directory contains end-to-end plans that
 exercise the patterns above:
 
 - [`release-automation.rhei.md`](../../examples/release-automation.rhei.md) —
-  mixed numeric and named task ids with fenced code inside a subtask.
+  mixed numeric and named task ids with fenced code inside a child task.
 - [`human-review-loop.rhei.md`](../../examples/human-review-loop.rhei.md) —
   multi-state workflow with chained dependencies.
 - [`escaped-state-values.rhei.md`](../../examples/escaped-state-values.rhei.md) —
@@ -225,7 +259,7 @@ Rhei: <title>
   …
 * Task <id>: <title>  [STATE]
   - Prior: Task <id>, …          (omitted when empty)
-  - <id>.<sub>: <subtask title>
+  - <id>.<sub>: <child task title>
   …
 ```
 

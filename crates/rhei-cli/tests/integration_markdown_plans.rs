@@ -43,9 +43,13 @@ fn visit_count_from_metadata(
     let metadata = metadata?;
     let metadata_section = metadata.get(yaml_key("metadata"))?.as_mapping()?;
     let tasks = metadata_section.get(yaml_key("tasks"))?.as_mapping()?;
-    let task_key = match task_id {
-        TaskId::Number(n) => serde_yaml::to_value(*n).ok()?,
-        TaskId::Named(name) => yaml_key(name),
+    let task_key = if let Some(n) = task_id.as_number() {
+        serde_yaml::to_value(n).ok()?
+    } else if let Some(name) = task_id.as_named() {
+        yaml_key(name)
+    } else {
+        // Dotted ids are serialized as their dotted string form.
+        yaml_key(&task_id.to_string())
     };
     let task = tasks.get(task_key)?.as_mapping()?;
     let state_visits = task.get(yaml_key("stateVisits"))?.as_mapping()?;
@@ -59,11 +63,11 @@ const CLI_VALID_PLAN: &str = r#"# Rhei: Release Automation Rollout
 ### Task 1: Define pipeline contracts
 **State:** completed
 
-#### Subtask 1.1: Capture deployment events
+#### Task 1.1: Capture deployment events
 **State:** completed
 List all event types emitted by the deployment system.
 
-#### Subtask 1.2: Record rollback contract
+#### Task 1.2: Record rollback contract
 **State:** completed
 ```yaml
 rollback:
@@ -74,7 +78,7 @@ rollback:
 **State:** in-progress
 **Prior:** Task 1
 
-#### Subtask 2.1: Provision staging secrets
+#### Task 2.1: Provision staging secrets
 **State:** in-progress
 Create and store staging credentials.
 
@@ -82,11 +86,15 @@ Create and store staging credentials.
 **State:** pending
 **Prior:** Task 1, Task 2
 
-#### Subtask 3.1: Dry run in staging
+#### Task 3.1: Dry run in staging
 **State:** pending
 Run the bot in dry-run mode against staging.
 "#;
 
+// The first parse error the parser should surface is the malformed `### Tak 3:`
+// heading at line 20 (unknown node kind). Earlier tasks are intentionally
+// well-formed so this regression test can confirm that the malformed top-level
+// heading is reported before any later child-id extension concerns.
 const CLI_PRIMARY_ERROR_REGRESSION_PLAN: &str = r#"# Rhei: Release Automation Rollout
 
 ## Tasks
@@ -94,23 +102,23 @@ const CLI_PRIMARY_ERROR_REGRESSION_PLAN: &str = r#"# Rhei: Release Automation Ro
 ### Task 1: Define pipeline contracts
 **State:** completed
 
-#### Subtask 1.1: Capture deployment events
+#### Task 1.1: Capture deployment events
 **State:** completed
 List all event types emitted by the deployment system.
 
-### Task bootstrap_env: Bootstrap environments
+### Task 2: Bootstrap environments
 **State:** in-progress
 **Prior:** Task 1
 
-#### Subtask 2.1: Provision staging secrets
+#### Task 2.1: Provision staging secrets
 **State:** in-progress
 Create and store staging credentials.
 
 ### Tak 3: Roll out release bot
 **State:** pending
-**Prior:** Task 1, Task bootstrap_env
+**Prior:** Task 1, Task 2
 
-#### Subtask 3.1: Dry run in staging
+#### Task 3.1: Dry run in staging
 **State:** pending
 Run the bot in dry-run mode against staging.
 "#;
@@ -318,8 +326,8 @@ fn valid_plan_parses_validates_and_renders_across_crates() {
 
     assert_eq!(rhei.title, "Release Automation Rollout");
     assert_eq!(rhei.tasks.len(), 3);
-    assert_eq!(rhei.tasks[0].id, TaskId::Number(1));
-    assert_eq!(rhei.tasks[1].id, TaskId::Number(2));
+    assert_eq!(rhei.tasks[0].id, TaskId::number(1));
+    assert_eq!(rhei.tasks[1].id, TaskId::number(2));
     assert_eq!(rhei.tasks[2].prior.len(), 2);
 
     let json = to_json_value(&rhei);
@@ -330,7 +338,7 @@ fn valid_plan_parses_validates_and_renders_across_crates() {
     assert!(github.contains("### Task 1: Define pipeline contracts"));
     assert!(github.contains("### Task 2: Bootstrap environments"));
     assert!(github.contains("- Prior: Task 1, Task 2"));
-    assert!(github.contains("- [ ] 3.1: Dry run in staging"));
+    assert!(github.contains("#### Task 3.1: Dry run in staging"));
 
     let progress = ProgressReportOutput { color: false, show_dependencies: true }.to_string(&rhei);
     assert!(progress.contains("Rhei: Release Automation Rollout"));
@@ -348,8 +356,10 @@ fn invalid_plan_reports_cross_component_validation_failures() {
     assert!(report.has_errors(), "expected semantic validation errors");
     let joined = report.errors.join("\n");
 
-    assert!(joined
-        .contains("Subtask 2.1 ('Wrong subtask parent') is under Task 1 but declares parent 2"));
+    // The "subtask under wrong parent" assertion was removed: the rule that a
+    // child id must extend its parent's id is now enforced by the parser, not
+    // the validator, so a mismatched child would fail at parse time instead of
+    // surfacing here. The circular-dependency check still belongs here.
     assert!(joined.contains("Circular dependency detected"));
 }
 
@@ -533,27 +543,31 @@ fn cli_validate_reports_malformed_task_heading_parse_failure() {
 
     assert_parse_failure(
         &result,
-        &["Malformed task heading", "expected", "Task", "title"],
+        &["unknown node kind", "Tak"],
         Some("line 5"),
         Some("### Tak 1: Broken keyword"),
-        &["Subtask 1.1", "missing mandatory **State:**"],
+        &["Task 1.1", "missing mandatory **State:**"],
     );
 }
 
 #[test]
-fn cli_validate_reports_malformed_subtask_heading_parse_failure() {
+fn cli_validate_reports_child_id_not_extending_parent_as_parse_failure() {
+    // Renamed from cli_validate_reports_malformed_subtask_heading_parse_failure.
+    // The "Missing decimal component" fixture now parses as `#### Task 1: ...`,
+    // but since `1` does not extend parent id `1` by exactly one segment, the
+    // parser rejects it with the new id-extension error.
     let result = run_validate(
         fixtures::INVALID_FIXTURE_MALFORMED_SUBTASK_HEADING,
         fixtures::TEST_STATE_MACHINE,
-        "integration-cli-malformed-subtask-heading",
+        "integration-cli-child-id-extension",
     );
 
     assert_parse_failure(
         &result,
-        &["Malformed subtask heading", "expected", "Subtask", "title"],
+        &["heading depth", "does not match id path depth"],
         Some("line 8"),
-        Some("#### Subtask 1: Missing decimal component"),
-        &["missing mandatory **State:**", "Subtask 1.1"],
+        Some("#### Task 1: Missing decimal component"),
+        &["missing mandatory **State:**"],
     );
 }
 
@@ -703,44 +717,35 @@ fn cli_validate_reports_circular_dependency_as_semantic_failure() {
 }
 
 #[test]
-fn cli_validate_reports_subtask_parent_mismatch_as_semantic_failure() {
+fn cli_validate_reports_child_id_parent_mismatch_as_parse_failure() {
+    // Renamed from cli_validate_reports_subtask_parent_mismatch_as_semantic_failure.
+    // A mismatched child id is now a parse-time error, not a validator-level
+    // error, because the rule "child id must extend parent id by exactly one
+    // segment" moved into the parser.
     let result = run_validate(
         fixtures::INVALID_FIXTURE_SUBTASK_PARENT_MISMATCH,
         fixtures::TEST_STATE_MACHINE,
-        "integration-cli-subtask-parent-mismatch",
+        "integration-cli-child-id-mismatch",
     );
 
-    assert_validation_failure(
+    assert_parse_failure(
         &result,
-        &[&["Subtask 1.1", "Wrong parent prefix", "under Task 2", "declares", "parent 1"]],
-        &["failed to parse", "Malformed subtask heading"],
+        &["child id", "must extend parent id", "exactly one segment"],
+        None,
+        Some("#### Task 1.1: Wrong parent prefix"),
+        &["VALIDATION ERROR"],
     );
 }
 
-#[test]
-fn cli_validate_rejects_named_task_with_subtasks() {
-    let plan = r#"# Rhei: Named Subtask Test
-
-## Tasks
-
-### Task build: Build step
-**State:** pending
-
-#### Subtask 1.1: Sub
-**State:** pending
-"#;
-    let result =
-        run_validate(plan, fixtures::TEST_STATE_MACHINE, "integration-cli-named-subtask-error");
-
-    assert_validation_failure(
-        &result,
-        &[&["Task 'build'", "named id", "must not declare subtasks"]],
-        &["failed to parse"],
-    );
-}
+// Removed: `cli_validate_rejects_named_task_with_subtasks`. The rule that
+// named tasks cannot have subtasks has been removed — any task, whether its
+// id is numeric or named, may have children as long as each child id extends
+// its parent by exactly one segment. The removed test's input (a named task
+// `build` with a child `1.1`) is now a parse error (1.1 does not extend
+// `build`) rather than a validator error.
 
 #[test]
-fn malformed_task_heading_reports_parse_error_instead_of_subtask_validation_error() {
+fn malformed_task_heading_reports_parse_error_instead_of_child_id_validation_error() {
     let result = run_validate(
         CLI_PRIMARY_ERROR_REGRESSION_PLAN,
         fixtures::TEST_STATE_MACHINE,
@@ -749,10 +754,10 @@ fn malformed_task_heading_reports_parse_error_instead_of_subtask_validation_erro
 
     assert_parse_failure(
         &result,
-        &["Malformed task heading", "expected", "Task", "title"],
+        &["unknown node kind", "Tak"],
         Some("line 20"),
         Some("### Tak 3: Roll out release bot"),
-        &["Subtask 3.1 ('Dry run in staging') is under Task 2 but declares parent 3"],
+        &["child id", "must extend parent id"],
     );
 }
 
@@ -944,11 +949,11 @@ fn transition_succeeds_and_updates_file() {
     // Verify the file was actually updated.
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task1.state.as_str(), "in-progress");
 
     // Task 2 should be untouched.
-    let task2 = rhei.tasks.iter().find(|t| t.id == TaskId::Number(2)).expect("Task 2 exists");
+    let task2 = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("Task 2 exists");
     assert_eq!(task2.state.as_str(), "in-progress");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -966,7 +971,7 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
     let updated = fs::read_to_string(&plan_path).expect("read plan after first transition");
     let rhei = parse(&updated).expect("parse updated plan");
     assert_eq!(
-        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::number(1), "agent-review"),
         Some(1)
     );
 
@@ -985,7 +990,7 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
     let updated = fs::read_to_string(&plan_path).expect("read plan after re-entry");
     let rhei = parse(&updated).expect("parse re-entered plan");
     assert_eq!(
-        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::number(1), "agent-review"),
         Some(2)
     );
 
@@ -993,7 +998,7 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
         run_transition(&plan_path, &machine_path, "1", "agent-review", "agent-review-fix");
     assert!(!exhausted.status.success(), "exhausted review loop should reject re-entry");
     assert!(
-        normalize_for_assertions(&exhausted.stderr).contains("blocked by loop"),
+        normalize_for_assertions(&exhausted.stderr).contains("evaluated to false"),
         "expected loop-budget rejection, got:\n{}",
         exhausted.stderr
     );
@@ -1027,7 +1032,7 @@ fn transition_from_authored_counted_state_treats_start_as_first_visit() {
     let updated = fs::read_to_string(&plan_path).expect("read plan after leaving authored review");
     let rhei = parse(&updated).expect("parse updated plan");
     assert_eq!(
-        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::number(1), "agent-review"),
         Some(1)
     );
 
@@ -1043,7 +1048,7 @@ fn transition_from_authored_counted_state_treats_start_as_first_visit() {
     );
     let rhei = parse(&updated).expect("parse re-entered plan");
     assert_eq!(
-        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        visit_count_from_metadata(rhei.metadata.as_ref(), &TaskId::number(1), "agent-review"),
         Some(2)
     );
 
@@ -1051,7 +1056,7 @@ fn transition_from_authored_counted_state_treats_start_as_first_visit() {
         run_transition(&plan_path, &machine_path, "1", "agent-review", "agent-review-fix");
     assert!(!exhausted.status.success(), "second re-entry should exhaust the visit budget");
     assert!(
-        normalize_for_assertions(&exhausted.stderr).contains("blocked by loop"),
+        normalize_for_assertions(&exhausted.stderr).contains("evaluated to false"),
         "expected loop-budget rejection, got:\n{}",
         exhausted.stderr
     );
@@ -1175,19 +1180,13 @@ fn transition_works_with_named_task_id() {
 
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task = rhei
-        .tasks
-        .iter()
-        .find(|t| t.id == TaskId::Named("setup".to_string()))
-        .expect("Task setup exists");
+    let task =
+        rhei.tasks.iter().find(|t| t.id == TaskId::named("setup")).expect("Task setup exists");
     assert_eq!(task.state.as_str(), "in-progress");
 
     // Task build should be untouched.
-    let build = rhei
-        .tasks
-        .iter()
-        .find(|t| t.id == TaskId::Named("build".to_string()))
-        .expect("Task build exists");
+    let build =
+        rhei.tasks.iter().find(|t| t.id == TaskId::named("build")).expect("Task build exists");
     assert_eq!(build.state.as_str(), "pending");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -1211,7 +1210,7 @@ fn transition_wildcard_from_allows_any_source() {
 
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task1.state.as_str(), "cancelled");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -1226,7 +1225,7 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
 ### Task 1: Parent task
 **State:** pending
 
-#### Subtask 1.1: Open item
+#### Task 1.1: Open item
 **State:** pending
 "#;
 
@@ -1236,29 +1235,29 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
 
     let result = run_complete(&plan_path, &machine_path, "1", "done");
 
-    assert!(!result.status.success(), "complete should fail when subtasks are non-terminal");
+    assert!(!result.status.success(), "complete should fail when children are non-terminal");
     let normalized = normalize_for_assertions(&result.stderr);
     assert!(
-        normalized.contains("cannot be completed while subtasks remain non-terminal"),
-        "expected subtask guard in stderr, got:\n{}",
+        normalized.contains("cannot be completed while child tasks remain non-terminal"),
+        "expected child-task guard in stderr, got:\n{}",
         result.stderr
     );
     assert!(
-        normalized.contains("Subtask 1.1"),
-        "expected offending subtask id in stderr, got:\n{}",
+        normalized.contains("Task 1.1"),
+        "expected offending child task id in stderr, got:\n{}",
         result.stderr
     );
     assert!(
         normalized.contains("('Open item') [pending]"),
-        "expected offending subtask state in stderr, got:\n{}",
+        "expected offending child task state in stderr, got:\n{}",
         result.stderr
     );
 
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "pending");
-    assert_eq!(task.subtasks[0].state.as_str(), "pending");
+    assert_eq!(task.children[0].state.as_str(), "pending");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1272,7 +1271,7 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
 ### Task 1: Parent task
 **State:** pending
 
-#### Subtask 1.1: Closed item
+#### Task 1.1: Closed item
 **State:** completed
 "#;
 
@@ -1291,9 +1290,9 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
 
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "completed");
-    assert_eq!(task.subtasks[0].state.as_str(), "completed");
+    assert_eq!(task.children[0].state.as_str(), "completed");
     assert!(
         updated.contains("> **Result:** [1](runtime/results/1.md)"),
         "expected result link in updated plan:\n{}",
@@ -1382,7 +1381,7 @@ fn callback_on_leave_and_on_enter_invoked_on_transition() {
     // Verify the file was updated.
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "in-progress");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -1452,7 +1451,7 @@ fn no_callbacks_flag_skips_callback_execution() {
 
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1 exists");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "completed");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -1498,6 +1497,269 @@ transitions:
         normalized.contains("js:someFunction"),
         "should include the callback identifier; got:\n{}",
         result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn callback_rejection_surfaces_spec_error_message() {
+    // A callback returns `{"success": false, "error": "..."}` per the spec;
+    // the CLI should surface the message verbatim and leave the plan unchanged.
+    let machine_yaml = r#"name: spec-rejection
+version: 1
+states:
+  pending:
+    description: Not started
+    initial: true
+  in-progress:
+    description: Working
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+    on_leave: 'cli:printf ''{"success": false, "error": "dep not met"}'''
+  - from: in-progress
+    to: completed
+"#;
+    let dir = unique_temp_dir("callback-spec-rejection");
+    let plan = r#"# Rhei: Spec Rejection Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result =
+        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+
+    assert!(!result.status.success(), "spec-style rejection should fail the transition");
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("dep not met"),
+        "stderr should carry the callback's error message; got:\n{}",
+        result.stderr
+    );
+
+    // File unchanged.
+    let contents = fs::read_to_string(&plan_path).expect("read plan");
+    assert_eq!(contents, plan);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn callback_redirect_via_next_state_retargets_declared_transition() {
+    // `on_leave` returns a `nextState` that targets a different declared
+    // transition from the same `from`; the CLI should follow the redirect.
+    let machine_yaml = r#"name: spec-redirect
+version: 1
+states:
+  pending:
+    description: Not started
+    initial: true
+  in-progress:
+    description: Working
+  rejected:
+    description: Rejected outright
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+    on_leave: 'cli:printf ''{"success": true, "nextState": "rejected"}'''
+  - from: pending
+    to: rejected
+"#;
+    let dir = unique_temp_dir("callback-spec-redirect");
+    let plan = r#"# Rhei: Spec Redirect Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result =
+        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+
+    assert!(
+        result.status.success(),
+        "redirect to a declared target should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    // Task should end up in the redirected target, not the originally-requested one.
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
+    assert_eq!(task.state.as_str(), "rejected");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn callback_redirect_to_undeclared_transition_is_rejected() {
+    let machine_yaml = r#"name: spec-redirect-undeclared
+version: 1
+states:
+  pending:
+    description: Not started
+    initial: true
+  in-progress:
+    description: Working
+  elsewhere:
+    description: A state with no transition declared from `pending`.
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+    on_leave: 'cli:printf ''{"success": true, "nextState": "elsewhere"}'''
+"#;
+    let dir = unique_temp_dir("callback-spec-redirect-bad");
+    let plan = r#"# Rhei: Spec Redirect Bad Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result =
+        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+
+    assert!(
+        !result.status.success(),
+        "redirect to an undeclared transition should fail the transition"
+    );
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("elsewhere") && normalized.contains("no transition"),
+        "stderr should explain the undeclared redirect; got:\n{}",
+        result.stderr
+    );
+
+    // File unchanged — redirect was rejected before any write.
+    let contents = fs::read_to_string(&plan_path).expect("read plan");
+    assert_eq!(contents, plan);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn callback_receives_transition_context_on_stdin() {
+    // The callback reads its stdin and writes it back into a file we
+    // then inspect. This verifies the TransitionContext JSON payload is
+    // actually delivered on stdin.
+    let dir = unique_temp_dir("callback-spec-stdin");
+    let capture_path = dir.join("captured.json");
+    let capture_display = capture_path.display().to_string();
+
+    let machine_yaml = format!(
+        r#"name: spec-stdin
+version: 1
+states:
+  pending:
+    description: Not started
+    initial: true
+  in-progress:
+    description: Working
+transitions:
+  - from: pending
+    to: in-progress
+    on_leave: "cli:cat > '{capture}'"
+"#,
+        capture = capture_display
+    );
+
+    let plan = r#"# Rhei: Spec Stdin Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
+
+    let result =
+        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+    assert!(
+        result.status.success(),
+        "transition should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    let captured =
+        fs::read_to_string(&capture_path).expect("callback should have written stdin payload");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&captured).expect("captured payload should be JSON");
+    assert_eq!(parsed["task"]["id"], "1");
+    assert_eq!(parsed["task"]["title"], "Alpha");
+    assert_eq!(parsed["transition"]["from"], "pending");
+    assert_eq!(parsed["transition"]["to"], "in-progress");
+    assert_eq!(parsed["transition"]["triggeredBy"], "user");
+    assert_eq!(parsed["environment"]["platform"], "cli");
+    assert!(parsed["transition"]["timestamp"].is_string());
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn callback_on_enter_failure_rolls_back_state_write() {
+    // The on_leave callback approves; the on_enter callback crashes.
+    // Per the spec, the state write must roll back to its pre-transition
+    // contents rather than persisting the mid-transition state.
+    let machine_yaml = r#"name: spec-on-enter-rollback
+version: 1
+states:
+  pending:
+    description: Not started
+    initial: true
+  in-progress:
+    description: Working
+transitions:
+  - from: pending
+    to: in-progress
+    on_enter: "cli:exit 1"
+"#;
+    let dir = unique_temp_dir("callback-spec-on-enter-rollback");
+    let plan = r#"# Rhei: On-Enter Rollback Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result =
+        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+
+    assert!(!result.status.success(), "on_enter failure should fail the transition");
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("on_enter") && normalized.contains("failed"),
+        "stderr should identify the on_enter failure; got:\n{}",
+        result.stderr
+    );
+
+    // Most importantly: the plan file must be rolled back to its original state.
+    let contents = fs::read_to_string(&plan_path).expect("read plan");
+    assert_eq!(
+        contents, plan,
+        "on_enter failure must roll back the state write"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -1712,7 +1974,7 @@ metadata:
 
     let updated = fs::read_to_string(&plan_path).expect("read updated plan");
     let rhei = parse(&updated).expect("parse updated plan");
-    let task = rhei.tasks.iter().find(|task| task.id == TaskId::Number(1)).expect("task exists");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task exists");
     assert_eq!(task.state, "completed");
     assert!(
         !result.stdout.contains("agent-review-fix"),
@@ -1814,7 +2076,7 @@ transitions:
     // Task should remain in pending since on_leave rejected.
     let updated = fs::read_to_string(&plan_path).expect("read plan");
     let rhei = parse(&updated).expect("parse plan");
-    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1");
     assert_eq!(task.state.as_str(), "pending", "task should remain pending after callback failure");
 
     assert!(
@@ -1895,6 +2157,81 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
         plan_path.canonicalize().expect("canonicalize plan path"),
         "callbacks should receive an absolute plan path",
     );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_executes_all_models_callbacks_without_agent_configuration() {
+    let dir = unique_temp_dir("run-all-models-callback");
+    let plan = r#"# Rhei: Multi-Model Callback
+
+## Tasks
+
+### Task review-seed: Review specs
+**State:** review
+"#;
+    let machine = r#"name: multi-model-callback
+version: 1
+models:
+  - claude
+  - codex
+states:
+  review:
+    initial: true
+    all_models: [claude, codex]
+    outputs:
+      - name: findings
+        path: runtime/{model}-findings.md
+  completed:
+    final: true
+transitions:
+  - from: review
+    to: completed
+    on_leave: "cli:bash ./workflow.sh"
+"#;
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+: "${RHEI_MODEL:?RHEI_MODEL must be set}"
+runtime_dir="$(dirname "$RHEI_PLAN_PATH")/runtime"
+mkdir -p "$runtime_dir"
+printf '%s\n' "$RHEI_MODEL" >> "$runtime_dir/models.txt"
+printf '# Findings for %s\n' "$RHEI_MODEL" > "$runtime_dir/$RHEI_MODEL-findings.md"
+"#;
+
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let script_path = write_fixture_file(&dir, "workflow.sh", script);
+    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).expect("chmod workflow");
+    }
+
+    let result = run_run_command(&plan_path, &machine_path, &[]);
+
+    assert!(
+        result.status.success(),
+        "run should succeed for callback-only all_models state\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei
+        .tasks
+        .iter()
+        .find(|task| task.id == TaskId::named("review-seed"))
+        .expect("review-seed exists");
+    assert_eq!(task.state.as_str(), "completed");
+
+    let models = fs::read_to_string(dir.join("runtime/models.txt")).expect("read model log");
+    assert_eq!(models, "claude\ncodex\n");
+    assert!(dir.join("runtime/claude-findings.md").exists(), "claude artifact should exist");
+    assert!(dir.join("runtime/codex-findings.md").exists(), "codex artifact should exist");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1985,7 +2322,7 @@ transitions:
     // Task should reach completed despite the failing callback.
     let updated = fs::read_to_string(&plan_path).expect("read plan");
     let rhei = parse(&updated).expect("parse plan");
-    let task = rhei.tasks.iter().find(|t| t.id == TaskId::Number(1)).expect("Task 1");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1");
     assert_eq!(task.state.as_str(), "completed", "task should be completed with --no-callbacks");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -2022,7 +2359,7 @@ transitions:
 ### Task 1: Alpha
 **State:** completed
 
-#### Subtask 1.1: Detail
+#### Task 1.1: Detail
 **State:** in-progress
 
 ### Task 2: Beta
@@ -2042,7 +2379,9 @@ transitions:
         result.stderr
     );
     assert!(
-        result.stdout.contains("Reset 2 task(s) and 1 subtask(s) to initial state 'draft'."),
+        result
+            .stdout
+            .contains("Reset 2 task(s) (and 1 descendant task(s)) to initial state 'draft'."),
         "unexpected stdout:\n{}",
         result.stdout
     );
@@ -2050,7 +2389,7 @@ transitions:
     let updated = fs::read_to_string(&plan_path).expect("read plan");
     let rhei = parse(&updated).expect("parse reset plan");
     assert_eq!(rhei.tasks[0].state.as_str(), "draft");
-    assert_eq!(rhei.tasks[0].subtasks[0].state.as_str(), "draft");
+    assert_eq!(rhei.tasks[0].children[0].state.as_str(), "draft");
     assert_eq!(rhei.tasks[1].state.as_str(), "draft");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -2380,7 +2719,7 @@ Metadata lives here.
     let index_raw = fs::read_to_string(dir.join("index.rhei.md")).expect("read index");
     let index = parse_workspace_index(&index_raw).expect("parse index");
     assert_eq!(
-        visit_count_from_metadata(index.metadata.as_ref(), &TaskId::Number(1), "agent-review"),
+        visit_count_from_metadata(index.metadata.as_ref(), &TaskId::number(1), "agent-review"),
         Some(1)
     );
 
@@ -2439,7 +2778,7 @@ fn workspace_reset_restores_initial_states_and_removes_runtime() {
         &[
             (
                 "a.md",
-                "### Task 1: Alpha\n**State:** completed\n\n#### Subtask 1.1: Detail\n**State:** in-progress\n",
+                "### Task 1: Alpha\n**State:** completed\n\n#### Task 1.1: Detail\n**State:** in-progress\n",
             ),
             ("b.md", "### Task 2: Beta\n**State:** in-progress\n"),
         ],
@@ -2459,23 +2798,54 @@ fn workspace_reset_restores_initial_states_and_removes_runtime() {
         result.stderr
     );
     assert!(
-        result.stdout.contains("Reset 2 task(s) and 1 subtask(s) to initial state 'pending'."),
+        result
+            .stdout
+            .contains("Reset 2 task(s) (and 1 descendant task(s)) to initial state 'pending'."),
         "unexpected stdout:\n{}",
         result.stdout
     );
     assert!(
-        result.stdout.contains("Removed workspace runtime output."),
+        result.stdout.contains("Removed runtime output."),
         "expected runtime cleanup message, got:\n{}",
         result.stdout
     );
 
     let loaded = workspace::load_workspace(&ws).expect("reload workspace");
     assert_eq!(loaded.rhei.tasks[0].state.as_str(), "pending");
-    assert_eq!(loaded.rhei.tasks[0].subtasks[0].state.as_str(), "pending");
+    assert_eq!(loaded.rhei.tasks[0].children[0].state.as_str(), "pending");
     assert_eq!(loaded.rhei.tasks[1].state.as_str(), "pending");
     assert!(!ws.join("runtime").exists(), "runtime directory should be removed");
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
+fn assignee_field_round_trips_through_parse_and_json() {
+    let input = "# Rhei: Roundtrip\n\n\
+## Tasks\n\n\
+### Task 1: Alpha\n\
+**State:** in-progress\n\
+**Prior:** Task 2\n\
+**Assignee:** alice\n\n\
+### Task 2: Beta\n\
+**State:** pending\n";
+
+    let rhei = parse(input).expect("parse ok");
+
+    let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("task 1");
+    assert_eq!(task1.assignee.as_deref(), Some("alice"));
+    let task2 = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("task 2");
+    assert_eq!(task2.assignee, None);
+
+    let json = to_json_value(&rhei);
+    let tasks = json["tasks"].as_array().expect("tasks array");
+    let t1 = tasks.iter().find(|t| t["id"]["path"].as_str() == Some("1")).expect("task 1 json");
+    assert_eq!(t1["assignee"].as_str(), Some("alice"));
+    let t2 = tasks.iter().find(|t| t["id"]["path"].as_str() == Some("2")).expect("task 2 json");
+    assert!(t2.as_object().unwrap().get("assignee").is_none());
+
+    let md = to_github_markdown(&rhei);
+    assert!(md.contains("- Assignee: alice"), "expected assignee in markdown output:\n{md}");
 }
 
 #[test]

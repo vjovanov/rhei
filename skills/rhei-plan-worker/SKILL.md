@@ -82,12 +82,12 @@ If the loaded machine differs, trust it over this list.
 
 ## Progress Logging
 
-Log implementation progress by appending to the subtask body — do not invent new metadata fields.
+Log implementation progress by appending to each task node's body — do not invent new metadata fields.
 
-- One short paragraph per subtask, written as you complete it (not in a batch at the end).
+- One short paragraph per leaf task node, written as you complete it (not in a batch at the end).
 - State the concrete change: files touched, functions added, commands run to verify.
-- Do not restate the subtask title; extend the description.
-- For tasks without subtasks, append a single paragraph to the task description.
+- Do not restate the task title; extend the description.
+- For tasks without child nodes, append a single paragraph to the task description.
 
 When a task re-enters `in-progress` from `agent-review`, append a new paragraph describing the rework rather than rewriting history.
 
@@ -95,7 +95,7 @@ When a task re-enters `in-progress` from `agent-review`, append a new paragraph 
 
 When a task enters `agent-review`, the reviewer is a *different* mental mode, not a different person. The reviewer:
 
-- Reads the task description, subtasks, and the diff actually produced.
+- Reads the task description, its child task nodes, and the diff actually produced.
 - Checks repository conventions (lint, format, test commands listed in [AGENTS.md](../../AGENTS.md) or the project's equivalent).
 - Records concrete findings as a new paragraph in the task body, prefixed with `Review:` — one bullet per finding.
 - Transitions to `in-progress` (rework), `human-review` (needs human), or `completed` (pass).
@@ -106,9 +106,9 @@ Never approve a task whose tests or build fail.
 
 State transitions and progress logging are separate concerns:
 
-- **Task state transitions** — always use `rhei transition`. Never edit task `**State:**` fields in the markdown directly.
-- **Subtask state transitions** — subtasks also carry a mandatory `**State:**` field. Update subtask states directly in the markdown as you complete each subtask (e.g., change from `pending` to `completed`). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
-- **Progress logging** — edit the markdown directly to append subtask progress (see *Progress Logging*). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
+- **Root task state transitions** — always use `rhei transition`. Never edit root task `**State:**` fields in the markdown directly.
+- **Child task state transitions** — child task nodes also carry a mandatory `**State:**` field. Update child states directly in the markdown as you complete each one (e.g., change from `pending` to `completed`). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
+- **Progress logging** — edit the markdown directly to append child-task progress (see *Progress Logging*). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
 
 General rules:
 

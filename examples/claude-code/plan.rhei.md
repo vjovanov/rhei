@@ -20,7 +20,7 @@ approval or review states.
 
 Capture the failing request path and identify the smallest reproducible test.
 
-#### Subtask 1.1: Document the failing endpoint
+#### Task 1.1: Document the failing endpoint
 **State:** completed
 Record the endpoint, expected timeout, and observed failure mode.
 
@@ -30,11 +30,11 @@ Record the endpoint, expected timeout, and observed failure mode.
 
 Implement the code fix using only currently allowed tools.
 
-#### Subtask 2.1: Update timeout defaults
+#### Task 2.1: Update timeout defaults
 **State:** in-progress
 Adjust the client timeout and retry policy in the application code.
 
-#### Subtask 2.2: Note blocked follow-up verification
+#### Task 2.2: Note blocked follow-up verification
 **State:** pending
 Document any command that still requires explicit approval, plus the safe local
 checks already attempted.
@@ -46,7 +46,7 @@ checks already attempted.
 Execute the best local checks available without new permissions and summarize
 any residual risk in the task body.
 
-#### Subtask 3.1: Execute unit and targeted integration checks
+#### Task 3.1: Execute unit and targeted integration checks
 **State:** pending
 Run only the checks already allowed in the current environment.
 

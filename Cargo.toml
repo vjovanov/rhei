@@ -3,8 +3,10 @@ members = [
     "crates/rhei-core",
     "crates/rhei-cli",
     "crates/rhei-napi",
+    "crates/rhei-tui",
     "crates/rhei-validator",
     "crates/rhei-output",
+    "xtask",
 ]
 
 resolver = "2"

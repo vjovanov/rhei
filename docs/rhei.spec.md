@@ -120,8 +120,9 @@ structure:
 ```
 
 This establishes the default hierarchical structure for the current language
-revision. Plans that still use the historical `Subtask` syntax must be migrated
-to declared node-kind headings such as `Task` and `Bug`.
+revision. See [ADR 0002](adr/0002-hierarchical-task-nodes.md) for the rationale
+behind the nested task-node model and for migration rules from pre-revision
+plans.
 
 ### Directory Workspace (Agent Teams, High Concurrency)
 
@@ -289,13 +290,22 @@ task_ref        = node_kind_keyword, " ", task_id ;
    - backticked form for any other canonical state name, including names
      with spaces or punctuation such as `human review`, `qa/review`, or
      `security.review`
-   Counted-loop states may append `-<n>` to the rendered value to make later
-   visits visible in markdown. The `-1` suffix is omitted. Exact-match
-   resolution against loaded state names happens before any `-<n>` suffix is
-   interpreted as a counted visit. Inside backticks, `\\` escapes a
-   backslash and `\`` escapes a literal backtick. *)
-state_value     = IDENTIFIER, [ "-", NUMBER ]                    (* pending, review-2 *)
+   States with a declared `visits` budget may append `-<n>` (where n >= 2)
+   to the rendered value to make later visits visible in markdown. A `-1`
+   suffix is never rendered — the first visit is the unsuffixed base name.
+   Exact-match resolution against loaded state names happens before any
+   `-<n>` suffix is interpreted as a counted visit. Inside backticks, `\\`
+   escapes a backslash and `\`` escapes a literal backtick. *)
+state_value     = IDENTIFIER, [ "-", VISIT_NUMBER ]              (* pending, review-2 *)
                 | "`", quoted_state_text, "`" ;                 (* `human review`, `qa/review`, `human review-2` *)
+
+(* VISIT_NUMBER encodes a counted-visit suffix. It must be >= 2 so that the
+   unsuffixed base name is the only valid rendering of visit 1. No leading
+   zeros. *)
+VISIT_NUMBER    = LEADING_2_9, { DIGIT }
+                | "1", DIGIT, { DIGIT } ;
+
+LEADING_2_9     = "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 
 quoted_state_text = quoted_state_char, { quoted_state_char } ;
 
@@ -689,7 +699,11 @@ mode.
 Because artifact existence depends on runtime workspace state, this constraint
 is enforced by execution commands such as `rhei transition`, `rhei complete`,
 `rhei run`, and `rhei next`, rather than by pure syntax validation of markdown
-alone.
+alone. When a transition also declares `on_leave` or `on_enter` callbacks,
+those callbacks are optional per edge: an omitted callback is treated as
+implicit success. See [Transitions Specification](specs/rhei-transitions.spec.md)
+for the full callback contract, including the ordering between artifact checks
+and callback invocation.
 
 Examples:
 
@@ -809,5 +823,8 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 - [States Specification](specs/rhei-states.spec.md) - Defines the states configuration format
 - [Transitions Specification](specs/rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
 - [Next Command](specs/rhei-next.spec.md) - `rhei next` behavioral contract, including `--peek` mode
+- [Transition Command](specs/rhei-transition-cmd.spec.md) - `rhei transition` compare-and-swap contract
 - [Complete Command](specs/rhei-complete.spec.md) - `rhei complete` behavioral contract
+- [Run Command](specs/rhei-run.spec.md) - `rhei run` execution loop under orchestrator authority
+- [Reset Command](specs/rhei-reset.spec.md) - `rhei reset` behavior for restoring initial state
 - [State Machine Writer](specs/rhei-state-machine-writer.spec.md) - Designing custom state machines from project specs and teams

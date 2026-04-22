@@ -61,7 +61,7 @@ Added avatar_url column and migration 0042
 1. Load the state machine and plan (single file or directory workspace). Validate.
 2. Locate the task by ID. Fail if the task does not exist.
 3. Reject if the task is already in a terminal state.
-4. Reject if the task's current state is a gating state (`gating: true`). Gating states require explicit human-initiated transitions via `rhei transition` and cannot be exited by autonomous commands.
+4. Reject if the task's current state is a [gating state](rhei-states.spec.md#per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
 5. Reject if any descendant task node of the target task is still in a
    non-terminal state. A parent task must not be completed while any child,
    grandchild, or deeper descendant remains open.
@@ -117,15 +117,9 @@ rhei complete ./my-workspace --task review-seed \
 
 ## Relationship to Other Commands
 
-| Command            | What it does                                                              |
-|--------------------|---------------------------------------------------------------------------|
-| `rhei next`        | Claims the next ready task (assigns without transitioning), prints instructions |
-| `rhei next --peek` | Read-only: prints the next claimable task without claiming it             |
-| `rhei transition`  | Atomically changes a task's state; appends entry to result file           |
-| `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns      |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+`rhei complete` is the terminal step of the manual-worker loop: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release). It transitions the task to a terminal state, appends a result entry, and releases the claim.
 
-The typical agent loop is: `next` (claim) -> work -> `transition` (advance as needed) -> `complete` (finish, record result, release).
+See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) for the full table comparing all five coordination commands.
 
 ## Related Specifications
 
@@ -133,3 +127,7 @@ The typical agent loop is: `next` (claim) -> work -> `transition` (advance as ne
 - [How Rhei Is Used](rhei-usage.spec.md) — roles and coordination patterns
 - [States Specification](rhei-states.spec.md) — state machine format
 - [Transitions Specification](rhei-transitions.spec.md) — state transition system
+- [Next Command](rhei-next.spec.md) — `rhei next` behavioral contract
+- [Transition Command](rhei-transition-cmd.spec.md) — `rhei transition` behavioral contract
+- [Run Command](rhei-run.spec.md) — `rhei run` behavioral contract
+- [Reset Command](rhei-reset.spec.md) — `rhei reset` behavioral contract

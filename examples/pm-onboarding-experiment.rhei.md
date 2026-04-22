@@ -20,13 +20,13 @@ Write the experiment brief for a first-session onboarding nudge. Capture the
 target segment, primary metric, secondary guardrails, rollout size, and launch
 decision thresholds.
 
-#### Subtask 1.1: Define the target segment
+#### Task 1.1: Define the target segment
 **State:** draft
 
 Describe which newly signed-up users should enter the experiment and which
 traffic should be excluded.
 
-#### Subtask 1.2: Lock the decision criteria
+#### Task 1.2: Lock the decision criteria
 **State:** draft
 
 Document the success threshold, guardrail thresholds, and the minimum sample
@@ -39,13 +39,13 @@ size needed before making a launch decision.
 Specify the events, properties, and experiment branches needed to measure the
 new onboarding nudge end to end.
 
-#### Subtask 2.1: Define exposure and conversion events
+#### Task 2.1: Define exposure and conversion events
 **State:** draft
 
 List the exposure, click, dismiss, and project-created events required for the
 analysis.
 
-#### Subtask 2.2: Define experiment variants
+#### Task 2.2: Define experiment variants
 **State:** draft
 
 Describe the control experience, treatment copy, and any rollout constraints
@@ -58,13 +58,13 @@ for the first version of the test.
 Coordinate with design and engineering so the team can implement the experiment
 without open product questions.
 
-#### Subtask 3.1: Review handoff with design
+#### Task 3.1: Review handoff with design
 **State:** draft
 
 Confirm the entry point, copy, and dismissal behavior that will be shown to the
 user.
 
-#### Subtask 3.2: Review handoff with engineering
+#### Task 3.2: Review handoff with engineering
 **State:** draft
 
 Confirm the event names, rollout flag, and any dependency on existing
@@ -77,12 +77,12 @@ onboarding services.
 Review experiment results, summarize the observed lift and guardrail impact,
 and recommend whether to ship, iterate, or stop.
 
-#### Subtask 4.1: Summarize experiment performance
+#### Task 4.1: Summarize experiment performance
 **State:** draft
 
 Compare treatment versus control for the primary metric and each guardrail.
 
-#### Subtask 4.2: Write the launch recommendation
+#### Task 4.2: Write the launch recommendation
 **State:** draft
 
 Produce a concise recommendation with rationale, open questions, and follow-up

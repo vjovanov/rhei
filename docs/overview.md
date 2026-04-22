@@ -54,16 +54,21 @@ A **Rhei plan** is a structured markdown document representing a project or work
 - Optional content sections (overview, requirements, etc.)
 - A `## Tasks` section with hierarchical task definitions
 
-### Tasks and Subtasks
+### Tasks and Child Tasks
 
-**Tasks** are the primary work units within a saga. Each task has:
+**Tasks** are the primary work units within a plan. Each task has:
 
 - A unique identifier (numeric or named)
 - A mandatory state
 - Optional dependencies on other tasks
-- Optional subtasks for detailed breakdown
+- Optional child task nodes for detailed breakdown
 
-**Subtasks** provide finer granularity within tasks. They are numbered relative to their parent task (e.g., Subtask 2.1, 2.2 for Task 2).
+**Child task nodes** are full task nodes declared under a parent heading
+(`####` under `###`, `#####` under `####`, and so on). A child's id extends
+its parent's id by one segment joined with a dot — for example the children
+of `Task 2` are `Task 2.1`, `Task 2.2`, and a child of `Task api.cache` is
+`Task api.cache.fix`. Tree depth is bounded by the plan's
+`structure.maxLevels` (default `2`).
 
 ### States and Transitions
 
@@ -125,7 +130,7 @@ rhei/
 | Crate | Role |
 |-------|------|
 | `rhei-core` | Tokenizes markdown, parses into AST, defines data structures |
-| `rhei-validator` | Validates dependencies, states, cycles, subtask numbering |
+| `rhei-validator` | Validates dependencies, states, cycles, and child task id numbering |
 | `rhei-output` | Renders AST to JSON, GitHub markdown, terminal progress |
 | `rhei-cli` | Provides `validate`, `render`, and `version` commands |
 | `rhei-napi` | Exposes Rust functionality to JavaScript via N-API |

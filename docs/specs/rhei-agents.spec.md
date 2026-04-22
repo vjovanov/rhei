@@ -69,9 +69,16 @@ key rather than replacing the whole file.
       "mcp_flag": "--mcp",
       "stdin_prompt": true,
       "modes": {
-        "yolo": ["--sandbox", "danger-full-access", "--skip-git-repo-check"],
+        "yolo": ["--sandbox", "danger-full-access", "--skip-git-repo-check", "-a", "never"],
         "safe": ["--sandbox", "workspace-write"]
       }
+    },
+    "pi": {
+      "command": ["pi"],
+      "prompt_flag": "-p",
+      "model_flag": "--model",
+      "skill_flag": "--skill",
+      "stdin_prompt": false
     }
   },
   "models": {
@@ -365,9 +372,10 @@ historically the agent's default.
 |----------|--------|-----------------|------------|------------|--------------|-------------------|
 | `claude-code` | `claude` | `-p <prompt>` | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
 | `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check` |
-| `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode auto_edit` |
-| `kilocode` | `kilo` | `-p <prompt>` | `--model <m>` | unsupported | unsupported | (no modes declared) |
-| `cursor` | `cursor` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | (no modes declared) |
+| `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode yolo` |
+| `cursor` | `cursor-agent` | `--print <prompt>` | `--model <m>` | unsupported | unsupported | `--force` |
+| `kilocode` | `kilo` | positional via `--auto <prompt>` | `--model <m>` | unsupported | unsupported | `--yolo` |
+| `pi` | `pi` | `-p <prompt>` | `--model <m>` | unsupported | `--skill <path>` | (no modes — pi has no permission layer; isolate at the sandbox/container level) |
 
 The agent IDs match those used by `rhei install-skills --agent`.
 
@@ -464,7 +472,7 @@ When `rhei run` spawns an agent for a task, it composes a prompt from the state 
 
 ## Task Content
 
-{task body from the plan, including subtasks}
+{task body from the plan, including any child task nodes}
 
 ## Rhei Commands
 
@@ -474,9 +482,15 @@ Do not run `rhei transition` or `rhei complete` from this spawned agent process 
 
 Available transitions from `{state}`:
 {list of declared transitions from current state, with descriptions}
-
-Before you stop, create every required output artifact for this state and then exit. Do not modify **State:** lines in the plan directly.
 ```
+
+The prompt carries domain instructions only. It does not contain completion
+prose such as "create every required output artifact and then exit":
+completion is enforced by the state's [Completion Condition](#completion-condition),
+not by prompt wording. Required artifact paths are already visible to the agent
+via resolved `{output.<name>.path}` variables in the state's `instructions`,
+and every supported agent exits deterministically after one turn in its native
+headless mode.
 
 Template variables (`{task_id}`, `{model}`, `{model.provider}`,
 `{model.name}`, `{visit_count}`, etc.) are resolved before the prompt is sent,
@@ -484,18 +498,101 @@ using the same resolution rules as `rhei next`. See [Template Variables](rhei-st
 
 The prompt is delivered to the agent via its configured prompt delivery mechanism (flag or stdin).
 
-### Spawned-Agent Contract
+### Completion Authority
 
-When an agent is launched by `rhei run`, the following contract is normative:
+Every state has a **completion authority** — the role that decides when the
+state's work is done and drives the resulting transition. Rhei defines two
+authorities; exactly one applies to any given execution of a state.
 
-- The agent owns the work of the current state: code changes, analysis, and required artifacts.
-- The agent does not own plan-state mutation. It must not call `rhei transition` or `rhei complete`, and it must not edit `**State:**` lines directly.
-- The agent signals success by exiting `0` after finishing the current state's work.
-- The agent signals failure by exiting non-zero.
-- The only exception is an explicitly nested execution model started from within the agent itself. In that nested context, the inner executor manages its own state independently of the outer `rhei run` process.
+| Authority | Applies when | Transition driver |
+|-----------|--------------|-------------------|
+| `worker` | The invoking role is a manual worker (human, `rhei-plan-worker` skill session, or direct `rhei next` / `rhei transition` / `rhei complete` caller). | The worker calls `rhei transition` or `rhei complete`. |
+| `orchestrator` | `rhei run` has spawned the agent or program for this state. | `rhei run` evaluates the state's [Completion Condition](#completion-condition), then selects and executes the matching forward transition. |
 
-This separation keeps state transitions serialized through one orchestrator even
-when many agents run in parallel.
+Completion authority is determined by the execution mode, not declared on the
+state. The same state definition is legal under both authorities. This is what
+lets a plan be driven either agent-by-agent (manual workers) or end-to-end
+(`rhei run`) without rewriting `states.yaml`.
+
+Normative rules:
+
+- Under `worker` authority, the worker owns both the work and the transition.
+  `rhei run` is not involved.
+- Under `orchestrator` authority, the spawned subprocess owns the work;
+  `rhei run` owns the transition. The subprocess must not call
+  `rhei transition` or `rhei complete`, and must not edit `**State:**` lines
+  directly. The one exception is a nested execution started from within the
+  agent, which manages its own state independently of the outer `rhei run`.
+- `instructions` and `personality` describe domain work only. They must not
+  describe how or when to stop, whether to call transition commands, or how
+  completion is detected. Those are properties of the execution model, not of
+  the state.
+- Gating states (`gating: true`) bypass completion authority: no subprocess is
+  spawned and no automatic transition fires.
+
+This separation keeps state transitions serialized through one orchestrator
+even when many agents run in parallel.
+
+### Completion Condition
+
+When completion authority is `orchestrator`, `rhei run` decides deterministically
+when the state's work is complete. The completion condition is a property of
+the state machine and the execution mode, not of the prompt — so the same
+determinism applies to every execution of that state regardless of which agent
+is resolved.
+
+The condition is normative and universal for agent states:
+
+1. The subprocess exits with code `0`, **and**
+2. Every required artifact declared in the state's `outputs:` list exists on disk.
+
+Both are evaluated after the process exits. If the state declares no `outputs:`,
+condition (2) is vacuously true and exit alone suffices.
+
+This contract maps 1:1 onto the native headless mode of every supported agent.
+All six built-ins — `claude-code -p`, `codex exec`, `gemini --prompt --yolo`,
+`cursor-agent --print --force`, `kilo --auto --yolo`, and `pi -p` — run one
+turn-loop and exit. Rhei detects completion from process exit plus declared
+output artifacts; no cross-agent stop signal, sentinel file, or "done" RPC is
+defined or needed.
+
+Program states have their own exit-code-driven completion semantics documented
+in [Program States Specification](rhei-programs.spec.md#exit-code-transitions);
+the `outputs:` clause of the condition above does not apply to them unless the
+state also declares `outputs:`.
+
+#### Runtime Semantics
+
+Under `orchestrator` authority, `rhei run`:
+
+1. Spawns the subprocess and waits on `(subprocess exit) OR (timeout fires)`.
+2. On timeout, sends `SIGTERM` to the subprocess, 10 s grace, then `SIGKILL`.
+   Timeout transitions fire per [Timeout Handling](#timeout-handling). Agents
+   that fork long-running descendants should install their own cleanup; the
+   engine kills only the direct subprocess.
+3. On non-zero exit, routes through the exit-code / error transition path
+   documented in the [Execution Loop](#execution-loop). The artifact check is
+   skipped.
+4. On exit code `0`:
+   - Verify every required output artifact exists.
+   - If any is missing, the task stays in its current state and the engine
+     logs `warning: agent exited 0 but required outputs are missing for task
+     {id} in state '{state}': <name1>, <name2>`. No transition fires.
+   - Otherwise, evaluate forward transitions in normal selection order and
+     execute the first match.
+
+#### Timeout Requirement
+
+Under `orchestrator` authority, a timeout must resolve to a finite value
+through the chain documented in [Timeout Handling](#timeout-handling). States
+that resolve to no timeout at any level are a validation error under
+`orchestrator` authority. Under `worker` authority there is no timeout
+enforcement.
+
+This closes the one remaining non-determinism in the completion contract: an
+agent that hangs without producing outputs is bounded by the timeout and
+routed to the state's timeout transition (or fails the task with a warning
+when no timeout transition is declared).
 
 ## Environment Variables
 
@@ -703,7 +800,12 @@ Timeout can be set at four levels:
    ```
 
 Resolution: state-level > model-agent binding > agent-profile > settings defaults.
-If no timeout is configured at any level, there is no timeout (the engine waits indefinitely).
+
+Under `orchestrator` [Completion Authority](#completion-authority), a timeout
+must resolve to a finite value at some level of the chain; missing timeouts on
+orchestrator-driven states are a validation error. Under `worker` authority
+the resolution is optional and the engine does not impose a timeout on manual
+work.
 
 ### Duration Format
 

@@ -1,4 +1,4 @@
-use rhei_core::ast::TaskId;
+use rhei_core::ast::{TaskId, TaskIdSegment};
 use rhei_core::{tokenize, Token};
 
 #[test]
@@ -10,7 +10,7 @@ fn tokenizes_basic_structure() {
 ### Task 1: Database Schema Design
 **State:** completed
 
-#### Subtask 1.1: Define User Table
+#### Task 1.1: Define User Table
 Some description line
 
 **Prior:** Task 1, Task 2
@@ -21,11 +21,40 @@ Some description line
     let expected = vec![
         Token::RheiHeader,
         Token::TasksSection,
-        Token::TaskHeader { id: TaskId::Number(1) },
+        Token::NodeHeader { level: 3, kind: "Task".to_string(), id: TaskId::number(1) },
         Token::MetadataState { state: "completed".to_string() },
-        Token::SubtaskHeader { task_number: 1, subtask_number: 1 },
+        Token::NodeHeader {
+            level: 4,
+            kind: "Task".to_string(),
+            id: TaskId::from_segments(vec![TaskIdSegment::Number(1), TaskIdSegment::Number(1)]),
+        },
         Token::TextContent,
-        Token::MetadataPrior { task_ids: vec![TaskId::Number(1), TaskId::Number(2)] },
+        Token::MetadataPrior { task_ids: vec![TaskId::number(1), TaskId::number(2)] },
+    ];
+
+    assert_eq!(tokens, expected);
+}
+
+#[test]
+fn tokenizes_assignee_after_state_and_prior() {
+    let input = r#"# Rhei: Assigned
+## Tasks
+
+### Task 1: Alpha
+**State:** in-progress
+**Prior:** Task 2
+**Assignee:** alice
+"#;
+
+    let tokens: Vec<Token> = tokenize(input).collect();
+
+    let expected = vec![
+        Token::RheiHeader,
+        Token::TasksSection,
+        Token::NodeHeader { level: 3, kind: "Task".to_string(), id: TaskId::number(1) },
+        Token::MetadataState { state: "in-progress".to_string() },
+        Token::MetadataPrior { task_ids: vec![TaskId::number(2)] },
+        Token::MetadataAssignee { name: "alice".to_string() },
     ];
 
     assert_eq!(tokens, expected);
@@ -50,12 +79,20 @@ fn tokenizes_named_task_ids_and_prior_references() {
     let expected = vec![
         Token::RheiHeader,
         Token::TasksSection,
-        Token::TaskHeader { id: TaskId::Named("bootstrap_env".to_string()) },
+        Token::NodeHeader {
+            level: 3,
+            kind: "Task".to_string(),
+            id: TaskId::named("bootstrap_env"),
+        },
         Token::MetadataState { state: "in-progress".to_string() },
         Token::MetadataPrior {
-            task_ids: vec![TaskId::Named("seed_data".to_string()), TaskId::Number(2)],
+            task_ids: vec![TaskId::named("seed_data"), TaskId::number(2)],
         },
-        Token::TaskHeader { id: TaskId::Named("seed_data".to_string()) },
+        Token::NodeHeader {
+            level: 3,
+            kind: "Task".to_string(),
+            id: TaskId::named("seed_data"),
+        },
         Token::MetadataState { state: "pending".to_string() },
     ];
 
