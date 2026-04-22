@@ -95,7 +95,7 @@ sequenceDiagram
                 Validator->>Validator: Check dependency integrity
                 Validator->>Validator: Validate state values
                 Validator->>Validator: Detect cycles (DAG check)
-                Validator->>Validator: Verify subtask numbering
+                Validator->>Validator: Verify child task id numbering
 
                 alt Validation Errors
                     Validator-->>Agent: Semantic errors
@@ -191,7 +191,7 @@ The validation pipeline ensures plan correctness before execution:
 │                                                                  │
 │  Parser (parser.rs)                                              │
 │  ├── Consumes token stream                                       │
-│  ├── Builds AST (Saga → Tasks → Subtasks)                       │
+│  ├── Builds AST (Plan → recursive Task tree)                    │
 │  └── Reports parse errors with line/column info                 │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -203,7 +203,7 @@ The validation pipeline ensures plan correctness before execution:
 │  ├── Dependency integrity (all Prior refs exist)                │
 │  ├── State validity (states match states.yaml)                  │
 │  ├── Acyclic check (DAG via topological sort)                   │
-│  └── Subtask numbering (Subtask N.M under Task N)               │
+│  └── Child task ids (Task N.M under Task N; depth ≤ maxLevels)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

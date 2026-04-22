@@ -13,9 +13,9 @@ A **template** is a directory containing:
 1. A **manifest** (`template.yaml`) declaring the template's name, description, and typed input parameters.
 2. A **state machine** (`states.yaml`) — optional; when absent, instantiation and validation fall back to the built-in `rhei` default.
 3. A **plan skeleton** — either a single-file plan (`plan.rhei.md`) or a directory-workspace layout (`index.rhei.md` + `tasks/`).
-4. **Additional files** — any non-manifest files bundled with the template. Text files are rendered with instantiation-variable substitution; binary files are copied verbatim into the output.
+4. **Additional files** — any non-manifest files bundled with the template. Text files are rendered with a restricted MiniJinja template environment; binary files are copied verbatim into the output.
 
-Materialized template files may contain **instantiation variables** (`{{name}}`) that are resolved at instantiation time from user-supplied inputs. These are distinct from the single-brace **runtime variables** (`{name}`) defined by the state-machine and plan specifications. Rendering is ordered: first resolve `{{...}}` across template files during `rhei instantiate`, then let later `rhei` commands resolve runtime `{...}` variables against the instantiated workspace. The manifest (`template.yaml`) is parsed before rendering and is never itself templated.
+Materialized template files may contain **instantiation templates** (`{{ ... }}`, `{% ... %}`) that are resolved at instantiation time from user-supplied inputs. These are distinct from the single-brace **runtime variables** (`{name}`) defined by the state-machine and plan specifications. Rendering is ordered: first resolve MiniJinja templates across template files during `rhei instantiate`, then let later `rhei` commands resolve runtime `{...}` variables against the instantiated workspace. The manifest (`template.yaml`) is parsed before rendering and is never itself templated.
 
 ## Template Discovery
 
@@ -63,11 +63,20 @@ description: <string>          # One-line human-readable summary
 inputs:
   - name: <identifier>        # Variable name, referenced as {{name}} in skeletons
     description: <string>      # What this input controls
-    type: <string|number|boolean|path>  # Value type (default: string)
+    type: <string|number|boolean|path|array|object>  # Value type (default: string)
     required: <boolean>        # Whether the input must be supplied (default: true)
     default: <value>           # Default value (makes the input optional; mutually
                                #   exclusive with required: true)
     validate: <regex>          # Optional regex the value must match
+    items:                     # Required for `type: array`
+      type: <...>
+      ...
+    properties:                # Optional for `type: object`
+      <property-name>:
+        type: <...>
+        required: <boolean>
+        default: <value>
+        ...
 ```
 
 ### Validation Rules
@@ -78,8 +87,17 @@ inputs:
 - An input with `required: true` (the default) must not declare a `default`.
 - An input with a `default` is implicitly `required: false`.
 - An input with `required: false` and no `default` resolves to the empty string when not supplied by the user. Templates are pure text substitution in v1, so authors should tolerate that empty string directly or prefer declaring a `default`.
+- `type: array` inputs must declare `items`.
+- `type: object` inputs may declare `properties`. Properties are required by default unless they declare either `required: false` or a `default`.
+- `validate` is only valid on scalar input types (`string`, `number`, `boolean`, `path`).
+- Optional inputs with no `default` resolve to type-shaped empty values:
+  - `string`, `path` → `""`
+  - `number`, `boolean` → `null`
+  - `array` → `[]`
+  - `object` → `{}`
+- For `type: array` and `type: object`, `--set KEY=...` and `--set-file KEY=...` values are parsed as YAML/JSON snippets before validation.
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
-- `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the value and anchored to the entire rendered value.
+- `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value.
 
 ## Template-Shipped Settings
 
@@ -146,15 +164,29 @@ Rules:
   template-declared entries, add project-specific overrides, or clear the
   `defaults` lists.
 
-## Instantiation Variable Syntax
+## Instantiation Template Syntax
 
-Instantiation variables use **double-brace** syntax: `{{name}}`. This is intentionally distinct from the single-brace runtime variables (`{task_id}`, `{visit_count}`, etc.) that later `rhei` commands resolve at execution time.
+Instantiation rendering uses a restricted [MiniJinja](https://github.com/mitsuhiko/minijinja)-style environment. This is intentionally distinct from the single-brace runtime variables (`{task_id}`, `{visit_count}`, etc.) that later `rhei` commands resolve at execution time.
+
+Supported constructs in v1:
+
+- `{{ expr }}` for interpolation
+- `{% for item in items %}` ... `{% endfor %}` for loops
+- `{% if cond %}` ... `{% else %}` ... `{% endif %}` for conditionals
+- `{% raw %}` ... `{% endraw %}` for literal template syntax
+- `|slug` filter for filesystem-safe slugs
+
+The renderer is **strict**:
+
+- Referencing an undefined variable or missing object property is an error.
+- `template.yaml` is parsed before rendering and is never templated.
+- The environment does not load external templates; includes/imports are unavailable.
 
 ### Resolution Rules
 
-- Instantiation variables are resolved **at instantiation time**, producing a concrete plan with no remaining `{{...}}` markers.
+- Instantiation templates are resolved **at instantiation time**, producing a concrete plan with no remaining `{{...}}` / `{% ... %}` markers.
 - Runtime variables (`{...}`) pass through instantiation untouched — they remain in the output for `rhei next` to resolve later.
-- An unresolved `{{name}}` where `name` is not a declared input is an **error** (fail-closed), unlike runtime variables which fail-open. This catches typos early.
+- An unresolved `{{name}}` or missing `foo.bar` property is an **error** (fail-closed), unlike runtime variables which fail-open. This catches typos early.
 - Instantiation always happens before any runtime `{...}` substitution from bundled or default state machines.
 - Instantiation variables can appear in any **text** file that is materialized into the output tree. `template.yaml` is parsed before rendering, is excluded from output, and must not rely on `{{...}}` substitution.
 - A file is considered text if it contains no null bytes in its first 8 KiB; all other files are binary.
@@ -163,7 +195,13 @@ Instantiation variables use **double-brace** syntax: `{{name}}`. This is intenti
 
 ### Escaping
 
-To emit a literal `{{` in output, write `\{{` in the template. The backslash is consumed during instantiation. To emit a literal `\{{`, write `\\{{`. More generally, only `\` immediately before `{{` is consumed; backslashes elsewhere are preserved verbatim.
+To emit a literal `{{` or `{%`, prefer MiniJinja raw blocks:
+
+```jinja
+{% raw %}{{target.slug}}{% endraw %}
+```
+
+For backward compatibility, `\{{` also emits a literal `{{` and the backslash is consumed during instantiation.
 
 ## CLI Commands
 
@@ -195,8 +233,8 @@ Options:
 
 1. **Locate template.** Resolve `<template>` through the discovery chain unless it is already a filesystem path. Direct paths include absolute paths, relative paths containing `/`, and dot-prefixed relative paths such as `./my-template` or `../templates/review`.
 2. **Load manifest.** Parse `template.yaml`, validate schema.
-3. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs. Validate types and `validate` patterns. Type validation applies to the raw input value only; downstream type errors (for example, a `string` value substituted into a YAML integer field) surface at step 6 as plan validation failures.
-4. **Resolve variables.** Walk all materialized text files in the template directory. Replace every `{{name}}` with its resolved value. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved `{{...}}` reference.
+3. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs. Validate types and `validate` patterns. For `array` / `object` inputs, `--set` and `--set-file` values are parsed as YAML/JSON snippets before validation.
+4. **Render templates.** Walk all materialized text files in the template directory and render them through the restricted MiniJinja environment. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved instantiation template reference.
 5. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.rhei/settings.json` under the output root; all other files preserve their template-relative paths.
 6. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then output-root `.rhei/settings.json`) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
 7. **Execute (optional).** When `--execute` is passed, invoke `rhei run <output>` after successful validation. `rhei run` uses the instantiated output's root `states.yaml` by default when present; otherwise it falls back to the built-in default.

@@ -15,11 +15,11 @@ Coordinate the staged rollout of release automation across environments.
 
 Document inputs, outputs, and rollback hooks.
 
-#### Subtask 1.1: Capture deployment events
+#### Task 1.1: Capture deployment events
 **State:** draft
 List all event types emitted by the deployment system.
 
-#### Subtask 1.2: Record rollback contract
+#### Task 1.2: Record rollback contract
 **State:** draft
 ```yaml
 rollback:
@@ -32,7 +32,7 @@ rollback:
 
 Prepare staging and production credentials.
 
-#### Subtask 2.1: Provision staging secrets
+#### Task 2.1: Provision staging secrets
 **State:** draft
 Create and store staging credentials.
 
@@ -42,10 +42,10 @@ Create and store staging credentials.
 
 Enable the release bot after environment bootstrap succeeds.
 
-#### Subtask 3.1: Dry run in staging
+#### Task 3.1: Dry run in staging
 **State:** draft
 Run the bot in dry-run mode against staging.
 
-#### Subtask 3.2: Enable production rollout
+#### Task 3.2: Enable production rollout
 **State:** draft
 Promote the release bot after the staging dry run succeeds.

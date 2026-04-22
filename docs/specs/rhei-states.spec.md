@@ -130,7 +130,7 @@ can start in different states within the same state machine.
 - `state.program` on a `gating: true` state is a validation error (gating states require human action; programs execute autonomously).
 - `state.program_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
 - `state.inputs` / `state.outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
-- Artifact `path` values must be relative to the plan root (single-file plan) or workspace root (directory workspace) and must not escape that root after template expansion.
+- Artifact `path` values must be relative to the plan's execution root (the plan-file directory for a single-file plan, or the workspace root for a directory workspace; see [main spec — State Artifact Contracts](../rhei.spec.md#10-state-artifact-contracts)) and must not escape that root after template expansion.
 - `artifact.optional`, when present, must be a boolean. Only valid on `inputs` entries; declaring `optional: true` on an `outputs` entry is a validation error (required outputs are always enforced).
 - An `optional: true` input that is missing does not block state entry. Its `{input.<name>.exists}` variable resolves to `false` and its `{input.<name>.path}` resolves to the declared path regardless.
 - `state.mcp_servers` / `state.skills`, when present, must be arrays. Each entry is either a non-empty string (registry id) or an object with at least an `id` field plus the inline definition fields accepted by the corresponding settings registry.
@@ -191,6 +191,11 @@ Runtime semantics:
     (name uppercased, hyphens and spaces replaced with underscores).
 - Artifact contracts are file-existence contracts in v1. They do not yet define
   JSON schemas, required headings, or content-level validation.
+- Under `orchestrator` [Completion Authority](rhei-agents.spec.md#completion-authority),
+  the `outputs:` existence check doubles as the state's deterministic completion
+  signal: the subprocess exit alone is not sufficient, and a zero-exit with any
+  missing required output leaves the task in its current state. See
+  [Completion Condition](rhei-agents.spec.md#completion-condition).
 
 Example:
 
@@ -337,8 +342,9 @@ states:
       Read `{input.review-notes.path}`, extract the accumulated review
       findings, and update `{output.fix-notes.path}`.
 
-      Transition back to `review` if {visit_count} < {visits}.
-      Otherwise, transition to `completed`.
+      If there is another review pass remaining (you are in pass
+      {visit_count} of {visits}), transition back to `review`. Once every
+      review-fix cycle is complete, transition to `completed`.
     visits: 2
     inputs:
       - name: review-notes

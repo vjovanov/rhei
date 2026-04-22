@@ -58,26 +58,49 @@ Backticks are acceptable for all state values when they improve consistency and 
 - Prefer numeric IDs unless the plan is small and conceptual.
 - Do not mix styles in one document.
 
-### Subtask Format
+### Child Task Format
 
-Use subtasks only with numeric task IDs.
+Decompose a task with nested `Task` nodes at a deeper heading level. Child
+nodes use the same block shape as roots but with a dotted id that extends
+the parent:
 
 ```markdown
-#### Subtask <n>.<m>: <title>
+#### Task <parent>.<child>: <title>
 **State:** <state>
 
 <description>
 ```
 
 Apply these rules:
-- **Every subtask MUST have a `**State:**` field.** A subtask without `**State:**` is invalid and will fail validation — the same rule as for tasks.
-- Keep `**State:**` as the first line directly under the subtask heading — no blank line between the heading and `**State:**`.
-- Default to including subtasks for every task to support implementation logging.
-- Skip subtasks only when a task is truly simple, atomic, and does not benefit from further decomposition.
-- When skipping subtasks, make the task description explicit enough to act as a single implementation log entry.
-- Match `<n>` to the parent task number.
-- Increment `<m>` sequentially from `1`.
-- Place subtasks directly under the parent task description.
+- **Every child task MUST have a `**State:**` field.** Same rule as for root tasks.
+- Keep `**State:**` as the first line directly under the heading — no blank line between the heading and `**State:**`.
+- The child id extends the parent id by exactly one new segment, separated by `.`: `1.1`, `1.2.3`, `api.cache`.
+- Numeric children increment from `1` within their parent; named children use short identifiers.
+- Sibling ids must be unique under the same parent.
+- Default to adding child tasks whenever a task benefits from progressive disclosure and per-step logging. Skip them only when the work is clearly atomic.
+- When skipping child tasks, make the task description explicit enough to act as a single implementation log entry.
+- Heading depth is bounded by the plan's `structure.maxLevels` (default `2`, maximum `4`). H3 is depth 1, H4 is depth 2, H5 is depth 3, H6 is depth 4. A plan that needs more than two levels must declare `structure.maxLevels` in frontmatter.
+
+### Node Kinds
+
+By default the only declared node kind is `task` (rendered `Task` in headings). Plans that mix other kinds (for example bugs) declare them in frontmatter:
+
+```markdown
+---
+structure:
+  maxLevels: 3
+  nodeKinds: [task, bug]
+---
+```
+
+Once declared, a kind's title-cased form may appear as the heading keyword:
+
+```markdown
+#### Bug 1.2: Fix null-cache panic
+**State:** pending
+```
+
+The keyword `rhei` is reserved and must not appear in `nodeKinds`.
 
 ## Planning Workflow
 
@@ -86,12 +109,12 @@ Apply these rules:
 3. Assign only real prerequisites to maximize parallel execution.
 4. Build a dependency DAG and remove cycles before drafting. Ensure the graph is topologically sortable for execution order.
 5. Draft concise context sections only when they improve implementation clarity.
-6. Write each task and subtask as concrete implementation instructions.
+6. Write each task and child task as concrete implementation instructions.
 7. Set initial states correctly:
    - New plan: set all tasks to `pending`.
    - Existing plan update: preserve truthful `completed` and `cancelled` states unless explicitly changed.
 8. Run the validation checklist before returning output.
-9. **Final scan:** re-read every `### Task` and `#### Subtask` heading in the output and confirm each is immediately followed by a `**State:**` line. If any task or subtask is missing `**State:**`, fix it before returning the plan. This is the most common defect — always perform this check last.
+9. **Final scan:** re-read every `### Task`, `#### Task`, `##### Task`, or `###### Task` heading in the output and confirm each is immediately followed by a `**State:**` line. If any task is missing `**State:**`, fix it before returning the plan. This is the most common defect — always perform this check last.
 
 ## Validation Checklist
 
@@ -100,16 +123,17 @@ Validate every response against all checks:
 - Use one H1 and match `# Rhei: <title>`.
 - If present, place `**States:** <state-machine-name>` as the first non-empty line after the H1, before any H2 section.
 - Keep `## Tasks` present and last.
-- Format every task as `### Task <id>: <title>`.
-- Include `**State:**` on every task and every subtask with an allowed value.
+- Format every root task as `### Task <id>: <title>`.
+- Format every child task as `#### Task <parent>.<child>: <title>` (and deeper levels at H5/H6 when `structure.maxLevels` permits).
+- Include `**State:**` on every task (root or child) with an allowed value.
 - Place `**Prior:**` only after `**State:**` when present.
 - Reference only existing tasks in each `**Prior:**` line.
 - Keep dependencies acyclic.
 - Keep ID style consistent across the document.
-- Keep subtask numbering consistent with parent IDs and local order.
-- Ensure each task has subtasks unless the task is clearly simple and non-decomposable.
+- Each child id extends its parent id by exactly one segment; sibling ids under the same parent are unique.
+- Ensure each task has child tasks unless the task is clearly simple and non-decomposable.
 - Emit no metadata fields beyond `**State:**` and `**Prior:**`.
-- Keep heading levels strictly H1/H2/H3/H4 for plan title, sections, tasks, subtasks.
+- Heading depth must not exceed the plan's `structure.maxLevels` (default `2`, maximum `4`).
 
 ## File Extension
 
@@ -138,8 +162,8 @@ Right-sizing tasks is a balancing act across competing constraints:
 
 - **Too large:** the implementing agent exhausts its context window before finishing.
 - **Too small:** task-management overhead (transitions, re-reads, cold context) dominates useful work.
-- **Right-sized:** a task fits comfortably in one agent session and produces a meaningful, reviewable unit of change. Subtasks should decompose work the agent can reuse context for — shared files, related functions, sequential build steps.
+- **Right-sized:** a task fits comfortably in one agent session and produces a meaningful, reviewable unit of change. Child tasks should decompose work the agent can reuse context for — shared files, related functions, sequential build steps.
 
 The state machine defines what happens at each stage of a task's lifecycle — read it before deciding granularity. A machine with heavyweight review gates (multi-agent review, human sign-off) justifies larger tasks to amortize that overhead. A lightweight machine (implement → done) allows smaller, more focused tasks. Match task size to the cost of moving through the states.
 
-When a task is simple enough that subtasks would just be a checklist, omit subtasks and use inline TODO lists in the description instead.
+When a task is simple enough that child tasks would just be a checklist, omit them and use inline TODO lists in the description instead.

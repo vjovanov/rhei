@@ -38,8 +38,9 @@ states:
       Apply each suggested fix directly to the specification at `{{spec}}`.
       Keep changes limited to the target specification file unless a finding explicitly requires an adjacent referenced file.
       Write a summary of changes made to `{output.fix-summary.path}`.
-      After writing the artifact, immediately transition back to `review` when `{visit_count} < {visits}`;
-      otherwise transition to `completed`.
+      After writing the artifact, if there is another review pass remaining
+      (you are in pass {visit_count} of {visits}), transition back to `review`;
+      once every review-fix cycle is complete, transition to `completed`.
     visits: 2
     inputs:
       - name: review-notes

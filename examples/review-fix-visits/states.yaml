@@ -26,8 +26,9 @@ states:
       Read `{input.review-notes.path}`, extract the accumulated review
       findings, and update `{output.fix-notes.path}`.
 
-      Transition back to `review` if {visit_count} < {visits}.
-      Otherwise, transition to `completed`.
+      If there is another review pass remaining (you are in pass
+      {visit_count} of {visits}), transition back to `review`. Once every
+      review-fix cycle is complete, transition to `completed`.
     visits: 2
     inputs:
       - name: review-notes

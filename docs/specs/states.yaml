@@ -17,17 +17,18 @@ states:
   pending:
     description: Task is ready for implementation. An **Assignee** on a pending task means work is actively in progress.
     instructions: |
-      Pick up when all **Prior:** tasks are `completed`. Implement the task and
-      its subtasks, logging progress per subtask. When implementation is
-      complete and self-tested, either run `rhei complete` to finish directly
-      or transition to `agent-review` when a separate review pass is required.
+      Pick up when all **Prior:** tasks are `completed`. Implement the task
+      and any child task nodes, logging progress per child task. When
+      implementation is complete and self-tested, either run `rhei complete`
+      to finish directly or transition to `agent-review` when a separate
+      review pass is required.
 
   agent-review:
     description: A separate reviewing agent inspects the result.
     instructions: |
-      Review the implementation against the task description, subtasks, and
-      repository conventions. On pass, transition to `human-review` (or
-      `completed` if no human gate is required). On fail, transition to
+      Review the implementation against the task description, any child task
+      nodes, and repository conventions. On pass, transition to `human-review`
+      (or `completed` if no human gate is required). On fail, transition to
       `agent-review-fix` with concrete findings.
 
   agent-review-fix:

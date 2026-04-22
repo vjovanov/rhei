@@ -12,6 +12,7 @@ pub mod ast;
 pub mod callback;
 pub mod lexer;
 pub mod parser;
+pub(crate) mod text;
 pub mod tokens;
 pub mod workspace;
 

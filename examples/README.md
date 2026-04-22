@@ -56,30 +56,21 @@ This directory contains example inputs for the current markdown plan compiler im
 
 ## Verification commands
 
-Validate the examples with the CLI:
+Each example is registered with the `xtask` build helper, which selects the
+correct state machine and runtime setup per example:
 
 ```bash
-cargo run -p rhei-cli -- validate examples/release-automation.rhei.md
-cargo run -p rhei-cli -- validate examples/human-review-loop.rhei.md
-cargo run -p rhei-cli -- validate examples/pm-onboarding-experiment.rhei.md
-cargo run -p rhei-cli -- --state-machine examples/states-with-spaces.yaml validate examples/escaped-state-values.rhei.md
-cargo run -p rhei-cli -- --state-machine examples/claude-code/states.yaml validate examples/claude-code/plan.rhei.md
-cargo run -p rhei-cli -- --state-machine examples/living-review-loop/team-states.yaml validate examples/living-review-loop
-cargo run -p rhei-cli -- --state-machine examples/review-fix-visits/states.yaml validate examples/review-fix-visits
+cargo xtask examples list                      # show all examples
+cargo xtask examples validate <name>           # validate one example
+cargo xtask examples validate --all            # validate every example
+cargo xtask examples run living-review-loop    # run a runnable example in a tmp copy
 ```
 
-Render an example as JSON:
+Direct CLI invocations still work if you need a one-off — for example, rendering
+an example as JSON:
 
 ```bash
 cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format json --pretty
-```
-
-Run the living workspace example end to end in a disposable copy:
-
-```bash
-tmp_dir="$(mktemp -d)"
-cp -R examples/living-review-loop "$tmp_dir/living-review-loop"
-cargo run -p rhei-cli -- --state-machine "$tmp_dir/living-review-loop/team-states.yaml" run "$tmp_dir/living-review-loop"
 ```
 
 ## Notes on current behavior

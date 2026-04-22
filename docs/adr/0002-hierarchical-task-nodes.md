@@ -2,7 +2,7 @@
 
 ## Status
 
-proposed
+accepted
 
 ## Context
 
@@ -136,9 +136,10 @@ A child node is simply another task node at a deeper level:
 **State:** pending
 ```
 
-For migration, the parser should temporarily accept legacy
-`#### Subtask <path>: ...` as an alias for a level-2 task node and emit a
-deprecation warning.
+The `Subtask` keyword is removed outright. The parser does not accept legacy
+`#### Subtask <path>: ...` headings; existing plans, fixtures, and examples must
+be migrated to the hierarchical `Task` form in the same change that removes the
+keyword.
 
 ### 5. Configurable node kinds
 
@@ -215,14 +216,19 @@ The referenced kind must match the declared kind of the target node.
 
 ### 8. Migration plan
 
-Deliver the change in phases:
+Deliver the change as one coordinated refactor. No compatibility window is
+offered for the `Subtask` keyword; every in-tree plan, fixture, and example is
+migrated to the hierarchical `Task` form in the same change:
 
-1. Add recursive AST support and compatibility parsing for `Subtask`
-2. Rename validator logic from subtask-specific rules to generic tree rules
-3. Switch CLI/output/rendering code from `subtasks` to `children`
-4. Add node-kind parsing/validation and JSON output for `kind`
-5. Deprecate authored `Subtask` syntax in docs and examples
-6. Remove `Subtask` compatibility parsing in the next major version
+1. Replace the AST `Task` / `Subtask` split with a recursive `TaskNode`
+2. Rewrite the parser for H3–H6 node headings with configurable kinds and parse
+   plan-level `structure` frontmatter
+3. Replace subtask-specific validator rules with generic tree rules
+4. Rename `subtasks` to `children` in rendering and JSON output, and expose
+   `kind` on every node
+5. Update CLI flows (completion gate, reset, link insertion) to traverse the
+   tree recursively
+6. Migrate all docs, skills, examples, fixtures, and tests to the new syntax
 
 ## Consequences
 
@@ -234,7 +240,9 @@ Deliver the change in phases:
   separate workflow mechanism.
 - `rhei next`, `rhei run`, validators, renderers, and JSON output all need a
   breaking internal refactor from `subtasks` to recursive `children`.
-- Existing plans can be supported with a compatibility window because
-  `Subtask 1.2` maps naturally to `Task 1.2`.
+- This is a breaking change for out-of-tree plans: the `Subtask` keyword is
+  removed with no compatibility parsing, so any `#### Subtask <n>.<m>: ...`
+  heading must be rewritten to `#### Task <n>.<m>: ...`. The rewrite is
+  mechanical because `Subtask 1.2` maps one-to-one to `Task 1.2`.
 - The first implementation intentionally limits hierarchy depth to what Markdown
   heading levels can represent cleanly.

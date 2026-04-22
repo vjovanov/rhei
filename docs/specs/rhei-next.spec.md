@@ -39,7 +39,7 @@ A task is *claimable* when:
 6. Re-read and re-validate the task's claimability under the lock, including
    re-checking required `inputs` (guards against concurrent claims and moved
    files).
-7. Set `**Assignee:** <current-agent>` on the task.
+7. Set `**Assignee:** <current-agent>` on the task, where `<current-agent>` is the agent id resolved for the task's current state via the [agent resolution order](rhei-agents.spec.md) (state `agent:` field → project settings → global settings). When no agent is configured, the assignee is omitted rather than written as a placeholder.
 8. Write the task file atomically (temp file + rename), release lock.
 9. Resolve template variables in the state's `instructions` and `personality`
    fields (see [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality)).
@@ -105,19 +105,13 @@ When no claimable task is found, `rhei next` (with or without `--peek`) prints o
 | One or more tasks in a gating state              | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...`                   |
 | All non-terminal tasks are claimed (in-flight)   | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>), ...` |
 
-These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan. Gating states are identified by the `gating: true` field in the state machine definition (e.g., `human-review` in the default machine). Custom machines may define additional gating states such as `security-review` or `legal-review`.
+These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan. See [States Specification — State Definition](rhei-states.spec.md#per-state-fields) for the `gating: true` field (e.g., `human-review` in the default machine; custom machines may define additional gating states such as `security-review` or `legal-review`).
 
 ## Relationship to Other Commands
 
-| Command            | What it does                                                              |
-|--------------------|---------------------------------------------------------------------------|
-| `rhei next`        | Claims the next ready task (assigns without transitioning), prints instructions |
-| `rhei next --peek` | Read-only: prints the next claimable task without claiming it             |
-| `rhei transition`  | Atomically changes a task's state; appends entry to result file           |
-| `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns      |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+`rhei next` is the claim step of the manual-worker loop: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release). `--peek` is the read-only variant that inspects the next claimable task without taking it.
 
-The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
+See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) for the full table comparing all five coordination commands.
 
 ## Agent Context
 
@@ -156,4 +150,7 @@ Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 - [States Specification](rhei-states.spec.md) — state machine format
 - [Agents Specification](rhei-agents.spec.md) — agent configuration, invocation, and timeout
 - [Transitions Specification](rhei-transitions.spec.md) — state transition system
+- [Transition Command](rhei-transition-cmd.spec.md) — `rhei transition` behavioral contract
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract
+- [Run Command](rhei-run.spec.md) — `rhei run` behavioral contract
+- [Reset Command](rhei-reset.spec.md) — `rhei reset` behavioral contract

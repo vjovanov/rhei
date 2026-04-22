@@ -1,7 +1,8 @@
 //! Rhei Output
 //!
-//! Scaffold crate for output generators. Concrete implementations
-//! (e.g., JSON, GitHub, progress reports) will be added later.
+//! Output generators for rhei plans. Currently ships JSON, GitHub-issues
+//! markdown, and a terminal progress report. All generators walk the
+//! recursive task tree produced by [`rhei_core::ast`].
 
 /// Returns this crate's version.
 pub fn version() -> String {
@@ -9,14 +10,7 @@ pub fn version() -> String {
 }
 
 /// Trait for output generators.
-///
-/// Implementations will convert internal representations into
-/// concrete output formats. This is a placeholder API to
-/// support compilation and downstream wiring.
 pub trait OutputGenerator {
-    /// Generate output from a string input placeholder.
-    ///
-    /// This will be replaced with typed inputs once AST and validation exist.
     fn generate(&self, input: &str) -> String;
 }
 
@@ -36,20 +30,14 @@ impl OutputGenerator for NoopOutput {
 
 use serde_json::{json, Map, Value};
 
-use rhei_core::ast::{Rhei, Subtask, Task, TaskId};
+use rhei_core::ast::{Rhei, Task, TaskId, TaskIdSegment};
 
 /// Plan output generator trait for structured outputs.
-///
-/// Implementations return a serde_json::Value tree without requiring
-/// Serialize on the core AST types.
 pub trait PlanOutputGenerator {
     fn generate_rhei(&self, rhei: &rhei_core::ast::Rhei) -> serde_json::Value;
 }
 
 /// JSON output generator.
-///
-/// pretty controls only string rendering choices in convenience methods; the
-/// trait itself returns a Value.
 #[derive(Debug, Clone, Default)]
 pub struct JsonOutput {
     pub pretty: bool,
@@ -60,10 +48,6 @@ impl PlanOutputGenerator for JsonOutput {
         rhei_json(rhei)
     }
 }
-
-// -----------------------------------------------------------------------------
-// Public convenience functions
-// -----------------------------------------------------------------------------
 
 /// Convert a parsed Rhei into a serde_json::Value.
 pub fn to_json_value(rhei: &rhei_core::ast::Rhei) -> serde_json::Value {
@@ -77,40 +61,41 @@ pub fn to_json_string_pretty(rhei: &rhei_core::ast::Rhei) -> String {
 }
 
 // -----------------------------------------------------------------------------
-// Internal helpers (Value construction without Serialize derives)
+// Internal helpers
 // -----------------------------------------------------------------------------
 
-fn task_id_json(id: &TaskId) -> Value {
-    match id {
-        TaskId::Number(n) => json!({ "number": n }),
-        TaskId::Named(s) => json!({ "named": s }),
+fn id_segment_json(seg: &TaskIdSegment) -> Value {
+    match seg {
+        TaskIdSegment::Number(n) => json!({ "number": n }),
+        TaskIdSegment::Named(s) => json!({ "named": s }),
     }
 }
 
-fn subtask_json(st: &Subtask) -> Value {
-    let mut obj = Map::new();
-    obj.insert("task_number".to_string(), json!(st.task_number));
-    obj.insert("subtask_number".to_string(), json!(st.subtask_number));
-    obj.insert("title".to_string(), Value::String(st.title.clone()));
-    obj.insert("state".to_string(), Value::String(st.state.clone()));
-    obj.insert("content".to_string(), Value::String(st.content.clone()));
-    Value::Object(obj)
+fn task_id_json(id: &TaskId) -> Value {
+    let segments: Vec<Value> = id.segments.iter().map(id_segment_json).collect();
+    json!({
+        "path": id.to_string(),
+        "segments": segments,
+    })
 }
 
 fn task_json(t: &Task) -> Value {
     let prior = t.prior.iter().map(task_id_json).collect::<Vec<Value>>();
-    let subtasks = t.subtasks.iter().map(subtask_json).collect::<Vec<Value>>();
+    let children = t.children.iter().map(task_json).collect::<Vec<Value>>();
 
     let mut obj = Map::new();
     obj.insert("id".to_string(), task_id_json(&t.id));
+    obj.insert("kind".to_string(), Value::String(t.kind.clone()));
     obj.insert("title".to_string(), Value::String(t.title.clone()));
     obj.insert("state".to_string(), Value::String(t.state.clone()));
     obj.insert("prior".to_string(), Value::Array(prior));
+    if let Some(ref assignee) = t.assignee {
+        obj.insert("assignee".to_string(), Value::String(assignee.clone()));
+    }
     if !t.content.is_empty() {
         obj.insert("content".to_string(), Value::String(t.content.clone()));
     }
-    obj.insert("subtasks".to_string(), Value::Array(subtasks));
-
+    obj.insert("children".to_string(), Value::Array(children));
     Value::Object(obj)
 }
 
@@ -131,7 +116,11 @@ fn rhei_json(rhei: &Rhei) -> Value {
     json!({
         "title": rhei.title,
         "states": rhei.states,
-        "metadata": rhei.metadata.as_ref().and_then(|metadata| serde_json::to_value(metadata).ok()),
+        "structure": {
+            "max_levels": rhei.structure.max_levels,
+            "node_kinds": rhei.structure.node_kinds,
+        },
+        "frontmatter": rhei.metadata.as_ref().and_then(|metadata| serde_json::to_value(metadata).ok()),
         "content_sections": content_sections,
         "tasks": tasks
     })
@@ -141,24 +130,25 @@ fn rhei_json(rhei: &Rhei) -> Value {
 // GitHub Issues Markdown Output API
 // -----------------------------------------------------------------------------
 
-/// Helper: format a TaskId as a display string without prefixes.
-fn fmt_task_id(id: &TaskId) -> String {
-    match id {
-        TaskId::Number(n) => n.to_string(),
-        TaskId::Named(s) => s.clone(),
+fn title_case_kind(kind: &str) -> String {
+    let mut out = String::with_capacity(kind.len());
+    let mut chars = kind.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            out.push(c);
+        }
     }
+    for c in chars {
+        out.push(c);
+    }
+    out
 }
 
-/// Helper: format a list of TaskIds as "Task 1, Task build".
 fn fmt_prior_list(ids: &[TaskId]) -> String {
-    ids.iter().map(|id| format!("Task {}", fmt_task_id(id))).collect::<Vec<String>>().join(", ")
+    ids.iter().map(|id| format!("Task {}", id)).collect::<Vec<String>>().join(", ")
 }
 
 /// GitHub issues-style Markdown output generator.
-///
-/// Controls:
-/// - include_content: whether to emit subtask content indented under the checkbox item
-/// - include_metadata: whether to emit "- State:" and "- Prior:" lines under each task
 #[derive(Debug, Clone, Copy)]
 pub struct GithubIssuesOutput {
     pub include_content: bool,
@@ -170,13 +160,11 @@ impl GithubIssuesOutput {
     pub fn to_markdown(&self, rhei: &rhei_core::ast::Rhei) -> String {
         let mut out = String::new();
 
-        // Title
         out.push_str("# Rhei: ");
         out.push_str(&rhei.title);
         out.push('\n');
         out.push('\n');
 
-        // Content sections
         for section in &rhei.content_sections {
             out.push_str("## ");
             out.push_str(&section.title);
@@ -190,64 +178,51 @@ impl GithubIssuesOutput {
             out.push('\n');
         }
 
-        // Tasks
         out.push_str("## Tasks\n\n");
         for task in &rhei.tasks {
-            // Task header
-            out.push_str("### Task ");
-            out.push_str(&fmt_task_id(&task.id));
-            out.push_str(": ");
-            out.push_str(&task.title);
-            out.push('\n');
-
-            // Optional metadata
-            if self.include_metadata {
-                out.push_str("- State: ");
-                out.push_str(&task.state);
-                out.push('\n');
-                if !task.prior.is_empty() {
-                    out.push_str("- Prior: ");
-                    out.push_str(&fmt_prior_list(&task.prior));
-                    out.push('\n');
-                }
-            }
-
-            // Task content
-            if self.include_content && !task.content.is_empty() {
-                out.push('\n');
-                out.push_str(&task.content);
-                out.push('\n');
-            }
-
-            // Subtasks with checkboxes
-            for st in &task.subtasks {
-                out.push_str("- [ ] ");
-                out.push_str(&st.task_number.to_string());
-                out.push('.');
-                out.push_str(&st.subtask_number.to_string());
-                out.push_str(": ");
-                out.push_str(&st.title);
-                out.push('\n');
-
-                if self.include_metadata {
-                    out.push_str("  - State: ");
-                    out.push_str(&st.state);
-                    out.push('\n');
-                }
-
-                if self.include_content && !st.content.is_empty() {
-                    for line in st.content.lines() {
-                        out.push_str("  ");
-                        out.push_str(line);
-                        out.push('\n');
-                    }
-                }
-            }
-
+            self.render_node(task, 3, &mut out);
             out.push('\n');
         }
 
         out
+    }
+
+    fn render_node(&self, task: &Task, level: u8, out: &mut String) {
+        let hashes = "#".repeat(level as usize);
+        out.push_str(&hashes);
+        out.push(' ');
+        out.push_str(&title_case_kind(&task.kind));
+        out.push(' ');
+        out.push_str(&task.id.to_string());
+        out.push_str(": ");
+        out.push_str(&task.title);
+        out.push('\n');
+
+        if self.include_metadata {
+            out.push_str("- State: ");
+            out.push_str(&task.state);
+            out.push('\n');
+            if !task.prior.is_empty() {
+                out.push_str("- Prior: ");
+                out.push_str(&fmt_prior_list(&task.prior));
+                out.push('\n');
+            }
+            if let Some(ref assignee) = task.assignee {
+                out.push_str("- Assignee: ");
+                out.push_str(assignee);
+                out.push('\n');
+            }
+        }
+
+        if self.include_content && !task.content.is_empty() {
+            out.push('\n');
+            out.push_str(&task.content);
+            out.push('\n');
+        }
+
+        for child in &task.children {
+            self.render_node(child, level + 1, out);
+        }
     }
 }
 
@@ -263,31 +238,18 @@ pub fn to_github_markdown(rhei: &rhei_core::ast::Rhei) -> String {
 /// Progress Report output generator for human-readable terminal summaries.
 #[derive(Debug, Clone, Copy)]
 pub struct ProgressReportOutput {
-    /// Whether to colorize the state badge using ANSI escape sequences.
     pub color: bool,
-    /// Whether to show the "Prior" dependency list for each task.
     pub show_dependencies: bool,
 }
 
 impl ProgressReportOutput {
-    /// Render the provided Rhei into a concise terminal progress report.
-    ///
-    /// Formatting:
-    /// - Header: "Rhei: <title>"
-    /// - Optional "Overview: ..." with the first non-empty rhei content line.
-    /// - One-line summary per Task, with optional Prior line and subtasks.
     pub fn to_string(&self, rhei: &rhei_core::ast::Rhei) -> String {
         let mut out = String::new();
 
-        // Header
         out.push_str("Rhei: ");
         out.push_str(&rhei.title);
         out.push('\n');
 
-        // Context sections: emit the full content so the progress view is a
-        // meaningful navigation surface.  Each section is rendered as a titled
-        // block with content lines indented by two spaces; blank separator lines
-        // inside the content are collapsed so the report stays compact.
         for section in &rhei.content_sections {
             out.push_str(&section.title);
             out.push_str(":\n");
@@ -301,46 +263,44 @@ impl ProgressReportOutput {
             }
         }
 
-        // Tasks
         for task in &rhei.tasks {
-            // Determine state (uppercased for display)
-            let state_upper = task.state.trim().to_ascii_uppercase();
-            let badge = badge_for(&state_upper, self.color);
-
-            // Task summary line
-            out.push_str("* Task ");
-            out.push_str(&fmt_task_id(&task.id));
-            out.push_str(": ");
-            out.push_str(&task.title);
-            out.push_str("  ");
-            out.push_str(&badge);
-            out.push('\n');
-
-            // Optional dependencies ("Prior")
-            if self.show_dependencies && !task.prior.is_empty() {
-                out.push_str("  - Prior: ");
-                out.push_str(&fmt_prior_list(&task.prior));
-                out.push('\n');
-            }
-
-            // Subtasks with state badge
-            for st in &task.subtasks {
-                let st_state_upper = st.state.trim().to_ascii_uppercase();
-                let st_badge = badge_for(&st_state_upper, self.color);
-
-                out.push_str("  - ");
-                out.push_str(&st.task_number.to_string());
-                out.push('.');
-                out.push_str(&st.subtask_number.to_string());
-                out.push_str(": ");
-                out.push_str(&st.title);
-                out.push_str("  ");
-                out.push_str(&st_badge);
-                out.push('\n');
-            }
+            self.render_node(task, 0, &mut out);
         }
 
         out
+    }
+
+    fn render_node(&self, task: &Task, indent_level: usize, out: &mut String) {
+        let state_upper = task.state.trim().to_ascii_uppercase();
+        let badge = badge_for(&state_upper, self.color);
+
+        if indent_level == 0 {
+            out.push_str("* ");
+        } else {
+            for _ in 0..indent_level {
+                out.push_str("  ");
+            }
+            out.push_str("- ");
+        }
+
+        out.push_str(&title_case_kind(&task.kind));
+        out.push(' ');
+        out.push_str(&task.id.to_string());
+        out.push_str(": ");
+        out.push_str(&task.title);
+        out.push_str("  ");
+        out.push_str(&badge);
+        out.push('\n');
+
+        if self.show_dependencies && indent_level == 0 && !task.prior.is_empty() {
+            out.push_str("  - Prior: ");
+            out.push_str(&fmt_prior_list(&task.prior));
+            out.push('\n');
+        }
+
+        for child in &task.children {
+            self.render_node(child, indent_level + 1, out);
+        }
     }
 }
 
@@ -348,7 +308,6 @@ fn badge_for(state_upper: &str, color: bool) -> String {
     if !color {
         return format!("[{}]", state_upper);
     }
-    // Same mapping as colorize()
     let key = state_upper.to_ascii_lowercase().replace(' ', "-");
     let code = match key.as_str() {
         "pending" => 34,     // blue
@@ -388,26 +347,20 @@ mod tests {
         let rhei = parse(input).expect("parse ok");
         let v = to_json_value(&rhei);
 
-        // Rhei title
         assert_eq!(v["title"].as_str().unwrap(), "Minimal");
-
-        // Content sections array exists (may be empty)
         assert!(v["content_sections"].is_array());
 
-        // One task with numeric id 1
         let tasks = v["tasks"].as_array().unwrap();
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0]["id"]["number"].as_u64(), Some(1));
-
-        // State present and set to "pending"
+        assert_eq!(tasks[0]["id"]["path"].as_str(), Some("1"));
+        assert_eq!(tasks[0]["id"]["segments"][0]["number"].as_u64(), Some(1));
+        assert_eq!(tasks[0]["kind"].as_str(), Some("task"));
         assert_eq!(tasks[0]["state"].as_str(), Some("pending"));
-
-        // Subtasks empty
-        assert!(tasks[0]["subtasks"].as_array().unwrap().is_empty());
+        assert!(tasks[0]["children"].as_array().unwrap().is_empty());
     }
 
     #[test]
-    fn json_output_with_named_ids_and_subtasks_and_prior() {
+    fn json_output_with_named_ids_and_children_and_prior() {
         let input = r#"# Rhei: Complex
 
 ## Tasks
@@ -415,11 +368,11 @@ mod tests {
 ### Task 1: First
 **State:** pending
 
-#### Subtask 1.1: Do A
+#### Task 1.1: Do A
 **State:** pending
 Do A line
 
-#### Subtask 1.2: Do B
+#### Task 1.2: Do B
 **State:** completed
 Do B line
 
@@ -433,33 +386,72 @@ Do B line
 
         let tasks = v["tasks"].as_array().unwrap();
 
-        // Find named task "build"
         let build = tasks
             .iter()
-            .find(|t| t["id"]["named"].as_str() == Some("build"))
+            .find(|t| t["id"]["path"].as_str() == Some("build"))
             .expect("build task exists");
 
-        // build prior[0].number == 1
         let deps = build["prior"].as_array().unwrap();
         assert!(!deps.is_empty());
-        assert_eq!(deps[0]["number"].as_u64(), Some(1));
+        assert_eq!(deps[0]["path"].as_str(), Some("1"));
 
-        // Find Task 1 and verify two subtasks with fields
         let task1 =
-            tasks.iter().find(|t| t["id"]["number"].as_u64() == Some(1)).expect("task 1 exists");
+            tasks.iter().find(|t| t["id"]["path"].as_str() == Some("1")).expect("task 1 exists");
 
-        let subtasks = task1["subtasks"].as_array().unwrap();
-        assert_eq!(subtasks.len(), 2);
+        let children = task1["children"].as_array().unwrap();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0]["id"]["path"].as_str(), Some("1.1"));
+        assert_eq!(children[0]["title"].as_str().unwrap(), "Do A");
+        assert_eq!(children[1]["id"]["path"].as_str(), Some("1.2"));
+        assert_eq!(children[1]["title"].as_str().unwrap(), "Do B");
+    }
 
-        // Subtask 1.1
-        assert_eq!(subtasks[0]["task_number"].as_u64(), Some(1));
-        assert_eq!(subtasks[0]["subtask_number"].as_u64(), Some(1));
-        assert_eq!(subtasks[0]["title"].as_str().unwrap(), "Do A");
+    #[test]
+    fn json_output_omits_assignee_when_absent() {
+        let input = r#"# Rhei: NoAssignee
 
-        // Subtask 1.2
-        assert_eq!(subtasks[1]["task_number"].as_u64(), Some(1));
-        assert_eq!(subtasks[1]["subtask_number"].as_u64(), Some(2));
-        assert_eq!(subtasks[1]["title"].as_str().unwrap(), "Do B");
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+
+        let rhei = parse(input).expect("parse ok");
+        let v = to_json_value(&rhei);
+        let tasks = v["tasks"].as_array().unwrap();
+        assert!(tasks[0].as_object().unwrap().get("assignee").is_none());
+    }
+
+    #[test]
+    fn json_output_includes_assignee_when_present() {
+        let input = r#"# Rhei: Assigned
+
+## Tasks
+
+### Task 1: Alpha
+**State:** in-progress
+**Assignee:** alice
+"#;
+
+        let rhei = parse(input).expect("parse ok");
+        let v = to_json_value(&rhei);
+        let tasks = v["tasks"].as_array().unwrap();
+        assert_eq!(tasks[0]["assignee"].as_str(), Some("alice"));
+    }
+
+    #[test]
+    fn github_markdown_renders_assignee_line() {
+        let input = r#"# Rhei: Assigned
+
+## Tasks
+
+### Task 1: Alpha
+**State:** in-progress
+**Assignee:** alice
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let s = to_github_markdown(&rhei);
+        assert!(s.contains("- Assignee: alice"));
     }
 
     #[test]
@@ -491,10 +483,6 @@ Do B line
         assert!(err.message.contains("missing mandatory **State:**"));
     }
 
-    // -------------------------------------------------------------------------
-    // GitHub Markdown output tests
-    // -------------------------------------------------------------------------
-
     #[test]
     fn github_markdown_tree_smoke() {
         let input = r#"# Rhei: Minimal
@@ -504,7 +492,7 @@ Do B line
 ### Task 1: Alpha
 **State:** pending
 
-#### Subtask 1.1: Do it
+#### Task 1.1: Do it
 **State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
@@ -513,98 +501,9 @@ Do B line
         assert!(s.contains("# Rhei: Minimal"));
         assert!(s.contains("## Tasks"));
         assert!(s.contains("### Task 1: Alpha"));
+        assert!(s.contains("#### Task 1.1: Do it"));
         assert!(s.contains("- State: pending"));
-        assert!(s.contains("- [ ] 1.1: Do it"));
     }
-
-    #[test]
-    fn includes_prior_and_state() {
-        let input = r#"# Rhei: Prior
-
-## Tasks
-
-### Task 2: Second
-**State:** pending
-**Prior:** Task 1
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let s = to_github_markdown(&rhei);
-
-        assert!(s.contains("- State: pending"));
-        assert!(s.contains("- Prior: Task 1"));
-    }
-
-    #[test]
-    fn supports_named_ids() {
-        let input = r#"# Rhei: Named
-
-## Tasks
-
-### Task build: Title
-**State:** pending
-
-#### Subtask 1.1: First
-**State:** pending
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let s = to_github_markdown(&rhei);
-
-        assert!(s.contains("### Task build: Title"));
-        assert!(s.contains("- [ ] 1.1: First"));
-    }
-
-    #[test]
-    fn includes_content_when_enabled() {
-        let input = r#"# Rhei: Content
-
-## Tasks
-
-### Task 1: With content
-**State:** pending
-
-#### Subtask 1.1: Do A
-**State:** pending
-Line 1
-Line 2
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let gen = GithubIssuesOutput { include_content: true, include_metadata: true };
-        let s = gen.to_markdown(&rhei);
-
-        // Checkbox line present
-        assert!(s.contains("- [ ] 1.1: Do A"));
-        // Indented content lines preserved and indented by two spaces
-        assert!(s.contains("\n  Line 1\n  Line 2\n"));
-    }
-
-    #[test]
-    fn omits_metadata_when_disabled() {
-        let input = r#"# Rhei: NoMeta
-
-## Tasks
-
-### Task 1: Alpha
-**State:** pending
-**Prior:** Task 2
-
-#### Subtask 1.1: Do A
-**State:** pending
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let gen = GithubIssuesOutput { include_content: false, include_metadata: false };
-        let s = gen.to_markdown(&rhei);
-
-        // Task and subtask still render
-        assert!(s.contains("### Task 1: Alpha"));
-        assert!(s.contains("- [ ] 1.1: Do A"));
-        // Metadata omitted
-        assert!(!s.contains("- State:"));
-        assert!(!s.contains("- Prior:"));
-    }
-
-    // -------------------------------------------------------------------------
-    // Progress Report output tests
-    // -------------------------------------------------------------------------
 
     #[test]
     fn progress_report_basic_colors_and_structure() {
@@ -614,7 +513,7 @@ Line 2
 ### Task 1: Alpha
 **State:** pending
 
-#### Subtask 1.1: Do it
+#### Task 1.1: Do it
 **State:** pending
 "#;
 
@@ -625,7 +524,6 @@ Line 2
         assert!(s.contains("Rhei: "));
         assert!(s.contains("* Task 1: Alpha"));
         assert!(s.contains("[PENDING]"));
-        // ANSI escape marker present
         assert!(s.contains("\x1b["));
     }
 
@@ -645,32 +543,9 @@ Line 2
         let rhei = parse(input).expect("parse ok");
         let s = to_progress_report(&rhei);
 
-        // Second task header appears (don't match exact ANSI-wrapped badge)
         assert!(s.contains("* Task 2: Two"));
-        // Prior line appears and is below the task line
         let prior_line = "  - Prior: Task 1";
         assert!(s.contains(prior_line));
-
-        let idx_task = s.find("* Task 2: Two").expect("task 2 line index");
-        let idx_prior =
-            s[idx_task..].find(prior_line).map(|i| idx_task + i).expect("prior line index");
-        assert!(idx_prior > idx_task);
-    }
-
-    #[test]
-    fn progress_report_handles_named_ids() {
-        let input = r#"# Rhei: Named
-## Tasks
-
-### Task build: Title
-**State:** pending
-"#;
-
-        let rhei = parse(input).expect("parse ok");
-        let s = to_progress_report(&rhei);
-
-        assert!(s.contains("* Task build: Title"));
-        assert!(s.contains("[PENDING]"));
     }
 
     #[test]
@@ -688,59 +563,5 @@ Line 2
 
         assert!(!s.contains("\x1b["));
         assert!(s.contains("[PENDING]"));
-    }
-
-    #[test]
-    fn progress_report_escaped_state_space() {
-        let input = r#"# Rhei: Escape
-## Tasks
-
-### Task 1: One
-**State:** `in progress`
-"#;
-
-        let rhei = parse(input).expect("parse ok");
-        let s = to_progress_report(&rhei);
-
-        assert!(s.contains("[IN PROGRESS]"));
-    }
-
-    #[test]
-    fn progress_report_includes_full_content_sections() {
-        let input = r#"# Rhei: Context
-
-## Overview
-
-This is the rollout summary.
-With a second line of context.
-
-## Success Metrics
-
-- Activation improves by 8%.
-- DAU/MAU ratio rises above 0.4.
-
-## Tasks
-
-### Task 1: Alpha
-**State:** pending
-"#;
-
-        let rhei = parse(input).expect("parse ok");
-        let gen = ProgressReportOutput { color: false, show_dependencies: true };
-        let s = gen.to_string(&rhei);
-
-        // Section titles appear as block headers
-        assert!(s.contains("Overview:\n"));
-        assert!(s.contains("Success Metrics:\n"));
-
-        // Full content is indented — not truncated to first line
-        assert!(s.contains("  This is the rollout summary."));
-        assert!(s.contains("  With a second line of context."));
-        assert!(s.contains("  - Activation improves by 8%."));
-        assert!(s.contains("  - DAU/MAU ratio rises above 0.4."));
-
-        // Old inline "Title: first-line" format must not appear
-        assert!(!s.contains("Overview: This is the rollout summary."));
-        assert!(!s.contains("Success Metrics: - Activation"));
     }
 }

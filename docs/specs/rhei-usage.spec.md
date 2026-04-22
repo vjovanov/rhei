@@ -10,7 +10,7 @@ A Rhei plan is a shared artifact read and written by several distinct roles. Eac
 
 ### Plan Writer
 
-The plan writer creates and restructures plans. It translates a goal into a dependency graph of tasks with states, subtasks, and prose context.
+The plan writer creates and restructures plans. It translates a goal into a dependency graph of tasks with states, child task nodes, and prose context.
 
 Responsibilities:
 - Decompose work into independently completable tasks.
@@ -32,13 +32,15 @@ Responsibilities:
 - In `rhei run` execution, leave state mutation to the orchestrator: the worker produces the required artifacts and exits, and `rhei run` performs the transition.
 - Stop at gating states (`human-review`) and terminal states (`completed`, `cancelled`).
 
-The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. In interactive/manual execution it may edit `**State:**` values and subtask progress logs. Under `rhei run`, spawned workers leave `**State:**` changes to the orchestrator and only produce the work and artifacts for the current state.
+The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. In interactive/manual execution it may edit `**State:**` values and progress logs inside a task body (including child task bodies). Under `rhei run`, spawned workers leave `**State:**` changes to the orchestrator and only produce the work and artifacts for the current state.
+
+The Plan Worker role corresponds to `worker` [Completion Authority](rhei-agents.spec.md#completion-authority); `rhei run` corresponds to `orchestrator` authority. The same state definition is legal under both — what differs is who decides the state's work is done and drives the resulting transition.
 
 ### Reviewer
 
 The reviewer inspects completed work before it advances to the next state. In the default Rhei state machine, this role appears in two forms:
 
-- **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, subtasks, and repository conventions (lint, format, tests). It records concrete findings in the task body or in a required findings artifact when the active state machine declares one. The next transition is then chosen by the active execution model: manually by an interactive worker, or by `rhei run` after the reviewer subprocess exits.
+- **Agent reviewer** (`agent-review`): An automated pass that checks the implementation against the task description, its child task nodes, and repository conventions (lint, format, tests). It records concrete findings in the task body or in a required findings artifact when the active state machine declares one. The next transition is then chosen by the active execution model: manually by an interactive worker, or by `rhei run` after the reviewer subprocess exits.
 
 - **Human reviewer** (`human-review`): A human inspects the work. No agent may transition out of this state autonomously. The human decides: return to `pending` (rework), `completed` (approve), or `cancelled` (abandon).
 
@@ -85,6 +87,20 @@ The `pending → completed` direct transition allows agents to finish simple tas
 The `human-review` state is deliberately isolated: agents can send work into it (from `pending` or `agent-review`), but only a human can transition out of it. This separation ensures that human judgment gates are never bypassed by automated workflows.
 
 Each arrow is a declared transition. Agents follow the `instructions` field on each state to know what work must be completed before the next handoff. The transition itself is then performed either by an interactive/manual worker or by the `rhei run` orchestrator.
+
+### Command Surface
+
+The five commands that coordinate through the state machine:
+
+| Command            | What it does                                                                    |
+|--------------------|---------------------------------------------------------------------------------|
+| `rhei run`         | Drives the full plan forward under orchestrator authority                       |
+| `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only)    |
+| `rhei transition`  | Atomically changes a task's state via compare-and-swap                          |
+| `rhei complete`    | Terminal transition invoked by a manual worker; records result, releases claim  |
+| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+
+`rhei run` and the manual-worker flow (`next` / `transition` / `complete`) are mutually exclusive per execution — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives. The typical manual-worker loop is `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 
 ## Usage Patterns
 
@@ -229,7 +245,7 @@ Plans that require human approval use the `human-review` state as a gate.
 
 ```markdown
 ### Task 3: Deploy to production
-**State:** `human-review`
+**State:** human-review
 **Prior:** Task 2
 
 Review: All tests pass. Staging smoke tests succeeded. Ready for production deploy.
@@ -256,104 +272,15 @@ This prevents agents from planning against stale or incomplete project state. Th
 
 ### Pattern 6: Programmatic State Transitions
 
-Beyond agent-driven workflows, Rhei plans can be advanced programmatically through the transition callback system. State machines declare `on_leave` and `on_enter` callbacks that fire during transitions, enabling integration with external systems.
+Beyond agent-driven workflows, Rhei plans can be advanced programmatically through the transition callback system. State machines declare `on_leave` and `on_enter` callbacks that fire during transitions — they can approve, reject, or redirect transitions, turning the plan into an executable workflow engine.
 
-**CLI (bash callbacks):**
-```bash
-rhei-cli run my-plan.rhei.md \
-    --state-machine states.yaml \
-    --handlers ./workflow-handlers.sh
-```
-
-**JavaScript (NAPI bindings):**
-```typescript
-const rhei = new Rhei({
-  stateMachine: './states.yaml',
-  rheiPath: './my-plan.rhei.md'
-});
-
-rhei.onLeave('pending', 'in-progress', async (ctx) => {
-  // Validate preconditions before allowing transition
-  return { success: true };
-});
-
-await rhei.run();
-```
-
-**Python (PyO3 bindings):**
-```python
-rhei = Rhei(
-    state_machine="./states.yaml",
-    rhei_path="./my-plan.rhei.md"
-)
-
-@rhei.on_leave("pending", "in-progress")
-def check_ready(ctx):
-    return TransitionResult(success=True)
-
-rhei.run()
-```
-
-**Java (JNI bindings):**
-```java
-Rhei rhei = new Rhei(RheiConfig.builder()
-    .stateMachine("./states.yaml")
-    .rheiPath("./my-plan.rhei.md")
-    .build());
-rhei.run();
-```
-
-Callbacks can approve, reject, or redirect transitions — turning the plan into an executable workflow engine. See [Transitions Specification](rhei-transitions.spec.md) for the formal callback API and [Transition Callback Examples](rhei-callbacks.spec.md) for practical implementations.
+Callbacks are supported for bash (via `--handlers`), TypeScript/JavaScript (NAPI), Python (PyO3), and Java (JNI). See [Transitions Specification](rhei-transitions.spec.md) for the formal `TransitionContext` / `TransitionResult` API and [Transition Callback Examples](rhei-callbacks.spec.md) for per-language code.
 
 ### Pattern 7: Multi-Target Analysis with `all_targets`
 
-When the same task should be run once per model and then synthesized, prefer
-one shared task state with `all_targets` over cloning one state or one task per
-model. This keeps the workflow compact and lets artifact paths and prompts
-template on `{target}`, `{target.slug}`, `{agent}`, `{agent.mode}`, and
-`{model}` directly.
+When the same task should be run once per model and then synthesized, prefer one shared task state with `all_targets` over cloning one state or one task per model. `rhei run` executes the state once per listed target; artifact paths and prompts template on `{target}`, `{target.slug}`, `{agent}`, `{agent.mode}`, and `{model}`. A downstream `summarize` state then consumes the per-target artifacts and writes one final result.
 
-Example state machine shape:
-
-```yaml
-states:
-  analyze:
-    description: Independent analysis pass by each configured target.
-    all_targets:
-      - claude-code[yolo]:anthropic:claude-opus-4-7
-      - gemini[yolo]:google:gemini-3.1-pro-preview
-      - codex[yolo]:openai:gpt-5-codex
-    personality: |
-      You are {agent} in mode {agent.mode} running target {target}.
-      Produce an independent analysis pass.
-    instructions: |
-      Analyze Task {task_id}: {task_title}.
-      Write your result to `{output.analysis.path}`.
-    outputs:
-      - name: analysis
-        path: runtime/analyses/{target.slug}.md
-
-  summarize:
-    description: Synthesize the target-specific analyses.
-    agent: claude-code
-    model: claude-opus-4-7
-    inputs:
-      - name: claude-analysis
-        path: runtime/analyses/claude-code-yolo-anthropic-claude-opus-4-7.md
-      - name: gemini-analysis
-        path: runtime/analyses/gemini-yolo-google-gemini-3-1-pro-preview.md
-      - name: codex-analysis
-        path: runtime/analyses/codex-yolo-openai-gpt-5-codex.md
-    outputs:
-      - name: final-document
-        path: runtime/final-analysis.md
-```
-
-In this pattern, `rhei run` executes the `analyze` state once per listed
-target. Each selector is validated up front: the agent must exist, the mode
-must exist on that agent when specified, and the selector must follow the
-target grammar. The synthesis step then consumes the target-specific artifacts
-and writes one final result.
+See [States Specification — `all_targets`](rhei-states.spec.md#per-state-fields) for the schema, selector grammar, and a worked example.
 
 ### Pattern 8: Living Workspace Expansion
 
@@ -410,47 +337,11 @@ until the review artifact justifies them. The checked-in example lives in
 
 ### Pattern 9: Program States for Deterministic Steps
 
-Program states execute a fixed command instead of spawning an AI agent. Use them for deterministic workflow steps — builds, tests, linting, deployment — where an agent would add latency and cost without value.
+Program states execute a fixed command instead of spawning an AI agent — use them for deterministic workflow steps (builds, tests, linting, deployment) where an agent would add latency and cost without value. Programs communicate outcomes through exit codes, so transitions from program states can declare an `exit_code` condition that routes automatically. Program and agent states coexist in the same state machine: a common pattern is an agent-program feedback loop where the agent implements code, a deterministic build/test program verifies, and failures return control to the agent.
 
-Programs communicate outcomes through exit codes. Transitions from program states can declare an `exit_code` condition that routes automatically based on the result:
+See [Program States Specification](rhei-programs.spec.md) for program declaration, the full exit-code evaluation algorithm, timeout handling, and validation rules.
 
-```yaml
-states:
-  build:
-    program: "make build"
-    program_timeout: 10m
-  test:
-    program: "make test"
-    program_timeout: 15m
-
-transitions:
-  - from: build
-    to: test
-    exit_code: 0
-  - from: build
-    to: failed
-    exit_code: nonzero
-```
-
-Program and agent states coexist in the same state machine. A common pattern is an agent-program feedback loop: the agent implements code, deterministic build/test steps verify the result, and failures return control to the agent for fixes:
-
-```yaml
-transitions:
-  - from: pending
-    to: build
-    description: Implementation complete, verify it builds
-  - from: build
-    to: test
-    exit_code: 0
-  - from: build
-    to: pending
-    description: Build failed, agent must fix the code
-    exit_code: nonzero
-```
-
-See [Program States Specification](rhei-programs.spec.md) for the full exit-code evaluation algorithm, timeout handling, and validation rules.
-
-### Pattern 9: CI/CD Pipeline as a Plan
+### Pattern 10: CI/CD Pipeline as a Plan
 
 A Rhei plan can model a CI/CD pipeline where each task is a pipeline stage. The state machine encodes the pipeline's control flow, and callbacks integrate with build systems, test runners, and deployment tools.
 
@@ -500,6 +391,10 @@ The central design principle: **the plan file is the single source of truth**. A
 - [Program States Specification](rhei-programs.spec.md) — deterministic program execution, exit-code transitions
 - [Transitions Specification](rhei-transitions.spec.md) — formal state transition system, callbacks, and YAML schema
 - [Transition Callback Examples](rhei-callbacks.spec.md) — callback implementations across languages
+- [Next Command](rhei-next.spec.md) — `rhei next` behavioral contract
+- [Transition Command](rhei-transition-cmd.spec.md) — `rhei transition` behavioral contract
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract
+- [Run Command](rhei-run.spec.md) — `rhei run` behavioral contract
+- [Reset Command](rhei-reset.spec.md) — `rhei reset` behavioral contract
 - [State Machine Writer](rhei-state-machine-writer.spec.md) — designing custom state machines from project specs and teams
 - [Install Skills](rhei-install-skills.spec.md) — `rhei install-skills` command for agent integration

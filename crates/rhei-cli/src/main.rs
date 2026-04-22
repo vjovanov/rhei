@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{error::ErrorKind, Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use fs2::FileExt;
 use miette::{miette, Report, Result as MietteResult};
+use minijinja::{Environment as MiniJinjaEnvironment, UndefinedBehavior};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -10,8 +11,8 @@ use rhei_core::ast::{Metadata, TaskId};
 use rhei_core::callback::{CallbackContext, CallbackExecutor, ShellCallbackExecutor};
 use rhei_core::workspace;
 use rhei_validator::{
-    AgentConfig, CustomAgentProfile, McpServerProfile, SkillProfile, StateMcpEntry,
-    StateMcpEntryObject, StateSkillEntry,
+    parse_execution_target, AgentConfig, CustomAgentProfile, ExecutionTarget, McpServerProfile,
+    SkillProfile, StateMcpEntry, StateMcpEntryObject, StateSkillEntry,
 };
 use serde::Deserialize;
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
@@ -201,6 +202,10 @@ enum Commands {
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
         no_callbacks: bool,
+        /// Read-only: print the next claimable task without claiming or
+        /// advancing state. Does not write `**Assignee:**` or acquire a lock.
+        #[arg(long)]
+        peek: bool,
     },
     /// Complete a task: transition to terminal state, write result file,
     /// link it from the task, and remove the assignee.
@@ -279,14 +284,6 @@ enum Agent {
 ///
 /// Delegates to [`run()`](run) so tests can exercise the fallible logic directly.
 fn main() {
-    if let Err(err) = run() {
-        eprintln!("{err:?}");
-        std::process::exit(1);
-    }
-}
-
-/// Parse CLI arguments and execute the requested command.
-fn run() -> MietteResult<()> {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err)
@@ -296,13 +293,55 @@ fn run() -> MietteResult<()> {
             ) =>
         {
             let mut cmd = Cli::command();
-            cmd.print_help().map_err(|io_err| miette!("failed to write CLI help: {io_err}"))?;
+            if let Err(io_err) = cmd.print_help() {
+                eprintln!("failed to write CLI help: {io_err}");
+                std::process::exit(1);
+            }
             println!();
-            return Ok(());
+            return;
         }
         Err(err) => err.exit(),
     };
 
+    let json_mode = command_wants_json(&cli.command);
+
+    if let Err(err) = dispatch(cli) {
+        if json_mode {
+            emit_json_error(&err);
+        } else {
+            eprintln!("{err:?}");
+        }
+        std::process::exit(1);
+    }
+}
+
+/// Returns true when the invoked command's output format is JSON. In that
+/// case, errors are rendered as a single-line JSON object on stderr instead
+/// of the default miette text, so machine consumers don't have to parse two
+/// shapes.
+fn command_wants_json(command: &Commands) -> bool {
+    match command {
+        Commands::Next { json, .. } => *json,
+        Commands::States { json } => *json,
+        Commands::Templates { json, .. } => *json,
+        Commands::Render { format, .. } => matches!(format, RenderFormat::Json),
+        _ => false,
+    }
+}
+
+fn emit_json_error(err: &miette::Report) {
+    let payload = serde_json::json!({
+        "error": {
+            "message": err.to_string(),
+        }
+    });
+    let serialized = serde_json::to_string(&payload)
+        .unwrap_or_else(|_| format!("{{\"error\":{{\"message\":{:?}}}}}", err.to_string()));
+    eprintln!("{serialized}");
+}
+
+/// Dispatch the parsed CLI command.
+fn dispatch(cli: Cli) -> MietteResult<()> {
     match cli.command {
         Commands::Validate { watch, input } => {
             validate_command(&input, cli.state_machine.as_deref(), watch)
@@ -322,9 +361,7 @@ fn run() -> MietteResult<()> {
         Commands::Run { input, standalone, agent, program } => {
             run_command(&input, cli.state_machine.as_deref(), (standalone, agent, program).into())
         }
-        Commands::Templates { json, source } => {
-            template_impl_unused::templates_command(json, &source)
-        }
+        Commands::Templates { json, source } => templates::templates_command(json, &source),
         Commands::Instantiate {
             template,
             set_values,
@@ -335,7 +372,7 @@ fn run() -> MietteResult<()> {
             dry_run,
             keep_on_error,
             list_inputs,
-        } => template_impl_unused::instantiate_command(
+        } => templates::instantiate_command(
             &template,
             &set_values,
             &set_files,
@@ -346,9 +383,14 @@ fn run() -> MietteResult<()> {
             keep_on_error,
             list_inputs,
         ),
-        Commands::Next { input, task, json, no_callbacks } => {
-            next_command(&input, cli.state_machine.as_deref(), task.as_deref(), json, no_callbacks)
-        }
+        Commands::Next { input, task, json, no_callbacks, peek } => next_command(
+            &input,
+            cli.state_machine.as_deref(),
+            task.as_deref(),
+            json,
+            no_callbacks,
+            peek,
+        ),
         Commands::Complete { input, task, result, no_callbacks } => {
             complete_command(&input, cli.state_machine.as_deref(), &task, &result, no_callbacks)
         }
@@ -433,7 +475,7 @@ fn resolve_state_machine_for_loaded_plan(
 fn state_machine_label(path: Option<&Path>) -> String {
     match path {
         Some(p) => format!("'{}'", p.display()),
-        None => "(built-in default)".to_string(),
+        None => "the built-in default state machine".to_string(),
     }
 }
 
@@ -453,8 +495,7 @@ fn states_command(state_machine: Option<&Path>, as_json: bool) -> MietteResult<(
     Ok(())
 }
 
-#[allow(dead_code, clippy::all)]
-mod template_impl_unused {
+mod templates {
     use super::*;
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -546,6 +587,22 @@ mod template_impl_unused {
     struct TemplateInputDef {
         name: String,
         description: String,
+        #[serde(flatten)]
+        schema: TemplateValueSchema,
+    }
+
+    impl TemplateInputDef {
+        fn is_required(&self) -> bool {
+            self.schema.is_required()
+        }
+
+        fn value_type(&self) -> TemplateInputType {
+            self.schema.value_type
+        }
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    struct TemplateValueSchema {
         #[serde(default, rename = "type")]
         value_type: TemplateInputType,
         #[serde(default)]
@@ -554,9 +611,13 @@ mod template_impl_unused {
         default: Option<YamlValue>,
         #[serde(default)]
         validate: Option<String>,
+        #[serde(default)]
+        items: Option<Box<TemplateValueSchema>>,
+        #[serde(default)]
+        properties: BTreeMap<String, TemplateValueSchema>,
     }
 
-    impl TemplateInputDef {
+    impl TemplateValueSchema {
         fn is_required(&self) -> bool {
             self.required.unwrap_or(self.default.is_none())
         }
@@ -570,6 +631,8 @@ mod template_impl_unused {
         Number,
         Boolean,
         Path,
+        Array,
+        Object,
     }
 
     impl TemplateInputType {
@@ -579,6 +642,8 @@ mod template_impl_unused {
                 TemplateInputType::Number => "number",
                 TemplateInputType::Boolean => "boolean",
                 TemplateInputType::Path => "path",
+                TemplateInputType::Array => "array",
+                TemplateInputType::Object => "object",
             }
         }
     }
@@ -626,11 +691,11 @@ mod template_impl_unused {
                         "inputs": template.manifest.inputs.iter().map(|input| {
                             serde_json::json!({
                                 "name": input.name,
-                                "type": input.value_type.as_str(),
+                                "type": input.value_type().as_str(),
                                 "required": input.is_required(),
                                 "description": input.description,
-                                "default": input.default,
-                                "validate": input.validate,
+                                "default": input.schema.default.as_ref(),
+                                "validate": input.schema.validate.as_ref(),
                             })
                         }).collect::<Vec<_>>(),
                     })
@@ -644,6 +709,14 @@ mod template_impl_unused {
 
         if templates.is_empty() {
             println!("No templates found.");
+            let roots = template_search_roots(filter)?;
+            if !roots.is_empty() {
+                println!("Searched:");
+                for (source, root) in roots {
+                    let exists_marker = if root.is_dir() { "" } else { " (does not exist)" };
+                    println!("  [{}] {}{}", source.as_str(), root.display(), exists_marker);
+                }
+            }
             return Ok(());
         }
 
@@ -917,28 +990,100 @@ mod template_impl_unused {
                     input.name
                 ));
             }
-            if input.required == Some(true) && input.default.is_some() {
+            if input.schema.required == Some(true) && input.schema.default.is_some() {
                 return Err(miette!(
                     "template '{}' input '{}' cannot set both required: true and default",
                     manifest.name,
                     input.name
                 ));
             }
-            if let Some(pattern) = input.validate.as_deref() {
-                let _ = compile_full_match_regex(pattern).map_err(|err| {
-                    miette!(
-                        "template '{}' input '{}' has invalid validate regex: {err}",
-                        manifest.name,
-                        input.name
-                    )
-                })?;
-            }
-            if let Some(default) = input.default.as_ref() {
+            validate_template_value_schema(&manifest.name, &input.name, &input.schema)?;
+            if let Some(default) = input.schema.default.as_ref() {
                 let _ = coerce_template_input_value(input, default, &cwd, true)?;
             }
         }
 
         let _ = detect_template_layout(template_dir)?;
+
+        Ok(())
+    }
+
+    fn validate_template_value_schema(
+        template_name: &str,
+        label: &str,
+        schema: &TemplateValueSchema,
+    ) -> MietteResult<()> {
+        if let Some(pattern) = schema.validate.as_deref() {
+            if matches!(schema.value_type, TemplateInputType::Array | TemplateInputType::Object) {
+                return Err(miette!(
+                    "template '{}' input '{}' cannot set validate on {} values",
+                    template_name,
+                    label,
+                    schema.value_type.as_str()
+                ));
+            }
+            let _ = compile_full_match_regex(pattern).map_err(|err| {
+                miette!(
+                    "template '{}' input '{}' has invalid validate regex: {err}",
+                    template_name,
+                    label
+                )
+            })?;
+        }
+
+        match schema.value_type {
+            TemplateInputType::Array => {
+                let Some(items) = schema.items.as_deref() else {
+                    return Err(miette!(
+                        "template '{}' input '{}' with type array must declare items",
+                        template_name,
+                        label
+                    ));
+                };
+                if !schema.properties.is_empty() {
+                    return Err(miette!(
+                        "template '{}' input '{}' with type array cannot declare properties",
+                        template_name,
+                        label
+                    ));
+                }
+                validate_template_value_schema(template_name, label, items)?;
+            }
+            TemplateInputType::Object => {
+                if schema.items.is_some() {
+                    return Err(miette!(
+                        "template '{}' input '{}' with type object cannot declare items",
+                        template_name,
+                        label
+                    ));
+                }
+                for (property, property_schema) in &schema.properties {
+                    validate_template_value_schema(
+                        template_name,
+                        &format!("{label}.{property}"),
+                        property_schema,
+                    )?;
+                }
+            }
+            _ => {
+                if schema.items.is_some() {
+                    return Err(miette!(
+                        "template '{}' input '{}' with type {} cannot declare items",
+                        template_name,
+                        label,
+                        schema.value_type.as_str()
+                    ));
+                }
+                if !schema.properties.is_empty() {
+                    return Err(miette!(
+                        "template '{}' input '{}' with type {} cannot declare properties",
+                        template_name,
+                        label,
+                        schema.value_type.as_str()
+                    ));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -977,7 +1122,7 @@ mod template_impl_unused {
         values_files: &[PathBuf],
         set_values: &[String],
         set_files: &[String],
-    ) -> MietteResult<BTreeMap<String, String>> {
+    ) -> MietteResult<BTreeMap<String, serde_json::Value>> {
         let cwd = std::env::current_dir()
             .map_err(|err| miette!("failed to determine working directory: {err}"))?;
         let mut raw_values: BTreeMap<String, YamlValue> = BTreeMap::new();
@@ -1018,7 +1163,7 @@ mod template_impl_unused {
         for input in &manifest.inputs {
             let value = if let Some(raw) = raw_values.get(&input.name) {
                 coerce_template_input_value(input, raw, &cwd, false)?
-            } else if let Some(default) = input.default.as_ref() {
+            } else if let Some(default) = input.schema.default.as_ref() {
                 coerce_template_input_value(input, default, &cwd, true)?
             } else if input.is_required() {
                 return Err(miette!(
@@ -1027,10 +1172,10 @@ mod template_impl_unused {
                     input.name
                 ));
             } else {
-                String::new()
+                empty_template_value(&input.schema)
             };
 
-            if let Some(pattern) = input.validate.as_deref() {
+            if let Some(pattern) = input.schema.validate.as_deref() {
                 let regex = compile_full_match_regex(pattern).map_err(|err| {
                     miette!(
                         "template '{}' input '{}' has invalid validate regex: {err}",
@@ -1038,7 +1183,13 @@ mod template_impl_unused {
                         input.name
                     )
                 })?;
-                if !regex.is_match(&value) {
+                let rendered = scalar_template_value_as_string(&value).ok_or_else(|| {
+                    miette!(
+                        "input '{}' uses validate but did not resolve to a scalar string value",
+                        input.name
+                    )
+                })?;
+                if !regex.is_match(&rendered) {
                     return Err(miette!(
                         "input '{}' does not match validation pattern '{}'",
                         input.name,
@@ -1103,56 +1254,195 @@ mod template_impl_unused {
         raw: &YamlValue,
         cwd: &Path,
         from_default: bool,
-    ) -> MietteResult<String> {
+    ) -> MietteResult<serde_json::Value> {
+        coerce_template_value(&input.name, &input.schema, raw, cwd, from_default)
+    }
+
+    fn coerce_template_value(
+        label: &str,
+        schema: &TemplateValueSchema,
+        raw: &YamlValue,
+        cwd: &Path,
+        from_default: bool,
+    ) -> MietteResult<serde_json::Value> {
         let source = if from_default { "default value" } else { "input value" };
 
-        let rendered = match input.value_type {
+        let rendered = match schema.value_type {
             TemplateInputType::String => match raw {
-                YamlValue::Null => String::new(),
-                YamlValue::String(value) => value.clone(),
-                _ => return Err(miette!("{} for '{}' must be a string", source, input.name)),
+                YamlValue::Null => serde_json::Value::String(String::new()),
+                YamlValue::String(value) => serde_json::Value::String(value.clone()),
+                _ => return Err(miette!("{} for '{}' must be a string", source, label)),
             },
             TemplateInputType::Number => match raw {
-                YamlValue::Number(value) => value.to_string(),
+                YamlValue::Number(value) => serde_json::to_value(value)
+                    .map_err(|err| miette!("failed to serialize number for '{}': {err}", label))?,
                 YamlValue::String(value) => {
                     let trimmed = value.trim();
                     let number_re = Regex::new(r"^-?\d+(?:\.\d+)?$")
                         .expect("number validation regex should be valid");
                     if !number_re.is_match(trimmed) {
-                        return Err(miette!("{} for '{}' must be a number", source, input.name));
+                        return Err(miette!("{} for '{}' must be a number", source, label));
                     }
-                    trimmed.to_string()
+                    let parsed: YamlValue = serde_yaml::from_str(trimmed).map_err(|err| {
+                        miette!("{} for '{}' must be a number: {err}", source, label)
+                    })?;
+                    serde_json::to_value(parsed).map_err(|err| {
+                        miette!("failed to serialize number for '{}': {err}", label)
+                    })?
                 }
-                _ => return Err(miette!("{} for '{}' must be a number", source, input.name)),
+                _ => return Err(miette!("{} for '{}' must be a number", source, label)),
             },
             TemplateInputType::Boolean => match raw {
-                YamlValue::Bool(value) => value.to_string(),
+                YamlValue::Bool(value) => serde_json::Value::Bool(*value),
                 YamlValue::String(value) => match value.trim() {
-                    "true" => "true".to_string(),
-                    "false" => "false".to_string(),
-                    _ => {
-                        return Err(miette!(
-                            "{} for '{}' must be true or false",
-                            source,
-                            input.name
-                        ))
-                    }
+                    "true" => serde_json::Value::Bool(true),
+                    "false" => serde_json::Value::Bool(false),
+                    _ => return Err(miette!("{} for '{}' must be true or false", source, label)),
                 },
-                _ => return Err(miette!("{} for '{}' must be true or false", source, input.name)),
+                _ => return Err(miette!("{} for '{}' must be true or false", source, label)),
             },
             TemplateInputType::Path => match raw {
                 YamlValue::String(value) => {
                     if value.is_empty() {
-                        return Err(miette!("{} for '{}' must not be empty", source, input.name));
+                        return Err(miette!("{} for '{}' must not be empty", source, label));
                     }
                     let path = PathBuf::from(value);
-                    if path.is_absolute() { path } else { cwd.join(path) }.display().to_string()
+                    let resolved = if path.is_absolute() { path } else { cwd.join(path) };
+                    if !from_default && !resolved.exists() {
+                        return Err(miette!(
+                            "{} for '{}' refers to a path that does not exist: {}",
+                            source,
+                            label,
+                            resolved.display()
+                        ));
+                    }
+                    serde_json::Value::String(resolved.display().to_string())
                 }
-                _ => return Err(miette!("{} for '{}' must be a path string", source, input.name)),
+                _ => return Err(miette!("{} for '{}' must be a path string", source, label)),
             },
+            TemplateInputType::Array => {
+                let sequence = parse_template_sequence(label, raw, source)?;
+                let item_schema = schema.items.as_deref().ok_or_else(|| {
+                    miette!("{} for '{}' requires an items schema", source, label)
+                })?;
+                let mut items = Vec::with_capacity(sequence.len());
+                for (idx, item) in sequence.iter().enumerate() {
+                    items.push(coerce_template_value(
+                        &format!("{label}[{idx}]"),
+                        item_schema,
+                        item,
+                        cwd,
+                        from_default,
+                    )?);
+                }
+                serde_json::Value::Array(items)
+            }
+            TemplateInputType::Object => {
+                let mapping = parse_template_mapping(label, raw, source)?;
+                let mut object = serde_json::Map::new();
+                for (key_value, value) in mapping {
+                    let Some(key) = key_value.as_str() else {
+                        return Err(miette!(
+                            "{} for '{}' contains a non-string key",
+                            source,
+                            label
+                        ));
+                    };
+                    let property_schema = schema.properties.get(key).ok_or_else(|| {
+                        miette!("{} for '{}' contains unknown property '{}'", source, label, key)
+                    })?;
+                    object.insert(
+                        key.to_string(),
+                        coerce_template_value(key, property_schema, &value, cwd, from_default)?,
+                    );
+                }
+                for (property, property_schema) in &schema.properties {
+                    if object.contains_key(property) {
+                        continue;
+                    }
+                    if let Some(default) = property_schema.default.as_ref() {
+                        object.insert(
+                            property.clone(),
+                            coerce_template_value(property, property_schema, default, cwd, true)?,
+                        );
+                    } else if property_schema.is_required() {
+                        return Err(miette!(
+                            "{} for '{}' is missing required property '{}'",
+                            source,
+                            label,
+                            property
+                        ));
+                    } else {
+                        object.insert(property.clone(), empty_template_value(property_schema));
+                    }
+                }
+                serde_json::Value::Object(object)
+            }
         };
 
         Ok(rendered)
+    }
+
+    fn parse_template_sequence<'a>(
+        label: &str,
+        raw: &'a YamlValue,
+        source: &str,
+    ) -> MietteResult<Vec<YamlValue>> {
+        match parse_structured_template_value(raw, "array", label, source)? {
+            YamlValue::Sequence(values) => Ok(values),
+            _ => Err(miette!("{} for '{}' must be an array", source, label)),
+        }
+    }
+
+    fn parse_template_mapping<'a>(
+        label: &str,
+        raw: &'a YamlValue,
+        source: &str,
+    ) -> MietteResult<YamlMapping> {
+        match parse_structured_template_value(raw, "object", label, source)? {
+            YamlValue::Mapping(values) => Ok(values),
+            _ => Err(miette!("{} for '{}' must be an object", source, label)),
+        }
+    }
+
+    fn parse_structured_template_value(
+        raw: &YamlValue,
+        expected: &str,
+        label: &str,
+        source: &str,
+    ) -> MietteResult<YamlValue> {
+        match raw {
+            YamlValue::String(text) => serde_yaml::from_str::<YamlValue>(text).map_err(|err| {
+                miette!(
+                    "{} for '{}' must be valid YAML or JSON {} syntax: {err}",
+                    source,
+                    label,
+                    expected
+                )
+            }),
+            other => Ok(other.clone()),
+        }
+    }
+
+    fn empty_template_value(schema: &TemplateValueSchema) -> serde_json::Value {
+        match schema.value_type {
+            TemplateInputType::String | TemplateInputType::Path => {
+                serde_json::Value::String(String::new())
+            }
+            TemplateInputType::Number | TemplateInputType::Boolean => serde_json::Value::Null,
+            TemplateInputType::Array => serde_json::Value::Array(Vec::new()),
+            TemplateInputType::Object => serde_json::Value::Object(serde_json::Map::new()),
+        }
+    }
+
+    fn scalar_template_value_as_string(value: &serde_json::Value) -> Option<String> {
+        match value {
+            serde_json::Value::Null => Some(String::new()),
+            serde_json::Value::Bool(value) => Some(value.to_string()),
+            serde_json::Value::Number(value) => Some(value.to_string()),
+            serde_json::Value::String(value) => Some(value.clone()),
+            _ => None,
+        }
     }
 
     fn print_template_inputs(manifest: &TemplateManifest) {
@@ -1169,14 +1459,14 @@ mod template_impl_unused {
         for input in &manifest.inputs {
             let requirement = if input.is_required() {
                 "required".to_string()
-            } else if let Some(default) = input.default.as_ref() {
+            } else if let Some(default) = input.schema.default.as_ref() {
                 format!("default={}", format_version(default))
             } else {
                 "optional".to_string()
             };
-            println!("  {} ({}, {})", input.name, input.value_type.as_str(), requirement);
+            println!("  {} ({}, {})", input.name, input.value_type().as_str(), requirement);
             println!("    {}", input.description);
-            if let Some(pattern) = input.validate.as_deref() {
+            if let Some(pattern) = input.schema.validate.as_deref() {
                 println!("    validate: {}", pattern);
             }
         }
@@ -1186,7 +1476,7 @@ mod template_impl_unused {
         template_dir: &Path,
         layout: TemplateLayout,
         output_dir: &Path,
-        values: &BTreeMap<String, String>,
+        values: &BTreeMap<String, serde_json::Value>,
     ) -> MietteResult<MaterializedTemplate> {
         fs::create_dir_all(output_dir)
             .map_err(|err| file_io_report(output_dir, "failed to create output directory", err))?;
@@ -1213,7 +1503,7 @@ mod template_impl_unused {
         src_dir: &Path,
         dest_dir: &Path,
         template_root: &Path,
-        values: &BTreeMap<String, String>,
+        values: &BTreeMap<String, serde_json::Value>,
         generated_files: &mut Vec<PathBuf>,
     ) -> MietteResult<()> {
         let mut entries = fs::read_dir(src_dir)
@@ -1319,45 +1609,22 @@ mod template_impl_unused {
 
     fn render_template_text(
         raw: &str,
-        values: &BTreeMap<String, String>,
+        values: &BTreeMap<String, serde_json::Value>,
         path: &Path,
     ) -> MietteResult<String> {
-        let mut rendered = String::with_capacity(raw.len());
-        let mut idx = 0usize;
+        let literal_open = "__RHEI_TEMPLATE_LITERAL_OPEN__";
+        let preprocessed = raw.replace(r"\{{", literal_open);
+        let mut env = MiniJinjaEnvironment::new();
+        env.set_undefined_behavior(UndefinedBehavior::Strict);
+        env.add_filter("slug", |value: String| slugify_target_value(&value));
 
-        while idx < raw.len() {
-            let slice = &raw[idx..];
-            if slice.starts_with(r"\{{") {
-                rendered.push_str("{{");
-                idx += 3;
-                continue;
-            }
-
-            if slice.starts_with("{{") {
-                let rest = &raw[idx + 2..];
-                let Some(end) = rest.find("}}") else {
-                    return Err(miette!("unclosed template variable in '{}'", path.display()));
-                };
-                let token = rest[..end].trim();
-                let value = values.get(token).ok_or_else(|| {
-                    miette!(
-                        "unresolved template variable '{{{{{}}}}}' in '{}'",
-                        token,
-                        path.display()
-                    )
-                })?;
-                rendered.push_str(value);
-                idx += 2 + end + 2;
-                continue;
-            }
-
-            let ch =
-                slice.chars().next().expect("slice should always contain at least one character");
-            rendered.push(ch);
-            idx += ch.len_utf8();
-        }
-
-        Ok(rendered)
+        let template = env
+            .template_from_str(&preprocessed)
+            .map_err(|err| miette!("failed to parse template '{}': {err}", path.display()))?;
+        let rendered = template
+            .render(values)
+            .map_err(|err| miette!("failed to render template '{}': {err}", path.display()))?;
+        Ok(rendered.replace(literal_open, "{{"))
     }
 }
 
@@ -1552,11 +1819,30 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
-    let loaded = load_plan(input)?;
+    // For single-file plans, use the multi-error parser so the user sees
+    // every recoverable parse problem in one run instead of fix-and-retry.
+    // Workspace loads still go through the single-error path today; that's
+    // a scoped follow-up when per-task files need the same treatment.
+    let loaded = if workspace::is_workspace(input) {
+        load_plan(input)?
+    } else {
+        let raw = read_input_file(input)?;
+        let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
+        match (maybe_rhei, errs.is_empty()) {
+            (Some(rhei), true) => LoadedPlan { rhei, task_sources: HashMap::new() },
+            (_, false) | (None, _) => {
+                return Err(parse_errors_report(input, &raw, &errs));
+            }
+        }
+    };
+
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
     let base_path = input.parent().unwrap_or(Path::new("."));
-    let report =
+    let mut report =
         rhei_validator::validate_with_machine_and_base(&loaded.rhei, &resolved.machine, base_path);
+    let workspace_root = execution_workspace_root(input);
+    let settings = load_merged_settings(&workspace_root);
+    report.errors.extend(validate_machine_settings_references(&resolved.machine, &settings));
 
     if report.has_errors() {
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
@@ -1716,9 +2002,13 @@ fn yaml_key(name: &str) -> YamlValue {
 }
 
 fn task_id_yaml_key(task_id: &TaskId) -> YamlValue {
-    match task_id {
-        TaskId::Number(n) => serde_yaml::to_value(*n).expect("numeric task id should serialize"),
-        TaskId::Named(name) => yaml_key(name),
+    // Multi-segment ids (e.g., `1.2`, `api.cache`) are serialised as their
+    // dotted-path string. Single-segment ids preserve their numeric shape
+    // when numeric so existing frontmatter keys stay unchanged.
+    if let Some(n) = task_id.as_number() {
+        serde_yaml::to_value(n).expect("numeric task id should serialize")
+    } else {
+        yaml_key(&task_id.to_string())
     }
 }
 
@@ -1939,6 +2229,69 @@ fn loop_reentry_allowed(
     current < limit
 }
 
+/// Explain why a specific declared transition is not applicable right now,
+/// in user-facing prose. Returns a short phrase (e.g. "condition `visitCount
+/// >= visits` evaluated to false" or "visit budget for state 'review' is
+/// exhausted"). Does NOT re-check applicability — callers are expected to
+/// invoke this only when `transition_rule_is_applicable` returned false.
+fn describe_blocked_transition(
+    rule: &rhei_core::ast::TransitionRule,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+    current_state: &str,
+    current_state_raw: &str,
+) -> String {
+    if !loop_reentry_allowed(
+        machine,
+        metadata,
+        task_id,
+        current_state,
+        current_state_raw,
+        &rule.to.0,
+    ) {
+        return format!("visit budget for state '{}' is exhausted", current_state);
+    }
+    if let Some(condition) = rule.condition.as_deref() {
+        return format!("condition `{}` evaluated to false", condition);
+    }
+    "transition is not currently applicable".to_string()
+}
+
+/// Return the list of `to` states reachable from `from` whose applicability
+/// check currently passes. Used to build actionable error messages when a
+/// specific transition is blocked.
+fn applicable_alternatives(
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+    from: &str,
+    current_state_raw: &str,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for rule in machine.transitions() {
+        if rule.from.0 != from && rule.from.0 != "*" {
+            continue;
+        }
+        match transition_rule_is_applicable(
+            rule,
+            machine,
+            metadata,
+            task_id,
+            from,
+            current_state_raw,
+        ) {
+            Ok(true) => {
+                if !out.contains(&rule.to.0) {
+                    out.push(rule.to.0.clone());
+                }
+            }
+            _ => continue,
+        }
+    }
+    out
+}
+
 fn transition_rule_is_applicable(
     rule: &rhei_core::ast::TransitionRule,
     machine: &rhei_validator::StateMachine,
@@ -2155,6 +2508,210 @@ fn execution_workspace_root(plan_path: &Path) -> PathBuf {
     }
 }
 
+/// Build the cross-language `TransitionContext` JSON payload that is
+/// delivered to callbacks on stdin.
+///
+/// Shape matches `docs/specs/rhei-transitions.spec.md` #transitioncontext-data-structure.
+/// The `triggered_by` field must be one of `"user" | "callback" | "system" | "engine"`.
+/// `transition_data` seeds the `transitionData` slot; pass `serde_json::Value::Object(Map::new())`
+/// for the initial `on_leave` call, and the accumulated data from `on_leave` for `on_enter`.
+fn build_transition_context_json(
+    plan: Option<&rhei_core::ast::Rhei>,
+    plan_path: &Path,
+    task_id_str: &str,
+    from_state: &str,
+    to_state: &str,
+    triggered_by: &str,
+    transition_data: &serde_json::Value,
+    working_dir: &Path,
+) -> serde_json::Value {
+    use serde_json::{json, Map, Value};
+
+    let task_node = plan.and_then(|rhei| find_task_by_id_str(&rhei.tasks, task_id_str));
+
+    let task_json = match task_node {
+        Some(task) => json!({
+            "id": task_id_to_json(&task.id),
+            "kind": task.kind,
+            "title": task.title,
+            "content": task.content,
+            "metadata": task_metadata_json(plan, task_id_str, from_state),
+            "children": task.children.iter().map(task_summary_json).collect::<Vec<_>>(),
+        }),
+        None => json!({
+            "id": task_id_str,
+            "metadata": Value::Object(Map::new()),
+            "children": Value::Array(Vec::new()),
+        }),
+    };
+
+    let rhei_json = match plan {
+        Some(rhei) => json!({
+            "title": rhei.title,
+            "path": plan_path.display().to_string(),
+            "tasks": rhei.tasks.iter().map(task_summary_json).collect::<Vec<_>>(),
+        }),
+        None => json!({
+            "title": Value::Null,
+            "path": plan_path.display().to_string(),
+            "tasks": Value::Array(Vec::new()),
+        }),
+    };
+
+    json!({
+        "rhei": rhei_json,
+        "task": task_json,
+        "transition": {
+            "from": from_state,
+            "to": to_state,
+            "triggeredBy": triggered_by,
+            "timestamp": current_iso8601(),
+        },
+        "transitionData": transition_data,
+        "environment": {
+            "platform": "cli",
+            "version": env!("CARGO_PKG_VERSION"),
+            "workingDirectory": working_dir.display().to_string(),
+        },
+    })
+}
+
+fn task_id_to_json(id: &TaskId) -> serde_json::Value {
+    serde_json::Value::String(id.to_string())
+}
+
+fn task_summary_json(task: &rhei_core::ast::Task) -> serde_json::Value {
+    serde_json::json!({
+        "id": task_id_to_json(&task.id),
+        "kind": task.kind,
+        "title": task.title,
+        "state": task.state,
+    })
+}
+
+fn task_metadata_json(
+    plan: Option<&rhei_core::ast::Rhei>,
+    task_id_str: &str,
+    state: &str,
+) -> serde_json::Value {
+    use serde_json::{Map, Value};
+
+    let mut out = Map::new();
+    out.insert("state".to_string(), Value::String(state.to_string()));
+
+    let target = parse_task_id(task_id_str);
+    let task = plan.and_then(|rhei| find_task_by_id(&rhei.tasks, &target));
+    if let Some(task) = task {
+        out.insert(
+            "dependsOn".to_string(),
+            Value::Array(task.prior.iter().map(|id| Value::String(id.to_string())).collect()),
+        );
+    } else {
+        out.insert("dependsOn".to_string(), Value::Array(Vec::new()));
+    }
+
+    // Merge frontmatter task metadata (`metadata.tasks.<id>`) if present.
+    if let Some(rhei) = plan {
+        if let Some(task_meta) = task_metadata_map(rhei.metadata.as_ref(), &target) {
+            for (key, value) in task_meta {
+                let Some(key_str) = key.as_str() else { continue };
+                // Don't clobber canonical fields.
+                if key_str == "state" || key_str == "dependsOn" {
+                    continue;
+                }
+                if let Ok(json_value) = yaml_value_to_json(value) {
+                    out.insert(key_str.to_string(), json_value);
+                }
+            }
+        }
+    }
+
+    Value::Object(out)
+}
+
+fn yaml_value_to_json(value: &YamlValue) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::to_value(value)
+}
+
+fn find_task_by_id_str<'a>(
+    tasks: &'a [rhei_core::ast::Task],
+    task_id_str: &str,
+) -> Option<&'a rhei_core::ast::Task> {
+    let target = parse_task_id(task_id_str);
+    find_task_by_id(tasks, &target)
+}
+
+fn find_task_by_id<'a>(
+    tasks: &'a [rhei_core::ast::Task],
+    target: &TaskId,
+) -> Option<&'a rhei_core::ast::Task> {
+    for task in tasks {
+        if &task.id == target {
+            return Some(task);
+        }
+        if let Some(found) = find_task_by_id(&task.children, target) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn current_iso8601() -> String {
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let secs = now.as_secs();
+    let (year, month, day, hour, minute, second) = unix_to_utc_components(secs);
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hour, minute, second)
+}
+
+/// Minimal civil-calendar conversion from seconds-since-Unix-epoch to UTC
+/// Y-M-D h:m:s components. Uses the Howard Hinnant algorithm. Good through
+/// the full 64-bit range; we don't need leap seconds or time zones for a
+/// transition timestamp.
+fn unix_to_utc_components(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
+    let days = (secs / 86_400) as i64;
+    let time_of_day = (secs % 86_400) as u32;
+    let hour = time_of_day / 3600;
+    let minute = (time_of_day % 3600) / 60;
+    let second = time_of_day % 60;
+
+    // days since 1970-01-01 → civil date.
+    let z = days + 719_468;
+    let era = if z >= 0 { z / 146_097 } else { (z - 146_096) / 146_097 };
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = y + if m <= 2 { 1 } else { 0 };
+    (y as i32, m as u32, d as u32, hour, minute, second)
+}
+
+/// Write `content` atomically to `path` via a same-directory temp file.
+fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|err| miette!("failed to create temp file: {err}"))?;
+    tmp.write_all(content.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
+    tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+    Ok(())
+}
+
+/// Merge `src` object keys into `dst` (last write wins). Non-object `src`
+/// values are ignored. Used to accumulate `data` payloads across multiple
+/// `on_leave` callbacks into a single `transitionData`.
+fn merge_transition_data(dst: &mut serde_json::Value, src: &serde_json::Value) {
+    use serde_json::Value;
+    let (Value::Object(dst_map), Value::Object(src_map)) = (dst, src) else {
+        return;
+    };
+    for (key, value) in src_map {
+        dst_map.insert(key.clone(), value.clone());
+    }
+}
+
 struct RuntimeTemplateContext<'a> {
     workspace_root: &'a Path,
     plan_path: &'a Path,
@@ -2165,8 +2722,10 @@ struct RuntimeTemplateContext<'a> {
     current_state_raw: &'a str,
     machine: &'a rhei_validator::StateMachine,
     metadata: Option<&'a Metadata>,
+    target: Option<&'a ExecutionTarget>,
     model: Option<&'a str>,
     agent: Option<&'a str>,
+    agent_mode: Option<&'a str>,
     /// Resolved MCP servers and skills for the current state (Half A).
     /// Availability here reflects registry resolution only; Half B will
     /// overlay real handshake results.
@@ -2200,14 +2759,31 @@ fn artifact_relative_path(
     task_id: &str,
     state_name: &str,
     visit_count: Option<u64>,
+    target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    agent: Option<&str>,
+    agent_mode: Option<&str>,
 ) -> String {
     let mut relative = artifact.path.replace("{task_id}", task_id).replace("{state}", state_name);
     if let Some(visit_count) = visit_count {
         relative = relative.replace("{visit_count}", &visit_count.to_string());
     }
+    if let Some(target) = target {
+        relative = relative.replace("{target}", &target.selector());
+        relative = relative.replace("{target.slug}", &target.slug());
+        if let Some(provider) = target.provider.as_deref() {
+            relative = relative.replace("{model.provider}", provider);
+        }
+    }
     if let Some(model) = model {
         relative = relative.replace("{model}", model);
+        relative = relative.replace("{model.name}", model);
+    }
+    if let Some(agent) = agent {
+        relative = relative.replace("{agent}", agent);
+    }
+    if let Some(agent_mode) = agent_mode {
+        relative = relative.replace("{agent.mode}", agent_mode);
     }
     relative
 }
@@ -2218,9 +2794,21 @@ fn resolve_artifact_path(
     task_id: &str,
     state_name: &str,
     visit_count: Option<u64>,
+    target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    agent: Option<&str>,
+    agent_mode: Option<&str>,
 ) -> (String, PathBuf) {
-    let relative = artifact_relative_path(artifact, task_id, state_name, visit_count, model);
+    let relative = artifact_relative_path(
+        artifact,
+        task_id,
+        state_name,
+        visit_count,
+        target,
+        model,
+        agent,
+        agent_mode,
+    );
     (relative.clone(), workspace_root.join(&relative))
 }
 
@@ -2243,11 +2831,21 @@ fn resolve_runtime_template_variable(
             .to_string(),
         ),
         "visits" => state_visit_limit(context.machine, context.state_name).map(|n| n.to_string()),
+        "target" => context.target.map(ExecutionTarget::selector),
+        "target.slug" => context.target.map(ExecutionTarget::slug),
         "model" => context.model.map(str::to_string),
         "agent" => context.agent.map(str::to_string),
+        "agent.mode" => context.agent_mode.map(str::to_string),
         "plan_title" => Some(context.plan_title.to_string()),
         "plan_path" => Some(context.plan_path.display().to_string()),
         _ => {
+            if let Some(key) = variable.strip_prefix("model.") {
+                return match key {
+                    "provider" => context.target.and_then(|target| target.provider.clone()),
+                    "name" => context.model.map(str::to_string),
+                    _ => None,
+                };
+            }
             if let Some(key) = variable.strip_prefix("meta.") {
                 return task_metadata_map(context.metadata, &context.task.id)
                     .and_then(|task_map| task_map.get(yaml_key(key)))
@@ -2273,7 +2871,10 @@ fn resolve_runtime_template_variable(
                             &context.task.id.to_string(),
                             context.state_name,
                             visit_count,
+                            context.target,
                             context.model,
+                            context.agent,
+                            context.agent_mode,
                         )
                     },
                 );
@@ -2290,7 +2891,10 @@ fn resolve_runtime_template_variable(
                             &context.task.id.to_string(),
                             context.state_name,
                             visit_count,
+                            context.target,
                             context.model,
+                            context.agent,
+                            context.agent_mode,
                         );
                         path.exists().to_string()
                     },
@@ -2307,7 +2911,10 @@ fn resolve_runtime_template_variable(
                             &context.task.id.to_string(),
                             context.state_name,
                             visit_count,
+                            context.target,
                             context.model,
+                            context.agent,
+                            context.agent_mode,
                         )
                     },
                 );
@@ -2351,7 +2958,10 @@ fn evaluate_if_condition(condition: &str, context: &RuntimeTemplateContext<'_>) 
                     &context.task.id.to_string(),
                     context.state_name,
                     visit_count,
+                    context.target,
                     context.model,
+                    context.agent,
+                    context.agent_mode,
                 );
                 return path.exists();
             }
@@ -2519,7 +3129,10 @@ fn ensure_state_inputs_exist(
     state_name: &str,
     state_def: &rhei_validator::StateDef,
     visit_count: Option<u64>,
+    target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    agent: Option<&str>,
+    agent_mode: Option<&str>,
     context: &str,
 ) -> MietteResult<()> {
     for artifact in &state_def.inputs {
@@ -2532,7 +3145,10 @@ fn ensure_state_inputs_exist(
             task_id,
             state_name,
             visit_count,
+            target,
             model,
+            agent,
+            agent_mode,
         );
         if !path.exists() {
             return Err(miette!(
@@ -2552,7 +3168,10 @@ fn ensure_state_outputs_exist(
     state_name: &str,
     state_def: &rhei_validator::StateDef,
     visit_count: Option<u64>,
+    target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    agent: Option<&str>,
+    agent_mode: Option<&str>,
 ) -> MietteResult<()> {
     for artifact in &state_def.outputs {
         let (relative, path) = resolve_artifact_path(
@@ -2561,7 +3180,10 @@ fn ensure_state_outputs_exist(
             task_id,
             state_name,
             visit_count,
+            target,
             model,
+            agent,
+            agent_mode,
         );
         if !path.exists() {
             return Err(miette!(
@@ -2616,9 +3238,6 @@ fn transition_command(
         no_callbacks,
     )?;
 
-    let root = result_workspace_root(input, &task_file);
-    append_result_entry(&root, task_id_str, from, to, None)?;
-
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, to);
     Ok(())
 }
@@ -2646,6 +3265,7 @@ fn execute_transition(
     let task_file = files.task_file;
     let metadata_file = files.metadata_file;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let settings = load_merged_settings(&workspace_root);
 
     // Validate that both `from` and `to` are valid states.
     if !machine.is_valid_state(from) {
@@ -2656,18 +3276,6 @@ fn execute_transition(
         let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
         return Err(miette!("'{}' is not a valid state. Allowed: [{}]", to, allowed));
     }
-
-    let matching_rule =
-        machine.transitions().iter().find(|rule| rule.from.0 == from && rule.to.0 == to).or_else(
-            || machine.transitions().iter().find(|rule| rule.from.0 == "*" && rule.to.0 == to),
-        );
-    let Some(matching_rule) = matching_rule else {
-        return Err(miette!(
-            "transition from '{}' to '{}' is not allowed by the state machine",
-            from,
-            to
-        ));
-    };
 
     // Open the file(s) with an exclusive lock for the duration of the operation.
     let metadata_handle = fs::File::open(metadata_file)
@@ -2716,6 +3324,9 @@ fn execute_transition(
     };
 
     // Compare-and-swap: verify the task's current state matches `from`.
+    // This runs before the transition-legality check so a wrong `--from`
+    // produces the actionable "task is in state X" error instead of the
+    // less informative "transition not allowed" error.
     if current_state != from {
         if let Some(task_handle) = &task_handle {
             let _ = task_handle.unlock();
@@ -2728,6 +3339,24 @@ fn execute_transition(
             from
         ));
     }
+
+    // Now that we know the task really is in `from`, check whether the
+    // declared transitions permit `from -> to`.
+    let matching_rule =
+        machine.transitions().iter().find(|rule| rule.from.0 == from && rule.to.0 == to).or_else(
+            || machine.transitions().iter().find(|rule| rule.from.0 == "*" && rule.to.0 == to),
+        );
+    let Some(matching_rule) = matching_rule else {
+        if let Some(task_handle) = &task_handle {
+            let _ = task_handle.unlock();
+        }
+        let _ = metadata_handle.unlock();
+        return Err(miette!(
+            "transition from '{}' to '{}' is not allowed by the state machine",
+            from,
+            to
+        ));
+    };
 
     let normalized_metadata = ensure_current_state_visit_count(
         metadata.as_ref(),
@@ -2750,10 +3379,36 @@ fn execute_transition(
             let _ = task_handle.unlock();
         }
         let _ = metadata_handle.unlock();
-        return Err(miette!(
-            "transition from '{}' to '{}' is blocked by loop budget or condition",
+        let reason = describe_blocked_transition(
+            matching_rule,
+            machine,
+            metadata_for_checks,
+            &target_id,
             from,
-            to
+            &current_state_raw,
+        );
+        let alternatives = applicable_alternatives(
+            machine,
+            metadata_for_checks,
+            &target_id,
+            from,
+            &current_state_raw,
+        );
+        let suffix = if alternatives.is_empty() {
+            "No other transitions from this state are currently applicable.".to_string()
+        } else {
+            format!(
+                "Currently applicable transitions from '{}': {}.",
+                from,
+                alternatives.join(", ")
+            )
+        };
+        return Err(miette!(
+            "transition from '{}' to '{}' is not currently applicable: {}. {}",
+            from,
+            to,
+            reason,
+            suffix
         ));
     }
 
@@ -2761,33 +3416,49 @@ fn execute_transition(
         .states
         .get(from)
         .ok_or_else(|| miette!("state '{}' missing from loaded machine", from))?;
-    let to_state_def = machine
-        .states
-        .get(to)
-        .ok_or_else(|| miette!("state '{}' missing from loaded machine", to))?;
 
-    // When the FROM state declares all_models, run on_leave once per model; otherwise run once
-    // without a model (None).
-    let from_models: Vec<Option<String>> = machine
-        .states
-        .get(from)
-        .filter(|s| !s.all_models.is_empty())
-        .map(|s| s.all_models.iter().map(|m| Some(m.clone())).collect())
-        .unwrap_or_else(|| vec![None]);
+    let from_invocations =
+        resolve_agent_invocations(machine, from, &settings, &default_run_options())?;
+    let callback_contexts = callback_contexts_for_state(from_state_def, &from_invocations);
+
+    // Parse the plan once for callback-context serialization. Failure here
+    // means we fall back to a minimal payload rather than aborting — the
+    // transition should still run even if the plan is only partially
+    // structured.
+    let plan_for_context = rhei_core::parse(&metadata_raw).ok();
+
+    // Accumulated `transitionData` that flows from on_leave callbacks to
+    // on_enter. Starts empty; each callback's `data` merges last-write-wins.
+    let mut transition_data: serde_json::Value = serde_json::Value::Object(serde_json::Map::new());
+    // A callback may request a redirect via `next_state`. The first such
+    // request wins; later callbacks are still executed against the original
+    // `to` for rejection checks, but their redirects are ignored.
+    let mut redirect_next_state: Option<String> = None;
 
     // Execute on_leave callback before the state change.
     if !no_callbacks {
         if let Some(ref cb) = matching_rule.on_leave {
             let executor = ShellCallbackExecutor;
-            for model in &from_models {
+            for (model, agent) in callback_contexts {
+                let context_json = build_transition_context_json(
+                    plan_for_context.as_ref(),
+                    &callback_paths.plan_path,
+                    task_id_str,
+                    from,
+                    to,
+                    "user",
+                    &transition_data,
+                    &callback_paths.working_dir,
+                );
                 let ctx = CallbackContext {
                     task_id: task_id_str,
                     from_state: from,
                     to_state: to,
                     plan_path: &callback_paths.plan_path,
                     callback_cwd: &callback_paths.working_dir,
-                    model: model.as_deref(),
-                    agent: None,
+                    model,
+                    agent,
+                    context_json: Some(&context_json),
                 };
                 let result = executor.execute(cb, &ctx).map_err(|e| miette!("{e}"))?;
                 if !result.success {
@@ -2795,17 +3466,67 @@ fn execute_transition(
                         let _ = task_handle.unlock();
                     }
                     let _ = metadata_handle.unlock();
-                    let stderr = result.stderr.trim();
-                    let detail =
-                        if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
+                    let message = result
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "transition rejected by callback".to_string());
                     return Err(miette!(
-                        "on_leave callback '{}' rejected the transition{detail}",
+                        "on_leave callback '{}' rejected the transition: {message}",
                         cb.0
                     ));
+                }
+                if let Some(data) = result.data.as_ref() {
+                    merge_transition_data(&mut transition_data, data);
+                }
+                if let Some(redirect) = result.next_state.clone() {
+                    if redirect_next_state.is_none() {
+                        redirect_next_state = Some(redirect);
+                    }
                 }
             }
         }
     }
+
+    // Resolve redirects before committing state: validate the redirect is a
+    // declared transition from the current state. A redirect to the same
+    // target is a no-op.
+    let (effective_to, effective_rule) = if let Some(redirect) = redirect_next_state.as_deref() {
+        if redirect == to {
+            (to.to_string(), matching_rule)
+        } else if !machine.is_valid_state(redirect) {
+            if let Some(task_handle) = &task_handle {
+                let _ = task_handle.unlock();
+            }
+            let _ = metadata_handle.unlock();
+            return Err(miette!("on_leave callback redirected to unknown state '{}'", redirect));
+        } else if let Some(rule) =
+            machine.transitions().iter().find(|r| r.from.0 == from && r.to.0 == redirect).or_else(
+                || machine.transitions().iter().find(|r| r.from.0 == "*" && r.to.0 == redirect),
+            )
+        {
+            (redirect.to_string(), rule)
+        } else {
+            if let Some(task_handle) = &task_handle {
+                let _ = task_handle.unlock();
+            }
+            let _ = metadata_handle.unlock();
+            return Err(miette!(
+                "on_leave callback redirected to '{}', but no transition from '{}' to '{}' is declared",
+                redirect,
+                from,
+                redirect
+            ));
+        }
+    } else {
+        (to.to_string(), matching_rule)
+    };
+    let to = effective_to.as_str();
+    let matching_rule = effective_rule;
+
+    let to_state_def = machine
+        .states
+        .get(to)
+        .ok_or_else(|| miette!("state '{}' missing from loaded machine", to))?;
 
     let updated_metadata =
         update_metadata_for_transition(metadata_for_checks, &target_id, to, machine)
@@ -2822,21 +3543,23 @@ fn execute_transition(
         .map(|meta| task_visit_count(Some(meta), &target_id, to))
         .filter(|count| *count > 0);
 
-    ensure_state_outputs_exist(
+    ensure_state_outputs_exist_for_transition(
         &workspace_root,
         task_id_str,
         from,
         from_state_def,
         from_visit_count,
-        None,
+        machine,
+        &settings,
     )?;
-    ensure_state_inputs_exist(
+    ensure_state_inputs_exist_for_transition(
         &workspace_root,
         task_id_str,
         to,
         to_state_def,
         to_visit_count,
-        None,
+        machine,
+        &settings,
         &format!("Task {} cannot enter state {}.", task_id_str, to),
     )?;
 
@@ -2861,27 +3584,23 @@ fn execute_transition(
     };
 
     // Atomic write(s): write to temp file in the same directory, then rename.
-    let metadata_parent = metadata_file.parent().unwrap_or(Path::new("."));
-    let mut metadata_tmp = tempfile::NamedTempFile::new_in(metadata_parent)
-        .map_err(|err| miette!("failed to create temp file: {err}"))?;
-    metadata_tmp
-        .write_all(metadata_raw_updated.as_bytes())
-        .map_err(|err| miette!("failed to write temp file: {err}"))?;
-    metadata_tmp
-        .persist(metadata_file)
-        .map_err(|err| miette!("failed to persist temp file: {err}"))?;
-
-    if let Some(task_raw_updated) = task_raw_updated {
-        let task_parent = task_file.parent().unwrap_or(Path::new("."));
-        let mut task_tmp = tempfile::NamedTempFile::new_in(task_parent)
-            .map_err(|err| miette!("failed to create temp file: {err}"))?;
-        task_tmp
-            .write_all(task_raw_updated.as_bytes())
-            .map_err(|err| miette!("failed to write temp file: {err}"))?;
-        task_tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+    write_file_atomic(metadata_file, &metadata_raw_updated)?;
+    if let Some(ref task_raw_updated) = task_raw_updated {
+        write_file_atomic(task_file, task_raw_updated)?;
     }
 
     // Execute on_enter callback after the state change (not model-looped).
+    let triggered_by = if redirect_next_state.is_some() { "callback" } else { "user" };
+    let on_enter_context_json = build_transition_context_json(
+        plan_for_context.as_ref(),
+        &callback_paths.plan_path,
+        task_id_str,
+        from,
+        to,
+        triggered_by,
+        &transition_data,
+        &callback_paths.working_dir,
+    );
     let callback_ctx = CallbackContext {
         task_id: task_id_str,
         from_state: from,
@@ -2890,18 +3609,36 @@ fn execute_transition(
         callback_cwd: &callback_paths.working_dir,
         model: None,
         agent: None,
+        context_json: Some(&on_enter_context_json),
     };
     if !no_callbacks {
         if let Some(ref cb) = matching_rule.on_enter {
             let executor = ShellCallbackExecutor;
             let result = executor.execute(cb, &callback_ctx).map_err(|e| miette!("{e}"))?;
             if !result.success {
-                let stderr = result.stderr.trim();
-                let detail = if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
-                eprintln!(
-                    "warning: on_enter callback '{}' failed after state change{detail}",
-                    cb.0
-                );
+                // Spec §Example 8: on_enter failure rolls back the state
+                // write to the original, then the error_handling policy
+                // applies. We implement the rollback; policy execution is
+                // a follow-up.
+                let rollback_err = write_file_atomic(metadata_file, &metadata_raw).err();
+                let task_rollback_err = if task_raw_updated.is_some() {
+                    write_file_atomic(task_file, &task_raw).err()
+                } else {
+                    None
+                };
+                if let Some(task_handle) = &task_handle {
+                    let _ = task_handle.unlock();
+                }
+                let _ = metadata_handle.unlock();
+                let message =
+                    result.error.clone().unwrap_or_else(|| "on_enter callback failed".to_string());
+                if rollback_err.is_some() || task_rollback_err.is_some() {
+                    return Err(miette!(
+                        "on_enter callback '{}' failed ({message}); rollback also failed — plan file may be inconsistent",
+                        cb.0
+                    ));
+                }
+                return Err(miette!("on_enter callback '{}' failed: {message}", cb.0));
             }
         }
     }
@@ -2957,6 +3694,12 @@ struct StandaloneExecutionFlags {
     /// Maximum number of agents to run concurrently (0 = unlimited)
     #[arg(long, default_value_t = 1)]
     parallel: usize,
+    /// Force TUI mode even when stdout is not detected as a TTY
+    #[arg(long, conflicts_with = "no_tui")]
+    tui: bool,
+    /// Force plain stdout output even when stdout is a TTY
+    #[arg(long)]
+    no_tui: bool,
 }
 
 /// Flags that control agent-specific behavior for `rhei run`.
@@ -3011,6 +3754,16 @@ impl RunOptions {
 
     fn parallel(&self) -> usize {
         self.standalone.parallel
+    }
+
+    fn frontend_kind(&self) -> rhei_tui::FrontendKind {
+        if self.standalone.tui {
+            rhei_tui::FrontendKind::Tui
+        } else if self.standalone.no_tui {
+            rhei_tui::FrontendKind::Stdout
+        } else {
+            rhei_tui::FrontendKind::Auto
+        }
     }
 
     fn no_agent(&self) -> bool {
@@ -3090,6 +3843,8 @@ struct SettingsDefaults {
     #[serde(default)]
     agent_mode: Option<String>,
     #[serde(default)]
+    agent_timeout: Option<String>,
+    #[serde(default)]
     mcp_servers: Option<Vec<StateMcpEntry>>,
     #[serde(default)]
     skills: Option<Vec<StateSkillEntry>>,
@@ -3131,6 +3886,9 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
         },
     );
 
+    // codex: `codex exec` is non-interactive; the installed CLI accepts the
+    // sandbox and repo flags below but no longer supports the older `-a`
+    // approval shortcut.
     agents.insert(
         "codex".to_string(),
         CustomAgentProfile {
@@ -3148,6 +3906,8 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
         },
     );
 
+    // gemini: `--approval-mode yolo` is the autonomous posture
+    // (`auto_edit` still prompts on shell tool calls).
     agents.insert(
         "gemini".to_string(),
         CustomAgentProfile {
@@ -3155,29 +3915,54 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
             prompt_flag: Some("--prompt".to_string()),
             model_flag: Some("--model".to_string()),
             stdin_prompt: false,
-            modes: modes_yolo_only(flags(&["--approval-mode", "auto_edit"])),
+            modes: modes_yolo_only(flags(&["--approval-mode", "yolo"])),
             ..Default::default()
         },
     );
 
+    // kilocode: `kilo --auto "<prompt>"` is the documented CI invocation;
+    // `--yolo` auto-approves tool permissions. `--auto` takes the prompt
+    // as its argument, so it maps onto `prompt_flag`.
     agents.insert(
         "kilocode".to_string(),
         CustomAgentProfile {
             command: flags(&["kilo"]),
-            prompt_flag: Some("-p".to_string()),
+            prompt_flag: Some("--auto".to_string()),
             model_flag: Some("--model".to_string()),
             stdin_prompt: false,
+            modes: modes_yolo_only(flags(&["--yolo"])),
             ..Default::default()
         },
     );
 
+    // cursor: the headless binary is `cursor-agent` (distinct from the
+    // `cursor` IDE launcher). `-p`/`--print` is the non-interactive flag;
+    // `--force` is the auto-approve posture.
     agents.insert(
         "cursor".to_string(),
         CustomAgentProfile {
-            command: flags(&["cursor"]),
-            prompt_flag: Some("--prompt".to_string()),
+            command: flags(&["cursor-agent"]),
+            prompt_flag: Some("--print".to_string()),
             model_flag: Some("--model".to_string()),
             stdin_prompt: false,
+            modes: modes_yolo_only(flags(&["--force"])),
+            ..Default::default()
+        },
+    );
+
+    // pi (openclaw / badlogic pi-coding-agent). Headless mode exits
+    // deterministically after one turn. pi has no permission layer — modes
+    // are intentionally empty; isolation is the caller's responsibility
+    // (e.g. sandbox/container). See docs/specs/rhei-agents.spec.md §Known
+    // Agent Profiles.
+    agents.insert(
+        "pi".to_string(),
+        CustomAgentProfile {
+            command: flags(&["pi"]),
+            prompt_flag: Some("-p".to_string()),
+            model_flag: Some("--model".to_string()),
+            stdin_prompt: false,
+            skill_flag: Some("--skill".to_string()),
             ..Default::default()
         },
     );
@@ -3226,6 +4011,7 @@ fn load_merged_settings(plan_root: &Path) -> RheiSettings {
     // wholesale when present (including an explicit empty list).
     let defaults = SettingsDefaults {
         agent_mode: project.defaults.agent_mode.or(global.defaults.agent_mode),
+        agent_timeout: project.defaults.agent_timeout.or(global.defaults.agent_timeout),
         mcp_servers: project.defaults.mcp_servers.or(global.defaults.mcp_servers),
         skills: project.defaults.skills.or(global.defaults.skills),
     };
@@ -3241,6 +4027,70 @@ fn load_merged_settings(plan_root: &Path) -> RheiSettings {
         mcp_servers,
         skills,
     }
+}
+
+fn validate_machine_settings_references(
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    for (state_name, state) in &machine.states {
+        if let Some(agent) = state.agent.as_ref() {
+            let Some(profile) = settings.agents.get(agent.id()) else {
+                errors.push(format!(
+                    "state '{}' references unknown agent '{}'",
+                    state_name,
+                    agent.id()
+                ));
+                continue;
+            };
+            if let Some(mode) = state.agent_mode.as_deref() {
+                if !profile.modes.contains_key(mode) && !profile.modes.is_empty() {
+                    errors.push(format!(
+                        "state '{}' references unknown mode '{}' for agent '{}'",
+                        state_name,
+                        mode,
+                        agent.id()
+                    ));
+                }
+            }
+        }
+
+        let selectors = state
+            .target
+            .iter()
+            .cloned()
+            .chain(state.all_targets.iter().cloned())
+            .collect::<Vec<_>>();
+        for selector in selectors {
+            match parse_execution_target(&selector) {
+                Ok(target) => {
+                    let Some(profile) = settings.agents.get(target.agent.as_str()) else {
+                        errors.push(format!(
+                            "state '{}' references unknown target agent '{}' in '{}'",
+                            state_name, target.agent, selector
+                        ));
+                        continue;
+                    };
+                    if let Some(mode) = target.mode.as_deref() {
+                        if !profile.modes.contains_key(mode) && !profile.modes.is_empty() {
+                            errors.push(format!(
+                                "state '{}' references unknown target mode '{}' for agent '{}' in '{}'",
+                                state_name, mode, target.agent, selector
+                            ));
+                        }
+                    }
+                }
+                Err(err) => errors.push(format!(
+                    "state '{}' has invalid target selector '{}': {}",
+                    state_name, selector, err
+                )),
+            }
+        }
+    }
+
+    errors
 }
 
 /// One fully-resolved MCP server entry in a state's effective set.
@@ -3316,6 +4166,21 @@ fn env_id_segment(id: &str) -> String {
     id.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
         .collect()
+}
+
+fn slugify_target_value(value: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_dash = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            slug.push('-');
+            last_was_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
 }
 
 /// Compute the effective tooling set for a state given the merged settings.
@@ -3449,6 +4314,9 @@ struct ResolvedAgent {
     /// Resolved mode name, or `None` if the agent has no modes or none was
     /// selected.
     mode: Option<String>,
+    /// Inline execution target selector, when the state resolves via `target`
+    /// or `all_targets`.
+    target: Option<ExecutionTarget>,
     model: Option<String>,
     timeout_secs: Option<u64>,
 }
@@ -3472,28 +4340,60 @@ struct ResolvedProgram {
     timeout_secs: Option<u64>,
 }
 
-/// Resolve the agent/model/mode/timeout for a task's current state.
-///
-/// Agent id:  CLI override > state-level > project/global settings.
-/// Model:     CLI override > state-level > settings.
-/// Mode:      CLI override > state-level `agent_mode` > `defaults.agent_mode`
-///            > top-level `agent_mode` > the profile's first declared mode.
-/// Timeout:   state `agent_timeout` > profile `timeout` > settings `agent_timeout`.
-///
-/// The resolved agent id must match an entry in the merged `agents` registry;
-/// unknown ids produce a `MietteResult` error.
-fn resolve_agent(
-    machine: &rhei_validator::StateMachine,
-    state_name: &str,
+fn resolve_target_agent(
+    selector: &str,
+    state_def: Option<&rhei_validator::StateDef>,
     settings: &RheiSettings,
-    opts: &RunOptions,
-) -> MietteResult<Option<ResolvedAgent>> {
-    if opts.no_agent() {
-        return Ok(None);
+) -> MietteResult<ResolvedAgent> {
+    let target = parse_execution_target(selector)
+        .map_err(|err| miette!("invalid target selector '{}': {}", selector, err))?;
+    let agent = AgentConfig::from(target.agent.clone());
+    let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
+        miette!(
+            "agent '{}' is not defined. Add an entry to agents.<id> in \
+             .rhei/settings.json or ~/.config/rhei/settings.json, or \
+             reference one of the built-in ids ({}).",
+            agent.id(),
+            built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        )
+    })?;
+
+    if let Some(mode) = target.mode.as_deref() {
+        if !profile.modes.contains_key(mode) && !profile.modes.is_empty() {
+            return Err(miette!(
+                "agent '{}' has no mode '{}'. Available modes: {}.",
+                agent.id(),
+                mode,
+                profile.modes.keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            ));
+        }
     }
 
-    let state_def = machine.states.get(state_name);
+    let timeout_secs = state_def
+        .and_then(|d| d.agent_timeout.as_deref())
+        .and_then(rhei_validator::parse_duration_secs)
+        .or_else(|| profile.timeout.as_deref().and_then(rhei_validator::parse_duration_secs))
+        .or_else(|| settings.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs))
+        .or_else(|| {
+            settings.defaults.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs)
+        });
 
+    Ok(ResolvedAgent {
+        agent,
+        profile,
+        mode: target.mode.clone(),
+        target: Some(target.clone()),
+        model: Some(target.model.clone()),
+        timeout_secs,
+    })
+}
+
+fn resolve_legacy_agent_with_model(
+    state_def: Option<&rhei_validator::StateDef>,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+    model_override: Option<String>,
+) -> MietteResult<Option<ResolvedAgent>> {
     // Agent id resolution: CLI > state > settings.
     let agent = if let Some(ovr) = opts.agent_override() {
         Some(AgentConfig::from(ovr))
@@ -3507,25 +4407,19 @@ fn resolve_agent(
         return Ok(None);
     };
 
-    // Registry lookup. An id that is not in the merged registry is a
-    // configuration error — no silent fallback to treating the id as a raw
-    // binary name.
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
         miette!(
             "agent '{}' is not defined. Add an entry to agents.<id> in \
              .rhei/settings.json or ~/.config/rhei/settings.json, or \
              reference one of the built-in ids ({}).",
             agent.id(),
-            built_in_agents()
-                .keys()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+            built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
         )
     })?;
 
-    // Model resolution: CLI > state > settings.
-    let model = if let Some(ovr) = opts.model_override() {
+    let model = if let Some(ovr) = model_override {
+        Some(ovr)
+    } else if let Some(ovr) = opts.model_override() {
         Some(ovr.to_string())
     } else if let Some(m) = state_def.and_then(|d| d.model.clone()) {
         Some(m)
@@ -3533,7 +4427,6 @@ fn resolve_agent(
         settings.model.clone()
     };
 
-    // Mode resolution.
     let mode = if let Some(ovr) = opts.agent_mode_override() {
         Some(ovr.to_string())
     } else if let Some(m) = state_def.and_then(|d| d.agent_mode.clone()) {
@@ -3552,26 +4445,274 @@ fn resolve_agent(
                 "agent '{}' has no mode '{}'. Available modes: {}.",
                 agent.id(),
                 name,
-                profile
-                    .modes
-                    .keys()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                profile.modes.keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
             ));
         }
     }
 
-    // Timeout resolution: state > profile > settings.
     let timeout_secs = state_def
         .and_then(|d| d.agent_timeout.as_deref())
         .and_then(rhei_validator::parse_duration_secs)
         .or_else(|| profile.timeout.as_deref().and_then(rhei_validator::parse_duration_secs))
+        .or_else(|| settings.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs))
         .or_else(|| {
-            settings.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs)
+            settings.defaults.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs)
         });
 
-    Ok(Some(ResolvedAgent { agent, profile, mode, model, timeout_secs }))
+    Ok(Some(ResolvedAgent { agent, profile, mode, target: None, model, timeout_secs }))
+}
+
+/// Resolve the agent/model/mode/timeout for a task's current state.
+fn resolve_agent_invocations(
+    machine: &rhei_validator::StateMachine,
+    state_name: &str,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+) -> MietteResult<Vec<ResolvedAgent>> {
+    if opts.no_agent() {
+        return Ok(Vec::new());
+    }
+
+    let state_def = machine.states.get(state_name);
+    if let Some(state_def) = state_def {
+        if !state_def.all_targets.is_empty() {
+            let mut resolved = Vec::with_capacity(state_def.all_targets.len());
+            for selector in &state_def.all_targets {
+                resolved.push(resolve_target_agent(selector, Some(state_def), settings)?);
+            }
+            return Ok(resolved);
+        }
+        if let Some(selector) = state_def.target.as_deref() {
+            return Ok(vec![resolve_target_agent(selector, Some(state_def), settings)?]);
+        }
+        if !state_def.all_models.is_empty() {
+            let mut resolved = Vec::with_capacity(state_def.all_models.len());
+            for model in &state_def.all_models {
+                if let Some(agent) = resolve_legacy_agent_with_model(
+                    Some(state_def),
+                    settings,
+                    opts,
+                    Some(model.clone()),
+                )? {
+                    resolved.push(agent);
+                }
+            }
+            return Ok(resolved);
+        }
+    }
+
+    Ok(resolve_legacy_agent_with_model(state_def, settings, opts, None)?.into_iter().collect())
+}
+
+fn resolve_agent(
+    machine: &rhei_validator::StateMachine,
+    state_name: &str,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+) -> MietteResult<Option<ResolvedAgent>> {
+    Ok(resolve_agent_invocations(machine, state_name, settings, opts)?.into_iter().next())
+}
+
+fn transition_contexts_for_state<'a>(
+    state_def: &'a rhei_validator::StateDef,
+    resolved_invocations: &'a [ResolvedAgent],
+) -> Vec<(Option<&'a ExecutionTarget>, Option<&'a str>, Option<&'a str>, Option<&'a str>)> {
+    if !resolved_invocations.is_empty() {
+        return resolved_invocations
+            .iter()
+            .map(|resolved| {
+                (
+                    resolved.target.as_ref(),
+                    resolved.model.as_deref(),
+                    Some(resolved.agent.id()),
+                    resolved.mode.as_deref(),
+                )
+            })
+            .collect();
+    }
+
+    if !state_def.all_models.is_empty() {
+        return state_def
+            .all_models
+            .iter()
+            .map(|model| (None, Some(model.as_str()), None, None))
+            .collect();
+    }
+
+    if let Some(model) = state_def.model.as_deref() {
+        return vec![(None, Some(model), None, None)];
+    }
+
+    vec![(None, None, None, None)]
+}
+
+fn callback_contexts_for_state<'a>(
+    state_def: &'a rhei_validator::StateDef,
+    resolved_invocations: &'a [ResolvedAgent],
+) -> Vec<(Option<&'a str>, Option<&'a str>)> {
+    transition_contexts_for_state(state_def, resolved_invocations)
+        .into_iter()
+        .map(|(_, model, agent, _)| (model, agent))
+        .collect()
+}
+
+/// Enforce the orchestrator Completion Authority contract:
+/// every agent invocation that `rhei run` is about to spawn must resolve to
+/// a finite timeout through the chain
+/// `state.agent_timeout > models.<id>.agents.<agent>.timeout > agents.<id>.timeout > defaults.agent_timeout`.
+///
+/// This is the runtime counterpart to the Completion Authority / Completion
+/// Condition rules in `docs/specs/rhei-agents.spec.md`. A missing timeout
+/// would mean the subprocess could hang indefinitely without a deterministic
+/// fallback, which defeats deterministic completion under `rhei run`.
+fn ensure_orchestrator_timeout(resolved: &ResolvedAgent, state_name: &str) -> MietteResult<()> {
+    if resolved.timeout_secs.is_some() {
+        return Ok(());
+    }
+    Err(miette!(
+        "state '{}' is driven by `rhei run` (orchestrator completion authority) \
+         but no `agent_timeout` resolves for agent '{}'. Deterministic completion \
+         requires a finite timeout. Set `agent_timeout` on the state, on \
+         `models.<id>.agents.{}.timeout`, on `agents.{}.timeout`, or on \
+         `defaults.agent_timeout` in settings.json.",
+        state_name,
+        resolved.agent.id(),
+        resolved.agent.id(),
+        resolved.agent.id(),
+    ))
+}
+
+fn resolved_agent_log_suffix(resolved: &ResolvedAgent) -> Option<String> {
+    resolved
+        .target
+        .as_ref()
+        .map(ExecutionTarget::slug)
+        .or_else(|| resolved.model.clone().filter(|value| !value.is_empty()))
+}
+
+fn state_outputs_exist_for_resolved_invocation(
+    workspace_root: &Path,
+    task: &rhei_core::ast::Task,
+    state_name: &str,
+    current_state_raw: &str,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    state_def: &rhei_validator::StateDef,
+    resolved: &ResolvedAgent,
+) -> bool {
+    ensure_state_outputs_exist(
+        workspace_root,
+        &task.id.to_string(),
+        state_name,
+        state_def,
+        Some(render_visit_count(metadata, &task.id, state_name, current_state_raw, machine)),
+        resolved.target.as_ref(),
+        resolved.model.as_deref(),
+        Some(resolved.agent.id()),
+        resolved.mode.as_deref(),
+    )
+    .is_ok()
+}
+
+fn default_run_options() -> RunOptions {
+    RunOptions {
+        standalone: StandaloneExecutionFlags {
+            dry_run: false,
+            no_callbacks: false,
+            continue_on_error: false,
+            parallel: 1,
+            tui: false,
+            no_tui: false,
+        },
+        agent: AgentExecutionFlags { no_agent: false, agent: None, agent_mode: None, model: None },
+        program: ProgramExecutionFlags::default(),
+    }
+}
+
+fn ensure_state_inputs_exist_for_transition(
+    workspace_root: &Path,
+    task_id: &str,
+    state_name: &str,
+    state_def: &rhei_validator::StateDef,
+    visit_count: Option<u64>,
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+    context: &str,
+) -> MietteResult<()> {
+    let invocations =
+        resolve_agent_invocations(machine, state_name, settings, &default_run_options())?;
+    for (target, model, agent, agent_mode) in transition_contexts_for_state(state_def, &invocations)
+    {
+        ensure_state_inputs_exist(
+            workspace_root,
+            task_id,
+            state_name,
+            state_def,
+            visit_count,
+            target,
+            model,
+            agent,
+            agent_mode,
+            context,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn ensure_state_outputs_exist_for_transition(
+    workspace_root: &Path,
+    task_id: &str,
+    state_name: &str,
+    state_def: &rhei_validator::StateDef,
+    visit_count: Option<u64>,
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+) -> MietteResult<()> {
+    let invocations =
+        resolve_agent_invocations(machine, state_name, settings, &default_run_options())?;
+    for (target, model, agent, agent_mode) in transition_contexts_for_state(state_def, &invocations)
+    {
+        ensure_state_outputs_exist(
+            workspace_root,
+            task_id,
+            state_name,
+            state_def,
+            visit_count,
+            target,
+            model,
+            agent,
+            agent_mode,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn task_has_pending_agent_invocations(
+    workspace_root: &Path,
+    task: &rhei_core::ast::Task,
+    state_name: &str,
+    current_state_raw: &str,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    state_def: &rhei_validator::StateDef,
+    settings: &RheiSettings,
+) -> MietteResult<bool> {
+    let invocations =
+        resolve_agent_invocations(machine, state_name, settings, &default_run_options())?;
+    Ok(invocations.iter().any(|resolved| {
+        !state_outputs_exist_for_resolved_invocation(
+            workspace_root,
+            task,
+            state_name,
+            current_state_raw,
+            machine,
+            metadata,
+            state_def,
+            resolved,
+        )
+    }))
 }
 
 fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
@@ -3706,14 +4847,6 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
     }
 
     let plan_path_str = render_context.plan_path.display().to_string();
-    let rhei_cli = std::env::current_exe()
-        .ok()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "rhei".to_string());
-    let state_machine_arg = render_context
-        .state_machine_path
-        .map(|path| format!(" --state-machine {}", path.display()))
-        .unwrap_or_default();
     let state_machine_label = render_context
         .state_machine_path
         .map(|path| path.display().to_string())
@@ -3731,12 +4864,15 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
     if !render_context.task.content.trim().is_empty() {
         prompt.push_str(&format!("\n## Task Content\n\n{}\n", render_context.task.content.trim()));
     }
-    if !render_context.task.subtasks.is_empty() {
-        prompt.push_str("\n## Subtasks\n\n");
-        for sub in &render_context.task.subtasks {
+    if !render_context.task.children.is_empty() {
+        prompt.push_str("\n## Child Tasks\n\n");
+        for child in &render_context.task.children {
             prompt.push_str(&format!(
-                "- Subtask {}.{}: {} [{}]\n",
-                sub.task_number, sub.subtask_number, sub.title, sub.state
+                "- {} {}: {} [{}]\n",
+                title_case_kind(&child.kind),
+                child.id,
+                child.title,
+                child.state
             ));
         }
     }
@@ -3744,16 +4880,10 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
         "\n## Rhei Commands\n\n\
          You are working in a rhei-managed plan at `{plan_path_str}`.\n\
          The active state machine is `{state_machine_label}`.\n\
-         Use these commands to advance the task:\n\n\
-         - `{rhei_cli}{state_machine_arg} transition {plan_path_str} --task {task_id} --from {} --to <target>` \
-         -- advance to the next state\n\
-         - `{rhei_cli}{state_machine_arg} complete {plan_path_str} --task {task_id} --result \"<message>\"` \
-         -- complete the task\n\n\
-         Before you stop, create every required output artifact for this state and then run exactly one of the commands above.\n\
-         Do not leave the task in its current state after writing files, and do not continue into speculative future passes once the current state's artifact and transition are done.\n\n\
-         Available transitions from `{}`:\n{transitions_list}\n\
-         Do not modify **State:** lines in the plan directly. Use the rhei CLI.\n",
-        render_context.state_name, render_context.state_name
+         The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.\n\
+         Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.\n\n\
+         Available transitions from `{}`:\n{transitions_list}",
+        render_context.state_name
     ));
     prompt
 }
@@ -3822,6 +4952,13 @@ fn build_agent_command(
     if let Some(mode) = &resolved.mode {
         cmd.env("RHEI_AGENT_MODE", mode);
     }
+    if let Some(target) = &resolved.target {
+        cmd.env("RHEI_TARGET", target.selector());
+        cmd.env("RHEI_TARGET_SLUG", target.slug());
+        if let Some(provider) = target.provider.as_deref() {
+            cmd.env("RHEI_MODEL_PROVIDER", provider);
+        }
+    }
     inject_tooling_env(&mut cmd, tooling);
     cmd
 }
@@ -3879,8 +5016,17 @@ fn inject_tooling_env(cmd: &mut std::process::Command, tooling: &ResolvedTooling
 }
 
 /// Construct the log file path for a task/state invocation.
-fn agent_log_path(runtime_dir: &Path, task_id: &str, state_name: &str) -> PathBuf {
-    runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}.log"))
+fn agent_log_path(
+    runtime_dir: &Path,
+    task_id: &str,
+    state_name: &str,
+    suffix: Option<&str>,
+) -> PathBuf {
+    let suffix = suffix
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("-{value}"))
+        .unwrap_or_default();
+    runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}{suffix}.log"))
 }
 
 /// Spawn an agent, capture output to a log file, and wait with timeout.
@@ -3915,6 +5061,9 @@ fn spawn_and_wait_agent(
         let _ = writeln!(f, "agent: {}", resolved.agent.id());
         if let Some(mode) = &resolved.mode {
             let _ = writeln!(f, "mode: {mode}");
+        }
+        if let Some(target) = &resolved.target {
+            let _ = writeln!(f, "target: {}", target.selector());
         }
         if let Some(m) = &resolved.model {
             let _ = writeln!(f, "model: {m}");
@@ -4106,7 +5255,10 @@ fn build_program_command(
                 &render_context.task.id.to_string(),
                 render_context.state_name,
                 input_visit_count,
+                render_context.target,
                 render_context.model,
+                render_context.agent,
+                render_context.agent_mode,
             );
             cmd.env(format!("RHEI_INPUT_{env_base}_EXISTS"), path.exists().to_string());
             cmd.env(format!("RHEI_INPUT_{env_base}_PATH"), relative);
@@ -4320,25 +5472,11 @@ fn run_command(
     };
 
     // Initial validation pass.
-    let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
+    let mut report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
+    report.errors.extend(validate_machine_settings_references(&machine, &settings));
     if report.has_errors() {
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
-
-    let initial_terminal_count = loaded
-        .rhei
-        .tasks
-        .iter()
-        .filter(|task| is_terminal_state(task.state.as_str(), &machine))
-        .count();
-    println!(
-        "Running {} '{}' with {} task(s) ({} terminal at start).",
-        if is_workspace { "workspace" } else { "plan" },
-        loaded.rhei.title,
-        loaded.rhei.tasks.len(),
-        initial_terminal_count
-    );
-    println!("Initial states: {}", format_state_counts(&loaded.rhei));
 
     let mut use_standalone_mode = false;
     for (name, def) in &machine.states {
@@ -4358,6 +5496,20 @@ fn run_command(
     if use_standalone_mode {
         run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
     } else {
+        let initial_terminal_count = loaded
+            .rhei
+            .tasks
+            .iter()
+            .filter(|task| is_terminal_state(task.state.as_str(), &machine))
+            .count();
+        println!(
+            "Running {} '{}' with {} task(s) ({} terminal at start).",
+            if is_workspace { "workspace" } else { "plan" },
+            loaded.rhei.title,
+            loaded.rhei.tasks.len(),
+            initial_terminal_count
+        );
+        println!("Initial states: {}", format_state_counts(&loaded.rhei));
         run_callback_mode(input, &machine, &callback_paths, &opts)
     }
 }
@@ -4371,8 +5523,73 @@ fn run_agent_mode(
     opts: &RunOptions,
     max_parallel: usize,
 ) -> MietteResult<()> {
+    use rhei_tui::{MessageLevel, RunEvent, RunSummary, TaskOutcome};
+    use std::time::{Instant as TuiInstant, SystemTime};
+
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
+
+    let initial_total_tasks = {
+        let loaded = load_plan(input)?;
+        loaded.rhei.tasks.len()
+    };
+    let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
+    let frontend = rhei_tui::select_frontend(
+        &workspace_root,
+        opts.frontend_kind(),
+        frontend_parallel,
+        initial_total_tasks,
+    );
+    let sink = frontend.sink.clone();
+    sink.emit(RunEvent::RunStarted {
+        workspace: workspace_root.clone(),
+        parallel: frontend_parallel,
+        total_tasks: initial_total_tasks,
+    });
+
+    macro_rules! run_message {
+        ($level:expr, $($arg:tt)*) => {{
+            sink.emit(RunEvent::Message {
+                level: $level,
+                text: format!($($arg)*),
+            });
+        }};
+    }
+
+    macro_rules! run_info {
+        ($($arg:tt)*) => {
+            run_message!(MessageLevel::Info, $($arg)*);
+        };
+    }
+
+    macro_rules! run_warn {
+        ($($arg:tt)*) => {
+            run_message!(MessageLevel::Warn, $($arg)*);
+        };
+    }
+
+    macro_rules! run_error {
+        ($($arg:tt)*) => {
+            run_message!(MessageLevel::Error, $($arg)*);
+        };
+    }
+
+    let loaded = load_plan(input)?;
+    let initial_terminal_count = loaded
+        .rhei
+        .tasks
+        .iter()
+        .filter(|task| is_terminal_state(task.state.as_str(), machine))
+        .count();
+    run_info!(
+        "Running {} '{}' with {} task(s) ({} terminal at start).",
+        if workspace::is_workspace(input) { "workspace" } else { "plan" },
+        loaded.rhei.title,
+        loaded.rhei.tasks.len(),
+        initial_terminal_count
+    );
+    run_info!("Initial states: {}", format_state_counts(&loaded.rhei));
+
     let mut agents_spawned = 0u32;
     let mut programs_spawned = 0u32;
     let mut pass = 0u32;
@@ -4391,14 +5608,18 @@ fn run_agent_mode(
             .iter()
             .filter(|task| is_terminal_state(task.state.as_str(), machine))
             .count();
-        println!(
+        sink.emit(RunEvent::PassStarted {
+            pass,
+            ready: ready.iter().map(|t| t.id.to_string()).collect(),
+        });
+        run_info!(
             "\nPass {}: {} ready, {} terminal, {} total.",
             pass,
             ready.len(),
             terminal_count,
             loaded.rhei.tasks.len()
         );
-        println!("Ready: {}", format_ready_tasks(&ready));
+        run_info!("Ready: {}", format_ready_tasks(&ready));
 
         // Collect tasks that can be advanced autonomously.
         let plan_title = loaded.rhei.title.clone();
@@ -4413,9 +5634,10 @@ fn run_agent_mode(
 
             // Check for gating state.
             if machine.states.get(&current_state).map(|d| d.gating).unwrap_or(false) {
-                println!(
+                run_info!(
                     "Task {} is in gating state '{}'. Waiting for human action.",
-                    task_id_str, current_state
+                    task_id_str,
+                    current_state
                 );
                 continue;
             }
@@ -4434,14 +5656,61 @@ fn run_agent_mode(
                 if let Some(resolved) = resolve_program(machine, &current_state, settings, opts)? {
                     program_tasks.push((task_id_str, current_state_raw, current_state, resolved));
                 }
-            } else if let Some(resolved) = resolve_agent(machine, &current_state, settings, opts)? {
-                agent_tasks.push((task_id_str, current_state_raw, current_state, resolved));
-            } else if opts.no_agent() {
-                callback_tasks.push((task_id_str, current_state_raw, current_state));
             } else {
-                return Err(miette!(
-                    "no agent configured.\nSet one in ~/.config/rhei/settings.json, .rhei/settings.json, or the state machine.\nAlternatively, pass --agent <AGENT> to rhei run."
-                ));
+                let invocations =
+                    resolve_agent_invocations(machine, &current_state, settings, opts)?;
+                if invocations.is_empty() {
+                    if opts.no_agent() {
+                        callback_tasks.push((task_id_str, current_state_raw, current_state));
+                        continue;
+                    }
+                    return Err(miette!(
+                        "no agent configured.\nSet one in ~/.config/rhei/settings.json, .rhei/settings.json, or the state machine.\nAlternatively, pass --agent <AGENT> to rhei run."
+                    ));
+                }
+
+                let pending = invocations
+                    .into_iter()
+                    .filter(|resolved| {
+                        !state_outputs_exist_for_resolved_invocation(
+                            &workspace_root,
+                            task,
+                            &current_state,
+                            task.state.as_str(),
+                            machine,
+                            loaded.rhei.metadata.as_ref(),
+                            state_def,
+                            resolved,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                if pending.is_empty() {
+                    callback_tasks.push((task_id_str, current_state_raw, current_state));
+                    continue;
+                }
+
+                // Orchestrator Completion Authority: every invocation that
+                // `rhei run` will actually spawn must resolve to a finite
+                // timeout so that a non-returning agent cannot block forever.
+                // Invocations whose outputs already exist have been filtered
+                // out above and do not need a timeout. See
+                // docs/specs/rhei-agents.spec.md §Completion Authority /
+                // §Completion Condition.
+                if !opts.dry_run() {
+                    for resolved in &pending {
+                        ensure_orchestrator_timeout(resolved, &current_state)?;
+                    }
+                }
+
+                for resolved in pending {
+                    agent_tasks.push((
+                        task_id_str.clone(),
+                        current_state_raw.clone(),
+                        current_state.clone(),
+                        resolved,
+                    ));
+                }
             }
         }
 
@@ -4459,9 +5728,11 @@ fn run_agent_mode(
             let Some(to_state) = next_to else { continue };
 
             if opts.dry_run() {
-                println!(
+                run_info!(
                     "Would transition Task {} from '{}' to '{}'",
-                    task_id_str, current_state_raw, to_state
+                    task_id_str,
+                    current_state_raw,
+                    to_state
                 );
                 continue;
             }
@@ -4482,14 +5753,16 @@ fn run_agent_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(()) => {
-                    println!(
+                    run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
-                        task_id_str, current_state_raw, to_state
+                        task_id_str,
+                        current_state_raw,
+                        to_state
                     );
                     advanced_any = true;
                 }
                 Err(err) => {
-                    eprintln!("warning: failed to advance Task {}: {}", task_id_str, err);
+                    run_warn!("warning: failed to advance Task {}: {}", task_id_str, err);
                 }
             }
         }
@@ -4505,13 +5778,14 @@ fn run_agent_mode(
                         .map(|s| format!("{s}s"))
                         .unwrap_or_else(|| "none".to_string());
                     let log = program_log_path(&runtime_dir, task_id_str, current_state);
-                    println!("\nWould spawn program");
+                    run_info!("\nWould spawn program");
                     if let Some(t) = task {
-                        println!("  {} [{}]", format_task_label(t), current_state_raw);
+                        run_info!("  {} [{}]", format_task_label(t), current_state_raw);
                     }
-                    println!("  Timeout: {timeout_str}");
-                    println!("  Log: {}", log.display());
+                    run_info!("  Timeout: {timeout_str}");
+                    run_info!("  Log: {}", log.display());
                 }
+                sink.emit(RunEvent::PassEnded { pass, progressed: false });
                 break;
             }
 
@@ -4530,16 +5804,61 @@ fn run_agent_mode(
                     current_state_raw: task.state.as_str(),
                     machine,
                     metadata: loaded.rhei.metadata.as_ref(),
+                    target: None,
                     model: None,
                     agent: None,
+                    agent_mode: None,
                     tooling: None,
                 };
                 let log = program_log_path(&runtime_dir, task_id_str, current_state);
 
-                println!("\nSpawning program for Task {}: {}", task_id_str, task.title);
-                println!("  Log: {}", log.display());
+                run_info!("\nSpawning program for Task {}: {}", task_id_str, task.title);
+                run_info!("  Log: {}", log.display());
 
-                match spawn_and_wait_program(resolved, &render_context, &log) {
+                let started_at = TuiInstant::now();
+                let started_wall = SystemTime::now();
+                sink.emit(RunEvent::SlotAssigned {
+                    slot: 0,
+                    task: task_id_str.clone(),
+                    from: task.state.as_str().to_string(),
+                    to: current_state.clone(),
+                    log_path: log.clone(),
+                    started_at,
+                    wall_clock: started_wall,
+                });
+
+                let spawn_result = spawn_and_wait_program(resolved, &render_context, &log);
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+                let finished_wall = SystemTime::now();
+                let (outcome, exit_code) = match &spawn_result {
+                    Ok(status) if status.success() => (TaskOutcome::Completed, status.code()),
+                    Ok(status) => {
+                        let code = status.code().unwrap_or(-1);
+                        (
+                            if resolved.timeout_secs.is_some() && !status.success() {
+                                TaskOutcome::TimedOut
+                            } else {
+                                TaskOutcome::Failed(format!("exit {code}"))
+                            },
+                            status.code(),
+                        )
+                    }
+                    Err(err) => (TaskOutcome::Failed(err.to_string()), None),
+                };
+                sink.emit(RunEvent::SlotReleased {
+                    slot: 0,
+                    task: task_id_str.clone(),
+                    from: task.state.as_str().to_string(),
+                    to: current_state.clone(),
+                    log_path: log.clone(),
+                    outcome,
+                    finished_at: TuiInstant::now(),
+                    wall_clock: finished_wall,
+                    exit_code,
+                    duration_ms,
+                });
+
+                match spawn_result {
                     Ok(status) => {
                         programs_spawned += 1;
                         let mut reloaded = load_plan(input)?;
@@ -4548,9 +5867,11 @@ fn run_agent_mode(
                             task_after.map(|t| t.state.as_str()).unwrap_or("unknown").to_string();
 
                         if state_after != *current_state {
-                            println!(
+                            run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
-                                task_id_str, current_state, state_after
+                                task_id_str,
+                                current_state,
+                                state_after
                             );
                             advanced_any = true;
                             continue;
@@ -4575,9 +5896,11 @@ fn run_agent_mode(
                                 .unwrap_or("unknown")
                                 .to_string();
                             if state_after != *current_state {
-                                println!(
+                                run_info!(
                                     "  Task {} advanced: '{}' -> '{}'",
-                                    task_id_str, current_state, state_after
+                                    task_id_str,
+                                    current_state,
+                                    state_after
                                 );
                                 advanced_any = true;
                                 continue;
@@ -4610,20 +5933,24 @@ fn run_agent_mode(
                                 &to_state,
                                 opts.no_callbacks(),
                             )?;
-                            println!(
+                            run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
-                                task_id_str, current_state, to_state
+                                task_id_str,
+                                current_state,
+                                to_state
                             );
                             advanced_any = true;
                         } else if status.success() {
-                            eprintln!(
+                            run_warn!(
                                 "  warning: program exited 0 but task {} did not advance from '{}'",
-                                task_id_str, current_state
+                                task_id_str,
+                                current_state
                             );
                         } else {
-                            eprintln!(
+                            run_error!(
                                 "  error: program exited with code {} for task {}",
-                                exit_code, task_id_str
+                                exit_code,
+                                task_id_str
                             );
                             if !opts.continue_on_error() {
                                 return Err(miette!(
@@ -4635,7 +5962,7 @@ fn run_agent_mode(
                         }
                     }
                     Err(err) => {
-                        eprintln!("  error: {}", err);
+                        run_error!("  error: {}", err);
                         if !opts.continue_on_error() {
                             return Err(err);
                         }
@@ -4647,11 +5974,14 @@ fn run_agent_mode(
         if agent_tasks.is_empty() {
             if !advanced_any {
                 if opts.dry_run() {
+                    sink.emit(RunEvent::PassEnded { pass, progressed: false });
                     break;
                 }
-                println!("No program, agent, or callback-only tasks could advance.");
+                run_info!("No program, agent, or callback-only tasks could advance.");
+                sink.emit(RunEvent::PassEnded { pass, progressed: false });
                 break;
             }
+            sink.emit(RunEvent::PassEnded { pass, progressed: true });
             continue;
         }
 
@@ -4671,14 +6001,20 @@ fn run_agent_mode(
                     .timeout_secs
                     .map(|s| format!("{s}s"))
                     .unwrap_or_else(|| "none".to_string());
-                let log = agent_log_path(&runtime_dir, task_id_str, current_state);
-                println!("\nWould spawn: {} (model: {model_str})", agent_id);
+                let log = agent_log_path(
+                    &runtime_dir,
+                    task_id_str,
+                    current_state,
+                    resolved_agent_log_suffix(resolved).as_deref(),
+                );
+                run_info!("\nWould spawn: {} (model: {model_str})", agent_id);
                 if let Some(t) = task {
-                    println!("  {} [{}]", format_task_label(t), current_state_raw);
+                    run_info!("  {} [{}]", format_task_label(t), current_state_raw);
                 }
-                println!("  Agent: {agent_id}, Model: {model_str}, Timeout: {timeout_str}");
-                println!("  Log: {}", log.display());
+                run_info!("  Agent: {agent_id}, Model: {model_str}, Timeout: {timeout_str}");
+                run_info!("  Log: {}", log.display());
             }
+            sink.emit(RunEvent::PassEnded { pass, progressed: false });
             break;
         }
 
@@ -4702,25 +6038,44 @@ fn run_agent_mode(
                 current_state_raw: task.state.as_str(),
                 machine,
                 metadata: loaded.rhei.metadata.as_ref(),
+                target: resolved.target.as_ref(),
                 model: resolved.model.as_deref(),
                 agent: Some(resolved.agent.id()),
+                agent_mode: resolved.mode.as_deref(),
                 tooling: Some(&tooling),
             };
             let prompt = compose_agent_prompt(&render_context);
-            let log = agent_log_path(&runtime_dir, task_id_str, current_state);
+            let log = agent_log_path(
+                &runtime_dir,
+                task_id_str,
+                current_state,
+                resolved_agent_log_suffix(resolved).as_deref(),
+            );
 
-            println!(
+            run_info!(
                 "\nSpawning agent '{}' for Task {}: {}",
                 resolved.agent.id(),
                 task_id_str,
                 task.title
             );
             if let Some(m) = &resolved.model {
-                println!("  Model: {m}");
+                run_info!("  Model: {m}");
             }
-            println!("  Log: {}", log.display());
+            run_info!("  Log: {}", log.display());
 
-            match spawn_and_wait_agent(
+            let started_at = TuiInstant::now();
+            let started_wall = SystemTime::now();
+            sink.emit(RunEvent::SlotAssigned {
+                slot: 0,
+                task: task_id_str.clone(),
+                from: task.state.as_str().to_string(),
+                to: current_state.clone(),
+                log_path: log.clone(),
+                started_at,
+                wall_clock: started_wall,
+            });
+
+            let spawn_result = spawn_and_wait_agent(
                 resolved,
                 &prompt,
                 &execution_workspace_root(&callback_paths.plan_path),
@@ -4730,7 +6085,38 @@ fn run_agent_mode(
                 current_state,
                 &tooling,
                 &log,
-            ) {
+            );
+            let duration_ms = started_at.elapsed().as_millis() as u64;
+            let finished_wall = SystemTime::now();
+            let (outcome, exit_code) = match &spawn_result {
+                Ok(status) if status.success() => (TaskOutcome::Completed, status.code()),
+                Ok(status) => {
+                    let code = status.code().unwrap_or(-1);
+                    (
+                        if resolved.timeout_secs.is_some() && !status.success() {
+                            TaskOutcome::TimedOut
+                        } else {
+                            TaskOutcome::Failed(format!("exit {code}"))
+                        },
+                        status.code(),
+                    )
+                }
+                Err(err) => (TaskOutcome::Failed(err.to_string()), None),
+            };
+            sink.emit(RunEvent::SlotReleased {
+                slot: 0,
+                task: task_id_str.clone(),
+                from: task.state.as_str().to_string(),
+                to: current_state.clone(),
+                log_path: log.clone(),
+                outcome,
+                finished_at: TuiInstant::now(),
+                wall_clock: finished_wall,
+                exit_code,
+                duration_ms,
+            });
+
+            match spawn_result {
                 Ok(status) => {
                     agents_spawned += 1;
                     let reloaded = load_plan(input)?;
@@ -4739,9 +6125,11 @@ fn run_agent_mode(
                     let state_before = current_state.as_str();
 
                     if state_after != state_before {
-                        println!(
+                        run_info!(
                             "  Task {} advanced: '{}' -> '{}'",
-                            task_id_str, state_before, state_after
+                            task_id_str,
+                            state_before,
+                            state_after
                         );
                         advanced_any = true;
 
@@ -4761,6 +6149,26 @@ fn run_agent_mode(
                             }
                         }
                     } else if status.success() {
+                        let pending_more = machine
+                            .states
+                            .get(state_before)
+                            .map(|state_def| {
+                                task_has_pending_agent_invocations(
+                                    &workspace_root,
+                                    task,
+                                    state_before,
+                                    task.state.as_str(),
+                                    machine,
+                                    loaded.rhei.metadata.as_ref(),
+                                    state_def,
+                                    settings,
+                                )
+                            })
+                            .transpose()?
+                            .unwrap_or(false);
+                        if pending_more {
+                            continue;
+                        }
                         match try_auto_advance_task(
                             input,
                             machine,
@@ -4770,20 +6178,22 @@ fn run_agent_mode(
                             opts.no_callbacks(),
                         ) {
                             Ok(Some(to_state)) => {
-                                println!(
+                                run_info!(
                                     "  Task {} auto-advanced: '{}' -> '{}'",
-                                    task_id_str, state_before, to_state
+                                    task_id_str,
+                                    state_before,
+                                    to_state
                                 );
                                 advanced_any = true;
                             }
                             Ok(None) => {
-                                eprintln!(
+                                run_warn!(
                                     "  warning: agent exited 0 but task {} did not advance from '{}'",
                                     task_id_str, state_before
                                 );
                             }
                             Err(err) => {
-                                eprintln!(
+                                run_warn!(
                                     "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
                                     task_id_str, state_before, err
                                 );
@@ -4791,9 +6201,10 @@ fn run_agent_mode(
                         }
                     } else {
                         let code = status.code().unwrap_or(-1);
-                        eprintln!(
+                        run_error!(
                             "  error: agent exited with code {} for task {}",
-                            code, task_id_str
+                            code,
+                            task_id_str
                         );
                         // Check for timeout transition.
                         if resolved.timeout_secs.is_some() {
@@ -4818,7 +6229,7 @@ fn run_agent_mode(
                     }
                 }
                 Err(err) => {
-                    eprintln!("  error: {}", err);
+                    run_error!("  error: {}", err);
                     if !opts.continue_on_error() {
                         return Err(err);
                     }
@@ -4828,7 +6239,9 @@ fn run_agent_mode(
             // Parallel: spawn multiple agents using threads.
             let mut handles = Vec::new();
 
-            for (task_id_str, _current_state_raw, current_state, resolved) in batch {
+            for (slot_idx, (task_id_str, _current_state_raw, current_state, resolved)) in
+                batch.iter().enumerate()
+            {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
                 let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
@@ -4845,39 +6258,67 @@ fn run_agent_mode(
                     current_state_raw: task.state.as_str(),
                     machine,
                     metadata: loaded.rhei.metadata.as_ref(),
+                    target: resolved.target.as_ref(),
                     model: resolved.model.as_deref(),
                     agent: Some(resolved.agent.id()),
+                    agent_mode: resolved.mode.as_deref(),
                     tooling: Some(&tooling),
                 };
                 let prompt = compose_agent_prompt(&render_context);
-                let log = agent_log_path(&runtime_dir, task_id_str, current_state);
+                let log = agent_log_path(
+                    &runtime_dir,
+                    task_id_str,
+                    current_state,
+                    resolved_agent_log_suffix(resolved).as_deref(),
+                );
                 let working_dir = execution_workspace_root(&callback_paths.plan_path);
                 let plan_path = callback_paths.plan_path.clone();
                 let state_machine_path = callback_paths.state_machine_path.clone();
                 let tid = task_id_str.clone();
                 let sname = current_state.clone();
 
-                println!(
+                run_info!(
                     "\nSpawning agent '{}' for Task {}: {} (parallel)",
                     resolved.agent.id(),
                     task_id_str,
                     task.title
                 );
-                println!("  Log: {}", log.display());
+                run_info!("  Log: {}", log.display());
+
+                let slot = slot_idx.min(u16::MAX as usize) as u16;
+                let from_state = task.state.as_str().to_string();
+                let started_at = TuiInstant::now();
+                let started_wall = SystemTime::now();
+                sink.emit(RunEvent::SlotAssigned {
+                    slot,
+                    task: task_id_str.clone(),
+                    from: from_state.clone(),
+                    to: current_state.clone(),
+                    log_path: log.clone(),
+                    started_at,
+                    wall_clock: started_wall,
+                });
 
                 // Clone what we need for the thread.
                 let agent_cfg = resolved.agent.clone();
                 let profile_cfg = resolved.profile.clone();
                 let mode_cfg = resolved.mode.clone();
+                let target_cfg = resolved.target.clone();
                 let model_cfg = resolved.model.clone();
                 let timeout_cfg = resolved.timeout_secs;
                 let tooling_for_thread = tooling.clone();
+                let sink_for_thread = sink.clone();
+                let log_for_thread = log.clone();
+                let from_for_thread = from_state;
+                let to_for_thread = current_state.clone();
+                let tid_for_event = task_id_str.clone();
 
                 let handle = std::thread::spawn(move || {
                     let resolved = ResolvedAgent {
                         agent: agent_cfg,
                         profile: profile_cfg,
                         mode: mode_cfg,
+                        target: target_cfg,
                         model: model_cfg,
                         timeout_secs: timeout_cfg,
                     };
@@ -4892,6 +6333,34 @@ fn run_agent_mode(
                         &tooling_for_thread,
                         &log,
                     );
+                    let duration_ms = started_at.elapsed().as_millis() as u64;
+                    let (outcome, exit_code) = match &result {
+                        Ok(status) if status.success() => (TaskOutcome::Completed, status.code()),
+                        Ok(status) => {
+                            let code = status.code().unwrap_or(-1);
+                            (
+                                if resolved.timeout_secs.is_some() && !status.success() {
+                                    TaskOutcome::TimedOut
+                                } else {
+                                    TaskOutcome::Failed(format!("exit {code}"))
+                                },
+                                status.code(),
+                            )
+                        }
+                        Err(err) => (TaskOutcome::Failed(err.to_string()), None),
+                    };
+                    sink_for_thread.emit(RunEvent::SlotReleased {
+                        slot,
+                        task: tid_for_event,
+                        from: from_for_thread,
+                        to: to_for_thread,
+                        log_path: log_for_thread,
+                        outcome,
+                        finished_at: TuiInstant::now(),
+                        wall_clock: SystemTime::now(),
+                        exit_code,
+                        duration_ms,
+                    });
                     (tid, sname, result)
                 });
                 handles.push(handle);
@@ -4910,12 +6379,38 @@ fn run_agent_mode(
                         let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
                         let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
                         if state_after != state_name {
-                            println!(
+                            run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
-                                task_id_str, state_name, state_after
+                                task_id_str,
+                                state_name,
+                                state_after
                             );
                             advanced_any = true;
                         } else if status.success() {
+                            let pending_more = reloaded
+                                .rhei
+                                .tasks
+                                .iter()
+                                .find(|t| t.id == target_id)
+                                .and_then(|task| {
+                                    machine.states.get(state_name.as_str()).map(|state_def| {
+                                        task_has_pending_agent_invocations(
+                                            &workspace_root,
+                                            task,
+                                            &state_name,
+                                            task.state.as_str(),
+                                            machine,
+                                            reloaded.rhei.metadata.as_ref(),
+                                            state_def,
+                                            settings,
+                                        )
+                                    })
+                                })
+                                .transpose()?
+                                .unwrap_or(false);
+                            if pending_more {
+                                continue;
+                            }
                             match try_auto_advance_task(
                                 input,
                                 machine,
@@ -4925,20 +6420,22 @@ fn run_agent_mode(
                                 opts.no_callbacks(),
                             ) {
                                 Ok(Some(to_state)) => {
-                                    println!(
+                                    run_info!(
                                         "  Task {} auto-advanced: '{}' -> '{}'",
-                                        task_id_str, state_name, to_state
+                                        task_id_str,
+                                        state_name,
+                                        to_state
                                     );
                                     advanced_any = true;
                                 }
                                 Ok(None) => {
-                                    eprintln!(
+                                    run_warn!(
                                         "  warning: agent exited 0 but task {} did not advance from '{}'",
                                         task_id_str, state_name
                                     );
                                 }
                                 Err(err) => {
-                                    eprintln!(
+                                    run_warn!(
                                         "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
                                         task_id_str, state_name, err
                                     );
@@ -4946,9 +6443,10 @@ fn run_agent_mode(
                             }
                         } else {
                             let code = status.code().unwrap_or(-1);
-                            eprintln!(
+                            run_error!(
                                 "  error: agent exited with code {} for task {}",
-                                code, task_id_str
+                                code,
+                                task_id_str
                             );
                             if !opts.continue_on_error() {
                                 return Err(miette!(
@@ -4959,7 +6457,7 @@ fn run_agent_mode(
                         }
                     }
                     Err(err) => {
-                        eprintln!("  error for task {}: {}", task_id_str, err);
+                        run_error!("  error for task {}: {}", task_id_str, err);
                         if !opts.continue_on_error() {
                             return Err(err);
                         }
@@ -4968,16 +6466,20 @@ fn run_agent_mode(
             }
         }
 
+        sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
+
         if !advanced_any {
             break;
         }
     }
 
     // Print summary.
-    if opts.dry_run() {
-        println!("\nDry run complete — no programs or agents were spawned.");
+    let (terminal_count, total_tasks) = if opts.dry_run() {
+        run_info!("\nDry run complete — no programs or agents were spawned.");
+        (0usize, 0usize)
     } else if agents_spawned == 0 && programs_spawned == 0 {
-        println!("No tasks could be advanced.");
+        run_info!("No tasks could be advanced.");
+        (0usize, 0usize)
     } else {
         let loaded = load_plan(input)?;
         let terminal_count = loaded
@@ -4986,18 +6488,30 @@ fn run_agent_mode(
             .iter()
             .filter(|t| is_terminal_state(t.state.as_str(), machine))
             .count();
-        println!(
+        run_info!(
             "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
             agents_spawned,
             programs_spawned,
             terminal_count,
             loaded.rhei.tasks.len()
         );
-        println!("Final states: {}", format_state_counts(&loaded.rhei));
+        run_info!("Final states: {}", format_state_counts(&loaded.rhei));
         for task in &loaded.rhei.tasks {
-            println!("  - {} [{}]", format_task_label(task), task.state);
+            run_info!("  - {} [{}]", format_task_label(task), task.state);
         }
-    }
+        (terminal_count, loaded.rhei.tasks.len())
+    };
+
+    sink.emit(RunEvent::RunFinished {
+        summary: RunSummary {
+            agents_spawned,
+            programs_spawned,
+            terminal_tasks: terminal_count,
+            total_tasks,
+        },
+    });
+    drop(sink);
+    drop(frontend);
 
     Ok(())
 }
@@ -5277,19 +6791,117 @@ fn find_ready_tasks<'a>(
 
 /// Find tasks that are ready to be claimed by `rhei next` in automatic mode.
 ///
-/// Only tasks in the initial state are claimable automatically. Already-claimed
-/// work can still be inspected with `rhei next --task <id>`.
+/// A task is claimable when it is in the state machine's initial state, its
+/// prerequisites are satisfied, and it has no `**Assignee:**` field (which
+/// indicates it is already claimed by another agent). Already-claimed work
+/// can still be inspected explicitly with `rhei next --task <id>`.
 fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
 ) -> Vec<&'a rhei_core::ast::Task> {
     find_ready_tasks(rhei, machine)
         .into_iter()
+        .filter(|task| task.assignee.is_none())
         .filter(|task| {
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).map(|def| def.initial).unwrap_or(false)
         })
         .collect()
+}
+
+/// Build an actionable error message for `rhei next` when no task can be
+/// auto-claimed.
+///
+/// Distinguishes between three situations:
+/// - every task is in a terminal state (nothing left to do),
+/// - some task is ready but sitting in a non-initial state (mid-workflow —
+///   the user needs `rhei transition` to pick an outgoing edge),
+/// - every non-terminal task is blocked by unsatisfied prerequisites.
+fn diagnose_no_claimable(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> String {
+    use std::collections::HashMap;
+
+    fn collect<'a>(task: &'a rhei_core::ast::Task, out: &mut Vec<&'a rhei_core::ast::Task>) {
+        out.push(task);
+        for c in &task.children {
+            collect(c, out);
+        }
+    }
+    let mut all = Vec::new();
+    for t in &rhei.tasks {
+        collect(t, &mut all);
+    }
+
+    if all.is_empty() {
+        return "no tasks are ready to claim (plan has no tasks)".to_string();
+    }
+
+    let state_map: HashMap<&TaskId, String> =
+        all.iter().map(|t| (&t.id, normalized_state_name(t.state.as_str(), machine))).collect();
+
+    let non_terminal: Vec<&rhei_core::ast::Task> =
+        all.iter().copied().filter(|t| !is_terminal_state(t.state.as_str(), machine)).collect();
+
+    if non_terminal.is_empty() {
+        return "no tasks are ready to claim: every task is already in a terminal state."
+            .to_string();
+    }
+
+    let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
+        task.prior.iter().all(|dep_id| {
+            state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
+        })
+    };
+
+    let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal
+        .iter()
+        .copied()
+        .filter(|t| {
+            let s = normalized_state_name(t.state.as_str(), machine);
+            let is_initial = machine.states.get(&s).map(|def| def.initial).unwrap_or(false);
+            !is_initial && priors_satisfied(t)
+        })
+        .collect();
+
+    if let Some(task) = ready_non_initial.first() {
+        let state_name = normalized_state_name(task.state.as_str(), machine);
+        let outgoing: Vec<String> = machine
+            .transitions()
+            .iter()
+            .filter(|rule| rule.from.0 == state_name || rule.from.0 == "*")
+            .map(|rule| rule.to.0.clone())
+            .collect();
+        let outgoing =
+            if outgoing.is_empty() { "(none declared)".to_string() } else { outgoing.join(", ") };
+        return format!(
+            "no tasks can be auto-claimed: Task {} is mid-workflow in state '{}'. \
+             Pick one of its outgoing transitions [{}] with \
+             `rhei transition <plan> --task {} --from {} --to <state>`.",
+            task.id, state_name, outgoing, task.id, state_name
+        );
+    }
+
+    let blocked: Vec<&rhei_core::ast::Task> =
+        non_terminal.iter().copied().filter(|t| !priors_satisfied(t)).collect();
+    if !blocked.is_empty() {
+        let ids: Vec<String> = blocked.iter().take(3).map(|t| format!("Task {}", t.id)).collect();
+        let suffix = if blocked.len() > 3 {
+            format!(" (+{} more)", blocked.len() - 3)
+        } else {
+            String::new()
+        };
+        return format!(
+            "no tasks are ready to claim: {} blocked by incomplete prerequisites{}.",
+            ids.join(", "),
+            suffix
+        );
+    }
+
+    // Fallback: we found non-terminal tasks with priors satisfied but no
+    // other category matched. Keep the legacy phrasing for this edge case.
+    "no tasks are ready to claim".to_string()
 }
 
 /// Check whether a state is terminal (final) in the state machine.
@@ -5387,10 +6999,97 @@ fn try_auto_advance_task(
 }
 
 /// Parse a task ID string into a [`TaskId`].
+///
+/// Accepts both single-segment ids (`1`, `api`) and dotted paths (`1.2`,
+/// `api.cache`). Malformed input is treated as a single named segment so
+/// downstream lookups fail cleanly with a "not found" message.
 fn parse_task_id(s: &str) -> TaskId {
-    match s.parse::<u32>() {
-        Ok(n) => TaskId::Number(n),
-        Err(_) => TaskId::Named(s.to_string()),
+    if s.is_empty() {
+        return TaskId::named(s);
+    }
+    let mut segments = Vec::new();
+    for part in s.split('.') {
+        if part.is_empty() {
+            return TaskId::named(s);
+        }
+        if let Ok(n) = part.parse::<u32>() {
+            segments.push(rhei_core::ast::TaskIdSegment::Number(n));
+        } else {
+            segments.push(rhei_core::ast::TaskIdSegment::Named(part.to_string()));
+        }
+    }
+    TaskId::from_segments(segments)
+}
+
+/// Insert a `**Assignee:** <value>` metadata line for a specific task.
+///
+/// Locates the `### Task <id>:` header, walks through its metadata block
+/// (`**State:**`, optional `**Prior:**`), and inserts the Assignee line at
+/// the end of that block, matching the grammar order specified in
+/// docs/rhei.spec.md §268. A duplicate insertion is a no-op if the task
+/// already has an assignee line; the caller is responsible for ensuring the
+/// field is absent first (use claim-time eligibility checks).
+fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResult<String> {
+    let lines: Vec<&str> = raw.lines().collect();
+    let mut result: Vec<String> = Vec::with_capacity(lines.len() + 1);
+
+    let task_prefix = format!("### Task {}:", task_id);
+    let mut in_target_task = false;
+    let mut last_metadata_idx: Option<usize> = None;
+    let mut already_present = false;
+
+    for line in lines.iter() {
+        if line.starts_with("### Task ") {
+            if let Some(meta_idx) = last_metadata_idx.take() {
+                // Leaving previous target without finding a home for the
+                // assignee line — insert immediately after its last metadata
+                // line before appending the subsequent task header.
+                insert_after(&mut result, meta_idx, &format_assignee(assignee));
+                last_metadata_idx = None;
+            }
+            in_target_task = line.starts_with(&task_prefix);
+        }
+
+        if in_target_task && line.starts_with("**Assignee:**") {
+            already_present = true;
+        }
+        if in_target_task && (line.starts_with("**State:**") || line.starts_with("**Prior:**")) {
+            last_metadata_idx = Some(result.len());
+        }
+
+        result.push((*line).to_string());
+    }
+
+    if already_present {
+        // Nothing to do — preserve input verbatim to keep trailing newline.
+        return Ok(raw.to_string());
+    }
+
+    let Some(meta_idx) = last_metadata_idx else {
+        return Err(miette!(
+            "could not find **State:**/**Prior:** metadata line for Task {} in the markdown",
+            task_id
+        ));
+    };
+    insert_after(&mut result, meta_idx, &format_assignee(assignee));
+
+    let mut output = result.join("\n");
+    if raw.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+fn format_assignee(value: &str) -> String {
+    format!("**Assignee:** {}", value)
+}
+
+fn insert_after(lines: &mut Vec<String>, idx: usize, value: &str) {
+    let insert_at = idx + 1;
+    if insert_at >= lines.len() {
+        lines.push(value.to_string());
+    } else {
+        lines.insert(insert_at, value.to_string());
     }
 }
 
@@ -5443,6 +7142,7 @@ fn next_command(
     task_id_filter: Option<&str>,
     as_json: bool,
     no_callbacks: bool,
+    peek: bool,
 ) -> MietteResult<()> {
     let loaded = load_plan(input)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
@@ -5485,7 +7185,8 @@ fn next_command(
             .states
             .get(&state_name)
             .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
-        ensure_state_inputs_exist(
+        let settings = load_merged_settings(&workspace_root);
+        ensure_state_inputs_exist_for_transition(
             &workspace_root,
             tid,
             &state_name,
@@ -5497,14 +7198,15 @@ fn next_command(
                 task.state.as_str(),
                 &machine,
             )),
-            None,
+            &machine,
+            &settings,
             &format!("Task {} cannot be claimed in state {}.", tid, state_name),
         )?;
         (tid.to_string(), task.state.as_str().to_string(), state_name)
     } else {
         let ready = find_claimable_tasks(&loaded.rhei, &machine);
         if ready.is_empty() {
-            return Err(miette!("no tasks are ready to claim"));
+            return Err(miette!("{}", diagnose_no_claimable(&loaded.rhei, &machine)));
         }
         let task = ready.into_iter().next().unwrap();
         let state_name = normalized_state_name(task.state.as_str(), &machine);
@@ -5512,7 +7214,8 @@ fn next_command(
             .states
             .get(&state_name)
             .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
-        ensure_state_inputs_exist(
+        let settings = load_merged_settings(&workspace_root);
+        ensure_state_inputs_exist_for_transition(
             &workspace_root,
             &task.id.to_string(),
             &state_name,
@@ -5524,7 +7227,8 @@ fn next_command(
                 task.state.as_str(),
                 &machine,
             )),
-            None,
+            &machine,
+            &settings,
             &format!("Task {} cannot be claimed in state {}.", task.id, state_name),
         )?;
         (task.id.to_string(), task.state.to_string(), state_name)
@@ -5541,7 +7245,7 @@ fn next_command(
         task_file.clone()
     };
 
-    let final_state = if is_initial {
+    let final_state = if is_initial && !peek {
         // Advance from the initial state (e.g. draft → pending).
         let target_id = parse_task_id(&task_id_str);
         let task = loaded
@@ -5579,24 +7283,19 @@ fn next_command(
 
     // Resolve agent/model for display.
     let settings = load_merged_settings(&workspace_root);
-    let no_agent_opts = RunOptions {
-        standalone: StandaloneExecutionFlags {
-            dry_run: false,
-            no_callbacks: false,
-            continue_on_error: false,
-            parallel: 1,
-        },
-        agent: AgentExecutionFlags {
-            no_agent: false,
-            agent: None,
-            agent_mode: None,
-            model: None,
-        },
-        program: ProgramExecutionFlags::default(),
-    };
+    let no_agent_opts = default_run_options();
     let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts)?;
     let agent_id_str = resolved.as_ref().map(|r| r.agent.id().to_string());
     let model_id_str = resolved.as_ref().and_then(|r| r.model.clone());
+
+    // Claim mode only: write `**Assignee:**` to the task file so a second
+    // `rhei next` cannot re-claim the same task. Skipped in peek mode and
+    // when the task already has an assignee set.
+    if !peek && task.assignee.is_none() {
+        if let Some(agent) = agent_id_str.as_deref() {
+            write_task_assignee(&task_file, &task_id_str, agent)?;
+        }
+    }
     let tooling = resolve_tooling(&machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {
         workspace_root: &workspace_root,
@@ -5608,8 +7307,10 @@ fn next_command(
         current_state_raw: task.state.as_str(),
         machine: &machine,
         metadata: loaded.rhei.metadata.as_ref(),
+        target: resolved.as_ref().and_then(|r| r.target.as_ref()),
         model: model_id_str.as_deref(),
         agent: agent_id_str.as_deref(),
+        agent_mode: resolved.as_ref().and_then(|r| r.mode.as_deref()),
         tooling: Some(&tooling),
     };
     let instructions = resolve_runtime_template_text(
@@ -5683,12 +7384,12 @@ fn complete_command(
         ));
     }
 
-    let open_subtasks = non_terminal_subtasks(task, &machine);
-    if !open_subtasks.is_empty() {
+    let open_children = non_terminal_descendants(task, &machine);
+    if !open_children.is_empty() {
         return Err(miette!(
-            "Task {} cannot be completed while subtasks remain non-terminal.\nOffending subtasks: {}",
+            "Task {} cannot be completed while child tasks remain non-terminal.\nOffending children: {}",
             task_id_str,
-            open_subtasks.join(", ")
+            open_children.join(", ")
         ));
     }
 
@@ -5742,7 +7443,7 @@ fn complete_command(
     Ok(())
 }
 
-/// Execute the `reset` subcommand: restore every task and subtask to the
+/// Execute the `reset` subcommand: restore every task in the tree to the
 /// state machine's initial state.
 ///
 /// For directory workspaces, this also removes the generated `runtime/`
@@ -5752,8 +7453,12 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let initial_state = initial_state_name(&resolved.machine)?;
 
+    fn count_nodes(task: &rhei_core::ast::Task) -> usize {
+        1 + task.children.iter().map(count_nodes).sum::<usize>()
+    }
     let task_count = loaded.rhei.tasks.len();
-    let subtask_count = loaded.rhei.tasks.iter().map(|task| task.subtasks.len()).sum::<usize>();
+    let total_nodes: usize = loaded.rhei.tasks.iter().map(count_nodes).sum();
+    let descendant_count = total_nodes.saturating_sub(task_count);
 
     for file in reset_target_files(&loaded, input) {
         reset_plan_file_states(&file, &initial_state)?;
@@ -5763,8 +7468,12 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
     }
 
     let mut removed_runtime = false;
-    if workspace::is_workspace(input) {
-        let runtime_dir = input.join("runtime");
+    let runtime_dir = if workspace::is_workspace(input) {
+        Some(input.join("runtime"))
+    } else {
+        input.parent().map(|p| p.join("runtime"))
+    };
+    if let Some(runtime_dir) = runtime_dir {
         if runtime_dir.exists() {
             fs::remove_dir_all(&runtime_dir).map_err(|err| {
                 file_io_report(&runtime_dir, "failed to remove runtime directory", err)
@@ -5774,15 +7483,13 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
     }
 
     println!(
-        "Reset {} task(s) and {} subtask(s) to initial state '{}'.",
-        task_count, subtask_count, initial_state
+        "Reset {} task(s) (and {} descendant task(s)) to initial state '{}'.",
+        task_count, descendant_count, initial_state
     );
-    if workspace::is_workspace(input) {
-        if removed_runtime {
-            println!("Removed workspace runtime output.");
-        } else {
-            println!("No workspace runtime output was present.");
-        }
+    if removed_runtime {
+        println!("Removed runtime output.");
+    } else {
+        println!("No runtime output was present.");
     }
 
     Ok(())
@@ -5827,6 +7534,7 @@ fn reset_plan_file_states(path: &Path, initial_state: &str) -> MietteResult<()> 
     let raw = fs::read_to_string(path)
         .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
     let new_raw = rewrite_all_states_to_initial(&raw, initial_state)?;
+    let new_raw = strip_result_links(&new_raw);
     let new_raw = match rhei_core::parse(&new_raw) {
         Ok(rhei) => {
             if let Some(metadata) = clear_runtime_state_visits(rhei.metadata.as_ref()) {
@@ -5884,14 +7592,45 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
     Ok(())
 }
 
+/// Remove `> **Result:** …` lines (and a single leading blank line when
+/// present) inserted by `rhei complete`. Used during `rhei reset` so the
+/// plan returns to a clean authored state.
+fn strip_result_links(raw: &str) -> String {
+    let lines: Vec<&str> = raw.lines().collect();
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+
+    for line in &lines {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("> **Result:**") {
+            // Drop a single trailing blank line accumulated before the result
+            // link so we don't leave a pair of blank lines behind.
+            if matches!(result.last(), Some(last) if last.trim().is_empty()) {
+                result.pop();
+            }
+            continue;
+        }
+        result.push((*line).to_string());
+    }
+
+    let mut output = result.join("\n");
+    if raw.ends_with('\n') {
+        output.push('\n');
+    }
+    output
+}
+
 fn rewrite_all_states_to_initial(raw: &str, initial_state: &str) -> MietteResult<String> {
     let lines: Vec<&str> = raw.lines().collect();
     let mut result = Vec::with_capacity(lines.len());
     let mut expecting_state = false;
     let mut rewrites = 0usize;
 
+    let task_heading_re =
+        regex::Regex::new(r#"^#{3,6}\s+[A-Za-z][A-Za-z0-9_-]*\s+[A-Za-z0-9][A-Za-z0-9_.\-]*:\s+"#)
+            .expect("task heading regex compiles");
+
     for line in &lines {
-        if line.starts_with("### Task ") || line.starts_with("#### Subtask ") {
+        if task_heading_re.is_match(line) {
             if expecting_state {
                 return Err(miette!("could not find **State:** line before the next task header"));
             }
@@ -5958,20 +7697,45 @@ fn find_completion_state(
     None
 }
 
-fn non_terminal_subtasks(
+fn non_terminal_descendants(
     task: &rhei_core::ast::Task,
     machine: &rhei_validator::StateMachine,
 ) -> Vec<String> {
-    task.subtasks
-        .iter()
-        .filter(|subtask| !is_terminal_state(subtask.state.as_str(), machine))
-        .map(|subtask| {
-            format!(
-                "Subtask {}.{} ('{}') [{}]",
-                subtask.task_number, subtask.subtask_number, subtask.title, subtask.state
-            )
-        })
-        .collect()
+    fn recurse(
+        task: &rhei_core::ast::Task,
+        machine: &rhei_validator::StateMachine,
+        out: &mut Vec<String>,
+    ) {
+        for child in &task.children {
+            if !is_terminal_state(child.state.as_str(), machine) {
+                out.push(format!(
+                    "{} {} ('{}') [{}]",
+                    title_case_kind(&child.kind),
+                    child.id,
+                    child.title,
+                    child.state
+                ));
+            }
+            recurse(child, machine, out);
+        }
+    }
+    let mut out = Vec::new();
+    recurse(task, machine, &mut out);
+    out
+}
+
+fn title_case_kind(kind: &str) -> String {
+    let mut out = String::with_capacity(kind.len());
+    let mut chars = kind.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            out.push(c);
+        }
+    }
+    for c in chars {
+        out.push(c);
+    }
+    out
 }
 
 /// Resolve the workspace root for result file placement.
@@ -6017,6 +7781,33 @@ fn append_result_entry(
     Ok(())
 }
 
+/// Write `**Assignee:** <value>` into the given task's metadata block on disk.
+///
+/// The rewrite is atomic (temp file + rename) and holds an exclusive lock on
+/// the file for the duration of the operation. No-op if the task already has
+/// an assignee line.
+fn write_task_assignee(task_file: &Path, task_id: &str, assignee: &str) -> MietteResult<()> {
+    let handle = fs::File::open(task_file)
+        .map_err(|err| file_io_report(task_file, "failed to open plan file", err))?;
+    handle
+        .lock_exclusive()
+        .map_err(|err| file_io_report(task_file, "failed to acquire file lock", err))?;
+
+    let raw = fs::read_to_string(task_file)
+        .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
+    let rewritten = insert_task_assignee(&raw, task_id, assignee)?;
+
+    let parent = task_file.parent().unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|err| miette!("failed to create temp file: {err}"))?;
+    tmp.write_all(rewritten.as_bytes())
+        .map_err(|err| miette!("failed to write temp file: {err}"))?;
+    tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+
+    let _ = handle.unlock();
+    Ok(())
+}
+
 /// Rewrite a task's markdown after completion: remove `**Assignee:**` and,
 /// when `insert_link` is true, append a `> **Result:** [link_text](link_path)`
 /// line to the task body.
@@ -6041,13 +7832,16 @@ fn rewrite_task_completion(
     let mut link_inserted = !insert_link; // skip insertion when not requested
     let result_line = format!("> **Result:** [{}]({})", link_text, link_path);
 
+    // Any H4..=H6 heading marks a child/descendant node under the current
+    // root task, regardless of node kind. Insert the result link just before
+    // the first descendant heading we encounter while still inside the target.
+    let descendant_heading_re = regex::Regex::new(r#"^#{4,6}\s+"#).expect("regex");
+
     for line in &lines {
         let is_new_task = line.starts_with("### Task ") && !line.starts_with(&task_prefix);
-        let is_subtask = line.starts_with("#### Subtask ");
+        let is_descendant = descendant_heading_re.is_match(line);
 
-        // When we hit a new structural element while still inside the target
-        // task, insert the result link before that element.
-        if in_target_task && !link_inserted && (is_new_task || is_subtask) {
+        if in_target_task && !link_inserted && (is_new_task || is_descendant) {
             result_lines.push(String::new());
             result_lines.push(result_line.clone());
             link_inserted = true;
@@ -6110,30 +7904,32 @@ struct NextOutput<'a> {
 
 /// Print the `next` command output in either human-readable or JSON format.
 fn print_next_output(output: NextOutput<'_>) {
+    fn child_json(task: &rhei_core::ast::Task) -> serde_json::Value {
+        let children: Vec<serde_json::Value> = task.children.iter().map(child_json).collect();
+        serde_json::json!({
+            "id": task.id.to_string(),
+            "kind": task.kind,
+            "title": task.title,
+            "state": task.state,
+            "content": task.content.trim(),
+            "children": children,
+        })
+    }
+
     if output.as_json {
-        let subtasks: Vec<serde_json::Value> = output
-            .task
-            .subtasks
-            .iter()
-            .map(|st| {
-                serde_json::json!({
-                    "id": format!("{}.{}", st.task_number, st.subtask_number),
-                    "title": st.title,
-                    "state": st.state,
-                    "content": st.content.trim(),
-                })
-            })
-            .collect();
+        let children: Vec<serde_json::Value> =
+            output.task.children.iter().map(child_json).collect();
 
         let mut obj = serde_json::json!({
             "task_id": output.task.id.to_string(),
+            "kind": output.task.kind,
             "title": output.task.title,
             "from_state": output.from_state,
             "state": output.to_state,
             "personality": output.personality,
             "instructions": output.instructions,
             "content": output.task.content.trim(),
-            "subtasks": subtasks,
+            "children": children,
         });
         if let Some(agent) = output.agent_id {
             obj["agent"] = serde_json::json!(agent);
@@ -6155,7 +7951,7 @@ fn print_next_output(output: NextOutput<'_>) {
         if output.agent_id.is_some() || output.model_id.is_some() {
             let agent_str = output.agent_id.unwrap_or("none");
             let model_str = output.model_id.unwrap_or("default");
-            println!("Agent: {} ({})", agent_str, model_str);
+            println!("Agent: {}  |  Model: {}", agent_str, model_str);
         }
         if let Some(personality) = output.personality {
             println!();
@@ -6167,16 +7963,18 @@ fn print_next_output(output: NextOutput<'_>) {
             println!();
             println!("{}", output.task.content.trim());
         }
-        if !output.task.subtasks.is_empty() {
+        if !output.task.children.is_empty() {
             println!();
-            for st in &output.task.subtasks {
-                let st_state = &st.state;
+            for child in &output.task.children {
                 println!(
-                    "  - {}.{}: {} [{}]",
-                    st.task_number, st.subtask_number, st.title, st_state
+                    "  - {} {}: {} [{}]",
+                    title_case_kind(&child.kind),
+                    child.id,
+                    child.title,
+                    child.state
                 );
-                if !st.content.trim().is_empty() {
-                    for line in st.content.trim().lines() {
+                if !child.content.trim().is_empty() {
+                    for line in child.content.trim().lines() {
                         println!("    {}", line);
                     }
                 }
@@ -6230,10 +8028,26 @@ fn render_rhei(
         }
         .to_markdown(rhei)),
         RenderFormat::Progress => {
-            Ok(rhei_output::ProgressReportOutput { color: !no_color, show_dependencies: true }
-                .to_string(rhei))
+            let color = should_use_color(no_color);
+            Ok(rhei_output::ProgressReportOutput { color, show_dependencies: true }.to_string(rhei))
         }
     }
+}
+
+/// Decide whether ANSI color should be emitted for progress output.
+///
+/// Precedence: explicit `--no-color` always wins. Otherwise honour the
+/// `NO_COLOR` environment variable (any non-empty value disables color) and
+/// fall back to stdout TTY detection.
+fn should_use_color(no_color_flag: bool) -> bool {
+    use std::io::IsTerminal;
+    if no_color_flag {
+        return false;
+    }
+    if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+        return false;
+    }
+    std::io::stdout().is_terminal()
 }
 
 /// Print versions for the CLI and the crates surfaced by this command.
@@ -7167,6 +8981,57 @@ fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -
     miette!("{}", render_parse_diagnostic(path, input, err))
 }
 
+/// Convert one or more parser errors into an Elm-style diagnostic report.
+///
+/// For a single error this is equivalent to [`parse_report`]. For multiple
+/// errors the header, code-frame, and hint are printed once; each error is
+/// listed numerically in the body.
+fn parse_errors_report(
+    path: &Path,
+    input: &str,
+    errors: &[rhei_core::parser::ParseError],
+) -> Report {
+    miette!("{}", render_multi_parse_diagnostic(path, input, errors))
+}
+
+fn render_multi_parse_diagnostic(
+    path: &Path,
+    input: &str,
+    errors: &[rhei_core::parser::ParseError],
+) -> String {
+    if errors.len() == 1 {
+        return render_parse_diagnostic(path, input, &errors[0]);
+    }
+
+    let mut lines = vec![format!(
+        "-- PARSE ERROR ------------------------------------------------------------- {}",
+        path.display()
+    )];
+    lines.push(String::new());
+    lines
+        .push(format!("I got stuck while reading this markdown plan ({} problems).", errors.len()));
+    for (i, err) in errors.iter().enumerate() {
+        lines.push(String::new());
+        let prefix = format!("{}.", i + 1);
+        match err.line {
+            Some(line_number) => {
+                lines.push(format!("{prefix} line {line_number}: {}", err.message));
+                if let Some(source_line) = line_text(input, line_number) {
+                    lines.push(format!("   {line_number}| {source_line}"));
+                }
+            }
+            None => {
+                lines.push(format!("{prefix} {}", err.message));
+            }
+        }
+    }
+    lines.push(String::new());
+    lines.push(
+        "Hint: fix the problems above — each one refers to a distinct line or task.".to_string(),
+    );
+    lines.join("\n")
+}
+
 /// Convert file I/O failures into a consistent diagnostic message.
 fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Report {
     miette!("{action} '{}': {err}", path.display())
@@ -7221,7 +9086,7 @@ fn render_validation_diagnostic(
     )];
     lines.push(String::new());
     lines.push(format!(
-        "I validated this plan using states from {}, but found a problem.",
+        "I validated this plan using {}, but found a problem.",
         state_machine_label(state_machine),
     ));
     lines.push(String::new());
@@ -7525,7 +9390,7 @@ transitions: []
     }
 
     #[test]
-    fn compose_agent_prompt_includes_state_machine_commands_when_present() {
+    fn compose_agent_prompt_carries_domain_instructions_only() {
         let rhei = rhei_core::parse(
             r#"# Rhei: Prompt Smoke
 
@@ -7569,20 +9434,31 @@ transitions:
             current_state_raw: "review",
             machine: &machine,
             metadata: None,
+            target: None,
             model: None,
             agent: Some("codex"),
+            agent_mode: None,
             tooling: None,
         };
 
         let prompt = compose_agent_prompt(&context);
 
+        // New Rhei Commands section replaces Workflow Notes.
+        assert!(prompt.contains("## Rhei Commands"));
+        assert!(prompt.contains("rhei-managed plan at `/tmp/workspace`"));
         assert!(prompt.contains("The active state machine is `/tmp/workspace/states.yaml`."));
         assert!(prompt.contains(
-            "--state-machine /tmp/workspace/states.yaml transition /tmp/workspace --task demo --from review --to <target>`"
+            "The `rhei run` process that spawned you is responsible for advancing the task"
         ));
-        assert!(prompt.contains(
-            "--state-machine /tmp/workspace/states.yaml complete /tmp/workspace --task demo --result \"<message>\"`"
-        ));
+        assert!(prompt.contains("Available transitions from `review`:"));
+
+        // Completion is a property of the execution model, not the prompt — no
+        // completion prose should appear.
+        assert!(!prompt.contains("then stop"));
+        assert!(!prompt.contains("create every required output artifact"));
+        assert!(!prompt.contains("produce every required output artifact"));
+        assert!(!prompt.contains("for caller context"));
+        assert!(!prompt.contains("Workflow Notes"));
     }
 
     #[test]
@@ -7818,7 +9694,7 @@ Some work description.
     }
 
     #[test]
-    fn rewrite_all_states_to_initial_updates_tasks_and_subtasks() {
+    fn rewrite_all_states_to_initial_updates_tasks_and_children() {
         let raw = r#"# Rhei: Reset
 
 ## Tasks
@@ -7826,7 +9702,7 @@ Some work description.
 ### Task 1: Alpha
 **State:** completed
 
-#### Subtask 1.1: Detail
+#### Task 1.1: Detail
 **State:** in-progress
 
 ### Task 2: Beta
@@ -7842,7 +9718,7 @@ Some work description.
     }
 
     #[test]
-    fn rewrite_task_completion_inserts_result_link_before_subtask() {
+    fn rewrite_task_completion_inserts_result_link_before_child() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");
         fs::write(
@@ -7852,7 +9728,7 @@ Some work description.
 
 Body text.
 
-#### Subtask 2.1: Sub
+#### Task 2.1: Sub
 **State:** completed
 "#,
         )
@@ -7863,8 +9739,8 @@ Body text.
         let content = fs::read_to_string(&path).expect("read");
         let result_pos =
             content.find("> **Result:** [2](runtime/results/2.md)").expect("result present");
-        let subtask_pos = content.find("#### Subtask 2.1").expect("subtask present");
-        assert!(result_pos < subtask_pos, "result should appear before subtask");
+        let child_pos = content.find("#### Task 2.1").expect("child present");
+        assert!(result_pos < child_pos, "result should appear before child");
     }
 
     #[test]
@@ -7893,6 +9769,7 @@ Body text.
             program_timeout: None,
             defaults: SettingsDefaults {
                 agent_mode: None,
+                agent_timeout: None,
                 mcp_servers: defaults_mcp,
                 skills: None,
             },
@@ -8031,5 +9908,64 @@ Body text.
             (e.id.as_str(), e.optional, e.definition.is_some())
         });
         assert_eq!(line.as_deref(), Some("postgres,grafana?"));
+    }
+
+    #[test]
+    fn resolve_legacy_agent_uses_defaults_agent_timeout() {
+        let settings = RheiSettings {
+            agent: Some(AgentConfig::from("codex")),
+            agent_mode: None,
+            model: Some("gpt-5-codex".to_string()),
+            agent_timeout: None,
+            program_timeout: None,
+            defaults: SettingsDefaults {
+                agent_mode: None,
+                agent_timeout: Some("45m".to_string()),
+                mcp_servers: None,
+                skills: None,
+            },
+            agents: built_in_agents(),
+            mcp_servers: BTreeMap::new(),
+            skills: BTreeMap::new(),
+        };
+
+        let resolved =
+            resolve_legacy_agent_with_model(None, &settings, &default_run_options(), None)
+                .expect("agent should resolve")
+                .expect("agent should exist");
+
+        assert_eq!(resolved.timeout_secs, Some(45 * 60));
+    }
+
+    #[test]
+    fn built_in_codex_command_omits_removed_approval_flag() {
+        let profile = built_in_agents().remove("codex").expect("built-in codex");
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("codex"),
+            profile,
+            mode: Some("yolo".to_string()),
+            target: Some(parse_execution_target("codex[yolo]:openai:gpt-5-codex").expect("target")),
+            model: Some("gpt-5-codex".to_string()),
+            timeout_secs: Some(60),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+
+        let command = build_agent_command(
+            &resolved,
+            "analyze this",
+            Path::new("/tmp/workspace"),
+            Path::new("/tmp/workspace"),
+            None,
+            "analysis",
+            "analyze",
+            &tooling,
+        );
+        let args: Vec<String> =
+            command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+
+        assert!(args.windows(2).any(|pair| pair == ["--sandbox", "danger-full-access"]));
+        assert!(args.iter().any(|arg| arg == "--skip-git-repo-check"));
+        assert!(!args.iter().any(|arg| arg == "-a"));
+        assert!(!args.iter().any(|arg| arg == "never"));
     }
 }

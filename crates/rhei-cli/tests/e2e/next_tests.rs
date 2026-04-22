@@ -124,7 +124,7 @@ Configure the build system.
     assert!(json["personality"].is_null());
     assert!(json["instructions"].is_string());
     assert!(json["content"].is_string());
-    assert!(json["subtasks"].is_array());
+    assert!(json["children"].is_array());
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -258,8 +258,9 @@ fn next_respects_dependency_order() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert!(!result.status.success(), "no new task should be claimable");
     assert!(
-        result.stderr.contains("no tasks are ready"),
-        "expected 'no tasks are ready'; got:\n{}",
+        result.stderr.contains("no tasks can be auto-claimed")
+            || result.stderr.contains("no tasks are ready"),
+        "expected no-claimable diagnostic; got:\n{}",
         result.stderr
     );
 
@@ -321,19 +322,19 @@ fn next_with_task_flag_targets_specific() {
 }
 
 #[test]
-fn next_json_includes_subtasks() {
-    let (dir, plan_path, machine_path) = setup_single_file("next-subtasks", SUBTASK_PLAN);
+fn next_json_includes_children() {
+    let (dir, plan_path, machine_path) = setup_single_file("next-children", SUBTASK_PLAN);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
-    let subtasks = json["subtasks"].as_array().expect("subtasks should be array");
-    assert_eq!(subtasks.len(), 2, "should have 2 subtasks");
-    assert_eq!(subtasks[0]["id"], "1.1");
-    assert_eq!(subtasks[0]["title"], "First subtask");
-    assert_eq!(subtasks[1]["id"], "1.2");
-    assert_eq!(subtasks[1]["title"], "Second subtask");
+    let children = json["children"].as_array().expect("children should be array");
+    assert_eq!(children.len(), 2, "should have 2 child tasks");
+    assert_eq!(children[0]["id"], "1.1");
+    assert_eq!(children[0]["title"], "First subtask");
+    assert_eq!(children[1]["id"], "1.2");
+    assert_eq!(children[1]["title"], "Second subtask");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

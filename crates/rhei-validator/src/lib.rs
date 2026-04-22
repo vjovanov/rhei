@@ -340,6 +340,139 @@ impl StateSkillEntry {
     }
 }
 
+/// Parsed inline execution target selector.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExecutionTarget {
+    /// Agent id that executes the target.
+    pub agent: String,
+    /// Optional named mode selected on the agent.
+    pub mode: Option<String>,
+    /// Optional provider segment carried by the selector.
+    pub provider: Option<String>,
+    /// Model identifier segment carried by the selector.
+    pub model: String,
+}
+
+impl ExecutionTarget {
+    /// Return a filesystem-safe slug for this selector.
+    pub fn slug(&self) -> String {
+        let mut slug = String::new();
+        let mut last_was_dash = false;
+
+        for ch in self.selector().chars() {
+            if ch.is_ascii_alphanumeric() {
+                slug.push(ch.to_ascii_lowercase());
+                last_was_dash = false;
+            } else if !last_was_dash {
+                slug.push('-');
+                last_was_dash = true;
+            }
+        }
+
+        slug.trim_matches('-').to_string()
+    }
+
+    /// Reconstruct the normalized selector string.
+    pub fn selector(&self) -> String {
+        let mut selector = self.agent.clone();
+        if let Some(mode) = &self.mode {
+            selector.push('[');
+            selector.push_str(mode);
+            selector.push(']');
+        }
+        selector.push(':');
+        if let Some(provider) = &self.provider {
+            selector.push_str(provider);
+            selector.push(':');
+        }
+        selector.push_str(&self.model);
+        selector
+    }
+}
+
+/// Parse an inline execution target selector.
+pub fn parse_execution_target(selector: &str) -> Result<ExecutionTarget, String> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return Err("execution target selector must not be empty".to_string());
+    }
+
+    let parts: Vec<&str> = selector.split(':').collect();
+    if parts.len() != 2 && parts.len() != 3 {
+        return Err(format!(
+            "execution target selector '{selector}' must use '<agent>:<model>', \
+             '<agent>[<mode>]:<model>', '<agent>:<provider>:<model>', or \
+             '<agent>[<mode>]:<provider>:<model>'"
+        ));
+    }
+
+    let head = parts[0].trim();
+    let (provider, model) = if parts.len() == 2 {
+        (None, parts[1].trim())
+    } else {
+        (Some(parts[1].trim()), parts[2].trim())
+    };
+
+    if model.is_empty() {
+        return Err(format!(
+            "execution target selector '{selector}' must include a non-empty model"
+        ));
+    }
+    if let Some(provider) = provider {
+        if provider.is_empty() {
+            return Err(format!(
+                "execution target selector '{selector}' must include a non-empty provider"
+            ));
+        }
+    }
+
+    let (agent, mode) = if let Some(open) = head.find('[') {
+        if !head.ends_with(']') {
+            return Err(format!(
+                "execution target selector '{selector}' has an unterminated mode segment"
+            ));
+        }
+        let agent = head[..open].trim();
+        let mode = head[open + 1..head.len() - 1].trim();
+        if agent.is_empty() {
+            return Err(format!(
+                "execution target selector '{selector}' must include a non-empty agent"
+            ));
+        }
+        if mode.is_empty() {
+            return Err(format!(
+                "execution target selector '{selector}' must include a non-empty mode"
+            ));
+        }
+        if mode.contains('[') || mode.contains(']') {
+            return Err(format!(
+                "execution target selector '{selector}' contains nested mode brackets"
+            ));
+        }
+        (agent, Some(mode))
+    } else {
+        let agent = head.trim();
+        if agent.is_empty() {
+            return Err(format!(
+                "execution target selector '{selector}' must include a non-empty agent"
+            ));
+        }
+        if agent.contains(']') {
+            return Err(format!(
+                "execution target selector '{selector}' contains an unexpected ']'"
+            ));
+        }
+        (agent, None)
+    };
+
+    Ok(ExecutionTarget {
+        agent: agent.to_string(),
+        mode: mode.map(str::to_string),
+        provider: provider.map(str::to_string),
+        model: model.to_string(),
+    })
+}
+
 /// One entry from the `states` map in a YAML states file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateDef {
@@ -362,6 +495,12 @@ pub struct StateDef {
     pub gating: bool,
     /// Optional visit budget for returning to this state.
     pub visits: Option<u32>,
+    /// Inline execution target selector for one run of the state.
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Explicit list of execution target selectors for fanout execution.
+    #[serde(default)]
+    pub all_targets: Vec<String>,
     /// Explicit list of declared models that should each execute this state.
     #[serde(default)]
     pub all_models: Vec<String>,
@@ -565,6 +704,45 @@ impl StateMachine {
         }
 
         for (state_name, state) in &self.states {
+            if state.target.is_some() && !state.all_targets.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot set both 'target' and 'all_targets'"
+                )));
+            }
+            if (state.target.is_some() || !state.all_targets.is_empty())
+                && (state.model.is_some()
+                    || !state.all_models.is_empty()
+                    || state.agent.is_some()
+                    || state.agent_mode.is_some())
+            {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot combine 'target' or 'all_targets' with \
+                     'model', 'all_models', 'agent', or 'agent_mode'"
+                )));
+            }
+            if let Some(selector) = state.target.as_deref() {
+                parse_execution_target(selector).map_err(|message| {
+                    StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' has invalid 'target': {message}"
+                    ))
+                })?;
+            }
+            if !state.all_targets.is_empty() {
+                let mut seen_targets = HashSet::new();
+                for selector in &state.all_targets {
+                    let parsed = parse_execution_target(selector).map_err(|message| {
+                        StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' has invalid 'all_targets' entry: {message}"
+                        ))
+                    })?;
+                    let normalized = parsed.selector();
+                    if !seen_targets.insert(normalized.clone()) {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' contains duplicate 'all_targets' entry '{normalized}'"
+                        )));
+                    }
+                }
+            }
             if !state.all_models.is_empty() && state.model.is_some() {
                 return Err(StateMachineLoadError::Invalid(format!(
                     "state '{state_name}' cannot set both 'all_models' and 'model'"
@@ -1469,13 +1647,12 @@ impl Validator {
 
         let index = build_task_index(rhei);
         validate_task_id_uniqueness(rhei, &mut report);
+        validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
-        validate_subtask_state_consistency(rhei, &self.machine, &mut report);
-        validate_terminal_parent_subtask_coherence(rhei, &self.machine, &mut report);
-        validate_subtask_numbering(rhei, &mut report);
-        validate_subtask_uniqueness(rhei, &mut report);
+        validate_terminal_tree_coherence(rhei, &self.machine, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
+        validate_assignee_nonempty(rhei, &mut report);
 
         if let Some(base) = base_path {
             validate_markdown_links(rhei, base, &mut report);
@@ -1514,11 +1691,30 @@ pub fn validate_from_machine_file<P: AsRef<Path>>(
 // ---------------------------
 
 fn build_task_index(rhei: &Rhei) -> HashMap<TaskId, &Task> {
-    let mut map = HashMap::with_capacity(rhei.tasks.len());
+    fn visit<'a>(task: &'a Task, map: &mut HashMap<TaskId, &'a Task>) {
+        map.insert(task.id.clone(), task);
+        for child in &task.children {
+            visit(child, map);
+        }
+    }
+    let mut map = HashMap::new();
     for t in &rhei.tasks {
-        map.insert(t.id.clone(), t);
+        visit(t, &mut map);
     }
     map
+}
+
+/// Call `f` for every node in the tree, depth-first.
+fn for_each_node<'a>(rhei: &'a Rhei, mut f: impl FnMut(&'a Task)) {
+    fn recurse<'a>(task: &'a Task, f: &mut impl FnMut(&'a Task)) {
+        f(task);
+        for child in &task.children {
+            recurse(child, f);
+        }
+    }
+    for t in &rhei.tasks {
+        recurse(t, &mut f);
+    }
 }
 
 fn validate_dependency_integrity(
@@ -1526,53 +1722,44 @@ fn validate_dependency_integrity(
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {
-    for task in &rhei.tasks {
+    for_each_node(rhei, |task| {
         for dep in &task.prior {
             if !index.contains_key(dep) {
                 report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
             }
         }
-    }
+    });
 }
 
 fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
-    for task in &rhei.tasks {
+    for_each_node(rhei, |task| {
         let task_id_str = task.id.to_string();
-        let subject = format!("Task {}", task.id);
+        let kind_label = title_case_kind(&task.kind);
+        let subject = format!("{} {}", kind_label, task.id);
         validate_task_state_instance(&subject, &task.state, machine, report);
-        // Node kind tracking is not yet in the AST; treat all tasks as kind
-        // `task` so `node_policy.by_type.task` can bind them.
         validate_task_state_against_profile(
             &subject,
             &task.state,
-            Some("task"),
+            Some(task.kind.as_str()),
             Some(task_id_str.as_str()),
             machine,
             report,
         );
-    }
+    });
 }
 
-fn validate_subtask_state_consistency(
-    rhei: &Rhei,
-    machine: &StateMachine,
-    report: &mut ValidationReport,
-) {
-    for task in &rhei.tasks {
-        for st in &task.subtasks {
-            let subtask_id_str = format!("{}.{}", st.task_number, st.subtask_number);
-            let subject = format!("Subtask {} ('{}')", subtask_id_str, st.title);
-            validate_task_state_instance(&subject, &st.state, machine, report);
-            validate_task_state_against_profile(
-                &subject,
-                &st.state,
-                Some("task"),
-                Some(subtask_id_str.as_str()),
-                machine,
-                report,
-            );
+fn title_case_kind(kind: &str) -> String {
+    let mut out = String::with_capacity(kind.len());
+    let mut chars = kind.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            out.push(c);
         }
     }
+    for c in chars {
+        out.push(c);
+    }
+    out
 }
 
 /// Enforce that the authored state (ignoring any `-<visit>` suffix) is a
@@ -1649,88 +1836,93 @@ fn validate_task_state_instance(
     }
 }
 
-fn validate_subtask_numbering(rhei: &Rhei, report: &mut ValidationReport) {
-    for task in &rhei.tasks {
-        for st in &task.subtasks {
-            match task.id {
-                TaskId::Number(n) => {
-                    if st.task_number != n {
-                        report.errors.push(format!(
-                            "Subtask {}.{} ('{}') is under Task {} but declares parent {}",
-                            st.task_number, st.subtask_number, st.title, n, st.task_number
-                        ));
-                    }
-                }
-                TaskId::Named(ref name) => {
-                    // Per spec, named tasks must not have subtasks.
-                    report.errors.push(format!(
-                        "Task '{}' has a named id and must not declare subtasks",
-                        name
-                    ));
-                    break; // One error per task is sufficient
-                }
-            }
-        }
-    }
-}
-
-fn validate_task_id_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
-    let mut seen = HashSet::new();
-    for task in &rhei.tasks {
-        if !seen.insert(task.id.clone()) {
-            report.errors.push(format!("Duplicate task id: Task {}", task.id));
-        }
-    }
-}
-
-fn validate_subtask_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
-    for task in &rhei.tasks {
-        let mut seen = HashSet::new();
-        for st in &task.subtasks {
-            if !seen.insert(st.subtask_number) {
-                report.errors.push(format!(
-                    "Duplicate subtask number {}.{} under Task {}",
-                    st.task_number, st.subtask_number, task.id
+/// Warn when an authored `**Assignee:**` value is empty after trim.
+///
+/// The spec treats the field itself as optional; its *value* is only
+/// required to be a non-empty title when present.
+fn validate_assignee_nonempty(rhei: &Rhei, report: &mut ValidationReport) {
+    for_each_node(rhei, |task| {
+        if let Some(assignee) = &task.assignee {
+            if assignee.trim().is_empty() {
+                report.warnings.push(format!(
+                    "Task {} has an empty **Assignee:** value",
+                    task.id
                 ));
             }
         }
-    }
+    });
 }
 
-fn validate_terminal_parent_subtask_coherence(
+fn validate_task_id_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
+    let mut seen: HashSet<TaskId> = HashSet::new();
+    for_each_node(rhei, |task| {
+        if !seen.insert(task.id.clone()) {
+            report.errors.push(format!("Duplicate task id: Task {}", task.id));
+        }
+    });
+}
+
+/// Verify that sibling ids are unique under the same parent and that every
+/// child id extends its parent id by exactly one segment.
+fn validate_sibling_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
+    fn recurse(parent: Option<&Task>, siblings: &[Task], report: &mut ValidationReport) {
+        let mut seen: HashSet<TaskId> = HashSet::new();
+        for task in siblings {
+            if let Some(p) = parent {
+                if !task.id.extends(&p.id) {
+                    report.errors.push(format!(
+                        "Task {} must extend parent Task {} by exactly one segment",
+                        task.id, p.id
+                    ));
+                }
+            }
+            if !seen.insert(task.id.clone()) {
+                report.errors.push(format!(
+                    "Duplicate sibling task id: Task {}{}",
+                    task.id,
+                    parent.map(|p| format!(" under Task {}", p.id)).unwrap_or_default()
+                ));
+            }
+            recurse(Some(task), &task.children, report);
+        }
+    }
+    recurse(None, &rhei.tasks, report);
+}
+
+/// Enforce that a terminal node has no non-terminal descendants anywhere in
+/// its subtree.
+fn validate_terminal_tree_coherence(
     rhei: &Rhei,
     machine: &StateMachine,
     report: &mut ValidationReport,
 ) {
-    for task in &rhei.tasks {
-        let parent_state = parse_task_state(&task.state, machine);
-        let Some(parent_def) = machine.states.get(&parent_state.state) else {
-            continue;
-        };
-        if !parent_def.terminal {
-            continue;
-        }
+    fn is_terminal(state_raw: &str, machine: &StateMachine) -> bool {
+        let parsed = parse_task_state(state_raw, machine);
+        machine.states.get(&parsed.state).map(|d| d.terminal).unwrap_or(false)
+    }
 
-        for st in &task.subtasks {
-            let subtask_state = parse_task_state(&st.state, machine);
-            let Some(subtask_def) = machine.states.get(&subtask_state.state) else {
-                continue;
-            };
-            if subtask_def.terminal {
-                continue;
+    fn check_descendants(
+        ancestor: &Task,
+        node: &Task,
+        machine: &StateMachine,
+        report: &mut ValidationReport,
+    ) {
+        for child in &node.children {
+            if !is_terminal(&child.state, machine) {
+                report.errors.push(format!(
+                    "Task {} is in terminal state '{}' but descendant Task {} ('{}') is in non-terminal state '{}'",
+                    ancestor.id, ancestor.state, child.id, child.title, child.state
+                ));
             }
-
-            report.errors.push(format!(
-                "Task {} is in terminal state '{}' but Subtask {}.{} ('{}') is in non-terminal state '{}'",
-                task.id,
-                task.state,
-                st.task_number,
-                st.subtask_number,
-                st.title,
-                st.state
-            ));
+            check_descendants(ancestor, child, machine, report);
         }
     }
+
+    for_each_node(rhei, |task| {
+        if is_terminal(&task.state, machine) {
+            check_descendants(task, task, machine, report);
+        }
+    });
 }
 
 /// Extract markdown links from a text block, returning `(display_text, target)` pairs.
@@ -1751,20 +1943,12 @@ fn collect_all_links(rhei: &Rhei) -> Vec<(String, String, String)> {
         }
     }
 
-    for task in &rhei.tasks {
+    for_each_node(rhei, |task| {
         for (display, target) in extract_markdown_links(&task.content) {
-            links.push((format!("Task {}", task.id), display, target));
+            let label = format!("{} {}", title_case_kind(&task.kind), task.id);
+            links.push((label, display, target));
         }
-        for st in &task.subtasks {
-            for (display, target) in extract_markdown_links(&st.content) {
-                links.push((
-                    format!("Subtask {}.{}", st.task_number, st.subtask_number),
-                    display,
-                    target,
-                ));
-            }
-        }
-    }
+    });
 
     links
 }
@@ -1975,6 +2159,58 @@ states:
     }
 
     #[test]
+    fn parses_execution_target_with_mode_and_provider() {
+        let target = parse_execution_target("claude-code[yolo]:anthropic:claude-opus-4-7")
+            .expect("target should parse");
+
+        assert_eq!(target.agent, "claude-code");
+        assert_eq!(target.mode.as_deref(), Some("yolo"));
+        assert_eq!(target.provider.as_deref(), Some("anthropic"));
+        assert_eq!(target.model, "claude-opus-4-7");
+        assert_eq!(target.slug(), "claude-code-yolo-anthropic-claude-opus-4-7");
+    }
+
+    #[test]
+    fn loads_state_machine_with_target_selectors() {
+        let yaml = r#"
+name: multi-target
+version: 1.0
+states:
+  analyze:
+    description: analyze
+    all_targets:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[yolo]:openai:gpt-5-codex
+"#;
+
+        let machine = StateMachine::from_yaml_str(yaml).expect("states load");
+        assert_eq!(machine.states["analyze"].all_targets.len(), 2);
+        assert_eq!(
+            machine.states["analyze"].all_targets[0],
+            "claude-code[yolo]:anthropic:claude-opus-4-7"
+        );
+    }
+
+    #[test]
+    fn rejects_state_machine_with_conflicting_target_and_model_selectors() {
+        let yaml = r#"
+name: multi-target
+version: 1.0
+models:
+  - gpt-5
+states:
+  analyze:
+    description: analyze
+    target: codex[yolo]:openai:gpt-5-codex
+    model: gpt-5
+"#;
+
+        let err =
+            StateMachine::from_yaml_str(yaml).expect_err("should reject conflicting selectors");
+        assert!(err.to_string().contains("cannot combine 'target' or 'all_targets'"));
+    }
+
+    #[test]
     fn rejects_state_machine_with_zero_visits() {
         let yaml = r#"
 name: multi-model
@@ -2155,7 +2391,7 @@ states:
 **State:** pending
 **Prior:** Task 3
 
-#### Subtask 1.1: s
+#### Task 1.1: s
 **State:** pending
 
 ### Task 2: B
@@ -2185,7 +2421,7 @@ states:
 ### Task 1: A
 **State:** pending
 
-#### Subtask 1.1: s
+#### Task 1.1: s
 **State:** pending
 
 ### Task 2: B
@@ -2578,36 +2814,17 @@ states:
         );
     }
 
-    // ---- Task 5.4: Subtask numbering validation tests ----
-
-    #[test]
-    fn mismatched_parent_number_errors() {
-        let input = r#"# Rhei: Example
-## Tasks
-
-### Task 2: B
-**State:** pending
-
-#### Subtask 1.1: Wrong parent number
-**State:** pending
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let sm = sample_machine();
-        let report = validate_with_machine(&rhei, &sm);
-
-        assert!(report.has_errors(), "expected numbering mismatch error");
-        let joined = report.errors.join("\n");
-        assert!(
-            joined.contains("Subtask 1.1"),
-            "error should mention subtask 1.1; got:\n{}",
-            joined
-        );
-        assert!(
-            joined.contains("under Task 2"),
-            "error should mention it is under Task 2; got:\n{}",
-            joined
-        );
-    }
+    // ---- Child/parent id-extension semantics ----
+    //
+    // The "subtask numbering" validator has been removed; the rule that a
+    // child id must extend its parent's id by exactly one segment is now
+    // enforced by the parser (see `crates/rhei-core/src/parser.rs`), which
+    // rejects malformed child headings with a parse error before validation
+    // runs. The old `mismatched_parent_number_errors`,
+    // `named_task_subtasks_produce_error`, `mixed_tasks_ok_and_error`, and
+    // `multiple_subtasks_some_bad` tests were deleted accordingly — their
+    // inputs no longer parse, so there's nothing left for the validator to
+    // check.
 
     #[test]
     fn valid_subtask_numbering_ok() {
@@ -2617,9 +2834,9 @@ states:
 ### Task 3: C
 **State:** pending
 
-#### Subtask 3.1: First
+#### Task 3.1: First
 **State:** pending
-#### Subtask 3.2: Second
+#### Task 3.2: Second
 **State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
@@ -2637,7 +2854,7 @@ states:
 ### Task 2: Parent
 **State:** completed
 
-#### Subtask 2.1: Still open
+#### Task 2.1: Still open
 **State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
@@ -2661,8 +2878,10 @@ states:
             joined
         );
         assert!(
-            joined.contains("Subtask 2.1 ('Still open') is in non-terminal state 'pending'"),
-            "expected non-terminal subtask in error; got:\n{}",
+            joined.contains(
+                "descendant Task 2.1 ('Still open') is in non-terminal state 'pending'"
+            ),
+            "expected non-terminal descendant in error; got:\n{}",
             joined
         );
     }
@@ -2675,7 +2894,7 @@ states:
 ### Task 2: Parent
 **State:** completed
 
-#### Subtask 2.1: Done
+#### Task 2.1: Done
 **State:** completed
 "#;
         let rhei = parse(input).expect("parse ok");
@@ -2699,86 +2918,31 @@ states:
     }
 
     #[test]
-    fn named_task_subtasks_produce_error() {
-        let input = r#"# Rhei: Example
-## Tasks
-
-### Task build: B
-**State:** pending
-
-#### Subtask 1.1: Any number
-**State:** pending
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let sm = sample_machine();
-        let report = validate_with_machine(&rhei, &sm);
-
-        assert!(report.has_errors(), "named task with subtasks should produce errors");
-        let joined = report.errors.join("\n");
-        assert!(
-            joined.contains("Task 'build' has a named id and must not declare subtasks"),
-            "expected named-task subtask error; errors were:\n{}",
-            joined
-        );
-    }
-
-    #[test]
-    fn mixed_tasks_ok_and_error() {
+    fn duplicate_sibling_child_id_is_rejected() {
+        // The new validator checks that sibling ids under a common parent are
+        // unique, replacing the old ad-hoc "subtask uniqueness" rule.
         let input = r#"# Rhei: Example
 ## Tasks
 
 ### Task 1: A
 **State:** pending
 
-#### Subtask 1.1: Correct
+#### Task 1.1: First
 **State:** pending
 
-### Task 2: B
-**State:** pending
-
-#### Subtask 1.2: Incorrect parent
-**State:** pending
-"#;
-        let rhei = parse(input).expect("parse ok");
-        let sm = sample_machine();
-        let mut report = validate_with_machine(&rhei, &sm);
-
-        assert!(report.has_errors(), "expected exactly one numbering error; got none");
-        // Filter only numbering mismatch errors to be robust to future validators.
-        report.errors.retain(|e| e.contains("Subtask 1.2") && e.contains("under Task 2"));
-        assert_eq!(
-            report.errors.len(),
-            1,
-            "expected exactly one numbering mismatch error; got: {:?}",
-            report.errors
-        );
-        let e = &report.errors[0];
-        assert!(e.contains("Subtask 1.2"), "error should mention Subtask 1.2; got:\n{}", e);
-        assert!(e.contains("under Task 2"), "error should mention under Task 2; got:\n{}", e);
-    }
-
-    #[test]
-    fn multiple_subtasks_some_bad() {
-        let input = r#"# Rhei: Example
-## Tasks
-
-### Task 4: D
-**State:** pending
-
-#### Subtask 4.1: Correct
-**State:** pending
-#### Subtask 3.2: Incorrect parent
+#### Task 1.1: Duplicate
 **State:** pending
 "#;
         let rhei = parse(input).expect("parse ok");
         let sm = sample_machine();
         let report = validate_with_machine(&rhei, &sm);
 
-        assert!(report.has_errors(), "expected at least one numbering error");
+        assert!(report.has_errors(), "duplicate sibling id should be rejected");
         let joined = report.errors.join("\n");
         assert!(
-            joined.contains("Subtask 3.2") && joined.contains("under Task 4"),
-            "expected mismatch message for 3.2 under Task 4; got:\n{}",
+            joined.contains("Duplicate sibling task id: Task 1.1")
+                && joined.contains("under Task 1"),
+            "expected duplicate-sibling message; got:\n{}",
             joined
         );
     }
@@ -2954,7 +3118,7 @@ See [section](guide.md#usage) for details.
 
 See [missing](nowhere.md) for context.
 
-#### Subtask 1.1: Sub
+#### Task 1.1: Sub
 **State:** pending
 Also see [gone](also-gone.md).
 "#;

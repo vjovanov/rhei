@@ -19,26 +19,23 @@ pub enum Token {
     /// Section header: "## <title>" (non-Tasks H2 headers).
     SectionHeader { title: String },
 
-    /// Task header: "### Task <id>: <title>"
-    /// where <id> can be numeric (NUMBER) or named (IDENTIFIER).
-    TaskHeader { id: TaskId },
+    /// Node heading at H3..=H6 (`### <kind> <id>: <title>`,
+    /// `#### <kind> <id>: <title>`, etc.).
+    ///
+    /// `level` is the heading depth (3..=6). `kind` is the heading keyword in
+    /// its original casing. `id` is the full hierarchical id parsed from the
+    /// heading.
+    NodeHeader { level: u8, kind: String, id: TaskId },
 
-    /// Subtask header:
-    /// "#### Subtask <task_number>.<subtask_number>: <title>"
-    /// Subtask numbers are always numeric as per the specification.
-    SubtaskHeader { task_number: u32, subtask_number: u32 },
-
-    /// Metadata "Prior": "**Prior:** Task <id1>, Task <id2>, ..."
-    /// where each task id may be numeric or named.
+    /// Metadata "Prior": "**Prior:** <kind> <id>, <kind> <id>, ..."
     MetadataPrior { task_ids: Vec<TaskId> },
 
     /// Metadata "State": "**State:** <state>"
     MetadataState { state: String },
 
+    /// Metadata "Assignee": "**Assignee:** <name>"
+    MetadataAssignee { name: String },
+
     /// Any non-heading, non-metadata text content.
-    ///
-    /// Note: The specification lists TextContent without fields. For now,
-    /// we model it as a unit variant per the spec. Content attachment
-    /// decisions can be deferred to the parser/AST stage.
     TextContent,
 }

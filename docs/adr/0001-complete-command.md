@@ -27,7 +27,7 @@ Add a single `rhei complete` subcommand that atomically:
    to `runtime/results/<task-id>.md`, creating directories as needed.
 4. **Links the result from the task** — appends a
    `> **Result:** [<task-id>](runtime/results/<task-id>.md)` line to the
-   task body (after content, before subtasks).
+   task body (after content, before any child task nodes).
 5. **Removes the assignee** — strips any `**Assignee:**` line from the
    task in a post-transition text rewrite.
 

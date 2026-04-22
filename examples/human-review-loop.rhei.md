@@ -17,7 +17,7 @@ This example demonstrates:
 
 Review the current landing page, pricing page, and help center copy.
 
-#### Subtask 1.1: Snapshot current messaging
+#### Task 1.1: Snapshot current messaging
 **State:** completed
 Capture current headlines and calls to action for comparison.
 
@@ -27,11 +27,11 @@ Capture current headlines and calls to action for comparison.
 
 Draft updated messaging and leave open questions for stakeholders.
 
-#### Subtask 2.1: Draft homepage hero
+#### Task 2.1: Draft homepage hero
 **State:** completed
 Propose updated headline, supporting text, and primary call to action.
 
-#### Subtask 2.2: Summarize reviewer questions
+#### Task 2.2: Summarize reviewer questions
 **State:** completed
 List questions for product and legal review in a short bullet list.
 
@@ -41,7 +41,7 @@ List questions for product and legal review in a short bullet list.
 
 Update the content files after review feedback is resolved.
 
-#### Subtask 3.1: Patch markdown sources
+#### Task 3.1: Patch markdown sources
 **State:** agent-review
 Apply approved copy updates to the documentation repository.
 
@@ -51,6 +51,6 @@ Apply approved copy updates to the documentation repository.
 
 Coordinate final checks before publication.
 
-#### Subtask 4.1: Confirm launch checklist
+#### Task 4.1: Confirm launch checklist
 **State:** pending
 Verify approvals, screenshots, and rollback notes are present.

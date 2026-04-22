@@ -11,7 +11,7 @@ Show how escaped spaces in `**State:**` values interact with a custom states fil
 
 Check that release notes mention the migration steps and fallback plan.
 
-#### Subtask 1.1: Compare against changelog
+#### Task 1.1: Compare against changelog
 **State:** `in review`
 Ensure the release notes include all user-visible changes.
 
@@ -21,6 +21,6 @@ Ensure the release notes include all user-visible changes.
 
 Stage the launch announcement once the review step passes.
 
-#### Subtask 2.1: Queue announcement draft
+#### Task 2.1: Queue announcement draft
 **State:** `ready to ship`
 Store the approved announcement in the publishing calendar.

@@ -5,7 +5,7 @@
 Simulate a researcher receiving the work item and leaving a short handoff note
 for implementation.
 
-#### Subtask 2.1: Capture the brief
+#### Task 2.1: Capture the brief
 **State:** pending
 
 Write a small note into the runtime artifacts directory.

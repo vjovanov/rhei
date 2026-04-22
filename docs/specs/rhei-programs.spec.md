@@ -196,14 +196,12 @@ Duration format is the same as `agent_timeout`: `30s`, `5m`, `1h`, `2h30m`. See 
 
 ### Behavior
 
-When a program exceeds its timeout:
+Program timeout uses the same SIGTERM → 10 s grace → SIGKILL sequence and the same timeout-transition evaluation as agent timeout. See [Agents Specification — Timeout Behavior](rhei-agents.spec.md#timeout-behavior) for the full step-by-step. The only program-specific differences are:
 
-1. `rhei run` sends `SIGTERM` to the process.
-2. After a 10-second grace period, if the process has not exited, send `SIGKILL`.
-3. Log to the task log: `program timed out after {duration}`.
-4. Evaluate timeout transitions from the current state (same mechanism as agent timeout — see [Transitions Specification](rhei-transitions.spec.md)).
-5. If a timeout transition exists, fire it.
-6. If no timeout transition exists, the task remains in its current state and a warning is logged.
+- The log line reads `program timed out after {duration}` (not `agent timed out`).
+- The state-level field is `program_timeout` (not `agent_timeout`).
+
+Timeout transitions fire with `triggeredBy: 'system'`. See [Transitions Specification — Agent Timeout Trigger](rhei-transitions.spec.md#6-agent-timeout-trigger-triggeredby-system) for the transition selection rules.
 
 ## Log Capture
 
@@ -217,6 +215,14 @@ Program stdout and stderr are captured using the same log format and naming conv
 | Counted-loop state | `runtime/logs/task-{task_id}-{state}-{visit_count}.log` |
 
 ### Log Format
+
+Programs use the same header / body / footer structure as agent logs (see [Agents Specification — Log Format](rhei-agents.spec.md#log-format)). The program-specific differences are:
+
+- The header marker is `=== rhei program log v1 ===` (not `rhei agent log v1`).
+- The header carries `program:` (the resolved command) instead of `agent:`, `model:`, `provider:`, `model_name:`, `mcp_servers:`, and `skills:` — those fields are agent-only.
+- Everything else (body, `=== exit ===` footer with `code` / `duration` / `ended`) is identical.
+
+Example:
 
 ```
 === rhei program log v1 ===
@@ -236,8 +242,6 @@ duration: 2m15s
 ended: 2026-04-20T10:32:15Z
 ===
 ```
-
-The header distinguishes program logs from agent logs (`rhei program log` vs `rhei agent log`). The `v1` suffix is the log format version — increment it when the header/footer structure changes. The body is the raw, unmodified output of the program process.
 
 ## `rhei run` Integration
 
@@ -308,31 +312,31 @@ A state must not declare both `program` and `gating: true`. Programs execute aut
 
 ### Artifact Contracts
 
-Program states support the same `inputs` and `outputs` artifact contracts as any other state. Inputs are checked before spawning the program. Outputs are checked after the program exits and before the exit-code transition is committed.
+Program states use the same `inputs` / `outputs` artifact contracts as any other state — see [States Specification — Artifact Contracts](rhei-states.spec.md#artifact-contracts) for the schema, path template variables, and general semantics.
+
+Program-specific timing:
+
+- Required `inputs` are checked before the program is spawned. Missing required inputs abort the spawn.
+- Required `outputs` are checked after the program exits and before the exit-code transition is committed. A zero exit with a missing required output leaves the task in its current state.
 
 ```yaml
 states:
   build:
-    description: Build the project
     program: "make build"
     program_timeout: 10m
     outputs:
       - name: bundle
         path: dist/bundle.js
-        description: Production build artifact
 
   test:
-    description: Run tests against the build
     program: "make test"
     program_timeout: 15m
     inputs:
       - name: bundle
         path: dist/bundle.js
-        description: Build artifact from the build step
     outputs:
       - name: coverage
         path: coverage/lcov.info
-        description: Test coverage report
 ```
 
 ### Callbacks

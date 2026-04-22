@@ -98,11 +98,11 @@ pub const SUBTASK_PLAN: &str = r#"# Rhei: Subtask Test
 **State:** draft
 Some task content here.
 
-#### Subtask 1.1: First subtask
+#### Task 1.1: First subtask
 **State:** draft
 Subtask one content.
 
-#### Subtask 1.2: Second subtask
+#### Task 1.2: Second subtask
 **State:** draft
 Subtask two content.
 "#;
@@ -289,14 +289,8 @@ pub fn assert_task_state(plan_path: &Path, machine_path: &Path, task_id: &str, e
     let task = tasks
         .iter()
         .find(|t| {
-            // JSON id is either {"number": N} or {"named": "..."}
-            if let Some(n) = t["id"]["number"].as_u64() {
-                n.to_string() == task_id
-            } else if let Some(s) = t["id"]["named"].as_str() {
-                s == task_id
-            } else {
-                false
-            }
+            // JSON id now has shape { "path": "...", "segments": [...] }.
+            t["id"]["path"].as_str() == Some(task_id.as_ref())
         })
         .unwrap_or_else(|| panic!("Task {} not found in rendered JSON", task_id));
     let state = task["state"].as_str().expect("state field");

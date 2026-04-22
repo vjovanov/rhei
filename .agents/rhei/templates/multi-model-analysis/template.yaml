@@ -1,6 +1,6 @@
 name: multi-model-analysis
 version: 1.0.0
-description: Run one analytical task through multiple model-specific passes, then have Claude write the final synthesis.
+description: Run one analytical task through multiple target-specific passes in one state, then have Claude write the final synthesis.
 
 inputs:
   - name: plan_title
@@ -23,10 +23,34 @@ inputs:
     type: string
     default: runtime/analyses
 
-  - name: gemini_model
-    description: Gemini model id used for the Gemini analysis task
+  - name: agents
+    description: Agent targets used for the analysis fanout
+    type: array
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+          validate: "[a-z][a-z0-9-]*"
+        label:
+          type: string
+        selector:
+          type: string
+    default:
+      - id: claude
+        label: Claude analysis note
+        selector: claude-code[yolo]:anthropic:claude-opus-4-7
+      - id: gemini
+        label: Gemini analysis note
+        selector: gemini[yolo]:google:gemini-3.1-pro-preview
+      - id: codex
+        label: Codex analysis note
+        selector: codex[yolo]:openai:gpt-5-codex
+
+  - name: summary_agent
+    description: Agent target that synthesizes the final document
     type: string
-    default: gemini-3.1-pro-preview
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
 
   - name: final_document_path
     description: Path where Claude writes the synthesized final document
