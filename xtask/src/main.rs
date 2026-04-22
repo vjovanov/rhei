@@ -1,3 +1,5 @@
+mod viz;
+
 use std::env;
 use std::fs;
 use std::io;
@@ -71,7 +73,9 @@ fn usage() {
     eprintln!("  examples list                  List all known examples");
     eprintln!("  examples validate <name>       Validate one example");
     eprintln!("  examples validate --all        Validate every example");
-    eprintln!("  examples run <name>            Run a runnable example in a tmp copy");
+    eprintln!("  examples run <name> [--viz]    Run a runnable example in a tmp copy");
+    eprintln!("  examples viz <name> [--open]   Render HTML plan viz for one example");
+    eprintln!("  examples viz --all             Render HTML viz for every example");
 }
 
 fn main() -> ExitCode {
@@ -84,7 +88,15 @@ fn main() -> ExitCode {
         }
         ["examples", "validate", "--all"] => cmd_validate_all(),
         ["examples", "validate", name] => cmd_validate_one(name),
-        ["examples", "run", name] => cmd_run(name),
+        ["examples", "run", name] => cmd_run(name, false),
+        ["examples", "run", name, "--viz"] | ["examples", "run", "--viz", name] => {
+            cmd_run(name, true)
+        }
+        ["examples", "viz", "--all"] => cmd_viz_all(),
+        ["examples", "viz", name] => cmd_viz_one(name, false),
+        ["examples", "viz", name, "--open"] | ["examples", "viz", "--open", name] => {
+            cmd_viz_one(name, true)
+        }
         _ => {
             usage();
             ExitCode::from(2)
@@ -149,7 +161,7 @@ fn run_validate(ex: &Example) -> bool {
     cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
-fn cmd_run(name: &str) -> ExitCode {
+fn cmd_run(name: &str, viz_after: bool) -> ExitCode {
     let Some(ex) = find(name) else {
         eprintln!("unknown example: {name}");
         return ExitCode::from(2);
@@ -191,13 +203,127 @@ fn cmd_run(name: &str) -> ExitCode {
         .arg("run")
         .arg(&dest)
         .status();
-    match status {
-        Ok(s) if s.success() => {
-            println!("\nArtifacts left in {}", dest.display());
+    let success = matches!(status, Ok(ref s) if s.success());
+    if success {
+        println!("\nArtifacts left in {}", dest.display());
+    }
+    if viz_after {
+        match viz_run_output(ex.name, &dest) {
+            Ok(path) => {
+                println!("Viz: {}", path.display());
+                let _ = open_in_browser(&path);
+            }
+            Err(err) => eprintln!("viz failed: {err}"),
+        }
+    }
+    if success {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn viz_run_output(example_name: &str, run_dir: &Path) -> io::Result<PathBuf> {
+    let out_dir = workspace_root().join("target/rhei-viz");
+    fs::create_dir_all(&out_dir)?;
+    let plans = viz::collect_plans(run_dir, example_name)?;
+    if plans.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no .rhei.md files under {}", run_dir.display()),
+        ));
+    }
+    let html = viz::render_html(&plans);
+    let out = out_dir.join(format!("{}-run.html", example_name));
+    fs::write(&out, html)?;
+    Ok(out)
+}
+
+fn cmd_viz_all() -> ExitCode {
+    let out_dir = workspace_root().join("target/rhei-viz");
+    if let Err(err) = fs::create_dir_all(&out_dir) {
+        eprintln!("failed to create {}: {err}", out_dir.display());
+        return ExitCode::FAILURE;
+    }
+    let mut failed: Vec<&str> = Vec::new();
+    for ex in EXAMPLES {
+        println!("==> viz {}", ex.name);
+        match render_example(ex, &out_dir) {
+            Ok(path) => println!("    {}", path.display()),
+            Err(err) => {
+                eprintln!("    failed: {err}");
+                failed.push(ex.name);
+            }
+        }
+    }
+    println!(
+        "\nWrote {} HTML file(s) to {}",
+        EXAMPLES.len() - failed.len(),
+        out_dir.display()
+    );
+    if failed.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        eprintln!("Failed: {}", failed.join(", "));
+        ExitCode::FAILURE
+    }
+}
+
+fn cmd_viz_one(name: &str, open: bool) -> ExitCode {
+    let Some(ex) = find(name) else {
+        eprintln!("unknown example: {name}");
+        return ExitCode::from(2);
+    };
+    let out_dir = workspace_root().join("target/rhei-viz");
+    if let Err(err) = fs::create_dir_all(&out_dir) {
+        eprintln!("failed to create {}: {err}", out_dir.display());
+        return ExitCode::FAILURE;
+    }
+    match render_example(ex, &out_dir) {
+        Ok(path) => {
+            println!("{}", path.display());
+            if open {
+                let _ = open_in_browser(&path);
+            }
             ExitCode::SUCCESS
         }
-        _ => ExitCode::FAILURE,
+        Err(err) => {
+            eprintln!("failed: {err}");
+            ExitCode::FAILURE
+        }
     }
+}
+
+fn render_example(ex: &Example, out_dir: &Path) -> io::Result<PathBuf> {
+    let root = workspace_root();
+    let src = root.join(ex.path);
+    let plans = viz::collect_plans(&src, ex.name)?;
+    if plans.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no .rhei.md files under {}", src.display()),
+        ));
+    }
+    let html = viz::render_html(&plans);
+    let out = out_dir.join(format!("{}.html", ex.name));
+    fs::write(&out, html)?;
+    Ok(out)
+}
+
+fn open_in_browser(path: &Path) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let tool = "open";
+    #[cfg(target_os = "windows")]
+    let tool = "cmd";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let tool = "xdg-open";
+
+    let mut cmd = Command::new(tool);
+    #[cfg(target_os = "windows")]
+    cmd.args(["/C", "start", ""]);
+    cmd.arg(path);
+    cmd.status()?;
+    Ok(())
 }
 
 fn cargo() -> PathBuf {
