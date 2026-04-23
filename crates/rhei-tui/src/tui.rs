@@ -11,6 +11,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::ExecutableCommand;
+use nix::sys::signal::{raise, Signal};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -93,16 +94,10 @@ impl UiState {
                 if let Some(s) = self.slots.get_mut(*slot as usize) {
                     *s = SlotState::default();
                 }
-                self.push_journal(format!(
-                    "{} slot {}: {} ({}ms)",
-                    sym, slot, task, duration_ms
-                ));
+                self.push_journal(format!("{} slot {}: {} ({}ms)", sym, slot, task, duration_ms));
             }
             RunEvent::PassEnded { pass, progressed } => {
-                self.push_journal(format!(
-                    "pass {} ended — progressed={}",
-                    pass, progressed
-                ));
+                self.push_journal(format!("pass {} ended — progressed={}", pass, progressed));
             }
             RunEvent::RunFinished { summary } => {
                 self.finished = true;
@@ -138,6 +133,11 @@ pub struct TuiSink {
 enum Msg {
     Event(RunEvent),
     Shutdown,
+}
+
+enum InputAction {
+    Continue,
+    ForwardSigint,
 }
 
 impl TuiSink {
@@ -230,15 +230,22 @@ fn render_loop(
         }
 
         // Drain terminal input (non-blocking) so Ctrl+C etc. is visible in the
-        // logs. The actual signal handling still lives in the engine.
+        // logs. In raw mode Ctrl+C no longer generates SIGINT automatically,
+        // so the TUI has to forward it to the process itself.
         while ctevent::poll(Duration::from_millis(0)).unwrap_or(false) {
             if let Ok(CtEvent::Key(key)) = ctevent::read() {
-                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                    // The nix signal handler in the engine delivers SIGINT
-                    // handling; we just note it in the journal.
-                    if let Ok(mut s) = state.lock() {
-                        s.push_journal("(ctrl+c received — engine will stop)".to_string());
+                let action = match state.lock() {
+                    Ok(mut s) => handle_key_event(&mut s, key.code, key.modifiers),
+                    Err(p) => {
+                        let mut s = p.into_inner();
+                        handle_key_event(&mut s, key.code, key.modifiers)
                     }
+                };
+                if matches!(action, InputAction::ForwardSigint) {
+                    draw(&mut terminal, &state);
+                    break_out(terminal);
+                    let _ = forward_sigint_to_self();
+                    return;
                 }
             }
         }
@@ -256,6 +263,19 @@ fn break_out(mut terminal: Terminal<CrosstermBackend<Stdout>>) {
     let _ = io::stdout().execute(LeaveAlternateScreen);
 }
 
+fn handle_key_event(state: &mut UiState, code: KeyCode, modifiers: KeyModifiers) -> InputAction {
+    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+        state.push_journal("(ctrl+c received — forwarding SIGINT)".to_string());
+        return InputAction::ForwardSigint;
+    }
+
+    InputAction::Continue
+}
+
+fn forward_sigint_to_self() -> nix::Result<()> {
+    raise(Signal::SIGINT)
+}
+
 fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Arc<Mutex<UiState>>) {
     let snapshot = match state.lock() {
         Ok(s) => s.clone_snapshot(),
@@ -266,9 +286,8 @@ fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Arc<Mutex<UiS
         let area = f.size();
         if area.height < 4 || area.width < 20 {
             // Terminal too small — render a single line.
-            let msg = Paragraph::new("rhei run (terminal too small)").style(
-                Style::default().fg(Color::Yellow),
-            );
+            let msg = Paragraph::new("rhei run (terminal too small)")
+                .style(Style::default().fg(Color::Yellow));
             f.render_widget(msg, area);
             return;
         }
@@ -276,9 +295,9 @@ fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Arc<Mutex<UiS
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),             // header
+                Constraint::Length(3), // header
                 Constraint::Min(snapshot.parallel.max(1) as u16 + 2),
-                Constraint::Min(5),                // journal pane
+                Constraint::Min(5), // journal pane
             ])
             .split(area);
 
@@ -288,11 +307,7 @@ fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Arc<Mutex<UiS
     });
 }
 
-fn render_header(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    snapshot: &UiStateSnapshot,
-) {
+fn render_header(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {
     let active = snapshot.slots.iter().filter(|s| s.task.is_some()).count();
     let line = Line::from(vec![
         Span::styled("rhei run", Style::default().add_modifier(Modifier::BOLD)),
@@ -320,18 +335,12 @@ fn render_slots(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) 
     for (i, s) in snapshot.slots.iter().enumerate() {
         let i = i as Slot;
         if let Some(task) = &s.task {
-            let elapsed = s
-                .started_at
-                .map(|t| t.elapsed())
-                .unwrap_or_default();
+            let elapsed = s.started_at.map(|t| t.elapsed()).unwrap_or_default();
             let elapsed_s = elapsed.as_secs();
             let transition = s.last_event_display.as_deref().unwrap_or(&s.state);
             lines.push(Line::from(vec![
                 Span::styled(format!("[{i:>2}] "), Style::default().fg(Color::Cyan)),
-                Span::styled(
-                    format!("{task:<28}"),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(format!("{task:<28}"), Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw(" "),
                 Span::styled(transition.to_string(), Style::default().fg(Color::Green)),
                 Span::raw(format!("  {:>4}s", elapsed_s)),
@@ -355,14 +364,8 @@ fn render_journal(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot
     }
 
     let height = inner.height as usize;
-    let lines: Vec<Line> = snapshot
-        .journal
-        .iter()
-        .rev()
-        .take(height)
-        .rev()
-        .map(|l| Line::from(l.clone()))
-        .collect();
+    let lines: Vec<Line> =
+        snapshot.journal.iter().rev().take(height).rev().map(|l| Line::from(l.clone())).collect();
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -383,5 +386,34 @@ impl UiState {
             journal: self.journal.iter().cloned().collect(),
             finished: self.finished,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{handle_key_event, InputAction, UiState};
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    #[test]
+    fn ctrl_c_requests_sigint_forwarding() {
+        let mut state = UiState::new(1, 1);
+
+        let action = handle_key_event(&mut state, KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        assert!(matches!(action, InputAction::ForwardSigint));
+        assert_eq!(
+            state.journal.back().map(String::as_str),
+            Some("(ctrl+c received — forwarding SIGINT)")
+        );
+    }
+
+    #[test]
+    fn non_ctrl_c_input_is_ignored() {
+        let mut state = UiState::new(1, 1);
+
+        let action = handle_key_event(&mut state, KeyCode::Char('q'), KeyModifiers::NONE);
+
+        assert!(matches!(action, InputAction::Continue));
+        assert!(state.journal.is_empty());
     }
 }

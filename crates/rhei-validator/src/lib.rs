@@ -493,6 +493,19 @@ pub struct StateDef {
     /// When `true`, autonomous commands must not transition out of this state.
     #[serde(default)]
     pub gating: bool,
+    /// When `true`, `rhei run` may work multiple ready tasks in this state
+    /// simultaneously (bounded by `--parallel`). When `false`, at most one
+    /// task per pass is scheduled for this state; remaining tasks are
+    /// deferred to a later pass.
+    #[serde(default)]
+    pub concurrent: bool,
+    /// Optional polling configuration. When present, the state is treated
+    /// as a time-triggered state: a self-loop transition is interpreted as
+    /// "retry after `poll.interval`", the `--parallel` slot is released
+    /// between attempts, and the state's visit counter is capped at
+    /// `poll.max_attempts`. Mutually exclusive with `visits`.
+    #[serde(default)]
+    pub poll: Option<PollConfig>,
     /// Optional visit budget for returning to this state.
     pub visits: Option<u32>,
     /// Inline execution target selector for one run of the state.
@@ -541,6 +554,18 @@ pub struct StateDef {
     /// Agent skills enabled for this state. Same tri-state semantics as `mcp_servers`.
     #[serde(default)]
     pub skills: Option<Vec<StateSkillEntry>>,
+}
+
+/// Per-state polling configuration. See the States Specification —
+/// Polling States.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PollConfig {
+    /// Minimum wall-clock wait between poll attempts (duration string, e.g.
+    /// `30s`, `5m`, `1h`).
+    pub interval: String,
+    /// Upper bound on total attempts for this state within one task
+    /// lifetime. Must be `>= 1`.
+    pub max_attempts: u32,
 }
 
 /// A named, reusable `{initial, allowed}` state policy referenced from
@@ -630,6 +655,7 @@ impl StateMachine {
         sm.validate_tooling_configuration()?;
         sm.validate_template_conditions()?;
         sm.validate_profiles_and_node_policy()?;
+        sm.validate_poll_configuration()?;
         Ok(sm)
     }
 
@@ -887,6 +913,51 @@ impl StateMachine {
             }
         }
 
+        Ok(())
+    }
+
+    /// Validate the per-state `poll:` block: well-formed `interval` and
+    /// `max_attempts`, mutually exclusive with `visits`, forbidden on
+    /// final/gating states, and at least one self-loop transition is
+    /// declared so the retry branch is reachable.
+    fn validate_poll_configuration(&self) -> Result<(), StateMachineLoadError> {
+        for (state_name, state) in &self.states {
+            let Some(poll) = state.poll.as_ref() else { continue };
+            if parse_duration_secs(&poll.interval).is_none() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' has poll.interval '{}' that is not a valid duration (expected e.g. '30s', '5m', '1h')",
+                    poll.interval
+                )));
+            }
+            if poll.max_attempts < 1 {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' has poll.max_attempts {} (must be >= 1)",
+                    poll.max_attempts
+                )));
+            }
+            if state.terminal {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' is final and cannot declare 'poll' (terminal states have no work to execute)"
+                )));
+            }
+            if state.gating {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' is gating and cannot declare 'poll' (gating states require human action; polling executes autonomously)"
+                )));
+            }
+            if state.visits.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares both 'poll' and 'visits'; poll.max_attempts replaces the visits cap"
+                )));
+            }
+            let has_self_loop =
+                self.transitions.iter().any(|t| t.from.0 == *state_name && t.to.0 == *state_name);
+            if !has_self_loop {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares 'poll' but has no self-loop transition; add a transition with from: {state_name} and to: {state_name} so the retry branch is reachable"
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -1844,10 +1915,7 @@ fn validate_assignee_nonempty(rhei: &Rhei, report: &mut ValidationReport) {
     for_each_node(rhei, |task| {
         if let Some(assignee) = &task.assignee {
             if assignee.trim().is_empty() {
-                report.warnings.push(format!(
-                    "Task {} has an empty **Assignee:** value",
-                    task.id
-                ));
+                report.warnings.push(format!("Task {} has an empty **Assignee:** value", task.id));
             }
         }
     });
@@ -2878,9 +2946,8 @@ states:
             joined
         );
         assert!(
-            joined.contains(
-                "descendant Task 2.1 ('Still open') is in non-terminal state 'pending'"
-            ),
+            joined
+                .contains("descendant Task 2.1 ('Still open') is in non-terminal state 'pending'"),
             "expected non-terminal descendant in error; got:\n{}",
             joined
         );
@@ -3682,5 +3749,144 @@ node_policy:
             "expected profile-allowed error, got {:?}",
             report.errors
         );
+    }
+
+    fn poll_machine(body: &str) -> String {
+        format!(
+            r#"
+name: poll-test
+version: 1.0
+states:
+{body}
+profiles:
+  default:
+    initial: ci-wait
+    allowed: [ci-wait, done]
+node_policy:
+  root: default
+  default: default
+"#
+        )
+    }
+
+    #[test]
+    fn accepts_well_formed_poll_state() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait for CI
+    program: "./check.sh"
+    poll:
+      interval: 5m
+      max_attempts: 12
+  done:
+    description: Done
+    final: true
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75
+  - from: ci-wait
+    to: done
+    exit_code: 0"#,
+        );
+        let sm = StateMachine::from_yaml_str(&yaml).expect("valid poll state");
+        let poll = sm.states.get("ci-wait").and_then(|s| s.poll.as_ref()).expect("poll present");
+        assert_eq!(poll.max_attempts, 12);
+        assert_eq!(poll.interval, "5m");
+    }
+
+    #[test]
+    fn rejects_poll_with_invalid_interval() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait
+    program: "./check.sh"
+    poll:
+      interval: sometimes
+      max_attempts: 3
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75"#,
+        );
+        let err = StateMachine::from_yaml_str(&yaml).expect_err("bad interval");
+        assert!(err.to_string().contains("poll.interval"));
+    }
+
+    #[test]
+    fn rejects_poll_with_zero_max_attempts() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait
+    program: "./check.sh"
+    poll:
+      interval: 1m
+      max_attempts: 0
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75"#,
+        );
+        let err = StateMachine::from_yaml_str(&yaml).expect_err("bad max_attempts");
+        assert!(err.to_string().contains("poll.max_attempts"));
+    }
+
+    #[test]
+    fn rejects_poll_with_visits() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait
+    program: "./check.sh"
+    visits: 5
+    poll:
+      interval: 1m
+      max_attempts: 3
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75"#,
+        );
+        let err = StateMachine::from_yaml_str(&yaml).expect_err("visits conflict");
+        assert!(err.to_string().contains("'poll' and 'visits'"));
+    }
+
+    #[test]
+    fn rejects_poll_on_gating_state() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait
+    gating: true
+    poll:
+      interval: 1m
+      max_attempts: 3
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait"#,
+        );
+        let err = StateMachine::from_yaml_str(&yaml).expect_err("gating conflict");
+        assert!(err.to_string().contains("gating"));
+    }
+
+    #[test]
+    fn rejects_poll_without_self_loop() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait
+    program: "./check.sh"
+    poll:
+      interval: 1m
+      max_attempts: 3
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: done
+    exit_code: 0"#,
+        );
+        let err = StateMachine::from_yaml_str(&yaml).expect_err("missing self-loop");
+        assert!(err.to_string().contains("self-loop"));
     }
 }

@@ -1,22 +1,22 @@
 ---
 name: rhei-plan-worker
-description: Execute tasks in a Rhei Plan markdown document without an orchestrator. Takes one required argument `<plan>` — the path to a `.rhei.md` file (e.g. `rhei-plan-worker docs/my-plan.rhei.md`). Use when the user asks to work, implement, advance, drive, or make progress on a specific `.rhei.md` plan — the worker self-selects the next eligible task, advances its state, implements it, logs subtask progress, and respects human-review gates.
+description: Execute tasks in a Rhei Plan markdown document without an orchestrator. Takes one required argument `<plan>` — the path to a `.rhei.md` file or a Directory Workspace `index.rhei.md` (e.g. `rhei-plan-worker docs/my-plan.rhei.md`). Use when the user asks to work, implement, advance, drive, or make progress on a specific `.rhei.md` plan — the worker self-selects the next eligible task, works in its current state, logs subtask progress, advances state, finalizes with a result, and respects human-review gates.
 argument-hint: <plan>
 ---
 
 # Rhei Plan Worker (Unorchestrated)
 
-Pick up a Rhei Plan and make progress on it without any external scheduler. The worker is driven by the plan itself: the state machine defines what is legal, `**Prior:**` edges define what is ready, and the state instructions define what to do.
+Pick up a Rhei Plan and make progress on it without any external scheduler. The worker is driven by the plan itself: the state machine defines what is legal, `**Prior:**` edges define what is ready, and each state's `instructions` field defines what to do.
 
-Do not repurpose this skill for plan authoring — use `rhei-plan-writer` for that. Here, structural edits to the plan are limited to advancing `**State:**` values, logging subtask progress, and recording review findings.
+Do not repurpose this skill for plan authoring — use `rhei-plan-writer` for that. Structural edits to the plan are limited to logging subtask progress and updating child task states. All root-task state changes and assignments go through the CLI.
 
 ## Parameters
 
 The skill takes a single required parameter:
 
-- `<plan>` — path to the `.rhei.md` file to work on.
+- `<plan>` — path to the `.rhei.md` file for a Single-File Plan, or the `index.rhei.md` at the root of a Directory Workspace.
 
-Invoke as `rhei-plan-worker <plan>` (e.g., `rhei-plan-worker docs/markdown-plan-compiler.md`). If the caller does not supply `<plan>`, ask for it and stop — do not guess, do not scan the working directory, do not pick from multiple candidates. The plan path is the worker's only source of truth for which plan to drive.
+Invoke as `rhei-plan-worker <plan>` (e.g., `rhei-plan-worker docs/plans/rhei-install-skills.rhei.md`). If the caller does not supply `<plan>`, ask for it and stop — do not guess, do not scan the working directory, do not pick from multiple candidates. The plan path is the worker's only source of truth for which plan to drive.
 
 All other inputs (state machine, task selection, transitions) are derived from the plan file and the state machine it declares.
 
@@ -24,61 +24,72 @@ All other inputs (state machine, task selection, transitions) are derived from t
 
 Execute this loop until no eligible task remains or a human gate stops you:
 
-1. **Open the plan at `<plan>`.** If the path does not exist or is not a Rhei Plan, stop and report.
-2. **Load the state machine.** Run `rhei states` to read allowed states, their agent instructions, and the transition graph. The CLI resolves the state machine from the plan's `**States:**` field automatically (override with the global `--state-machine <path>` option if needed). Add `--json` for structured data. Fall back to reading the YAML referenced by `**States:**` (or `docs/states.yaml`, or [default-states.md](../rhei-plan-writer/references/default-states.md)) if the CLI is unavailable.
-3. **Read the plan.** Prefer `rhei render <plan> --format json --pretty` for structured access. Read the raw markdown too — you will edit it in place for progress logging.
-4. **Select the next task.** Apply the rules in *Task Selection* below.
-5. **Claim the task.** Run `rhei transition <plan> --task <id> --from pending --to in-progress`. If the command fails with a conflict (another agent already claimed the task), go back to step 3 — re-read the plan and re-select.
-6. **Execute the task.** Follow the state's `instructions` field verbatim. Implement subtasks in order, logging per subtask (see *Progress Logging*).
-7. **Advance the state** when the current state's exit condition is met. Run `rhei transition <plan> --task <id> --from in-progress --to agent-review` (or the appropriate target state). If the transition fails, re-read the plan and diagnose.
-8. **Stop at terminal or gating states.** `completed` and `cancelled` are final. `human-review` halts the worker — do not transition out of it autonomously.
-9. **Loop.** Go to step 4 until nothing is eligible.
+1. **Validate the plan.** Run `rhei validate <plan>`. If it fails, stop and report — do not work a broken plan.
+2. **Load the state machine.** Run `rhei states` against the plan (or `rhei states --state-machine <path>`) to read allowed states, their `instructions`, and the declared transition graph. The CLI resolves the state machine from the plan's `**States:**` field (or a sibling/workspace `states.yaml`). Add `--json` for structured data. Fall back to reading the YAML directly, or [default-states.md](../rhei-plan-writer/references/default-states.md), if the CLI is unavailable.
+3. **Read the plan.** Prefer `rhei render <plan> --format json --pretty` for structured access. Read the raw markdown too — you will edit it in place to log subtask progress.
+4. **Claim the next task.** Run `rhei next <plan>`. The command atomically selects the next claimable task (all priors terminal, no current `**Assignee:**`, state not terminal and not gating, required `inputs` present), writes `**Assignee:**` on it, and prints the task id, current state, and resolved instructions. If no task is claimable, stop — the plan is either done or blocked.
+    - Use `rhei next <plan> --peek` first when you want a read-only look at what would be claimed.
+    - If `rhei next` fails with a missing-artifact error, the current state requires an input file that does not exist — surface it; do not try to skip ahead.
+5. **Work in the current state.** Follow the printed instructions verbatim. The state you are handed is where the work happens — `rhei next` does **not** advance state. Implement child task nodes in order, logging per child (see *Progress Logging*).
+6. **Advance state only when the workflow demands it.** Use `rhei transition` for intermediate hops (for example `draft` → `pending`, `agent-review` → `agent-review-fix`). For terminal completion, use `rhei complete` — do not hand-craft a transition into a final state.
+7. **Finalize with `rhei complete`.** When the task is finished, run `rhei complete <plan> --task <id> --result "<one-line summary>"`. The command transitions to the first reachable non-cancelled terminal, appends a `## <from> → <to>` entry plus the message to `runtime/results/<task-id>.md`, links that file via `> **Result:**`, and removes the `**Assignee:**` line.
+8. **Stop at terminal or gating states.** `completed` and `cancelled` are final. Any state with `gating: true` (typically `human-review`) halts the worker — do not transition out of it autonomously, and do not try to `rhei complete` through it.
+9. **Loop.** Return to step 4 and claim the next task. Re-read the plan on every pass; the markdown file is the single source of truth.
 
-Never skip validation. A failed `rhei validate` run means the last edit is wrong — fix it before moving on.
+Never skip validation. A failed `rhei validate` after a direct edit means the edit is wrong — fix it before moving on.
 
 ## Task Selection
 
-A task is **eligible** when all of these hold:
+Selection is owned by `rhei next` — do not re-implement it in prose. A task is claimable when:
 
-- Its `**State:**` is the state the machine treats as "ready to start" (typically `pending`; check the machine's transitions for the one that leads into `in-progress`).
-- Every task listed in `**Prior:**` is in a terminal-success state (typically `completed`). `cancelled` priors also unblock — treat the dependency as satisfied.
-- No ancestor task is in `human-review` or any other state whose instructions forbid downstream work.
+1. Every task referenced in its `**Prior:**` list is in a terminal state (`final: true`; in the default machine that means `completed` or `cancelled`).
+2. The task has no `**Assignee:**` field.
+3. The current state is neither terminal nor gating.
+4. Every required `inputs` artifact declared on the current state exists.
 
-Selection policy when multiple tasks are eligible:
+When multiple tasks are claimable, `rhei next` picks the first one in plan order. Do not try to pre-rank tasks by descendant count or other heuristics — trust the CLI.
 
-1. Prefer the task with the fewest remaining descendants (clears the graph faster).
-2. Break ties by task ID order as written in the plan.
-3. Never pick a task in `draft` — its description is not finalized. If the user asks for draft work, surface it and wait for promotion to `pending`.
-
-If a task is already in `in-progress` or `agent-review` (e.g., a prior session was interrupted), resume it before starting anything new.
+A resumable task (already carrying your own `**Assignee:**` from a prior session that was interrupted) is not re-claimable via `rhei next`. Resume it directly: read the current state, follow its instructions, and advance with `rhei transition` / `rhei complete` as usual.
 
 ## State Transitions
 
-All state transitions **must** go through the `rhei transition` command:
+All root-task state transitions go through the CLI. Never edit the root `**State:**` line by hand.
 
 ```bash
 rhei transition <plan> --task <id> --from <current-state> --to <target-state>
 ```
 
-Do not edit `**State:**` fields in the markdown by hand. The CLI command provides:
+The CLI provides:
 
 - **File locking** — prevents concurrent writes from corrupting the plan.
-- **Compare-and-swap** — the `--from` flag ensures the task is still in the expected state. If another agent already transitioned it, the command fails with a conflict error.
-- **Transition validation** — illegal transitions are rejected before any write occurs.
+- **Compare-and-swap** — `--from` guards against racing workers. If another agent already transitioned the task, the command fails and prints the actual state.
+- **Transition validation** — illegal edges are rejected before any write.
+- **Artifact enforcement** — required `outputs:` on the source state must exist before the transition succeeds.
+- **Callbacks** — `on_leave` / `on_enter` callbacks fire on the edge unless `--no-callbacks` is passed.
+- **Result file trail** — each transition appends a `## <from> → <to>` entry to `runtime/results/<task-id>.md`.
 
-On conflict, re-read the plan (step 3 of the operating loop) and re-select a task. Do not retry the same transition blindly.
+On conflict, re-read the plan and re-claim with `rhei next`. Do not retry the same transition blindly.
 
-Typical transitions for the default Rhei machine:
+### Typical transitions for the default `rhei` machine
 
-- `pending` → `in-progress` — when you start implementation.
-- `in-progress` → `agent-review` — when implementation is complete and self-tested.
-- `agent-review` → `agent-review-fix` — on review failure; record findings first.
-- `agent-review` → `human-review` — when a human gate is required.
-- `agent-review` → `completed` — when no human gate is required.
-- `agent-review-fix` → `agent-review` — after applying reviewer findings.
-- `human-review` → ... — worker does not perform these; a human does.
+- `draft` → `pending` — description is finalized and the task is ready to be implemented.
+- `pending` → `agent-review` — implementation is complete and self-tested; route to review.
+- `agent-review` → `agent-review-fix` — review found issues; record findings first (see *Agent Review*).
+- `agent-review` → `human-review` — review passed but a human gate is required before completion.
+- `agent-review-fix` → `agent-review` — fixes applied, re-submit for review.
+- `human-review` → ... — worker does **not** perform these; a human does.
 
-If the loaded machine differs, trust it over this list.
+For terminal completion (`pending` → `completed`, `agent-review` → `completed`, etc.) use `rhei complete`, not `rhei transition`. `rhei complete` picks the first reachable non-cancelled terminal, writes the result file, and unassigns in one atomic step.
+
+If the loaded machine differs from the default, trust it over this list.
+
+## Assignee Discipline
+
+`**Assignee:**` is owned by the CLI. Never edit it by hand:
+
+- `rhei next` writes `**Assignee:**` when claiming.
+- `rhei complete` removes it when finalizing.
+- `rhei transition` leaves it untouched. A long-running task therefore keeps the same assignee across intermediate transitions (for example `pending` → `agent-review` → `agent-review-fix`).
 
 ## Progress Logging
 
@@ -89,7 +100,7 @@ Log implementation progress by appending to each task node's body — do not inv
 - Do not restate the task title; extend the description.
 - For tasks without child nodes, append a single paragraph to the task description.
 
-When a task re-enters `in-progress` from `agent-review`, append a new paragraph describing the rework rather than rewriting history.
+When a task re-enters an earlier state (for example `agent-review` → `agent-review-fix` → `agent-review`), append a new paragraph describing the rework rather than rewriting history. If the machine uses counted visits, the re-rendered `**State:** <name>-<n>` line makes the visit explicit — do not edit that suffix by hand.
 
 ## Agent Review
 
@@ -98,32 +109,35 @@ When a task enters `agent-review`, the reviewer is a *different* mental mode, no
 - Reads the task description, its child task nodes, and the diff actually produced.
 - Checks repository conventions (lint, format, test commands listed in [AGENTS.md](../../AGENTS.md) or the project's equivalent).
 - Records concrete findings as a new paragraph in the task body, prefixed with `Review:` — one bullet per finding.
-- Transitions to `in-progress` (rework), `human-review` (needs human), or `completed` (pass).
+- Chooses the next edge: `agent-review-fix` (rework), `human-review` (needs human), or straight to terminal via `rhei complete` (pass).
 
-Never approve a task whose tests or build fail.
+Never finalize a task whose tests or build fail.
 
 ## Editing Discipline
 
 State transitions and progress logging are separate concerns:
 
-- **Root task state transitions** — always use `rhei transition`. Never edit root task `**State:**` fields in the markdown directly.
-- **Child task state transitions** — child task nodes also carry a mandatory `**State:**` field. Update child states directly in the markdown as you complete each one (e.g., change from `pending` to `completed`). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
-- **Progress logging** — edit the markdown directly to append child-task progress (see *Progress Logging*). After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed.
+- **Root task state transitions** — always use `rhei transition` or `rhei complete`. Never edit a root task `**State:**` line in the markdown directly.
+- **Assignee** — never edit `**Assignee:**` by hand; let `rhei next` and `rhei complete` manage it.
+- **Result block** — the `> **Result:**` line is written by `rhei complete`. Do not author it by hand.
+- **Child task state transitions** — child task nodes carry their own mandatory `**State:**` field. For child-only flows in the default machine you may update child states directly in the markdown as you finish each one. After every direct edit, run `rhei validate <plan>` to confirm the file is still well-formed. If the active machine's `node_policy` routes children through a stateful profile that uses the CLI, prefer `rhei transition` / `rhei complete` for children too.
+- **Progress logging** — edit the markdown directly to append per-child progress (see *Progress Logging*). Re-run `rhei validate <plan>` after any direct edit.
 
 General rules:
 
-- Preserve IDs, titles, and `**Prior:**` edges. Structural changes belong to the plan writer, not the worker.
-- Do not reorder tasks. Do not delete completed or cancelled tasks.
+- Preserve IDs, titles, `**Prior:**` edges, and frontmatter. Structural changes belong to the plan writer.
+- Do not reorder tasks. Do not delete completed or cancelled tasks. Do not remove `> **Result:**` links.
 - Do not reformat unrelated sections.
 
 ## Stopping Conditions
 
 Stop the loop and report to the user when any of these is true:
 
-- No eligible task remains (everything is `completed`, `cancelled`, `draft`, or blocked on `human-review`).
-- A task reaches `human-review` — stop *that* task but keep working on independent branches of the DAG.
+- `rhei next` prints no claimable task (everything is in a terminal state, blocked on a gating state, still in `draft` with unmet analysis, or awaiting priors).
+- A task reaches a gating state (typically `human-review`) — stop *that* task but keep working on independent branches of the DAG by re-running `rhei next`.
 - `rhei validate` fails after an edit you cannot explain — stop and show the user.
-- The task requires information or access the worker does not have (e.g., credentials, external decisions) — stop and ask.
+- A CAS conflict on `rhei transition` or `rhei complete` cannot be resolved by re-claiming (for example another worker is actively driving the same plan and there is no other eligible work) — stop and report.
+- The task requires information or access the worker does not have (credentials, external decisions, missing input artifact) — stop and ask.
 
 When stopping, print a short summary: which tasks advanced, which task is blocked and why, and what the next human action is.
 
@@ -131,10 +145,13 @@ When stopping, print a short summary: which tasks advanced, which task is blocke
 
 "Unorchestrated" means **no** external process tells the worker what to do next. Consequences:
 
-- The worker reads the plan on every pass; treat the markdown file as the single source of truth.
+- The worker reads the plan on every pass; treat the markdown file(s) as the single source of truth.
 - Do not cache state across passes beyond the current conversation.
-- Multiple workers can safely operate on the same plan. The `rhei transition` command's compare-and-swap semantics prevent two workers from claiming the same task — the loser gets a conflict error and re-selects.
+- Multiple workers can safely operate on the same plan. `rhei next` acquires a file lock and `rhei transition` / `rhei complete` use compare-and-swap semantics — the loser of a race re-reads and re-claims.
 - Do not batch multiple task transitions into one command — one task, one transition, then re-read.
+- Directory Workspaces behave the same, except the lock scope is per-task-file rather than per-plan, which is why the format exists.
+
+This worker flow is distinct from `rhei run` (agent mode). Under `rhei run`, the orchestrator spawns a subprocess for each claimed state and performs the transition after the subprocess exits; the worker skill does the work manually instead.
 
 ## Missing Information Handling
 
@@ -142,4 +159,4 @@ If the plan path, state machine, or a task description is ambiguous or missing r
 
 - Ask the user before editing.
 - Never invent prerequisites, states, or transitions to unblock selection.
-- If a task description is too thin to implement, surface it and ask for clarification — do not silently expand scope.
+- If a task description is too thin to implement, surface it and ask for clarification — do not silently expand scope. (In the default machine, thin descriptions normally mean the task is still in `draft` and needs analysis before it reaches `pending`.)

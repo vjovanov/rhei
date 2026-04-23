@@ -70,14 +70,7 @@ pub struct CallbackResult {
 impl CallbackResult {
     /// Implicit success — used when a callback emits no parseable payload.
     fn implicit_success(stdout: String, stderr: String) -> Self {
-        Self {
-            success: true,
-            error: None,
-            next_state: None,
-            data: None,
-            stdout,
-            stderr,
-        }
+        Self { success: true, error: None, next_state: None, data: None, stdout, stderr }
     }
 }
 
@@ -182,9 +175,8 @@ impl CallbackExecutor for ShellCallbackExecutor {
             cmd.env("RHEI_AGENT", agent);
         }
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| CallbackError::SpawnFailed(command.to_string(), e))?;
+        let mut child =
+            cmd.spawn().map_err(|e| CallbackError::SpawnFailed(command.to_string(), e))?;
 
         if let Some(ctx_json) = context.context_json {
             let payload = serde_json::to_vec(ctx_json).unwrap_or_else(|_| b"{}".to_vec());
@@ -235,9 +227,8 @@ impl CallbackExecutor for ShellCallbackExecutor {
             });
         }
 
-        Ok(parse_callback_stdout(&stdout, stderr.clone()).unwrap_or_else(|| {
-            CallbackResult::implicit_success(stdout.clone(), stderr)
-        }))
+        Ok(parse_callback_stdout(&stdout, stderr.clone())
+            .unwrap_or_else(|| CallbackResult::implicit_success(stdout.clone(), stderr)))
     }
 }
 
@@ -256,10 +247,7 @@ fn parse_callback_stdout(stdout: &str, stderr: String) -> Option<CallbackResult>
     let success = object.get("success")?.as_bool()?;
 
     let error = object.get("error").and_then(|v| v.as_str()).map(str::to_string);
-    let next_state = object
-        .get("nextState")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
+    let next_state = object.get("nextState").and_then(|v| v.as_str()).map(str::to_string);
     let data = object.get("data").cloned();
 
     // Spec invariant: `success: false` with `nextState` is invalid and is
@@ -271,14 +259,7 @@ fn parse_callback_stdout(stdout: &str, stderr: String) -> Option<CallbackResult>
         error.or_else(|| Some("transition rejected by callback".to_string()))
     };
 
-    Some(CallbackResult {
-        success,
-        error,
-        next_state,
-        data,
-        stdout: stdout.to_string(),
-        stderr,
-    })
+    Some(CallbackResult { success, error, next_state, data, stdout: stdout.to_string(), stderr })
 }
 
 /// A no-op executor that skips all callbacks (used with `--no-callbacks`).
@@ -370,9 +351,8 @@ mod tests {
     #[test]
     fn shell_executor_parses_success_json_result() {
         let executor = ShellCallbackExecutor;
-        let callback = CallbackRef(
-            r#"cli:printf '{"success": true, "data": {"k":"v"}}'"#.to_string(),
-        );
+        let callback =
+            CallbackRef(r#"cli:printf '{"success": true, "data": {"k":"v"}}'"#.to_string());
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -384,9 +364,8 @@ mod tests {
     #[test]
     fn shell_executor_parses_rejection_with_error_message() {
         let executor = ShellCallbackExecutor;
-        let callback = CallbackRef(
-            r#"cli:printf '{"success": false, "error": "dep missing"}'"#.to_string(),
-        );
+        let callback =
+            CallbackRef(r#"cli:printf '{"success": false, "error": "dep missing"}'"#.to_string());
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -398,9 +377,8 @@ mod tests {
     #[test]
     fn shell_executor_parses_next_state_redirect() {
         let executor = ShellCallbackExecutor;
-        let callback = CallbackRef(
-            r#"cli:printf '{"success": true, "nextState": "rejected"}'"#.to_string(),
-        );
+        let callback =
+            CallbackRef(r#"cli:printf '{"success": true, "nextState": "rejected"}'"#.to_string());
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -411,9 +389,8 @@ mod tests {
     #[test]
     fn shell_executor_downgrades_rejection_with_next_state() {
         let executor = ShellCallbackExecutor;
-        let callback = CallbackRef(
-            r#"cli:printf '{"success": false, "nextState": "somewhere"}'"#.to_string(),
-        );
+        let callback =
+            CallbackRef(r#"cli:printf '{"success": false, "nextState": "somewhere"}'"#.to_string());
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -437,8 +414,7 @@ mod tests {
     #[test]
     fn shell_executor_delivers_context_json_on_stdin() {
         let executor = ShellCallbackExecutor;
-        let callback =
-            CallbackRef(r#"cli:jq -r '.task.id' | tr -d '\n'"#.to_string());
+        let callback = CallbackRef(r#"cli:jq -r '.task.id' | tr -d '\n'"#.to_string());
         let payload = json!({
             "task": { "id": "99", "title": "demo" },
             "transition": { "from": "pending", "to": "in-progress" },

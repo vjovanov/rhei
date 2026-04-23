@@ -1,0 +1,133 @@
+# CI Watch and Heal — state machine
+# ──────────────────────────────────
+#
+# A single task walks two nested loops:
+#
+#   INNER (time-triggered poll, capped by poll.max_attempts):
+#     ci-watch ──exit 75──► ci-watch           (CI still running; wait interval)
+#     ci-watch ──exit  0──► heal-done          (CI green)
+#     ci-watch ──exit  1──► analyze-and-fix    (CI red; hand off to agent)
+#     ci-watch ──exhausted►  poll-gave-up      (pollAttempts >= pollMaxAttempts)
+#
+#   OUTER (visit-counted fix loop):
+#     analyze-and-fix ──visitCount < visits──► push-fix
+#     analyze-and-fix ──visitCount >= visits─► fix-exhausted
+#     push-fix        ──exit  0──────────────► ci-watch    (re-enter inner loop)
+#
+# The `poll:` block makes `ci-watch` time-triggered: a self-loop transition
+# means "retry after poll.interval"; rhei run releases the --parallel slot
+# during the wait and re-claims the task once poll.interval has elapsed.
+# See docs/specs/rhei-states.spec.md#polling-states.
+
+name: ci-watch-and-heal
+version: 1.0
+
+states:
+  ci-watch:
+    description: Poll GitHub CI for the current branch.
+    personality: |
+      You do not run here — a deterministic program does. Its exit code
+      picks the transition: 0 = all checks green, 1 = at least one failed,
+      75 = still running (retry after poll.interval).
+    program:
+      command: ".rhei/gh-ci-status.sh"
+      env:
+        BRANCH: "{task.metadata.branch}"
+        REPORT_PATH: "{output.ci-report.path}"
+    program_timeout: 1m
+    poll:
+      interval: 2m
+      max_attempts: 30
+    outputs:
+      - name: ci-report
+        path: "runtime/ci-report/{task.id}.json"
+
+  analyze-and-fix:
+    description: Read the CI report, apply the smallest fix that addresses the first failing job.
+    agent: claude-code
+    agent_timeout: 30m
+    # Outer loop budget: how many fix cycles we are willing to spend before
+    # escalating to a human. Distinct from poll.max_attempts above, which
+    # bounds attempts inside one ci-watch visit.
+    visits: 5
+    instructions: |
+      The CI report at {input.ci-report.path} lists failing jobs on branch
+      {task.metadata.branch}. Diagnose the first failing job, make the
+      smallest change that fixes it, run the relevant tests locally if
+      possible, and write a short summary of what you changed to
+      {output.fix-summary.path}. Do not commit or push — the next state
+      handles that deterministically. Exit 0 on success.
+    inputs:
+      - name: ci-report
+        path: "runtime/ci-report/{task.id}.json"
+    outputs:
+      - name: fix-summary
+        path: "runtime/fix-summary/{task.id}.{visit}.md"
+
+  push-fix:
+    description: Commit the fix and push to the branch under observation.
+    program:
+      command: ".rhei/commit-and-push.sh"
+      env:
+        BRANCH: "{task.metadata.branch}"
+        SUMMARY_PATH: "runtime/fix-summary/{task.id}.{visit}.md"
+    program_timeout: 5m
+
+  heal-done:
+    description: CI is green; the branch is healed.
+    final: true
+
+  poll-gave-up:
+    description: CI never returned a verdict within the poll budget.
+    final: true
+
+  fix-exhausted:
+    description: Fix-loop budget exhausted; human review required.
+    final: true
+
+transitions:
+  # ── Inner poll loop (ci-watch) ────────────────────────────────────────
+  - from: ci-watch
+    to: ci-watch
+    exit_code: 75
+    description: CI still running — retry after poll.interval.
+
+  - from: ci-watch
+    to: heal-done
+    exit_code: 0
+    description: All checks green.
+
+  - from: ci-watch
+    to: analyze-and-fix
+    exit_code: 1
+    description: One or more jobs failed — hand off to the agent.
+
+  - from: ci-watch
+    to: poll-gave-up
+    condition: pollAttempts >= pollMaxAttempts
+    description: Exhausted the poll budget without a verdict.
+
+  # ── Outer fix loop (analyze-and-fix → push-fix → ci-watch) ────────────
+  - from: analyze-and-fix
+    to: push-fix
+    condition: visitCount < visits
+    description: Fix written; push it so CI re-runs.
+
+  - from: analyze-and-fix
+    to: fix-exhausted
+    condition: visitCount >= visits
+    description: Too many fix cycles — escalate.
+
+  - from: push-fix
+    to: ci-watch
+    exit_code: 0
+    description: Fix pushed; re-enter the poll loop (ci-watch counters reset).
+
+profiles:
+  default:
+    initial: ci-watch
+    allowed: [ci-watch, analyze-and-fix, push-fix, heal-done, poll-gave-up, fix-exhausted]
+
+node_policy:
+  root: default
+  default: default

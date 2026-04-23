@@ -26,4 +26,3 @@ pub(crate) fn parse_task_id(input: &str) -> Option<TaskId> {
     }
     Some(TaskId::from_segments(segments))
 }
-

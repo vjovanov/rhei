@@ -107,11 +107,7 @@ fn main() -> ExitCode {
 fn cmd_list() {
     let width = EXAMPLES.iter().map(|e| e.name.len()).max().unwrap_or(0);
     for ex in EXAMPLES {
-        let tag = if ex.runnable {
-            "validate, run"
-        } else {
-            "validate"
-        };
+        let tag = if ex.runnable { "validate, run" } else { "validate" };
         println!("  {:<width$}  {}", ex.name, tag, width = width);
     }
 }
@@ -152,8 +148,7 @@ fn cmd_validate_one(name: &str) -> ExitCode {
 fn run_validate(ex: &Example) -> bool {
     let root = workspace_root();
     let mut cmd = Command::new(cargo());
-    cmd.current_dir(&root)
-        .args(["run", "-q", "-p", "rhei-cli", "--"]);
+    cmd.current_dir(&root).args(["run", "-q", "-p", "rhei-cli", "--"]);
     if let Some(sm) = ex.state_machine {
         cmd.args(["--state-machine", sm]);
     }
@@ -176,10 +171,7 @@ fn cmd_run(name: &str, viz_after: bool) -> ExitCode {
         eprintln!("expected directory for runnable example: {}", src.display());
         return ExitCode::FAILURE;
     }
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let tmp = env::temp_dir().join(format!("rhei-xtask-{}-{stamp}", ex.name));
     let leaf = src.file_name().expect("example path has a file name");
     let dest = tmp.join(leaf);
@@ -187,9 +179,7 @@ fn cmd_run(name: &str, viz_after: bool) -> ExitCode {
         eprintln!("failed to copy example: {err}");
         return ExitCode::FAILURE;
     }
-    let sm = ex
-        .state_machine
-        .expect("runnable examples must declare a state machine");
+    let sm = ex.state_machine.expect("runnable examples must declare a state machine");
     let sm_rel = Path::new(sm)
         .strip_prefix(ex.path)
         .expect("runnable example's state machine must live under its directory");
@@ -207,26 +197,40 @@ fn cmd_run(name: &str, viz_after: bool) -> ExitCode {
     if success {
         println!("\nArtifacts left in {}", dest.display());
     }
+    if !success {
+        if viz_after {
+            eprintln!("skipping viz because the run failed");
+        }
+        return ExitCode::FAILURE;
+    }
+
     if viz_after {
-        match viz_run_output(ex.name, &dest) {
+        match viz_run_output(ex.name, &dest, Some(&sm_abs)) {
             Ok(path) => {
                 println!("Viz: {}", path.display());
-                let _ = open_in_browser(&path);
+                if let Err(err) = open_in_browser(&path) {
+                    eprintln!("failed to open browser: {err}");
+                    return ExitCode::FAILURE;
+                }
             }
-            Err(err) => eprintln!("viz failed: {err}"),
+            Err(err) => {
+                eprintln!("viz failed: {err}");
+                return ExitCode::FAILURE;
+            }
         }
     }
-    if success {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+
+    ExitCode::SUCCESS
 }
 
-fn viz_run_output(example_name: &str, run_dir: &Path) -> io::Result<PathBuf> {
+fn viz_run_output(
+    example_name: &str,
+    run_dir: &Path,
+    machine_override: Option<&Path>,
+) -> io::Result<PathBuf> {
     let out_dir = workspace_root().join("target/rhei-viz");
     fs::create_dir_all(&out_dir)?;
-    let plans = viz::collect_plans(run_dir, example_name)?;
+    let plans = viz::collect_plans(run_dir, example_name, machine_override)?;
     if plans.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -256,11 +260,7 @@ fn cmd_viz_all() -> ExitCode {
             }
         }
     }
-    println!(
-        "\nWrote {} HTML file(s) to {}",
-        EXAMPLES.len() - failed.len(),
-        out_dir.display()
-    );
+    println!("\nWrote {} HTML file(s) to {}", EXAMPLES.len() - failed.len(), out_dir.display());
     if failed.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -283,7 +283,10 @@ fn cmd_viz_one(name: &str, open: bool) -> ExitCode {
         Ok(path) => {
             println!("{}", path.display());
             if open {
-                let _ = open_in_browser(&path);
+                if let Err(err) = open_in_browser(&path) {
+                    eprintln!("failed to open browser: {err}");
+                    return ExitCode::FAILURE;
+                }
             }
             ExitCode::SUCCESS
         }
@@ -297,7 +300,8 @@ fn cmd_viz_one(name: &str, open: bool) -> ExitCode {
 fn render_example(ex: &Example, out_dir: &Path) -> io::Result<PathBuf> {
     let root = workspace_root();
     let src = root.join(ex.path);
-    let plans = viz::collect_plans(&src, ex.name)?;
+    let machine_override = ex.state_machine.map(|path| root.join(path));
+    let plans = viz::collect_plans(&src, ex.name, machine_override.as_deref())?;
     if plans.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -322,14 +326,16 @@ fn open_in_browser(path: &Path) -> io::Result<()> {
     #[cfg(target_os = "windows")]
     cmd.args(["/C", "start", ""]);
     cmd.arg(path);
-    cmd.status()?;
-    Ok(())
+    let status = cmd.status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::new(io::ErrorKind::Other, format!("{tool} exited with status {status}")))
+    }
 }
 
 fn cargo() -> PathBuf {
-    env::var_os("CARGO")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("cargo"))
+    env::var_os("CARGO").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("cargo"))
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {

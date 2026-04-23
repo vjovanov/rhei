@@ -169,10 +169,7 @@ pub struct Structure {
 
 impl Default for Structure {
     fn default() -> Self {
-        Self {
-            max_levels: DEFAULT_MAX_LEVELS,
-            node_kinds: vec![DEFAULT_NODE_KIND.to_string()],
-        }
+        Self { max_levels: DEFAULT_MAX_LEVELS, node_kinds: vec![DEFAULT_NODE_KIND.to_string()] }
     }
 }
 
