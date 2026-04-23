@@ -5,15 +5,22 @@
 //! before the real subcommand ships. Keep the data shape and derivation
 //! rules consistent with that spec so this implementation migrates cleanly.
 
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use rhei_core::ast::{Rhei, Task as AstTask};
+use rhei_core::{parse, workspace};
+use rhei_validator::{parse_task_state, StateMachine};
+use serde::Serialize;
+
 const TEMPLATE: &str = include_str!("../assets/viz-template.html");
 const DATA_PLACEHOLDER: &str = "/*__DATA__*/null";
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Plan {
+    #[serde(skip_serializing)]
     pub key: String,
     pub title: String,
     pub source: PathBuf,
@@ -21,7 +28,7 @@ pub struct Plan {
     pub tasks: Vec<Task>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Task {
     pub id: String,
     pub title: String,
@@ -30,7 +37,7 @@ pub struct Task {
     pub subtasks: Vec<Subtask>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Subtask {
     pub id: String,
     pub title: String,
@@ -38,263 +45,20 @@ pub struct Subtask {
     pub prior: Vec<String>,
 }
 
-pub fn parse_plan(path: &Path, key: String) -> io::Result<Plan> {
-    let text = fs::read_to_string(path)?;
-    let mut title = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("plan")
-        .to_string();
-    let mut tasks: Vec<Task> = Vec::new();
-    let mut cur_task: Option<Task> = None;
-    // Track which element the next `**State:**` / `**Prior:**` annotates.
-    let mut scope: Scope = Scope::None;
-
-    for raw in text.lines() {
-        let line = raw.trim_end_matches('\r');
-        if let Some(t) = line.strip_prefix("# ") {
-            title = t.trim().to_string();
-            continue;
-        }
-        if let Some((id, tt)) = parse_task_header(line) {
-            if let Some(task) = cur_task.take() {
-                tasks.push(task);
-            }
-            cur_task = Some(Task {
-                id,
-                title: tt,
-                state: "pending".into(),
-                prior: Vec::new(),
-                subtasks: Vec::new(),
-            });
-            scope = Scope::Task;
-            continue;
-        }
-        if let Some((id, tt)) = parse_subtask_header(line) {
-            if let Some(task) = cur_task.as_mut() {
-                task.subtasks.push(Subtask {
-                    id,
-                    title: tt,
-                    state: "pending".into(),
-                    prior: Vec::new(),
-                });
-            }
-            scope = Scope::Subtask;
-            continue;
-        }
-        if let Some(state) = parse_state_line(line) {
-            apply_state(&mut cur_task, scope, &state);
-        } else if let Some(prior) = parse_prior_line(line) {
-            apply_prior(&mut cur_task, scope, prior);
-        }
-    }
-    if let Some(task) = cur_task.take() {
-        tasks.push(task);
-    }
-
-    let state = derive_plan_state(&tasks);
-    Ok(Plan {
-        key,
-        title,
-        source: path.to_path_buf(),
-        state,
-        tasks,
-    })
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum Scope {
-    None,
-    Task,
-    Subtask,
-}
-
-fn apply_state(cur_task: &mut Option<Task>, scope: Scope, state: &str) {
-    if let Some(task) = cur_task.as_mut() {
-        match scope {
-            Scope::Task => task.state = state.to_string(),
-            Scope::Subtask => {
-                if let Some(s) = task.subtasks.last_mut() {
-                    s.state = state.to_string();
-                }
-            }
-            Scope::None => {}
-        }
-    }
-}
-
-fn apply_prior(cur_task: &mut Option<Task>, scope: Scope, prior: Vec<String>) {
-    if let Some(task) = cur_task.as_mut() {
-        match scope {
-            Scope::Task => task.prior = prior,
-            Scope::Subtask => {
-                if let Some(s) = task.subtasks.last_mut() {
-                    s.prior = prior;
-                }
-            }
-            Scope::None => {}
-        }
-    }
-}
-
-fn parse_task_header(line: &str) -> Option<(String, String)> {
-    let rest = line.strip_prefix("### Task ")?;
-    let (id, title) = rest.split_once(':')?;
-    if id.contains('.') {
-        return None;
-    }
-    Some((id.trim().to_string(), title.trim().to_string()))
-}
-
-fn parse_subtask_header(line: &str) -> Option<(String, String)> {
-    let rest = line.strip_prefix("#### Task ")?;
-    let (id, title) = rest.split_once(':')?;
-    if !id.contains('.') {
-        return None;
-    }
-    Some((id.trim().to_string(), title.trim().to_string()))
-}
-
-fn parse_state_line(line: &str) -> Option<String> {
-    let rest = line.strip_prefix("**State:**")?.trim();
-    let unbacked = rest.trim_matches('`').trim();
-    if unbacked.is_empty() {
-        None
-    } else {
-        Some(unbacked.to_string())
-    }
-}
-
-fn parse_prior_line(line: &str) -> Option<Vec<String>> {
-    let rest = line.strip_prefix("**Prior:**")?.trim();
-    let parts: Vec<String> = rest
-        .split(',')
-        .map(|p| p.trim().trim_start_matches("Task ").trim().to_string())
-        .filter(|p| !p.is_empty())
-        .collect();
-    Some(parts)
-}
-
-/// Derive a level-0 plan state from the task states. See
-/// `docs/specs/rhei-viz.spec.md#plan-level-state-derivation`.
-fn derive_plan_state(tasks: &[Task]) -> String {
-    if tasks.is_empty() {
-        return "draft".into();
-    }
-    let all_draft = tasks.iter().all(|t| t.state == "draft");
-    if all_draft {
-        return "draft".into();
-    }
-    let all_completed = tasks.iter().all(|t| t.state == "completed");
-    if all_completed {
-        return "completed".into();
-    }
-    let all_terminal = tasks
-        .iter()
-        .all(|t| matches!(t.state.as_str(), "completed" | "cancelled" | "archived"));
-    if all_terminal {
-        return "archived".into();
-    }
-    let any_active = tasks.iter().any(|t| {
-        matches!(
-            t.state.as_str(),
-            "in_progress"
-                | "needs-review"
-                | "review"
-                | "prove"
-                | "consolidate"
-                | "agent-review"
-                | "agent-review-fix"
-                | "human-review"
-        )
-    });
-    if any_active {
-        "active".into()
-    } else {
-        "pending".into()
-    }
-}
-
-// -----------------------------------------------------------------------------
-// JSON emission — manual so xtask keeps zero external dependencies.
-
-fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0c}' => out.push_str("\\f"),
-            c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-fn str_array(strs: &[String]) -> String {
-    let parts: Vec<String> = strs.iter().map(|s| format!("\"{}\"", escape_json(s))).collect();
-    format!("[{}]", parts.join(","))
-}
-
-fn subtask_json(s: &Subtask) -> String {
-    format!(
-        "{{\"id\":\"{}\",\"title\":\"{}\",\"state\":\"{}\",\"prior\":{}}}",
-        escape_json(&s.id),
-        escape_json(&s.title),
-        escape_json(&s.state),
-        str_array(&s.prior),
-    )
-}
-
-fn task_json(t: &Task) -> String {
-    let subs: Vec<String> = t.subtasks.iter().map(subtask_json).collect();
-    format!(
-        "{{\"id\":\"{}\",\"title\":\"{}\",\"state\":\"{}\",\"prior\":{},\"subtasks\":[{}]}}",
-        escape_json(&t.id),
-        escape_json(&t.title),
-        escape_json(&t.state),
-        str_array(&t.prior),
-        subs.join(","),
-    )
-}
-
-fn plan_json(p: &Plan) -> String {
-    let tasks: Vec<String> = p.tasks.iter().map(task_json).collect();
-    format!(
-        "{{\"title\":\"{}\",\"source\":\"{}\",\"state\":\"{}\",\"tasks\":[{}]}}",
-        escape_json(&p.title),
-        escape_json(&p.source.to_string_lossy()),
-        escape_json(&p.state),
-        tasks.join(","),
-    )
-}
-
-fn bundle_json(plans: &[Plan]) -> String {
-    let entries: Vec<String> = plans
-        .iter()
-        .map(|p| format!("\"{}\":{}", escape_json(&p.key), plan_json(p)))
-        .collect();
-    format!("{{{}}}", entries.join(","))
-}
-
-// -----------------------------------------------------------------------------
-// HTML rendering
-
 pub fn render_html(plans: &[Plan]) -> String {
-    let data = bundle_json(plans);
-    TEMPLATE.replace(DATA_PLACEHOLDER, &data)
+    let bundle: BTreeMap<&str, &Plan> =
+        plans.iter().map(|plan| (plan.key.as_str(), plan)).collect();
+    let data = serde_json::to_string(&bundle).expect("plan bundle should always serialize");
+    TEMPLATE.replace(DATA_PLACEHOLDER, &escape_json_for_html_script(&data))
 }
 
-pub fn collect_plans(path: &Path, example_name: &str) -> io::Result<Vec<Plan>> {
+pub fn collect_plans(
+    path: &Path,
+    example_name: &str,
+    machine_override: Option<&Path>,
+) -> io::Result<Vec<Plan>> {
     if path.is_file() {
-        return Ok(vec![parse_plan(path, example_name.to_string())?]);
+        return Ok(vec![load_plan_file(path, example_name.to_string(), machine_override)?]);
     }
     if !path.is_dir() {
         return Err(io::Error::new(
@@ -303,146 +67,311 @@ pub fn collect_plans(path: &Path, example_name: &str) -> io::Result<Vec<Plan>> {
         ));
     }
 
-    // Workspace-style example: merge `index.rhei.md` (for title/context) with
-    // every task shard under `tasks/**/*.md` into a single synthesized plan.
-    // Standalone `.rhei.md` siblings (not `index.rhei.md`) get their own plan.
-    let mut rhei_files: Vec<PathBuf> = Vec::new();
-    walk_matching(path, &mut rhei_files, |p| {
-        p.file_name()
-            .and_then(|s| s.to_str())
-            .map(|s| s.ends_with(".rhei.md"))
-            .unwrap_or(false)
-    })?;
-    rhei_files.sort();
-
-    let index = rhei_files
-        .iter()
-        .find(|p| p.file_name().map(|s| s == "index.rhei.md").unwrap_or(false))
-        .cloned();
-
-    let tasks_dir = path.join("tasks");
-    let mut shards: Vec<PathBuf> = Vec::new();
-    if tasks_dir.is_dir() {
-        walk_matching(&tasks_dir, &mut shards, |p| {
-            p.extension().and_then(|s| s.to_str()) == Some("md")
-        })?;
-        shards.sort();
-    }
-
     let mut plans = Vec::new();
-    if index.is_some() || !shards.is_empty() {
-        let merged_path = index.clone().unwrap_or_else(|| path.to_path_buf());
-        let mut buf = String::new();
-        if let Some(idx) = &index {
-            buf.push_str(&fs::read_to_string(idx)?);
-            buf.push('\n');
-        }
-        // Ensure the parser sees a `## Tasks` header so shard content lands in
-        // the task scope — task shards use `### Task …` headers directly.
-        if !shards.is_empty() && !buf.contains("## Tasks") {
-            buf.push_str("\n## Tasks\n\n");
-        }
-        for shard in &shards {
-            buf.push_str(&fs::read_to_string(shard)?);
-            buf.push('\n');
-        }
-        let synthetic = path.join(".rhei-viz-merged.md");
-        let plan = parse_merged(&merged_path, &synthetic, &buf, example_name.to_string());
-        plans.push(plan);
+
+    if workspace::is_workspace(path) {
+        let loaded = workspace::load_workspace(path).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to load workspace {}: {}", path.display(), err.message),
+            )
+        })?;
+        let machine = resolve_machine_for_workspace(path, machine_override, &loaded.rhei)?;
+        plans.push(plan_from_rhei(
+            path.join("index.rhei.md"),
+            example_name.to_string(),
+            &loaded.rhei,
+            &machine,
+        ));
     }
 
-    // Any additional standalone *.rhei.md siblings (not index) render separately.
-    for f in rhei_files
-        .iter()
-        .filter(|p| p.file_name().map(|s| s != "index.rhei.md").unwrap_or(true))
-    {
-        let rel = f
-            .strip_prefix(path)
-            .unwrap_or(f)
-            .to_string_lossy()
-            .to_string();
-        let key = format!("{}::{}", example_name, rel);
-        plans.push(parse_plan(f, key)?);
+    for plan_path in standalone_plan_files(path)? {
+        if plan_path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
+            continue;
+        }
+        let rel = plan_path.strip_prefix(path).unwrap_or(&plan_path).to_string_lossy().to_string();
+        let key = format!("{example_name}::{rel}");
+        plans.push(load_plan_file(&plan_path, key, machine_override)?);
     }
 
     Ok(plans)
 }
 
-fn walk_matching<F: Fn(&Path) -> bool + Copy>(
-    dir: &Path,
-    out: &mut Vec<PathBuf>,
-    pred: F,
-) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let p = entry.path();
-        if p.is_dir() {
-            walk_matching(&p, out, pred)?;
-        } else if pred(&p) {
-            out.push(p);
-        }
-    }
-    Ok(())
+fn load_plan_file(path: &Path, key: String, machine_override: Option<&Path>) -> io::Result<Plan> {
+    let text = fs::read_to_string(path)?;
+    let rhei = parse(&text).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to parse {}: {}", path.display(), err.message),
+        )
+    })?;
+    let machine = resolve_machine_for_plan(path, machine_override, &rhei)?;
+    Ok(plan_from_rhei(path.to_path_buf(), key, &rhei, &machine))
 }
 
-fn parse_merged(source: &Path, _synthetic: &Path, text: &str, key: String) -> Plan {
-    let mut title = source
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("plan")
-        .to_string();
-    let mut tasks: Vec<Task> = Vec::new();
-    let mut cur_task: Option<Task> = None;
-    let mut scope: Scope = Scope::None;
-    for raw in text.lines() {
-        let line = raw.trim_end_matches('\r');
-        if let Some(t) = line.strip_prefix("# ") {
-            if title == source.file_stem().and_then(|s| s.to_str()).unwrap_or("plan") {
-                title = t.trim().to_string();
-            }
-            continue;
+fn plan_from_rhei(source: PathBuf, key: String, rhei: &Rhei, machine: &StateMachine) -> Plan {
+    let tasks: Vec<Task> =
+        rhei.tasks.iter().map(|task| top_level_task_from_ast(task, machine)).collect();
+    let state = derive_plan_state(&tasks, machine);
+    Plan { key, title: rhei.title.clone(), source, state, tasks }
+}
+
+fn top_level_task_from_ast(task: &AstTask, machine: &StateMachine) -> Task {
+    let mut subtasks = Vec::new();
+    collect_descendants(&task.children, machine, &mut subtasks);
+    Task {
+        id: task.id.to_string(),
+        title: task.title.clone(),
+        state: normalize_state(&task.state, machine),
+        prior: task.prior.iter().map(ToString::to_string).collect(),
+        subtasks,
+    }
+}
+
+fn collect_descendants(children: &[AstTask], machine: &StateMachine, out: &mut Vec<Subtask>) {
+    for child in children {
+        out.push(Subtask {
+            id: child.id.to_string(),
+            title: child.title.clone(),
+            state: normalize_state(&child.state, machine),
+            prior: child.prior.iter().map(ToString::to_string).collect(),
+        });
+        collect_descendants(&child.children, machine, out);
+    }
+}
+
+fn normalize_state(raw_state: &str, machine: &StateMachine) -> String {
+    parse_task_state(raw_state, machine).state
+}
+
+/// Derive a level-0 plan state from the task states. See
+/// `docs/specs/rhei-viz.spec.md#plan-level-state-derivation`.
+fn derive_plan_state(tasks: &[Task], machine: &StateMachine) -> String {
+    if tasks.is_empty() {
+        return "draft".into();
+    }
+
+    let states: Vec<&str> = tasks.iter().map(|task| task.state.as_str()).collect();
+    if states.iter().all(|state| *state == "draft") {
+        return "draft".into();
+    }
+    if states.iter().all(|state| *state == "completed") {
+        return "completed".into();
+    }
+
+    let terminal_states: HashSet<&str> = machine
+        .states
+        .iter()
+        .filter_map(|(name, def)| def.terminal.then_some(name.as_str()))
+        .collect();
+    if states.iter().all(|state| terminal_states.contains(*state)) {
+        let first = states[0];
+        if states.iter().all(|state| *state == first) && first != "cancelled" && first != "archived"
+        {
+            return "completed".into();
         }
-        if let Some((id, tt)) = parse_task_header(line) {
-            if let Some(task) = cur_task.take() {
-                tasks.push(task);
-            }
-            cur_task = Some(Task {
-                id,
-                title: tt,
-                state: "pending".into(),
-                prior: Vec::new(),
-                subtasks: Vec::new(),
-            });
-            scope = Scope::Task;
-            continue;
-        }
-        if let Some((id, tt)) = parse_subtask_header(line) {
-            if let Some(task) = cur_task.as_mut() {
-                task.subtasks.push(Subtask {
-                    id,
-                    title: tt,
-                    state: "pending".into(),
-                    prior: Vec::new(),
-                });
-            }
-            scope = Scope::Subtask;
-            continue;
-        }
-        if let Some(state) = parse_state_line(line) {
-            apply_state(&mut cur_task, scope, &state);
-        } else if let Some(prior) = parse_prior_line(line) {
-            apply_prior(&mut cur_task, scope, prior);
+        return "archived".into();
+    }
+
+    let initial_state =
+        machine.states.iter().find_map(|(name, def)| def.initial.then_some(name.as_str()));
+    let any_active = states.iter().any(|state| {
+        !terminal_states.contains(*state) && *state != "draft" && Some(*state) != initial_state
+    });
+
+    if any_active {
+        "active".into()
+    } else {
+        "pending".into()
+    }
+}
+
+fn resolve_machine_for_plan(
+    plan_path: &Path,
+    machine_override: Option<&Path>,
+    rhei: &Rhei,
+) -> io::Result<StateMachine> {
+    if let Some(machine_path) = machine_override {
+        return load_machine(machine_path);
+    }
+    if rhei.states == "rhei" {
+        return Ok(StateMachine::builtin_default());
+    }
+    let machine_path = plan_path.parent().unwrap_or_else(|| Path::new(".")).join("states.yaml");
+    load_machine(&machine_path)
+}
+
+fn resolve_machine_for_workspace(
+    workspace_dir: &Path,
+    machine_override: Option<&Path>,
+    rhei: &Rhei,
+) -> io::Result<StateMachine> {
+    if let Some(machine_path) = machine_override {
+        return load_machine(machine_path);
+    }
+    if rhei.states == "rhei" {
+        return Ok(StateMachine::builtin_default());
+    }
+    load_machine(&workspace_dir.join("states.yaml"))
+}
+
+fn load_machine(machine_path: &Path) -> io::Result<StateMachine> {
+    StateMachine::from_yaml_file(machine_path).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to load state machine {}: {err}", machine_path.display()),
+        )
+    })
+}
+
+fn standalone_plan_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut files: Vec<PathBuf> = fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(".rhei.md"))
+                .unwrap_or(false)
+        })
+        .collect();
+    files.sort();
+    Ok(files)
+}
+
+fn escape_json_for_html_script(data: &str) -> String {
+    let mut out = String::with_capacity(data.len());
+    for ch in data.chars() {
+        match ch {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            _ => out.push(ch),
         }
     }
-    if let Some(task) = cur_task.take() {
-        tasks.push(task);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
     }
-    let state = derive_plan_state(&tasks);
-    Plan {
-        key,
-        title,
-        source: source.to_path_buf(),
-        state,
-        tasks,
+
+    impl TempDir {
+        fn new(prefix: &str) -> Self {
+            let stamp = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+            let path = std::env::temp_dir().join(format!("rhei-xtask-viz-{prefix}-{stamp}"));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn render_html_escapes_script_breakouts() {
+        let plans = vec![Plan {
+            key: "demo".into(),
+            title: "</script><script>alert(1)</script>".into(),
+            source: PathBuf::from("/tmp/demo.rhei.md"),
+            state: "pending".into(),
+            tasks: vec![],
+        }];
+
+        let html = render_html(&plans);
+        assert!(!html.contains("</script><script>alert(1)</script>"));
+        assert!(
+            html.contains("\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e")
+        );
+    }
+
+    #[test]
+    fn collect_plans_merges_workspace_and_skips_task_shards_as_standalone() {
+        let temp = TempDir::new("workspace");
+        fs::write(
+            temp.path().join("index.rhei.md"),
+            "# Rhei: Workspace\n**States:** rhei\n\n## Overview\nDemo.\n",
+        )
+        .expect("write index");
+        fs::create_dir_all(temp.path().join("tasks")).expect("create tasks dir");
+        fs::write(
+            temp.path().join("tasks/alpha.rhei.md"),
+            "### Task 1: Alpha\n**State:** pending\n",
+        )
+        .expect("write shard");
+        fs::write(
+            temp.path().join("extra.rhei.md"),
+            "# Rhei: Extra\n**States:** rhei\n\n## Tasks\n\n### Task 1: Extra\n**State:** completed\n",
+        )
+        .expect("write standalone plan");
+
+        let plans = collect_plans(temp.path(), "demo", None).expect("collect plans");
+
+        assert_eq!(plans.len(), 2);
+        assert_eq!(plans[0].title, "Workspace");
+        assert_eq!(plans[1].title, "Extra");
+    }
+
+    #[test]
+    fn collect_plans_preserves_non_task_descendants() {
+        let temp = TempDir::new("deep-plan");
+        let plan_path = temp.path().join("plan.rhei.md");
+        fs::write(
+            &plan_path,
+            "# Rhei: Deep\n**States:** rhei\n---\nstructure:\n  maxLevels: 4\n  nodeKinds: [task, bug]\n---\n\n## Tasks\n\n### Task api: Build API\n**State:** pending\n\n#### Bug api.cache: Cache issue\n**State:** review\n\n##### Task api.cache.1: Fix cache key\n**State:** in-progress\n",
+        )
+        .expect("write plan");
+
+        let plans = collect_plans(&plan_path, "demo", None).expect("collect plans");
+
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].tasks[0].subtasks.len(), 2);
+        assert_eq!(plans[0].tasks[0].subtasks[0].id, "api.cache");
+        assert_eq!(plans[0].tasks[0].subtasks[1].id, "api.cache.1");
+        assert_eq!(plans[0].tasks[0].subtasks[1].state, "in-progress");
+    }
+
+    #[test]
+    fn derive_plan_state_uses_machine_normalization_and_terminals() {
+        let temp = TempDir::new("machine");
+        let plan_path = temp.path().join("plan.rhei.md");
+        let machine_path = temp.path().join("states.yaml");
+        fs::write(
+            &plan_path,
+            "# Rhei: Custom\n**States:** custom\n\n## Tasks\n\n### Task 1: Alpha\n**State:** fix\n",
+        )
+        .expect("write plan");
+        fs::write(
+            &machine_path,
+            "name: custom\nversion: 1\nstates:\n  pending:\n    initial: true\n    description: Ready\n  fix:\n    description: Fixing\n  done:\n    description: Done\n    final: true\ntransitions:\n  - from: pending\n    to: fix\n  - from: fix\n    to: done\n",
+        )
+        .expect("write state machine");
+
+        let active_plans = collect_plans(&plan_path, "demo", None).expect("collect active plan");
+        assert_eq!(active_plans[0].state, "active");
+
+        fs::write(
+            &plan_path,
+            "# Rhei: Custom\n**States:** custom\n\n## Tasks\n\n### Task 1: Alpha\n**State:** done\n",
+        )
+        .expect("rewrite plan");
+        let completed_plans =
+            collect_plans(&plan_path, "demo", None).expect("collect completed plan");
+        assert_eq!(completed_plans[0].state, "completed");
     }
 }

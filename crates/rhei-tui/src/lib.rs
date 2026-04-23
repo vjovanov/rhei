@@ -8,9 +8,7 @@ mod journal;
 mod stdout;
 mod tui;
 
-pub use event::{
-    EventSink, MessageLevel, NullSink, RunEvent, RunSummary, Slot, TaskOutcome, Tee,
-};
+pub use event::{EventSink, MessageLevel, NullSink, RunEvent, RunSummary, Slot, TaskOutcome, Tee};
 pub use frontend::{select_frontend, Frontend, FrontendKind};
 pub use journal::JournalSink;
 pub use stdout::StdoutSink;

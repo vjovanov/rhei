@@ -1757,10 +1757,7 @@ transitions:
 
     // Most importantly: the plan file must be rolled back to its original state.
     let contents = fs::read_to_string(&plan_path).expect("read plan");
-    assert_eq!(
-        contents, plan,
-        "on_enter failure must roll back the state write"
-    );
+    assert_eq!(contents, plan, "on_enter failure must roll back the state write");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

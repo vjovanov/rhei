@@ -1,5 +1,6 @@
 # Agents
 scratchpad/
+.agents/scratchpad/
 
 # Rust build artifacts
 target/

@@ -5479,15 +5479,11 @@ fn run_command(
     }
 
     let mut use_standalone_mode = false;
-    for (name, def) in &machine.states {
+    for def in machine.states.values() {
         if def.terminal || def.gating {
             continue;
         }
-        if def.program.is_some() {
-            use_standalone_mode = true;
-            break;
-        }
-        if resolve_agent(&machine, name, &settings, &opts)?.is_some() {
+        if state_declares_autonomous_execution(def) {
             use_standalone_mode = true;
             break;
         }
@@ -5665,7 +5661,9 @@ fn run_agent_mode(
                         continue;
                     }
                     return Err(miette!(
-                        "no agent configured.\nSet one in ~/.config/rhei/settings.json, .rhei/settings.json, or the state machine.\nAlternatively, pass --agent <AGENT> to rhei run."
+                        "no agent configured.\n\nFix by either:\n  \u{2022} Re-run with --agent, e.g.:\n      rhei run {} --agent claude-code\n  \u{2022} Add to {}/.rhei/settings.json:\n      {{ \"agent\": \"claude-code\" }}\n\nBuilt-in agents: claude-code, codex, gemini, cursor, kilocode, pi",
+                        input.display(),
+                        workspace_root.display()
                     ));
                 }
 
@@ -5984,6 +5982,43 @@ fn run_agent_mode(
             sink.emit(RunEvent::PassEnded { pass, progressed: true });
             continue;
         }
+
+        // Enforce concurrent-state scheduling: for states without
+        // `concurrent: true`, at most one task may be active in that state
+        // per pass. Fanout invocations from the same task (via `all_targets`
+        // / `all_models`) are always kept together. Deferred tasks are
+        // naturally re-considered on the next pass.
+        let agent_tasks = {
+            let mut filtered: Vec<(String, String, String, ResolvedAgent)> = Vec::new();
+            let mut state_claimant: HashMap<String, String> = HashMap::new();
+            let mut deferred: BTreeSet<String> = BTreeSet::new();
+            for entry in agent_tasks {
+                let is_concurrent =
+                    machine.states.get(&entry.2).map(|d| d.concurrent).unwrap_or(false);
+                if is_concurrent {
+                    filtered.push(entry);
+                    continue;
+                }
+                match state_claimant.get(&entry.2) {
+                    Some(claimant) if claimant == &entry.0 => filtered.push(entry),
+                    Some(_) => {
+                        deferred.insert(entry.0);
+                    }
+                    None => {
+                        state_claimant.insert(entry.2.clone(), entry.0.clone());
+                        filtered.push(entry);
+                    }
+                }
+            }
+            if !deferred.is_empty() {
+                run_info!(
+                    "Deferred {} task(s) in non-concurrent states to a later pass: {}",
+                    deferred.len(),
+                    deferred.iter().cloned().collect::<Vec<_>>().join(", ")
+                );
+            }
+            filtered
+        };
 
         // Determine how many agents to spawn this pass.
         let batch_size =
@@ -6749,8 +6784,8 @@ fn dependency_is_satisfied(state: &str, machine: &rhei_validator::StateMachine) 
     normalized_state_name(state, machine) != "cancelled" && is_terminal_state(state, machine)
 }
 
-/// Find tasks that are ready to advance: not in a terminal state and all
-/// prior dependencies are satisfied.
+/// Find tasks that are ready to advance: not in a terminal or gating state
+/// and all prior dependencies are satisfied.
 ///
 /// Returns task references in source order.
 fn find_ready_tasks<'a>(
@@ -6771,8 +6806,11 @@ fn find_ready_tasks<'a>(
     for task in &rhei.tasks {
         let current_state = task.state.as_str();
 
-        // Skip tasks already in a terminal state.
-        if is_terminal_state(current_state, machine) {
+        // Skip tasks already in a terminal or gating state.
+        let normalized_state = normalized_state_name(current_state, machine);
+        if is_terminal_state(current_state, machine)
+            || machine.states.get(&normalized_state).map(|def| def.gating).unwrap_or(false)
+        {
             continue;
         }
 
@@ -6908,6 +6946,15 @@ fn diagnose_no_claimable(
 fn is_terminal_state(state: &str, machine: &rhei_validator::StateMachine) -> bool {
     let normalized = normalized_state_name(state, machine);
     machine.states.get(&normalized).map(|def| def.terminal).unwrap_or(false)
+}
+
+fn state_declares_autonomous_execution(def: &rhei_validator::StateDef) -> bool {
+    def.program.is_some()
+        || def.agent.is_some()
+        || def.model.is_some()
+        || def.target.is_some()
+        || !def.all_models.is_empty()
+        || !def.all_targets.is_empty()
 }
 
 /// Find the next forward transition from a given state.
@@ -7237,6 +7284,12 @@ fn next_command(
     // Determine whether we need a state transition.
     // Tasks in an initial state (e.g. draft) are transitioned forward.
     let is_initial = machine.states.get(&current_state).map(|d| d.initial).unwrap_or(false);
+    let current_state_def = machine
+        .states
+        .get(&current_state)
+        .ok_or_else(|| miette!("state '{}' missing from loaded machine", current_state))?;
+    let auto_transition_initial =
+        is_initial && !state_declares_autonomous_execution(current_state_def);
 
     let task_file = loaded.task_file(&task_id_str, input);
     let metadata_file = if workspace::is_workspace(input) {
@@ -7245,7 +7298,7 @@ fn next_command(
         task_file.clone()
     };
 
-    let final_state = if is_initial && !peek {
+    let final_state = if auto_transition_initial && !peek {
         // Advance from the initial state (e.g. draft → pending).
         let target_id = parse_task_id(&task_id_str);
         let task = loaded

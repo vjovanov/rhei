@@ -293,6 +293,201 @@ transitions:
 }
 
 #[test]
+fn run_callback_mode_stops_at_human_review() {
+    let plan = r#"# Rhei: Human Review Gate
+
+## Tasks
+
+### Task 1: Aggregate findings
+**State:** aggregate
+"#;
+    let machine = r#"name: human-review-gate
+version: 1
+states:
+  aggregate:
+    initial: true
+    description: Aggregate findings
+  human-review:
+    description: Wait for a human decision
+    gating: true
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: aggregate
+    to: human-review
+  - from: human-review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("run-human-review-gate");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "human-review");
+    assert!(
+        !result.stdout.contains("'human-review' → 'completed'"),
+        "run should stop at the gating state; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_callback_mode_waits_for_other_branches_before_halting_at_human_review() {
+    let plan = r#"# Rhei: Human Review Barrier
+
+## Tasks
+
+### Task 1: Human gate
+**State:** aggregate
+
+### Task 2: Independent cleanup
+**State:** work
+
+### Task 3: After approval
+**State:** work
+**Prior:** Task 1
+"#;
+    let machine = r#"name: human-review-barrier
+version: 1
+states:
+  aggregate:
+    description: Aggregate findings
+  work:
+    description: Ordinary autonomous work
+  human-review:
+    description: Wait for a human decision
+    gating: true
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: aggregate
+    to: human-review
+  - from: work
+    to: completed
+  - from: human-review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("run-human-review-barrier");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "human-review");
+    assert_task_state(&plan_path, &machine_path, "2", "completed");
+    assert_task_state(&plan_path, &machine_path, "3", "work");
+    assert!(
+        !result.stdout.contains("Task 1 transitioned: 'human-review' → 'completed'"),
+        "gating task must not advance autonomously; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Task 2 transitioned: 'work' → 'completed'"),
+        "independent non-gating work should still complete before the run halts; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root");
+    let example_path = repo_root.join("examples/changeset-review-example/states.yaml");
+    let example_yaml = fs::read_to_string(&example_path).expect("read example states.yaml");
+    let machine = rhei_validator::StateMachine::from_yaml_str(&example_yaml)
+        .unwrap_or_else(|err| panic!("parse {}: {err}", example_path.display()));
+    let human_review = machine
+        .states
+        .get("human-review")
+        .unwrap_or_else(|| panic!("{} missing human-review state", example_path.display()));
+    assert!(human_review.gating, "{} should mark human-review as gating", example_path.display());
+
+    let template_path = repo_root.join(".agents/rhei/templates/changeset-review/states.yaml");
+    let template = fs::read_to_string(&template_path).expect("read template states.yaml");
+    let start = template
+        .find("\n  human-review:\n")
+        .unwrap_or_else(|| panic!("{} missing human-review block", template_path.display()));
+    let end = template[start + 1..]
+        .find("\n  fix-spawn:\n")
+        .map(|offset| start + 1 + offset)
+        .unwrap_or(template.len());
+    let human_review_block = &template[start..end];
+    assert!(
+        human_review_block.contains("\n    gating: true\n"),
+        "{} should mark human-review as gating",
+        template_path.display()
+    );
+}
+
+#[test]
+fn run_prefers_agent_mode_for_model_declared_workflows_without_falling_back_to_callbacks() {
+    let (ws, machine_path) = create_workspace(
+        "run-model-declared-agent-mode",
+        "# Rhei: Review Workflow\n",
+        &[("task.md", "### Task coordinate: Coordinate review\n**State:** split\n")],
+    );
+
+    let machine = r#"name: review-workflow
+version: 1
+models:
+  - codex
+states:
+  split:
+    initial: true
+    description: Coordinator
+    instructions: Write `{output.overview.path}`.
+    outputs:
+      - name: overview
+        path: runtime/overview.md
+  review:
+    description: Review
+    model: codex
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: split
+    to: completed
+  - from: review
+    to: completed
+"#;
+    fs::write(&machine_path, machine).expect("write machine");
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks"]);
+    assert!(
+        !result.status.success(),
+        "run should fail without a configured agent transport\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("no agent configured"),
+        "expected explicit missing-agent error; got:\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("Missing required output artifact"),
+        "run should not fall back to callback-only output validation; got:\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
 fn reset_bash_agent_team_fixture_restores_initial_state() {
     let (dir, workspace_path, machine_path) =
         copy_workspace_fixture("reset-bash-agent-team", "bash-agent-team");

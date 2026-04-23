@@ -670,6 +670,7 @@ Rules:
 - Once `visitCount >= visits`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
 - When a state also declares `all_models`, visit accounting is scoped to each model-specific execution of that state.
 - When a state also declares `all_targets`, visit accounting is scoped to each target-specific execution of that state.
+- On a state that declares [`poll:`](rhei-states.spec.md#polling-states), the same `stateVisits` entry records poll attempts. Transitions from that state may use `pollAttempts` (alias for `visitCount`) and `pollMaxAttempts` (alias for `poll.max_attempts`) for clarity; both names are only defined on transitions whose `from` state declares `poll:`. A self-loop transition from a poll state is interpreted by `rhei run` as "retry after `poll.interval`" and releases the `--parallel` slot between attempts; once `pollAttempts >= pollMaxAttempts`, the engine refuses self-loops and picks the first matching non-self-loop transition instead.
 
 Example:
 

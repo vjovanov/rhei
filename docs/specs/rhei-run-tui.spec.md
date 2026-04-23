@@ -120,7 +120,7 @@ A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second 
 ### Failure Modes
 
 - **Panic in the execution engine** — a panic hook registered by `TuiSink` calls `ratatui::restore()` before re-raising, so the terminal is never left in raw mode.
-- **Ctrl+C** — the existing `nix` signal handler continues to stop the engine; `TuiSink` sees `RunFinished` and exits its render loop cleanly.
+- **Ctrl+C** — because the TUI runs the terminal in raw mode, Ctrl+C arrives as a key event rather than an automatic `SIGINT`. `TuiSink` restores the terminal, explicitly re-raises `SIGINT` for the process, and then exits its render loop.
 - **Terminal too small for any tile** — auto-degrade to compact list mode; never crash.
 - **Slow log file growth** — the log tailer uses a bounded 50-line ring buffer and never blocks the engine thread.
 - **Journal write failure** — log a warning to stderr and continue; journal errors never abort a run.

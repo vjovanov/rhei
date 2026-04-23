@@ -85,14 +85,8 @@ fn tokenizes_named_task_ids_and_prior_references() {
             id: TaskId::named("bootstrap_env"),
         },
         Token::MetadataState { state: "in-progress".to_string() },
-        Token::MetadataPrior {
-            task_ids: vec![TaskId::named("seed_data"), TaskId::number(2)],
-        },
-        Token::NodeHeader {
-            level: 3,
-            kind: "Task".to_string(),
-            id: TaskId::named("seed_data"),
-        },
+        Token::MetadataPrior { task_ids: vec![TaskId::named("seed_data"), TaskId::number(2)] },
+        Token::NodeHeader { level: 3, kind: "Task".to_string(), id: TaskId::named("seed_data") },
         Token::MetadataState { state: "pending".to_string() },
     ];
 

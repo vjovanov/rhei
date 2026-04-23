@@ -116,15 +116,9 @@ impl EventSink for JournalSink {
 }
 
 fn format_rfc3339(t: SystemTime) -> String {
-    let secs = t
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let secs = t.duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
     let (year, month, day, hour, minute, second) = civil_from_epoch_secs(secs);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hour, minute, second
-    )
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month, day, hour, minute, second)
 }
 
 /// Convert a Unix timestamp (UTC) to (year, month, day, hour, minute, second).

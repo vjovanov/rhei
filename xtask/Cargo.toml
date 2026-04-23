@@ -5,6 +5,12 @@ edition = "2021"
 publish = false
 license = "MIT OR Apache-2.0"
 
+[dependencies]
+rhei-core = { path = "../crates/rhei-core" }
+rhei-validator = { path = "../crates/rhei-validator" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 [[bin]]
 name = "xtask"
 path = "src/main.rs"

@@ -71,6 +71,8 @@ can start in different states within the same state machine.
 |-------|------|----------|-------------|
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
+| `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
+| `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#polling-states). |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
 | `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. |
 | `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
@@ -140,12 +142,74 @@ can start in different states within the same state machine.
 - `state.mcp_servers` and `state.skills` on a `gating: true` state are a validation error (gating states are human-only; the agent will never be invoked).
 - `state.mcp_servers` and `state.skills` on a state with `program:` set are a validation error (programs execute deterministically and do not consume tool surfaces).
 - `state.mcp_servers: []` and `state.skills: []` are valid and mean "clear the inherited `defaults` tooling for this state" — not "ignore the field".
+- `state.poll`, when present, must be an object with `interval` (a valid duration string, e.g. `30s`, `5m`, `1h`) and `max_attempts` (an integer ≥ `1`).
+- `state.poll` on a `final: true` state is a validation error (terminal states have no work to execute).
+- `state.poll` on a `gating: true` state is a validation error (gating states require human action; polling executes autonomously).
+- `state.poll` combined with `state.visits` is a validation error. `poll.max_attempts` replaces the `visits` cap for the poll state and populates the same `stateVisits` counter.
+- A state that declares `poll` must have at least one self-loop transition (`from: <state>, to: <state>`); without it the "retry" branch is unreachable.
 
 Counted-loop counters are task-instance data, not state-definition data. The state machine declares the cap with `visits`; runtimes persist the current per-task counts in task metadata and mirror the active visit in markdown by appending `-<n>` to `**State:**` for visits greater than `1`.
 
 When a state declares `all_targets` and `visits`, the engine runs the state
 once per listed target and each target-specific execution tracks its own visit
 budget. The same scoping rule applies to `all_models`.
+
+## Polling States
+
+A state marked with a `poll:` block is a *time-triggered* state: on each attempt
+the state's `agent` or `program` runs once, the engine evaluates transitions,
+and a self-loop transition is interpreted as "not done yet, come back in
+`interval`". This is useful for waiting on external systems (CI runs,
+deployments, review approvals exposed over an API) without occupying a
+`--parallel` slot during the wait.
+
+### Shape
+
+```yaml
+states:
+  ci-wait:
+    description: Wait for the remote CI run to finish.
+    program: ".rhei/check-ci.sh"
+    poll:
+      interval: 5m
+      max_attempts: 12
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `interval` | duration string | Yes | Minimum wall-clock wait between attempts (e.g., `30s`, `5m`, `1h`). The `--parallel` slot is released during the wait. |
+| `max_attempts` | integer | Yes | Upper bound on total attempts for this state within one task lifetime. Must be ≥ `1`. |
+
+### Semantics
+
+- **Attempt counter.** `poll.max_attempts` replaces the `visits` cap for the state. The same `metadata.tasks.<id>.stateVisits.<state-name>` counter records attempts; the counter starts at `1` on first entry and increments on every self-loop re-entry, identical to the `visits` accounting in [Transitions Specification — Counted Loops](rhei-transitions.spec.md#counted-loops).
+- **Retry signal.** Any self-loop transition (`from: X, to: X`) selected by the normal transition-matching rules is interpreted as "not done yet." The engine persists `metadata.tasks.<id>.pollNextAttemptAt.<state-name> = now() + interval`, releases the slot, and stops working this task for this pass. On later passes the task is excluded from the ready set until `pollNextAttemptAt` has elapsed.
+- **Exit.** Any non-self-loop transition exits the state normally and clears both `pollNextAttemptAt.<state-name>` and `stateVisits.<state-name>` for that state.
+- **Exhaustion.** When `stateVisits.<state-name> >= poll.max_attempts`, the engine will *not* execute a self-loop transition even if one matches. Instead it re-evaluates transitions and picks the first matching non-self-loop. The recommended pattern is an explicit exhaustion transition:
+  ```yaml
+  - from: ci-wait
+    to: ci-gave-up
+    condition: pollAttempts >= pollMaxAttempts
+  ```
+  If no non-self-loop matches after exhaustion, the task remains in its current state and `rhei run` aborts the task with a clear error (same behavior as "no matching transition found").
+
+### Variables for transition conditions
+
+Polling states expose two additional names alongside the existing `visitCount`
+and `visits`:
+
+- `pollAttempts` — alias for `visitCount` in a poll state (the current attempt index, `1`-based).
+- `pollMaxAttempts` — alias for `poll.max_attempts`.
+
+Both names are available only on transitions whose `from` state declares
+`poll:`. Outside a poll state they are undefined.
+
+### Interaction with other state features
+
+- **`agent` / `program`.** `poll` works for both. The attempt is one subprocess invocation whose exit code / outputs drive transition matching as usual.
+- **`all_targets` / `all_models`.** Fanout composes: each per-target or per-model execution tracks its own `stateVisits.<state-name>` entry (same scoping as `visits`). Slot release applies per fanout invocation.
+- **`concurrent`.** Independent: a `concurrent: true` poll state may have multiple tasks in flight simultaneously, each with its own `pollNextAttemptAt`.
+- **`agent_timeout` / `program_timeout`.** Bound one attempt's duration; they do not bound the total polling wall-clock time. Combine with `max_attempts` to bound the total.
 
 ## Artifact Contracts
 

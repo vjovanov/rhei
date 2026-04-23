@@ -240,6 +240,62 @@ transitions:
 }
 
 #[test]
+fn next_does_not_auto_transition_runnable_initial_states() {
+    let plan = r#"# Rhei: Runnable Initial State
+
+## Tasks
+
+### Task coordinate: Coordinate review
+**State:** split
+Review the change and write the manifest.
+"#;
+    let machine = r#"name: runnable-initial
+version: 1
+models:
+  - codex
+states:
+  split:
+    initial: true
+    description: Coordinator
+    model: codex
+    instructions: |
+      Write the overview to `{output.overview.path}`.
+    outputs:
+      - name: overview
+        path: runtime/manifests/coordinate.md
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: split
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-runnable-initial");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
+    assert_success(&result);
+
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
+    assert_eq!(json["task_id"], "coordinate");
+    assert_eq!(json["from_state"], "split");
+    assert_eq!(json["state"], "split");
+    assert!(
+        json["instructions"]
+            .as_str()
+            .expect("instructions string")
+            .contains("runtime/manifests/coordinate.md"),
+        "expected runnable-state instructions; got:\n{}",
+        result.stdout
+    );
+    assert_task_state(&plan_path, &machine_path, "coordinate", "split");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn next_respects_dependency_order() {
     let (dir, plan_path, machine_path) = setup_single_file("next-deps", LINEAR_PLAN);
 

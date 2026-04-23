@@ -10,8 +10,8 @@
 //!   depth.
 
 use crate::ast::{
-    ContentSection, Metadata, Rhei, Structure, Task, TaskId, DEFAULT_MAX_LEVELS,
-    DEFAULT_NODE_KIND, MAX_ALLOWED_LEVELS,
+    ContentSection, Metadata, Rhei, Structure, Task, TaskId, DEFAULT_MAX_LEVELS, DEFAULT_NODE_KIND,
+    MAX_ALLOWED_LEVELS,
 };
 use crate::text::parse_task_id;
 use regex::Regex;
@@ -160,7 +160,11 @@ struct NodeBuilder {
 fn finalize_builder(b: NodeBuilder) -> Result<Task> {
     let state = b.state.ok_or_else(|| {
         ParseError::new(
-            format!("{} {} is missing mandatory **State:** metadata", title_case_kind(&b.kind), b.id),
+            format!(
+                "{} {} is missing mandatory **State:** metadata",
+                title_case_kind(&b.kind),
+                b.id
+            ),
             Some(b.heading_line),
         )
     })?;
@@ -301,11 +305,8 @@ fn strip_for_recovery(input: &str, line: usize, message: &str) -> (String, bool)
     // mandatory **State:**" error on the next pass for the same task, which
     // is spurious from the user's point of view. Treat state-related
     // malformed metadata as a whole-task issue.
-    let whole_task_markers = [
-        "missing mandatory **State:**",
-        "malformed node heading",
-        "expected '**State:** <value>'",
-    ];
+    let whole_task_markers =
+        ["missing mandatory **State:**", "malformed node heading", "expected '**State:** <value>'"];
     let drop_whole_task = whole_task_markers.iter().any(|m| message.contains(m));
 
     let lines: Vec<&str> = input.lines().collect();
