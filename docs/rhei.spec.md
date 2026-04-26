@@ -812,7 +812,7 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
-| **Inspection** | `validate`, `render`, `states` | Read-only commands that examine or render a plan without modifying it |
+| **Inspection** | `validate`, `render`, `states`, `list` | Read-only commands that examine or render a plan without modifying it |
 | **Templates** | `templates`, `instantiate` | Discover and instantiate reusable plan and workspace templates |
 | **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
 | **Setup** | `install-skills` | Install packaged Rhei skills for supported agent environments |
@@ -824,6 +824,7 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 - [Plan Language Usage Guide](specs/rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs
 - [States Specification](specs/rhei-states.spec.md) - Defines the states configuration format
 - [Transitions Specification](specs/rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
+- [List Command](specs/rhei-list.spec.md) - `rhei list` filter set and output format
 - [Next Command](specs/rhei-next.spec.md) - `rhei next` behavioral contract, including `--peek` mode
 - [Transition Command](specs/rhei-transition-cmd.spec.md) - `rhei transition` compare-and-swap contract
 - [Complete Command](specs/rhei-complete.spec.md) - `rhei complete` behavioral contract

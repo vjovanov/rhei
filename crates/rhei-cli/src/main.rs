@@ -41,6 +41,7 @@ Inspection:
   validate    Validate a markdown plan against the configured states
   render      Render a markdown plan into a selected output format
   states      Print the states and allowed transitions for the configured state machine
+  list        List tasks in a plan with optional filters
 
 Templates:
   templates   List available templates
@@ -112,6 +113,54 @@ enum Commands {
     /// Print the states and allowed transitions for the configured state machine
     States {
         /// Emit the state machine as JSON instead of plain text
+        #[arg(long)]
+        json: bool,
+    },
+    /// List tasks in a plan with optional filters
+    List {
+        /// Path to the markdown plan file (.rhei.md)
+        #[arg(value_name = "RHEI_PLAN")]
+        input: PathBuf,
+        /// Filter by state (repeatable; comma-separated list also accepted)
+        #[arg(long, value_name = "STATE", value_delimiter = ',')]
+        state: Vec<String>,
+        /// Filter by assignee value (exact match)
+        #[arg(long, value_name = "ASSIGNEE", conflicts_with = "no_assignee")]
+        assignee: Option<String>,
+        /// Only tasks with no assignee
+        #[arg(long, conflicts_with = "assignee")]
+        no_assignee: bool,
+        /// Filter by node kind (e.g. task, bug, spec)
+        #[arg(long, value_name = "KIND")]
+        kind: Option<String>,
+        /// Only tasks that list <TASK_ID> in their **Prior:** dependencies
+        #[arg(long, value_name = "TASK_ID")]
+        has_prior: Option<String>,
+        /// Only direct children of <TASK_ID>
+        #[arg(long, value_name = "TASK_ID", conflicts_with = "root")]
+        parent: Option<String>,
+        /// Only top-level tasks (no parent)
+        #[arg(long, conflicts_with = "parent")]
+        root: bool,
+        /// Substring match against task title and content (case-insensitive)
+        #[arg(long, value_name = "TEXT")]
+        contains: Option<String>,
+        /// Only tasks whose state is terminal in the resolved state machine
+        #[arg(long, conflicts_with = "non_terminal")]
+        terminal: bool,
+        /// Only tasks whose state is non-terminal
+        #[arg(long, conflicts_with = "terminal")]
+        non_terminal: bool,
+        /// Only tasks whose prior dependencies are satisfied and state is non-terminal/non-gating
+        #[arg(long, conflicts_with = "blocked")]
+        ready: bool,
+        /// Only tasks blocked by unsatisfied prerequisites
+        #[arg(long, conflicts_with = "ready")]
+        blocked: bool,
+        /// Maximum number of tasks to print (0 means no limit)
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+        /// Emit output as JSON for machine consumption
         #[arg(long)]
         json: bool,
     },
@@ -323,6 +372,7 @@ fn command_wants_json(command: &Commands) -> bool {
     match command {
         Commands::Next { json, .. } => *json,
         Commands::States { json } => *json,
+        Commands::List { json, .. } => *json,
         Commands::Templates { json, .. } => *json,
         Commands::Render { format, .. } => matches!(format, RenderFormat::Json),
         _ => false,
@@ -350,6 +400,42 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             render_command(&input, format, pretty, no_color, no_metadata, no_content)
         }
         Commands::States { json } => states_command(cli.state_machine.as_deref(), json),
+        Commands::List {
+            input,
+            state,
+            assignee,
+            no_assignee,
+            kind,
+            has_prior,
+            parent,
+            root,
+            contains,
+            terminal,
+            non_terminal,
+            ready,
+            blocked,
+            limit,
+            json,
+        } => list_command(
+            &input,
+            cli.state_machine.as_deref(),
+            ListFilters {
+                states: state,
+                assignee,
+                no_assignee,
+                kind,
+                has_prior,
+                parent,
+                root,
+                contains,
+                terminal,
+                non_terminal,
+                ready,
+                blocked,
+                limit,
+            },
+            json,
+        ),
         Commands::Transition { input, task, from, to, no_callbacks } => transition_command(
             &input,
             cli.state_machine.as_deref(),
@@ -490,6 +576,205 @@ fn states_command(state_machine: Option<&Path>, as_json: bool) -> MietteResult<(
         println!("{rendered}");
     } else {
         println!("{}", render_state_machine_text(&machine));
+    }
+
+    Ok(())
+}
+
+/// Filter set for the `list` subcommand. See `Commands::List` for flag docs.
+struct ListFilters {
+    states: Vec<String>,
+    assignee: Option<String>,
+    no_assignee: bool,
+    kind: Option<String>,
+    has_prior: Option<String>,
+    parent: Option<String>,
+    root: bool,
+    contains: Option<String>,
+    terminal: bool,
+    non_terminal: bool,
+    ready: bool,
+    blocked: bool,
+    limit: usize,
+}
+
+/// Execute the `list` subcommand: load a plan and print tasks matching the
+/// provided filters. Modeled after `bd list` from beads, with a filter set
+/// adapted to Rhei's data model (no priority/labels/timestamps).
+fn list_command(
+    input: &Path,
+    state_machine_path: Option<&Path>,
+    filters: ListFilters,
+    as_json: bool,
+) -> MietteResult<()> {
+    let loaded = load_plan(input)?;
+    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machine = resolved.machine;
+
+    // Flatten the task tree into (task, parent_id) pairs, preserving source order.
+    let mut flat: Vec<(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();
+    fn walk<'a>(
+        task: &'a rhei_core::ast::Task,
+        parent: Option<TaskId>,
+        out: &mut Vec<(&'a rhei_core::ast::Task, Option<TaskId>)>,
+    ) {
+        out.push((task, parent));
+        let parent_id = Some(task.id.clone());
+        for child in &task.children {
+            walk(child, parent_id.clone(), out);
+        }
+    }
+    for task in &loaded.rhei.tasks {
+        walk(task, None, &mut flat);
+    }
+
+    // Pre-compute state map for ready/blocked checks (only top-level tasks
+    // declare priors, but checking the full flat set is harmless).
+    let state_map: HashMap<&TaskId, String> = flat
+        .iter()
+        .map(|(t, _)| (&t.id, normalized_state_name(t.state.as_str(), &machine)))
+        .collect();
+
+    let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
+        task.prior.iter().all(|dep| {
+            state_map.get(dep).map(|s| dependency_is_satisfied(s, &machine)).unwrap_or(false)
+        })
+    };
+
+    // Normalize state filter values once so users can pass either canonical
+    // names or aliases declared in the state machine.
+    let state_filter: Vec<String> = filters
+        .states
+        .iter()
+        .map(|s| normalized_state_name(s.as_str(), &machine))
+        .collect();
+    let parent_filter = filters.parent.as_deref().map(parse_task_id);
+    let has_prior_filter = filters.has_prior.as_deref().map(parse_task_id);
+    let contains_lower = filters.contains.as_deref().map(|s| s.to_lowercase());
+
+    let mut matches: Vec<&(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();
+    for entry in &flat {
+        let (task, parent_id) = entry;
+
+        if !state_filter.is_empty() {
+            let task_state = normalized_state_name(task.state.as_str(), &machine);
+            if !state_filter.iter().any(|s| s == &task_state) {
+                continue;
+            }
+        }
+
+        if let Some(want) = filters.assignee.as_deref() {
+            if task.assignee.as_deref() != Some(want) {
+                continue;
+            }
+        }
+        if filters.no_assignee && task.assignee.is_some() {
+            continue;
+        }
+
+        if let Some(want) = filters.kind.as_deref() {
+            if !task.kind.eq_ignore_ascii_case(want) {
+                continue;
+            }
+        }
+
+        if let Some(prior_id) = &has_prior_filter {
+            if !task.prior.iter().any(|p| p == prior_id) {
+                continue;
+            }
+        }
+
+        if let Some(parent_id_filter) = &parent_filter {
+            if parent_id.as_ref() != Some(parent_id_filter) {
+                continue;
+            }
+        }
+        if filters.root && parent_id.is_some() {
+            continue;
+        }
+
+        if let Some(needle) = &contains_lower {
+            let title_hit = task.title.to_lowercase().contains(needle);
+            let body_hit = task.content.to_lowercase().contains(needle);
+            if !title_hit && !body_hit {
+                continue;
+            }
+        }
+
+        let is_terminal = is_terminal_state(task.state.as_str(), &machine);
+        if filters.terminal && !is_terminal {
+            continue;
+        }
+        if filters.non_terminal && is_terminal {
+            continue;
+        }
+
+        if filters.ready || filters.blocked {
+            let normalized = normalized_state_name(task.state.as_str(), &machine);
+            let is_gating =
+                machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
+            let satisfied = priors_satisfied(task);
+            let task_ready = !is_terminal && !is_gating && satisfied;
+            if filters.ready && !task_ready {
+                continue;
+            }
+            if filters.blocked && (is_terminal || satisfied) {
+                continue;
+            }
+        }
+
+        matches.push(entry);
+    }
+
+    if filters.limit > 0 && matches.len() > filters.limit {
+        matches.truncate(filters.limit);
+    }
+
+    if as_json {
+        let payload: Vec<serde_json::Value> = matches
+            .iter()
+            .map(|(task, parent_id)| {
+                serde_json::json!({
+                    "id": task.id.to_string(),
+                    "kind": task.kind,
+                    "title": task.title,
+                    "state": task.state,
+                    "assignee": task.assignee,
+                    "prior": task.prior.iter().map(TaskId::to_string).collect::<Vec<_>>(),
+                    "parent": parent_id.as_ref().map(TaskId::to_string),
+                    "depth": task.id.depth(),
+                })
+            })
+            .collect();
+        let rendered = serde_json::to_string_pretty(&payload)
+            .map_err(|err| miette!("failed to serialize task list: {err}"))?;
+        println!("{rendered}");
+        return Ok(());
+    }
+
+    if matches.is_empty() {
+        println!("(no tasks match the given filters)");
+        return Ok(());
+    }
+
+    for (task, _) in &matches {
+        let indent = "  ".repeat(task.id.depth().saturating_sub(1));
+        let mut line = format!(
+            "{}{} {}: {} [{}]",
+            indent,
+            title_case_kind(&task.kind),
+            task.id,
+            task.title,
+            task.state
+        );
+        if !task.prior.is_empty() {
+            let priors: Vec<String> = task.prior.iter().map(TaskId::to_string).collect();
+            line.push_str(&format!(" (prior: {})", priors.join(", ")));
+        }
+        if let Some(assignee) = &task.assignee {
+            line.push_str(&format!(" @{}", assignee));
+        }
+        println!("{line}");
     }
 
     Ok(())
