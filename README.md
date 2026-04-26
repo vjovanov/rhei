@@ -2,6 +2,38 @@
 
 Rhei is a Rust workspace for parsing, validating, executing, and rendering structured markdown plans.
 
+## Why Rhei
+
+Rhei is the only agent task-planning system that combines all of:
+
+- **Markdown is the source of truth.** A plan is a `.rhei.md` file you can read,
+  diff, and edit in any editor — not a database, not a chat scratchpad.
+- **Explicit prerequisite DAG.** `**Prior:**` declares dependencies, validated
+  for cycles, missing references, and kind mismatches.
+- **Hierarchical tasks** with configurable depth (`maxLevels` 1–4) and custom
+  node kinds (`Task`, `Bug`, `Spike`, …).
+- **Pluggable YAML state machines.** Define your own states, allowed transitions,
+  per-node-kind profiles, and required input/output artifact contracts per
+  state — including counted review loops via `visits: n` and `state-2` suffixes.
+- **Multi-agent coordination over git.** Directory Workspace mode shards tasks
+  into per-file markdown so swarms can advance in parallel without merge
+  conflicts; `rhei transition` provides atomic compare-and-swap on state.
+- **Deterministic ready-work selection.** `rhei next` claims the next eligible
+  task by terminal-state prerequisites and node policy, no LLM guesswork.
+- **Full validator.** `rhei validate` checks syntax, state validity, dependency
+  integrity, hierarchy/id alignment, link integrity, terminal-tree coherence,
+  and artifact contracts.
+- **Templates: automate your complex daily routines in minutes.** Capture a
+  recurring workflow — code review loops, release checklists, onboarding,
+  audits — once as a parameterized template (plan skeleton + state machine +
+  typed inputs), then `rhei instantiate` it with concrete values to spin up a
+  ready-to-execute workspace. See
+  [`docs/specs/rhei-templates.spec.md`](docs/specs/rhei-templates.spec.md).
+
+See [`docs/comparison.md`](docs/comparison.md) for a detailed comparison against
+beads, beans, opencode, Claude Code TodoWrite, Cline, Cursor, Roo, Devin, and
+Augment.
+
 Current workspace crates:
 - `rhei-core`: AST types plus markdown plan parsing
 - `rhei-validator`: semantic validation against a YAML states definition

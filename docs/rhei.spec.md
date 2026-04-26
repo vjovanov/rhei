@@ -1,6 +1,6 @@
 # Rhei Plan Language Specification
 
-This document defines the formal grammar and semantics of the Rhei Plan language, a structured subset of Markdown for hierarchical task management.
+This document specifies the grammar and semantics of the Rhei Plan language — a structured subset of Markdown for hierarchical task management shared by humans and AI agents.
 
 ## Overview
 
@@ -91,6 +91,8 @@ The worker reads the plan, loads the state machine, and enters a loop: claim the
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
 For programmatic execution with `rhei run`, see [Pattern 6: Programmatic State Transitions](specs/rhei-usage.spec.md#pattern-6-programmatic-state-transitions).
+
+
 
 ## Plan Formats
 
