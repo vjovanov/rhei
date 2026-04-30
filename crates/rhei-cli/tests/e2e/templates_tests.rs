@@ -122,6 +122,101 @@ Say hello to {{target}}.
 }
 
 #[test]
+fn instantiate_accepts_manifest_declared_positional_input() {
+    let dir = unique_temp_dir("templates-positional");
+    let template_dir = dir.join("positional-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: positional-template
+version: 1.0.0
+description: Template with positional input
+inputs:
+  - name: target
+    description: Greeting target
+    positional: 1
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Hello {{target}}
+
+## Tasks
+
+### Task 1: Greet {{target}}
+**State:** pending
+"#,
+    );
+
+    let output_dir = dir.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "World",
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &dir,
+    );
+    assert_success(&result);
+
+    let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
+    assert!(rendered.contains("# Rhei: Hello World"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn instantiate_maps_single_required_input_to_one_bare_value() {
+    let dir = unique_temp_dir("templates-single-required");
+    let template_dir = dir.join("single-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: single-template
+version: 1.0.0
+description: Template with one required input
+inputs:
+  - name: target
+    description: Greeting target
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Hello {{target}}
+
+## Tasks
+
+### Task 1: Greet {{target}}
+**State:** pending
+"#,
+    );
+
+    let output_dir = dir.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "World",
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &dir,
+    );
+    assert_success(&result);
+
+    let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
+    assert!(rendered.contains("# Rhei: Hello World"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn instantiate_relocates_root_settings_json_into_rhei_dir() {
     let dir = unique_temp_dir("templates-settings-bundling");
     let template_dir = dir.join("settings-template");

@@ -49,7 +49,7 @@ fn parse_structure(metadata: Option<&Metadata>, start_line: usize) -> Result<Str
     })?;
 
     let mut max_levels: u8 = DEFAULT_MAX_LEVELS;
-    if let Some(v) = mapping.get(&YamlValue::String("maxLevels".to_string())) {
+    if let Some(v) = mapping.get(YamlValue::String("maxLevels".to_string())) {
         let n = v.as_u64().ok_or_else(|| {
             ParseError::new(
                 "plan frontmatter `structure.maxLevels` must be a positive integer",
@@ -69,7 +69,7 @@ fn parse_structure(metadata: Option<&Metadata>, start_line: usize) -> Result<Str
     }
 
     let mut node_kinds: Vec<String> = vec![DEFAULT_NODE_KIND.to_string()];
-    if let Some(v) = mapping.get(&YamlValue::String("nodeKinds".to_string())) {
+    if let Some(v) = mapping.get(YamlValue::String("nodeKinds".to_string())) {
         let seq = v.as_sequence().ok_or_else(|| {
             ParseError::new(
                 "plan frontmatter `structure.nodeKinds` must be a sequence of strings",
