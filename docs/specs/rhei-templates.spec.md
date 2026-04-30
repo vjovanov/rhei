@@ -67,6 +67,8 @@ inputs:
     required: <boolean>        # Whether the input must be supplied (default: true)
     default: <value>           # Default value (makes the input optional; mutually
                                #   exclusive with required: true)
+    positional: <integer>       # Optional 1-based positional CLI slot for short
+                               #   `rhei instantiate <template> <value>` input
     validate: <regex>          # Optional regex the value must match
     items:                     # Required for `type: array`
       type: <...>
@@ -87,6 +89,7 @@ inputs:
 - An input with `required: true` (the default) must not declare a `default`.
 - An input with a `default` is implicitly `required: false`.
 - An input with `required: false` and no `default` resolves to the empty string when not supplied by the user. Templates are pure text substitution in v1, so authors should tolerate that empty string directly or prefer declaring a `default`.
+- `positional`, when present, must be a positive integer. Positional indexes must be unique within a manifest and contiguous starting at `1`.
 - `type: array` inputs must declare `items`.
 - `type: object` inputs may declare `properties`. Properties are required by default unless they declare either `required: false` or a `default`.
 - `validate` is only valid on scalar input types (`string`, `number`, `boolean`, `path`).
@@ -95,7 +98,7 @@ inputs:
   - `number`, `boolean` → `null`
   - `array` → `[]`
   - `object` → `{}`
-- For `type: array` and `type: object`, `--set KEY=...` and `--set-file KEY=...` values are parsed as YAML/JSON snippets before validation.
+- For `type: array` and `type: object`, positional values, `KEY=VALUE`, `--set KEY=...`, and `--set-file KEY=...` values are parsed as YAML/JSON snippets before validation.
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
 - `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value.
 
@@ -210,16 +213,18 @@ For backward compatibility, `\{{` also emits a literal `{{` and the backslash is
 Create a concrete plan workspace from a template.
 
 ```
-rhei instantiate <template> [options]
+rhei instantiate <template> [input ...] [options]
 
 Arguments:
   <template>                   Template name or path to a template directory
+  [input ...]                  Positional input values or key=value assignments
 
 Options:
   --set <key>=<value>          Set an input value (repeatable)
   --set-file <key>=<path>      Set an input value from file contents (repeatable)
   --values <file>              Load input values from a YAML or JSON file (repeatable;
-                                 later files, then --set, then --set-file override earlier values)
+                                 later files, then input args / --set, then --set-file
+                                 override earlier values)
   --output <path>              Output directory (default: ./<template-name>/ where
                                  <template-name> is the directory basename of the
                                  resolved template)
@@ -229,11 +234,74 @@ Options:
   --list-inputs                Print the template's input schema and exit
 ```
 
+#### Input UX
+
+`rhei instantiate` supports three equivalent ways to provide simple template
+inputs:
+
+```bash
+rhei instantiate spec-review docs/specs/rhei-run.spec.md
+rhei instantiate code-review target=src/auth review_passes=3
+rhei instantiate code-review --set target=src/auth --set review_passes=3
+```
+
+`--set` remains the explicit, script-safe form. Bare `KEY=VALUE` arguments are
+short syntax for `--set KEY=VALUE`. Bare values without `=` are positional input
+values.
+
+A template may opt into positional input values by declaring `positional` on
+one or more inputs:
+
+```yaml
+inputs:
+  - name: spec
+    description: Path to the specification file to review
+    type: path
+    positional: 1
+
+  - name: criteria
+    description: Additional things to look for during review
+    type: string
+    required: false
+    default: ""
+```
+
+With that manifest, these commands are equivalent:
+
+```bash
+rhei instantiate spec-review docs/specs/rhei-run.spec.md
+rhei instantiate spec-review spec=docs/specs/rhei-run.spec.md
+rhei instantiate spec-review --set spec=docs/specs/rhei-run.spec.md
+```
+
+For backward-compatible convenience, if a template declares exactly one
+required input and no `positional` fields, one bare input value maps to that
+required input. Templates with zero required inputs, multiple required inputs,
+or multiple bare input values must declare `positional` fields or use explicit
+`KEY=VALUE` / `--set` input.
+
+Input arguments are parsed as follows:
+
+- `KEY=VALUE` is an assignment when `KEY` is a valid input identifier. The key
+  must name a declared template input.
+- A value containing `=` is treated as a positional value when the text before
+  the first `=` is not a valid input identifier. This keeps path-like values
+  containing `=` usable.
+- A positional value is assigned to the input with the matching `positional`
+  index. When using the single-required-input fallback, it is assigned to that
+  required input.
+- Supplying the same input more than once is allowed. Later values from the
+  same precedence group override earlier values.
+- If both a positional value and an explicit assignment set the same input, the
+  explicit assignment wins.
+- `--set-file KEY=PATH` remains the file-content form and has higher precedence
+  than positional values, `KEY=VALUE`, and `--set`.
+
 #### Behavior
 
 1. **Locate template.** Resolve `<template>` through the discovery chain unless it is already a filesystem path. Direct paths include absolute paths, relative paths containing `/`, and dot-prefixed relative paths such as `./my-template` or `../templates/review`.
 2. **Load manifest.** Parse `template.yaml`, validate schema.
-3. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs. Validate types and `validate` patterns. For `array` / `object` inputs, `--set` and `--set-file` values are parsed as YAML/JSON snippets before validation.
+3. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < positional input values < `KEY=VALUE` input arguments and `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs, unknown input names, ambiguous positional values, or duplicate `positional` declarations. Validate types and `validate` patterns. For `array` / `object` inputs, positional values, `KEY=VALUE`, `--set`, and `--set-file` values are parsed as YAML/JSON snippets before validation.
 4. **Render templates.** Walk all materialized text files in the template directory and render them through the restricted MiniJinja environment. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved instantiation template reference.
 5. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.rhei/settings.json` under the output root; all other files preserve their template-relative paths.
 6. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then output-root `.rhei/settings.json`) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
@@ -287,6 +355,7 @@ inputs:
   - name: target
     description: File or directory to review
     type: path
+    positional: 1
 
   - name: review_passes
     description: Number of review iterations
@@ -387,15 +456,12 @@ node_policy:
 ### Instantiation
 
 ```bash
-rhei instantiate code-review \
-  --set target=src/auth/ \
-  --set review_passes=3 \
+rhei instantiate code-review src/auth/ \
+  review_passes=3 \
   --output ./reviews/auth-review/
 
 # Or instantiate and run immediately:
-rhei instantiate code-review \
-  --set target=src/auth/ \
-  --execute
+rhei instantiate code-review src/auth/ --execute
 ```
 
 ### Resulting Output (`./reviews/auth-review/`)
@@ -458,9 +524,10 @@ Each `inputs[]` entry is a YAML mapping with these fields:
 |-------|------|----------|-------|
 | `name` | string | Yes | Unique within the manifest; referenced as `{{name}}` in instantiation variables. |
 | `description` | string | Yes | Must be non-empty after trimming. |
-| `type` | `string` \| `number` \| `boolean` \| `path` | No | Defaults to `string`. |
+| `type` | `string` \| `number` \| `boolean` \| `path` \| `array` \| `object` | No | Defaults to `string`. |
 | `required` | boolean | No | Defaults to `true` unless a `default` is present. |
 | `default` | YAML value | No | Must be compatible with `type`; mutually exclusive with `required: true`. |
+| `positional` | positive integer | No | Optional 1-based CLI positional input slot. Values must be unique and contiguous starting at `1`. |
 | `validate` | string | No | Rust `regex`-crate pattern, matched against the fully rendered value. |
 
 ## File Extension
