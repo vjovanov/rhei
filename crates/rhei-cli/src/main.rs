@@ -1,5 +1,13 @@
 use anyhow::{Context, Result};
 use clap::{error::ErrorKind, Args, CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::engine::{
+    ArgValueCompleter, CompletionCandidate, PathCompleter, ValueCompleter,
+};
+use clap_complete::env::{
+    Bash as CompletionBash, Elvish as CompletionElvish, EnvCompleter, Fish as CompletionFish,
+    Powershell as CompletionPowerShell, Zsh as CompletionZsh,
+};
+use clap_complete::CompleteEnv;
 use fs2::FileExt;
 use miette::{miette, Report, Result as MietteResult};
 use minijinja::{Environment as MiniJinjaEnvironment, UndefinedBehavior};
@@ -17,6 +25,7 @@ use rhei_validator::{
 use serde::Deserialize;
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -55,6 +64,7 @@ Execution:
 
 Setup:
   install-skills  Install rhei skills into AI coding agent configuration directories
+  completions     Generate shell completion scripts
 
 Info:
   version     Print versions for the CLI and related crates
@@ -68,12 +78,17 @@ struct Cli {
         long,
         global = true,
         value_name = "PATH",
-        help = "Path to a states YAML file (uses built-in default when omitted)"
+        help = "Path to a states YAML file (uses built-in default when omitted)",
+        add = ArgValueCompleter::new(complete_yaml_path)
     )]
     state_machine: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
+}
+
+fn cli_command() -> clap::Command {
+    Cli::command()
 }
 
 /// Supported CLI subcommands.
@@ -85,13 +100,13 @@ enum Commands {
         #[arg(long)]
         watch: bool,
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
     },
     /// Render a markdown plan into a selected output format
     Render {
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
         /// Output format
         #[arg(long, value_enum)]
@@ -118,16 +133,16 @@ enum Commands {
     /// Atomically transition a task from one state to another (compare-and-swap)
     Transition {
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
         /// Task identifier (number or name)
-        #[arg(long)]
+        #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: String,
         /// Expected current state of the task
-        #[arg(long)]
+        #[arg(long, add = ArgValueCompleter::new(complete_transition_from_state))]
         from: String,
         /// Target state to transition to
-        #[arg(long)]
+        #[arg(long, add = ArgValueCompleter::new(complete_transition_to_state))]
         to: String,
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
@@ -136,7 +151,7 @@ enum Commands {
     /// Execute a plan by advancing tasks through the state machine in dependency order
     Run {
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
         #[command(flatten)]
         standalone: StandaloneExecutionFlags,
@@ -151,25 +166,41 @@ enum Commands {
         #[arg(long)]
         json: bool,
         /// Filter by discovery source: project, user, or all
-        #[arg(long, default_value = "all", value_name = "SOURCE")]
+        #[arg(
+            long,
+            default_value = "all",
+            value_name = "SOURCE",
+            add = ArgValueCompleter::new(complete_template_source)
+        )]
         source: String,
     },
     /// Instantiate a template into a concrete plan or workspace
     Instantiate {
         /// Template name or path to a template directory
-        #[arg(value_name = "TEMPLATE")]
+        #[arg(
+            value_name = "TEMPLATE",
+            add = ArgValueCompleter::new(templates::complete_template_reference)
+        )]
         template: String,
         /// Set an input value (repeatable)
-        #[arg(long = "set", value_name = "KEY=VALUE")]
+        #[arg(
+            long = "set",
+            value_name = "KEY=VALUE",
+            add = ArgValueCompleter::new(templates::complete_template_set_value)
+        )]
         set_values: Vec<String>,
         /// Set an input value from file contents (repeatable)
-        #[arg(long = "set-file", value_name = "KEY=PATH")]
+        #[arg(
+            long = "set-file",
+            value_name = "KEY=PATH",
+            add = ArgValueCompleter::new(templates::complete_template_set_file)
+        )]
         set_files: Vec<String>,
         /// Load input values from a YAML or JSON file (repeatable)
-        #[arg(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE", add = ArgValueCompleter::new(complete_values_path))]
         values: Vec<PathBuf>,
         /// Output directory
-        #[arg(long, value_name = "PATH")]
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_any_path))]
         output: Option<PathBuf>,
         /// Instantiate and immediately begin execution
         #[arg(long)]
@@ -183,6 +214,13 @@ enum Commands {
         /// Print the template input schema and exit
         #[arg(long)]
         list_inputs: bool,
+        /// Positional input values or KEY=VALUE assignments
+        #[arg(
+            value_name = "INPUT",
+            num_args = 0..,
+            add = ArgValueCompleter::new(templates::complete_template_input_arg)
+        )]
+        input_args: Vec<String>,
     },
     /// Transition the next ready task to the next state
     ///
@@ -191,10 +229,10 @@ enum Commands {
     /// instructions so an agent knows exactly what to do.
     Next {
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
         /// Target a specific task instead of auto-selecting
-        #[arg(long)]
+        #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
         /// Emit output as JSON for machine consumption
         #[arg(long)]
@@ -211,10 +249,10 @@ enum Commands {
     /// link it from the task, and remove the assignee.
     Complete {
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
         /// Task identifier (number or name)
-        #[arg(long)]
+        #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: String,
         /// Result message written to runtime/results/<task-id>.md
         #[arg(long)]
@@ -226,7 +264,7 @@ enum Commands {
     /// Reset a plan or workspace to the initial state
     Reset {
         /// Path to the markdown plan file (.rhei.md) or workspace directory
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
     },
     /// Print versions for the CLI and related crates
@@ -252,9 +290,31 @@ enum Commands {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer"
+            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer",
+            add = ArgValueCompleter::new(complete_skill_name)
         )]
         skills: Vec<String>,
+    },
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: CompletionShell,
+        /// Write completions to the shell's default completion location
+        #[arg(long)]
+        install: bool,
+        /// Install into the current user's shell configuration directories
+        #[arg(long, conflicts_with = "system")]
+        user: bool,
+        /// Install into system-wide completion directories
+        #[arg(long, conflicts_with = "user")]
+        system: bool,
+        /// Write completions to an explicit path
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_any_path))]
+        output: Option<PathBuf>,
+        /// Print the destination path without writing files
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -280,10 +340,35 @@ enum Agent {
     All,
 }
 
+/// Shells supported by the completion generator.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
+    #[value(name = "powershell")]
+    PowerShell,
+    Elvish,
+}
+
+impl CompletionShell {
+    fn as_str(self) -> &'static str {
+        match self {
+            CompletionShell::Bash => "bash",
+            CompletionShell::Zsh => "zsh",
+            CompletionShell::Fish => "fish",
+            CompletionShell::PowerShell => "powershell",
+            CompletionShell::Elvish => "elvish",
+        }
+    }
+}
+
 /// Program entry point.
 ///
 /// Delegates to [`run()`](run) so tests can exercise the fallible logic directly.
 fn main() {
+    CompleteEnv::with_factory(cli_command).bin("rhei").complete();
+
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err)
@@ -292,7 +377,7 @@ fn main() {
                 ErrorKind::MissingSubcommand | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
             ) =>
         {
-            let mut cmd = Cli::command();
+            let mut cmd = cli_command();
             if let Err(io_err) = cmd.print_help() {
                 eprintln!("failed to write CLI help: {io_err}");
                 std::process::exit(1);
@@ -372,8 +457,10 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             dry_run,
             keep_on_error,
             list_inputs,
+            input_args,
         } => templates::instantiate_command(
             &template,
+            &input_args,
             &set_values,
             &set_files,
             &values,
@@ -402,6 +489,536 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::InstallSkills { agent, local, link, uninstall, dry_run, skills } => {
             install_skills_command(agent, local, link, uninstall, dry_run, &skills)
         }
+        Commands::Completions { shell, install, user: _, system, output, dry_run } => {
+            completions_command(shell, install, system, output.as_deref(), dry_run)
+        }
+    }
+}
+
+fn completions_command(
+    shell: CompletionShell,
+    install: bool,
+    system: bool,
+    output: Option<&Path>,
+    dry_run: bool,
+) -> MietteResult<()> {
+    if install || output.is_some() || dry_run {
+        let path = match output {
+            Some(path) => path.to_path_buf(),
+            None => completion_install_path(shell, system)?,
+        };
+        if dry_run {
+            println!("Would install {} completions to {}", shell.as_str(), path.display());
+            return Ok(());
+        }
+
+        write_completion_file(shell, &path)?;
+        println!("Installed {} completions to {}", shell.as_str(), path.display());
+        return Ok(());
+    }
+
+    let mut stdout = std::io::stdout();
+    write_completion_registration(shell, &mut stdout)?;
+    Ok(())
+}
+
+fn write_completion_file(shell: CompletionShell, path: &Path) -> MietteResult<()> {
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)
+            .map_err(|err| file_io_report(parent, "failed to create completions directory", err))?;
+    }
+
+    let mut buffer = Vec::new();
+    write_completion_registration(shell, &mut buffer)?;
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|err| {
+        file_io_report(parent, "failed to create temporary completions file", err)
+    })?;
+    temp.write_all(&buffer)
+        .map_err(|err| file_io_report(path, "failed to write completions file", err))?;
+    temp.flush().map_err(|err| file_io_report(path, "failed to flush completions file", err))?;
+    temp.persist(path)
+        .map_err(|err| file_io_report(path, "failed to install completions file", err.error))?;
+    Ok(())
+}
+
+fn write_completion_registration(
+    shell: CompletionShell,
+    writer: &mut dyn std::io::Write,
+) -> MietteResult<()> {
+    let command = cli_command();
+    let completer = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .unwrap_or_else(|| "rhei".to_string());
+    completion_env_completer(shell)
+        .write_registration("COMPLETE", command.get_name(), "rhei", &completer, writer)
+        .map_err(|err| miette!("failed to generate {} completions: {err}", shell.as_str()))
+}
+
+fn completion_env_completer(shell: CompletionShell) -> &'static dyn EnvCompleter {
+    match shell {
+        CompletionShell::Bash => &CompletionBash,
+        CompletionShell::Zsh => &CompletionZsh,
+        CompletionShell::Fish => &CompletionFish,
+        CompletionShell::PowerShell => &CompletionPowerShell,
+        CompletionShell::Elvish => &CompletionElvish,
+    }
+}
+
+fn completion_install_path(shell: CompletionShell, system: bool) -> MietteResult<PathBuf> {
+    if system {
+        return Ok(match shell {
+            CompletionShell::Bash => {
+                PathBuf::from("/usr/local/share/bash-completion/completions/rhei")
+            }
+            CompletionShell::Zsh => PathBuf::from("/usr/local/share/zsh/site-functions/_rhei"),
+            CompletionShell::Fish => {
+                PathBuf::from("/usr/local/share/fish/vendor_completions.d/rhei.fish")
+            }
+            CompletionShell::PowerShell => {
+                PathBuf::from("/usr/local/share/powershell/Completions/rhei-completions.ps1")
+            }
+            CompletionShell::Elvish => {
+                PathBuf::from("/usr/local/share/elvish/lib/rhei-completions.elv")
+            }
+        });
+    }
+
+    Ok(match shell {
+        CompletionShell::Bash => xdg_data_home()?.join("bash-completion/completions/rhei"),
+        CompletionShell::Zsh => home_dir()?.join(".zfunc/_rhei"),
+        CompletionShell::Fish => xdg_config_home()?.join("fish/completions/rhei.fish"),
+        CompletionShell::PowerShell => xdg_config_home()?.join("powershell/rhei-completions.ps1"),
+        CompletionShell::Elvish => xdg_config_home()?.join("elvish/lib/rhei-completions.elv"),
+    })
+}
+
+fn complete_any_path(current: &OsStr) -> Vec<CompletionCandidate> {
+    PathCompleter::any().complete(current)
+}
+
+fn complete_yaml_path(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete_path_with_extensions(current, &["yaml", "yml"])
+}
+
+fn complete_values_path(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete_path_with_extensions(current, &["yaml", "yml", "json"])
+}
+
+fn complete_rhei_plan_path(current: &OsStr) -> Vec<CompletionCandidate> {
+    let current_path = Path::new(current);
+    let parent = current_path.parent().filter(|p| !p.as_os_str().is_empty());
+    let file_prefix =
+        current_path.file_name().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+    let dir = parent.unwrap_or_else(|| Path::new("."));
+    let mut candidates = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&file_prefix) {
+                continue;
+            }
+            let include = if path.is_dir() { true } else { name.ends_with(".rhei.md") };
+            if include {
+                candidates.push(path_completion_candidate(parent, &name, path.is_dir()));
+            }
+        }
+    }
+
+    candidates
+}
+
+fn complete_path_with_extensions(current: &OsStr, extensions: &[&str]) -> Vec<CompletionCandidate> {
+    let current_path = Path::new(current);
+    let parent = current_path.parent().filter(|p| !p.as_os_str().is_empty());
+    let file_prefix =
+        current_path.file_name().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+    let dir = parent.unwrap_or_else(|| Path::new("."));
+    let mut candidates = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&file_prefix) {
+                continue;
+            }
+            let include = if path.is_dir() {
+                true
+            } else {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| extensions.iter().any(|allowed| ext == *allowed))
+            };
+            if include {
+                candidates.push(path_completion_candidate(parent, &name, path.is_dir()));
+            }
+        }
+    }
+
+    candidates
+}
+
+fn path_completion_candidate(
+    parent: Option<&Path>,
+    name: &str,
+    is_dir: bool,
+) -> CompletionCandidate {
+    let mut value = parent.map(|p| p.join(name)).unwrap_or_else(|| PathBuf::from(name));
+    if is_dir {
+        value.push("");
+    }
+    CompletionCandidate::new(value.into_os_string())
+}
+
+fn complete_template_source(current: &OsStr) -> Vec<CompletionCandidate> {
+    static_completion(
+        current,
+        &[
+            ("all", "Project and user templates"),
+            ("project", "Project templates only"),
+            ("user", "User templates only"),
+        ],
+    )
+}
+
+fn complete_parallel(current: &OsStr) -> Vec<CompletionCandidate> {
+    static_completion(
+        current,
+        &[
+            ("1", "One task at a time"),
+            ("2", "Two concurrent tasks"),
+            ("4", "Four concurrent tasks"),
+            ("8", "Eight concurrent tasks"),
+            ("0", "Unlimited concurrency"),
+        ],
+    )
+}
+
+fn complete_duration(current: &OsStr) -> Vec<CompletionCandidate> {
+    static_completion(
+        current,
+        &[
+            ("30s", "Thirty seconds"),
+            ("1m", "One minute"),
+            ("5m", "Five minutes"),
+            ("15m", "Fifteen minutes"),
+            ("1h", "One hour"),
+        ],
+    )
+}
+
+fn complete_skill_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    static_completion(
+        current,
+        &[
+            ("rhei-plan-writer", "Create and refactor Rhei Plan documents"),
+            ("rhei-plan-worker", "Execute tasks in Rhei Plan documents"),
+            ("rhei-state-machine-writer", "Design custom Rhei state machines"),
+        ],
+    )
+}
+
+fn static_completion(current: &OsStr, values: &[(&str, &str)]) -> Vec<CompletionCandidate> {
+    let prefix = current.to_string_lossy();
+    values
+        .iter()
+        .filter(|(value, _)| value.starts_with(prefix.as_ref()))
+        .map(|(value, help)| {
+            CompletionCandidate::new((*value).to_string()).help(Some((*help).to_string().into()))
+        })
+        .collect()
+}
+
+fn complete_agent_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    let prefix = current.to_string_lossy();
+    let settings = load_merged_settings(&completion_workspace_root());
+    settings
+        .agents
+        .keys()
+        .filter(|name| name.starts_with(prefix.as_ref()))
+        .map(|name| CompletionCandidate::new(name.clone()).help(Some("Configured agent".into())))
+        .collect()
+}
+
+fn complete_agent_mode(current: &OsStr) -> Vec<CompletionCandidate> {
+    let prefix = current.to_string_lossy();
+    let settings = load_merged_settings(&completion_workspace_root());
+    let selected_agent = completion_option_value("agent");
+    let mut modes = BTreeSet::new();
+    if let Some(agent) = selected_agent.as_deref().and_then(|agent| settings.agents.get(agent)) {
+        modes.extend(agent.modes.keys().cloned());
+    } else {
+        for agent in settings.agents.values() {
+            modes.extend(agent.modes.keys().cloned());
+        }
+    }
+    modes
+        .into_iter()
+        .filter(|mode| mode.starts_with(prefix.as_ref()))
+        .map(|mode| CompletionCandidate::new(mode).help(Some("Agent mode".into())))
+        .collect()
+}
+
+fn complete_model_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    let prefix = current.to_string_lossy();
+    let mut models = BTreeSet::new();
+    if let Some(model) = load_merged_settings(&completion_workspace_root()).model {
+        models.insert(model);
+    }
+    if let Some(machine) = completion_state_machine() {
+        models.extend(machine.models);
+        for state in machine.states.values() {
+            if let Some(model) = state.model.as_ref() {
+                models.insert(model.clone());
+            }
+            models.extend(state.all_models.iter().cloned());
+        }
+    }
+    models
+        .into_iter()
+        .filter(|model| model.starts_with(prefix.as_ref()))
+        .map(|model| CompletionCandidate::new(model).help(Some("Configured model".into())))
+        .collect()
+}
+
+fn complete_task_id(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(plan) = completion_plan_path() else {
+        return Vec::new();
+    };
+    let prefix = current.to_string_lossy();
+    let Ok(loaded) = load_plan(&plan) else {
+        return Vec::new();
+    };
+    flatten_tasks(&loaded.rhei)
+        .into_iter()
+        .filter_map(|task| {
+            let id = task.id.to_string();
+            id.starts_with(prefix.as_ref()).then(|| {
+                CompletionCandidate::new(id)
+                    .help(Some(format!("{} [{}]", task.title, task.state).into()))
+            })
+        })
+        .collect()
+}
+
+fn complete_transition_from_state(current: &OsStr) -> Vec<CompletionCandidate> {
+    if let (Some(plan), Some(task_id)) = (completion_plan_path(), completion_option_value("task")) {
+        if let Ok(state) = current_task_state(&plan, &task_id) {
+            if state.starts_with(current.to_string_lossy().as_ref()) {
+                return vec![
+                    CompletionCandidate::new(state).help(Some("Current task state".into()))
+                ];
+            }
+        }
+    }
+    complete_state_name(current)
+}
+
+fn complete_transition_to_state(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(machine) = completion_state_machine() else {
+        return Vec::new();
+    };
+    let from = completion_option_value("from").or_else(|| {
+        completion_plan_path()
+            .zip(completion_option_value("task"))
+            .and_then(|(plan, task)| current_task_state(&plan, &task).ok())
+    });
+    let mut targets = BTreeSet::new();
+    if let Some(from) = from {
+        let normalized = normalized_state_name(&from, &machine);
+        for rule in machine.transitions() {
+            if rule.from.0 == normalized || rule.from.0 == "*" {
+                targets.insert(rule.to.0.clone());
+            }
+        }
+    } else {
+        targets.extend(machine.states.keys().cloned());
+    }
+    let prefix = current.to_string_lossy();
+    targets
+        .into_iter()
+        .filter(|state| state.starts_with(prefix.as_ref()))
+        .map(|state| {
+            let help = machine.states.get(&state).and_then(|def| def.description.clone());
+            CompletionCandidate::new(state).help(help.map(Into::into))
+        })
+        .collect()
+}
+
+fn complete_state_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(machine) = completion_state_machine() else {
+        return Vec::new();
+    };
+    let prefix = current.to_string_lossy();
+    machine
+        .states
+        .iter()
+        .filter(|(state, _)| state.starts_with(prefix.as_ref()))
+        .map(|(state, def)| {
+            CompletionCandidate::new(state.clone()).help(def.description.clone().map(Into::into))
+        })
+        .collect()
+}
+
+fn completion_state_machine() -> Option<rhei_validator::StateMachine> {
+    let state_machine = completion_option_value("state-machine").map(PathBuf::from);
+    let plan = completion_plan_path();
+    match (plan.as_deref(), state_machine.as_deref()) {
+        (Some(plan), sm) => load_plan(plan)
+            .ok()
+            .and_then(|loaded| resolve_state_machine_for_loaded_plan(plan, &loaded, sm).ok())
+            .map(|resolved| resolved.machine),
+        (None, Some(sm)) => load_state_machine(Some(sm)).ok(),
+        (None, None) => Some(rhei_validator::StateMachine::builtin_default()),
+    }
+}
+
+fn completion_workspace_root() -> PathBuf {
+    completion_plan_path()
+        .map(|path| execution_workspace_root(&path))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn completion_plan_path() -> Option<PathBuf> {
+    let words = completion_words();
+    let command = completion_command_name(&words)?;
+    first_command_positional(&words, &command).map(PathBuf::from)
+}
+
+fn completion_command_name(words: &[String]) -> Option<String> {
+    let mut expect_value = false;
+    for word in words.iter().skip(1) {
+        if word.is_empty() {
+            break;
+        }
+        if expect_value {
+            expect_value = false;
+            continue;
+        }
+        if let Some(option) = word.strip_prefix("--") {
+            if option.split_once('=').is_none() && option == "state-machine" {
+                expect_value = true;
+            }
+            continue;
+        }
+        return Some(word.clone());
+    }
+    None
+}
+
+fn first_command_positional(words: &[String], command: &str) -> Option<String> {
+    let command_index = words.iter().position(|word| word == command)?;
+    let mut expect_value_for: Option<&str> = None;
+    for word in words.iter().skip(command_index + 1) {
+        if word.is_empty() {
+            break;
+        }
+        if let Some(option) = expect_value_for.take() {
+            if option != "set" && option != "set-file" && option != "values" && option != "output" {
+                continue;
+            }
+            continue;
+        }
+        if let Some(option) = word.strip_prefix("--") {
+            if let Some((_, _)) = option.split_once('=') {
+                continue;
+            }
+            if matches!(
+                option,
+                "task"
+                    | "from"
+                    | "to"
+                    | "result"
+                    | "set"
+                    | "set-file"
+                    | "values"
+                    | "output"
+                    | "agent"
+                    | "agent-mode"
+                    | "model"
+                    | "program-timeout"
+                    | "parallel"
+                    | "state-machine"
+            ) {
+                expect_value_for = Some(option);
+            }
+            continue;
+        }
+        return Some(word.clone());
+    }
+    None
+}
+
+fn completion_option_value(name: &str) -> Option<String> {
+    let words = completion_words();
+    let flag = format!("--{name}");
+    let prefix = format!("--{name}=");
+    let mut iter = words.iter().peekable();
+    while let Some(word) = iter.next() {
+        if let Some(value) = word.strip_prefix(&prefix) {
+            return Some(value.to_string());
+        }
+        if word == &flag {
+            return iter.peek().filter(|value| !value.is_empty()).map(|value| (*value).clone());
+        }
+    }
+    None
+}
+
+fn completion_words() -> Vec<String> {
+    let args = std::env::args_os().collect::<Vec<_>>();
+    let start = args.iter().position(|arg| arg == "--").map(|idx| idx + 1).unwrap_or(1);
+    args.into_iter().skip(start).map(|arg| arg.to_string_lossy().to_string()).collect()
+}
+
+fn flatten_tasks(rhei: &rhei_core::ast::Rhei) -> Vec<&rhei_core::ast::Task> {
+    fn collect<'a>(task: &'a rhei_core::ast::Task, tasks: &mut Vec<&'a rhei_core::ast::Task>) {
+        tasks.push(task);
+        for child in &task.children {
+            collect(child, tasks);
+        }
+    }
+
+    let mut tasks = Vec::new();
+    for task in &rhei.tasks {
+        collect(task, &mut tasks);
+    }
+    tasks
+}
+
+fn current_task_state(plan: &Path, task_id: &str) -> MietteResult<String> {
+    let loaded = load_plan(plan)?;
+    flatten_tasks(&loaded.rhei)
+        .into_iter()
+        .find(|task| task.id.to_string() == task_id)
+        .map(|task| task.state.clone())
+        .ok_or_else(|| miette!("task '{}' not found in {}", task_id, plan.display()))
+}
+
+fn xdg_data_home() -> MietteResult<PathBuf> {
+    match std::env::var_os("XDG_DATA_HOME") {
+        Some(path) if !path.is_empty() => Ok(PathBuf::from(path)),
+        _ => Ok(home_dir()?.join(".local/share")),
+    }
+}
+
+fn xdg_config_home() -> MietteResult<PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(path) if !path.is_empty() => Ok(PathBuf::from(path)),
+        _ => Ok(home_dir()?.join(".config")),
     }
 }
 
@@ -587,6 +1204,8 @@ mod templates {
     struct TemplateInputDef {
         name: String,
         description: String,
+        #[serde(default)]
+        positional: Option<usize>,
         #[serde(flatten)]
         schema: TemplateValueSchema,
     }
@@ -735,8 +1354,269 @@ mod templates {
         Ok(())
     }
 
+    pub(super) fn complete_template_reference(current: &OsStr) -> Vec<CompletionCandidate> {
+        let Some(current_str) = current.to_str() else {
+            return PathCompleter::dir().complete(current);
+        };
+
+        if template_reference_is_path(current_str) {
+            return PathCompleter::dir().complete(current);
+        }
+
+        let Ok(templates) = discover_templates(TemplateSourceFilter::All) else {
+            return Vec::new();
+        };
+
+        templates
+            .into_iter()
+            .filter(|template| template.manifest.name.starts_with(current_str))
+            .map(|template| {
+                let help =
+                    format!("{} ({})", template.manifest.description, template.source.as_str());
+                CompletionCandidate::new(template.manifest.name).help(Some(help.into()))
+            })
+            .collect()
+    }
+
+    pub(super) fn complete_template_input_arg(current: &OsStr) -> Vec<CompletionCandidate> {
+        let Some((manifest, input_args)) = completion_template_context() else {
+            return Vec::new();
+        };
+        complete_template_input_value(&manifest, &input_args, current, false)
+    }
+
+    pub(super) fn complete_template_set_value(current: &OsStr) -> Vec<CompletionCandidate> {
+        let Some((manifest, input_args)) = completion_template_context() else {
+            return Vec::new();
+        };
+        complete_template_assignment(&manifest, &input_args, current, false)
+    }
+
+    pub(super) fn complete_template_set_file(current: &OsStr) -> Vec<CompletionCandidate> {
+        let Some((manifest, input_args)) = completion_template_context() else {
+            return Vec::new();
+        };
+        complete_template_assignment(&manifest, &input_args, current, true)
+    }
+
+    fn complete_template_input_value(
+        manifest: &TemplateManifest,
+        prior_input_args: &[String],
+        current: &OsStr,
+        set_file: bool,
+    ) -> Vec<CompletionCandidate> {
+        let current_str = current.to_string_lossy();
+        if current_str.contains('=') {
+            return complete_template_assignment(manifest, prior_input_args, current, set_file);
+        }
+
+        let mut candidates = Vec::new();
+        if let Some(input) = next_positional_input(manifest, prior_input_args) {
+            candidates.extend(complete_template_value_for_input(input, current, None, false));
+        }
+        candidates.extend(complete_template_assignment_keys(manifest, prior_input_args, current));
+        candidates
+    }
+
+    fn complete_template_assignment(
+        manifest: &TemplateManifest,
+        prior_input_args: &[String],
+        current: &OsStr,
+        set_file: bool,
+    ) -> Vec<CompletionCandidate> {
+        let current_str = current.to_string_lossy();
+        let Some((key, value_prefix)) = current_str.split_once('=') else {
+            return complete_template_assignment_keys(manifest, prior_input_args, current);
+        };
+
+        let Some(input) = manifest.inputs.iter().find(|input| input.name == key) else {
+            return Vec::new();
+        };
+        complete_template_value_for_input(input, OsStr::new(value_prefix), Some(key), set_file)
+    }
+
+    fn complete_template_assignment_keys(
+        manifest: &TemplateManifest,
+        prior_input_args: &[String],
+        current: &OsStr,
+    ) -> Vec<CompletionCandidate> {
+        let prefix = current.to_string_lossy();
+        let supplied = supplied_template_input_keys(manifest, prior_input_args);
+        manifest
+            .inputs
+            .iter()
+            .filter(|input| !supplied.contains(input.name.as_str()))
+            .filter(|input| input.name.starts_with(prefix.as_ref()))
+            .map(|input| {
+                CompletionCandidate::new(format!("{}=", input.name))
+                    .help(Some(template_input_help(input).into()))
+            })
+            .collect()
+    }
+
+    fn complete_template_value_for_input(
+        input: &TemplateInputDef,
+        current: &OsStr,
+        assignment_key: Option<&str>,
+        set_file: bool,
+    ) -> Vec<CompletionCandidate> {
+        let mut candidates = if set_file {
+            PathCompleter::file().complete(current)
+        } else {
+            match input.value_type() {
+                TemplateInputType::Path => PathCompleter::any().complete(current),
+                TemplateInputType::Boolean => static_completion(
+                    current,
+                    &[("true", "Boolean true"), ("false", "Boolean false")],
+                ),
+                TemplateInputType::Array => static_completion(
+                    current,
+                    &[("[]", "Empty array"), ("[item]", "Array snippet")],
+                ),
+                TemplateInputType::Object => static_completion(current, &[("{}", "Empty object")]),
+                TemplateInputType::String | TemplateInputType::Number => Vec::new(),
+            }
+        };
+
+        if let Some(key) = assignment_key {
+            let prefix = format!("{key}=");
+            candidates =
+                candidates.into_iter().map(|candidate| candidate.add_prefix(&prefix)).collect();
+        }
+        candidates
+    }
+
+    fn template_input_help(input: &TemplateInputDef) -> String {
+        let requirement = if let Some(default) = input.schema.default.as_ref() {
+            format!("default {}", format_version(default))
+        } else if input.is_required() {
+            "required".to_string()
+        } else {
+            "optional".to_string()
+        };
+        let positional =
+            input.positional.map(|index| format!(", positional {index}")).unwrap_or_default();
+        format!(
+            "{}, {}{} - {}",
+            input.value_type().as_str(),
+            requirement,
+            positional,
+            input.description
+        )
+    }
+
+    fn next_positional_input<'a>(
+        manifest: &'a TemplateManifest,
+        prior_input_args: &[String],
+    ) -> Option<&'a TemplateInputDef> {
+        let positional_count = prior_input_args
+            .iter()
+            .filter(|value| !template_input_arg_is_assignment(manifest, value))
+            .count();
+        let next_position = positional_count + 1;
+        if let Some(input) =
+            manifest.inputs.iter().find(|input| input.positional == Some(next_position))
+        {
+            return Some(input);
+        }
+        if manifest.inputs.iter().all(|input| input.positional.is_none()) && positional_count == 0 {
+            let required =
+                manifest.inputs.iter().filter(|input| input.is_required()).collect::<Vec<_>>();
+            if required.len() == 1 {
+                return Some(required[0]);
+            }
+        }
+        None
+    }
+
+    fn supplied_template_input_keys<'a>(
+        manifest: &'a TemplateManifest,
+        prior_input_args: &'a [String],
+    ) -> HashSet<&'a str> {
+        let mut supplied = HashSet::new();
+        let mut positional_index = 1;
+        for value in prior_input_args {
+            if let Some((key, _)) = value.split_once('=') {
+                if manifest.inputs.iter().any(|input| input.name == key) {
+                    supplied.insert(key);
+                    continue;
+                }
+            }
+            if let Some(input) =
+                manifest.inputs.iter().find(|input| input.positional == Some(positional_index))
+            {
+                supplied.insert(input.name.as_str());
+                positional_index += 1;
+            } else if manifest.inputs.iter().all(|input| input.positional.is_none()) {
+                let required =
+                    manifest.inputs.iter().filter(|input| input.is_required()).collect::<Vec<_>>();
+                if required.len() == 1 && positional_index == 1 {
+                    supplied.insert(required[0].name.as_str());
+                    positional_index += 1;
+                }
+            }
+        }
+        supplied
+    }
+
+    fn template_input_arg_is_assignment(manifest: &TemplateManifest, value: &str) -> bool {
+        value
+            .split_once('=')
+            .is_some_and(|(key, _)| manifest.inputs.iter().any(|input| input.name == key))
+    }
+
+    fn completion_template_context() -> Option<(TemplateManifest, Vec<String>)> {
+        let words = completion_words();
+        let instantiate_index = words.iter().position(|word| word == "instantiate")?;
+        let words = words.get(instantiate_index + 1..)?;
+        let before_current = words.get(..words.len().saturating_sub(1)).unwrap_or(words);
+        let (template, input_args) = completion_template_and_inputs(before_current)?;
+        let template_dir = resolve_template_reference(&template).ok()?;
+        let manifest = load_template_manifest(&template_dir).ok()?;
+        Some((manifest, input_args))
+    }
+
+    fn completion_template_and_inputs(words: &[String]) -> Option<(String, Vec<String>)> {
+        let mut template = None;
+        let mut input_args = Vec::new();
+        let mut expects_value_for: Option<&str> = None;
+
+        for word in words {
+            if word.is_empty() {
+                break;
+            }
+            if let Some(option) = expects_value_for.take() {
+                if matches!(option, "set" | "set-file") {
+                    input_args.push(word.clone());
+                }
+                continue;
+            }
+            if let Some(option) = word.strip_prefix("--") {
+                if let Some((name, value)) = option.split_once('=') {
+                    if matches!(name, "set" | "set-file") {
+                        input_args.push(value.to_string());
+                    }
+                    continue;
+                }
+                if matches!(option, "set" | "set-file" | "values" | "output") {
+                    expects_value_for = Some(option);
+                }
+                continue;
+            }
+            if template.is_none() {
+                template = Some(word.clone());
+            } else {
+                input_args.push(word.clone());
+            }
+        }
+
+        template.map(|template| (template, input_args))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn instantiate_command(
         template: &str,
+        input_args: &[String],
         set_values: &[String],
         set_files: &[String],
         values_files: &[PathBuf],
@@ -760,7 +1640,7 @@ mod templates {
 
         let layout = detect_template_layout(&template_dir)?;
         let resolved_values =
-            collect_template_inputs(&manifest, values_files, set_values, set_files)?;
+            collect_template_inputs(&manifest, values_files, input_args, set_values, set_files)?;
         let default_output = std::env::current_dir()
             .map_err(|err| miette!("failed to determine working directory: {err}"))?
             .join(template_dir.file_name().ok_or_else(|| {
@@ -967,6 +1847,7 @@ mod templates {
         let cwd = std::env::current_dir()
             .map_err(|err| miette!("failed to determine working directory: {err}"))?;
         let mut seen = HashSet::new();
+        let mut positional_indexes = Vec::new();
 
         for input in &manifest.inputs {
             if !ident.is_match(&input.name) {
@@ -990,6 +1871,16 @@ mod templates {
                     input.name
                 ));
             }
+            if let Some(index) = input.positional {
+                if index == 0 {
+                    return Err(miette!(
+                        "template '{}' input '{}' positional index must be >= 1",
+                        manifest.name,
+                        input.name
+                    ));
+                }
+                positional_indexes.push((index, input.name.as_str()));
+            }
             if input.schema.required == Some(true) && input.schema.default.is_some() {
                 return Err(miette!(
                     "template '{}' input '{}' cannot set both required: true and default",
@@ -1000,6 +1891,19 @@ mod templates {
             validate_template_value_schema(&manifest.name, &input.name, &input.schema)?;
             if let Some(default) = input.schema.default.as_ref() {
                 let _ = coerce_template_input_value(input, default, &cwd, true)?;
+            }
+        }
+
+        positional_indexes.sort_by_key(|(index, _)| *index);
+        for (expected, (actual, name)) in positional_indexes.iter().enumerate() {
+            let expected = expected + 1;
+            if *actual != expected {
+                return Err(miette!(
+                    "template '{}' input '{}' declares positional {}, but positional indexes must be unique and contiguous starting at 1",
+                    manifest.name,
+                    name,
+                    actual
+                ));
             }
         }
 
@@ -1120,6 +2024,7 @@ mod templates {
     fn collect_template_inputs(
         manifest: &TemplateManifest,
         values_files: &[PathBuf],
+        input_args: &[String],
         set_values: &[String],
         set_files: &[String],
     ) -> MietteResult<BTreeMap<String, serde_json::Value>> {
@@ -1132,6 +2037,14 @@ mod templates {
             for (key, value) in loaded {
                 raw_values.insert(key, value);
             }
+        }
+
+        let parsed_input_args = parse_template_input_args(manifest, input_args)?;
+        for (key, value) in parsed_input_args.positional_values {
+            raw_values.insert(key, YamlValue::String(value));
+        }
+        for (key, value) in parsed_input_args.assignments {
+            raw_values.insert(key, YamlValue::String(value));
         }
 
         for assignment in set_values {
@@ -1202,6 +2115,87 @@ mod templates {
         }
 
         Ok(resolved)
+    }
+
+    #[derive(Debug, Default)]
+    struct ParsedTemplateInputArgs {
+        positional_values: Vec<(String, String)>,
+        assignments: Vec<(String, String)>,
+    }
+
+    fn parse_template_input_args(
+        manifest: &TemplateManifest,
+        input_args: &[String],
+    ) -> MietteResult<ParsedTemplateInputArgs> {
+        let ident = Regex::new(r"^[A-Za-z][A-Za-z0-9_-]*$")
+            .expect("template identifier regex should be valid");
+        let declared_inputs =
+            manifest.inputs.iter().map(|input| input.name.as_str()).collect::<HashSet<_>>();
+        let mut positional_values = Vec::new();
+        let mut assignments = Vec::new();
+
+        for value in input_args {
+            if let Some((key, rhs)) = value.split_once('=') {
+                if ident.is_match(key) {
+                    if !declared_inputs.contains(key) {
+                        return Err(miette!(
+                            "template '{}' does not declare an input named '{}'",
+                            manifest.name,
+                            key
+                        ));
+                    }
+                    assignments.push((key.to_string(), rhs.to_string()));
+                    continue;
+                }
+            }
+
+            positional_values.push(value.clone());
+        }
+
+        let positional_values = map_template_positional_inputs(manifest, &positional_values)?;
+        Ok(ParsedTemplateInputArgs { positional_values, assignments })
+    }
+
+    fn map_template_positional_inputs(
+        manifest: &TemplateManifest,
+        values: &[String],
+    ) -> MietteResult<Vec<(String, String)>> {
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let positional_inputs = manifest
+            .inputs
+            .iter()
+            .filter_map(|input| input.positional.map(|index| (index, input)))
+            .collect::<BTreeMap<_, _>>();
+
+        if !positional_inputs.is_empty() {
+            let mut mapped = Vec::new();
+            for (idx, value) in values.iter().enumerate() {
+                let position = idx + 1;
+                let Some(input) = positional_inputs.get(&position) else {
+                    return Err(miette!(
+                        "template '{}' does not declare positional input {}",
+                        manifest.name,
+                        position
+                    ));
+                };
+                mapped.push((input.name.clone(), value.clone()));
+            }
+            return Ok(mapped);
+        }
+
+        let required =
+            manifest.inputs.iter().filter(|input| input.is_required()).collect::<Vec<_>>();
+        if required.len() == 1 && values.len() == 1 {
+            return Ok(vec![(required[0].name.clone(), values[0].clone())]);
+        }
+
+        Err(miette!(
+            "template '{}' does not accept positional inputs; use KEY=VALUE or --set",
+            manifest.name
+        ))
     }
 
     fn load_template_values_file(path: &Path) -> MietteResult<BTreeMap<String, YamlValue>> {
@@ -1383,9 +2377,9 @@ mod templates {
         Ok(rendered)
     }
 
-    fn parse_template_sequence<'a>(
+    fn parse_template_sequence(
         label: &str,
-        raw: &'a YamlValue,
+        raw: &YamlValue,
         source: &str,
     ) -> MietteResult<Vec<YamlValue>> {
         match parse_structured_template_value(raw, "array", label, source)? {
@@ -1394,9 +2388,9 @@ mod templates {
         }
     }
 
-    fn parse_template_mapping<'a>(
+    fn parse_template_mapping(
         label: &str,
-        raw: &'a YamlValue,
+        raw: &YamlValue,
         source: &str,
     ) -> MietteResult<YamlMapping> {
         match parse_structured_template_value(raw, "object", label, source)? {
@@ -2515,6 +3509,7 @@ fn execution_workspace_root(plan_path: &Path) -> PathBuf {
 /// The `triggered_by` field must be one of `"user" | "callback" | "system" | "engine"`.
 /// `transition_data` seeds the `transitionData` slot; pass `serde_json::Value::Object(Map::new())`
 /// for the initial `on_leave` call, and the accumulated data from `on_leave` for `on_enter`.
+#[allow(clippy::too_many_arguments)]
 fn build_transition_context_json(
     plan: Option<&rhei_core::ast::Rhei>,
     plan_path: &Path,
@@ -2754,6 +3749,7 @@ fn render_visit_count(
     visit.max(1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn artifact_relative_path(
     artifact: &rhei_validator::StateArtifactDef,
     task_id: &str,
@@ -2788,6 +3784,7 @@ fn artifact_relative_path(
     relative
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_artifact_path(
     workspace_root: &Path,
     artifact: &rhei_validator::StateArtifactDef,
@@ -3123,6 +4120,7 @@ fn resolve_runtime_template_text(text: &str, context: &RuntimeTemplateContext<'_
     rendered
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_state_inputs_exist(
     workspace_root: &Path,
     task_id: &str,
@@ -3162,6 +4160,7 @@ fn ensure_state_inputs_exist(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_state_outputs_exist(
     workspace_root: &Path,
     task_id: &str,
@@ -3692,7 +4691,7 @@ struct StandaloneExecutionFlags {
     #[arg(long)]
     continue_on_error: bool,
     /// Maximum number of agents to run concurrently (0 = unlimited)
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
     parallel: usize,
     /// Force TUI mode even when stdout is not detected as a TTY
     #[arg(long, conflicts_with = "no_tui")]
@@ -3710,13 +4709,13 @@ struct AgentExecutionFlags {
     #[arg(long)]
     no_agent: bool,
     /// Override the agent for this run
-    #[arg(long, value_name = "AGENT")]
+    #[arg(long, value_name = "AGENT", add = ArgValueCompleter::new(complete_agent_name))]
     agent: Option<String>,
     /// Override the agent mode (named flag set) for this run
-    #[arg(long, value_name = "MODE")]
+    #[arg(long, value_name = "MODE", add = ArgValueCompleter::new(complete_agent_mode))]
     agent_mode: Option<String>,
     /// Override the model for this run
-    #[arg(long, value_name = "MODEL")]
+    #[arg(long, value_name = "MODEL", add = ArgValueCompleter::new(complete_model_name))]
     model: Option<String>,
 }
 
@@ -3728,7 +4727,7 @@ struct ProgramExecutionFlags {
     #[arg(long)]
     no_program: bool,
     /// Override the program timeout for this run
-    #[arg(long, value_name = "DURATION")]
+    #[arg(long, value_name = "DURATION", add = ArgValueCompleter::new(complete_duration))]
     program_timeout: Option<String>,
 }
 
@@ -4223,7 +5222,7 @@ fn effective_mcp_entries(
 ) -> Vec<StateMcpEntry> {
     match state {
         None => defaults.to_vec(),
-        Some(list) if list.is_empty() => Vec::new(),
+        Some([]) => Vec::new(),
         Some(list) => {
             let mut out: Vec<StateMcpEntry> = defaults.to_vec();
             for entry in list {
@@ -4244,7 +5243,7 @@ fn effective_skill_entries(
 ) -> Vec<StateSkillEntry> {
     match state {
         None => defaults.to_vec(),
-        Some(list) if list.is_empty() => Vec::new(),
+        Some([]) => Vec::new(),
         Some(list) => {
             let mut out: Vec<StateSkillEntry> = defaults.to_vec();
             for entry in list {
@@ -4513,10 +5512,13 @@ fn resolve_agent(
     Ok(resolve_agent_invocations(machine, state_name, settings, opts)?.into_iter().next())
 }
 
+type TransitionInvocationContext<'a> =
+    (Option<&'a ExecutionTarget>, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+
 fn transition_contexts_for_state<'a>(
     state_def: &'a rhei_validator::StateDef,
     resolved_invocations: &'a [ResolvedAgent],
-) -> Vec<(Option<&'a ExecutionTarget>, Option<&'a str>, Option<&'a str>, Option<&'a str>)> {
+) -> Vec<TransitionInvocationContext<'a>> {
     if !resolved_invocations.is_empty() {
         return resolved_invocations
             .iter()
@@ -4590,6 +5592,7 @@ fn resolved_agent_log_suffix(resolved: &ResolvedAgent) -> Option<String> {
         .or_else(|| resolved.model.clone().filter(|value| !value.is_empty()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn state_outputs_exist_for_resolved_invocation(
     workspace_root: &Path,
     task: &rhei_core::ast::Task,
@@ -4629,6 +5632,7 @@ fn default_run_options() -> RunOptions {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_state_inputs_exist_for_transition(
     workspace_root: &Path,
     task_id: &str,
@@ -4689,6 +5693,7 @@ fn ensure_state_outputs_exist_for_transition(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn task_has_pending_agent_invocations(
     workspace_root: &Path,
     task: &rhei_core::ast::Task,
@@ -6062,7 +7067,7 @@ fn run_agent_mode(
             let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
             let Some(task) = task else { continue };
 
-            let tooling = resolve_tooling(machine, current_state, &settings);
+            let tooling = resolve_tooling(machine, current_state, settings);
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root,
                 plan_path: &callback_paths.plan_path,
@@ -6282,7 +7287,7 @@ fn run_agent_mode(
                 let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
                 let Some(task) = task else { continue };
 
-                let tooling = resolve_tooling(machine, current_state, &settings);
+                let tooling = resolve_tooling(machine, current_state, settings);
                 let render_context = RuntimeTemplateContext {
                     workspace_root: &workspace_root,
                     plan_path: &callback_paths.plan_path,
@@ -9424,6 +10429,64 @@ transitions: []
             Commands::Version => {}
             other => panic!("expected version command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_completions_command() {
+        let cli = Cli::try_parse_from(["rhei", "completions", "fish"]).expect("cli should parse");
+
+        match cli.command {
+            Commands::Completions { shell, install, system, output, dry_run, .. } => {
+                assert_eq!(shell, CompletionShell::Fish);
+                assert!(!install);
+                assert!(!system);
+                assert!(output.is_none());
+                assert!(!dry_run);
+            }
+            other => panic!("expected completions command, got {other:?}"),
+        }
+
+        let cli =
+            Cli::try_parse_from(["rhei", "completions", "powershell"]).expect("cli should parse");
+        match cli.command {
+            Commands::Completions { shell, .. } => assert_eq!(shell, CompletionShell::PowerShell),
+            other => panic!("expected completions command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_completions_install_options() {
+        let cli = Cli::try_parse_from([
+            "rhei",
+            "completions",
+            "bash",
+            "--install",
+            "--system",
+            "--dry-run",
+        ])
+        .expect("cli should parse");
+
+        match cli.command {
+            Commands::Completions { shell, install, system, dry_run, .. } => {
+                assert_eq!(shell, CompletionShell::Bash);
+                assert!(install);
+                assert!(system);
+                assert!(dry_run);
+            }
+            other => panic!("expected completions command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn root_help_lists_completions_command() {
+        let mut command = Cli::command();
+        let mut buffer = Vec::new();
+        command.write_long_help(&mut buffer).expect("help should render");
+        let help = String::from_utf8(buffer).expect("help should be UTF-8");
+
+        assert!(help.contains("Setup:"));
+        assert!(help.contains("completions"));
+        assert!(help.contains("Generate shell completion scripts"));
     }
 
     #[test]

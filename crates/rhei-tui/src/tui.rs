@@ -296,7 +296,7 @@ fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Arc<Mutex<UiS
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // header
-                Constraint::Min(snapshot.parallel.max(1) as u16 + 2),
+                Constraint::Min(snapshot.parallel.max(1) + 2),
                 Constraint::Min(5), // journal pane
             ])
             .split(area);

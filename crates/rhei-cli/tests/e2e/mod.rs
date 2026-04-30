@@ -1,3 +1,4 @@
+mod completions_tests;
 mod install_skills_tests;
 mod next_tests;
 mod run_tests;
@@ -290,7 +291,7 @@ pub fn assert_task_state(plan_path: &Path, machine_path: &Path, task_id: &str, e
         .iter()
         .find(|t| {
             // JSON id now has shape { "path": "...", "segments": [...] }.
-            t["id"]["path"].as_str() == Some(task_id.as_ref())
+            t["id"]["path"].as_str() == Some(task_id)
         })
         .unwrap_or_else(|| panic!("Task {} not found in rendered JSON", task_id));
     let state = task["state"].as_str().expect("state field");

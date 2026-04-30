@@ -813,7 +813,7 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 | **Inspection** | `validate`, `render`, `states` | Read-only commands that examine or render a plan without modifying it |
 | **Templates** | `templates`, `instantiate` | Discover and instantiate reusable plan and workspace templates |
 | **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
-| **Setup** | `install-skills` | Install packaged Rhei skills for supported agent environments |
+| **Setup** | `install-skills`, `completions` | Install packaged Rhei skills and generate shell completion scripts |
 | **Info** | `version`, `help` | Meta commands about the tool itself |
 
 ## Related Specifications
@@ -827,4 +827,5 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 - [Complete Command](specs/rhei-complete.spec.md) - `rhei complete` behavioral contract
 - [Run Command](specs/rhei-run.spec.md) - `rhei run` execution loop under orchestrator authority
 - [Reset Command](specs/rhei-reset.spec.md) - `rhei reset` behavior for restoring initial state
+- [Completions Command](specs/rhei-completions.spec.md) - `rhei completions` shell completion generation
 - [State Machine Writer](specs/rhei-state-machine-writer.spec.md) - Designing custom state machines from project specs and teams

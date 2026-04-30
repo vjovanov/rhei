@@ -23,6 +23,45 @@ The primary reference documents are:
 - [`docs/specs/rhei-states.spec.md`](docs/specs/rhei-states.spec.md) — states specification
 - [`docs/specs/states.yaml`](docs/specs/states.yaml) — default validation states definition
 
+## Install
+
+Install the `rhei` CLI from this checkout with Cargo:
+
+```bash
+cargo install --path crates/rhei-cli --locked --force
+```
+
+Use `--locked` so Cargo respects the repository lockfile. This avoids resolving newer dependency versions that may require a newer Rust compiler than the project currently targets.
+
+Cargo installs the binary to `~/.cargo/bin/rhei`. Make sure `~/.cargo/bin` is on `PATH` before any older system install location:
+
+```bash
+type -a rhei
+rhei version
+```
+
+If an older `/usr/local/bin/rhei` appears before `~/.cargo/bin/rhei`, either adjust `PATH` or invoke the Cargo-installed binary directly:
+
+```bash
+~/.cargo/bin/rhei version
+```
+
+Install shell completions for the current user:
+
+```bash
+rhei completions bash --install
+rhei completions zsh --install
+rhei completions fish --install
+rhei completions powershell --install
+rhei completions elvish --install
+```
+
+Installed completions are dynamic, so `rhei instantiate <TAB>` offers template
+names from `.agents/rhei/templates/` and `~/.agents/rhei/templates/`.
+
+See [Tab Completions](docs/tab-completions.md) for shell-specific setup notes,
+default install paths, and system-wide installation.
+
 ## CLI usage
 
 Validate a plan with the built-in default states definition:
