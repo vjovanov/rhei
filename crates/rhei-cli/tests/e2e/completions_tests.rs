@@ -400,6 +400,106 @@ fn dynamic_completion_completes_task_ids_and_transition_targets() {
 }
 
 #[test]
+fn dynamic_completion_completes_list_filters() {
+    let home = unique_temp_dir("completions-list-home");
+    let dir = unique_temp_dir("completions-list-project");
+    let plan = write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        r#"# Rhei: Completion List
+**States:** integration-test
+
+## Tasks
+
+### Task 1: First step
+**State:** draft
+**Assignee:** alice
+
+### Task 2: Second step
+**State:** pending
+**Prior:** Task 1
+**Assignee:** bob
+"#,
+    );
+    let machine = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+    let plan_arg = plan.to_str().expect("plan path");
+    let machine_arg = machine.to_str().expect("machine path");
+
+    let states = run_dynamic_completion(
+        &dir,
+        &home,
+        "fish",
+        &["--", "rhei", "--state-machine", machine_arg, "list", plan_arg, "--state", "d"],
+    );
+    assert!(
+        states.status.success(),
+        "list state completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        states.stdout,
+        states.stderr
+    );
+    assert!(states.stdout.contains("draft\tAnalysis phase"));
+
+    let assignees = run_dynamic_completion(
+        &dir,
+        &home,
+        "fish",
+        &["--", "rhei", "list", plan_arg, "--assignee", ""],
+    );
+    assert!(
+        assignees.status.success(),
+        "list assignee completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        assignees.stdout,
+        assignees.stderr
+    );
+    assert!(assignees.stdout.contains("alice\t1 matching task"));
+    assert!(assignees.stdout.contains("bob\t1 matching task"));
+
+    let kinds = run_dynamic_completion(
+        &dir,
+        &home,
+        "fish",
+        &["--", "rhei", "list", plan_arg, "--kind", ""],
+    );
+    assert!(
+        kinds.status.success(),
+        "list kind completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        kinds.stdout,
+        kinds.stderr
+    );
+    assert!(kinds.stdout.contains("task\t2 matching tasks"));
+
+    let priors = run_dynamic_completion(
+        &dir,
+        &home,
+        "fish",
+        &["--", "rhei", "list", plan_arg, "--has-prior", ""],
+    );
+    assert!(
+        priors.status.success(),
+        "list prior completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        priors.stdout,
+        priors.stderr
+    );
+    assert!(priors.stdout.contains("1\tFirst step [draft]"));
+    assert!(priors.stdout.contains("2\tSecond step [pending]"));
+
+    let limits = run_dynamic_completion(
+        &dir,
+        &home,
+        "fish",
+        &["--", "rhei", "list", plan_arg, "--limit", ""],
+    );
+    assert!(
+        limits.status.success(),
+        "list limit completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        limits.stdout,
+        limits.stderr
+    );
+    assert!(limits.stdout.contains("10\tTen tasks"));
+    assert!(limits.stdout.contains("0\tNo limit"));
+}
+
+#[test]
 fn rejects_unknown_completion_shell() {
     let result = run_completions("tcsh");
 

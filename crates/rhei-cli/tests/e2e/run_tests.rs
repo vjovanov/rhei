@@ -181,7 +181,7 @@ fn run_living_review_loop_fixture_to_completion() {
     let (dir, workspace_path, machine_path) =
         copy_workspace_fixture("run-living-review-loop", "living-review-loop");
 
-    let result = run_cli("run", &workspace_path, &machine_path, &[]);
+    let result = run_cli("run", &workspace_path, &machine_path, &["--no-agent"]);
     assert_success(&result);
 
     assert_all_tasks_in_state(&workspace_path, &machine_path, "completed");
