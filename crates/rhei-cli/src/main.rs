@@ -134,25 +134,40 @@ enum Commands {
     /// List tasks in a plan with optional filters
     List {
         /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN")]
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
         /// Filter by state (repeatable; comma-separated list also accepted)
-        #[arg(long, value_name = "STATE", value_delimiter = ',')]
+        #[arg(
+            long,
+            value_name = "STATE",
+            value_delimiter = ',',
+            add = ArgValueCompleter::new(complete_comma_state_name)
+        )]
         state: Vec<String>,
         /// Filter by assignee value (exact match)
-        #[arg(long, value_name = "ASSIGNEE", conflicts_with = "no_assignee")]
+        #[arg(
+            long,
+            value_name = "ASSIGNEE",
+            conflicts_with = "no_assignee",
+            add = ArgValueCompleter::new(complete_assignee)
+        )]
         assignee: Option<String>,
         /// Only tasks with no assignee
         #[arg(long, conflicts_with = "assignee")]
         no_assignee: bool,
         /// Filter by node kind (e.g. task, bug, spec)
-        #[arg(long, value_name = "KIND")]
+        #[arg(long, value_name = "KIND", add = ArgValueCompleter::new(complete_node_kind))]
         kind: Option<String>,
         /// Only tasks that list <TASK_ID> in their **Prior:** dependencies
-        #[arg(long, value_name = "TASK_ID")]
+        #[arg(long, value_name = "TASK_ID", add = ArgValueCompleter::new(complete_task_id))]
         has_prior: Option<String>,
         /// Only direct children of <TASK_ID>
-        #[arg(long, value_name = "TASK_ID", conflicts_with = "root")]
+        #[arg(
+            long,
+            value_name = "TASK_ID",
+            conflicts_with = "root",
+            add = ArgValueCompleter::new(complete_task_id)
+        )]
         parent: Option<String>,
         /// Only top-level tasks (no parent)
         #[arg(long, conflicts_with = "parent")]
@@ -173,7 +188,7 @@ enum Commands {
         #[arg(long, conflicts_with = "ready")]
         blocked: bool,
         /// Maximum number of tasks to print (0 means no limit)
-        #[arg(long, default_value_t = 0)]
+        #[arg(long, default_value_t = 0, add = ArgValueCompleter::new(complete_limit))]
         limit: usize,
         /// Emit output as JSON for machine consumption
         #[arg(long)]
@@ -805,6 +820,19 @@ fn complete_duration(current: &OsStr) -> Vec<CompletionCandidate> {
     )
 }
 
+fn complete_limit(current: &OsStr) -> Vec<CompletionCandidate> {
+    static_completion(
+        current,
+        &[
+            ("10", "Ten tasks"),
+            ("25", "Twenty-five tasks"),
+            ("50", "Fifty tasks"),
+            ("100", "One hundred tasks"),
+            ("0", "No limit"),
+        ],
+    )
+}
+
 fn complete_skill_name(current: &OsStr) -> Vec<CompletionCandidate> {
     static_completion(
         current,
@@ -879,6 +907,57 @@ fn complete_model_name(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+fn complete_assignee(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(plan) = completion_plan_path() else {
+        return Vec::new();
+    };
+    let prefix = current.to_string_lossy();
+    let Ok(loaded) = load_plan(&plan) else {
+        return Vec::new();
+    };
+    let mut counts = BTreeMap::<String, usize>::new();
+    for task in flatten_tasks(&loaded.rhei) {
+        if let Some(assignee) = &task.assignee {
+            *counts.entry(assignee.clone()).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(assignee, _)| assignee.starts_with(prefix.as_ref()))
+        .map(|(assignee, count)| {
+            CompletionCandidate::new(assignee).help(Some(task_count_help(count).into()))
+        })
+        .collect()
+}
+
+fn complete_node_kind(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(plan) = completion_plan_path() else {
+        return Vec::new();
+    };
+    let prefix = current.to_string_lossy().to_ascii_lowercase();
+    let Ok(loaded) = load_plan(&plan) else {
+        return Vec::new();
+    };
+    let mut counts = BTreeMap::<String, usize>::new();
+    for task in flatten_tasks(&loaded.rhei) {
+        *counts.entry(task.kind.clone()).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .filter(|(kind, _)| kind.starts_with(&prefix))
+        .map(|(kind, count)| {
+            CompletionCandidate::new(kind).help(Some(task_count_help(count).into()))
+        })
+        .collect()
+}
+
+fn task_count_help(count: usize) -> String {
+    match count {
+        1 => "1 matching task".to_string(),
+        n => format!("{n} matching tasks"),
+    }
+}
+
 fn complete_task_id(current: &OsStr) -> Vec<CompletionCandidate> {
     let Some(plan) = completion_plan_path() else {
         return Vec::new();
@@ -943,18 +1022,36 @@ fn complete_transition_to_state(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+fn complete_comma_state_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    let current = current.to_string_lossy();
+    let (base, prefix) = match current.rsplit_once(',') {
+        Some((base, prefix)) => (format!("{base},"), prefix),
+        None => (String::new(), current.as_ref()),
+    };
+    complete_state_name_with_prefix(prefix)
+        .into_iter()
+        .map(|(state, help)| {
+            CompletionCandidate::new(format!("{base}{state}")).help(help.map(Into::into))
+        })
+        .collect()
+}
+
 fn complete_state_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete_state_name_with_prefix(current.to_string_lossy().as_ref())
+        .into_iter()
+        .map(|(state, help)| CompletionCandidate::new(state).help(help.map(Into::into)))
+        .collect()
+}
+
+fn complete_state_name_with_prefix(prefix: &str) -> Vec<(String, Option<String>)> {
     let Some(machine) = completion_state_machine() else {
         return Vec::new();
     };
-    let prefix = current.to_string_lossy();
     machine
         .states
         .iter()
-        .filter(|(state, _)| state.starts_with(prefix.as_ref()))
-        .map(|(state, def)| {
-            CompletionCandidate::new(state.clone()).help(def.description.clone().map(Into::into))
-        })
+        .filter(|(state, _)| state.starts_with(prefix))
+        .map(|(state, def)| (state.clone(), def.description.clone()))
         .collect()
 }
 
@@ -1038,6 +1135,13 @@ fn first_command_positional(words: &[String], command: &str) -> Option<String> {
                     | "program-timeout"
                     | "parallel"
                     | "state-machine"
+                    | "state"
+                    | "assignee"
+                    | "kind"
+                    | "has-prior"
+                    | "parent"
+                    | "contains"
+                    | "limit"
             ) {
                 expect_value_for = Some(option);
             }
@@ -1260,11 +1364,8 @@ fn list_command(
 
     // Normalize state filter values once so users can pass either canonical
     // names or aliases declared in the state machine.
-    let state_filter: Vec<String> = filters
-        .states
-        .iter()
-        .map(|s| normalized_state_name(s.as_str(), &machine))
-        .collect();
+    let state_filter: Vec<String> =
+        filters.states.iter().map(|s| normalized_state_name(s.as_str(), &machine)).collect();
     let parent_filter = filters.parent.as_deref().map(parse_task_id);
     let has_prior_filter = filters.has_prior.as_deref().map(parse_task_id);
     let contains_lower = filters.contains.as_deref().map(|s| s.to_lowercase());
@@ -1328,8 +1429,7 @@ fn list_command(
 
         if filters.ready || filters.blocked {
             let normalized = normalized_state_name(task.state.as_str(), &machine);
-            let is_gating =
-                machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
+            let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
             let satisfied = priors_satisfied(task);
             let task_ready = !is_terminal && !is_gating && satisfied;
             if filters.ready && !task_ready {
@@ -6878,6 +6978,7 @@ fn run_agent_mode(
 
     let mut agents_spawned = 0u32;
     let mut programs_spawned = 0u32;
+    let mut callback_transitions_made = 0u32;
     let mut pass = 0u32;
 
     loop {
@@ -7025,6 +7126,8 @@ fn run_agent_mode(
                 continue;
             }
 
+            let task_ids_before: BTreeSet<String> =
+                loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let task_file = loaded.task_file(task_id_str, input);
             let metadata_file = if workspace::is_workspace(input) {
                 input.join("index.rhei.md")
@@ -7048,6 +7151,16 @@ fn run_agent_mode(
                         to_state
                     );
                     advanced_any = true;
+                    callback_transitions_made += 1;
+                    let reloaded = load_plan(input)?;
+                    let discovered = newly_discovered_tasks(&task_ids_before, &reloaded.rhei.tasks);
+                    if !discovered.is_empty() {
+                        run_info!(
+                            "  Workspace expanded: discovered {} new task(s): {}",
+                            discovered.len(),
+                            discovered.join(", ")
+                        );
+                    }
                 }
                 Err(err) => {
                     run_warn!("warning: failed to advance Task {}: {}", task_id_str, err);
@@ -7803,8 +7916,29 @@ fn run_agent_mode(
         run_info!("\nDry run complete — no programs or agents were spawned.");
         (0usize, 0usize)
     } else if agents_spawned == 0 && programs_spawned == 0 {
-        run_info!("No tasks could be advanced.");
-        (0usize, 0usize)
+        if callback_transitions_made == 0 {
+            run_info!("No tasks could be advanced.");
+            (0usize, 0usize)
+        } else {
+            let loaded = load_plan(input)?;
+            let terminal_count = loaded
+                .rhei
+                .tasks
+                .iter()
+                .filter(|t| is_terminal_state(t.state.as_str(), machine))
+                .count();
+            run_info!(
+                "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
+                callback_transitions_made,
+                terminal_count,
+                loaded.rhei.tasks.len()
+            );
+            run_info!("Final states: {}", format_state_counts(&loaded.rhei));
+            for task in &loaded.rhei.tasks {
+                run_info!("  - {} [{}]", format_task_label(task), task.state);
+            }
+            (terminal_count, loaded.rhei.tasks.len())
+        }
     } else {
         let loaded = load_plan(input)?;
         let terminal_count = loaded
@@ -8374,6 +8508,7 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     let mut in_target_task = false;
     let mut last_metadata_idx: Option<usize> = None;
     let mut already_present = false;
+    let mut inserted = false;
 
     for line in lines.iter() {
         if line.starts_with("### Task ") {
@@ -8382,7 +8517,7 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
                 // assignee line — insert immediately after its last metadata
                 // line before appending the subsequent task header.
                 insert_after(&mut result, meta_idx, &format_assignee(assignee));
-                last_metadata_idx = None;
+                inserted = true;
             }
             in_target_task = line.starts_with(&task_prefix);
         }
@@ -8400,6 +8535,13 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     if already_present {
         // Nothing to do — preserve input verbatim to keep trailing newline.
         return Ok(raw.to_string());
+    }
+    if inserted {
+        let mut output = result.join("\n");
+        if raw.ends_with('\n') {
+            output.push('\n');
+        }
+        return Ok(output);
     }
 
     let Some(meta_idx) = last_metadata_idx else {

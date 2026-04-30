@@ -2207,7 +2207,7 @@ printf '# Findings for %s\n' "$RHEI_MODEL" > "$runtime_dir/$RHEI_MODEL-findings.
         fs::set_permissions(&script_path, perms).expect("chmod workflow");
     }
 
-    let result = run_run_command(&plan_path, &machine_path, &[]);
+    let result = run_run_command(&plan_path, &machine_path, &["--no-agent"]);
 
     assert!(
         result.status.success(),

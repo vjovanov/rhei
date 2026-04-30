@@ -219,6 +219,7 @@ pub fn run_cli(
     extra_args: &[&str],
 ) -> CliRun {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", isolated_home_for(plan_path));
     cmd.arg("--state-machine").arg(machine_path).arg(subcommand).arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);
@@ -234,6 +235,7 @@ pub fn run_cli(
 /// Run an arbitrary rhei subcommand without passing `--state-machine`.
 pub fn run_cli_without_machine(subcommand: &str, plan_path: &Path, extra_args: &[&str]) -> CliRun {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", isolated_home_for(plan_path));
     cmd.arg(subcommand).arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);
@@ -244,6 +246,10 @@ pub fn run_cli_without_machine(subcommand: &str, plan_path: &Path, extra_args: &
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     }
+}
+
+fn isolated_home_for(plan_path: &Path) -> PathBuf {
+    plan_path.parent().unwrap_or_else(|| Path::new(".")).join(".home")
 }
 
 /// Run `rhei transition`.
