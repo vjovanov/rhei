@@ -1,5 +1,11 @@
 # Agent Workflow Notes
 
+## Goals
+
+- Focus on user experience and agent performance
+- Make monitoring tools useful and pretty
+- Rhei execution should be predictable
+
 ## Specification
 
 - See the [Rhei Plan Language Specification](docs/rhei.spec.md).

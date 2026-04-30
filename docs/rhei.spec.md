@@ -1,6 +1,6 @@
 # Rhei Plan Language Specification
 
-This document defines the formal grammar and semantics of the Rhei Plan language, a structured subset of Markdown for hierarchical task management.
+This document specifies the grammar and semantics of the Rhei Plan language — a structured subset of Markdown for hierarchical task management shared by humans and AI agents.
 
 ## Overview
 
@@ -91,6 +91,8 @@ The worker reads the plan, loads the state machine, and enters a loop: claim the
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
 For programmatic execution with `rhei run`, see [Pattern 6: Programmatic State Transitions](specs/rhei-usage.spec.md#pattern-6-programmatic-state-transitions).
+
+
 
 ## Plan Formats
 
@@ -810,7 +812,7 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
-| **Inspection** | `validate`, `render`, `states` | Read-only commands that examine or render a plan without modifying it |
+| **Inspection** | `validate`, `render`, `states`, `list` | Read-only commands that examine or render a plan without modifying it |
 | **Templates** | `templates`, `instantiate` | Discover and instantiate reusable plan and workspace templates |
 | **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
 | **Setup** | `install-skills`, `completions` | Install packaged Rhei skills and generate shell completion scripts |
@@ -822,6 +824,7 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 - [Plan Language Usage Guide](specs/rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs
 - [States Specification](specs/rhei-states.spec.md) - Defines the states configuration format
 - [Transitions Specification](specs/rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
+- [List Command](specs/rhei-list.spec.md) - `rhei list` filter set and output format
 - [Next Command](specs/rhei-next.spec.md) - `rhei next` behavioral contract, including `--peek` mode
 - [Transition Command](specs/rhei-transition-cmd.spec.md) - `rhei transition` compare-and-swap contract
 - [Complete Command](specs/rhei-complete.spec.md) - `rhei complete` behavioral contract
