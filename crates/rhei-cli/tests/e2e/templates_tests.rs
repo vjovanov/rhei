@@ -112,11 +112,164 @@ Say hello to {{target}}.
         &dir,
     );
     assert_success(&result);
+    assert!(
+        result.stdout.contains("Instantiate this template with:"),
+        "expected instantiate hint in output; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains(&format!(
+            "rhei instantiate {} --set target=World --output {}",
+            template_dir.display(),
+            output_dir.display()
+        )),
+        "expected reproducible instantiate command in output; got:\n{}",
+        result.stdout
+    );
 
     let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
     assert!(rendered.contains("# Rhei: Hello World"));
     assert!(rendered.contains("### Task 1: Greet World"));
     assert!(rendered.contains("Say hello to World."));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn instantiate_prints_output_tree_task_tail_and_stop_reason() {
+    let dir = unique_temp_dir("templates-instantiate-summary");
+    let template_dir = dir.join("summary-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: summary-template
+version: 1.0.0
+description: Template with enough tasks to exercise the summary
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Summary Demo
+
+## Tasks
+
+### Task 1: Step 1
+**State:** draft
+
+### Task 2: Step 2
+**State:** draft
+
+Body for step 2.
+
+### Task 3: Step 3
+**State:** draft
+
+### Task 4: Step 4
+**State:** draft
+
+### Task 5: Step 5
+**State:** draft
+
+### Task 6: Step 6
+**State:** draft
+
+Body for step 6.
+"#,
+    );
+
+    let output_dir = dir.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &dir,
+    );
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("=== Instantiation Summary ===")
+            && result.stdout.contains("Files:\n"),
+        "expected pretty instantiate summary in output; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("`-- plan.rhei.md"),
+        "expected materialized file tree in instantiate output; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Task tree:\n  - Task 1: Step 1 [draft]"),
+        "expected task tree in instantiate output; got:\n{}",
+        result.stdout
+    );
+    let last_tasks = result
+        .stdout
+        .split("Recent task definitions:\n")
+        .nth(1)
+        .and_then(|section| section.split("Stopped:\n").next())
+        .unwrap_or_else(|| {
+            panic!("expected Recent task definitions section; got:\n{}", result.stdout)
+        });
+    assert!(
+        last_tasks.contains("--- Task 2: Step 2 [draft] ---")
+            && last_tasks.contains("### Task 2: Step 2\n**State:** draft\n\nBody for step 2.")
+            && last_tasks.contains("--- Task 6: Step 6 [draft] ---")
+            && last_tasks.contains("### Task 6: Step 6\n**State:** draft\n\nBody for step 6.")
+            && !last_tasks.contains("Task 1: Step 1 [draft]"),
+        "expected the last five rendered task definitions, excluding task 1; got:\n{}",
+        last_tasks
+    );
+    assert!(
+        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task 1: Step 1 [draft]."),
+        "expected stop reason in instantiate output; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn instantiate_project_hourly_human_intervention_template_prints_summary() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root");
+    let dir = unique_temp_dir("templates-hourly-human-intervention");
+    let output_dir = dir.join("hourly");
+
+    let result = run_raw(
+        &[
+            "instantiate",
+            "hourly-human-intervention",
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &repo_root,
+    );
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("=== Instantiation Summary ===")
+            && result.stdout.contains("Files:")
+            && result.stdout.contains(".rhei/")
+            && result.stdout.contains("Task tree:")
+            && result.stdout.contains(
+                "Task fetch-issues: Fetch and classify human-intervention issues [fetch]"
+            )
+            && result.stdout.contains("Recent task definitions:")
+            && result.stdout.contains(
+                "### Task fetch-prs: Fetch and classify human-intervention pull requests"
+            )
+            && result.stdout.contains(
+                "Task fetch-prs: Fetch and classify human-intervention pull requests [fetch]"
+            )
+            && result.stdout.contains("Stopped:"),
+        "expected hourly template instantiation summary; got:\n{}",
+        result.stdout
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -350,6 +503,16 @@ inputs:
         &dir,
     );
     assert_success(&result);
+    assert!(
+        result.stdout.contains(&format!(
+            "rhei instantiate {} --values {} --output {}",
+            template_dir.display(),
+            dir.join("values.yaml").display(),
+            output_dir.display()
+        )),
+        "expected values-file instantiate command in output; got:\n{}",
+        result.stdout
+    );
 
     let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
     assert!(rendered.contains("- claude => claude-code-yolo-anthropic-claude-opus-4-7"));

@@ -51,6 +51,12 @@ This directory contains example inputs for the current markdown plan compiler im
   - counted `review` and `fix` states with two total passes each
   - one review artifact file and one fix artifact updated across the loop
 
+- `hourly-human-intervention-example/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/`
+  - a template-shipped `.rhei/settings.json`
+  - a routed hourly GitHub sweep with human gates for GraalVM fixes
+
 - `states-with-spaces.yaml`
   Companion states file for `escaped-state-values.rhei.md`.
 
