@@ -262,6 +262,7 @@ Use artifact contracts in preference to prose like "write your review to foo.md 
 5. Every non-terminal state in a profile's `allowed` must have a path to a terminal state inside `allowed`.
 6. Provide a cancellation path from every non-final state, usually with `from: "*"` to a `cancelled` terminal.
 7. Do not define outgoing transitions from final states.
+8. Avoid prose-only gates for machine-critical decisions. If a decision changes what the machine is allowed to do, encode it as a gating state, artifact contract, transition condition, exit-code route, or callback result that the runtime can observe.
 
 ### Profiles and Node Policy
 
@@ -278,6 +279,14 @@ Use artifact contracts in preference to prose like "write your review to foo.md 
 3. Reference concrete artifacts and checks, not vague review language.
 4. For gating states, say who decides and what decision they are making.
 5. Use template variables (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`) instead of prose placeholders like `<id>`. When a state declares artifact contracts, reference them via `{input.<name>.path}` and `{output.<name>.path}` instead of repeating raw paths. Unknown variables are left verbatim, so free-form braces in prose are safe.
+
+### Automation, queues, and publish states
+
+1. **Define idempotency for recurring sweeps.** If a state or callback repeatedly scans for work, say what durable marker, artifact, external id, or de-duplication key prevents reprocessing the same item on the next run.
+2. **Define how queues drain.** Queue-processing workflows need an explicit "no ready items remain" condition, terminal path, or parking gate; otherwise `rhei run` can keep finding the same abstract work forever.
+3. **Make publish states re-check review outputs before acting.** A state that releases, publishes, merges, deploys, or notifies externally must consume the review/approval artifacts as `inputs:` and verify the latest result is still affirmative immediately before performing the side effect.
+4. **Give publish states a negative path.** If the required review artifact is missing, stale, rejected, or internally inconsistent, the machine should route to review, blocked, cancelled, or failed instead of publishing.
+5. **Keep external side effects idempotent.** Publish and callback states should be safe to retry after a crash or interrupted `rhei run`; use external ids, lock files, status artifacts, or read-before-write checks where appropriate.
 
 ## Workflow
 
@@ -303,10 +312,14 @@ Before returning the machine, verify:
 - No final state has outgoing transitions.
 - Every transition has `from`, `to`, and `description`.
 - Gating states are marked with `gating: true` and their instructions forbid autonomous exit.
+- Machine-critical decisions are represented by gating states, artifacts, conditions, exit-code routes, or callback results; they are not present only as prose instructions.
 - If `models` is present, every `model` and `all_models` entry is declared there.
 - No state declares both `all_models` and `model`.
 - `visits`, when present, is at least `1`.
 - `inputs:` / `outputs:` paths are execution-root-relative and use template variables rather than hard-coded task ids.
+- Recurring sweep states or callbacks define an idempotency strategy and a durable marker or de-duplication rule.
+- Queue-processing flows define how the queue drains, including the no-work/no-ready-items path.
+- Publish, merge, deploy, release, and notify states re-check the latest review or approval artifacts through `inputs:` before acting and have a non-publish path for missing, stale, or negative review results.
 - State names are lowercase hyphenated identifiers (matching the `IDENTIFIER` grammar production). States whose names contain spaces or punctuation are legal but must be referenced in markdown via backticks.
 - The `name` field is a meaningful project-derived identifier.
 - `profiles` is present and every profile declares `initial` and a non-empty `allowed`.
@@ -324,6 +337,8 @@ rhei states --state-machine <path>
 ```
 
 Use `--json` when you need machine-readable output.
+
+For template-authored machines that still contain `{{...}}` instantiation placeholders, do not validate the raw `<template>/states.yaml` directly. Instantiate the template first, then validate the rendered workspace's state machine.
 
 ## File Placement
 

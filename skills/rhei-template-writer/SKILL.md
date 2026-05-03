@@ -210,6 +210,15 @@ Escaping: prefer `{% raw %}{{task_id}}{% endraw %}` to emit a literal `{{...}}`.
 3. **If the rendered plan declares `**States:** <name>`, the bundled `states.yaml`'s `name` must match.** Auto-discovery keys off the YAML's `name` field.
 4. **Use `{{...}}` inside `states.yaml` only where the workflow needs parameterized control.** Common patterns: `visits: {{review_passes}}`, `model: {{model}}`.
 5. **Respect the runtime/instantiation boundary.** `{task_id}` stays literal; `{{model}}` resolves at instantiation.
+6. **Do not validate or reason from raw templated `states.yaml` as if it were final YAML when it still contains placeholders.** Instantiate first, then inspect or validate the rendered `states.yaml` in the concrete workspace.
+
+### Authoring verification
+
+1. **Instantiate before validating.** Template source files can contain MiniJinja placeholders; the authoritative thing to validate is the rendered workspace.
+2. **Run `rhei validate` on the instantiated workspace, not only `rhei instantiate --dry-run`.** Dry-run catches rendering errors; validation catches plan, state-machine, settings, artifact, and link errors in the concrete output.
+3. **Run `rhei run <instantiated-workspace> --dry-run` before returning a runnable template.** This checks the orchestrator-facing shape without spawning agents, callbacks, or programs.
+4. **Exercise non-scalar inputs through `--values`.** Arrays and objects must be tested with a YAML or JSON values file; `--set` and positional inputs are scalar strings and are not a sufficient test for typed structures.
+5. **Keep the values file used for the example or document it in the example README.** Reviewers should be able to reproduce the exact non-scalar input shape that was validated.
 
 ### Settings (optional)
 
@@ -233,9 +242,12 @@ Escaping: prefer `{% raw %}{{task_id}}{% endraw %}` to emit a literal `{{...}}`.
 5. Decide whether to bundle `states.yaml`. If yes, apply `rhei-state-machine-writer` to produce the complete machine body, wire in `{{...}}` interpolations where needed, and add the state machine diagram as a comment block at the top of the file.
 6. Decide whether to bundle `settings.json`. If yes, declare MCP servers, skills, and `defaults` that match the state machine.
 7. Place the template in a discoverable directory (see *File Placement*).
-8. Validate with `rhei instantiate --dry-run <template> --set ...` and fix any rendering or validation errors.
+8. Smoke-render with `rhei instantiate <template> --dry-run --set ...` and fix rendering errors. For array or object inputs, use `--values <file>` in at least one smoke render.
 9. Write `README.md` at the template root (inputs table, per-task paths through the state machine, flow, instantiate command, link to the example).
-10. Generate the pre-rendered example into `examples/<template-name>-example/` and overwrite its README with an example-specific one. Run `rhei validate` on the example and on at least two other input combinations to catch branches the example doesn't cover.
+10. Generate the pre-rendered example into `examples/<template-name>-example/` and overwrite its README with an example-specific one.
+11. Validate the instantiated example with `rhei validate examples/<template-name>-example/`.
+12. Run `rhei run examples/<template-name>-example/ --dry-run` and fix any execution-shape errors before returning.
+13. Repeat instantiate + validate + run-dry-run for at least two other input combinations to catch branches the example doesn't cover.
 
 ## Response Discipline
 
@@ -259,9 +271,13 @@ Before returning the template, verify:
 - Runtime `{name}` variables that pass through instantiation are valid against the active state machine's variable namespace (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`, `{input.<name>.path}`, `{output.<name>.path}`, `{meta.<key>}`).
 - If `states.yaml` is bundled and the rendered plan declares `**States:** <name>`, the YAML's `name` field matches `<name>`.
 - If the workflow needs a custom state machine, `states.yaml` exists as a concrete artifact in the template output; it is not merely described in README text or the final response.
+- If `states.yaml` contains `{{...}}` placeholders, inspection and CLI validation are performed against the rendered workspace's `states.yaml`, not the raw template source.
 - If `states.yaml` is bundled, it passes the state-machine-writer validation checklist (profiles, node_policy, terminal reachability, etc.).
 - If `settings.json` is bundled, it is valid JSON after rendering and every MCP / skill / agent id referenced by `states.yaml` is declared.
-- `rhei instantiate --dry-run` produces an output that passes `rhei validate`.
+- `rhei instantiate <template> --dry-run ...` succeeds.
+- Every array or object input has been exercised through `--values <yaml-or-json-file>`, not only through `--set`.
+- The rendered workspace passes `rhei validate <instantiated-workspace>`.
+- The rendered workspace passes `rhei run <instantiated-workspace> --dry-run`.
 - `<template>/README.md` exists and covers: one-paragraph summary, inputs table, per-task paths through the state machine, numbered flow, canonical `rhei instantiate` command, and a link to the pre-rendered example.
 - If `states.yaml` is bundled, it begins with an ASCII state machine diagram as a YAML comment block covering states, transitions, initial / final / gating markers, fan-out points, and per-task paths.
 - A pre-rendered example under `examples/<template-name>-example/` exists, was generated by `rhei instantiate`, has an example-specific `README.md` (inputs used, validate command, regenerate command), and passes `rhei validate <example-path>` as shipped.
