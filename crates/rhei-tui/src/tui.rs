@@ -19,18 +19,28 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use crate::event::{EventSink, MessageLevel, RunEvent, Slot, TaskOutcome};
+use crate::event::{AgentStream, EventSink, MessageLevel, RunEvent, Slot, TaskOutcome};
 
 const CHANNEL_CAPACITY: usize = 1024;
 const JOURNAL_BUFFER: usize = 200;
+const SLOT_TRAFFIC_BUFFER: usize = 50;
+const JOURNAL_TRAFFIC_WIDTH: usize = 120;
 
 #[derive(Clone, Default)]
 struct SlotState {
     task: Option<String>,
+    agent: Option<String>,
     state: String,
     started_at: Option<Instant>,
     log_path: Option<PathBuf>,
     last_event_display: Option<String>,
+    traffic: VecDeque<TrafficLine>,
+}
+
+#[derive(Clone)]
+struct TrafficLine {
+    stream: AgentStream,
+    text: String,
 }
 
 struct UiState {
@@ -74,9 +84,12 @@ impl UiState {
             RunEvent::PassStarted { pass, ready } => {
                 self.push_journal(format!("pass {}: {} ready", pass, ready.len()));
             }
-            RunEvent::SlotAssigned { slot, task, from, to, log_path, started_at, .. } => {
+            RunEvent::SlotAssigned {
+                slot, task, from, to, agent, log_path, started_at, ..
+            } => {
                 if let Some(s) = self.slots.get_mut(*slot as usize) {
                     s.task = Some(task.clone());
+                    s.agent = agent.clone();
                     s.state = to.clone();
                     s.started_at = Some(*started_at);
                     s.log_path = Some(log_path.clone());
@@ -95,6 +108,24 @@ impl UiState {
                     *s = SlotState::default();
                 }
                 self.push_journal(format!("{} slot {}: {} ({}ms)", sym, slot, task, duration_ms));
+            }
+            RunEvent::AgentOutput { slot, stream, line, .. } => {
+                let line = sanitize_terminal_text(line);
+                let stream_label = stream_label(*stream);
+                let journal_prefix = match stream {
+                    AgentStream::Stdout => "·",
+                    AgentStream::Stderr => "!",
+                };
+                if let Some(s) = self.slots.get_mut(*slot as usize) {
+                    if s.traffic.len() == SLOT_TRAFFIC_BUFFER {
+                        s.traffic.pop_front();
+                    }
+                    s.traffic.push_back(TrafficLine { stream: *stream, text: line.clone() });
+                }
+                self.push_journal(format!(
+                    "{journal_prefix} [slot {slot} {stream_label}] {}",
+                    truncate_chars(&line, JOURNAL_TRAFFIC_WIDTH)
+                ));
             }
             RunEvent::PassEnded { pass, progressed } => {
                 self.push_journal(format!("pass {} ended — progressed={}", pass, progressed));
@@ -190,9 +221,16 @@ impl Drop for TuiSink {
 
 impl EventSink for TuiSink {
     fn emit(&self, event: RunEvent) {
-        // Best effort — a full channel means the render thread is behind,
-        // and we'd rather drop an event than block the engine.
-        let _ = self.tx.try_send(Msg::Event(event));
+        if matches!(event, RunEvent::AgentOutput { .. }) {
+            // Agent output is best-effort because the durable per-task log has
+            // the full transcript. Dropping here keeps output bursts from
+            // filling the shared channel indefinitely.
+            let _ = self.tx.try_send(Msg::Event(event));
+        } else {
+            // Lifecycle events define slot state. Preserve them even during
+            // output floods so the UI cannot get stuck showing stale work.
+            let _ = self.tx.send(Msg::Event(event));
+        }
     }
 }
 
@@ -331,20 +369,55 @@ fn render_slots(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) 
         return;
     }
 
+    let lines = slot_lines(snapshot, inner.width, inner.height);
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn slot_lines(snapshot: &UiStateSnapshot, width: u16, height: u16) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
-    for (i, s) in snapshot.slots.iter().enumerate() {
-        let i = i as Slot;
+    for (idx, s) in snapshot.slots.iter().enumerate() {
+        let remaining_slots = snapshot.slots.len().saturating_sub(idx + 1);
+        let available_rows = height as usize;
+        if lines.len() >= available_rows {
+            break;
+        }
+
+        let i = idx as Slot;
         if let Some(task) = &s.task {
             let elapsed = s.started_at.map(|t| t.elapsed()).unwrap_or_default();
             let elapsed_s = elapsed.as_secs();
             let transition = s.last_event_display.as_deref().unwrap_or(&s.state);
+            let task_label = s
+                .agent
+                .as_ref()
+                .map(|agent| format!("{task} ({agent})"))
+                .unwrap_or_else(|| task.clone());
             lines.push(Line::from(vec![
                 Span::styled(format!("[{i:>2}] "), Style::default().fg(Color::Cyan)),
-                Span::styled(format!("{task:<28}"), Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("{task_label:<28}"),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" "),
                 Span::styled(transition.to_string(), Style::default().fg(Color::Green)),
                 Span::raw(format!("  {:>4}s", elapsed_s)),
             ]));
+            let traffic_room =
+                available_rows.saturating_sub(lines.len()).saturating_sub(remaining_slots);
+            let traffic_tail = traffic_room.min(5);
+            if traffic_tail > 0 {
+                for traffic in s.traffic.iter().rev().take(traffic_tail).rev() {
+                    let (label, style) = match traffic.stream {
+                        AgentStream::Stdout => ("out", Style::default().fg(Color::Gray)),
+                        AgentStream::Stderr => ("err", Style::default().fg(Color::Yellow)),
+                    };
+                    lines.push(Line::from(vec![
+                        Span::raw("     "),
+                        Span::styled(format!("{label}> "), style),
+                        Span::raw(truncate_chars(&traffic.text, width.saturating_sub(11) as usize)),
+                    ]));
+                }
+            }
         } else {
             lines.push(Line::from(vec![
                 Span::styled(format!("[{i:>2}] "), Style::default().fg(Color::DarkGray)),
@@ -352,7 +425,59 @@ fn render_slots(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) 
             ]));
         }
     }
-    f.render_widget(Paragraph::new(lines), inner);
+    lines
+}
+
+fn stream_label(stream: AgentStream) -> &'static str {
+    match stream {
+        AgentStream::Stdout => "stdout",
+        AgentStream::Stderr => "stderr",
+    }
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let mut chars = value.chars();
+    let mut out = String::new();
+    for _ in 0..max_chars {
+        if let Some(ch) = chars.next() {
+            out.push(ch);
+        } else {
+            return out;
+        }
+    }
+    if chars.next().is_some() {
+        if max_chars > 1 {
+            out.pop();
+        }
+        out.push('…');
+    }
+    out
+}
+
+fn sanitize_terminal_text(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            if matches!(chars.peek(), Some('[')) {
+                chars.next();
+                for next in chars.by_ref() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if ch.is_control() && ch != '\t' {
+            continue;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn render_journal(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {
@@ -391,8 +516,14 @@ impl UiState {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_key_event, InputAction, UiState};
+    use super::{
+        handle_key_event, sanitize_terminal_text, slot_lines, truncate_chars, InputAction, UiState,
+        SLOT_TRAFFIC_BUFFER,
+    };
+    use crate::event::{AgentStream, RunEvent};
     use crossterm::event::{KeyCode, KeyModifiers};
+    use std::path::PathBuf;
+    use std::time::{Instant, SystemTime};
 
     #[test]
     fn ctrl_c_requests_sigint_forwarding() {
@@ -415,5 +546,103 @@ mod tests {
 
         assert!(matches!(action, InputAction::Continue));
         assert!(state.journal.is_empty());
+    }
+
+    #[test]
+    fn agent_output_is_added_to_slot_and_journal() {
+        let mut state = UiState::new(1, 1);
+        state.apply(&RunEvent::AgentOutput {
+            slot: 0,
+            task: "task-1".to_string(),
+            stream: AgentStream::Stdout,
+            line: "hello".to_string(),
+            wall_clock: SystemTime::now(),
+        });
+
+        assert_eq!(state.slots[0].traffic.len(), 1);
+        assert_eq!(state.slots[0].traffic[0].text, "hello");
+        assert_eq!(state.journal.back().map(String::as_str), Some("· [slot 0 stdout] hello"));
+    }
+
+    #[test]
+    fn agent_output_retention_is_bounded() {
+        let mut state = UiState::new(1, 1);
+        for i in 0..(SLOT_TRAFFIC_BUFFER + 2) {
+            state.apply(&RunEvent::AgentOutput {
+                slot: 0,
+                task: "task-1".to_string(),
+                stream: AgentStream::Stderr,
+                line: format!("line {i}"),
+                wall_clock: SystemTime::now(),
+            });
+        }
+
+        assert_eq!(state.slots[0].traffic.len(), SLOT_TRAFFIC_BUFFER);
+        assert_eq!(state.slots[0].traffic[0].text, "line 2");
+    }
+
+    #[test]
+    fn unknown_slot_output_does_not_panic() {
+        let mut state = UiState::new(1, 1);
+        state.apply(&RunEvent::AgentOutput {
+            slot: 9,
+            task: "task-1".to_string(),
+            stream: AgentStream::Stdout,
+            line: "orphan".to_string(),
+            wall_clock: SystemTime::now(),
+        });
+
+        assert!(state.slots[0].traffic.is_empty());
+        assert_eq!(state.journal.back().map(String::as_str), Some("· [slot 9 stdout] orphan"));
+    }
+
+    #[test]
+    fn sanitizes_control_sequences_for_display() {
+        assert_eq!(sanitize_terminal_text("\u{1b}[31mred\u{1b}[0m"), "red");
+        assert_eq!(sanitize_terminal_text("a\u{7}b"), "ab");
+    }
+
+    #[test]
+    fn truncates_with_ellipsis() {
+        assert_eq!(truncate_chars("abcdef", 4), "abc…");
+        assert_eq!(truncate_chars("abc", 4), "abc");
+    }
+
+    #[test]
+    fn slot_lines_reserve_rows_for_later_slots() {
+        let mut state = UiState::new(3, 3);
+        for slot in 0..3 {
+            state.apply(&RunEvent::SlotAssigned {
+                slot,
+                task: format!("task-{slot}"),
+                from: "fetch".to_string(),
+                to: "fetch".to_string(),
+                agent: Some("codex".to_string()),
+                log_path: PathBuf::from(format!("task-{slot}.log")),
+                started_at: Instant::now(),
+                wall_clock: SystemTime::now(),
+            });
+        }
+        for i in 0..10 {
+            state.apply(&RunEvent::AgentOutput {
+                slot: 0,
+                task: "task-0".to_string(),
+                stream: AgentStream::Stdout,
+                line: format!("line {i}"),
+                wall_clock: SystemTime::now(),
+            });
+        }
+
+        let snapshot = state.clone_snapshot();
+        let lines = slot_lines(&snapshot, 100, 3);
+        let rendered = lines
+            .iter()
+            .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>();
+
+        assert_eq!(rendered.len(), 3);
+        assert!(rendered.iter().any(|line| line.contains("task-0")));
+        assert!(rendered.iter().any(|line| line.contains("task-1")));
+        assert!(rendered.iter().any(|line| line.contains("task-2")));
     }
 }

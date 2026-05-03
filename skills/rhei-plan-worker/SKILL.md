@@ -47,6 +47,11 @@ Selection is owned by `rhei next` — do not re-implement it in prose. A task is
 3. The current state is neither terminal nor gating.
 4. Every required `inputs` artifact declared on the current state exists.
 
+Validation rejects plans where a child task lists its parent or another
+ancestor as `**Prior:**`. If you see that failure, do not try to work around it
+by manually claiming the child; ask for or make a structural fix so the
+follow-up task is a sibling when it must wait for the parent.
+
 When multiple tasks are claimable, `rhei next` picks the first one in plan order. Do not try to pre-rank tasks by descendant count or other heuristics — trust the CLI.
 
 A resumable task (already carrying your own `**Assignee:**` from a prior session that was interrupted) is not re-claimable via `rhei next`. Resume it directly: read the current state, follow its instructions, and advance with `rhei transition` / `rhei complete` as usual.

@@ -43,10 +43,13 @@ pub enum RunEvent {
                     log_path: PathBuf, started_at: Instant },
     SlotReleased  { slot: u8, task: TaskId, outcome: TaskOutcome,
                     finished_at: Instant },
+    AgentOutput   { slot: u8, task: TaskId, stream: AgentStream,
+                    line: String, wall_clock: SystemTime },
     PassEnded     { pass: u32, progressed: bool },
     RunFinished   { summary: RunSummary },
 }
 
+pub enum AgentStream { Stdout, Stderr }
 pub enum TaskOutcome { Completed, Failed(String), Cancelled, TimedOut }
 
 pub trait EventSink: Send + Sync {
@@ -56,7 +59,23 @@ pub trait EventSink: Send + Sync {
 
 `SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right tile without reconciliation.
 
+`AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
+
 `Tee` is a composite sink implementing `EventSink` by forwarding each event to a fixed list of inner sinks.
+
+### Live Agent Traffic
+
+`rhei run` intercepts stdout and stderr for built-in autonomous agents through a shared subprocess capture path:
+
+| Agent id | Prompt transport | Output capture |
+|----------|------------------|----------------|
+| `claude-code` | `-p <prompt>` | stdout/stderr are piped, logged, and emitted as `AgentOutput` |
+| `codex` | stdin, followed by `--` separator | stdout/stderr are piped, logged, and emitted as `AgentOutput` |
+| `pi` | `-p <prompt>` | stdout/stderr are piped, logged, and emitted as `AgentOutput` |
+
+Agent-specific behavior belongs only to command construction and prompt delivery. Traffic interception is transport-agnostic once the child process has been spawned.
+
+The TUI keeps a bounded recent traffic buffer per active slot and may drop display events if the render channel is full. Dropped display events do not affect `runtime/logs/*`: the log writer remains the durable sink and receives every captured line unless the filesystem write itself fails. Long or control-sequence-heavy lines may be sanitized and truncated for rendering, but the log preserves the raw bytes captured from the subprocess stream.
 
 ### Sink Implementations
 

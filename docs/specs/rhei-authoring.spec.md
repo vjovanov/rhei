@@ -132,10 +132,19 @@ states typically require a custom states file such as
 
 List prerequisites by id, separated by commas. References must resolve to
 tasks defined in the same document, and the dependency graph must stay
-acyclic.
+acyclic. A task must not list itself or any ancestor as a prerequisite: a
+child task cannot use its parent as `**Prior:**`. If follow-up work must wait
+for a completed parent task, write that follow-up as a top-level sibling and
+point `**Prior:**` at the completed task.
 
 ```markdown
 **Prior:** Task 1, Task design, Task 4
+```
+
+```markdown
+#### Task fetch-prs.ci-failure-5227: Triage CI failure
+**State:** pending
+**Prior:** Task fetch-prs    ← Invalid when `fetch-prs` is this task's parent
 ```
 
 `**Prior:**` is the markdown authoring form. SDKs expose the same data under

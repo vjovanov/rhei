@@ -420,7 +420,11 @@ All task references in `**Prior:**` fields must resolve to existing task nodes
 in the same logical plan: in a Single-File Plan that means the same document,
 and in a Directory Workspace that means the merged workspace graph across all
 task files under `tasks/`. A `**Prior:**` list must not contain duplicate
-references and must not reference its own task (self-reference is a 1-cycle).
+references, must not reference its own task (self-reference is a 1-cycle), and
+must not reference any ancestor of the task. A child task cannot list its
+parent as `**Prior:**`; if generated follow-up work must wait for a completed
+parent task, author that follow-up as a top-level sibling with `**Prior:**`
+pointing at the completed task.
 
 ```markdown
 ### Task 2: Implementation
@@ -443,6 +447,17 @@ Directory Workspace example:
 
 When a dependency reference includes a node kind, that kind must match the
 declared kind of the referenced node.
+
+Invalid child dependency example:
+
+```markdown
+### Task fetch-prs: Fetch pull requests
+**State:** completed
+
+#### Task fetch-prs.ci-failure-5227: Triage CI failure
+**State:** pending
+**Prior:** Task fetch-prs    ← ERROR: child cannot depend on its parent
+```
 
 ### 2. State Validity
 

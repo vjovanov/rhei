@@ -153,7 +153,7 @@ Validate every response against all checks:
 - Place `**Prior:**` only after `**State:**` when present.
 - Do not author `**Assignee:**` or `> **Result:**` — these are runtime-owned.
 - Reference only existing tasks in each `**Prior:**` line. In a Directory Workspace, references resolve across the merged workspace graph.
-- Keep dependencies acyclic. A task must not self-reference.
+- Keep dependencies acyclic. A task must not self-reference and must not list its parent or any ancestor as `**Prior:**`. When follow-up work must wait for a parent task to complete, author it as a top-level sibling instead of a child.
 - Keep ID style consistent across the document.
 - Each child id extends its parent id by exactly one segment; sibling ids under the same parent are unique.
 - Ensure each task has child tasks unless the task is clearly simple and non-decomposable.

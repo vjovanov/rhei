@@ -9,7 +9,7 @@
 //! The current validator enforces the behaviors implemented in this repository:
 //! dependency existence, required `**State:**` metadata, state validity,
 //! `**State:**` before `**Prior:**`, circular dependency detection,
-//! subtask parent-number consistency for numeric task identifiers, and
+//! ancestor-as-prior rejection, subtask parent-number consistency, and
 //! terminal parent/subtask coherence.
 
 use indexmap::IndexMap;
@@ -1793,13 +1793,34 @@ fn validate_dependency_integrity(
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {
-    for_each_node(rhei, |task| {
+    fn recurse(
+        task: &Task,
+        ancestors: &mut Vec<TaskId>,
+        index: &HashMap<TaskId, &Task>,
+        report: &mut ValidationReport,
+    ) {
         for dep in &task.prior {
             if !index.contains_key(dep) {
                 report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
             }
+            if ancestors.iter().any(|ancestor| ancestor == dep) {
+                report.errors.push(format!(
+                    "Task {} cannot list ancestor Task {} as **Prior:**; parent/child structure already defines containment. Make the dependent work a top-level sibling if it must wait for Task {}.",
+                    task.id, dep, dep
+                ));
+            }
         }
-    });
+        ancestors.push(task.id.clone());
+        for child in &task.children {
+            recurse(child, ancestors, index, report);
+        }
+        ancestors.pop();
+    }
+
+    let mut ancestors = Vec::new();
+    for task in &rhei.tasks {
+        recurse(task, &mut ancestors, index, report);
+    }
 }
 
 fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
@@ -2623,6 +2644,68 @@ states:
         let joined = report.errors.join("\n");
         assert!(
             joined.contains("Task build depends on missing Task deploy"),
+            "did not find expected message; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn rejects_child_prior_to_parent() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task fetch-prs: Fetch pull requests
+**State:** completed
+
+#### Task fetch-prs.ci-failure-5227: Triage CI failure
+**State:** pending
+**Prior:** Task fetch-prs
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected parent-as-prior validation error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains(
+                "Task fetch-prs.ci-failure-5227 cannot list ancestor Task fetch-prs as **Prior:**"
+            ),
+            "did not find expected message; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn rejects_descendant_prior_to_ancestor() {
+        let input = r#"# Rhei: Example
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task release: Release
+**State:** pending
+
+#### Task release.notes: Notes
+**State:** pending
+
+##### Task release.notes.diff: Diff notes
+**State:** pending
+**Prior:** Task release
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected ancestor-as-prior validation error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains(
+                "Task release.notes.diff cannot list ancestor Task release as **Prior:**"
+            ),
             "did not find expected message; got:\n{}",
             joined
         );
