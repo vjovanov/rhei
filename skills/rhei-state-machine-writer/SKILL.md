@@ -61,6 +61,8 @@ Do not invent approval authorities or team structure.
 
 Emit one YAML file that conforms to the current Rhei state-machine format. The file has five sections: `name`/`version`, optional `models`, `states`, `transitions`, `profiles`, `node_policy`, and optional `callbacks` / `error_handling`.
 
+When this skill is used from `rhei-template-writer`, emit template-ready YAML for `<template>/states.yaml`: include the full machine, preserve any needed `{{...}}` instantiation variables, and add the template-required ASCII diagram comment block before `name:`. Do not return only a transition sketch or prose description.
+
 ### Root fields
 
 Required:
@@ -289,6 +291,8 @@ Use artifact contracts in preference to prose like "write your review to foo.md 
 8. Add callbacks only where the workflow truly integrates with external automation.
 9. Write the YAML file to `docs/states.yaml` or `docs/states/<name>.yaml` (or the `.agents/rhei/` paths — see *File Placement*).
 10. Validate the result with the CLI when available.
+
+If authoring for a Rhei Template, write the YAML to `<template>/states.yaml` instead and ensure the template's plan skeleton declares the same machine name with `**States:** <name>`.
 
 ## Validation Checklist
 
