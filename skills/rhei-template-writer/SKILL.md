@@ -68,6 +68,8 @@ A template is a directory. Required layout:
 
 Every template must also ship a pre-rendered example workspace checked in elsewhere (see *Required Accompaniments*).
 
+When a custom state machine is needed, `states.yaml` is a required generated artifact, not background design notes. Produce the complete YAML file in the template directory, include it in any file-by-file response, and keep the rendered plan's `**States:** <name>` declaration aligned with `states.yaml:name`.
+
 Rules:
 
 - The directory name is the template identifier. It must match `manifest.name` exactly.
@@ -204,7 +206,7 @@ Escaping: prefer `{% raw %}{{task_id}}{% endraw %}` to emit a literal `{{...}}`.
 ### State machine (optional)
 
 1. **Omit `states.yaml` when the built-in `rhei` machine fits.** That's the default, and leaving it out makes the template smaller and auto-pickable.
-2. **Bundle a custom `states.yaml` when the template needs non-default states, artifact contracts, visit loops, or team gates.** Follow `rhei-state-machine-writer`.
+2. **Bundle a custom `states.yaml` when the template needs non-default states, artifact contracts, visit loops, program states, model fan-out, or team gates.** Follow `rhei-state-machine-writer`; do not stop at a prose summary of the machine.
 3. **If the rendered plan declares `**States:** <name>`, the bundled `states.yaml`'s `name` must match.** Auto-discovery keys off the YAML's `name` field.
 4. **Use `{{...}}` inside `states.yaml` only where the workflow needs parameterized control.** Common patterns: `visits: {{review_passes}}`, `model: {{model}}`.
 5. **Respect the runtime/instantiation boundary.** `{task_id}` stays literal; `{{model}}` resolves at instantiation.
@@ -228,12 +230,18 @@ Escaping: prefer `{% raw %}{{task_id}}{% endraw %}` to emit a literal `{{...}}`.
 2. Pick single-file (`plan.rhei.md`) or directory workspace (`index.rhei.md` + `tasks/`). Prefer single-file unless the workflow produces enough tasks that per-file concurrency matters.
 3. Draft `template.yaml` with the minimum required inputs.
 4. Draft the plan skeleton. Interpolate `{{...}}` only where input shapes the output. Keep runtime `{...}` variables where they belong.
-5. Decide whether to bundle `states.yaml`. If yes, hand off to `rhei-state-machine-writer` for the machine body, wire in `{{...}}` interpolations where needed, and add the state machine diagram as a comment block at the top of the file.
+5. Decide whether to bundle `states.yaml`. If yes, apply `rhei-state-machine-writer` to produce the complete machine body, wire in `{{...}}` interpolations where needed, and add the state machine diagram as a comment block at the top of the file.
 6. Decide whether to bundle `settings.json`. If yes, declare MCP servers, skills, and `defaults` that match the state machine.
 7. Place the template in a discoverable directory (see *File Placement*).
 8. Validate with `rhei instantiate --dry-run <template> --set ...` and fix any rendering or validation errors.
 9. Write `README.md` at the template root (inputs table, per-task paths through the state machine, flow, instantiate command, link to the example).
 10. Generate the pre-rendered example into `examples/<template-name>-example/` and overwrite its README with an example-specific one. Run `rhei validate` on the example and on at least two other input combinations to catch branches the example doesn't cover.
+
+## Response Discipline
+
+When returning a template in chat instead of editing files directly, print a file-by-file artifact list. Include every required file as a fenced block with its path. If a custom state machine is needed, one of those blocks must be `<template>/states.yaml` and must contain the full YAML, including the top comment diagram. If no custom state machine is needed, say explicitly that the template intentionally uses the built-in `rhei` machine and therefore omits `states.yaml`.
+
+Do not describe a custom state machine only in prose, and do not leave `states.yaml` for a later step unless the user explicitly asks for an outline instead of a complete template.
 
 ## Validation Checklist
 
@@ -250,6 +258,7 @@ Before returning the template, verify:
 - Every `{{...}}` variable is declared in `manifest.inputs` (or is a nested property on an object input).
 - Runtime `{name}` variables that pass through instantiation are valid against the active state machine's variable namespace (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`, `{input.<name>.path}`, `{output.<name>.path}`, `{meta.<key>}`).
 - If `states.yaml` is bundled and the rendered plan declares `**States:** <name>`, the YAML's `name` field matches `<name>`.
+- If the workflow needs a custom state machine, `states.yaml` exists as a concrete artifact in the template output; it is not merely described in README text or the final response.
 - If `states.yaml` is bundled, it passes the state-machine-writer validation checklist (profiles, node_policy, terminal reachability, etc.).
 - If `settings.json` is bundled, it is valid JSON after rendering and every MCP / skill / agent id referenced by `states.yaml` is declared.
 - `rhei instantiate --dry-run` produces an output that passes `rhei validate`.
