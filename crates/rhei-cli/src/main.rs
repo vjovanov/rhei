@@ -27,9 +27,10 @@ use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Command-line interface for the markdown plan compiler.
@@ -6751,6 +6752,101 @@ fn agent_log_path(
     runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}{suffix}.log"))
 }
 
+#[cfg(not(test))]
+const AGENT_TERMINATE_GRACE: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const AGENT_TERMINATE_GRACE: Duration = Duration::from_millis(50);
+#[cfg(not(test))]
+const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(100);
+#[cfg(test)]
+const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(20);
+
+fn with_agent_log<T>(
+    log_file: &Arc<Mutex<fs::File>>,
+    write: impl FnOnce(&mut fs::File) -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut guard = log_file
+        .lock()
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "agent log lock poisoned"))?;
+    write(&mut guard)
+}
+
+fn output_line(buf: &[u8]) -> String {
+    let line = buf.strip_suffix(b"\n").unwrap_or(buf);
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    String::from_utf8_lossy(line).into_owned()
+}
+
+fn agent_stream_label(stream: rhei_tui::AgentStream) -> &'static str {
+    match stream {
+        rhei_tui::AgentStream::Stdout => "stdout",
+        rhei_tui::AgentStream::Stderr => "stderr",
+    }
+}
+
+fn spawn_agent_output_reader<R>(
+    reader: R,
+    stream: rhei_tui::AgentStream,
+    log_file: Arc<Mutex<fs::File>>,
+    sink: Arc<dyn rhei_tui::EventSink>,
+    slot: rhei_tui::Slot,
+    task_id: String,
+) -> std::thread::JoinHandle<std::io::Result<()>>
+where
+    R: Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            let read = reader.read_until(b'\n', &mut buf)?;
+            if read == 0 {
+                break;
+            }
+
+            with_agent_log(&log_file, |f| {
+                f.write_all(&buf)?;
+                f.flush()
+            })?;
+
+            sink.emit(rhei_tui::RunEvent::AgentOutput {
+                slot,
+                task: task_id.clone(),
+                stream,
+                line: output_line(&buf),
+                wall_clock: std::time::SystemTime::now(),
+            });
+        }
+        Ok(())
+    })
+}
+
+fn drain_agent_output_reader(
+    handle: std::thread::JoinHandle<std::io::Result<()>>,
+    stream: rhei_tui::AgentStream,
+) -> MietteResult<()> {
+    let deadline = Instant::now() + AGENT_OUTPUT_DRAIN_GRACE;
+    while !handle.is_finished() {
+        if Instant::now() >= deadline {
+            // A descendant may still hold the inherited pipe open after the
+            // direct agent process exits. Detach the reader instead of
+            // blocking run completion forever; future bytes may still be
+            // captured best-effort until process exit.
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    match handle.join() {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => {
+            Err(miette!("failed to capture agent {}: {err}", agent_stream_label(stream)))
+        }
+        Err(_) => Err(miette!("agent {} capture thread panicked", agent_stream_label(stream))),
+    }
+}
+
 /// Spawn an agent, capture output to a log file, and wait with timeout.
 ///
 /// Returns the exit status (or an error on timeout/failure).
@@ -6765,6 +6861,8 @@ fn spawn_and_wait_agent(
     state_name: &str,
     tooling: &ResolvedTooling,
     log_path: &Path,
+    slot: rhei_tui::Slot,
+    sink: Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<std::process::ExitStatus> {
     // Ensure log directory exists.
     if let Some(parent) = log_path.parent() {
@@ -6772,49 +6870,46 @@ fn spawn_and_wait_agent(
             .map_err(|e| miette!("failed to create log directory '{}': {e}", parent.display()))?;
     }
 
-    let log_file = fs::File::create(log_path)
-        .map_err(|e| miette!("failed to create log file '{}': {e}", log_path.display()))?;
+    let log_file = Arc::new(Mutex::new(
+        fs::File::create(log_path)
+            .map_err(|e| miette!("failed to create log file '{}': {e}", log_path.display()))?,
+    ));
 
     // Write log header.
-    {
-        use std::io::Write as _;
-        let mut f = &log_file;
-        let _ = writeln!(f, "=== rhei agent log ===");
-        let _ = writeln!(f, "agent: {}", resolved.agent.id());
+    with_agent_log(&log_file, |f| {
+        writeln!(f, "=== rhei agent log ===")?;
+        writeln!(f, "agent: {}", resolved.agent.id())?;
         if let Some(mode) = &resolved.mode {
-            let _ = writeln!(f, "mode: {mode}");
+            writeln!(f, "mode: {mode}")?;
         }
         if let Some(target) = &resolved.target {
-            let _ = writeln!(f, "target: {}", target.selector());
+            writeln!(f, "target: {}", target.selector())?;
         }
         if let Some(m) = &resolved.model {
-            let _ = writeln!(f, "model: {m}");
+            writeln!(f, "model: {m}")?;
         }
-        let _ = writeln!(f, "task: {task_id}");
-        let _ = writeln!(f, "state: {state_name}");
+        writeln!(f, "task: {task_id}")?;
+        writeln!(f, "state: {state_name}")?;
         if let Some(t) = resolved.timeout_secs {
-            let _ = writeln!(f, "timeout: {t}s");
+            writeln!(f, "timeout: {t}s")?;
         }
-        let _ = writeln!(f, "plan: {}", plan_path.display());
+        writeln!(f, "plan: {}", plan_path.display())?;
         let mcp_line = format_tooling_log_line(&tooling.mcp_servers, |e| {
             (e.id.as_str(), e.optional, e.definition.is_some())
         });
         if let Some(line) = mcp_line {
-            let _ = writeln!(f, "mcp_servers: {line}");
+            writeln!(f, "mcp_servers: {line}")?;
         }
         let skill_line = format_tooling_log_line(&tooling.skills, |e| {
             (e.id.as_str(), e.optional, e.definition.is_some())
         });
         if let Some(line) = skill_line {
-            let _ = writeln!(f, "skills: {line}");
+            writeln!(f, "skills: {line}")?;
         }
-        let _ = writeln!(f, "===\n");
-    }
-
-    let log_stdout =
-        log_file.try_clone().map_err(|e| miette!("failed to clone log file handle: {e}"))?;
-    let log_stderr =
-        log_file.try_clone().map_err(|e| miette!("failed to clone log file handle: {e}"))?;
+        writeln!(f, "===\n")?;
+        f.flush()
+    })
+    .map_err(|e| miette!("failed to write log header '{}': {e}", log_path.display()))?;
 
     let mut cmd = build_agent_command(
         resolved,
@@ -6826,10 +6921,31 @@ fn spawn_and_wait_agent(
         state_name,
         tooling,
     );
-    cmd.stdout(log_stdout).stderr(log_stderr);
+    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
     let mut child =
         cmd.spawn().map_err(|e| miette!("failed to spawn agent '{}': {e}", resolved.agent.id()))?;
+
+    let stdout_handle = child.stdout.take().map(|stdout| {
+        spawn_agent_output_reader(
+            stdout,
+            rhei_tui::AgentStream::Stdout,
+            log_file.clone(),
+            sink.clone(),
+            slot,
+            task_id.to_string(),
+        )
+    });
+    let stderr_handle = child.stderr.take().map(|stderr| {
+        spawn_agent_output_reader(
+            stderr,
+            rhei_tui::AgentStream::Stderr,
+            log_file.clone(),
+            sink.clone(),
+            slot,
+            task_id.to_string(),
+        )
+    });
 
     // If stdin_prompt, write prompt to stdin.
     if resolved.profile.stdin_prompt {
@@ -6854,7 +6970,7 @@ fn spawn_and_wait_agent(
                         let pid = Pid::from_raw(child.id() as i32);
                         let _ = signal::kill(pid, Signal::SIGTERM);
                         // Grace period.
-                        std::thread::sleep(Duration::from_secs(10));
+                        std::thread::sleep(AGENT_TERMINATE_GRACE);
                         match child.try_wait() {
                             Ok(Some(status)) => break Ok(status),
                             _ => {
@@ -6874,19 +6990,23 @@ fn spawn_and_wait_agent(
         child.wait().map_err(|e| miette!("failed to wait for agent: {e}"))
     }?;
 
-    // Write log footer.
-    {
-        use std::io::Write as _;
-        let mut f = fs::OpenOptions::new()
-            .append(true)
-            .open(log_path)
-            .map_err(|e| miette!("failed to append to log file: {e}"))?;
-        let _ = writeln!(f, "\n=== exit ===");
-        let _ = writeln!(f, "code: {}", status.code().unwrap_or(-1));
-        let elapsed = start.elapsed();
-        let _ = writeln!(f, "duration: {}s", elapsed.as_secs());
-        let _ = writeln!(f, "===");
+    if let Some(handle) = stdout_handle {
+        drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout)?;
     }
+    if let Some(handle) = stderr_handle {
+        drain_agent_output_reader(handle, rhei_tui::AgentStream::Stderr)?;
+    }
+
+    // Write log footer.
+    with_agent_log(&log_file, |f| {
+        writeln!(f, "\n=== exit ===")?;
+        writeln!(f, "code: {}", status.code().unwrap_or(-1))?;
+        let elapsed = start.elapsed();
+        writeln!(f, "duration: {}s", elapsed.as_secs())?;
+        writeln!(f, "===")?;
+        f.flush()
+    })
+    .map_err(|e| miette!("failed to append to log file '{}': {e}", log_path.display()))?;
 
     Ok(status)
 }
@@ -7555,6 +7675,7 @@ fn run_agent_mode(
                     task: task_id_str.clone(),
                     from: task.state.as_str().to_string(),
                     to: current_state.clone(),
+                    agent: None,
                     log_path: log.clone(),
                     started_at,
                     wall_clock: started_wall,
@@ -7840,6 +7961,7 @@ fn run_agent_mode(
                 task: task_id_str.clone(),
                 from: task.state.as_str().to_string(),
                 to: current_state.clone(),
+                agent: Some(resolved.agent.id().to_string()),
                 log_path: log.clone(),
                 started_at,
                 wall_clock: started_wall,
@@ -7855,6 +7977,8 @@ fn run_agent_mode(
                 current_state,
                 &tooling,
                 &log,
+                0,
+                sink.clone(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let finished_wall = SystemTime::now();
@@ -8064,6 +8188,7 @@ fn run_agent_mode(
                     task: task_id_str.clone(),
                     from: from_state.clone(),
                     to: current_state.clone(),
+                    agent: Some(resolved.agent.id().to_string()),
                     log_path: log.clone(),
                     started_at,
                     wall_clock: started_wall,
@@ -8102,6 +8227,8 @@ fn run_agent_mode(
                         &sname,
                         &tooling_for_thread,
                         &log,
+                        slot,
+                        sink_for_thread.clone(),
                     );
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     let (outcome, exit_code) = match &result {
@@ -11846,5 +11973,355 @@ Body text.
         assert!(args.iter().any(|arg| arg == "--skip-git-repo-check"));
         assert!(!args.iter().any(|arg| arg == "-a"));
         assert!(!args.iter().any(|arg| arg == "never"));
+    }
+
+    #[derive(Default)]
+    struct RecordingSink {
+        events: Mutex<Vec<rhei_tui::RunEvent>>,
+    }
+
+    impl rhei_tui::EventSink for RecordingSink {
+        fn emit(&self, event: rhei_tui::RunEvent) {
+            self.events.lock().expect("recording sink lock").push(event);
+        }
+    }
+
+    #[test]
+    fn output_reader_logs_and_emits_complete_and_partial_lines() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let log_path = dir.path().join("agent.log");
+        let log_file = Arc::new(Mutex::new(fs::File::create(&log_path).expect("log file")));
+        let recorder = Arc::new(RecordingSink::default());
+        let sink: Arc<dyn rhei_tui::EventSink> = recorder.clone();
+
+        let handle = spawn_agent_output_reader(
+            std::io::Cursor::new(b"first\npartial".to_vec()),
+            rhei_tui::AgentStream::Stdout,
+            log_file,
+            sink,
+            3,
+            "task-live".to_string(),
+        );
+
+        drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout).expect("reader drains");
+
+        let log = fs::read_to_string(&log_path).expect("read log");
+        assert_eq!(log, "first\npartial");
+
+        let events = recorder.events.lock().expect("events");
+        assert_eq!(events.len(), 2);
+        match &events[0] {
+            rhei_tui::RunEvent::AgentOutput { slot, task, stream, line, .. } => {
+                assert_eq!(*slot, 3);
+                assert_eq!(task, "task-live");
+                assert_eq!(*stream, rhei_tui::AgentStream::Stdout);
+                assert_eq!(line, "first");
+            }
+            other => panic!("expected AgentOutput, got {other:?}"),
+        }
+        match &events[1] {
+            rhei_tui::RunEvent::AgentOutput { line, .. } => assert_eq!(line, "partial"),
+            other => panic!("expected AgentOutput, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn supported_agents_keep_expected_prompt_transports() {
+        let agents = built_in_agents();
+        let claude = agents.get("claude-code").expect("claude-code profile");
+        assert_eq!(claude.prompt_flag.as_deref(), Some("-p"));
+        assert!(!claude.stdin_prompt);
+
+        let codex = agents.get("codex").expect("codex profile");
+        assert_eq!(codex.prompt_flag.as_deref(), None);
+        assert!(codex.stdin_prompt);
+
+        let pi = agents.get("pi").expect("pi profile");
+        assert_eq!(pi.prompt_flag.as_deref(), Some("-p"));
+        assert!(!pi.stdin_prompt);
+    }
+
+    #[cfg(unix)]
+    fn write_fake_agent(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("fake-agent");
+        fs::write(
+            &script,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+printf 'stdout:start\n'
+printf 'stderr:warn\n' >&2
+prev=''
+read_stdin=0
+for arg in "$@"; do
+  if [ "$prev" = "-p" ]; then
+    printf 'prompt:%s\n' "$arg"
+  fi
+  if [ "$arg" = "--" ]; then
+    read_stdin=1
+  fi
+  prev="$arg"
+done
+if [ "$read_stdin" = "1" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf 'stdin:%s\n' "$line"
+  done
+fi
+printf 'partial'
+"#,
+        )
+        .expect("write fake agent");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+        script
+    }
+
+    #[cfg(unix)]
+    fn run_fake_agent_profile(
+        profile: CustomAgentProfile,
+        agent_id: &str,
+        prompt: &str,
+    ) -> (String, Vec<rhei_tui::RunEvent>) {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let log_path = dir.path().join("agent.log");
+        let recorder = Arc::new(RecordingSink::default());
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from(agent_id),
+            profile,
+            mode: None,
+            target: None,
+            model: None,
+            timeout_secs: Some(10),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+        let status = spawn_and_wait_agent(
+            &resolved,
+            prompt,
+            dir.path(),
+            dir.path(),
+            None,
+            "task-live",
+            "pending",
+            &tooling,
+            &log_path,
+            0,
+            recorder.clone(),
+        )
+        .expect("fake agent runs");
+
+        assert!(status.success());
+        let log = fs::read_to_string(&log_path).expect("read log");
+        let events = recorder.events.lock().expect("events").clone();
+        (log, events)
+    }
+
+    #[cfg(unix)]
+    fn write_sleeping_fake_agent(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("sleeping-agent");
+        fs::write(
+            &script,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+printf 'stdout:before-timeout\n'
+sleep 2
+"#,
+        )
+        .expect("write sleeping fake agent");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+        script
+    }
+
+    #[cfg(unix)]
+    fn write_inherited_pipe_fake_agent(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("inherited-pipe-agent");
+        fs::write(
+            &script,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+printf 'stdout:before-background\n'
+(sleep 2) &
+"#,
+        )
+        .expect("write inherited pipe fake agent");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+        script
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_claude_profile_streams_prompt_flag_output() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_fake_agent(dir.path());
+        let profile = CustomAgentProfile {
+            command: vec![script.display().to_string()],
+            prompt_flag: Some("-p".to_string()),
+            stdin_prompt: false,
+            ..CustomAgentProfile::default()
+        };
+
+        let (log, events) = run_fake_agent_profile(profile, "claude-code", "hello claude");
+
+        assert!(log.contains("prompt:hello claude"));
+        assert!(log.contains("stderr:warn"));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::AgentOutput {
+                stream: rhei_tui::AgentStream::Stdout,
+                line,
+                ..
+            } if line == "prompt:hello claude"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_codex_profile_streams_stdin_prompt_output() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_fake_agent(dir.path());
+        let profile = CustomAgentProfile {
+            command: vec![script.display().to_string()],
+            stdin_prompt: true,
+            ..CustomAgentProfile::default()
+        };
+
+        let (log, events) = run_fake_agent_profile(profile, "codex", "hello codex");
+
+        assert!(log.contains("stdin:hello codex"));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::AgentOutput {
+                stream: rhei_tui::AgentStream::Stdout,
+                line,
+                ..
+            } if line == "stdin:hello codex"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_pi_profile_streams_prompt_flag_output() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_fake_agent(dir.path());
+        let profile = CustomAgentProfile {
+            command: vec![script.display().to_string()],
+            prompt_flag: Some("-p".to_string()),
+            stdin_prompt: false,
+            ..CustomAgentProfile::default()
+        };
+
+        let (log, events) = run_fake_agent_profile(profile, "pi", "hello pi");
+
+        assert!(log.contains("prompt:hello pi"));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::AgentOutput {
+                stream: rhei_tui::AgentStream::Stdout,
+                line,
+                ..
+            } if line == "prompt:hello pi"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_agent_timeout_keeps_output_and_writes_footer() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_sleeping_fake_agent(dir.path());
+        let log_path = dir.path().join("agent.log");
+        let recorder = Arc::new(RecordingSink::default());
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("codex"),
+            profile: CustomAgentProfile {
+                command: vec![script.display().to_string()],
+                ..CustomAgentProfile::default()
+            },
+            mode: None,
+            target: None,
+            model: None,
+            timeout_secs: Some(1),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+
+        let status = spawn_and_wait_agent(
+            &resolved,
+            "prompt",
+            dir.path(),
+            dir.path(),
+            None,
+            "task-timeout",
+            "pending",
+            &tooling,
+            &log_path,
+            0,
+            recorder.clone(),
+        )
+        .expect("timeout returns process status");
+
+        assert!(!status.success());
+        let log = fs::read_to_string(&log_path).expect("read log");
+        assert!(log.contains("stdout:before-timeout"));
+        assert!(log.contains("=== exit ==="));
+        let events = recorder.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::AgentOutput {
+                stream: rhei_tui::AgentStream::Stdout,
+                line,
+                ..
+            } if line == "stdout:before-timeout"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inherited_output_pipe_does_not_block_agent_completion() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_inherited_pipe_fake_agent(dir.path());
+        let log_path = dir.path().join("agent.log");
+        let recorder = Arc::new(RecordingSink::default());
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("codex"),
+            profile: CustomAgentProfile {
+                command: vec![script.display().to_string()],
+                ..CustomAgentProfile::default()
+            },
+            mode: None,
+            target: None,
+            model: None,
+            timeout_secs: Some(10),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+
+        let start = Instant::now();
+        let status = spawn_and_wait_agent(
+            &resolved,
+            "prompt",
+            dir.path(),
+            dir.path(),
+            None,
+            "task-pipe",
+            "pending",
+            &tooling,
+            &log_path,
+            0,
+            recorder,
+        )
+        .expect("agent should complete without waiting for inherited pipe EOF");
+
+        assert!(status.success());
+        assert!(start.elapsed() < Duration::from_secs(1), "spawn waited for inherited pipe EOF");
+        let log = fs::read_to_string(&log_path).expect("read log");
+        assert!(log.contains("stdout:before-background"));
+        assert!(log.contains("=== exit ==="));
     }
 }

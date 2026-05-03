@@ -37,6 +37,13 @@ pub enum MessageLevel {
     Error,
 }
 
+/// Agent subprocess stream that produced a live output line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentStream {
+    Stdout,
+    Stderr,
+}
+
 /// Events emitted by the execution engine.
 ///
 /// The shape follows `docs/specs/rhei-run-tui.spec.md`. `Message` is an
@@ -58,6 +65,7 @@ pub enum RunEvent {
         task: String,
         from: String,
         to: String,
+        agent: Option<String>,
         log_path: PathBuf,
         started_at: Instant,
         wall_clock: SystemTime,
@@ -84,6 +92,13 @@ pub enum RunEvent {
     Message {
         level: MessageLevel,
         text: String,
+    },
+    AgentOutput {
+        slot: Slot,
+        task: String,
+        stream: AgentStream,
+        line: String,
+        wall_clock: SystemTime,
     },
 }
 

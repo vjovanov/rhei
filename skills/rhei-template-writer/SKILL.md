@@ -197,7 +197,7 @@ Escaping: prefer `{% raw %}{{task_id}}{% endraw %}` to emit a literal `{{...}}`.
 
 ### Plan skeleton
 
-1. **Treat the skeleton like a plan authored by `rhei-plan-writer`.** It must pass `rhei validate` after rendering. Follow the plan writer's contract: exactly one H1 `# Rhei: <title>`, optional `**States:**`, `## Tasks` last (for single-file), tasks with `**State:**` first, `**Prior:**` second.
+1. **Treat the skeleton like a plan authored by `rhei-plan-writer`.** It must pass `rhei validate` after rendering. Follow the plan writer's contract: exactly one H1 `# Rhei: <title>`, optional `**States:**`, `## Tasks` last (for single-file), tasks with `**State:**` first, `**Prior:**` second. A generated child task must never list its parent or any ancestor as `**Prior:**`; generate follow-up work as top-level sibling tasks when it must wait for the parent to complete.
 2. **Never author `**Assignee:**` or `> **Result:**`.** These are runtime-owned.
 3. **Use `{{...}}` only where the plan actually depends on input.** A template that uses `{{target}}` in every task title is noisier than one that only interpolates where the value matters.
 4. **Use `{% for %}` to fan out tasks only when the user-supplied input controls multiplicity.** For example, one task per reviewer or per environment. Keep generated IDs stable and unique.

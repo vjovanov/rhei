@@ -199,6 +199,18 @@ pub const INVALID_FIXTURE_INVALID_STATE: &str = r#"# Rhei: Invalid state
 **State:** blocked
 "#;
 
+pub const INVALID_FIXTURE_PARENT_AS_PRIOR: &str = r#"# Rhei: Parent as prior
+
+## Tasks
+
+### Task fetch-prs: Fetch pull requests
+**State:** completed
+
+#### Task fetch-prs.ci-failure-5227: Triage CI failure
+**State:** pending
+**Prior:** Task fetch-prs
+"#;
+
 pub const INVALID_FIXTURE_SUBTASK_PARENT_MISMATCH: &str = r#"# Rhei: Subtask parent mismatch
 
 ## Tasks

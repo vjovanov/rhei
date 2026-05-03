@@ -702,6 +702,21 @@ fn cli_validate_reports_missing_dependency_as_semantic_failure() {
 }
 
 #[test]
+fn cli_validate_reports_parent_as_prior_as_semantic_failure() {
+    let result = run_validate(
+        fixtures::INVALID_FIXTURE_PARENT_AS_PRIOR,
+        fixtures::TEST_STATE_MACHINE,
+        "integration-cli-parent-as-prior",
+    );
+
+    assert_validation_failure(
+        &result,
+        &[&["Task fetch-prs.ci-failure-5227", "cannot list ancestor Task fetch-prs", "Prior"]],
+        &["failed to parse", "Malformed task heading"],
+    );
+}
+
+#[test]
 fn cli_validate_reports_circular_dependency_as_semantic_failure() {
     let result = run_validate(
         fixtures::INVALID_FIXTURE_CIRCULAR_DEPENDENCY,
