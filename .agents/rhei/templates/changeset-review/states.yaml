@@ -445,7 +445,8 @@ states:
         - Push the branch and open a pull request via `gh pr create`
           (or the project-standard equivalent). The PR title must name
           the issue id; the PR body must copy the Approach line and
-          point at the parent review task.
+          point at the parent review task. Apply the `rhei` label to the
+          created PR.
       {%- endif %}
 
       Record the commit SHA and, when applicable, the remote ref or PR

@@ -268,6 +268,9 @@ enum Commands {
         #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_any_path))]
         output: Option<PathBuf>,
         /// Instantiate and immediately begin execution
+        ///
+        /// Pass `rhei run` options after `--`, for example:
+        /// `rhei instantiate my-template --execute -- --parallel 4`.
         #[arg(long)]
         execute: bool,
         /// Show what would be generated without writing files
@@ -319,7 +322,7 @@ enum Commands {
         /// Task identifier (number or name)
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: String,
-        /// Result message written to runtime/results/<task-id>.md
+        /// Result message written to `runtime/results/<task-id>.md`
         #[arg(long)]
         result: String,
         /// Skip execution of on_leave/on_enter callbacks
@@ -430,7 +433,7 @@ impl CompletionShell {
 
 /// Program entry point.
 ///
-/// Delegates to [`run()`](run) so tests can exercise the fallible logic directly.
+/// Delegates to fallible command logic so tests can exercise it directly.
 fn main() {
     CompleteEnv::with_factory(cli_command).bin("rhei").complete();
 
@@ -563,6 +566,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         } => templates::instantiate_command(
             &template,
             &input_args,
+            &instantiate_execute_args_from_env(),
             &set_values,
             &set_files,
             &values,
@@ -1213,7 +1217,7 @@ fn xdg_config_home() -> MietteResult<PathBuf> {
     }
 }
 
-/// Load a [`StateMachine`] from the user-provided path, or fall back to the
+/// Load a [`rhei_validator::StateMachine`] from the user-provided path, or fall back to the
 /// built-in default when no path was given.
 fn load_state_machine(path: Option<&Path>) -> MietteResult<rhei_validator::StateMachine> {
     match path {
@@ -2002,6 +2006,7 @@ mod templates {
     pub(super) fn instantiate_command(
         template: &str,
         input_args: &[String],
+        execute_args: &[String],
         set_values: &[String],
         set_files: &[String],
         values_files: &[PathBuf],
@@ -2024,8 +2029,15 @@ mod templates {
         }
 
         let layout = detect_template_layout(&template_dir)?;
-        let resolved_values =
-            collect_template_inputs(&manifest, values_files, input_args, set_values, set_files)?;
+        let template_input_args =
+            template_input_args_without_execute_args(input_args, execute_args)?;
+        let resolved_values = collect_template_inputs(
+            &manifest,
+            values_files,
+            &template_input_args,
+            set_values,
+            set_files,
+        )?;
         let default_output = std::env::current_dir()
             .map_err(|err| miette!("failed to determine working directory: {err}"))?
             .join(template_dir.file_name().ok_or_else(|| {
@@ -2085,7 +2097,7 @@ mod templates {
             )?;
             print_template_instantiation_command(
                 template,
-                input_args,
+                &template_input_args,
                 set_values,
                 set_files,
                 values_files,
@@ -2103,7 +2115,7 @@ mod templates {
         )?;
         print_template_instantiation_command(
             template,
-            input_args,
+            &template_input_args,
             set_values,
             set_files,
             values_files,
@@ -2111,15 +2123,52 @@ mod templates {
         );
 
         if execute {
-            let opts = RunOptions {
-                standalone: StandaloneExecutionFlags::default(),
-                agent: AgentExecutionFlags::default(),
-                program: ProgramExecutionFlags::default(),
-            };
+            let opts = parse_execute_run_options(&entrypoint, execute_args)?;
             return run_command(&entrypoint, state_machine_path.as_deref(), opts);
         }
 
         Ok(())
+    }
+
+    fn template_input_args_without_execute_args(
+        input_args: &[String],
+        execute_args: &[String],
+    ) -> MietteResult<Vec<String>> {
+        if execute_args.is_empty() {
+            return Ok(input_args.to_vec());
+        }
+        if input_args.len() < execute_args.len() {
+            return Err(miette!(
+                "internal error: execute arguments were not present in parsed template inputs"
+            ));
+        }
+
+        let split_at = input_args.len() - execute_args.len();
+        if input_args[split_at..] != *execute_args {
+            return Err(miette!(
+                "internal error: execute arguments did not match trailing parsed template inputs"
+            ));
+        }
+        Ok(input_args[..split_at].to_vec())
+    }
+
+    fn parse_execute_run_options(
+        entrypoint: &Path,
+        execute_args: &[String],
+    ) -> MietteResult<RunOptions> {
+        if execute_args.is_empty() {
+            return Ok(default_run_options());
+        }
+
+        let mut args =
+            vec!["rhei".to_string(), "run".to_string(), entrypoint.display().to_string()];
+        args.extend(execute_args.iter().cloned());
+
+        let cli = Cli::try_parse_from(args).map_err(|err| miette!("{}", err.to_string()))?;
+        let Commands::Run { standalone, agent, program, .. } = cli.command else {
+            return Err(miette!("internal error: execute arguments did not parse as run options"));
+        };
+        Ok((standalone, agent, program).into())
     }
 
     fn print_instantiated_workspace_summary(
@@ -3515,7 +3564,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
     }
 }
 
-/// Read and parse a markdown plan file into a [`rhei_core::ast::Rhei`](rhei_core::ast::Rhei).
+/// Read and parse a markdown plan file into a [`rhei_core::ast::Rhei`].
 fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Rhei> {
     Ok(load_plan(path)?.rhei)
 }
@@ -3943,7 +3992,7 @@ fn loop_reentry_allowed(
 
 /// Explain why a specific declared transition is not applicable right now,
 /// in user-facing prose. Returns a short phrase (e.g. "condition `visitCount
-/// >= visits` evaluated to false" or "visit budget for state 'review' is
+/// \>= visits` evaluated to false" or "visit budget for state 'review' is
 /// exhausted"). Does NOT re-check applicability — callers are expected to
 /// invoke this only when `transition_rule_is_applicable` returned false.
 fn describe_blocked_transition(
@@ -6348,6 +6397,21 @@ fn default_run_options() -> RunOptions {
         agent: AgentExecutionFlags { no_agent: false, agent: None, agent_mode: None, model: None },
         program: ProgramExecutionFlags::default(),
     }
+}
+
+fn instantiate_execute_args_from_env() -> Vec<String> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let Some(command_index) = args.iter().position(|arg| arg == "instantiate") else {
+        return Vec::new();
+    };
+    let command_args = &args[command_index + 1..];
+    let Some(separator_index) = command_args.iter().position(|arg| arg == "--") else {
+        return Vec::new();
+    };
+    if !command_args[..separator_index].iter().any(|arg| arg == "--execute") {
+        return Vec::new();
+    }
+    command_args[separator_index + 1..].to_vec()
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -4,7 +4,7 @@
 //! - [`StateMachine`], loaded from YAML, which defines allowed task states
 //! - validation helpers such as [`validate_with_machine`] and
 //!   [`validate_from_machine_file`] that check a parsed
-//!   [`rhei_core::ast::Rhei`](rhei_core::ast::Rhei)
+//!   [`rhei_core::ast::Rhei`]
 //!
 //! The current validator enforces the behaviors implemented in this repository:
 //! dependency existence, required `**State:**` metadata, state validity,
@@ -199,7 +199,7 @@ pub struct CustomAgentProfile {
 /// Registry entry for an MCP server profile.
 ///
 /// An entry must declare exactly one of `command` (local subprocess) or `url`
-/// (remote transport). This is enforced at load time via [`validate_mcp_server_profile`].
+/// (remote transport). This is enforced at load time by the profile validator.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub struct McpServerProfile {
     /// Command and arguments to launch a local MCP server.

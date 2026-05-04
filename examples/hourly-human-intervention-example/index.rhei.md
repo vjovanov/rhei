@@ -5,10 +5,11 @@
 Run this workspace once per hour to drain `human-intervention` work from
 `oracle/graalvm-reachability-metadata`.
 
-The sweep has two entry tasks:
+The sweep has three entry tasks:
 
 - open GitHub issues carrying `human-intervention`
 - open GitHub pull requests carrying `human-intervention`
+- open GitHub pull requests carrying `rhei`
 
 Each entry task fetches the full queue, classifies items into root-cause
 classes, and appends one child task per class. CI failure items are split into
@@ -23,6 +24,11 @@ task then runs the shared fix state machine:
    - human GitHub issue/comment handoff
    - Forge fix, review, fix, review, publish/add reviewers
    - GraalVM proposal, human review, fix, review, fix, review, publish/add reviewers
+
+The `rhei` PR follow-up task works independently from `human-intervention`
+triage. It finds open PRs labeled `rhei`, addresses reviewer comments in
+isolated worktrees, and may merge a PR only when reviewers approve and
+repository gates are green.
 
 Use `/home/vjovanov/c/rhei/master` for Forge and reachability-metadata fixes. Use
 `/home/vjovanov/c/rhei/graalvm/ce` and `/home/vjovanov/c/rhei/graalvm/ee` for GraalVM code

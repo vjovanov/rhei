@@ -266,6 +266,9 @@ fn instantiate_project_hourly_human_intervention_template_prints_summary() {
             && result.stdout.contains(
                 "Task fetch-prs: Fetch and classify human-intervention pull requests [fetch]"
             )
+            && result.stdout.contains(
+                "Task follow-up-rhei-prs: Follow up on RHEI pull requests [rhei-pr-follow-up]"
+            )
             && result.stdout.contains("Stopped:"),
         "expected hourly template instantiation summary; got:\n{}",
         result.stdout
@@ -318,6 +321,64 @@ inputs:
 
     let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
     assert!(rendered.contains("# Rhei: Hello World"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn instantiate_execute_accepts_run_args_after_separator() {
+    let dir = unique_temp_dir("templates-execute-run-args");
+    let template_dir = dir.join("execute-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: execute-template
+version: 1.0.0
+description: Template that immediately executes
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Execute Template
+
+## Tasks
+
+### Task 1: Step
+**State:** pending
+"#,
+    );
+
+    let output_dir = dir.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--execute",
+            "--output",
+            output_dir.to_str().expect("output path"),
+            "--",
+            "--dry-run",
+            "--parallel",
+            "3",
+            "--no-agent",
+        ],
+        &dir,
+    );
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("Instantiated template 'execute-template'")
+            && result.stdout.contains("Running plan 'Execute Template'"),
+        "expected instantiation followed by run output; got stdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("does not accept positional inputs"),
+        "run arguments after -- must not be treated as template inputs; got stderr:\n{}",
+        result.stderr
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

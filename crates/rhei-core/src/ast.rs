@@ -211,7 +211,7 @@ pub struct Task {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rhei {
-    /// Title captured from the "# Rhei: <title>" header.
+    /// Title captured from the `# Rhei: <title>` header.
     pub title: String,
     /// Name of the state machine to use. Defaults to "rhei".
     pub states: String,

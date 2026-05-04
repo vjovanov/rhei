@@ -2,6 +2,8 @@
 
 This is a pre-rendered instantiation of the
 `hourly-human-intervention` template using its default inputs.
+It includes the default human-intervention sweep plus RHEI-labeled PR
+review-comment follow-up.
 
 ## Inputs
 

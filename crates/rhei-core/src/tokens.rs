@@ -10,13 +10,13 @@ pub enum Token {
     /// Top-level rhei header marker (e.g., "# Rhei: ...").
     RheiHeader,
 
-    /// States declaration: "**States:** <name>"
+    /// States declaration: `**States:** <name>`.
     MetadataStates { name: String },
 
     /// Marker for the "## Tasks" section start.
     TasksSection,
 
-    /// Section header: "## <title>" (non-Tasks H2 headers).
+    /// Section header: `## <title>` (non-Tasks H2 headers).
     SectionHeader { title: String },
 
     /// Node heading at H3..=H6 (`### <kind> <id>: <title>`,
@@ -27,13 +27,13 @@ pub enum Token {
     /// heading.
     NodeHeader { level: u8, kind: String, id: TaskId },
 
-    /// Metadata "Prior": "**Prior:** <kind> <id>, <kind> <id>, ..."
+    /// Metadata "Prior": `**Prior:** <kind> <id>, <kind> <id>, ...`.
     MetadataPrior { task_ids: Vec<TaskId> },
 
-    /// Metadata "State": "**State:** <state>"
+    /// Metadata "State": `**State:** <state>`.
     MetadataState { state: String },
 
-    /// Metadata "Assignee": "**Assignee:** <name>"
+    /// Metadata "Assignee": `**Assignee:** <name>`.
     MetadataAssignee { name: String },
 
     /// Any non-heading, non-metadata text content.

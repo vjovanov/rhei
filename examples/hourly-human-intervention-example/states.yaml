@@ -29,6 +29,19 @@
 #             +-- appends one deep-analysis child per non-CI PR class
 #             +-- appends one ci-failure-triage child per CI failure PR
 #
+#     +--------------------+
+#     | follow-up-rhei-prs |
+#     | state: rhei-pr-    |
+#     | follow-up          |
+#     +---------+----------+
+#               |
+#               +-- fixes reviewer comments in isolated worktrees
+#               +-- merges PRs when reviewers approve and gates are green
+#               v
+#       +---------------+
+#       | completed     |
+#       +---------------+
+#
 #   Per-class fix state machine:
 #
 #     +-------------------+
@@ -383,6 +396,8 @@ states:
       Update the relevant GitHub issue or PR in `oracle/graalvm-reachability-metadata` with a concise
       human-action request. Prefer commenting on the existing item. Create a new
       issue only when the work needs a separate durable tracker.
+      When creating a new GitHub issue, apply the `rhei` label in addition to
+      any context-specific labels.
 
       The GitHub update must include:
       - what automation tried
@@ -505,12 +520,13 @@ states:
       - for an existing PR that still has `human-intervention`, remove `human-intervention` and add
         `human-intervention-fixed`
       - for a new PR, mention the original human-intervention item and apply the
-        normal Forge PR labels
+        `rhei` label plus the normal Forge PR labels
 
       If the fix closes an issue without a PR, comment with the fix evidence and
       remove `human-intervention` from the issue. If no code PR is appropriate, update the
       existing item once and remove `human-intervention` only when a durable next owner is
-      clear.
+      clear. If a new GitHub issue is created instead of a PR, apply the `rhei`
+      label.
 
       Write `{output.forge-publication.path}` with the PR or issue URL, branch
       name, reviewers requested, and any remaining human action.
@@ -662,11 +678,14 @@ states:
       - configured reviewers: `[]`
       - request the configured reviewers when that list is non-empty
       - otherwise use repository defaults
+      - for a new PR, apply the `rhei` label
       - comment on the original graalvm-reachability-metadata item with the PR
         URL(s), the validation evidence, and what remains blocked
       - remove `human-intervention` from the original item only when the GraalVM PR or
         handoff is the durable next owner; do not add `human-intervention-fixed`
         to GraalVM PRs
+
+      If a new GitHub issue is created instead of a PR, apply the `rhei` label.
 
       Write `{output.graalvm-publication.path}` with the issue or PR URL(s),
       branch name(s), reviewers requested, and any remaining human action.
@@ -674,6 +693,47 @@ states:
       - name: graalvm-publication
         path: runtime/publication/{task_id}-graalvm.md
         description: GraalVM PR/issue publication summary.
+
+  rhei-pr-follow-up:
+    description: Address reviewer feedback on RHEI-labeled pull requests and merge approved PRs.
+    target: "codex[yolo]:openai:gpt-5.5"
+    instructions: |
+      Follow up on RHEI pull requests for Task {task_id}: {task_title}.
+
+      Work from the coordination workspace root. Treat GitHub as the source of
+      truth for open pull requests in `oracle/graalvm-reachability-metadata` labeled `rhei`.
+
+      For each PR:
+      - fetch the PR number, URL, title, author, labels, head repository, head
+        branch, review decision, submitted reviews, unresolved review comments,
+        issue comments, changed files, mergeability, and CI/check status
+      - skip PRs that are draft, already merged/closed, not labeled `rhei`, or
+        have a human-only blocker that cannot be addressed from the checkout
+      - if reviewer comments or requested changes require edits, create or
+        reuse an isolated git worktree for the PR head branch
+      - make the smallest changes that address the reviewer comments without
+        expanding PR scope
+      - run the narrowest meaningful validation for the changed files
+      - commit and push fixes to the PR head branch, preserving unrelated work
+      - comment on the PR with a concise summary of addressed feedback and
+        validation evidence when changes were pushed
+
+      Merge policy:
+      - only merge a PR when every non-dismissed reviewer review is approved,
+        every requested or participating reviewer has approved, required checks
+        are passing, and GitHub reports the PR mergeable
+      - do not merge when review is pending, changes are requested, required CI
+        is pending or failing, mergeability is unknown, or the PR has a
+        human-blocking comment
+      - use the repository's standard merge method and record the merge result
+
+      Write `{output.rhei-pr-follow-up.path}` with one section per PR covering
+      actions taken, worktree path if one was used, validation, push status,
+      merge decision, and any remaining human action.
+    outputs:
+      - name: rhei-pr-follow-up
+        path: runtime/rhei-pr-follow-up/{task_id}.md
+        description: RHEI PR reviewer-feedback and merge follow-up summary.
 
   completed:
     description: Task is done.
@@ -763,6 +823,10 @@ transitions:
   - from: graalvm-publish
     to: completed
     description: GraalVM issue or PR was published and reviewers were requested.
+
+  - from: rhei-pr-follow-up
+    to: completed
+    description: RHEI PR reviewer feedback was handled and approved PRs were merged.
 
   - from: "*"
     to: cancelled

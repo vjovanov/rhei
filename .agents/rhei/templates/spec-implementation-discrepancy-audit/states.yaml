@@ -1,0 +1,260 @@
+# State machine diagram
+# ---------------------
+#
+# Legend:
+#   [initial]  first state for every audit partition
+#   [gating]   human-only state; agents must stop
+#   [final]    terminal reconciliation outcome
+#
+#   scope-spec [initial]
+#       |
+#       v
+#   compare-implementation
+#       |        ^
+#       v        |
+#   elaborate-discrepancies
+#       |        ^
+#       v        |
+#   propose-reconciliation
+#       |
+#       v
+#   human-decision [gating]
+#       |
+#       +--> update-spec [final]
+#       +--> update-implementation [final]
+#       +--> update-both [final]
+#       +--> defer-follow-up [final]
+#       +--> no-change [final]
+#       +--> cancelled [final]
+#
+# Recovery transitions:
+#   compare-implementation -> scope-spec
+#   elaborate-discrepancies -> compare-implementation
+#   propose-reconciliation -> elaborate-discrepancies
+#   scope-spec / compare-implementation / elaborate-discrepancies /
+#     propose-reconciliation -> cancelled
+#
+# Fan-out points:
+#   None. The template creates multiple independent partition tasks, and
+#   `concurrent: true` allows parallel work across partitions.
+#   Autonomous work states run on {{audit_target}}.
+#
+# Per-task path:
+#   audit partition:
+#     scope-spec -> compare-implementation -> elaborate-discrepancies ->
+#     propose-reconciliation -> human-decision -> human-selected final state
+
+name: spec-implementation-discrepancy-audit
+version: 1.0
+personality: |
+  You are auditing {{subject}}'s written specification against the
+  implementation. Be precise, cite concrete files and symbols, and distinguish
+  real discrepancies from missing tests, ambiguous prose, or intentional design
+  choices.
+
+states:
+  scope-spec:
+    description: Identify the normative spec clauses and implementation surfaces for this partition.
+    target: {{audit_target}}
+    concurrent: true
+    agent_timeout: 1h
+    instructions: |
+      Read the task description and enumerate the exact specification files,
+      sections, and normative claims that belong to this partition. Map each
+      claim to the implementation files, tests, fixtures, templates, skills,
+      and user-facing commands that should satisfy it.
+
+      Write the scope inventory to {output.scope.path}. Include enough section
+      names, file paths, command names, and symbol names for the next state to
+      compare behavior without rediscovering the partition boundaries.
+    outputs:
+      - name: scope
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/scope.md
+        format: markdown
+
+  compare-implementation:
+    description: Compare the scoped specification claims against code, tests, and command behavior.
+    target: {{audit_target}}
+    concurrent: true
+    agent_timeout: 2h
+    inputs:
+      - name: scope
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/scope.md
+        format: markdown
+    outputs:
+      - name: discrepancies
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/discrepancies.md
+        format: markdown
+    instructions: |
+      Use {input.scope.path} as the partition boundary. For each scoped claim,
+      compare the spec against implementation code, tests, fixtures, templates,
+      skills, and CLI behavior where practical.
+
+      Write {output.discrepancies.path}. Classify each finding as one of:
+      implementation-diverges, spec-stale, ambiguous-spec, missing-validation,
+      missing-test, or no-discrepancy. Include evidence with concrete file
+      paths and line numbers where possible. Do not propose fixes yet.
+
+  elaborate-discrepancies:
+    description: Turn raw discrepancies into actionable explanations with risk and impact.
+    target: {{audit_target}}
+    concurrent: true
+    agent_timeout: 1h
+    inputs:
+      - name: discrepancies
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/discrepancies.md
+        format: markdown
+    outputs:
+      - name: elaboration
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/elaboration.md
+        format: markdown
+    instructions: |
+      Read {input.discrepancies.path}. For each non-empty discrepancy, explain:
+      the exact mismatch, why it matters, who or what is affected, whether the
+      risk is user-facing or internal, and what verification currently exists.
+
+      Write {output.elaboration.path}. Merge duplicates, mark weak findings as
+      tentative, and explicitly record areas where no discrepancy was found.
+      Do not pick a reconciliation strategy yet.
+
+  propose-reconciliation:
+    description: Propose how to reconcile each discrepancy before human decision.
+    target: {{audit_target}}
+    concurrent: true
+    agent_timeout: 1h
+    inputs:
+      - name: elaboration
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/elaboration.md
+        format: markdown
+    outputs:
+      - name: proposal
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/proposal.md
+        format: markdown
+    instructions: |
+      Read {input.elaboration.path}. For each discrepancy, propose one primary
+      reconciliation and any credible alternative.
+
+      Write {output.proposal.path}. Each proposal must name one of these
+      human decision options: update-spec, update-implementation, update-both,
+      defer-follow-up, or no-change. Include concrete next edits or follow-up
+      tasks, expected tests, and the reason the proposed option is preferable.
+
+  human-decision:
+    description: Human chooses how to reconcile the proposed discrepancies.
+    gating: true
+    inputs:
+      - name: proposal
+        path: runtime/spec-implementation-discrepancy-audit/{task_id}/proposal.md
+        format: markdown
+    instructions: |
+      Stop autonomous work. A human must read {input.proposal.path} and choose
+      one reconciliation outcome by explicitly transitioning the task to one of:
+
+      - update-spec: the implementation is accepted as source of truth and the
+        spec should be edited to match.
+      - update-implementation: the spec is accepted as source of truth and code,
+        tests, or behavior should change.
+      - update-both: both sides need clarification or adjustment.
+      - defer-follow-up: record the issue for later without reconciling now.
+      - no-change: reject the discrepancy as intentional, obsolete, or not a
+        real mismatch.
+      - cancelled: abandon this partition.
+
+      Do not transition out of this state autonomously.
+
+  update-spec:
+    description: Human selected the spec-update reconciliation path.
+    final: true
+
+  update-implementation:
+    description: Human selected the implementation-update reconciliation path.
+    final: true
+
+  update-both:
+    description: Human selected a combined spec and implementation reconciliation path.
+    final: true
+
+  defer-follow-up:
+    description: Human deferred reconciliation into follow-up tracking.
+    final: true
+
+  no-change:
+    description: Human rejected the discrepancy or accepted current behavior.
+    final: true
+
+  cancelled:
+    description: This audit partition is no longer needed.
+    final: true
+
+transitions:
+  - from: scope-spec
+    to: compare-implementation
+    description: Scope inventory is complete and ready for comparison.
+  - from: scope-spec
+    to: cancelled
+    description: Partition is abandoned during scoping.
+  - from: compare-implementation
+    to: elaborate-discrepancies
+    description: Raw comparison findings are ready to elaborate.
+  - from: compare-implementation
+    to: scope-spec
+    description: Comparison revealed that the partition scope must be corrected.
+  - from: compare-implementation
+    to: cancelled
+    description: Partition is abandoned during comparison.
+  - from: elaborate-discrepancies
+    to: propose-reconciliation
+    description: Discrepancies have been explained and are ready for proposed reconciliation.
+  - from: elaborate-discrepancies
+    to: compare-implementation
+    description: Elaboration found missing or weak evidence that requires another comparison pass.
+  - from: elaborate-discrepancies
+    to: cancelled
+    description: Partition is abandoned during elaboration.
+  - from: propose-reconciliation
+    to: human-decision
+    description: Proposed reconciliation is ready for human choice.
+  - from: propose-reconciliation
+    to: elaborate-discrepancies
+    description: Proposal work found gaps in the elaboration that must be resolved first.
+  - from: propose-reconciliation
+    to: cancelled
+    description: Partition is abandoned during proposal.
+  - from: human-decision
+    to: update-spec
+    description: Human chooses to update the specification to match implementation.
+  - from: human-decision
+    to: update-implementation
+    description: Human chooses to update implementation or tests to match the specification.
+  - from: human-decision
+    to: update-both
+    description: Human chooses to adjust both specification and implementation.
+  - from: human-decision
+    to: defer-follow-up
+    description: Human chooses to defer reconciliation into follow-up tracking.
+  - from: human-decision
+    to: no-change
+    description: Human chooses that no reconciliation change is needed.
+  - from: human-decision
+    to: cancelled
+    description: Human abandons the partition.
+
+profiles:
+  audit:
+    initial: scope-spec
+    allowed:
+      - scope-spec
+      - compare-implementation
+      - elaborate-discrepancies
+      - propose-reconciliation
+      - human-decision
+      - update-spec
+      - update-implementation
+      - update-both
+      - defer-follow-up
+      - no-change
+      - cancelled
+
+node_policy:
+  root: audit
+  default: audit
