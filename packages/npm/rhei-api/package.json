@@ -1,0 +1,32 @@
+{
+  "name": "rhei-api",
+  "version": "0.1.0-alpha.1",
+  "description": "JavaScript API helpers for Rhei markdown plans.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vjovanov/rhei.git"
+  },
+  "homepage": "https://github.com/vjovanov/rhei#readme",
+  "bugs": {
+    "url": "https://github.com/vjovanov/rhei/issues"
+  },
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "dependencies": {
+    "rhei": "0.1.0-alpha.1"
+  },
+  "keywords": [
+    "agents",
+    "markdown",
+    "planning",
+    "workflow",
+    "api"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

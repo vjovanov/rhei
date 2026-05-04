@@ -35,11 +35,11 @@ beads, beans, opencode, Claude Code TodoWrite, Cline, Cursor, Roo, Devin, and
 Augment.
 
 Current workspace crates:
-- `rhei-core`: AST types plus markdown plan parsing
-- `rhei-validator`: semantic validation against a YAML states definition
-- `rhei-output`: JSON, GitHub-style markdown, and progress-report rendering
+- `rhei-api` (`rhei_core`): AST types plus markdown plan parsing
+- `rhei-cli-validator` (`rhei_validator`): semantic validation against a YAML states definition
+- `rhei-cli-output` (`rhei_output`): JSON, GitHub-style markdown, and progress-report rendering
 - `rhei-cli`: `rhei` command for validation, execution, and rendering
-- `rhei-napi`: Node.js bindings
+- `rhei-api-napi`: Node.js bindings
 
 ## Markdown plan compiler
 
@@ -57,11 +57,22 @@ The primary reference documents are:
 
 ## Install
 
+### Cargo
+
 Install the `rhei` CLI from this checkout with Cargo:
 
 ```bash
 cargo install --path crates/rhei-cli --locked --force
 ```
+
+Install the published CLI package from crates.io:
+
+```bash
+cargo install rhei-cli --locked
+```
+
+The crates.io package is named `rhei-cli`; the installed command is still
+`rhei`.
 
 Use `--locked` so Cargo respects the repository lockfile. This avoids resolving newer dependency versions that may require a newer Rust compiler than the project currently targets.
 
@@ -77,6 +88,58 @@ If an older `/usr/local/bin/rhei` appears before `~/.cargo/bin/rhei`, either adj
 ```bash
 ~/.cargo/bin/rhei version
 ```
+
+### npm
+
+Install the CLI from npm:
+
+```bash
+npm install -g rhei
+rhei version
+```
+
+Use the JavaScript helper API:
+
+```bash
+npm install rhei-api
+```
+
+```js
+const { version, runCaptureSync } = require("rhei-api");
+
+console.log(version());
+const result = runCaptureSync(["validate", "plan.rhei.md"]);
+```
+
+The npm packages install the Rust CLI through Cargo during installation, so
+Rust and Cargo must be available on `PATH`.
+
+### PyPI
+
+Install the CLI from PyPI:
+
+```bash
+python3 -m pip install rhei-cli
+rhei version
+```
+
+Use the Python helper API:
+
+```bash
+python3 -m pip install rhei-api
+```
+
+```python
+import rhei_api
+
+print(rhei_api.version())
+result = rhei_api.run(["validate", "plan.rhei.md"], capture_output=True)
+```
+
+The PyPI package name is `rhei-cli` because `rhei` is already taken on PyPI.
+The installed command is still `rhei`.
+
+### Completions
 
 Install shell completions for the current user:
 
@@ -160,10 +223,14 @@ cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml reset examples/r
 
 Typical flow inside Rust code:
 
-1. Parse markdown with `rhei_core::parse`
-2. Load a states definition with `rhei_validator::StateMachine::from_yaml_file`
-3. Validate with `rhei_validator::validate_with_machine` or `rhei_validator::validate_from_machine_file`
-4. Render with helpers from `rhei_output`
+1. Add `rhei_core = { package = "rhei-api", version = "0.1.0-alpha.1" }`
+2. Parse markdown with `rhei_core::parse`
+3. Load a states definition with `rhei_validator::StateMachine::from_yaml_file`
+4. Validate with `rhei_validator::validate_with_machine` or `rhei_validator::validate_from_machine_file`
+5. Render with helpers from `rhei_output`
+
+The published package names are conflict-free, while the Rust crate import
+names remain `rhei_core`, `rhei_validator`, and `rhei_output`.
 
 ## Status notes
 

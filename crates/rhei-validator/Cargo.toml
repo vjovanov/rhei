@@ -1,11 +1,20 @@
 [package]
-name = "rhei-validator"
-version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+name = "rhei-cli-validator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+description = "Semantic validation for Rhei markdown plans and YAML state machines."
+
+[lib]
+name = "rhei_validator"
+path = "src/lib.rs"
 
 [dependencies]
-rhei-core = { path = "../rhei-core" }
+rhei-core = { package = "rhei-api", path = "../rhei-core", version = "=0.1.0-alpha.1" }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 indexmap = { version = "=2.2.6", features = ["serde"] }

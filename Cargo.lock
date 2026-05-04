@@ -790,23 +790,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "rhei-api"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "indexmap",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "rhei-api-napi"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "napi",
+ "napi-derive",
+ "rhei-api",
+]
+
+[[package]]
 name = "rhei-cli"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
  "clap_lex 1.0.0",
  "fs2",
+ "indexmap",
  "miette",
  "minijinja",
  "nix",
  "notify",
  "regex",
- "rhei-core",
- "rhei-output",
- "rhei-tui",
- "rhei-validator",
+ "rhei-api",
+ "rhei-cli-output",
+ "rhei-cli-tui",
+ "rhei-cli-validator",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -814,50 +835,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "rhei-core"
-version = "0.1.0"
+name = "rhei-cli-output"
+version = "0.1.0-alpha.1"
 dependencies = [
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
-]
-
-[[package]]
-name = "rhei-napi"
-version = "0.1.0"
-dependencies = [
- "napi",
- "napi-derive",
- "rhei-core",
-]
-
-[[package]]
-name = "rhei-output"
-version = "0.1.0"
-dependencies = [
- "rhei-core",
+ "rhei-api",
  "serde_json",
 ]
 
 [[package]]
-name = "rhei-tui"
-version = "0.1.0"
+name = "rhei-cli-tui"
+version = "0.1.0-alpha.1"
 dependencies = [
  "crossbeam-channel",
  "crossterm",
  "nix",
  "ratatui",
  "tempfile",
+ "unicode-segmentation",
 ]
 
 [[package]]
-name = "rhei-validator"
-version = "0.1.0"
+name = "rhei-cli-validator"
+version = "0.1.0-alpha.1"
 dependencies = [
  "indexmap",
  "regex",
- "rhei-core",
+ "rhei-api",
  "serde",
  "serde_yaml",
  "tempfile",
@@ -1391,8 +1394,8 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 name = "xtask"
 version = "0.0.0"
 dependencies = [
- "rhei-core",
- "rhei-validator",
+ "rhei-api",
+ "rhei-cli-validator",
  "serde",
  "serde_json",
 ]
