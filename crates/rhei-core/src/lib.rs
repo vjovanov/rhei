@@ -3,9 +3,9 @@
 //! This crate owns the syntax-facing pieces of the compiler:
 //! - token definitions and a tokenizer in [`crate::tokens`] and [`crate::lexer`]
 //! - AST types in [`crate::ast`]
-//! - the markdown plan parser in [`parse`](crate::parse)
+//! - the markdown plan parser in [`parse`]
 //!
-//! Most consumers only need [`parse`](crate::parse) plus the public AST types
+//! Most consumers only need [`parse`] plus the public AST types
 //! from [`crate::ast`].
 
 pub mod ast;

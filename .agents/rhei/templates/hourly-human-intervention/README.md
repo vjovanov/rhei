@@ -16,10 +16,12 @@ Then run the instantiated workspace:
 rhei run .agents/scratchpad/hourly-human-intervention-<timestamp> --parallel 1
 ```
 
-The template creates two initial tasks:
+The template creates three initial tasks:
 
 - fetch and classify open `human-intervention` issues
 - fetch and classify open `human-intervention` pull requests
+- follow up on open `rhei` pull requests, including reviewer-comment fixes and
+  merges when review and CI gates allow them
 
 Each classification creates child tasks that run through deep analysis, route
 selection, and the matching fix path:
@@ -28,6 +30,9 @@ selection, and the matching fix path:
 - GitHub human handoff
 - Forge fix and two review passes
 - GraalVM proposal, human review, fix, and two review passes
+
+The `rhei` PR follow-up task is separate from classification. It works in
+isolated PR worktrees before pushing reviewer-comment fixes.
 
 Keep the default serial run unless each mutating task has been moved to its own
 worktree. The template edits shared local checkouts.
