@@ -127,13 +127,17 @@ rhei/
 
 ### Crate Responsibilities
 
-| Crate | Role |
-|-------|------|
-| `rhei-core` | Tokenizes markdown, parses into AST, defines data structures |
-| `rhei-validator` | Validates dependencies, states, cycles, and child task id numbering |
-| `rhei-output` | Renders AST to JSON, GitHub markdown, terminal progress |
-| `rhei-cli` | Provides `validate`, `render`, and `version` commands |
-| `rhei-napi` | Exposes Rust functionality to JavaScript via N-API |
+| Source crate | Published package | Role |
+|-------------|-------------------|------|
+| `rhei-core` | `rhei-api` | Tokenizes markdown, parses into AST, defines data structures |
+| `rhei-validator` | `rhei-cli-validator` | Validates dependencies, states, cycles, and child task id numbering |
+| `rhei-output` | `rhei-cli-output` | Renders AST to JSON, GitHub markdown, terminal progress |
+| `rhei-cli` | `rhei-cli` | Provides the `rhei` command |
+| `rhei-tui` | `rhei-cli-tui` | Terminal UI event surface and frontend |
+| `rhei-napi` | `rhei-api-napi` | Exposes Rust functionality to JavaScript via N-API |
+
+The published package names avoid crates.io conflicts. Rust import names remain
+`rhei_core`, `rhei_validator`, `rhei_output`, and `rhei_tui`.
 
 ### Processing Pipeline
 

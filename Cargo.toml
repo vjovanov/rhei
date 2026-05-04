@@ -11,5 +11,14 @@ members = [
 
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.82"
+repository = "https://github.com/vjovanov/rhei"
+homepage = "https://github.com/vjovanov/rhei"
+keywords = ["markdown", "planning", "agents", "workflow"]
+
 [workspace.dependencies]
 pretty_assertions = "1"

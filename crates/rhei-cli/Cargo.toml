@@ -1,20 +1,27 @@
 [package]
 name = "rhei-cli"
-version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+description = "Command-line interface for validating, running, and rendering Rhei markdown plans."
 
 [dependencies]
-rhei-core = { path = "../rhei-core" }
-rhei-validator = { path = "../rhei-validator" }
-rhei-output = { path = "../rhei-output" }
-rhei-tui = { path = "../rhei-tui" }
+rhei-core = { package = "rhei-api", path = "../rhei-core", version = "=0.1.0-alpha.1" }
+rhei-validator = { package = "rhei-cli-validator", path = "../rhei-validator", version = "=0.1.0-alpha.1" }
+rhei-output = { package = "rhei-cli-output", path = "../rhei-output", version = "=0.1.0-alpha.1" }
+rhei-tui = { package = "rhei-cli-tui", path = "../rhei-tui", version = "=0.1.0-alpha.1" }
 clap = { version = "=4.5.60", features = ["derive"] }
 clap_complete = { version = "=4.5.60", features = ["unstable-dynamic"] }
 # `cargo install --path` ignores the workspace lockfile, so pin clap_lex to a
 # Cargo 1.82-compatible release instead of letting resolution float to 1.1.x.
 clap_lex = "=1.0.0"
 anyhow = "1"
+# Constrain serde_yaml's transitive resolver for Rust 1.82-compatible package verification.
+indexmap = { version = "=2.2.6", features = ["serde"] }
 miette = { version = "7", default-features = false, features = ["fancy-no-backtrace", "derive"] }
 minijinja = "2"
 notify = "6"

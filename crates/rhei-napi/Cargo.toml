@@ -1,13 +1,19 @@
 [package]
-name = "rhei-napi"
-version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+name = "rhei-api-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+description = "N-API bindings for Rhei markdown plan parsing."
 
 [lib]
+name = "rhei_napi"
 crate-type = ["cdylib"]
 
 [dependencies]
-rhei-core = { path = "../rhei-core" }
+rhei-core = { package = "rhei-api", path = "../rhei-core", version = "=0.1.0-alpha.1" }
 napi = "2"
 napi-derive = "2"
