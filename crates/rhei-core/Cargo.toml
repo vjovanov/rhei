@@ -1,5 +1,5 @@
 [package]
-name = "rhei-api"
+name = "rhei-plan-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
-description = "Rust API for parsing Rhei markdown plans."
+description = "Core parser and AST types for Rhei markdown plans."
 
 [lib]
 name = "rhei_core"

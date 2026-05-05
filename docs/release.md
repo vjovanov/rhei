@@ -40,11 +40,11 @@ Before publishing anything, dry-run the crates that do not depend on other
 unpublished Rhei crates:
 
 ```bash
-cargo publish --dry-run -p rhei-api
+cargo publish --dry-run -p rhei-plan-core
 cargo publish --dry-run -p rhei-cli-tui
 ```
 
-After `rhei-api` is published, dry-run and publish the direct dependents:
+After `rhei-plan-core` is published, dry-run and publish the direct dependents:
 
 ```bash
 cargo publish --dry-run -p rhei-cli-output
@@ -64,7 +64,7 @@ cargo publish --dry-run -p rhei-cli
 Publish in the same dependency order:
 
 ```bash
-cargo publish -p rhei-api
+cargo publish -p rhei-plan-core
 cargo publish -p rhei-cli-tui
 
 cargo publish -p rhei-cli-output
