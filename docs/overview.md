@@ -129,7 +129,7 @@ rhei/
 
 | Source crate | Published package | Role |
 |-------------|-------------------|------|
-| `rhei-core` | `rhei-api` | Tokenizes markdown, parses into AST, defines data structures |
+| `rhei-core` | `rhei-plan-core` | Tokenizes markdown, parses into AST, defines data structures |
 | `rhei-validator` | `rhei-cli-validator` | Validates dependencies, states, cycles, and child task id numbering |
 | `rhei-output` | `rhei-cli-output` | Renders AST to JSON, GitHub markdown, terminal progress |
 | `rhei-cli` | `rhei-cli` | Provides the `rhei` command |

@@ -35,7 +35,7 @@ beads, beans, opencode, Claude Code TodoWrite, Cline, Cursor, Roo, Devin, and
 Augment.
 
 Current workspace crates:
-- `rhei-api` (`rhei_core`): AST types plus markdown plan parsing
+- `rhei-plan-core` (`rhei_core`): AST types plus markdown plan parsing
 - `rhei-cli-validator` (`rhei_validator`): semantic validation against a YAML states definition
 - `rhei-cli-output` (`rhei_output`): JSON, GitHub-style markdown, and progress-report rendering
 - `rhei-cli`: `rhei` command for validation, execution, and rendering
@@ -223,7 +223,7 @@ cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml reset examples/r
 
 Typical flow inside Rust code:
 
-1. Add `rhei_core = { package = "rhei-api", version = "0.1.0-alpha.1" }`
+1. Add `rhei_core = { package = "rhei-plan-core", version = "0.1.0-alpha.1" }`
 2. Parse markdown with `rhei_core::parse`
 3. Load a states definition with `rhei_validator::StateMachine::from_yaml_file`
 4. Validate with `rhei_validator::validate_with_machine` or `rhei_validator::validate_from_machine_file`
