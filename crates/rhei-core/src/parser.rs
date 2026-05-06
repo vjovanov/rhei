@@ -468,6 +468,13 @@ pub fn parse(input: &str) -> Result<Rhei> {
             continue;
         }
 
+        if !rhei_header_seen && !in_code_block && line == "---" {
+            return Err(ParseError::new(
+                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+                Some(line_number),
+            ));
+        }
+
         if !in_tasks_section && !in_code_block {
             if let Some(cap) = re_rhei.captures(line) {
                 rhei_title = Some(cap.get(1).unwrap().as_str().to_string());
@@ -928,6 +935,13 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
             continue;
         }
 
+        if !header_seen && line == "---" {
+            return Err(ParseError::new(
+                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+                Some(line_number),
+            ));
+        }
+
         if !header_seen {
             if let Some(cap) = re_rhei.captures(line) {
                 title = Some(cap.get(1).unwrap().as_str().to_string());
@@ -1198,6 +1212,52 @@ Context
         let input = "## Tasks\n";
         let err = parse(input).unwrap_err();
         assert!(err.message.contains("Missing '# Rhei"));
+        assert_eq!(err.line, Some(1));
+    }
+
+    #[test]
+    fn errors_when_frontmatter_appears_before_rhei_header() {
+        let input = r#"---
+structure:
+  nodeKinds: [task, bug]
+---
+
+# Rhei: Example
+
+## Tasks
+
+### Task 1: Hi
+**State:** pending
+"#;
+        let err = parse(input).unwrap_err();
+        assert!(
+            err.message.contains("YAML frontmatter must appear after the `# Rhei:` header"),
+            "unexpected message: {}",
+            err.message
+        );
+        assert_eq!(err.line, Some(1));
+    }
+
+    #[test]
+    fn errors_when_workspace_index_frontmatter_appears_before_header() {
+        let input = r#"---
+metadata:
+  tasks:
+    setup: {}
+---
+
+# Rhei: Workspace
+**States:** custom
+
+## Overview
+Context
+"#;
+        let err = parse_workspace_index(input).unwrap_err();
+        assert!(
+            err.message.contains("YAML frontmatter must appear after the `# Rhei:` header"),
+            "unexpected message: {}",
+            err.message
+        );
         assert_eq!(err.line, Some(1));
     }
 

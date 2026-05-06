@@ -1482,6 +1482,7 @@ states:
     initial: true
   in-progress:
     description: Working
+    final: true
 transitions:
   - from: pending
     to: in-progress
@@ -1688,6 +1689,7 @@ states:
     initial: true
   in-progress:
     description: Working
+    final: true
 transitions:
   - from: pending
     to: in-progress
@@ -1743,6 +1745,7 @@ states:
     initial: true
   in-progress:
     description: Working
+    final: true
 transitions:
   - from: pending
     to: in-progress
@@ -2490,6 +2493,59 @@ fn workspace_loads_and_validates_correctly() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Validation succeeded"));
+
+    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
+fn validate_and_list_accept_workspace_index_file_path() {
+    let (ws, machine_path) = create_workspace(
+        "ws-index-path",
+        "# Rhei: Workspace Index Path\n\n## Context\nIndex addressed directly.\n",
+        &[("alpha.md", "### Task 1: Alpha\n**State:** pending\n\nDescription.\n")],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let index_path = ws.join("index.rhei.md");
+
+    // workspace_dir resolves both directory and index file paths.
+    assert!(workspace::is_workspace(&ws));
+    assert!(workspace::workspace_dir(&ws).is_some());
+    assert!(workspace::workspace_dir(&index_path).is_some());
+
+    // CLI validate succeeds against the index file path.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(&machine_path)
+        .arg("validate")
+        .arg(&index_path)
+        .output()
+        .expect("validate command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "validate should succeed for index.rhei.md\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Validation succeeded"));
+
+    // CLI list also succeeds.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(&machine_path)
+        .arg("list")
+        .arg(&index_path)
+        .output()
+        .expect("list command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "list should succeed for index.rhei.md\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Task 1: Alpha"));
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
