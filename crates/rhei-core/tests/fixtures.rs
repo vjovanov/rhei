@@ -244,4 +244,5 @@ states:
     description: Task currently being worked on
   completed:
     description: Task finished successfully
+    final: true
 "#;

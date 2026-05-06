@@ -150,9 +150,14 @@ states:
     description: Ready
     personality: You are an MIT professor.
     instructions: Teach clearly.
+  done:
+    description: Done
+    final: true
 transitions:
   - from: draft
     to: pending
+  - from: pending
+    to: done
 "#;
 
     let dir = unique_temp_dir("next-personality");
@@ -209,9 +214,14 @@ states:
     outputs:
       - name: findings
         path: runtime/findings/{task_id}-{visit_count}.md
+  done:
+    description: Done
+    final: true
 transitions:
   - from: draft
     to: review
+  - from: review
+    to: done
 "#;
 
     let dir = unique_temp_dir("next-template-vars");

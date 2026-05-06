@@ -23,10 +23,31 @@ pub struct Workspace {
     pub task_sources: HashMap<String, PathBuf>,
 }
 
-/// Returns `true` if `path` looks like a directory workspace
+/// Returns `true` if `path` is a directory workspace
 /// (a directory containing `index.rhei.md`).
 pub fn is_workspace(path: &Path) -> bool {
     path.is_dir() && path.join("index.rhei.md").is_file()
+}
+
+/// Resolve the workspace directory for `path`, accepting either:
+/// - a workspace directory (containing `index.rhei.md`), or
+/// - the `index.rhei.md` file itself, when its parent directory contains
+///   a `tasks/` subdirectory.
+///
+/// Callers that need the workspace root regardless of which form the user
+/// supplied should prefer this over `is_workspace`.
+pub fn workspace_dir(path: &Path) -> Option<PathBuf> {
+    if is_workspace(path) {
+        return Some(path.to_path_buf());
+    }
+    if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some("index.rhei.md") {
+        if let Some(parent) = path.parent() {
+            if parent.join("tasks").is_dir() {
+                return Some(parent.to_path_buf());
+            }
+        }
+    }
+    None
 }
 
 /// Load a directory workspace, merging all task files into a single plan.
