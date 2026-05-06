@@ -656,7 +656,23 @@ impl StateMachine {
         sm.validate_template_conditions()?;
         sm.validate_profiles_and_node_policy()?;
         sm.validate_poll_configuration()?;
+        sm.validate_terminal_state_present()?;
         Ok(sm)
+    }
+
+    /// Reject state machines that declare zero terminal states. Without one,
+    /// `rhei complete`, terminal-state filters, and prerequisite resolution
+    /// cannot work correctly, and a forgotten or mistyped `final: true` is
+    /// otherwise silently accepted.
+    fn validate_terminal_state_present(&self) -> Result<(), StateMachineLoadError> {
+        if self.states.values().any(|state| state.terminal) {
+            return Ok(());
+        }
+        Err(StateMachineLoadError::Invalid(format!(
+            "state machine '{}' declares no terminal states. Mark at least one \
+             state with `final: true` (note: the field is `final`, not `terminal`).",
+            self.name
+        )))
     }
 
     /// Resolve the profile that applies to a node with the given kind and id.
@@ -1717,7 +1733,6 @@ impl Validator {
         let mut report = ValidationReport::ok();
 
         let index = build_task_index(rhei);
-        validate_task_id_uniqueness(rhei, &mut report);
         validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
@@ -1942,17 +1957,11 @@ fn validate_assignee_nonempty(rhei: &Rhei, report: &mut ValidationReport) {
     });
 }
 
-fn validate_task_id_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
-    let mut seen: HashSet<TaskId> = HashSet::new();
-    for_each_node(rhei, |task| {
-        if !seen.insert(task.id.clone()) {
-            report.errors.push(format!("Duplicate task id: Task {}", task.id));
-        }
-    });
-}
-
 /// Verify that sibling ids are unique under the same parent and that every
 /// child id extends its parent id by exactly one segment.
+///
+/// Together with the segment-extension check, this also implies global id
+/// uniqueness across the whole plan, so no separate global pass is needed.
 fn validate_sibling_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
     fn recurse(parent: Option<&Task>, siblings: &[Task], report: &mut ValidationReport) {
         let mut seen: HashSet<TaskId> = HashSet::new();
@@ -2180,6 +2189,9 @@ states:
   review:
     description: reviewed
     model: claude-sonnet
+  done:
+    description: done
+    final: true
 "#;
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -2270,6 +2282,9 @@ states:
     all_targets:
       - claude-code[yolo]:anthropic:claude-opus-4-7
       - codex[yolo]:openai:gpt-5-codex
+  done:
+    description: done
+    final: true
 "#;
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -2330,6 +2345,9 @@ states:
       - name: findings
         path: runtime/findings/{task_id}.md
         description: Review findings
+  done:
+    description: done
+    final: true
 "#;
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -2430,6 +2448,9 @@ states:
       - name: notes
         path: runtime/notes/{task_id}.md
         optional: true
+  done:
+    description: done
+    final: true
 "#;
         StateMachine::from_yaml_str(yaml).expect("valid condition should load");
     }
@@ -2450,6 +2471,9 @@ states:
       - name: context
         path: runtime/context/{task_id}.md
         optional: true
+  done:
+    description: done
+    final: true
 "#;
         StateMachine::from_yaml_str(yaml).expect("valid condition in personality should load");
     }
@@ -2541,6 +2565,9 @@ states:
   pending:
     description: queued
     visits: 3
+  done:
+    description: done
+    final: true
 "#,
         )
         .expect("states load");
@@ -2566,6 +2593,9 @@ states:
   pending:
     description: queued
     visits: 3
+  done:
+    description: done
+    final: true
 "#,
         )
         .expect("states load");
@@ -2789,6 +2819,7 @@ name: sm-escaped
 version: 1
 states:
   "in progress": { description: "with space" }
+  done: { description: "done", final: true }
 "#;
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
         let input = r#"# Rhei: Example

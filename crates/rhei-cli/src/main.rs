@@ -1240,6 +1240,15 @@ fn auto_state_machine_path(input: &Path) -> PathBuf {
     }
 }
 
+/// If `input` references a Directory Workspace via its inner `index.rhei.md`
+/// file, return the workspace root directory; otherwise return `input`
+/// unchanged. This lets command handlers continue to use the existing
+/// `workspace::is_workspace(input)` + `input.join(...)` pattern regardless of
+/// which form the user supplied on the command line.
+fn normalize_workspace_input(input: &Path) -> PathBuf {
+    workspace::workspace_dir(input).unwrap_or_else(|| input.to_path_buf())
+}
+
 fn resolve_state_machine_for_loaded_plan(
     input: &Path,
     loaded: &LoadedPlan,
@@ -3554,8 +3563,8 @@ impl LoadedPlan {
 
 /// Load a plan from a file or directory workspace.
 fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
-    if workspace::is_workspace(path) {
-        let ws = workspace::load_workspace(path).map_err(|err| miette!("{}", err.message))?;
+    if let Some(ws_dir) = workspace::workspace_dir(path) {
+        let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
         Ok(LoadedPlan { rhei: ws.rhei, task_sources: ws.task_sources })
     } else {
         let input = read_input_file(path)?;
@@ -3584,7 +3593,7 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     // every recoverable parse problem in one run instead of fix-and-retry.
     // Workspace loads still go through the single-error path today; that's
     // a scoped follow-up when per-task files need the same treatment.
-    let loaded = if workspace::is_workspace(input) {
+    let loaded = if workspace::workspace_dir(input).is_some() {
         load_plan(input)?
     } else {
         let raw = read_input_file(input)?;
@@ -4978,6 +4987,8 @@ fn transition_command(
     to: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
@@ -7358,6 +7369,8 @@ fn run_command(
     state_machine_path: Option<&Path>,
     opts: RunOptions,
 ) -> MietteResult<()> {
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
@@ -9146,6 +9159,8 @@ fn next_command(
     no_callbacks: bool,
     peek: bool,
 ) -> MietteResult<()> {
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
@@ -9335,6 +9350,7 @@ fn next_command(
 
     print_next_output(NextOutput {
         as_json,
+        peek,
         task,
         from_state: &current_state_raw,
         to_state: task.state.as_str(),
@@ -9361,6 +9377,8 @@ fn complete_command(
     result_msg: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
@@ -9457,6 +9475,8 @@ fn complete_command(
 /// For directory workspaces, this also removes the generated `runtime/`
 /// directory so logs and artifacts do not survive the reset.
 fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResult<()> {
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let initial_state = initial_state_name(&resolved.machine)?;
@@ -9905,6 +9925,7 @@ fn state_instructions(machine: &rhei_validator::StateMachine, state: &str) -> St
 
 struct NextOutput<'a> {
     as_json: bool,
+    peek: bool,
     task: &'a rhei_core::ast::Task,
     from_state: &'a str,
     to_state: &'a str,
@@ -9952,7 +9973,12 @@ fn print_next_output(output: NextOutput<'_>) {
         println!("{}", serde_json::to_string_pretty(&obj).expect("JSON serialization"));
     } else {
         let transitioned = output.from_state != output.to_state;
-        if transitioned {
+        if output.peek {
+            println!(
+                "Task {} — current state: '{}' (read-only peek; not advanced)",
+                output.task.id, output.to_state
+            );
+        } else if transitioned {
             println!(
                 "Task {} claimed: '{}' -> '{}'",
                 output.task.id, output.from_state, output.to_state
@@ -11015,10 +11041,10 @@ fn render_multi_parse_diagnostic(
         return render_parse_diagnostic(path, input, &errors[0]);
     }
 
-    let mut lines = vec![format!(
-        "-- PARSE ERROR ------------------------------------------------------------- {}",
-        path.display()
-    )];
+    let mut lines = vec![
+        "-- PARSE ERROR ----------------------------".to_string(),
+        format!("in {}", path.display()),
+    ];
     lines.push(String::new());
     lines
         .push(format!("I got stuck while reading this markdown plan ({} problems).", errors.len()));
@@ -11059,10 +11085,10 @@ fn render_parse_diagnostic(
     input: &str,
     err: &rhei_core::parser::ParseError,
 ) -> String {
-    let mut lines = vec![format!(
-        "-- PARSE ERROR ------------------------------------------------------------- {}",
-        path.display()
-    )];
+    let mut lines = vec![
+        "-- PARSE ERROR ----------------------------".to_string(),
+        format!("in {}", path.display()),
+    ];
     lines.push(String::new());
     lines.push("I got stuck while reading this markdown plan.".to_string());
 
@@ -11092,10 +11118,10 @@ fn render_validation_diagnostic(
     state_machine: Option<&Path>,
     errors: &[String],
 ) -> String {
-    let mut lines = vec![format!(
-        "-- VALIDATION ERROR -------------------------------------------------------- {}",
-        input.display()
-    )];
+    let mut lines = vec![
+        "-- VALIDATION ERROR ----------------------".to_string(),
+        format!("in {}", input.display()),
+    ];
     lines.push(String::new());
     lines.push(format!(
         "I validated this plan using {}, but found a problem.",
@@ -11302,6 +11328,9 @@ states:
     all_models:
       - gpt-5
     initial: true
+  done:
+    description: done
+    final: true
 transitions: []
 "#;
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("load");
@@ -11487,6 +11516,7 @@ states:
         path: runtime/reviews/task-{task_id}.md
   fix:
     description: fix
+    final: true
 transitions:
   - from: review
     to: fix
