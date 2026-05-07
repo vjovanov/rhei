@@ -5477,6 +5477,12 @@ struct StandaloneExecutionFlags {
     /// Force plain stdout output even when stdout is a TTY
     #[arg(long)]
     no_tui: bool,
+    /// Serve a loopback browser dashboard for this run
+    #[arg(long, conflicts_with = "no_dashboard")]
+    dashboard: bool,
+    /// Disable the loopback browser dashboard
+    #[arg(long)]
+    no_dashboard: bool,
 }
 
 /// Flags that control agent-specific behavior for `rhei run`.
@@ -5543,6 +5549,16 @@ impl RunOptions {
         }
     }
 
+    fn dashboard_enabled(&self, frontend_is_tui: bool) -> bool {
+        if self.standalone.dashboard {
+            true
+        } else if self.standalone.no_dashboard {
+            false
+        } else {
+            frontend_is_tui
+        }
+    }
+
     fn no_agent(&self) -> bool {
         self.agent.no_agent
     }
@@ -5566,6 +5582,114 @@ impl RunOptions {
     fn program_timeout_override(&self) -> Option<&str> {
         self.program.program_timeout.as_deref()
     }
+}
+
+struct ActiveRunFrontend {
+    sink: Arc<dyn rhei_tui::EventSink>,
+    dashboard: Option<Arc<rhei_tui::DashboardSink>>,
+    _frontend: rhei_tui::Frontend,
+}
+
+impl ActiveRunFrontend {
+    fn announce_dashboard(&self) {
+        if let Some(dashboard) = &self.dashboard {
+            self.sink.emit(rhei_tui::RunEvent::RunLink {
+                label: "Dashboard".to_string(),
+                url: dashboard.url().to_string(),
+            });
+        }
+    }
+}
+
+fn start_run_frontend(
+    workspace_root: &Path,
+    plan_input: &Path,
+    opts: &RunOptions,
+    parallel: u16,
+    total_tasks: usize,
+) -> ActiveRunFrontend {
+    let frontend =
+        rhei_tui::select_frontend(workspace_root, opts.frontend_kind(), parallel, total_tasks);
+    let dashboard = if opts.dashboard_enabled(frontend.is_tui) {
+        let plan_path = plan_input.to_path_buf();
+        let loader: rhei_tui::PlanLoader = Arc::new(move || load_plan_for_dashboard(&plan_path));
+        match rhei_tui::DashboardSink::start_with_plan(
+            workspace_root.to_path_buf(),
+            parallel,
+            total_tasks,
+            Some(loader),
+        ) {
+            Ok(sink) => Some(Arc::new(sink)),
+            Err(err) => {
+                frontend.sink.emit(rhei_tui::RunEvent::Message {
+                    level: rhei_tui::MessageLevel::Warn,
+                    text: format!("warning: could not start dashboard: {err}"),
+                });
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let sink: Arc<dyn rhei_tui::EventSink> = if let Some(dashboard) = &dashboard {
+        Arc::new(rhei_tui::Tee::new(vec![frontend.sink.clone(), dashboard.clone()]))
+    } else {
+        frontend.sink.clone()
+    };
+
+    ActiveRunFrontend { sink, dashboard, _frontend: frontend }
+}
+
+/// Re-read the plan from disk and project it into the dashboard's
+/// `PlanSnapshot`. Called on every `/snapshot` request, so failures must be
+/// non-fatal — return `None` and let the dashboard fall back to the last
+/// good snapshot.
+fn load_plan_for_dashboard(plan_path: &Path) -> Option<rhei_tui::PlanSnapshot> {
+    let loaded = load_plan(plan_path).ok()?;
+    let mut tasks = Vec::new();
+    fn visit(
+        node: &rhei_core::ast::Task,
+        depth: u8,
+        parent: Option<String>,
+        out: &mut Vec<rhei_tui::DashboardTask>,
+    ) {
+        let id = node.id.to_string();
+        out.push(rhei_tui::DashboardTask {
+            id: id.clone(),
+            title: node.title.clone(),
+            kind: node.kind.clone(),
+            parent,
+            depth,
+            state: node.state.clone(),
+            assignee: node.assignee.clone(),
+            prior: node.prior.iter().map(|p| p.to_string()).collect(),
+            // Result link extraction is best-effort; we look for the well-
+            // known `> **Result:** [id](path)` line that `rhei complete`
+            // emits. Anything else stays None.
+            result_link: extract_result_link(&node.content),
+        });
+        for child in &node.children {
+            visit(child, depth + 1, Some(id.clone()), out);
+        }
+    }
+    for root in &loaded.rhei.tasks {
+        visit(root, 1, None, &mut tasks);
+    }
+    Some(rhei_tui::PlanSnapshot { title: loaded.rhei.title, tasks })
+}
+
+fn extract_result_link(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if let Some(rest) = line.trim_start().strip_prefix("> **Result:**") {
+            // Match `[<id>](<path>)` and return `<path>`. Use the *last*
+            // parenthesis pair so paths containing `(` or `)` are handled.
+            let rparen = rest.rfind(')')?;
+            let lparen = rest[..rparen].rfind('(')?;
+            return Some(rest[lparen + 1..rparen].to_string());
+        }
+    }
+    None
 }
 
 impl From<(StandaloneExecutionFlags, AgentExecutionFlags, ProgramExecutionFlags)> for RunOptions {
@@ -6404,6 +6528,8 @@ fn default_run_options() -> RunOptions {
             parallel: 1,
             tui: false,
             no_tui: false,
+            dashboard: false,
+            no_dashboard: false,
         },
         agent: AgentExecutionFlags { no_agent: false, agent: None, agent_mode: None, model: None },
         program: ProgramExecutionFlags::default(),
@@ -7411,21 +7537,7 @@ fn run_command(
     if use_standalone_mode {
         run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
     } else {
-        let initial_terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|task| is_terminal_state(task.state.as_str(), &machine))
-            .count();
-        println!(
-            "Running {} '{}' with {} task(s) ({} terminal at start).",
-            if is_workspace { "workspace" } else { "plan" },
-            loaded.rhei.title,
-            loaded.rhei.tasks.len(),
-            initial_terminal_count
-        );
-        println!("Initial states: {}", format_state_counts(&loaded.rhei));
-        run_callback_mode(input, &machine, &callback_paths, &opts)
+        run_callback_mode(input, &machine, &callback_paths, &opts, effective_parallel)
     }
 }
 
@@ -7449,18 +7561,15 @@ fn run_agent_mode(
         loaded.rhei.tasks.len()
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
-    let frontend = rhei_tui::select_frontend(
-        &workspace_root,
-        opts.frontend_kind(),
-        frontend_parallel,
-        initial_total_tasks,
-    );
+    let frontend =
+        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
     let sink = frontend.sink.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
         parallel: frontend_parallel,
         total_tasks: initial_total_tasks,
     });
+    frontend.announce_dashboard();
 
     macro_rules! run_message {
         ($level:expr, $($arg:tt)*) => {{
@@ -7944,11 +8053,13 @@ fn run_agent_mode(
                 }
             }
             if !deferred.is_empty() {
+                let deferred_vec: Vec<String> = deferred.iter().cloned().collect();
                 run_info!(
                     "Deferred {} task(s) in non-concurrent states to a later pass: {}",
-                    deferred.len(),
-                    deferred.iter().cloned().collect::<Vec<_>>().join(", ")
+                    deferred_vec.len(),
+                    deferred_vec.join(", ")
                 );
+                sink.emit(RunEvent::TasksDeferred { pass, tasks: deferred_vec });
             }
             filtered
         };
@@ -8517,9 +8628,63 @@ fn run_callback_mode(
     machine: &rhei_validator::StateMachine,
     callback_paths: &CallbackPaths,
     opts: &RunOptions,
+    max_parallel: usize,
 ) -> MietteResult<()> {
+    use rhei_tui::{MessageLevel, RunEvent, RunSummary};
+
+    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let initial = load_plan(input)?;
+    let initial_total_tasks = initial.rhei.tasks.len();
+    let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
+    let frontend =
+        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
+    let sink = frontend.sink.clone();
+    sink.emit(RunEvent::RunStarted {
+        workspace: workspace_root,
+        parallel: frontend_parallel,
+        total_tasks: initial_total_tasks,
+    });
+    frontend.announce_dashboard();
+
+    macro_rules! run_message {
+        ($level:expr, $($arg:tt)*) => {{
+            sink.emit(RunEvent::Message {
+                level: $level,
+                text: format!($($arg)*),
+            });
+        }};
+    }
+
+    macro_rules! run_info {
+        ($($arg:tt)*) => {
+            run_message!(MessageLevel::Info, $($arg)*);
+        };
+    }
+
+    macro_rules! run_warn {
+        ($($arg:tt)*) => {
+            run_message!(MessageLevel::Warn, $($arg)*);
+        };
+    }
+
+    let initial_terminal_count = initial
+        .rhei
+        .tasks
+        .iter()
+        .filter(|task| is_terminal_state(task.state.as_str(), machine))
+        .count();
+    run_info!(
+        "Running {} '{}' with {} task(s) ({} terminal at start).",
+        if workspace::is_workspace(input) { "workspace" } else { "plan" },
+        initial.rhei.title,
+        initial.rhei.tasks.len(),
+        initial_terminal_count
+    );
+    run_info!("Initial states: {}", format_state_counts(&initial.rhei));
+
     let mut transitions_made = 0u32;
     let mut pass = 0u32;
+    let mut visited_ready_states = BTreeSet::<(String, String)>::new();
 
     loop {
         let loaded = load_plan(input)?;
@@ -8535,14 +8700,18 @@ fn run_callback_mode(
             .iter()
             .filter(|task| is_terminal_state(task.state.as_str(), machine))
             .count();
-        println!(
+        sink.emit(RunEvent::PassStarted {
+            pass,
+            ready: ready.iter().map(|task| task.id.to_string()).collect(),
+        });
+        run_info!(
             "\nPass {}: {} ready, {} terminal, {} total.",
             pass,
             ready.len(),
             terminal_count,
             loaded.rhei.tasks.len()
         );
-        println!("Ready: {}", format_ready_tasks(&ready));
+        run_info!("Ready: {}", format_ready_tasks(&ready));
 
         let mut advanced_any = false;
         let mut stalled_ready_tasks = Vec::new();
@@ -8551,6 +8720,15 @@ fn run_callback_mode(
             let task_id_str = task.id.to_string();
             let current_state_raw = task.state.as_str();
             let current_state = normalized_state_name(current_state_raw, machine);
+            let visit_key = (task_id_str.clone(), current_state_raw.to_string());
+            if visited_ready_states.contains(&visit_key) {
+                stalled_ready_tasks.push(format!(
+                    "{} (already visited '{}')",
+                    format_task_label(task),
+                    current_state_raw
+                ));
+                continue;
+            }
             let next_to = find_next_transition(task, &loaded.rhei, machine)?;
 
             let Some(to_state) = next_to else {
@@ -8559,13 +8737,16 @@ fn run_callback_mode(
             };
 
             if opts.dry_run() {
-                println!(
+                run_info!(
                     "Would transition Task {} from '{}' to '{}'",
-                    task_id_str, current_state_raw, to_state
+                    task_id_str,
+                    current_state_raw,
+                    to_state
                 );
                 continue;
             }
 
+            visited_ready_states.insert(visit_key);
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let task_file = loaded.task_file(&task_id_str, input);
@@ -8584,20 +8765,22 @@ fn run_callback_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(()) => {
-                    println!(
+                    run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
-                        task_id_str, current_state_raw, to_state
+                        task_id_str,
+                        current_state_raw,
+                        to_state
                     );
-                    println!("  {}", format_task_label(task));
+                    run_info!("  {}", format_task_label(task));
                     if is_terminal_state(&to_state, machine) {
-                        println!("  Result: reached terminal state '{}'.", to_state);
+                        run_info!("  Result: reached terminal state '{}'.", to_state);
                     } else {
-                        println!("  Result: now in '{}'.", to_state);
+                        run_info!("  Result: now in '{}'.", to_state);
                     }
                     let reloaded = load_plan(input)?;
                     let discovered = newly_discovered_tasks(&task_ids_before, &reloaded.rhei.tasks);
                     if !discovered.is_empty() {
-                        println!(
+                        run_info!(
                             "  Workspace expanded: discovered {} new task(s): {}",
                             discovered.len(),
                             discovered.join(", ")
@@ -8608,28 +8791,32 @@ fn run_callback_mode(
                     break;
                 }
                 Err(err) => {
-                    eprintln!("warning: failed to advance Task {}: {}", task_id_str, err);
+                    run_warn!("warning: failed to advance Task {}: {}", task_id_str, err);
                     continue;
                 }
             }
         }
 
         if !stalled_ready_tasks.is_empty() && !advanced_any {
-            println!(
+            run_info!(
                 "No forward transition available for ready task(s): {}",
                 stalled_ready_tasks.join(", ")
             );
         }
+
+        sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
 
         if opts.dry_run() || !advanced_any {
             break;
         }
     }
 
-    if opts.dry_run() {
-        println!("\nDry run complete — no changes were made.");
+    let (terminal_count, total_tasks) = if opts.dry_run() {
+        run_info!("\nDry run complete \u{2014} no changes were made.");
+        (0usize, 0usize)
     } else if transitions_made == 0 {
-        println!("No tasks could be advanced.");
+        run_info!("No tasks could be advanced.");
+        (0usize, 0usize)
     } else {
         let loaded = load_plan(input)?;
         let terminal_count = loaded
@@ -8638,17 +8825,29 @@ fn run_callback_mode(
             .iter()
             .filter(|t| is_terminal_state(t.state.as_str(), machine))
             .count();
-        println!(
+        run_info!(
             "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
             transitions_made,
             terminal_count,
             loaded.rhei.tasks.len()
         );
-        println!("Final states: {}", format_state_counts(&loaded.rhei));
+        run_info!("Final states: {}", format_state_counts(&loaded.rhei));
         for task in &loaded.rhei.tasks {
-            println!("  - {} [{}]", format_task_label(task), task.state);
+            run_info!("  - {} [{}]", format_task_label(task), task.state);
         }
-    }
+        (terminal_count, loaded.rhei.tasks.len())
+    };
+
+    sink.emit(RunEvent::RunFinished {
+        summary: RunSummary {
+            agents_spawned: 0,
+            programs_spawned: 0,
+            terminal_tasks: terminal_count,
+            total_tasks,
+        },
+    });
+    drop(sink);
+    drop(frontend);
 
     Ok(())
 }

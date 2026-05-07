@@ -60,6 +60,14 @@ pub enum RunEvent {
         pass: u32,
         ready: Vec<String>,
     },
+    /// A worker has been assigned to a task.
+    ///
+    /// `from` is the task's persisted state at the moment of claim; `to` is
+    /// the state the worker is operating in. When `from == to`, the worker
+    /// is running an *autonomous* state that the engine did not transition
+    /// into as part of the claim — it is "starting work in `to`," not
+    /// "moving from `from` to `to`." Renderers must distinguish the two
+    /// cases so the UI does not show a phantom `state→state` self-loop.
     SlotAssigned {
         slot: Slot,
         task: String,
@@ -70,6 +78,12 @@ pub enum RunEvent {
         started_at: Instant,
         wall_clock: SystemTime,
     },
+    /// A worker slot has been released.
+    ///
+    /// `from` is the state at assignment; `to` is the state the task ended
+    /// up in. When `from == to`, the worker exited without changing state
+    /// (typical for autonomous states that hand control back to the run loop
+    /// for re-evaluation) — render as "ended in `to`," not as a transition.
     SlotReleased {
         slot: Slot,
         task: String,
@@ -86,12 +100,22 @@ pub enum RunEvent {
         pass: u32,
         progressed: bool,
     },
+    /// Tasks that were eligible this pass but yielded their slot to a same-state
+    /// claimant (non-`concurrent` state). They are reconsidered next pass.
+    TasksDeferred {
+        pass: u32,
+        tasks: Vec<String>,
+    },
     RunFinished {
         summary: RunSummary,
     },
     Message {
         level: MessageLevel,
         text: String,
+    },
+    RunLink {
+        label: String,
+        url: String,
     },
     AgentOutput {
         slot: Slot,

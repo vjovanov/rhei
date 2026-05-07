@@ -87,15 +87,23 @@ impl UiState {
             RunEvent::SlotAssigned {
                 slot, task, from, to, agent, log_path, started_at, ..
             } => {
+                let same_state = from == to;
+                let display =
+                    if same_state { format!("in {to}") } else { format!("{from}→{to}") };
                 if let Some(s) = self.slots.get_mut(*slot as usize) {
                     s.task = Some(task.clone());
                     s.agent = agent.clone();
                     s.state = to.clone();
                     s.started_at = Some(*started_at);
                     s.log_path = Some(log_path.clone());
-                    s.last_event_display = Some(format!("{from}→{to}"));
+                    s.last_event_display = Some(display.clone());
                 }
-                self.push_journal(format!("▶ slot {}: {} {}→{}", slot, task, from, to));
+                let line = if same_state {
+                    format!("▶ slot {slot}: {task} started in {to}")
+                } else {
+                    format!("▶ slot {slot}: {task} {from}→{to}")
+                };
+                self.push_journal(line);
             }
             RunEvent::SlotReleased { slot, task, outcome, duration_ms, .. } => {
                 let sym = match outcome {
@@ -130,6 +138,14 @@ impl UiState {
             RunEvent::PassEnded { pass, progressed } => {
                 self.push_journal(format!("pass {} ended — progressed={}", pass, progressed));
             }
+            RunEvent::TasksDeferred { pass, tasks } => {
+                self.push_journal(format!(
+                    "pass {} deferred {} task(s): {}",
+                    pass,
+                    tasks.len(),
+                    tasks.join(", ")
+                ));
+            }
             RunEvent::RunFinished { summary } => {
                 self.finished = true;
                 self.push_journal(format!(
@@ -147,6 +163,9 @@ impl UiState {
                     MessageLevel::Error => "✗",
                 };
                 self.push_journal(format!("{prefix} {text}"));
+            }
+            RunEvent::RunLink { label, url } => {
+                self.push_journal(format!("{label}: {url}"));
             }
         }
     }
