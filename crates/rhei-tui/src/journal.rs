@@ -78,7 +78,16 @@ impl EventSink for JournalSink {
             RunEvent::SlotAssigned { task, from, to, log_path, wall_clock, .. } => {
                 let ts = format_rfc3339(wall_clock);
                 let log = self.format_path(&log_path);
-                let line = format!("{ts}  {task}  {from}\u{2192}{to}  {log}\n");
+                // `from == to` means "started work in `to`" with no
+                // transition; render it differently so a reader of the
+                // journal isn't fooled into thinking the state machine
+                // declared a `to → to` self-loop.
+                let move_str = if from == to {
+                    format!("start@{to}")
+                } else {
+                    format!("{from}\u{2192}{to}")
+                };
+                let line = format!("{ts}  {task}  {move_str}  {log}\n");
                 self.write_line(&line);
             }
             RunEvent::SlotReleased {
@@ -107,7 +116,12 @@ impl EventSink for JournalSink {
                 meta_parts.push(format!("duration={}", format_duration(duration_ms)));
                 meta_parts.push(format!("outcome={outcome_str}"));
                 let meta = meta_parts.join(",");
-                let line = format!("{ts}  {task}  {from}\u{2192}{to}  {log}  {meta}\n");
+                let move_str = if from == to {
+                    format!("end@{to}")
+                } else {
+                    format!("{from}\u{2192}{to}")
+                };
+                let line = format!("{ts}  {task}  {move_str}  {log}  {meta}\n");
                 self.write_line(&line);
             }
             _ => {}

@@ -5603,6 +5603,7 @@ impl ActiveRunFrontend {
 
 fn start_run_frontend(
     workspace_root: &Path,
+    plan_input: &Path,
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
@@ -5610,7 +5611,14 @@ fn start_run_frontend(
     let frontend =
         rhei_tui::select_frontend(workspace_root, opts.frontend_kind(), parallel, total_tasks);
     let dashboard = if opts.dashboard_enabled(frontend.is_tui) {
-        match rhei_tui::DashboardSink::start(workspace_root.to_path_buf(), parallel, total_tasks) {
+        let plan_path = plan_input.to_path_buf();
+        let loader: rhei_tui::PlanLoader = Arc::new(move || load_plan_for_dashboard(&plan_path));
+        match rhei_tui::DashboardSink::start_with_plan(
+            workspace_root.to_path_buf(),
+            parallel,
+            total_tasks,
+            Some(loader),
+        ) {
             Ok(sink) => Some(Arc::new(sink)),
             Err(err) => {
                 frontend.sink.emit(rhei_tui::RunEvent::Message {
@@ -5631,6 +5639,57 @@ fn start_run_frontend(
     };
 
     ActiveRunFrontend { sink, dashboard, _frontend: frontend }
+}
+
+/// Re-read the plan from disk and project it into the dashboard's
+/// `PlanSnapshot`. Called on every `/snapshot` request, so failures must be
+/// non-fatal — return `None` and let the dashboard fall back to the last
+/// good snapshot.
+fn load_plan_for_dashboard(plan_path: &Path) -> Option<rhei_tui::PlanSnapshot> {
+    let loaded = load_plan(plan_path).ok()?;
+    let mut tasks = Vec::new();
+    fn visit(
+        node: &rhei_core::ast::Task,
+        depth: u8,
+        parent: Option<String>,
+        out: &mut Vec<rhei_tui::DashboardTask>,
+    ) {
+        let id = node.id.to_string();
+        out.push(rhei_tui::DashboardTask {
+            id: id.clone(),
+            title: node.title.clone(),
+            kind: node.kind.clone(),
+            parent,
+            depth,
+            state: node.state.clone(),
+            assignee: node.assignee.clone(),
+            prior: node.prior.iter().map(|p| p.to_string()).collect(),
+            // Result link extraction is best-effort; we look for the well-
+            // known `> **Result:** [id](path)` line that `rhei complete`
+            // emits. Anything else stays None.
+            result_link: extract_result_link(&node.content),
+        });
+        for child in &node.children {
+            visit(child, depth + 1, Some(id.clone()), out);
+        }
+    }
+    for root in &loaded.rhei.tasks {
+        visit(root, 1, None, &mut tasks);
+    }
+    Some(rhei_tui::PlanSnapshot { title: loaded.rhei.title, tasks })
+}
+
+fn extract_result_link(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if let Some(rest) = line.trim_start().strip_prefix("> **Result:**") {
+            // Match `[<id>](<path>)` and return `<path>`. Use the *last*
+            // parenthesis pair so paths containing `(` or `)` are handled.
+            let rparen = rest.rfind(')')?;
+            let lparen = rest[..rparen].rfind('(')?;
+            return Some(rest[lparen + 1..rparen].to_string());
+        }
+    }
+    None
 }
 
 impl From<(StandaloneExecutionFlags, AgentExecutionFlags, ProgramExecutionFlags)> for RunOptions {
@@ -7503,7 +7562,7 @@ fn run_agent_mode(
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend =
-        start_run_frontend(&workspace_root, opts, frontend_parallel, initial_total_tasks);
+        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
     let sink = frontend.sink.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
@@ -7994,11 +8053,13 @@ fn run_agent_mode(
                 }
             }
             if !deferred.is_empty() {
+                let deferred_vec: Vec<String> = deferred.iter().cloned().collect();
                 run_info!(
                     "Deferred {} task(s) in non-concurrent states to a later pass: {}",
-                    deferred.len(),
-                    deferred.iter().cloned().collect::<Vec<_>>().join(", ")
+                    deferred_vec.len(),
+                    deferred_vec.join(", ")
                 );
+                sink.emit(RunEvent::TasksDeferred { pass, tasks: deferred_vec });
             }
             filtered
         };
@@ -8576,7 +8637,7 @@ fn run_callback_mode(
     let initial_total_tasks = initial.rhei.tasks.len();
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend =
-        start_run_frontend(&workspace_root, opts, frontend_parallel, initial_total_tasks);
+        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
     let sink = frontend.sink.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root,
