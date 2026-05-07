@@ -29,6 +29,8 @@ impl EventSink for StdoutSink {
                 MessageLevel::Info => println!("{text}"),
                 MessageLevel::Warn | MessageLevel::Error => eprintln!("{text}"),
             }
+        } else if let RunEvent::RunLink { label, url } = event {
+            println!("{label}: {url}");
         }
     }
 }

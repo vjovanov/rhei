@@ -2,12 +2,14 @@
 //!
 //! See `docs/specs/rhei-run-tui.spec.md` for the normative specification.
 
+mod dashboard;
 mod event;
 mod frontend;
 mod journal;
 mod stdout;
 mod tui;
 
+pub use dashboard::{DashboardSink, DashboardTask, PlanLoader, PlanSnapshot};
 pub use event::{
     AgentStream, EventSink, MessageLevel, NullSink, RunEvent, RunSummary, Slot, TaskOutcome, Tee,
 };
