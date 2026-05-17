@@ -17,7 +17,7 @@
 # The `poll:` block makes `ci-watch` time-triggered: a self-loop transition
 # means "retry after poll.interval"; rhei run releases the --parallel slot
 # during the wait and re-claims the task once poll.interval has elapsed.
-# See docs/specs/rhei-states.spec.md#polling-states.
+# See docs/functional-spec/rhei-states.spec.md#polling-states.
 
 name: ci-watch-and-heal
 version: 1.0

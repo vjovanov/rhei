@@ -82,12 +82,12 @@ ensure_review_source_root() {
     local root
     root="$(review_source_root)"
 
-    if [[ -d "$root/docs/specs" ]]; then
+    if [[ -d "$root/docs/functional-spec" ]]; then
         return 0
     fi
 
     cat >&2 <<EOF
-live review requires access to the repository docs/specs directory.
+live review requires access to the repository docs/functional-spec directory.
 Set RHEI_LIVING_REVIEW_SOURCE_ROOT to the project root before running the copied workspace.
 Current review source root: $root
 EOF
@@ -95,7 +95,7 @@ EOF
 }
 
 review_specs_root() {
-    printf '%s/docs/specs\n' "$(review_source_root)"
+    printf '%s/docs/functional-spec\n' "$(review_source_root)"
 }
 
 review_specs_manifest() {

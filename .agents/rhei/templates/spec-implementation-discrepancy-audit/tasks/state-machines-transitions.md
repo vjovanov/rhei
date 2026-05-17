@@ -6,9 +6,9 @@ Audit state-machine YAML semantics and explicit transition behavior for
 
 Spec scope:
 
-- `{{spec_root}}/specs/rhei-states.spec.md`
-- `{{spec_root}}/specs/rhei-transitions.spec.md`
-- `{{spec_root}}/specs/rhei-state-machine-writer.spec.md`
+- `{{spec_root}}/rhei-states.spec.md`
+- `{{spec_root}}/rhei-transitions.spec.md`
+- `{{spec_root}}/rhei-state-machine-writer.spec.md`
 
 Implementation roots:
 

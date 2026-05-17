@@ -47,8 +47,8 @@ output. Suggested contents:
 ```
 
 The self-loop transition (`ci-watch → ci-watch` on exit `75`) is what marks
-this a time-triggered state. See `docs/specs/rhei-states.spec.md` §Polling
-States and `docs/specs/rhei-run.spec.md` §Polling States for the semantics.
+this a time-triggered state. See `docs/functional-spec/rhei-states.spec.md` §Polling
+States and `docs/functional-spec/rhei-run.spec.md` §Polling States for the semantics.
 
 ## Spawn-child variant
 
@@ -73,7 +73,7 @@ composes better with a single-agent `--parallel 1` workspace.
 ## Running
 
 Once the `poll:` block is wired through `rhei run` (see
-`docs/specs/rhei-states.spec.md` §Polling States):
+`docs/functional-spec/rhei-states.spec.md` §Polling States):
 
 ```bash
 rhei run examples/ci-heal

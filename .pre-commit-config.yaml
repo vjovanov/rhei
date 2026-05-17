@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: grund-check
+        name: grund check
+        entry: grund check .
+        language: system
+        pass_filenames: false
+        always_run: true

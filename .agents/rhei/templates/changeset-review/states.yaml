@@ -69,7 +69,7 @@ states:
       First, treat this instantiated workspace as a scratchpad. Resolve the
       repository root with `git rev-parse --show-toplevel` from the current
       workspace and use that repository root for all VCS commands and all
-      repository file lookups (`docs/specs`, source files, ADRs, etc.). Do
+      repository file lookups (`docs/functional-spec`, source files, ADRs, etc.). Do
       not assume the workspace directory itself contains the repository
       files.
 
@@ -100,8 +100,8 @@ states:
            - whether the change is accompanied by a PR (capture title and
              body if so; leave a `PR: none` note otherwise)
            - the list of commit subjects + bodies on the change
-           - whether the project has specs (look for `docs/specs/`,
-             `specs/`, `SPEC.md`, ADR directories, or equivalents) that
+           - whether the project has specs (look for `docs/functional-spec/`,
+             `docs/specs/`, `functional-spec/`, `specs/`, `SPEC.md`, ADR directories, or equivalents) that
              intersect the subsystems touched — record the intersecting
              spec file paths or `Specs: none`
 

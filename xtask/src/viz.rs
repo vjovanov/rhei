@@ -1,7 +1,7 @@
 //! Generate an HTML visualization for a rhei plan (or workspace of plans).
 //!
 //! Dogfoods the `rhei viz` command specified in
-//! [`docs/specs/rhei-viz.spec.md`](../../../docs/specs/rhei-viz.spec.md)
+//! [`docs/functional-spec/rhei-viz.spec.md`](../../../docs/functional-spec/rhei-viz.spec.md)
 //! before the real subcommand ships. Keep the data shape and derivation
 //! rules consistent with that spec so this implementation migrates cleanly.
 
@@ -145,7 +145,7 @@ fn normalize_state(raw_state: &str, machine: &StateMachine) -> String {
 }
 
 /// Derive a level-0 plan state from the task states. See
-/// `docs/specs/rhei-viz.spec.md#plan-level-state-derivation`.
+/// `docs/functional-spec/rhei-viz.spec.md#plan-level-state-derivation`.
 fn derive_plan_state(tasks: &[Task], machine: &StateMachine) -> String {
     if tasks.is_empty() {
         return "draft".into();

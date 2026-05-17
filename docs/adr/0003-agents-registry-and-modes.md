@@ -10,7 +10,7 @@ Today, a coding-agent profile (command, prompt flag, model flag, stdin
 behavior, MCP/skill wiring) can appear in three places:
 
 1. The `agents` registry in `settings.json` — specified in
-   [rhei-agents.spec.md](../specs/rhei-agents.spec.md) but **not implemented**
+   [rhei-agents.spec.md](../functional-spec/rhei-agents.spec.md) but **not implemented**
    in `RheiSettings` today.
 2. `defaults.agent` in `settings.json` — string id **or** inline object.
 3. The `agent:` field on a state in `states.yaml` — string id **or** inline
@@ -185,7 +185,7 @@ Prompt delivery via stdin (`stdin_prompt: true`) suppresses `<prompt_flag>
 
 ### 9. Spec changes
 
-- `docs/specs/rhei-agents.spec.md`:
+- `docs/functional-spec/rhei-agents.spec.md`:
   - `agents` registry section documents `modes`.
   - `defaults.agent` row: type becomes **string** only.
   - "Custom Agent Profiles" section: inline-in-`states.yaml` / inline-in-
@@ -195,11 +195,11 @@ Prompt delivery via stdin (`stdin_prompt: true`) suppresses `<prompt_flag>
     today become the built-in `yolo` mode.
   - Resolution-order section grows a parallel "Agent mode resolution"
     subsection.
-- `docs/specs/rhei-states.spec.md`:
+- `docs/functional-spec/rhei-states.spec.md`:
   - `agent:` field type becomes string; add `agent_mode:` field.
-- `docs/specs/rhei-usage.spec.md`:
+- `docs/functional-spec/rhei-usage.spec.md`:
   - `rhei run --agent-mode <MODE>` added.
-- `docs/rhei.spec.md`:
+- `docs/functional-spec/rhei-plan-language.spec.md`:
   - Cross-reference updates only.
 
 ### 10. Template changes

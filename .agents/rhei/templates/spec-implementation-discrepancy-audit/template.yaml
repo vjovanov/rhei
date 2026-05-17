@@ -14,9 +14,9 @@ inputs:
     default: Rhei
 
   - name: spec_root
-    description: Documentation root containing rhei.spec.md and the specs/ directory.
+    description: Documentation root containing the Rhei functional spec files.
     type: string
-    default: docs
+    default: docs/functional-spec
 
   - name: implementation_roots
     description: Root paths containing implementation, tests, templates, or skills to compare against the spec.

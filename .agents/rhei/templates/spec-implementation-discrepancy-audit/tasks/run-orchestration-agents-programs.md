@@ -5,11 +5,11 @@ Audit autonomous execution semantics for `rhei run`.
 
 Spec scope:
 
-- `{{spec_root}}/specs/rhei-run.spec.md`
-- `{{spec_root}}/specs/rhei-agents.spec.md`
-- `{{spec_root}}/specs/rhei-programs.spec.md`
-- `{{spec_root}}/specs/rhei-callbacks.spec.md`
-- relevant workflow sections in `{{spec_root}}/specs/rhei-usage.spec.md`
+- `{{spec_root}}/rhei-run.spec.md`
+- `{{spec_root}}/rhei-agents.spec.md`
+- `{{spec_root}}/rhei-programs.spec.md`
+- `{{spec_root}}/rhei-callbacks.spec.md`
+- relevant workflow sections in `{{spec_root}}/rhei-usage.spec.md`
 
 Implementation roots:
 

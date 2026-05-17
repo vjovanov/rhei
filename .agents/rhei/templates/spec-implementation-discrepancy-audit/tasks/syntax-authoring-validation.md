@@ -5,8 +5,8 @@ Audit the core plan language and validation contract for {{subject}}.
 
 Spec scope:
 
-- `{{spec_root}}/rhei.spec.md`
-- `{{spec_root}}/specs/rhei-authoring.spec.md`
+- `{{spec_root}}/rhei-plan-language.spec.md`
+- `{{spec_root}}/rhei-authoring.spec.md`
 
 Implementation roots:
 

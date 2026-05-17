@@ -1,7 +1,7 @@
 ### Task review-seed: Multi-model review of the rhei CLI implementation
 **State:** review
 
-Review the rhei specification documents in `docs/specs/` for gaps, contradictions,
+Review the rhei specification documents in `docs/functional-spec/` for gaps, contradictions,
 and ambiguities. Focus on problems that would mislead an implementor or confuse a
 user — not style or speculative additions.
 
@@ -14,7 +14,7 @@ user — not style or speculative additions.
 - Accuracy: flag any spec claim that contradicts observable CLI or runtime behaviour
 
 **Review phase (all models — claude, codex):**
-Each model reads the spec files in `docs/specs/` and writes its findings to
+Each model reads the spec files in `docs/functional-spec/` and writes its findings to
 `runtime/findings/<model>-findings.md`. Record only observations that are distinct
 from what the other model is likely to note. Be specific: name the file, section,
 and the exact inconsistency or gap. Transition to `consolidate` when your findings
