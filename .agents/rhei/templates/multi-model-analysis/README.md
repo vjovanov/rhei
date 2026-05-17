@@ -77,8 +77,8 @@ different prompt/model flags, override the `gemini` entry in
 
 A user-written entry replaces the built-in `gemini` profile wholesale — keep
 the fields you need. See [Agents
-Specification](../../../../docs/specs/rhei-agents.spec.md) for the full
-schema and mode-resolution order.
+Specification](../../../../docs/functional-spec/rhei-agents.spec.md) for the
+full schema and mode-resolution order.
 
 ## Note
 

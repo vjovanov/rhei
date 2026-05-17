@@ -5,11 +5,11 @@ Audit generated and assistant-facing workflow surfaces.
 
 Spec scope:
 
-- `docs/specs/rhei-templates.spec.md`
-- `docs/specs/rhei-install-skills.spec.md`
-- `docs/specs/rhei-completions.spec.md`
-- `docs/specs/rhei-state-machine-writer.spec.md`
-- relevant workflow examples in `docs/specs/rhei-usage.spec.md`
+- `docs/functional-spec/rhei-templates.spec.md`
+- `docs/functional-spec/rhei-install-skills.spec.md`
+- `docs/functional-spec/rhei-completions.spec.md`
+- `docs/functional-spec/rhei-state-machine-writer.spec.md`
+- relevant workflow examples in `docs/functional-spec/rhei-usage.spec.md`
 
 Implementation roots:
 - `crates`

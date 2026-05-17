@@ -16,7 +16,7 @@ The skill takes a single required parameter:
 
 - `<plan>` — path to the `.rhei.md` file for a Single-File Plan, or the `index.rhei.md` at the root of a Directory Workspace.
 
-Invoke as `rhei-plan-worker <plan>` (e.g., `rhei-plan-worker docs/plans/rhei-install-skills.rhei.md`). If the caller does not supply `<plan>`, ask for it and stop — do not guess, do not scan the working directory, do not pick from multiple candidates. The plan path is the worker's only source of truth for which plan to drive.
+Invoke as `rhei-plan-worker <plan>` (e.g., `rhei-plan-worker examples/ci-heal/index.rhei.md`). If the caller does not supply `<plan>`, ask for it and stop — do not guess, do not scan the working directory, do not pick from multiple candidates. The plan path is the worker's only source of truth for which plan to drive.
 
 All other inputs (state machine, task selection, transitions) are derived from the plan file and the state machine it declares.
 

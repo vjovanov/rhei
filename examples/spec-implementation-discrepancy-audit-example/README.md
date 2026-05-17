@@ -10,7 +10,7 @@ The example was generated with these values:
 ```yaml
 audit_title: Spec Implementation Discrepancy Audit Example
 subject: Rhei
-spec_root: docs
+spec_root: docs/functional-spec
 implementation_roots:
   - crates
   - skills

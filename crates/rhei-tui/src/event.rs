@@ -46,7 +46,7 @@ pub enum AgentStream {
 
 /// Events emitted by the execution engine.
 ///
-/// The shape follows `docs/specs/rhei-run-tui.spec.md`. `Message` is an
+/// The shape follows `docs/functional-spec/rhei-run-tui.spec.md`. `Message` is an
 /// additional variant used while the stdout path still emits humanized
 /// strings; a TUI frontend can surface these in its journal pane.
 #[derive(Debug, Clone)]

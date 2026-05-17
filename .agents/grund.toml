@@ -1,0 +1,76 @@
+grund_config_version = 1
+project_name = "Rhei"
+
+[reference]
+marker = "§"
+trigger = "$$"
+strict = true
+require_grounding = false
+
+[id]
+format = "{kind}-{slug}"
+section_separator = "."
+number_pattern = "\\d+"
+slug_pattern = "[a-z0-9][a-z0-9-]*"
+
+[[kinds]]
+prefix = "GND"
+file = "docs/functional-spec/grund.md"
+title = "Reason for existence"
+
+[[kinds]]
+prefix = "GOAL"
+file = "docs/functional-spec/goals.md"
+title = "Outcomes the project is trying to achieve"
+
+[[kinds]]
+prefix = "FS"
+folder = "docs/functional-spec"
+title = "User-visible behavior and requirements"
+
+[[kinds]]
+prefix = "AR"
+folder = "docs/architecture"
+title = "System design and technical structure"
+
+[[kinds]]
+prefix = "DF"
+folder = "docs/decisions/functional"
+title = "Product behavior decisions and tradeoffs"
+
+[[kinds]]
+prefix = "DA"
+folder = "docs/decisions/architectural"
+title = "Architecture decisions and tradeoffs"
+
+[[kinds]]
+prefix = "ADR"
+folder = "docs/adr"
+title = "Architecture decision records"
+
+[[kinds]]
+prefix = "E2E"
+folder = "e2e/cases"
+title = "Executable user scenarios"
+
+[[kinds]]
+prefix = "RM"
+file = "docs/functional-spec/roadmap.md"
+title = "Planned milestones and sequencing"
+
+[scan]
+include = ["AGENTS.md", "README.md", "docs", "examples", "crates", "packages", "skills", "e2e"]
+exclude = ["target", "node_modules", ".git", "dist", "build", ".venv", "docs/plans"]
+extensions = ["md", "rs", "ts", "tsx", "js", "py"]
+comment_prefixes = ["//", "#", "/*", "*"]
+docstring_python = true
+respect_gitignore = true
+
+[output]
+format = "text"
+color = "auto"
+relative_paths = true
+
+[fmt.cross_refs]
+enabled = false
+anchor_format = "github"

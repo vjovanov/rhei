@@ -4281,7 +4281,7 @@ fn execution_workspace_root(plan_path: &Path) -> PathBuf {
 /// Build the cross-language `TransitionContext` JSON payload that is
 /// delivered to callbacks on stdin.
 ///
-/// Shape matches `docs/specs/rhei-transitions.spec.md` #transitioncontext-data-structure.
+/// Shape matches `docs/functional-spec/rhei-transitions.spec.md` #transitioncontext-data-structure.
 /// The `triggered_by` field must be one of `"user" | "callback" | "system" | "engine"`.
 /// `transition_data` seeds the `transitionData` slot; pass `serde_json::Value::Object(Map::new())`
 /// for the initial `on_leave` call, and the accumulated data from `on_leave` for `on_enter`.
@@ -5854,7 +5854,7 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
     // pi (openclaw / badlogic pi-coding-agent). Headless mode exits
     // deterministically after one turn. pi has no permission layer — modes
     // are intentionally empty; isolation is the caller's responsibility
-    // (e.g. sandbox/container). See docs/specs/rhei-agents.spec.md §Known
+    // (e.g. sandbox/container). See docs/functional-spec/rhei-agents.spec.md §Known
     // Agent Profiles.
     agents.insert(
         "pi".to_string(),
@@ -6466,7 +6466,7 @@ fn callback_contexts_for_state<'a>(
 /// `state.agent_timeout > models.<id>.agents.<agent>.timeout > agents.<id>.timeout > defaults.agent_timeout`.
 ///
 /// This is the runtime counterpart to the Completion Authority / Completion
-/// Condition rules in `docs/specs/rhei-agents.spec.md`. A missing timeout
+/// Condition rules in `docs/functional-spec/rhei-agents.spec.md`. A missing timeout
 /// would mean the subprocess could hang indefinitely without a deterministic
 /// fallback, which defeats deterministic completion under `rhei run`.
 fn ensure_orchestrator_timeout(resolved: &ResolvedAgent, state_name: &str) -> MietteResult<()> {
@@ -7722,7 +7722,7 @@ fn run_agent_mode(
                 // timeout so that a non-returning agent cannot block forever.
                 // Invocations whose outputs already exist have been filtered
                 // out above and do not need a timeout. See
-                // docs/specs/rhei-agents.spec.md §Completion Authority /
+                // docs/functional-spec/rhei-agents.spec.md §Completion Authority /
                 // §Completion Condition.
                 if !opts.dry_run() {
                     for resolved in &pending {
@@ -9232,7 +9232,7 @@ fn parse_task_id(s: &str) -> TaskId {
 /// Locates the `### Task <id>:` header, walks through its metadata block
 /// (`**State:**`, optional `**Prior:**`), and inserts the Assignee line at
 /// the end of that block, matching the grammar order specified in
-/// docs/rhei.spec.md §268. A duplicate insertion is a no-op if the task
+/// docs/functional-spec/rhei-plan-language.spec.md §268. A duplicate insertion is a no-op if the task
 /// already has an assignee line; the caller is responsible for ensuring the
 /// field is absent first (use claim-time eligibility checks).
 fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResult<String> {

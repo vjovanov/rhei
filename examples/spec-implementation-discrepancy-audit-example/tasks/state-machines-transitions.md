@@ -6,9 +6,9 @@ Rhei.
 
 Spec scope:
 
-- `docs/specs/rhei-states.spec.md`
-- `docs/specs/rhei-transitions.spec.md`
-- `docs/specs/rhei-state-machine-writer.spec.md`
+- `docs/functional-spec/rhei-states.spec.md`
+- `docs/functional-spec/rhei-transitions.spec.md`
+- `docs/functional-spec/rhei-state-machine-writer.spec.md`
 
 Implementation roots:
 - `crates`

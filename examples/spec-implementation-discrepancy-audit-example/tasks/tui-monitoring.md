@@ -5,8 +5,8 @@ Audit the monitoring and terminal UI surface for running plans.
 
 Spec scope:
 
-- `docs/specs/rhei-run-tui.spec.md`
-- TUI and journal requirements referenced by `docs/specs/rhei-run.spec.md`
+- `docs/functional-spec/rhei-run-tui.spec.md`
+- TUI and journal requirements referenced by `docs/functional-spec/rhei-run.spec.md`
 
 Implementation roots:
 - `crates`

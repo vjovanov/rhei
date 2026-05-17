@@ -5,8 +5,8 @@ Audit the core plan language and validation contract for Rhei.
 
 Spec scope:
 
-- `docs/rhei.spec.md`
-- `docs/specs/rhei-authoring.spec.md`
+- `docs/functional-spec/rhei-plan-language.spec.md`
+- `docs/functional-spec/rhei-authoring.spec.md`
 
 Implementation roots:
 - `crates`

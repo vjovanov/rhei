@@ -28,9 +28,9 @@ Rhei is the only agent task-planning system that combines all of:
   audits — once as a parameterized template (plan skeleton + state machine +
   typed inputs), then `rhei instantiate` it with concrete values to spin up a
   ready-to-execute workspace. See
-  [`docs/specs/rhei-templates.spec.md`](docs/specs/rhei-templates.spec.md).
+  [`docs/functional-spec/rhei-templates.spec.md`](docs/functional-spec/rhei-templates.spec.md).
 
-See [`docs/comparison.md`](docs/comparison.md) for a detailed comparison against
+See [`docs/functional-spec/comparison.md`](docs/functional-spec/comparison.md) for a detailed comparison against
 beads, beans, opencode, Claude Code TodoWrite, Cline, Cursor, Roo, Devin, and
 Augment.
 
@@ -45,15 +45,15 @@ Current workspace crates:
 
 The markdown plan compiler currently supports:
 - parsing rhei/task/subtask structure from markdown plans
-- validating task metadata and dependencies against a states definition in [`docs/specs/states.yaml`](docs/specs/states.yaml)
+- validating task metadata and dependencies against a states definition in [`docs/functional-spec/states.yaml`](docs/functional-spec/states.yaml)
 - rendering parsed plans as JSON, GitHub-style markdown, or terminal-oriented progress output
 
 The primary reference documents are:
-- [`docs/overview.md`](docs/overview.md) — **start here** for tool usage and specification index
-- [`docs/agent-orchestrator-workflow.md`](docs/agent-orchestrator-workflow.md) — orchestrator/worker interaction model
-- [`docs/rhei.spec.md`](docs/rhei.spec.md) — plan language specification
-- [`docs/specs/rhei-states.spec.md`](docs/specs/rhei-states.spec.md) — states specification
-- [`docs/specs/states.yaml`](docs/specs/states.yaml) — default validation states definition
+- [`docs/architecture/overview.md`](docs/architecture/overview.md) — **start here** for tool usage and specification index
+- [`docs/architecture/agent-orchestrator-workflow.spec.md`](docs/architecture/agent-orchestrator-workflow.spec.md) — orchestrator/worker interaction model
+- [`docs/functional-spec/rhei-plan-language.spec.md`](docs/functional-spec/rhei-plan-language.spec.md) — plan language specification
+- [`docs/functional-spec/rhei-states.spec.md`](docs/functional-spec/rhei-states.spec.md) — states specification
+- [`docs/functional-spec/states.yaml`](docs/functional-spec/states.yaml) — default validation states definition
 
 ## Install
 
@@ -154,7 +154,7 @@ rhei completions elvish --install
 Installed completions are dynamic, so `rhei instantiate <TAB>` offers template
 names from `.agents/rhei/templates/` and `~/.agents/rhei/templates/`.
 
-See [Tab Completions](docs/tab-completions.md) for shell-specific setup notes,
+See [Tab Completions](docs/functional-spec/tab-completions.md) for shell-specific setup notes,
 default install paths, and system-wide installation.
 
 ## CLI usage
@@ -168,7 +168,7 @@ cargo run -p rhei-cli -- validate examples/release-automation.rhei.md
 Validate using a specific states file:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml validate examples/release-automation.rhei.md
+cargo run -p rhei-cli -- --state-machine docs/functional-spec/states.yaml validate examples/release-automation.rhei.md
 ```
 
 Watch a plan and states file for changes:
@@ -216,7 +216,21 @@ cargo run -p rhei-cli -- version
 Reset a plan back to the initial state declared in its state machine:
 
 ```bash
-cargo run -p rhei-cli -- --state-machine docs/specs/states.yaml reset examples/release-automation.rhei.md
+cargo run -p rhei-cli -- --state-machine docs/functional-spec/states.yaml reset examples/release-automation.rhei.md
+```
+
+## Development hooks
+
+Install the pre-commit hook to run grounding checks before each commit:
+
+```bash
+pre-commit install
+```
+
+The checked-in hook runs:
+
+```bash
+grund check .
 ```
 
 ## Library usage

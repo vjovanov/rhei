@@ -67,7 +67,7 @@ review_output_path() {
 review_prompt() {
     local model="$1"
     cat <<EOF
-Review the Rhei specification documents under docs/specs/ for gaps, contradictions, and ambiguities.
+Review the Rhei specification documents under docs/functional-spec/ for gaps, contradictions, and ambiguities.
 Focus on problems that would mislead an implementor or confuse a user.
 
 Respond with markdown only in this exact shape:

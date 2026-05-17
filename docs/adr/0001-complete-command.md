@@ -47,5 +47,5 @@ stored in directory workspaces, and (c) `rhei reset` already removes
   task body contains only a link. This avoids bloating task files with
   long result messages.
 - `--no-callbacks` is supported, consistent with `transition` and `run`.
-- See [Complete Command Specification](../specs/rhei-complete.spec.md)
+- See [Complete Command Specification](../functional-spec/rhei-complete.spec.md)
   for the full behavioral contract.

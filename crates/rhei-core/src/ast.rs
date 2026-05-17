@@ -1,7 +1,7 @@
 //! Abstract Syntax Tree (AST) definitions for the Markdown Plan Compiler.
 //!
 //! These types model the hierarchical structure parsed from plan markdown,
-//! aligning with the specification in docs/rhei.spec.md.
+//! aligning with the specification in docs/functional-spec/rhei-plan-language.spec.md.
 //!
 //! High-level model:
 //! - `Rhei`: holds the plan title, free-form content blocks prior to the Tasks

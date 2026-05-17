@@ -6,14 +6,14 @@ Audit the command contracts used by humans and manual agents outside the full
 
 Spec scope:
 
-- `docs/specs/rhei-next.spec.md`
-- `docs/specs/rhei-transition-cmd.spec.md`
-- `docs/specs/rhei-complete.spec.md`
-- `docs/specs/rhei-reset.spec.md`
-- `docs/specs/rhei-list.spec.md`
-- `docs/specs/rhei-states.spec.md`
-- `docs/specs/rhei-viz.spec.md`
-- relevant command-surface sections in `docs/specs/rhei-usage.spec.md`
+- `docs/functional-spec/rhei-next.spec.md`
+- `docs/functional-spec/rhei-transition-cmd.spec.md`
+- `docs/functional-spec/rhei-complete.spec.md`
+- `docs/functional-spec/rhei-reset.spec.md`
+- `docs/functional-spec/rhei-list.spec.md`
+- `docs/functional-spec/rhei-states.spec.md`
+- `docs/functional-spec/rhei-viz.spec.md`
+- relevant command-surface sections in `docs/functional-spec/rhei-usage.spec.md`
 
 Implementation roots:
 - `crates`
