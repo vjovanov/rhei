@@ -309,6 +309,23 @@ fn emit_exit_zero_warnings(
     }
 }
 
+fn emit_exit_zero_missing_required_outputs_warning(
+    task_id_str: &str,
+    state_name: &str,
+    missing: &[String],
+    sink: &Arc<dyn rhei_tui::EventSink>,
+) {
+    sink.emit(rhei_tui::RunEvent::Message {
+        level: rhei_tui::MessageLevel::Warn,
+        text: format!(
+            "  warning: agent exited 0 but required outputs are missing for task {} in state '{}': {}",
+            task_id_str,
+            state_name,
+            missing.join(", ")
+        ),
+    });
+}
+
 /// Walk all resolved invocations for this state and collect the union of
 /// required output artifact names that do not exist on disk.
 fn collect_missing_required_outputs(
@@ -367,6 +384,43 @@ fn collect_missing_required_outputs(
             if !path.exists() && seen.insert(artifact.name.clone()) {
                 missing.push(artifact.name.clone());
             }
+        }
+    }
+    missing
+}
+
+fn collect_missing_required_outputs_for_resolved_invocation(
+    workspace_root: &Path,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task: &rhei_core::ast::Task,
+    state_name: &str,
+    resolved: &ResolvedAgent,
+) -> Vec<String> {
+    let Some(state_def) = machine.states.get(state_name) else {
+        return Vec::new();
+    };
+    if state_def.outputs.is_empty() {
+        return Vec::new();
+    }
+
+    let mut missing = Vec::new();
+    let visit_count =
+        Some(render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine));
+    for artifact in &state_def.outputs {
+        let (_, path) = resolve_artifact_path(
+            workspace_root,
+            artifact,
+            &task.id.to_string(),
+            state_name,
+            visit_count,
+            resolved.target.as_ref(),
+            resolved.model.as_deref(),
+            Some(resolved.agent.id()),
+            resolved.mode.as_deref(),
+        );
+        if !path.exists() {
+            missing.push(artifact.name.clone());
         }
     }
     missing

@@ -303,15 +303,17 @@ fn execute_transition_with_origin(
         .map(|meta| task_visit_count(Some(meta), &target_id, to))
         .filter(|count| *count > 0);
 
-    ensure_state_outputs_exist_for_transition(
-        &workspace_root,
-        task_id_str,
-        from,
-        from_state_def,
-        from_visit_count,
-        machine,
-        &settings,
-    )?;
+    if !origin.skip_source_outputs {
+        ensure_state_outputs_exist_for_transition(
+            &workspace_root,
+            task_id_str,
+            from,
+            from_state_def,
+            from_visit_count,
+            machine,
+            &settings,
+        )?;
+    }
     ensure_state_inputs_exist_for_transition(
         &workspace_root,
         task_id_str,

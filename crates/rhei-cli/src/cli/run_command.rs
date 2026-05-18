@@ -40,20 +40,32 @@ fn run_command(
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
-    let mut use_standalone_mode = false;
-    for def in machine.states.values() {
-        if def.terminal || def.gating {
-            continue;
-        }
-        if state_declares_enabled_autonomous_execution(def, &opts) {
-            use_standalone_mode = true;
-            break;
-        }
-    }
+    let use_standalone_mode = should_use_agent_mode(&machine, &settings, &opts)?;
 
     if use_standalone_mode {
         run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
     } else {
         run_callback_mode(input, &machine, &callback_paths, &opts, effective_parallel)
     }
+}
+
+fn should_use_agent_mode(
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+) -> MietteResult<bool> {
+    for (state_name, def) in &machine.states {
+        if def.terminal || def.gating {
+            continue;
+        }
+        if def.program.is_some() && !opts.no_program() {
+            return Ok(true);
+        }
+        if !opts.no_agent()
+            && !resolve_agent_invocations(machine, state_name, settings, opts)?.is_empty()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

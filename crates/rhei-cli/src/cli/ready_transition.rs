@@ -241,19 +241,6 @@ fn state_declares_autonomous_execution(def: &rhei_validator::StateDef) -> bool {
         || !def.all_targets.is_empty()
 }
 
-fn state_declares_enabled_autonomous_execution(
-    def: &rhei_validator::StateDef,
-    opts: &RunOptions,
-) -> bool {
-    (def.program.is_some() && !opts.no_program())
-        || (!opts.no_agent()
-            && (def.agent.is_some()
-                || def.model.is_some()
-                || def.target.is_some()
-                || !def.all_models.is_empty()
-                || !def.all_targets.is_empty()))
-}
-
 /// Find the next forward transition from a given state.
 ///
 /// Prefers exact `from` matches over wildcard (`*`) rules, and skips
@@ -312,6 +299,9 @@ fn try_auto_advance_task(
     task_id_str: &str,
     current_state: &str,
     no_callbacks: bool,
+    mut before_transition: Option<
+        &mut dyn FnMut(&rhei_core::ast::Task, &str) -> MietteResult<()>,
+    >,
 ) -> MietteResult<Option<String>> {
     // The spec splits agent exit into:
     //   (5) select the outgoing transition without applying it,
@@ -362,6 +352,9 @@ fn try_auto_advance_task(
     // the snapshot module in; the call site here pins the spec-mandated
     // ordering ("after transition selection and before the transition is
     // applied") so future wiring does not have to relitigate it.
+    if let Some(before_transition) = before_transition.as_mut() {
+        before_transition(task, &to_state)?;
+    }
     emit_snapshots_after_transition_selection(machine, task, current_state, &to_state);
 
     // Step 7: apply the selected transition.

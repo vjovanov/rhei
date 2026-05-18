@@ -54,11 +54,6 @@ fn resolve_target_agent(
             settings.defaults.agent_timeout.as_deref().and_then(rhei_validator::parse_duration_secs)
         });
 
-    let provider =
-        target.provider.clone().or_else(|| model_profile.and_then(|p| p.provider.clone()));
-    let model_name =
-        model_profile.and_then(|p| p.model.clone()).unwrap_or_else(|| target.model.clone());
-
     let autonomous_args = binding.map(|b| b.autonomous_args.clone()).unwrap_or_default();
 
     Ok(ResolvedAgent {
@@ -67,8 +62,8 @@ fn resolve_target_agent(
         mode: target.mode.clone(),
         target: Some(target.clone()),
         model: Some(target.model.clone()),
-        model_provider: provider,
-        model_name: Some(model_name),
+        model_provider: target.provider.clone(),
+        model_name: Some(target.model.clone()),
         timeout_secs,
         autonomous_args,
     })
