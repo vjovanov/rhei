@@ -1,0 +1,554 @@
+# Spec-Implementation State Machine
+# ==================================
+#
+# This workflow has one task that walks a fixed pipeline. Inside the pipeline,
+# two states fan out across multiple reviewers, and two stretches of the
+# pipeline are counted loops.
+#
+# Legend
+# ------
+#   fan-out: every reviewer in `review_targets` runs in parallel
+#   loop:    state repeats until {visit_count} >= {visits}
+#
+# Pipeline
+# --------
+#
+#   implement                          (one agent: implementation_target)
+#       |
+#       v
+#   completeness-review                (fan-out: review_targets)
+#       |
+#       v
+#   completeness-aggregate             (one agent: smart_target)
+#       |
+#       v
+#   completeness-fix                   (one agent: implementation_target)
+#       |
+#       v
+#   +-> quality-review                 (fan-out: review_targets)
+#   |       |
+#   |       v
+#   |   quality-aggregate              (one agent: smart_target)
+#   |       |
+#   |       v
+#   |   quality-fix                    (one agent: smart_target)
+#   |       |
+#   +-- loop while visit_count < {{review_passes}}
+#           |
+#           v (loop budget exhausted)
+#   +-> e2e-write                      (one agent: e2e_writer)
+#   |       |
+#   |       v
+#   |   e2e-verify                     (one agent: e2e_verifier)
+#   |       |
+#   +-- loop while visit_count < {{e2e_passes}}
+#           |
+#           v (loop budget exhausted)
+#       completed                      (final)
+#
+# Cancel
+# ------
+#   Any non-final state -> cancelled (final)
+#
+# Per-task path
+# -------------
+#   spec-implementation:
+#     implement -> completeness-review -> completeness-aggregate ->
+#     completeness-fix ->
+#     (quality-review -> quality-aggregate -> quality-fix) x {{review_passes}} ->
+#     (e2e-write -> e2e-verify) x {{e2e_passes}} ->
+#     completed
+
+name: spec-implementation
+version: 1.2.0
+
+states:
+
+  # ---------------------------------------------------------------------------
+  # 1. Implement
+  # ---------------------------------------------------------------------------
+
+  implement:
+    description: Write the initial implementation of the spec.
+    target: {{implementation_target}}
+    personality: |
+      You are the primary implementer. Be precise, cite the spec section that
+      motivates each implementation choice, and prefer narrow, testable changes
+      over speculative refactors.
+    instructions: |
+      Implement the spec at `{{spec_path}}` for Task {task_id}.
+
+      This workspace is a scratchpad. Resolve the repository root with
+      `git rev-parse --show-toplevel` and apply code edits there. Runtime
+      artifacts (`runtime/...`) stay under this workspace.
+
+      Read the spec end-to-end and implement every normative requirement:
+      source code, the tests the spec asks for, configuration, documentation
+      cross-references, and CLI/API surfaces. If something is truly impossible
+      to implement now, record it as `deferred` in the implementation notes
+      with a concrete reason; do not silently skip.
+
+      Write a summary to `{output.implementation-notes.path}` listing each
+      spec section, the implementation files that satisfy it, and any
+      deferrals. Transition to `completeness-review`.
+    outputs:
+      - name: implementation-notes
+        path: runtime/implement/{task_id}-implementation-notes.md
+        description: What was implemented (and what was deferred).
+
+  # ---------------------------------------------------------------------------
+  # 2. Completeness pass: did we miss anything from the spec?
+  # ---------------------------------------------------------------------------
+
+  completeness-review:
+    description: Each reviewer independently audits the implementation for missing spec coverage.
+    all_targets:
+{%- for t in review_targets %}
+      - {{ t }}
+{%- endfor %}
+    personality: |
+      You are {target}, an exhaustive completeness auditor. Enumerate every
+      normative claim in the spec and check whether the implementation covers
+      it. Do not assess code quality here -- that comes later. Cite evidence
+      with `file:line`.
+    inputs:
+      - name: implementation-notes
+        path: runtime/implement/{task_id}-implementation-notes.md
+    instructions: |
+      Audit the implementation against `{{spec_path}}` for Task {task_id}.
+
+      Resolve the repo root via `git rev-parse --show-toplevel` and read both
+      the spec and the implementation from that checkout. The implementation
+      notes at `{input.implementation-notes.path}` are a hint, not ground
+      truth.
+
+      For every normative requirement, behavior contract, edge case, error
+      path, validation rule, and CLI/API surface in the spec, mark it as
+      one of:
+
+        - covered      (with file:line evidence)
+        - partial      (covered but with a concrete gap)
+        - missing      (no implementation)
+        - not-normative (spec text is descriptive, not normative)
+
+      Write the inventory to `{output.completeness-gaps.path}`. Do not edit
+      any repository files. Transition to `completeness-aggregate`.
+    outputs:
+      - name: completeness-gaps
+        path: runtime/completeness/{task_id}-gaps-{target.slug}.md
+        description: One reviewer's completeness inventory.
+
+  completeness-aggregate:
+    description: Merge per-reviewer inventories into a single gap list.
+    target: {{smart_target}}
+    personality: |
+      You are the completeness aggregator. Merge conservatively: a finding is
+      a gap if any reviewer marked it `missing` or `partial` and no reviewer
+      cited concrete file:line evidence that it is already covered.
+    instructions: |
+      Aggregate completeness inventories for Task {task_id}.
+
+      Read every file matching `runtime/completeness/{task_id}-gaps-*.md`.
+      Deduplicate per spec section. For each section:
+
+        - If any reviewer marked it `missing` or `partial` and no reviewer
+          cited refuting file:line evidence, keep it as a `gap`.
+        - If every reviewer marked it `covered` with concrete evidence, drop
+          it.
+        - Preserve genuine disagreements so `completeness-fix` can decide.
+
+      Write the merged list to `{output.completeness-gap-list.path}`.
+      Transition to `completeness-fix`.
+    outputs:
+      - name: completeness-gap-list
+        path: runtime/completeness/{task_id}-gap-list.md
+        description: Deduplicated, prioritized gap list.
+
+  completeness-fix:
+    description: Fill the gaps identified by the completeness pass.
+    target: {{implementation_target}}
+    personality: |
+      You are the completeness fixer. Close exactly the gaps listed; do not
+      broaden the change. If a gap is genuinely impossible to close now,
+      record it as `deferred` with a concrete reason.
+    inputs:
+      - name: completeness-gap-list
+        path: runtime/completeness/{task_id}-gap-list.md
+    instructions: |
+      Close completeness gaps for Task {task_id}.
+
+      Resolve the repo root via `git rev-parse --show-toplevel`. Code edits
+      happen there; runtime artifacts stay in this workspace.
+
+      Read `{input.completeness-gap-list.path}`. Implement every listed gap
+      and update or add tests as the spec requires.
+
+      Write the fix log to `{output.completeness-fix-log.path}` listing each
+      gap, the files edited, and the tests added or updated. Transition to
+      `quality-review`.
+    outputs:
+      - name: completeness-fix-log
+        path: runtime/completeness/{task_id}-fix-log.md
+        description: What was implemented to close the gap list.
+
+  # ---------------------------------------------------------------------------
+  # 3. Quality loop: review the implementation, fix it, repeat
+  # ---------------------------------------------------------------------------
+
+  quality-review:
+    description: Each reviewer independently audits implementation quality.
+    all_targets:
+{%- for t in review_targets %}
+      - {{ t }}
+{%- endfor %}
+    visits: {{review_passes}}
+    personality: |
+      You are {target}, a rigorous implementation reviewer. Focus on
+      correctness, regressions, contract violations, concurrency, error
+      handling, and material risks. Skip pure style nits unless they signal a
+      real defect. Do not repeat findings from earlier passes of this task.
+    instructions: |
+      Quality review pass {visit_count} of {visits} for Task {task_id}.
+
+      Resolve the repo root via `git rev-parse --show-toplevel` and read the
+      implementation from there. Read the spec at `{{spec_path}}` and compare
+      actual behavior to specified behavior.
+
+      Earlier passes' artifacts live under `runtime/quality/`:
+
+        - findings:  `{task_id}-pass-*-{target.slug}.md`
+        - fix logs:  `{task_id}-pass-*-fix-log.md`
+
+      Skim them to avoid duplicate findings and to verify whether earlier
+      issues are now resolved.
+
+      Review for:
+
+        - Correctness against the spec
+        - Regressions and missed edge cases
+        - Concurrency, error handling, and resource management
+        - Contract violations at public interfaces
+      {%- if focus_areas %}
+
+      Organize findings into these focus subsections. Every subsection must
+      appear, even if empty (write `- none`):
+      {%- for f in focus_areas %}
+        - {{ f }}
+      {%- endfor %}
+      {%- endif %}
+
+      Write findings to `{output.quality-findings.path}`:
+
+        # Quality Review pass {visit_count} - target {target}
+
+        - Q-<short-id>: <one-line finding>
+          - Severity: high | medium | low
+          - File: <path>
+          - Detail: <what is wrong or risky, and why>
+          - Evidence: <specific code or spec evidence>
+          - Suggested fix: <minimal direction>
+
+      Do not edit any repository files. Transition to `quality-aggregate`.
+    outputs:
+      - name: quality-findings
+        path: runtime/quality/{task_id}-pass-{visit_count}-{target.slug}.md
+        description: One reviewer's quality findings for one pass.
+
+  quality-aggregate:
+    description: Merge per-reviewer findings into an actionable fix plan.
+    target: {{smart_target}}
+    visits: {{review_passes}}
+    personality: |
+      You are the quality aggregator. Deduplicate per-reviewer findings,
+      preserve disagreements, and decide which deserve a fix. Reject or defer
+      nits and low-value findings whose fix would be broad or risky.
+    instructions: |
+      Aggregate quality findings for pass {visit_count} of {visits} for
+      Task {task_id}.
+
+      Read every file matching
+      `runtime/quality/{task_id}-pass-{visit_count}-*.md` (one per reviewer).
+      Deduplicate aggressively, preserve disagreements, and classify each
+      candidate as `accepted`, `rejected`, or `defer`. Accepted items must
+      have bounded, testable fixes; reject or defer anything whose fix would
+      broaden scope significantly.
+
+      Write the plan to `{output.quality-fix-plan.path}`:
+
+        # Quality Fix Plan pass {visit_count}
+
+        ## Accepted
+
+        - Q-<id>: <summary>
+          - Files: <paths>
+          - Approach: <exact direction>
+          - Tests/checks: <commands or files>
+
+        ## Rejected / Deferred
+
+        - Q-<id>: rejected | defer
+          - Reason: <why not fixing now>
+
+      Transition to `quality-fix`.
+    outputs:
+      - name: quality-fix-plan
+        path: runtime/quality/{task_id}-pass-{visit_count}-fix-plan.md
+        description: Deduplicated fix plan for one pass.
+
+  quality-fix:
+    description: Apply the accepted fixes for this pass.
+    target: {{smart_target}}
+    visits: {{review_passes}}
+    inputs:
+      - name: quality-fix-plan
+        path: runtime/quality/{task_id}-pass-{visit_count}-fix-plan.md
+    personality: |
+      You are the quality fixer. Apply only fixes marked `accepted`. Keep
+      each change narrow. If a fix turns out to need broader scope than the
+      plan describes, mark it `skipped` in the log instead of expanding the
+      patch.
+    instructions: |
+      Apply quality fixes for pass {visit_count} of {visits} for
+      Task {task_id}.
+
+      Resolve the repo root via `git rev-parse --show-toplevel`. Code edits
+      happen there; runtime artifacts stay in this workspace.
+
+      Read `{input.quality-fix-plan.path}`. Apply only `accepted` fixes and
+      run the tests or checks listed in the plan when feasible.
+
+      Write the log to `{output.quality-fix-log.path}` listing each accepted
+      fix id, the files edited, the checks run (or why they were skipped),
+      and any items intentionally left unfixed.
+
+      If `visit_count < visits`, transition back to `quality-review` for the
+      next pass. Otherwise transition to `e2e-write`.
+    outputs:
+      - name: quality-fix-log
+        path: runtime/quality/{task_id}-pass-{visit_count}-fix-log.md
+        description: Summary of fixes applied in one pass.
+
+  # ---------------------------------------------------------------------------
+  # 4. E2E loop: extend end-to-end coverage, verify, repeat
+  # ---------------------------------------------------------------------------
+
+  e2e-write:
+    description: Add or extend end-to-end tests for the implemented spec, using the mock agent by default.
+    target: {{e2e_writer}}
+    visits: {{e2e_passes}}
+    personality: |
+      You are the e2e writer ({target}). Add end-to-end tests that exercise
+      spec-defined behavior through the public interface. Avoid duplicating
+      existing unit-test coverage; focus on flows only e2e tests can
+      validate. Default to the mock agent (`{{mock_agent}}`); only add a
+      real-agent test when no mock-driven test could meaningfully cover the
+      behavior.
+    instructions: |
+      Extend e2e coverage pass {visit_count} of {visits} for Task {task_id}.
+
+      Resolve the repo root via `git rev-parse --show-toplevel`. Test edits
+      happen there; runtime artifacts stay in this workspace.
+      {%- if e2e_test_root %}
+
+      The project's e2e tests live under `{{e2e_test_root}}`. Add tests
+      there.
+      {%- else %}
+
+      Discover the project's e2e/integration test location (look for `e2e/`,
+      `tests/e2e/`, `tests/integration/`, etc.). If none exists, propose a
+      location and create it.
+      {%- endif %}
+
+      ## Mock-agent policy
+
+      Every standard e2e test you add MUST target the mock agent
+      (`{{mock_agent}}`), which returns canned outputs the test controls.
+      The standard suite must stay fast and deterministic and must not
+      depend on a real model provider being reachable.
+
+      A small set of release-only tests may invoke real agent operations to
+      verify that the agent integration still works end-to-end. These tests
+      MUST be marked with `{{release_only_marker}}` so the project's CI
+      runner can exclude them from the default test command and include them
+      only in release builds.
+      {%- if release_only_test_root %}
+
+      Release-only tests live under `{{release_only_test_root}}`. Keep them
+      there, separate from the mock-driven suite.
+      {%- else %}
+
+      Co-locate release-only tests with the rest of the e2e suite and rely
+      on the `{{release_only_marker}}` marker for filtering.
+      {%- endif %}
+
+      Keep the release-only set small. Rule of thumb: one happy-path test
+      per distinct real-agent integration. Do not add a release-only test
+      for a behavior the mock-driven suite already covers; do not add a
+      release-only test in the same pass as a brand-new feature unless an
+      existing mock-driven test fails to exercise the integration boundary.
+
+      ## What to add in this pass
+
+      If `visit_count > 1`, read every prior verify report under
+      `runtime/e2e/{task_id}-verify-pass-*.md` and address the gaps listed
+      in the most recent one first. Otherwise enumerate user-facing spec
+      behaviors with no e2e coverage and pick the highest-value ones.
+
+      Run the e2e suite after adding tests (mock-driven tests only — do not
+      run the release-only subset here). Record each new test, the spec
+      behavior it covers, whether it is mock-driven or release-only, and
+      the suite run result to `{output.e2e-write-report.path}`. Transition
+      to `e2e-verify`.
+    outputs:
+      - name: e2e-write-report
+        path: runtime/e2e/{task_id}-write-pass-{visit_count}.md
+        description: New e2e tests added in one pass (with mock vs release-only classification) and their run result.
+
+  e2e-verify:
+    description: Independently re-run the mock-driven suite, audit the added tests, enforce the mock-agent policy, and list remaining gaps.
+    target: {{e2e_verifier}}
+    visits: {{e2e_passes}}
+    inputs:
+      - name: e2e-write-report
+        path: runtime/e2e/{task_id}-write-pass-{visit_count}.md
+    personality: |
+      You are the e2e verifier ({target}). Independently run the suite,
+      audit the tests the writer added, and identify remaining coverage
+      gaps. Enforce the mock-agent policy and the size cap on the
+      release-only subset. Do not write new tests in this state -- that is
+      the next write pass's job. Be specific about what is missing.
+    instructions: |
+      Verify e2e coverage pass {visit_count} of {visits} for Task {task_id}.
+
+      Resolve the repo root via `git rev-parse --show-toplevel` and run the
+      e2e suite from there. Inspection and run commands happen against the
+      checkout; runtime artifacts stay in this workspace.
+
+      Read `{input.e2e-write-report.path}`. Independently:
+
+        - Re-run the standard e2e suite (mock-driven tests only; exclude
+          tests marked `{{release_only_marker}}`). Record pass/fail counts.
+          Do not invoke real agents in this state.
+        - Audit the writer's new tests: do they actually exercise the spec
+          behaviors they claim to cover? Are assertions meaningful?
+        - Enforce the mock-agent policy: every newly-added test that is
+          NOT marked `{{release_only_marker}}` MUST target the mock agent
+          (`{{mock_agent}}`). Flag any standard test that calls real-agent
+          code paths as a policy violation that must be fixed in the next
+          write pass.
+        - Audit the release-only subset overall (not just the new tests):
+          enumerate every test marked `{{release_only_marker}}` across the
+          repository{% if release_only_test_root %} (under `{{release_only_test_root}}`){% endif %}.
+          Flag growth as a concern when the set materially exceeds one
+          happy-path test per real-agent integration, or when newly-added
+          release-only tests duplicate behavior already covered by a
+          mock-driven test.
+        - List remaining e2e coverage gaps: spec behaviors no test
+          exercises through the public interface.
+
+      Write the verify report to `{output.e2e-verify-report.path}` with the
+      suite result, audit findings, mock-agent policy verdict, release-only
+      subset audit, and a prioritized gap list for the next write pass.
+
+      If `visit_count < visits`, transition back to `e2e-write` so the gaps
+      and policy violations can be addressed. Otherwise transition to
+      `completed`.
+    outputs:
+      - name: e2e-verify-report
+        path: runtime/e2e/{task_id}-verify-pass-{visit_count}.md
+        description: Suite run result, audit, and remaining gap list.
+
+  # ---------------------------------------------------------------------------
+  # 5. Terminal states
+  # ---------------------------------------------------------------------------
+
+  completed:
+    description: Spec implemented, completeness audited, quality reviewed and fixed, and e2e coverage extended.
+    final: true
+    instructions: |
+      Task {task_id} is complete. The spec at `{{spec_path}}` has been
+      implemented and reviewed end-to-end.
+
+  cancelled:
+    description: Task cancelled before completion.
+    final: true
+    instructions: |
+      Stop all work on Task {task_id}. Leave existing artifacts in place.
+
+transitions:
+
+  # Linear pipeline through the completeness pass
+  - from: implement
+    to: completeness-review
+    description: Initial implementation done; audit completeness.
+
+  - from: completeness-review
+    to: completeness-aggregate
+    description: Every reviewer produced its inventory; merge into one list.
+
+  - from: completeness-aggregate
+    to: completeness-fix
+    description: Gap list written; fill the gaps.
+
+  - from: completeness-fix
+    to: quality-review
+    description: Gaps closed; begin the quality review/fix loop.
+
+  # Quality loop
+  - from: quality-review
+    to: quality-aggregate
+    description: Every reviewer wrote findings for this pass; aggregate.
+
+  - from: quality-aggregate
+    to: quality-fix
+    description: Fix plan written; apply accepted fixes.
+
+  - from: quality-fix
+    to: quality-review
+    condition: visitCount < visits
+    description: Fixes applied; budget remains, run another review pass.
+
+  - from: quality-fix
+    to: e2e-write
+    condition: visitCount >= visits
+    description: Quality loop budget exhausted; start the e2e coverage loop.
+
+  # E2E loop
+  - from: e2e-write
+    to: e2e-verify
+    description: New e2e tests written; hand off to the verifier.
+
+  - from: e2e-verify
+    to: e2e-write
+    condition: visitCount < visits
+    description: Gaps remain and budget allows another write pass.
+
+  - from: e2e-verify
+    to: completed
+    condition: visitCount >= visits
+    description: E2e loop budget exhausted; task is done.
+
+  # Escape hatch
+  - from: "*"
+    to: cancelled
+    description: Cancel the task from any non-final state.
+
+profiles:
+  spec-implementation:
+    initial: implement
+    allowed:
+      - implement
+      - completeness-review
+      - completeness-aggregate
+      - completeness-fix
+      - quality-review
+      - quality-aggregate
+      - quality-fix
+      - e2e-write
+      - e2e-verify
+      - completed
+      - cancelled
+
+node_policy:
+  root: spec-implementation
+  default: spec-implementation

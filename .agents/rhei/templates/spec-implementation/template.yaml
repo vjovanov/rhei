@@ -1,0 +1,79 @@
+name: spec-implementation
+version: 1.2.0
+description: Implement a specification, fan-out audit for completeness, run a fan-out review/fix loop, then ping-pong two agents to extend e2e test coverage. The e2e loop enforces a mock-agent-by-default policy with a small release-only exception set.
+
+inputs:
+  - name: spec_path
+    description: Path to the spec file (or directory) to implement. Relative to the repository root.
+    type: string
+
+  - name: spec_title
+    description: Human-readable title for the workspace. Shows up in the plan heading.
+    type: string
+    default: Spec Implementation
+
+  - name: implementation_target
+    description: Agent that writes the initial implementation and the completeness-fix pass. Typically your default high-capability code-writing target.
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: review_targets
+    description: Two or more agents that independently review the implementation. Used in both the completeness audit and every quality-review pass. More agents = more coverage, more cost.
+    type: array
+    items:
+      type: string
+    default:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[xhigh]:openai:gpt-5.5
+
+  - name: smart_target
+    description: Stronger agent that merges per-reviewer findings, writes the fix plan, and applies the fixes. Should be at least as capable as any reviewer.
+    type: string
+    default: codex[xhigh]:openai:gpt-5.5
+
+  - name: review_passes
+    description: How many quality review/fix cycles to run after the completeness pass. 2 catches most regressions; 1 is faster; 3+ is for very high-stakes specs.
+    type: number
+    default: 2
+
+  - name: focus_areas
+    description: Optional review focus sections each quality reviewer must address (e.g., performance, security, error handling). Empty means a general correctness review.
+    type: array
+    items:
+      type: string
+    default: []
+
+  - name: e2e_writer
+    description: Agent that writes / extends end-to-end tests in the e2e loop.
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: e2e_verifier
+    description: Agent that re-runs the e2e suite, audits the new tests, and lists remaining gaps for the next write pass. Should be a different agent from e2e_writer so the audit is independent.
+    type: string
+    default: codex[xhigh]:openai:gpt-5.5
+
+  - name: e2e_passes
+    description: How many e2e write/verify ping-pong cycles to run.
+    type: number
+    default: 2
+
+  - name: e2e_test_root
+    description: Where the project's e2e tests live (e.g., e2e/, tests/e2e/). Leave empty to let the e2e agents discover the location.
+    type: string
+    default: ""
+
+  - name: mock_agent
+    description: Selector or test-side name of the mock agent that every standard e2e test must target. The mock returns canned outputs so the suite stays fast and deterministic.
+    type: string
+    default: mock
+
+  - name: release_only_marker
+    description: "Tag / attribute / filename suffix the project uses to mark e2e tests that hit real agent operations. These tests run only on release builds and the set must stay small (rule of thumb: one happy-path test per real-agent integration)."
+    type: string
+    default: release-only
+
+  - name: release_only_test_root
+    description: Optional path where release-only real-agent e2e tests live, if the project keeps them separate from the mock-driven suite. Empty means co-locate with the rest of the e2e suite and rely on the marker.
+    type: string
+    default: ""
