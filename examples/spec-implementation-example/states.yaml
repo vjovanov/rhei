@@ -99,16 +99,22 @@ states:
       checkout. Runtime artifacts (`runtime/...`) and dynamic task files
       (`tasks/...`) must always be written under this scratchpad workspace.
 
-      ## Step 1: Pick the mode and resolve the spec set
+      Your own task id is `{task_id}` (referenced below as the value for
+      `**Prior:**` on every spawned task). The per-spec task ids you
+      create are different and you choose them; below they appear as
+      `<spawned-id>` to distinguish them from your own runtime-substituted
+      `{task_id}`.
 
-      Exactly one of `spec_path` and `spec_ref` must be set. Both are
-      checked below; abort with a clear error if neither or both are set.
+      Inputs at instantiation:
 
-      - spec_path = ``
-      - spec_ref  = `main..HEAD`
+        - spec_path = ``
+        - spec_ref  = `main..HEAD`
+
+      ## Step 1: Resolve the spec set
+
       Multi-spec mode. Resolve `main..HEAD` to a concrete set of changed
-      `*.spec.md` files using the project's VCS tooling from the repository
-      root. The reference can be any of:
+      `*.spec.md` files using the project's VCS tooling from the
+      repository root. The reference can be any of:
 
         - a PR URL or number (`#42`, `org/repo#42`, full URL) -- use `gh`
         - a branch name -- compare against the project's default branch
@@ -117,38 +123,41 @@ states:
 
       Use `git diff <base>..<head> --name-only` (or the PR-equivalent) and
       filter to paths matching `*.spec.md` under the project's spec
-      directory. If the reference resolves to zero spec files, abort with
-      a clear error. Note the assumption (which base, which spec
-      directory) so the audit is reproducible.
+      directory. If the reference resolves to zero spec files, transition
+      this task to `cancelled` and leave a one-line note explaining why.
+      Note your assumption (which base, which spec directory) so the
+      result is reproducible.
 
       ## Step 2: Write the assignments manifest
 
       Write `{output.spec-assignments.path}` listing every spec in scope:
 
-        # Spec Assignments
+          # Spec Assignments
 
-        - task_id: impl-<slug-1>
-          spec_path: <repo-relative path>
-        - task_id: impl-<slug-2>
-          spec_path: <repo-relative path>
-        ...
+          - task_id: impl-<slug-1>
+            spec_path: <repo-relative path>
+          - task_id: impl-<slug-2>
+            spec_path: <repo-relative path>
+          ...
 
       Slugs must be stable, filesystem-safe, and unique across the
       workspace. Derive them from the spec filename (e.g.,
-      `docs/functional-spec/rhei-list.spec.md` -> `rhei-list`).
+      `docs/functional-spec/rhei-list.spec.md` -> `rhei-list`, giving
+      `impl-rhei-list`).
 
       For each entry, also write the spec path to
-      `runtime/manifests/<task_id>-spec.txt` -- a one-line file containing
-      just the repo-relative spec path. The implement, completeness, and
-      quality states all read this per-task file to find out which spec
-      they are working on.
+      `runtime/manifests/<spawned-id>-spec.txt` -- a one-line file
+      containing just the repo-relative spec path. The implement,
+      completeness, and quality states all read this per-task file to
+      find out which spec they are working on.
 
       ## Step 3: Append per-spec implementation tasks
 
-      For every spec, append a task file under `tasks/` named
-      `NN-<task_id>.md`:
+      For every spec, append a task file under `tasks/`. Pick the next
+      available `NN` (the workspace ships with `01-coordinate.md`, so
+      start at `02`). Filename: `NN-<spawned-id>.md`. Contents:
 
-          ### Task <task_id>: Implement <spec_path>
+          ### Task <spawned-id>: Implement <spec_path>
           **State:** implement
           **Prior:** Task {task_id}
 
@@ -157,32 +166,35 @@ states:
           this task. End-to-end coverage is handled by the shared
           `e2e-aggregate` task once every per-spec task is complete.
 
-      Replace placeholders with concrete text. Do not leave angle brackets
-      behind. Task ids must match the assignments manifest exactly.
+      Replace every `<...>` placeholder with concrete text. `{task_id}`
+      on the `**Prior:**` line is already substituted by the runtime
+      before you see this instruction -- copy it through verbatim. Task
+      ids on the heading must match the assignments manifest exactly.
 
       ## Step 4: Append the shared e2e-aggregate task
 
-      Append one task file `tasks/NN-e2e-aggregate.md`:
+      Append one more task file at the next available `NN`, filename
+      `NN-e2e-aggregate.md`:
 
           ### Task e2e-aggregate: Extend e2e coverage for implemented specs
           **State:** e2e-write
           **Prior:** Task impl-<slug-1>, Task impl-<slug-2>, ...
 
           Drive the shared end-to-end coverage loop for every spec listed
-          in `{output.spec-assignments.path}`. Enforce the mock-agent
-          policy: every standard e2e test targets the mock agent
-          (`mock`); a small release-only set marked with
+          in `runtime/manifests/{task_id}-spec-assignments.md`. Enforce
+          the mock-agent policy: every standard e2e test targets the mock
+          agent (`mock`); a small release-only set marked with
           `release-only` may invoke real agents.
 
-      The task id MUST be exactly `e2e-aggregate`. Replace the example
+      The task id MUST be exactly `e2e-aggregate`. Replace the
       `**Prior:**` list with the concrete `impl-<slug>` task ids you
-      created above.
+      created in Step 3 -- one entry per per-spec task, comma-separated.
 
       ## Step 5: Transition
 
-      Transition to `completed` once the assignments manifest, per-task
-      spec files, per-spec implementation task files, and the
-      e2e-aggregate task file are all written.
+      Transition to `completed` once the assignments manifest, every
+      per-task spec file, every per-spec implementation task file, and
+      the e2e-aggregate task file are all written.
     outputs:
       - name: spec-assignments
         path: runtime/manifests/{task_id}-spec-assignments.md
