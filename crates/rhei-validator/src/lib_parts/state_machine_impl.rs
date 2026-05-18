@@ -1,0 +1,264 @@
+impl StateMachine {
+    /// Return the built-in default state machine shipped with rhei.
+    pub fn builtin_default() -> Self {
+        Self::from_yaml_str(DEFAULT_STATES_YAML).expect("built-in states YAML is always valid")
+    }
+
+    /// Load a StateMachine from YAML string contents.
+    pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
+        let sm: Self = serde_yaml::from_str(yaml)?;
+        sm.validate_model_configuration()?;
+        sm.validate_program_configuration()?;
+        sm.validate_snapshot_configuration()?;
+        sm.validate_tooling_configuration()?;
+        sm.validate_template_conditions()?;
+        sm.validate_poll_configuration()?;
+        sm.validate_profiles_and_node_policy()?;
+        sm.validate_terminal_state_present()?;
+        Ok(sm)
+    }
+
+    /// Reject state machines that declare zero terminal states. Without one,
+    /// `rhei complete`, terminal-state filters, and prerequisite resolution
+    /// cannot work correctly, and a forgotten or mistyped `final: true` is
+    /// otherwise silently accepted.
+    fn validate_terminal_state_present(&self) -> Result<(), StateMachineLoadError> {
+        if self.states.values().any(|state| state.terminal) {
+            return Ok(());
+        }
+        Err(StateMachineLoadError::Invalid(format!(
+            "state machine '{}' declares no terminal states. Mark at least one \
+             state with `final: true` (note: the field is `final`, not `terminal`).",
+            self.name
+        )))
+    }
+
+    /// Resolve the profile that applies to a non-root node with the given
+    /// kind and level.
+    ///
+    /// Resolution order matches the States Specification — Node Policy:
+    /// `overrides` (first matching `{type, level}`) → `by_type[<kind>]` →
+    /// `default`. Returns `None` when the machine does not declare
+    /// `profiles` / `node_policy`. §FS-rhei-states
+    pub fn profile_for_node(&self, kind: &str, level: u8) -> Option<&Profile> {
+        let (profiles, policy) = self.profiles.as_ref().zip(self.node_policy.as_ref())?;
+        let resolved_name = policy
+            .overrides
+            .iter()
+            .find(|ov| ov.match_.matches(kind, level))
+            .map(|ov| ov.profile.as_str())
+            .or_else(|| {
+                policy
+                    .by_type
+                    .iter()
+                    .find(|(candidate, _)| candidate.eq_ignore_ascii_case(kind))
+                    .map(|(_, profile)| profile.as_str())
+            })
+            .unwrap_or(policy.default.as_str());
+        profiles.get(resolved_name)
+    }
+
+    /// Resolve the profile bound to the plan-root node.
+    pub fn root_profile(&self) -> Option<&Profile> {
+        let (profiles, policy) = self.profiles.as_ref().zip(self.node_policy.as_ref())?;
+        profiles.get(policy.root.as_str())
+    }
+
+    /// Load a StateMachine from a file path.
+    pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, StateMachineLoadError> {
+        let text = std::fs::read_to_string(path)?;
+        Self::from_yaml_str(&text)
+    }
+
+    /// Returns true if `state` is among the allowed states.
+    pub fn is_valid_state<S: AsRef<str>>(&self, state: S) -> bool {
+        self.states.contains_key(state.as_ref())
+    }
+
+    /// Return the set of allowed state names.
+    pub fn allowed_states(&self) -> impl Iterator<Item = &str> {
+        self.states.keys().map(|s| s.as_str())
+    }
+
+    /// Return the declared transitions between states.
+    pub fn transitions(&self) -> &[TransitionRule] {
+        &self.transitions
+    }
+
+    fn validate_model_configuration(&self) -> Result<(), StateMachineLoadError> {
+        let mut seen = HashSet::new();
+        for model in &self.models {
+            let trimmed = model.trim();
+            if trimmed.is_empty() {
+                return Err(StateMachineLoadError::Invalid(
+                    "top-level 'models' entries must be non-empty strings".to_string(),
+                ));
+            }
+            if !seen.insert(trimmed) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "top-level 'models' contains duplicate entry '{trimmed}'"
+                )));
+            }
+        }
+
+        for (state_name, state) in &self.states {
+            if state.target.is_some() && !state.all_targets.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot set both 'target' and 'all_targets'"
+                )));
+            }
+            if (state.target.is_some() || !state.all_targets.is_empty())
+                && (state.model.is_some()
+                    || !state.all_models.is_empty()
+                    || state.agent.is_some()
+                    || state.agent_mode.is_some())
+            {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot combine 'target' or 'all_targets' with \
+                     'model', 'all_models', 'agent', or 'agent_mode'"
+                )));
+            }
+            if let Some(selector) = state.target.as_deref() {
+                parse_execution_target(selector).map_err(|message| {
+                    StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' has invalid 'target': {message}"
+                    ))
+                })?;
+            }
+            if !state.all_targets.is_empty() {
+                let mut seen_targets = HashSet::new();
+                let mut seen_target_slugs: HashMap<String, String> = HashMap::new();
+                for selector in &state.all_targets {
+                    let parsed = parse_execution_target(selector).map_err(|message| {
+                        StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' has invalid 'all_targets' entry: {message}"
+                        ))
+                    })?;
+                    let normalized = parsed.selector();
+                    if !seen_targets.insert(normalized.clone()) {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' contains duplicate 'all_targets' entry '{normalized}'"
+                        )));
+                    }
+                    let slug = parsed.slug();
+                    if let Some(previous) = seen_target_slugs.insert(slug.clone(), selector.clone())
+                    {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' has all_targets entries '{previous}' and '{selector}' that normalize to the same snapshot target slug '{slug}'"
+                        )));
+                    }
+                }
+            }
+            if !state.all_models.is_empty() && state.model.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot set both 'all_models' and 'model'"
+                )));
+            }
+
+            if state.visits == Some(0) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares 'visits: 0' but visits must be at least 1"
+                )));
+            }
+
+            validate_artifact_definitions(state_name, "inputs", &state.inputs)?;
+            validate_artifact_definitions(state_name, "outputs", &state.outputs)?;
+
+            // Agent validation.
+            if let Some(agent) = &state.agent {
+                if state.terminal {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' is final and cannot declare an 'agent' (terminal states have no work to execute)"
+                    )));
+                }
+                if agent.id().trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares an empty 'agent' value"
+                    )));
+                }
+            }
+            if let Some(mode) = &state.agent_mode {
+                if state.agent.is_none() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares 'agent_mode' without declaring an 'agent'"
+                    )));
+                }
+                if mode.trim().is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares an empty 'agent_mode' value"
+                    )));
+                }
+            }
+            if let Some(timeout) = &state.agent_timeout {
+                if parse_duration_secs(timeout).is_none() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' has invalid 'agent_timeout' value '{timeout}' \
+                         (expected format like '30s', '5m', '1h', '2h30m')"
+                    )));
+                }
+            }
+            if let Some(timeout) = &state.program_timeout {
+                if parse_duration_secs(timeout).is_none() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' has invalid 'program_timeout' value '{timeout}' \
+                         (expected format like '30s', '5m', '1h', '2h30m')"
+                    )));
+                }
+            }
+            if state.agent.is_some() && state.program.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' cannot declare both 'agent' and 'program' (they are mutually exclusive)"
+                )));
+            }
+
+            if !state.all_models.is_empty() && self.models.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' sets 'all_models' but the machine does not declare any top-level 'models'"
+                )));
+            }
+
+            let mut state_seen = HashSet::new();
+            for model in &state.all_models {
+                let trimmed = model.trim();
+                if trimmed.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' contains an empty 'all_models' entry"
+                    )));
+                }
+                if !state_seen.insert(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' contains duplicate 'all_models' entry '{trimmed}'"
+                    )));
+                }
+                if !seen.contains(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' references unknown model '{trimmed}' in 'all_models'"
+                    )));
+                }
+            }
+
+            if let Some(model) = state.model.as_deref() {
+                let trimmed = model.trim();
+                if trimmed.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' declares an empty 'model' value"
+                    )));
+                }
+                if self.models.is_empty() {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' sets 'model: {trimmed}' but the machine does not declare any top-level 'models'"
+                    )));
+                }
+                if !seen.contains(trimmed) {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' references unknown model '{trimmed}'"
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+
+}

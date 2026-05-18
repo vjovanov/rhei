@@ -3,7 +3,7 @@
 # between them. The CLI can print this machine with `rhei states`.
 
 name: rhei
-version: 2.0
+version: 3.0
 
 states:
   draft:
@@ -13,22 +13,22 @@ states:
       state of the project and determine the most elegant way to accomplish
       the task. Based on that analysis, write a description of what should be
       done. Transition to `pending` once the description is finalized.
-    initial: true
 
   pending:
     description: Task is ready for implementation. An **Assignee** on a pending task means work is actively in progress.
     instructions: |
-      Pick up when all **Prior:** tasks are `completed`. Implement the task and
-      its subtasks, logging progress per subtask. When implementation is
-      complete and self-tested, either run `rhei complete` to finish directly
-      or transition to `agent-review` when a separate review pass is required.
+      Pick up when all **Prior:** tasks are `completed`. Implement the task
+      and any child task nodes, logging progress per child task. When
+      implementation is complete and self-tested, either run `rhei complete`
+      to finish directly or transition to `agent-review` when a separate
+      review pass is required.
 
   agent-review:
     description: A separate reviewing agent inspects the result.
     instructions: |
-      Review the implementation against the task description, subtasks, and
-      repository conventions. On pass, transition to `human-review` (or
-      `completed` if no human gate is required). On fail, transition to
+      Review the implementation against the task description, any child task
+      nodes, and repository conventions. On pass, transition to `human-review`
+      (or `completed` if no human gate is required). On fail, transition to
       `agent-review-fix` with concrete findings.
 
   agent-review-fix:
@@ -103,3 +103,25 @@ transitions:
   - from: human-review
     to: cancelled
     description: Human decided to abandon the task
+
+# Named, reusable state policies. Referenced from `node_policy` below.
+profiles:
+  default-rhei:
+    # Built-in profile used by both the root and every task node in the
+    # default configuration. Covers the full draft/review/completion flow.
+    initial: draft
+    allowed:
+      - draft
+      - pending
+      - agent-review
+      - agent-review-fix
+      - human-review
+      - completed
+      - cancelled
+
+# Maps each node to a profile. The root is always a `rhei`-kind node and is
+# mapped through `root`. All other nodes resolve through `by_type` (if their
+# kind is listed) or `default`.
+node_policy:
+  root: default-rhei
+  default: default-rhei

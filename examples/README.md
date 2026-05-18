@@ -25,6 +25,13 @@ This directory contains example inputs for the current markdown plan compiler im
   - numeric task identifiers and subtasks
   - a linear dependency chain from planning through launch recommendation
 
+- `product-management-example/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/`
+  - a template-shipped `.rhei/settings.json`
+  - two configurable PM targets feeding a smart aggregation/validation state
+  - a two-pass aggregate and cheaper implementation loop
+
 - `escaped-state-values.rhei.md`
   Valid example using:
   - escaped spaces in `**State:**` values such as `in\ review`

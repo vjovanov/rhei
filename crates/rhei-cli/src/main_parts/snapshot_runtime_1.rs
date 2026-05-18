@@ -1,0 +1,308 @@
+
+/// Orchestration hook for snapshot emission, invoked after the orchestrator
+/// has selected the outgoing transition but before the transition is applied.
+///
+/// Per `docs/functional-spec/rhei-run.spec.md` § Execution Loop step 6 and
+/// `docs/functional-spec/rhei-snapshots.spec.md` § 10.2 Emit on Exit, this
+/// is where the orchestrator writes auto-emitted `_state` snapshots and any
+/// matching named `snapshot.emit:` for agent-bearing states with supported
+/// snapshot sessions. Poll self-loop attempts must not emit because they keep
+/// the state visit open; only terminal poll exits emit.
+///
+/// The actual snapshot writes are owned by the impl-rhei-snapshots task; this
+/// function is a deliberate no-op stub that pins the call site so the
+/// orchestration ordering in rhei-run is encoded in code, not just in the
+/// spec text. Once impl-rhei-snapshots delivers the snapshot module, the body
+/// of this function calls into that module.
+fn emit_snapshots_after_transition_selection(
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+    current_state: &str,
+    selected_to_state: &str,
+) {
+    let _ = (machine, task, current_state, selected_to_state);
+    // Suppression rule for poll self-loop attempts is honored by the snapshot
+    // module by inspecting (current_state, selected_to_state); the call site
+    // does not need to filter here. See rhei-run.spec.md § Polling States and
+    // rhei-snapshots.spec.md § 10.3 Counted Loops, Fanout, and Polling.
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_snapshots_after_agent_exit(
+    workspace_root: &Path,
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+    task: &rhei_core::ast::Task,
+    current_state: &str,
+    resolved: &ResolvedAgent,
+    log_path: &Path,
+    visit_count: u64,
+    completion: SnapshotCompletion,
+    preload: &SnapshotPreload,
+) -> MietteResult<()> {
+    let Some(state_def) = machine.states.get(current_state) else {
+        return Ok(());
+    };
+    if state_def.terminal || state_def.gating || state_def.program.is_some() {
+        return Ok(());
+    }
+    let Some(session) = snapshot_session(resolved) else {
+        if state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref()).is_some() {
+            return Err(miette!(
+                "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
+                current_state,
+                resolved.agent.id()
+            ));
+        }
+        return Ok(());
+    };
+    let Some(layout) = snapshot_session_layout(session) else {
+        if state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref()).is_some() {
+            return Err(miette!(
+                "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
+                current_state,
+                resolved.agent.id()
+            ));
+        }
+        eprintln!(
+            "info: auto snapshot skipped for state '{}' because agent '{}' has no supported snapshot session layout",
+            current_state,
+            resolved.agent.id()
+        );
+        return Ok(());
+    };
+    let Some(session_layout) = snapshot_layout_manifest(session) else {
+        return Err(miette!(
+            "unsupported-snapshot-session: agent '{}' has an incomplete snapshot session layout",
+            resolved.agent.id()
+        ));
+    };
+    let target_slug = snapshot_target_slug_or_err(resolved)?;
+    let target_selector = snapshot_target_selector(resolved);
+    let cache_root = snapshot_cache_dir(settings, workspace_root);
+    let (transcript_source, transcript_ext) =
+        transcript_source_for_snapshot(preload.session_dir.as_deref(), layout, log_path);
+
+    write_snapshot_generation_atomic(
+        &cache_root,
+        &task.id.to_string(),
+        "_state",
+        current_state,
+        visit_count,
+        &target_slug,
+        &target_selector,
+        resolved,
+        session_layout.clone(),
+        &transcript_source,
+        &transcript_ext,
+        preload.parent_ref.as_ref(),
+        completion,
+        SnapshotProducedBy::Orchestrator,
+    )?;
+
+    let Some(emit) = state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref()) else {
+        return Ok(());
+    };
+    let policy = emit.on.as_deref().unwrap_or("success");
+    let should_emit = match policy {
+        "success" => completion == SnapshotCompletion::Success,
+        "failure" => {
+            matches!(completion, SnapshotCompletion::Failure | SnapshotCompletion::Timeout)
+        }
+        "always" => true,
+        _ => false,
+    };
+    if !should_emit {
+        return Ok(());
+    }
+
+    write_snapshot_generation_atomic(
+        &cache_root,
+        &task.id.to_string(),
+        &emit.name,
+        current_state,
+        visit_count,
+        &target_slug,
+        &target_selector,
+        resolved,
+        session_layout,
+        &transcript_source,
+        &transcript_ext,
+        preload.parent_ref.as_ref(),
+        completion,
+        SnapshotProducedBy::Orchestrator,
+    )?;
+    Ok(())
+}
+
+fn snapshot_record_native_compatible(record: &SnapshotRecord, resolved: &ResolvedAgent) -> bool {
+    let manifest_agent = record
+        .manifest
+        .get("target")
+        .and_then(|target| target.get("resolved"))
+        .and_then(|resolved| resolved.get("agent"))
+        .and_then(serde_json::Value::as_str);
+    if manifest_agent != Some(resolved.agent.id()) {
+        return false;
+    }
+    let Some(session) = snapshot_session(resolved) else {
+        return false;
+    };
+    let Some(inheritor_layout) = snapshot_layout_manifest(session) else {
+        return false;
+    };
+    snapshot_layout_matches(
+        record.manifest.get("session_layout").unwrap_or(&serde_json::Value::Null),
+        &inheritor_layout,
+    )
+}
+
+fn snapshot_layout_matches(
+    snapshot_layout: &serde_json::Value,
+    inheritor_layout: &serde_json::Value,
+) -> bool {
+    let snapshot_kind = snapshot_layout_kind(snapshot_layout);
+    let inheritor_kind = snapshot_layout_kind(inheritor_layout);
+    if snapshot_kind != inheritor_kind {
+        return false;
+    }
+    match snapshot_kind.as_deref() {
+        Some("FlatById") => {
+            snapshot_layout_ext(snapshot_layout) == snapshot_layout_ext(inheritor_layout)
+        }
+        Some("PerProjectJson") => {
+            snapshot_layout_ext(snapshot_layout) == snapshot_layout_ext(inheritor_layout)
+                && snapshot_layout.get("root_template") == inheritor_layout.get("root_template")
+                && snapshot_layout.get("project_hash") == inheritor_layout.get("project_hash")
+        }
+        _ => false,
+    }
+}
+
+fn snapshot_cache_benefit_reason(
+    record: &SnapshotRecord,
+    resolved: &ResolvedAgent,
+) -> Option<String> {
+    let observed_provider =
+        record.manifest.get("observed_provider").and_then(serde_json::Value::as_str);
+    let observed_model = record.manifest.get("observed_model").and_then(serde_json::Value::as_str);
+    if observed_provider != resolved.model_provider.as_deref() {
+        return Some("provider mismatch".to_string());
+    }
+    if observed_model != resolved.model_name.as_deref().or(resolved.model.as_deref()) {
+        return Some("model mismatch".to_string());
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_inherit_snapshot_source(
+    cache_root: &Path,
+    task: &rhei_core::ast::Task,
+    current_state: &str,
+    inherit: &rhei_validator::SnapshotInheritConfig,
+    target_slug: &str,
+    visit_count: u64,
+) -> MietteResult<Option<SnapshotRecord>> {
+    let records = read_snapshot_records(cache_root)?
+        .into_iter()
+        .filter(|record| record.snapshot_name == inherit.name)
+        .filter(|record| record.produced_by == "orchestrator")
+        .collect::<Vec<_>>();
+    let selected_state = inherit.select.as_ref().and_then(|select| select.state.as_deref());
+    let selected_target = inherit.select.as_ref().and_then(|select| select.target.as_deref());
+    let selected_visit = inherit.select.as_ref().and_then(|select| select.visit.as_ref());
+    let selected_generation = inherit.select.as_ref().and_then(|select| select.generation.as_ref());
+
+    let mut scoped = match inherit.from_axis.as_deref().unwrap_or("self") {
+        "self" => records
+            .into_iter()
+            .filter(|record| record.task_id == task.id.to_string())
+            .filter(|record| {
+                !(record.emitting_state == current_state && record.visit >= visit_count)
+            })
+            .collect::<Vec<_>>(),
+        "ancestor" => {
+            let mut ancestor_matches = Vec::new();
+            for ancestor in ancestor_task_ids(&task.id.to_string()) {
+                let matches = records
+                    .iter()
+                    .filter(|record| record.task_id == ancestor)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !matches.is_empty() {
+                    ancestor_matches = matches;
+                    break;
+                }
+            }
+            ancestor_matches
+        }
+        _ => Vec::new(),
+    };
+    scoped.retain(|record| selected_state.is_none_or(|state| record.emitting_state == state));
+    scoped.retain(|record| match selected_target {
+        Some("same") => record.target_slug == target_slug,
+        Some(target) => record.target_slug == target,
+        None => true,
+    });
+    if selected_target.is_none() {
+        let targets = scoped.iter().map(|record| &record.target_slug).collect::<BTreeSet<_>>();
+        if targets.len() > 1 {
+            return Err(miette!(
+                "ambiguous-lineage: snapshot.inherit '{}' matched multiple targets; add snapshot.inherit.select.target",
+                inherit.name
+            ));
+        }
+    }
+    match selected_visit {
+        Some(value) if yaml_selector_u64(value).is_some() => {
+            let visit = yaml_selector_u64(value).unwrap_or(1);
+            scoped.retain(|record| record.visit == visit);
+        }
+        Some(value) if yaml_selector_string(value) == Some("latest") => {
+            if let Some(max_visit) = scoped.iter().map(|record| record.visit).max() {
+                scoped.retain(|record| record.visit == max_visit);
+            }
+        }
+        None => {
+            if let Some(max_visit) = scoped.iter().map(|record| record.visit).max() {
+                scoped.retain(|record| record.visit == max_visit);
+            }
+        }
+        _ => {}
+    }
+    match selected_generation {
+        Some(value) if yaml_selector_u64(value).is_some() => {
+            let generation = yaml_selector_u64(value).unwrap_or(1);
+            scoped.retain(|record| record.generation == generation);
+        }
+        Some(value) if yaml_selector_string(value) == Some("latest") => {
+            if let Some(max_generation) = scoped.iter().map(|record| record.generation).max() {
+                scoped.retain(|record| record.generation == max_generation);
+            }
+        }
+        Some(value) if yaml_selector_string(value) == Some("current") => {
+            scoped.retain(|record| record.is_current);
+        }
+        None => scoped.retain(|record| record.is_current),
+        _ => {}
+    }
+    match scoped.len() {
+        0 => Ok(None),
+        1 => Ok(scoped.into_iter().next()),
+        _ => Err(miette!(
+            "ambiguous-lineage: snapshot.inherit '{}' matched multiple cached generations",
+            inherit.name
+        )),
+    }
+}
+
+fn ancestor_task_ids(task_id: &str) -> Vec<String> {
+    let mut parts = task_id.split('.').collect::<Vec<_>>();
+    let mut ancestors = Vec::new();
+    while parts.len() > 1 {
+        parts.pop();
+        ancestors.push(parts.join("."));
+    }
+    ancestors
+}
