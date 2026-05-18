@@ -126,6 +126,10 @@ key rather than replacing the whole file.
   "skills": {
     "security-review": { "path": "~/.claude/skills/security-review" },
     "test-authoring":  { "path": ".rhei/skills/test-authoring" }
+  },
+  "snapshots": {
+    "cache_dir": ".rhei/cache/snapshots",
+    "redactor": null
   }
 }
 ```
@@ -160,6 +164,7 @@ agent's `command`, flags, and modes are declared.
 | `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
 | `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
 | `modes` | object | No | Named flag sets, keyed by mode name. Values are ordered string arrays appended to the command at spawn time. See [Modes](#modes). |
+| `session` | object | No | Optional `CustomAgentProfile.session` block describing snapshot resume, fork, interactive continuation, and transcript layout capabilities. The authoritative schema is [Snapshots Specification — CustomAgentProfile.session](rhei-snapshots.spec.md#customagentprofilesession). |
 
 Built-in agent ids (see [Known Agent Profiles](#known-agent-profiles)) are
 preloaded as the default agents registry. A user entry with the same id in
@@ -217,6 +222,13 @@ Skills are agent-specific capabilities. A resolved skill is wired to the agent
 only when the resolved agent profile declares a `skill_flag`; otherwise the
 skill is skipped with a warning (see [Missing Tooling](#missing-tooling)). This
 keeps state machines portable across agents that do not implement skills.
+
+#### `snapshots`
+
+`snapshots` is an optional top-level settings block for session snapshot
+storage, redaction, cache TTLs, and experimental adapter gates. This spec only
+declares where the block lives in settings; field definitions and defaults are
+authoritative in [Snapshots Specification — Configuration](rhei-snapshots.spec.md#configuration).
 
 ### Per-State Settings
 
@@ -300,7 +312,10 @@ provider, and model name come from the selector itself. Validation must still
 verify that the referenced agent exists and that any referenced mode exists on
 that agent. For the legacy `all_models` form, agent resolution still runs
 independently for each model-specific execution of the state through the normal
-order above.
+order above. When snapshots are enabled, each legacy `model` or `all_models`
+execution must resolve an effective target tuple `(agent, mode?, provider,
+model)` before snapshot emit or inherit can run; otherwise explicit snapshot
+fields are rejected and auto-emit is skipped.
 
 #### Mode Resolution Order
 
@@ -378,6 +393,13 @@ historically the agent's default.
 | `pi` | `pi` | `-p <prompt>` | `--model <m>` | unsupported | `--skill <path>` | (no modes — pi has no permission layer; isolate at the sandbox/container level) |
 
 The agent IDs match those used by `rhei install-skills --agent`.
+
+Snapshot session support is tracked separately from prompt/model invocation.
+In v1, built-in `cursor` and `kilocode` profiles do not expose a supported
+`CustomAgentProfile.session`; auto-emit is skipped and explicit snapshot
+operations fail with `unsupported-snapshot-session`. Gemini snapshot support is
+provisional and remains unsupported until the snapshot adapter spike resolves
+its resume and path layout.
 
 Agents marked `unsupported` for MCP or skills receive a warning at spawn time
 when the resolved state's effective set includes entries they cannot consume.
@@ -829,6 +851,11 @@ When an agent process exceeds its timeout:
 4. Look for a timeout transition from the current state in the state machine.
 5. If a timeout transition exists, fire it (with its `on_leave`/`on_enter` callbacks).
 6. If no timeout transition exists, the task remains in its current state and the engine logs a warning.
+
+When snapshot capture is enabled, a timeout may still produce an auto-emitted
+transcript for operator inspection, but that snapshot is classified
+`completion: timeout` and is not preloadable by authored `snapshot.inherit:`.
+See [Snapshots Specification — Compatibility Predicates](rhei-snapshots.spec.md#compatibility-predicates).
 
 ### Timeout Transitions
 
