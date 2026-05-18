@@ -1,21 +1,34 @@
+    #[cfg(unix)]
+    fn write_counting_success_agent(dir: &Path, count_file: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("counting-agent.sh");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncount_file='{}'\ncount=$(cat \"$count_file\" 2>/dev/null || echo 0)\ncount=$((count + 1))\necho \"$count\" > \"$count_file\"\nexit 0\n",
+                count_file.display()
+            ),
+        )
+        .expect("write counting agent");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+        script
+    }
+
+    #[cfg(unix)]
+    fn missing_outputs_reschedule_workspace(all_targets: bool) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
         let states = dir.path().join("states.yaml");
         let rhei_dir = dir.path().join(".rhei");
         fs::create_dir_all(&rhei_dir).expect("mkdir");
-        let spawned = dir.path().join("spawned");
-        let script = dir.path().join("fake-agent.sh");
-        fs::write(&script, format!("#!/bin/sh\ntouch '{}'\n", spawned.display())).expect("script");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&script).expect("metadata").permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&script, perms).expect("chmod");
-        }
+        let count_file = dir.path().join("spawn-count");
+        let script = write_counting_success_agent(dir.path(), &count_file);
         fs::write(
             &plan,
-            r#"# Rhei: Missing Skill
+            r#"# Rhei: Missing Outputs
 
 ## Tasks
 
@@ -24,24 +37,17 @@
 "#,
         )
         .expect("plan");
+        let state_invocation = if all_targets {
+            "    all_targets:\n      - fake:openai:model-a\n      - fake:openai:model-b\n"
+        } else {
+            "    agent: fake\n"
+        };
         fs::write(
             &states,
-            r#"name: missing-skill
-version: 1
-states:
-  pending:
-    description: pending
-    agent: fake
-    agent_timeout: 1s
-    skills:
-      - missing
-  done:
-    description: done
-    final: true
-transitions:
-  - from: pending
-    to: done
-"#,
+            format!(
+                "name: missing-outputs\nversion: 1\nstates:\n  pending:\n    description: pending\n{}    agent_timeout: 5s\n    outputs:\n      - name: required-report\n        path: runtime/required-report.md\n  done:\n    description: done\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+                state_invocation
+            ),
         )
         .expect("states");
         fs::write(
@@ -53,23 +59,62 @@ transitions:
                       "command": [{}],
                       "prompt_flag": "--prompt"
                     }}
-                  }},
-                  "skills": {{
-                    "missing": {{ "path": "{}" }}
                   }}
                 }}"#,
-                serde_json::to_string(script.to_string_lossy().as_ref()).expect("json"),
-                dir.path().join("does-not-exist").display()
+                serde_json::to_string(script.to_string_lossy().as_ref()).expect("json")
             ),
         )
         .expect("settings");
 
         let mut opts = default_run_options();
-        opts.standalone.continue_on_error = true;
         opts.standalone.no_tui = true;
-        run_command(&plan, Some(&states), opts).expect("run skips unavailable tooling");
+        let err = run_command(&plan, Some(&states), opts)
+            .expect_err("missing outputs leave non-terminal work");
+        assert!(
+            err.to_string().contains("non-terminal tasks remaining"),
+            "unexpected error: {err}"
+        );
 
-        assert!(!spawned.exists(), "required missing skill must block agent spawn");
+        (dir, count_file)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_outputs_reschedule_single_invocation_spawns_once_and_keeps_state() {
+        let (dir, count_file) = missing_outputs_reschedule_workspace(false);
+        let count = fs::read_to_string(count_file).expect("spawn count");
+        assert_eq!(count.trim(), "1");
+        let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
+        assert!(plan.contains("**State:** pending"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_outputs_reschedule_fanout_spawns_once_and_keeps_state() {
+        let (dir, count_file) = missing_outputs_reschedule_workspace(true);
+        let count = fs::read_to_string(count_file).expect("spawn count");
+        assert_eq!(count.trim(), "1");
+        let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
+        assert!(plan.contains("**State:** pending"));
+    }
+
+    #[test]
+    fn missing_outputs_reschedule_warning_names_missing_artifacts() {
+        let recorder = Arc::new(RecordingSink::default());
+        let sink: Arc<dyn rhei_tui::EventSink> = recorder.clone();
+        emit_exit_zero_missing_required_outputs_warning(
+            "1",
+            "pending",
+            &["required-report".to_string()],
+            &sink,
+        );
+        let events = recorder.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::Message { text, .. }
+                if text.contains("agent exited 0 but required outputs are missing")
+                    && text.contains("required-report")
+        )));
     }
 
     #[cfg(unix)]
@@ -177,6 +222,19 @@ transitions:
             1,
             "orchestrator",
         );
+        refresh_current_links(
+            &ctx.cache_root,
+            [SnapshotIdentity {
+                task_id: "1".to_string(),
+                snapshot_name: "pending".to_string(),
+                emitting_state: "review".to_string(),
+                visit: 1,
+                target_slug: "claude-code-anthropic-model".to_string(),
+            }]
+            .into_iter()
+            .collect(),
+        )
+        .expect("current");
 
         let resolved = resolve_snapshot_ref(&ctx, "1:pending", None, None).expect("resolve ref");
         assert_eq!(resolved.snapshot_name, "pending");
@@ -208,12 +266,71 @@ transitions:
             1,
             "orchestrator",
         );
+        refresh_current_links(
+            &ctx.cache_root,
+            [
+                SnapshotIdentity {
+                    task_id: "1".to_string(),
+                    snapshot_name: "impl".to_string(),
+                    emitting_state: "pending".to_string(),
+                    visit: 1,
+                    target_slug: "claude-code-anthropic-model".to_string(),
+                },
+                SnapshotIdentity {
+                    task_id: "1".to_string(),
+                    snapshot_name: "impl".to_string(),
+                    emitting_state: "review".to_string(),
+                    visit: 1,
+                    target_slug: "claude-code-anthropic-model".to_string(),
+                },
+            ]
+            .into_iter()
+            .collect(),
+        )
+        .expect("current");
 
         let err = resolve_snapshot_ref(&ctx, "1:impl", None, None).expect_err("ambiguous ref");
         let msg = err.to_string();
         assert!(msg.contains("ambiguous"));
         assert!(msg.contains("1:impl:pending@1:claude-code-anthropic-model/g1"));
         assert!(msg.contains("1:impl:review@1:claude-code-anthropic-model/g1"));
+    }
+
+    #[test]
+    fn snapshot_ref_parser_requires_current_when_generation_omitted() {
+        let _home = TempHome::new();
+        let dir = snapshot_workspace();
+        let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
+        write_snapshot_generation(
+            &ctx.cache_root,
+            "1",
+            "impl",
+            "pending",
+            1,
+            "claude-code-anthropic-model",
+            1,
+            "orchestrator",
+        );
+        write_snapshot_generation(
+            &ctx.cache_root,
+            "1",
+            "impl",
+            "pending",
+            1,
+            "claude-code-anthropic-model",
+            2,
+            "orchestrator",
+        );
+
+        let err = resolve_snapshot_ref(&ctx, "1:impl:pending", None, None)
+            .expect_err("missing current must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("none is marked current"));
+        assert!(msg.contains("retry with /g<N>"));
+
+        let resolved =
+            resolve_snapshot_ref(&ctx, "1:impl:pending/g1", None, None).expect("explicit gen");
+        assert_eq!(resolved.generation, 1);
     }
 
     #[test]
@@ -286,7 +403,7 @@ transitions:
             1,
             "orchestrator",
         );
-        let record = resolve_snapshot_ref(&ctx, "1.1:impl", None, None).expect("resolve ref");
+        let record = resolve_snapshot_ref(&ctx, "1.1:impl/g1", None, None).expect("resolve ref");
 
         assert!(!is_snapshot_orphaned(&record, &ctx), "child task snapshot must not be orphaned");
     }
@@ -449,3 +566,46 @@ transitions:
         )
         .expect("write states");
         let loaded = load_plan(dir.path()).expect("load plan");
+        let machine = rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+            .expect("state machine");
+        let settings = RheiSettings { agents: built_in_agents(), ..Default::default() };
+        let resolved =
+            resolve_agent_invocations(&machine, "pending", &settings, &default_run_options())
+                .expect("resolve")
+                .remove(0);
+        let task = loaded.rhei.tasks.first().expect("task");
+        let log_path = dir.path().join("runtime/logs/task-1-pending.log");
+        fs::create_dir_all(log_path.parent().expect("log parent")).expect("log dir");
+        fs::write(&log_path, "transcript\n").expect("log");
+        let snapshot_preload =
+            snapshot_preload_with_native_session(dir.path(), "native-session", b"transcript\n");
+
+        emit_snapshots_after_agent_exit(
+            dir.path(),
+            &machine,
+            &settings,
+            task,
+            "pending",
+            Some("done"),
+            &resolved,
+            &log_path,
+            1,
+            SnapshotCompletion::Failure,
+            &snapshot_preload,
+        )
+        .expect("emit snapshots");
+
+        let records =
+            read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
+        assert!(records.iter().any(|record| record.snapshot_name == "_state"));
+        assert!(records.iter().any(|record| record.snapshot_name == "impl"));
+        assert!(records.iter().all(|record| record.generation == 1 && record.is_current));
+        assert!(records.iter().all(|record| {
+            record.manifest.get("session_id").and_then(serde_json::Value::as_str)
+                == Some("native-session")
+        }));
+        assert!(records.iter().all(|record| {
+            record.manifest.get("transcript_path").and_then(serde_json::Value::as_str)
+                == Some("transcript.jsonl")
+        }));
+    }

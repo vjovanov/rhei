@@ -11,6 +11,9 @@ struct TransitionOrigin {
     /// Initial `transitionData` payload. On_leave callbacks merge into this
     /// last-write-wins per spec §Timeout Callbacks.
     seed_data: Option<serde_json::Value>,
+    /// System failure routes leave the source state because work failed, not
+    /// because the source state's success artifacts were produced.
+    skip_source_outputs: bool,
 }
 
 /// Variant of [`execute_transition`] that fires the rule with a system-set
@@ -41,6 +44,7 @@ fn execute_system_timeout_transition(
         TransitionOrigin {
             triggered_by: Some("system"),
             seed_data: Some(serde_json::Value::Object(data)),
+            skip_source_outputs: true,
         },
     )
 }
@@ -76,6 +80,36 @@ fn execute_system_tooling_transition(
         TransitionOrigin {
             triggered_by: Some("system"),
             seed_data: Some(serde_json::Value::Object(data)),
+            skip_source_outputs: true,
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_system_program_exit_transition(
+    files: TransitionFiles<'_>,
+    callback_paths: &CallbackPaths,
+    machine: &rhei_validator::StateMachine,
+    task_id_str: &str,
+    from: &str,
+    to: &str,
+    exit_code: i32,
+    no_callbacks: bool,
+) -> MietteResult<()> {
+    let mut data = serde_json::Map::new();
+    data.insert("exitCode".to_string(), serde_json::Value::from(exit_code));
+    execute_transition_with_origin(
+        files,
+        callback_paths,
+        machine,
+        task_id_str,
+        from,
+        to,
+        no_callbacks,
+        TransitionOrigin {
+            triggered_by: Some("system"),
+            seed_data: Some(serde_json::Value::Object(data)),
+            skip_source_outputs: exit_code != 0,
         },
     )
 }

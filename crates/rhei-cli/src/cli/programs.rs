@@ -2,6 +2,18 @@ fn program_log_path(runtime_dir: &Path, task_id: &str, state_name: &str) -> Path
     runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}.log"))
 }
 
+#[derive(Debug, Clone)]
+struct ProgramSpawnOutcome {
+    status: std::process::ExitStatus,
+    timed_out: bool,
+    timeout_secs: Option<u64>,
+}
+
+#[cfg(not(test))]
+const PROGRAM_TERMINATE_GRACE: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const PROGRAM_TERMINATE_GRACE: Duration = Duration::from_millis(50);
+
 fn build_program_command(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
@@ -105,7 +117,7 @@ fn spawn_and_wait_program(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
     log_path: &Path,
-) -> MietteResult<std::process::ExitStatus> {
+) -> MietteResult<ProgramSpawnOutcome> {
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| miette!("failed to create log directory '{}': {e}", parent.display()))?;
@@ -145,6 +157,7 @@ fn spawn_and_wait_program(
     cmd.stdout(log_stdout).stderr(log_stderr);
     let mut child = cmd.spawn().map_err(|e| miette!("failed to spawn program: {e}"))?;
     let start = Instant::now();
+    let mut timed_out = false;
 
     let status = if let Some(timeout_secs) = resolved.timeout_secs {
         let timeout = Duration::from_secs(timeout_secs);
@@ -153,9 +166,10 @@ fn spawn_and_wait_program(
                 Ok(Some(status)) => break Ok(status),
                 Ok(None) => {
                     if start.elapsed() > timeout {
+                        timed_out = true;
                         let pid = Pid::from_raw(child.id() as i32);
                         let _ = signal::kill(pid, Signal::SIGTERM);
-                        std::thread::sleep(Duration::from_secs(10));
+                        std::thread::sleep(PROGRAM_TERMINATE_GRACE);
                         match child.try_wait() {
                             Ok(Some(status)) => break Ok(status),
                             _ => {
@@ -181,13 +195,27 @@ fn spawn_and_wait_program(
             .append(true)
             .open(log_path)
             .map_err(|e| miette!("failed to append to log file: {e}"))?;
-        let _ = writeln!(f, "\n=== exit ===");
+        if timed_out {
+            if let Some(timeout_secs) = resolved.timeout_secs {
+                let _ = writeln!(
+                    f,
+                    "\nprogram timed out after {}",
+                    format_duration_human(timeout_secs)
+                );
+            }
+            let _ = writeln!(f, "\n=== exit ===");
+        } else {
+            let _ = writeln!(f, "\n=== exit ===");
+        }
         let _ = writeln!(f, "code: {}", status.code().unwrap_or(-1));
         let _ = writeln!(f, "duration: {}s", start.elapsed().as_secs());
+        if timed_out {
+            let _ = writeln!(f, "timed_out: true");
+        }
         let _ = writeln!(f, "===");
     }
 
-    Ok(status)
+    Ok(ProgramSpawnOutcome { status, timed_out, timeout_secs: resolved.timeout_secs })
 }
 
 fn transition_matches_exit_code(rule: &rhei_core::ast::TransitionRule, exit_code: i32) -> bool {
@@ -253,4 +281,3 @@ fn find_program_exit_transition(
 
     Ok(nonzero_match.map(|rule| rule.to.0.clone()))
 }
-

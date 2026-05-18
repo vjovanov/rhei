@@ -318,6 +318,9 @@ fn gate_tooling_for_agent(
                     "warning: optional mcp '{}' unavailable ({}); dropping",
                     entry.id, reason
                 ));
+                let mut unavailable = entry.clone();
+                unavailable.definition = None;
+                result.tooling.mcp_servers.push(unavailable);
             } else {
                 result.required.push(ToolingUnavailable {
                     kind: ToolingKind::Mcp,
@@ -345,6 +348,9 @@ fn gate_tooling_for_agent(
                     "warning: optional skill '{}' unavailable ({}); dropping",
                     entry.id, reason
                 ));
+                let mut unavailable = entry.clone();
+                unavailable.definition = None;
+                result.tooling.skills.push(unavailable);
             } else {
                 result.required.push(ToolingUnavailable {
                     kind: ToolingKind::Skill,

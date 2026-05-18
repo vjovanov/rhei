@@ -497,3 +497,6 @@ transitions:
         );
 
         assert!(path_matches(Path::new("./docs/markdown-plan-compiler.md"), &watched));
+        assert!(path_matches(Path::new("docs/states.yaml"), &watched));
+        assert!(!path_matches(Path::new("docs/plan-language-spec.md"), &watched));
+    }

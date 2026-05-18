@@ -34,8 +34,9 @@ fn emit_snapshots_after_agent_exit(
     settings: &RheiSettings,
     task: &rhei_core::ast::Task,
     current_state: &str,
+    selected_to_state: Option<&str>,
     resolved: &ResolvedAgent,
-    log_path: &Path,
+    _log_path: &Path,
     visit_count: u64,
     completion: SnapshotCompletion,
     preload: &SnapshotPreload,
@@ -46,8 +47,38 @@ fn emit_snapshots_after_agent_exit(
     if state_def.terminal || state_def.gating || state_def.program.is_some() {
         return Ok(());
     }
+    let emit = state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref());
+    let should_emit_named = emit.is_some_and(|emit| {
+        let policy = emit.on.as_deref().unwrap_or("success");
+        match policy {
+            "success" => completion == SnapshotCompletion::Success,
+            "failure" => {
+                matches!(completion, SnapshotCompletion::Failure | SnapshotCompletion::Timeout)
+            }
+            "always" => true,
+            _ => false,
+        }
+    });
+    if selected_to_state == Some(current_state) && state_def.poll.is_some() {
+        return Ok(());
+    }
+    let Some(target_slug) = resolved_agent_target_slug(resolved) else {
+        if emit.is_some() {
+            return Err(miette!(
+                "snapshot-requires-target: agent '{}' does not resolve provider and model",
+                resolved.agent.id()
+            ));
+        }
+        eprintln!(
+            "info: auto snapshot skipped for state '{}' because agent '{}' does not resolve provider and model",
+            current_state,
+            resolved.agent.id()
+        );
+        return Ok(());
+    };
+    let target_selector = snapshot_target_selector(resolved);
     let Some(session) = snapshot_session(resolved) else {
-        if state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref()).is_some() {
+        if emit.is_some() {
             return Err(miette!(
                 "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
                 current_state,
@@ -57,7 +88,7 @@ fn emit_snapshots_after_agent_exit(
         return Ok(());
     };
     let Some(layout) = snapshot_session_layout(session) else {
-        if state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref()).is_some() {
+        if emit.is_some() {
             return Err(miette!(
                 "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
                 current_state,
@@ -77,14 +108,29 @@ fn emit_snapshots_after_agent_exit(
             resolved.agent.id()
         ));
     };
-    let target_slug = snapshot_target_slug_or_err(resolved)?;
-    let target_selector = snapshot_target_selector(resolved);
+    let Some((transcript_source, transcript_ext, session_id)) =
+        transcript_source_for_snapshot(preload.session_dir.as_deref(), layout)
+    else {
+        if should_emit_named {
+            return Err(miette!(
+                "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' did not produce a supported native session transcript",
+                current_state,
+                resolved.agent.id()
+            ));
+        }
+        eprintln!(
+            "info: auto snapshot skipped for state '{}' because agent '{}' did not produce a supported native session transcript",
+            current_state,
+            resolved.agent.id()
+        );
+        return Ok(());
+    };
     let cache_root = snapshot_cache_dir(settings, workspace_root);
-    let (transcript_source, transcript_ext) =
-        transcript_source_for_snapshot(preload.session_dir.as_deref(), layout, log_path);
 
     write_snapshot_generation_atomic(
         &cache_root,
+        workspace_root,
+        settings,
         &task.id.to_string(),
         "_state",
         current_state,
@@ -93,6 +139,7 @@ fn emit_snapshots_after_agent_exit(
         &target_selector,
         resolved,
         session_layout.clone(),
+        &session_id,
         &transcript_source,
         &transcript_ext,
         preload.parent_ref.as_ref(),
@@ -100,24 +147,17 @@ fn emit_snapshots_after_agent_exit(
         SnapshotProducedBy::Orchestrator,
     )?;
 
-    let Some(emit) = state_def.snapshot.as_ref().and_then(|snapshot| snapshot.emit.as_ref()) else {
+    let Some(emit) = emit else {
         return Ok(());
     };
-    let policy = emit.on.as_deref().unwrap_or("success");
-    let should_emit = match policy {
-        "success" => completion == SnapshotCompletion::Success,
-        "failure" => {
-            matches!(completion, SnapshotCompletion::Failure | SnapshotCompletion::Timeout)
-        }
-        "always" => true,
-        _ => false,
-    };
-    if !should_emit {
+    if !should_emit_named {
         return Ok(());
     }
 
     write_snapshot_generation_atomic(
         &cache_root,
+        workspace_root,
+        settings,
         &task.id.to_string(),
         &emit.name,
         current_state,
@@ -126,6 +166,7 @@ fn emit_snapshots_after_agent_exit(
         &target_selector,
         resolved,
         session_layout,
+        &session_id,
         &transcript_source,
         &transcript_ext,
         preload.parent_ref.as_ref(),
@@ -228,6 +269,9 @@ fn resolve_inherit_snapshot_source(
                 let matches = records
                     .iter()
                     .filter(|record| record.task_id == ancestor)
+                    .filter(|record| {
+                        selected_state.is_none_or(|state| record.emitting_state == state)
+                    })
                     .cloned()
                     .collect::<Vec<_>>();
                 if !matches.is_empty() {

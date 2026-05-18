@@ -13,22 +13,22 @@
 //! terminal parent/subtask coherence.
 
 // The validator is split into include parts to keep source files bounded by §AR-source-file-size.
-include!("lib_parts/preamble.rs");
-include!("lib_parts/state_defs.rs");
-include!("lib_parts/state_machine_impl.rs");
-include!("lib_parts/state_machine_snapshots.rs");
-include!("lib_parts/state_machine_runtime_validation.rs");
-include!("lib_parts/state_machine_profiles.rs");
-include!("lib_parts/validation_helpers_1.rs");
-include!("lib_parts/validator_entry.rs");
-include!("lib_parts/validator_links.rs");
+include!("validator/preamble.rs");
+include!("validator/state_defs.rs");
+include!("validator/state_machine_impl.rs");
+include!("validator/state_machine_snapshots.rs");
+include!("validator/state_machine_runtime_validation.rs");
+include!("validator/state_machine_profiles.rs");
+include!("validator/validation_helpers.rs");
+include!("validator/validator_entry.rs");
+include!("validator/validator_links.rs");
 
 #[cfg(test)]
 mod tests {
-    include!("lib_parts/tests_1.rs");
-    include!("lib_parts/tests_2.rs");
-    include!("lib_parts/tests_3.rs");
-    include!("lib_parts/tests_profiles.rs");
-    include!("lib_parts/tests_poll.rs");
-    include!("lib_parts/tests_snapshots.rs");
+    include!("validator/tests_state_machine.rs");
+    include!("validator/tests_plan_validation.rs");
+    include!("validator/tests_links_tooling.rs");
+    include!("validator/tests_profiles.rs");
+    include!("validator/tests_poll.rs");
+    include!("validator/tests_snapshots.rs");
 }

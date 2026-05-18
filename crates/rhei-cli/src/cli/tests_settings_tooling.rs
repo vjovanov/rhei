@@ -1,7 +1,3 @@
-        assert_eq!(args[mcp_idxs[0] + 1], "linear");
-        assert_eq!(args[mcp_idxs[1] + 1], "postgres");
-    }
-
     #[test]
     fn appends_mcp_config_flag_with_temp_file() {
         let profile = built_in_agents().remove("claude-code").expect("claude-code");
@@ -367,6 +363,53 @@
     }
 
     #[test]
+    fn defaults_only_agent_mode_selects_agent_mode_for_effective_agents() {
+        let bare_machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+        let model_machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    model: impl-fast\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+
+        let mut cli_opts = default_run_options();
+        cli_opts.agent.agent = Some("codex".to_string());
+        assert!(should_use_agent_mode(&bare_machine, &default_settings(), &cli_opts)
+            .expect("cli agent mode selection"));
+
+        let mut defaults_agent = default_settings();
+        defaults_agent.defaults.agent = Some(AgentConfig::from("codex"));
+        assert!(should_use_agent_mode(&bare_machine, &defaults_agent, &default_run_options())
+            .expect("defaults.agent mode selection"));
+
+        let mut defaults_model = default_settings();
+        defaults_model.defaults.model = Some("impl-fast".to_string());
+        defaults_model.models.insert(
+            "impl-fast".to_string(),
+            ModelProfile {
+                provider: Some("anthropic".to_string()),
+                model: Some("claude-sonnet".to_string()),
+                default_agent: Some("codex".to_string()),
+                agents: BTreeMap::new(),
+            },
+        );
+        assert!(should_use_agent_mode(&bare_machine, &defaults_model, &default_run_options())
+            .expect("defaults.model mode selection"));
+
+        let mut model_default_agent = default_settings();
+        model_default_agent.models.insert(
+            "impl-fast".to_string(),
+            ModelProfile {
+                provider: Some("anthropic".to_string()),
+                model: Some("claude-sonnet".to_string()),
+                default_agent: Some("codex".to_string()),
+                agents: BTreeMap::new(),
+            },
+        );
+        assert!(should_use_agent_mode(&model_machine, &model_default_agent, &default_run_options())
+            .expect("models.<id>.default_agent mode selection"));
+    }
+
+    #[test]
     fn tooling_gate_classifies_required_optional_and_transition_triggers() {
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("noop"),
@@ -396,7 +439,9 @@
         };
 
         let gate = gate_tooling_for_agent(&resolved, &tooling);
-        assert!(gate.tooling.mcp_servers.is_empty());
+        assert_eq!(gate.tooling.mcp_servers.len(), 1);
+        assert_eq!(gate.tooling.mcp_servers[0].id, "optional-mcp");
+        assert!(gate.tooling.mcp_servers[0].definition.is_none());
         assert!(gate.tooling.skills.is_empty());
         assert_eq!(gate.warnings.len(), 1);
         assert_eq!(gate.required.len(), 1);
@@ -417,5 +462,211 @@
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn optional_tooling_availability_preserves_prompt_env_and_log_visibility() {
+        let machine = machine_with_states(
+            r#"name: optional-tooling
+version: 1
+states:
+  pending:
+    description: x
+    instructions: "mcp={mcp.optional-mcp.available} skill={skill.optional-skill.available}"
+  done:
+    description: terminal
+    final: true
+"#,
+        );
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Optional Tooling
+
+## Tasks
+
+### Task 1: Work
+**State:** pending
+"#,
+        )
+        .expect("parse plan");
+        let task = rhei.tasks.first().expect("task");
+        let tooling = ResolvedTooling {
+            mcp_servers: vec![ResolvedMcpEntry {
+                id: "optional-mcp".to_string(),
+                optional: true,
+                definition: None,
+            }],
+            skills: vec![ResolvedSkillEntry {
+                id: "optional-skill".to_string(),
+                optional: true,
+                definition: None,
+            }],
+        };
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("codex"),
+            profile: built_in_agents().remove("codex").expect("codex"),
+            mode: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            timeout_secs: Some(60),
+            autonomous_args: Vec::new(),
+        };
+        let gate = gate_tooling_for_agent(&resolved, &tooling);
+        assert_eq!(gate.tooling.mcp_servers.len(), 1);
+        assert_eq!(gate.tooling.skills.len(), 1);
+
+        let render_context = RuntimeTemplateContext {
+            workspace_root: Path::new("/tmp/workspace"),
+            plan_path: Path::new("/tmp/workspace/plan.rhei.md"),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "pending",
+            current_state_raw: task.state.as_str(),
+            machine: &machine,
+            metadata: rhei.metadata.as_ref(),
+            target: None,
+            model: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: Some(&gate.tooling),
+        };
+        let prompt = compose_agent_prompt(&render_context);
+        assert!(prompt.contains("mcp=false skill=false"), "{prompt}");
+
+        let runtime_dir = tempfile::tempdir().expect("tmpdir");
+        let command = build_agent_command(
+            &resolved,
+            "prompt",
+            runtime_dir.path(),
+            runtime_dir.path(),
+            None,
+            "1",
+            "pending",
+            &gate.tooling,
+            runtime_dir.path(),
+        );
+        let args: Vec<String> =
+            command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        assert!(!args.windows(2).any(|pair| pair == ["--mcp", "optional-mcp"]));
+        let envs: BTreeMap<String, String> = command
+            .get_envs()
+            .filter_map(|(k, v)| {
+                let key = k.to_string_lossy().into_owned();
+                v.map(|val| (key, val.to_string_lossy().into_owned()))
+            })
+            .collect();
+        assert_eq!(
+            envs.get("RHEI_MCP_OPTIONAL_MCP_AVAILABLE").map(String::as_str),
+            Some("false")
+        );
+        assert_eq!(
+            envs.get("RHEI_SKILL_OPTIONAL_SKILL_AVAILABLE").map(String::as_str),
+            Some("false")
+        );
+
+        let script = write_quiet_fake_agent(runtime_dir.path());
+        let log_path = runtime_dir.path().join("agent.log");
+        let log_resolved = ResolvedAgent {
+            profile: CustomAgentProfile {
+                command: vec![script.display().to_string()],
+                ..Default::default()
+            },
+            ..resolved
+        };
+        spawn_and_wait_agent(
+            &log_resolved,
+            "prompt",
+            runtime_dir.path(),
+            runtime_dir.path(),
+            None,
+            "1",
+            "pending",
+            &gate.tooling,
+            &log_path,
+            runtime_dir.path(),
+            None,
+            0,
+            Arc::new(RecordingSink::default()),
+        )
+        .expect("agent runs");
+        let log = fs::read_to_string(log_path).expect("read log");
+        assert!(log.contains("\nmcp_servers: optional-mcp?\n"), "{log}");
+        assert!(log.contains("\nskills: optional-skill?\n"), "{log}");
+    }
+
     #[test]
     fn tooling_required_missing_skill_blocks_fake_agent_spawn() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let plan = dir.path().join("plan.rhei.md");
+        let states = dir.path().join("states.yaml");
+        let rhei_dir = dir.path().join(".rhei");
+        fs::create_dir_all(&rhei_dir).expect("mkdir");
+        let spawned = dir.path().join("spawned");
+        let script = dir.path().join("fake-agent.sh");
+        fs::write(&script, format!("#!/bin/sh\ntouch '{}'\n", spawned.display())).expect("script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&script).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&script, perms).expect("chmod");
+        }
+        fs::write(
+            &plan,
+            r#"# Rhei: Missing Skill
+
+## Tasks
+
+### Task 1: Work
+**State:** pending
+"#,
+        )
+        .expect("plan");
+        fs::write(
+            &states,
+            r#"name: missing-skill
+version: 1
+states:
+  pending:
+    description: pending
+    agent: fake
+    agent_timeout: 1s
+    skills:
+      - missing
+  done:
+    description: done
+    final: true
+transitions:
+  - from: pending
+    to: done
+"#,
+        )
+        .expect("states");
+        fs::write(
+            rhei_dir.join("settings.json"),
+            format!(
+                r#"{{
+                  "agents": {{
+                    "fake": {{
+                      "command": [{}],
+                      "prompt_flag": "--prompt"
+                    }}
+                  }},
+                  "skills": {{
+                    "missing": {{ "path": "{}" }}
+                  }}
+                }}"#,
+                serde_json::to_string(script.to_string_lossy().as_ref()).expect("json"),
+                dir.path().join("does-not-exist").display()
+            ),
+        )
+        .expect("settings");
+
+        let mut opts = default_run_options();
+        opts.standalone.continue_on_error = true;
+        opts.standalone.no_tui = true;
+        run_command(&plan, Some(&states), opts).expect("run skips unavailable tooling");
+
+        assert!(!spawned.exists(), "required missing skill must block agent spawn");
+    }

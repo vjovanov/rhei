@@ -1,7 +1,3 @@
-        assert!(path_matches(Path::new("docs/states.yaml"), &watched));
-        assert!(!path_matches(Path::new("docs/plan-language-spec.md"), &watched));
-    }
-
     #[test]
     fn paths_equivalent_falls_back_for_nonexistent_relative_paths() {
         assert!(paths_equivalent(
@@ -464,3 +460,16 @@ Body text.
 
     #[test]
     fn format_tooling_log_line_marks_unavailable_optional_with_question_mark() {
+        let entries = vec![
+            ResolvedMcpEntry {
+                id: "postgres".to_string(),
+                optional: false,
+                definition: Some(McpServerProfile::default()),
+            },
+            ResolvedMcpEntry { id: "grafana".to_string(), optional: true, definition: None },
+        ];
+        let line = format_tooling_log_line(&entries, |e| {
+            (e.id.as_str(), e.optional, e.definition.is_some())
+        });
+        assert_eq!(line.as_deref(), Some("postgres,grafana?"));
+    }

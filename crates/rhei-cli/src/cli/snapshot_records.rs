@@ -276,15 +276,16 @@ fn newest_snapshot_session_file(dir: &Path, ext: &str) -> Option<PathBuf> {
 fn transcript_source_for_snapshot(
     session_dir: Option<&Path>,
     layout: &serde_json::Value,
-    log_path: &Path,
-) -> (PathBuf, String) {
-    let ext = snapshot_layout_ext(layout).unwrap_or_else(|| "log".to_string());
-    if let Some(session_dir) = session_dir {
-        if let Some(path) = newest_snapshot_session_file(session_dir, &ext) {
-            return (path, ext);
+) -> Option<(PathBuf, String, String)> {
+    let ext = snapshot_layout_ext(layout)?;
+    match snapshot_layout_kind(layout).as_deref() {
+        Some("FlatById") => {
+            let path = newest_snapshot_session_file(session_dir?, &ext)?;
+            let session_id = path.file_stem().and_then(OsStr::to_str)?.to_string();
+            Some((path, ext, session_id))
         }
+        _ => None,
     }
-    (log_path.to_path_buf(), "log".to_string())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -296,9 +297,142 @@ fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
+#[cfg(not(test))]
+const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(not(test))]
+const SNAPSHOT_REDACTOR_TERMINATE_GRACE: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const SNAPSHOT_REDACTOR_TERMINATE_GRACE: Duration = Duration::from_millis(50);
+
+fn apply_snapshot_redactor(
+    settings: &RheiSettings,
+    workspace_root: &Path,
+    transcript_bytes: Vec<u8>,
+) -> MietteResult<Vec<u8>> {
+    let Some(snapshot_settings) = settings.snapshots.as_ref() else {
+        return Ok(transcript_bytes);
+    };
+    let Some(redactor) = snapshot_settings.redactor.as_ref() else {
+        return Ok(transcript_bytes);
+    };
+    let redactor_path =
+        if redactor.is_absolute() { redactor.clone() } else { workspace_root.join(redactor) };
+    let redactor_label = redactor_path.display().to_string();
+    let mut command = std::process::Command::new(&redactor_path);
+    command
+        .current_dir(workspace_root)
+        .env_clear()
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for key in &snapshot_settings.redactor_env {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    let mut child = command.spawn().map_err(|err| {
+        file_io_report(&redactor_path, "failed to spawn snapshot redactor", err)
+    })?;
+    let mut stdin =
+        child.stdin.take().ok_or_else(|| miette!("failed to open snapshot redactor stdin"))?;
+    let mut stdout =
+        child.stdout.take().ok_or_else(|| miette!("failed to open snapshot redactor stdout"))?;
+    let mut stderr =
+        child.stderr.take().ok_or_else(|| miette!("failed to open snapshot redactor stderr"))?;
+
+    let writer = std::thread::spawn(move || stdin.write_all(&transcript_bytes));
+    let stdout_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).map(|_| bytes)
+    });
+
+    let start = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() >= SNAPSHOT_REDACTOR_TIMEOUT {
+                    timed_out = true;
+                    let pid = Pid::from_raw(child.id() as i32);
+                    let _ = signal::kill(pid, Signal::SIGTERM);
+                    std::thread::sleep(SNAPSHOT_REDACTOR_TERMINATE_GRACE);
+                    match child.try_wait() {
+                        Ok(Some(status)) => break status,
+                        _ => {
+                            let _ = child.kill();
+                            break child.wait().map_err(|err| {
+                                miette!("failed to wait for snapshot redactor after kill: {err}")
+                            })?;
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(err) => return Err(miette!("error waiting for snapshot redactor: {err}")),
+        }
+    };
+
+    let writer_result = writer
+        .join()
+        .map_err(|_| miette!("snapshot redactor stdin writer panicked"))?;
+    let stdout_bytes = stdout_reader
+        .join()
+        .map_err(|_| miette!("snapshot redactor stdout reader panicked"))?
+        .map_err(|err| miette!("failed to read snapshot redactor stdout: {err}"))?;
+    let stderr_bytes = stderr_reader
+        .join()
+        .map_err(|_| miette!("snapshot redactor stderr reader panicked"))?
+        .map_err(|err| miette!("failed to read snapshot redactor stderr: {err}"))?;
+    let stderr_summary = snapshot_redactor_stderr_summary(&stderr_bytes);
+
+    if timed_out {
+        return Err(miette!(
+            "snapshot redactor '{}' timed out after {}s; stderr: {}",
+            redactor_label,
+            SNAPSHOT_REDACTOR_TIMEOUT.as_secs_f64(),
+            stderr_summary
+        ));
+    }
+    if !status.success() {
+        return Err(miette!(
+            "snapshot redactor '{}' exited with status {}; stderr: {}",
+            redactor_label,
+            status,
+            stderr_summary
+        ));
+    }
+    writer_result.map_err(|err| miette!("failed to write snapshot redactor stdin: {err}"))?;
+    Ok(stdout_bytes)
+}
+
+fn snapshot_redactor_stderr_summary(bytes: &[u8]) -> String {
+    const LIMIT: usize = 1024;
+    if bytes.is_empty() {
+        return "<empty>".to_string();
+    }
+    let clipped = &bytes[..bytes.len().min(LIMIT)];
+    let mut summary = String::from_utf8_lossy(clipped).trim().to_string();
+    if summary.is_empty() {
+        summary = "<empty>".to_string();
+    }
+    if bytes.len() > LIMIT {
+        summary.push_str(" [truncated]");
+    }
+    summary
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write_snapshot_generation_atomic(
     cache_root: &Path,
+    workspace_root: &Path,
+    settings: &RheiSettings,
     task_id: &str,
     snapshot_name: &str,
     emitting_state: &str,
@@ -307,6 +441,7 @@ fn write_snapshot_generation_atomic(
     target_selector: &str,
     resolved: &ResolvedAgent,
     session_layout: serde_json::Value,
+    session_id: &str,
     transcript_source: &Path,
     transcript_ext: &str,
     parent_ref: Option<&serde_json::Value>,
@@ -336,6 +471,7 @@ fn write_snapshot_generation_atomic(
     let transcript_bytes = fs::read(transcript_source).map_err(|err| {
         file_io_report(transcript_source, "failed to read snapshot transcript source", err)
     })?;
+    let transcript_bytes = apply_snapshot_redactor(settings, workspace_root, transcript_bytes)?;
     let transcript_sha256 = sha256_hex(&transcript_bytes);
     let transcript_name = format!("transcript.{transcript_ext}");
     let mut generation = next_snapshot_generation(&identity_dir)?;
@@ -369,7 +505,7 @@ fn write_snapshot_generation_atomic(
             "declared_model": resolved.model_name.as_deref().or(resolved.model.as_deref()).unwrap_or_default(),
             "observed_provider": resolved.model_provider.as_deref().unwrap_or_default(),
             "observed_model": resolved.model_name.as_deref().or(resolved.model.as_deref()).unwrap_or_default(),
-            "session_id": format!("{task_id}-{emitting_state}-{target_slug}-g{generation}"),
+            "session_id": session_id,
             "session_layout": session_layout,
             "transcript_path": transcript_name,
             "transcript_sha256": transcript_sha256,
@@ -478,4 +614,3 @@ fn replace_current_symlink_with_nonce(
     fs::write(&current, target)
         .map_err(|err| file_io_report(&current, "failed to update current pointer", err))
 }
-
