@@ -1,6 +1,6 @@
 name: changeset-review
-version: 1.0.0
-description: Review a code change (PR, branch, commit, or diff) — split into parts, multi-target review each, score findings, human-gate, then fan out fixes.
+version: 1.1.0
+description: Review a code change with two-agent review, validation, fix proposals, smart-agent adjudication, and smart-agent fixes.
 
 inputs:
   - name: change_ref
@@ -14,7 +14,25 @@ inputs:
       type: string
     default:
       - claude-code[yolo]:anthropic:claude-opus-4-7
-      - codex[yolo]:openai:gpt-5.4
+      - codex[xhigh]:openai:gpt-5.5
+
+  - name: validation_targets
+    description: Execution targets that independently validate whether the aggregated review issues are correct and actionable
+    type: array
+    items:
+      type: string
+    default:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[xhigh]:openai:gpt-5.5
+
+  - name: proposal_targets
+    description: Execution targets that independently propose concrete fixes for each validated issue
+    type: array
+    items:
+      type: string
+    default:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[xhigh]:openai:gpt-5.5
 
   - name: review_focus
     description: Optional focus areas each reviewer must address as its own subsection (e.g., performance, security, concurrency). Empty means a general review.
@@ -23,18 +41,13 @@ inputs:
       type: string
     default: []
 
-  - name: aggregator_target
-    description: Execution target that deduplicates per-part findings and produces the scored issue list
+  - name: smart_target
+    description: Smarter execution target that aggregates reviews, adjudicates discrepancies, performs final fixes, and optionally commits them
     type: string
-    default: claude-code[yolo]:anthropic:claude-opus-4-7
-
-  - name: fix_target
-    description: Execution target that implements each human-approved fix
-    type: string
-    default: claude-code[yolo]:anthropic:claude-opus-4-7
+    default: codex[xhigh]:openai:gpt-5.5
 
   - name: fix_prepare
-    description: Optional pre-fix workspace isolation. One of — none (apply in-tree), branch (create a new branch), worktree (create a git worktree), fork (fork the repo before working).
+    description: Optional pre-fix workspace isolation before the smart target applies final fixes. One of — none (apply in-tree), branch (create a new branch), worktree (create a git worktree), fork (fork the repo before working).
     type: string
     default: none
     validate: "^(none|branch|worktree|fork)$"

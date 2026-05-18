@@ -2,7 +2,8 @@
 **States:** changeset-review
 
 ## Overview
-Multi-target review with a human-gated fix fanout.
+Two-agent changeset review with validation, fix proposals, smart adjudication,
+and smart final fixes.
 
 The change under review (`{{change_ref}}`) can be any of:
 
@@ -15,17 +16,16 @@ The coordinator resolves the reference to a concrete set of changed files
 before splitting.
 
 The instantiated workspace is a review scratchpad. Agents must resolve the
-repository root via Git and inspect repository files from that root, not
-from this workspace directory.
+repository root via Git and inspect or edit repository files from that root,
+not from this workspace directory.
 
 Flow:
 
-1. The coordinator task resolves `{{change_ref}}` and writes an
-   architectural overview (intent, subsystems touched, new contracts,
-   cross-cutting concerns, risks), then splits the change into logical
-   parts. It spawns one `review-<slug>` task per part and one
-   `aggregate` task whose `**Prior:**` waits on every part review.
-2. Each part is reviewed independently by every configured target:
+1. The coordinator task resolves `{{change_ref}}`, writes an architectural
+   overview, splits the change into logical parts, appends one `review-<slug>`
+   task per part, and appends one `aggregate` task whose `**Prior:**` waits on
+   every part review.
+2. Each part is reviewed independently by every configured review target:
 {%- for t in review_targets %}
    - `{{ t }}`
 {%- endfor %}
@@ -37,25 +37,33 @@ Flow:
 {%- endfor %}
 {%- else %}
 
-   Reviews are general — correctness, regressions, and risks. Set
-   `review_focus` to require specific subsections (e.g., `performance`,
-   `security`, `concurrency`).
+   Reviews are general: correctness, regressions, and material risks.
 {%- endif %}
-3. The aggregator (`{{aggregator_target}}`) deduplicates findings across
-   parts, targets, and focus areas, then writes a scored issue list.
-4. A human edits the issue list in place to mark each issue `[fix]` or
-   `[skip]` and fill in an approach for fixes.
-5. The aggregator task transitions to `fix-spawn`, which appends one fix
-   task per `[fix]` entry. Each fix runs on `{{fix_target}}`.
+3. The smart target (`{{smart_target}}`) deduplicates review findings into
+   candidate issues.
+4. Candidate issues are validated independently by:
+{%- for t in validation_targets %}
+   - `{{ t }}`
+{%- endfor %}
+5. Fix proposals are produced independently by:
+{%- for t in proposal_targets %}
+   - `{{ t }}`
+{%- endfor %}
+6. The smart target (`{{smart_target}}`) aggregates those proposals into a
+   proposal matrix.
+7. The smart target (`{{smart_target}}`) decides discrepancies and writes the
+   final fix plan.
+8. The smart target applies the accepted fixes{% if fix_prepare != "none" %} in a `{{fix_prepare}}` workspace{% endif %}{% if fix_commit != "none" %} and performs the `{{fix_commit}}` commit step{% endif %}.
 
 ## Notes
 
-- The workspace is "living": the coordinator and the aggregator both add
-  task files under `tasks/` during the run. `rhei reset` clears state but
-  does not delete dynamically appended task files.
-- Instantiate the workspace inside the repository under review, ideally
-  under `.agents/scratchpad/`, so `git rev-parse --show-toplevel` from the
-  workspace resolves the project root deterministically.
-- If the human closes `human-review` with nothing marked `[fix]`, the
-  aggregator transitions straight to `completed` and no fix tasks are
-  spawned.
+- The workspace is "living": the coordinator appends review and aggregate
+  task files under `tasks/` during the run. `rhei reset` clears state but does
+  not delete dynamically appended task files.
+- Instantiate the workspace inside the repository under review, ideally under
+  `.agents/scratchpad/`, so `git rev-parse --show-toplevel` from the workspace
+  resolves the project root deterministically.
+- The bundled settings add `codex[xhigh]`, which passes
+  `model_reasoning_effort="xhigh"` to Codex. The default smart target is
+  `codex[xhigh]:openai:gpt-5.5`. Claude Code is included as a second default
+  reviewer, but Rhei does not currently expose a Claude reasoning-effort flag.

@@ -9,6 +9,8 @@ scratchpad workspace and use that repository root rather than the
 workspace directory itself. For
 each part, append a `review-<slug>` task to `tasks/` with `**State:** review`
 and `**Prior:** Task coordinate`. Append one `aggregate` task with
-`**State:** aggregate` and `**Prior:**` listing every `review-<slug>` task
-you created. When the overview and parts manifest are written and all
-follow-up tasks are appended, transition to `completed`.
+`**State:** aggregate-reviews` and `**Prior:**` listing every
+`review-<slug>` task you created. The aggregate task will validate review
+correctness, compare fix proposals, let the smart target decide
+discrepancies, and apply accepted fixes. When the overview and parts manifest
+are written and all follow-up tasks are appended, transition to `completed`.
