@@ -1,5 +1,34 @@
 {
   "defaults": {
     "agent_timeout": "20m"
+  },
+  "agents": {
+    "codex": {
+      "command": ["codex", "exec"],
+      "model_flag": "--model",
+      "stdin_prompt": true,
+      "mcp_flag": "--mcp",
+      "modes": {
+        "yolo": [
+          "--sandbox",
+          "danger-full-access",
+          "--skip-git-repo-check"
+        ],
+        "high": [
+          "--sandbox",
+          "danger-full-access",
+          "--skip-git-repo-check",
+          "-c",
+          "model_reasoning_effort=\"high\""
+        ],
+        "xhigh": [
+          "--sandbox",
+          "danger-full-access",
+          "--skip-git-repo-check",
+          "-c",
+          "model_reasoning_effort=\"xhigh\""
+        ]
+      }
+    }
   }
 }
