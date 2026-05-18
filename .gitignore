@@ -1,6 +1,11 @@
 # Agents
 scratchpad/
 .agents/scratchpad/
+!.agents/scratchpad/
+.agents/scratchpad/*
+!.agents/scratchpad/spec-implementation/
+!.agents/scratchpad/spec-implementation/**
+.agents/scratchpad/spec-implementation/runtime/logs/
 
 # Rust build artifacts
 target/

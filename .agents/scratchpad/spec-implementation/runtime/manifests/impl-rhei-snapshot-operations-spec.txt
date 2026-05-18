@@ -1,0 +1,1 @@
+docs/functional-spec/rhei-snapshot-operations.spec.md
