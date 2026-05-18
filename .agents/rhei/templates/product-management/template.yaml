@@ -1,0 +1,82 @@
+name: product-management
+version: 1.0.0
+description: Run multiple product-management agents, have a smarter agent aggregate and validate their entries, let a cheaper agent implement the accepted slice, and repeat the loop.
+
+inputs:
+  - name: plan_title
+    description: Title for the instantiated product-management workspace.
+    type: string
+    default: Product Management Run
+
+  - name: product_name
+    description: Product, project, or feature area being managed.
+    type: string
+    required: true
+
+  - name: product_brief
+    description: Product context, customer problem, or strategic goal that every PM agent should use.
+    type: string
+    required: true
+
+  - name: implementation_scope
+    description: Repository paths, documents, issue trackers, or product artifacts the implementation agent may change.
+    type: string
+    default: "docs/functional-spec, docs/decisions, README.md"
+
+  - name: pm_targets
+    description: Agents that independently produce product-management entries each pass.
+    type: array
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+          validate: "[a-z][a-z0-9-]*"
+        label:
+          type: string
+        selector:
+          type: string
+    default:
+      - id: claude
+        label: Claude PM entries
+        selector: claude-code[yolo]:anthropic:claude-opus-4-7
+      - id: codex
+        label: Codex PM entries
+        selector: codex[xhigh]:openai:gpt-5.5
+  - name: smart_target
+    description: Stronger agent that deduplicates, validates, prioritizes, and turns PM entries into an implementation slice.
+    type: string
+    default: codex[xhigh]:openai:gpt-5.5
+
+  - name: implementation_target
+    description: Cheaper implementation agent that applies the accepted slice each pass.
+    type: string
+    default: codex[medium]:openai:gpt-5.4-mini
+
+  - name: loop_passes
+    description: Number of PM aggregate implementation cycles to run.
+    type: number
+    default: 2
+
+  - name: focus_areas
+    description: Optional product-management focus areas every PM entry set should address.
+    type: array
+    items:
+      type: string
+    default: []
+
+  - name: validation_criteria
+    description: Criteria the smart agent must apply when accepting, rejecting, or deferring entries.
+    type: array
+    items:
+      type: string
+    default:
+      - user value is explicit
+      - evidence or assumption is stated
+      - scope is implementable in one pass
+      - conflicts with prior decisions are identified
+
+  - name: max_entries_per_pass
+    description: Maximum number of accepted entries the smart agent should send to implementation in each pass.
+    type: number
+    default: 3

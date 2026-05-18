@@ -5,6 +5,7 @@ scratchpad/
 # Rust build artifacts
 target/
 **/target/
+.rhei/cache/
 
 # JavaScript and Python package artifacts
 node_modules/

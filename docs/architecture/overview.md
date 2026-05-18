@@ -90,6 +90,7 @@ Tasks progress through defined **states** (for example `draft` → `pending` →
 | [Transitions Specification](../functional-spec/rhei-transitions.spec.md) | State transition system, callbacks, and YAML schema |
 | [Run Specification](../functional-spec/rhei-run.spec.md) | Orchestrated execution loop |
 | [Agent-Orchestrator Workflow Architecture](agent-orchestrator-workflow.spec.md) | Component workflow for plan creation, validation, and execution |
+| [Source File Size Architecture](source-file-size.spec.md) | Source file size limits and exception register |
 
 ### Reference Files
 
