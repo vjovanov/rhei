@@ -1,0 +1,292 @@
+# Product-management state machine
+# =================================
+#
+# Legend
+# ------
+#   [initial]   first state for the shipped task
+#   [final]     terminal state
+#   all_targets fan-out: one subprocess per configured PM target
+#   loop:       state repeats until {visit_count} >= {visits}
+#
+# Pipeline
+# --------
+#
+#   product-run [initial; all_targets: pm_targets]
+#       |
+#       v
+#   aggregate-validate (smart_target)
+#       |
+#       v
+#   implement (implementation_target)
+#       |
+#       +-- loop to product-run while visit_count < 2
+#       |
+#       v
+#   completed [final]
+#
+# Escape hatch
+# ------------
+#   any non-final state -> cancelled [final]
+#
+# Per-task paths
+# --------------
+#   product-management-loop:
+#     (product-run -> aggregate-validate -> implement) x 2
+#     -> completed
+
+name: product-management
+version: 1.0.0
+
+states:
+  product-run:
+    description: Fan out independent product-management entries across the configured PM targets.
+    all_targets:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[xhigh]:openai:gpt-5.5
+    visits: 2
+    personality: |
+      You are {target}, an independent product manager for Rhei.
+      Produce product entries from your own perspective. Do not coordinate
+      with other targets or copy likely answers from them.
+    instructions: |
+      Product-management pass {visit_count} of {visits} for Task {task_id}:
+      {task_title}.
+
+      Work from the instantiated workspace. Resolve the repository root with
+      `git rev-parse --show-toplevel` when you need to inspect or edit the
+      product artifacts, but do not edit files in this state.
+
+      Read the product brief, implementation scope, validation criteria, and
+      agent-role table from the workspace index before writing entries.
+
+      Address these focus areas explicitly. Every area must appear, even if
+      your entry set has no recommendation for it:
+        - template usability
+        - monitoring clarity
+        - predictable execution
+
+      If this is pass 2 or later, read prior implementation reports under
+      `runtime/product-management/{task_id}/implementation-pass-*.md` and
+      propose only entries that account for what has already changed.
+
+      Write `{output.pm-entries.path}` with this structure:
+
+        # PM Entries - pass {visit_count} - target {target}
+
+        ## Context Read
+
+        - <files, specs, docs, issues, or assumptions you used>
+
+        ## Entries
+
+        - E-<short-id>: <entry title>
+          - User/problem: <who benefits and what problem changes>
+          - Recommendation: <specific product change>
+          - Evidence: <file:line, user signal, metric, or explicit assumption>
+          - Acceptance criteria: <observable done state>
+          - Scope: <paths or artifacts likely affected>
+          - Risk: high | medium | low, with one-line reason
+          - Implementation hint: <smallest useful implementation slice>
+
+      Prefer a few high-quality entries over a long backlog. Do not implement
+      anything in this state. Transition to `aggregate-validate` after the
+      entries file is written.
+    outputs:
+      - name: pm-entries
+        path: runtime/product-management/{task_id}/entries-pass-{visit_count}-{target.slug}.md
+        description: One PM target's candidate entries for a pass.
+
+  aggregate-validate:
+    description: Aggregate PM entries, validate every candidate, and choose a bounded implementation slice.
+    target: codex[xhigh]:openai:gpt-5.5
+    visits: 2
+    inputs:
+      - name: claude-entries
+        path: runtime/product-management/{task_id}/entries-pass-{visit_count}-claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Claude PM entries
+      - name: codex-entries
+        path: runtime/product-management/{task_id}/entries-pass-{visit_count}-codex-xhigh-openai-gpt-5-5.md
+        description: Codex PM entries
+    personality: |
+      You are the product-management aggregator and validator. Be skeptical,
+      evidence-oriented, and practical about implementation scope. Preserve
+      genuine disagreement instead of smoothing it away.
+    instructions: |
+      Aggregate and validate product-management entries for pass
+      {visit_count} of {visits} for Task {task_id}.
+
+      Read every PM entry input:
+      - `{input.claude-entries.path}`
+      - `{input.codex-entries.path}`
+
+      Also inspect prior pass artifacts under
+      `runtime/product-management/{task_id}/` when they exist, especially
+      implementation reports from earlier passes.
+
+      For every candidate entry:
+
+        - Deduplicate entries that recommend the same product change.
+        - Validate it against the product brief, current implementation
+          scope, and repository evidence.
+        - Classify it as accepted, rejected, deferred, or needs-human-input.
+        - Keep the best evidence and note disagreements across PM targets.
+
+      Validation criteria:
+        - user value is explicit
+        - evidence or assumption is stated
+        - scope fits one implementation pass
+        - conflicts with existing specs or roadmap are identified
+
+      Select at most 2 accepted entries for the
+      implementation slice. The slice must be small enough for
+      `codex[medium]:openai:gpt-5.4-mini` to implement in one pass without broad
+      refactoring.
+
+      Write `{output.validated-slice.path}` with:
+
+        # Validated Product Slice - pass {visit_count}
+
+        ## Accepted for implementation
+
+        - P-<id>: <entry title>
+          - Source entries: <target/id list>
+          - User/problem:
+          - Product decision:
+          - Implementation scope:
+          - Acceptance criteria:
+          - Evidence:
+          - Risks:
+
+        ## Rejected
+
+        - <entry>: <reason>
+
+        ## Deferred / needs human input
+
+        - <entry>: <reason and what would unblock it>
+
+        ## Implementation instructions
+
+        - <ordered list for the implementation target>
+
+      Do not edit product artifacts in this state. Transition to `implement`
+      after the validated slice is written.
+    outputs:
+      - name: validated-slice
+        path: runtime/product-management/{task_id}/validated-slice-pass-{visit_count}.md
+        description: Deduplicated, validated, prioritized product slice for one pass.
+
+  implement:
+    description: Apply the accepted product slice with the cheaper implementation target.
+    target: codex[medium]:openai:gpt-5.4-mini
+    visits: 2
+    inputs:
+      - name: validated-slice
+        path: runtime/product-management/{task_id}/validated-slice-pass-{visit_count}.md
+        description: Validated product slice for this pass.
+    personality: |
+      You are the implementation agent. Apply only the accepted product slice
+      and keep the change narrow. If the validated slice is ambiguous or too
+      broad, implement the smallest clearly accepted subset and record the
+      remainder as blocked.
+    instructions: |
+      Implement the accepted product slice for pass {visit_count} of {visits}
+      for Task {task_id}.
+
+      Read `{input.validated-slice.path}`. Resolve the repository root with
+      `git rev-parse --show-toplevel`; product artifact edits happen in that
+      checkout. Runtime reports stay under this instantiated workspace.
+
+      Implementation scope:
+
+      docs/functional-spec, .agents/rhei/templates, examples
+
+      Apply only entries listed under "Accepted for implementation". Do not
+      implement rejected, deferred, or needs-human-input entries. Keep each
+      change tied to its acceptance criteria, and avoid broad cleanup that is
+      not required by the slice.
+
+      Run focused checks when feasible. If a check is unavailable or too
+      expensive, record why.
+
+      Write `{output.implementation-report.path}` with:
+
+        # Product Implementation Report - pass {visit_count}
+
+        ## Implemented
+
+        - P-<id>: <what changed>
+          - Files/artifacts:
+          - Acceptance criteria status:
+          - Checks:
+
+        ## Blocked or skipped
+
+        - P-<id>: <reason>
+
+        ## Next-pass notes
+
+        - <observations PM agents should consider on the next pass>
+
+      If `visit_count < visits`, transition back to `product-run` for the next
+      PM pass. Otherwise transition to `completed`.
+    outputs:
+      - name: implementation-report
+        path: runtime/product-management/{task_id}/implementation-pass-{visit_count}.md
+        description: Implementation log and next-pass notes for one pass.
+
+  completed:
+    description: Product-management loop finished.
+    final: true
+    instructions: |
+      Task {task_id} is complete.
+
+  cancelled:
+    description: Product-management loop cancelled.
+    final: true
+    instructions: |
+      Stop work on Task {task_id}. Leave existing artifacts in place.
+
+transitions:
+  - from: product-run
+    to: aggregate-validate
+    description: Every PM target wrote its entries for this pass.
+
+  - from: aggregate-validate
+    to: implement
+    description: The smart target wrote the validated implementation slice.
+
+  - from: implement
+    to: product-run
+    condition: visitCount < visits
+    description: Implementation for this pass is done; repeat the PM loop.
+
+  - from: implement
+    to: completed
+    condition: visitCount >= visits
+    description: The configured PM loop budget is exhausted.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the task from any non-final state.
+
+profiles:
+  workspace:
+    initial: completed
+    allowed:
+      - completed
+
+  product-task:
+    initial: product-run
+    allowed:
+      - product-run
+      - aggregate-validate
+      - implement
+      - completed
+      - cancelled
+
+node_policy:
+  root: workspace
+  default: product-task
+  by_type:
+    task: product-task
