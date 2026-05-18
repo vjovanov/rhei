@@ -1,14 +1,19 @@
-# spec-implementation - example
+# spec-implementation - example (multi-spec / diff mode)
 
 A pre-rendered instantiation of the
 [`spec-implementation`](../../.agents/rhei/templates/spec-implementation/)
 template used as a smoke test that the template produces a valid workspace.
 
+This example exercises **multi-spec mode** (`spec_ref`) — the coordinator
+would resolve the ref to the `*.spec.md` files changed on the current
+branch and spawn one per-spec implementation task per file, plus one
+shared e2e-aggregate task.
+
 ## Inputs used
 
 ```yaml
-spec_path: docs/functional-spec/rhei-list.spec.md
-spec_title: rhei-list Spec Implementation Example
+spec_ref: main..HEAD
+spec_title: Spec Implementation Example (current-branch spec diff)
 implementation_target: claude-code[yolo]:anthropic:claude-opus-4-7
 review_targets:
   - claude-code[yolo]:anthropic:claude-opus-4-7
@@ -30,11 +35,14 @@ release_only_test_root: e2e/release-only
 
 The same values are checked in at `instantiation-values.yaml`.
 
+To exercise single-spec mode instead, swap `spec_ref` for
+`spec_path: docs/functional-spec/<your-spec>.spec.md`.
+
 ## Validate
 
 ```bash
-rhei validate examples/spec-implementation-example/plan.rhei.md
-rhei run examples/spec-implementation-example/plan.rhei.md --dry-run
+rhei validate examples/spec-implementation-example
+rhei run examples/spec-implementation-example --dry-run
 ```
 
 ## Regenerate

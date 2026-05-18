@@ -1,92 +1,220 @@
 # Spec-Implementation State Machine
 # ==================================
 #
-# This workflow has one task that walks a fixed pipeline. Inside the pipeline,
-# two states fan out across multiple reviewers, and two stretches of the
-# pipeline are counted loops.
+# This workflow always starts with a coordinator task that resolves the input
+# mode (single-spec via `spec_path`, or multi-spec via `spec_ref`), spawns one
+# per-spec implementation task for each spec, plus one shared e2e-aggregate
+# task that waits on all per-spec tasks to complete.
+#
+# Three task kinds, three independent state paths through one machine:
+#
+#   1. coordinator task         (one per workspace)
+#        coordinate -> completed
+#
+#   2. per-spec impl task       (one per spec)
+#        implement -> completeness-review -> completeness-aggregate ->
+#        completeness-fix ->
+#        (quality-review -> quality-aggregate -> quality-fix) x 2 ->
+#        completed
+#
+#   3. e2e-aggregate task       (one per workspace; depends on all per-spec tasks)
+#        (e2e-write -> e2e-verify) x 2 -> completed
 #
 # Legend
 # ------
 #   fan-out: every reviewer in `review_targets` runs in parallel
 #   loop:    state repeats until {visit_count} >= {visits}
 #
-# Pipeline
-# --------
+# Pipeline (per task kind)
+# ------------------------
 #
-#   implement                          (one agent: implementation_target)
-#       |
-#       v
-#   completeness-review                (fan-out: review_targets)
-#       |
-#       v
-#   completeness-aggregate             (one agent: smart_target)
-#       |
-#       v
-#   completeness-fix                   (one agent: implementation_target)
-#       |
-#       v
-#   +-> quality-review                 (fan-out: review_targets)
-#   |       |
-#   |       v
-#   |   quality-aggregate              (one agent: smart_target)
-#   |       |
-#   |       v
-#   |   quality-fix                    (one agent: smart_target)
-#   |       |
-#   +-- loop while visit_count < 2
+#   ## Coordinator
+#       coordinate                     (one agent: smart_target)
 #           |
-#           v (loop budget exhausted)
-#   +-> e2e-write                      (one agent: e2e_writer)
-#   |       |
-#   |       v
-#   |   e2e-verify                     (one agent: e2e_verifier)
-#   |       |
-#   +-- loop while visit_count < 2
+#           v
+#       completed
+#
+#   ## Per-spec implementation
+#       implement                      (one agent: implementation_target)
 #           |
-#           v (loop budget exhausted)
-#       completed                      (final)
+#           v
+#       completeness-review            (fan-out: review_targets)
+#           |
+#           v
+#       completeness-aggregate         (one agent: smart_target)
+#           |
+#           v
+#       completeness-fix               (one agent: implementation_target)
+#           |
+#           v
+#       +-> quality-review             (fan-out: review_targets)
+#       |       |
+#       |       v
+#       |   quality-aggregate          (one agent: smart_target)
+#       |       |
+#       |       v
+#       |   quality-fix                (one agent: smart_target)
+#       |       |
+#       +-- loop while visit_count < 2
+#               |
+#               v (loop budget exhausted)
+#           completed
+#
+#   ## E2E aggregate (shared across all implemented specs)
+#       +-> e2e-write                  (one agent: e2e_writer)
+#       |       |
+#       |       v
+#       |   e2e-verify                 (one agent: e2e_verifier)
+#       |       |
+#       +-- loop while visit_count < 2
+#               |
+#               v (loop budget exhausted)
+#           completed
 #
 # Cancel
 # ------
 #   Any non-final state -> cancelled (final)
-#
-# Per-task path
-# -------------
-#   spec-implementation:
-#     implement -> completeness-review -> completeness-aggregate ->
-#     completeness-fix ->
-#     (quality-review -> quality-aggregate -> quality-fix) x 2 ->
-#     (e2e-write -> e2e-verify) x 2 ->
-#     completed
 
 name: spec-implementation
-version: 1.2.0
+version: 2.0.0
 
 states:
 
   # ---------------------------------------------------------------------------
-  # 1. Implement
+  # 0. Coordinator: resolve input mode, fan out per-spec + e2e-aggregate tasks
+  # ---------------------------------------------------------------------------
+
+  coordinate:
+    description: Resolve the spec input mode, write the per-spec assignments, and append per-spec implementation tasks plus one shared e2e-aggregate task.
+    target: codex[xhigh]:openai:gpt-5.5
+    personality: |
+      You are the spec-implementation coordinator. Be precise about which
+      specs are in scope, write a stable per-task assignment file for every
+      spec, and chain the e2e-aggregate task to wait on all of them.
+    instructions: |
+      Coordinate Task {task_id}: {task_title}.
+
+      This workspace is a scratchpad. Resolve the repository root with
+      `git rev-parse --show-toplevel` and read repository files from that
+      checkout. Runtime artifacts (`runtime/...`) and dynamic task files
+      (`tasks/...`) must always be written under this scratchpad workspace.
+
+      ## Step 1: Pick the mode and resolve the spec set
+
+      Exactly one of `spec_path` and `spec_ref` must be set. Both are
+      checked below; abort with a clear error if neither or both are set.
+
+      - spec_path = ``
+      - spec_ref  = `main..HEAD`
+      Multi-spec mode. Resolve `main..HEAD` to a concrete set of changed
+      `*.spec.md` files using the project's VCS tooling from the repository
+      root. The reference can be any of:
+
+        - a PR URL or number (`#42`, `org/repo#42`, full URL) -- use `gh`
+        - a branch name -- compare against the project's default branch
+        - a commit SHA or range `base..head` -- use `git diff`
+        - a path to a `.diff` / `.patch` file on disk
+
+      Use `git diff <base>..<head> --name-only` (or the PR-equivalent) and
+      filter to paths matching `*.spec.md` under the project's spec
+      directory. If the reference resolves to zero spec files, abort with
+      a clear error. Note the assumption (which base, which spec
+      directory) so the audit is reproducible.
+
+      ## Step 2: Write the assignments manifest
+
+      Write `{output.spec-assignments.path}` listing every spec in scope:
+
+        # Spec Assignments
+
+        - task_id: impl-<slug-1>
+          spec_path: <repo-relative path>
+        - task_id: impl-<slug-2>
+          spec_path: <repo-relative path>
+        ...
+
+      Slugs must be stable, filesystem-safe, and unique across the
+      workspace. Derive them from the spec filename (e.g.,
+      `docs/functional-spec/rhei-list.spec.md` -> `rhei-list`).
+
+      For each entry, also write the spec path to
+      `runtime/manifests/<task_id>-spec.txt` -- a one-line file containing
+      just the repo-relative spec path. The implement, completeness, and
+      quality states all read this per-task file to find out which spec
+      they are working on.
+
+      ## Step 3: Append per-spec implementation tasks
+
+      For every spec, append a task file under `tasks/` named
+      `NN-<task_id>.md`:
+
+          ### Task <task_id>: Implement <spec_path>
+          **State:** implement
+          **Prior:** Task {task_id}
+
+          Implement the spec at `<spec_path>`. The full per-spec pipeline
+          (completeness audit + quality review/fix loop) runs as part of
+          this task. End-to-end coverage is handled by the shared
+          `e2e-aggregate` task once every per-spec task is complete.
+
+      Replace placeholders with concrete text. Do not leave angle brackets
+      behind. Task ids must match the assignments manifest exactly.
+
+      ## Step 4: Append the shared e2e-aggregate task
+
+      Append one task file `tasks/NN-e2e-aggregate.md`:
+
+          ### Task e2e-aggregate: Extend e2e coverage for implemented specs
+          **State:** e2e-write
+          **Prior:** Task impl-<slug-1>, Task impl-<slug-2>, ...
+
+          Drive the shared end-to-end coverage loop for every spec listed
+          in `{output.spec-assignments.path}`. Enforce the mock-agent
+          policy: every standard e2e test targets the mock agent
+          (`mock`); a small release-only set marked with
+          `release-only` may invoke real agents.
+
+      The task id MUST be exactly `e2e-aggregate`. Replace the example
+      `**Prior:**` list with the concrete `impl-<slug>` task ids you
+      created above.
+
+      ## Step 5: Transition
+
+      Transition to `completed` once the assignments manifest, per-task
+      spec files, per-spec implementation task files, and the
+      e2e-aggregate task file are all written.
+    outputs:
+      - name: spec-assignments
+        path: runtime/manifests/{task_id}-spec-assignments.md
+        description: Stable list of per-spec task assignments.
+
+  # ---------------------------------------------------------------------------
+  # 1. Per-spec implementation
   # ---------------------------------------------------------------------------
 
   implement:
-    description: Write the initial implementation of the spec.
+    description: Write the initial implementation for this task's assigned spec.
     target: claude-code[yolo]:anthropic:claude-opus-4-7
     personality: |
-      You are the primary implementer. Be precise, cite the spec section that
-      motivates each implementation choice, and prefer narrow, testable changes
-      over speculative refactors.
+      You are the primary implementer. Be precise, cite the spec section
+      that motivates each implementation choice, and prefer narrow,
+      testable changes over speculative refactors.
     instructions: |
-      Implement the spec at `docs/functional-spec/rhei-list.spec.md` for Task {task_id}.
+      Implement this task's assigned spec for Task {task_id}.
 
       This workspace is a scratchpad. Resolve the repository root with
       `git rev-parse --show-toplevel` and apply code edits there. Runtime
       artifacts (`runtime/...`) stay under this workspace.
 
+      Read the spec path assigned to this task from
+      `runtime/manifests/{task_id}-spec.txt` (single-line, repo-relative).
+      That path is your spec for every state of this task.
+
       Read the spec end-to-end and implement every normative requirement:
-      source code, the tests the spec asks for, configuration, documentation
-      cross-references, and CLI/API surfaces. If something is truly impossible
-      to implement now, record it as `deferred` in the implementation notes
-      with a concrete reason; do not silently skip.
+      source code, the tests the spec asks for, configuration,
+      documentation cross-references, and CLI/API surfaces. If something
+      is truly impossible to implement now, record it as `deferred` in the
+      implementation notes with a concrete reason; do not silently skip.
 
       Write a summary to `{output.implementation-notes.path}` listing each
       spec section, the implementation files that satisfy it, and any
@@ -106,32 +234,33 @@ states:
       - claude-code[yolo]:anthropic:claude-opus-4-7
       - codex[xhigh]:openai:gpt-5.5
     personality: |
-      You are {target}, an exhaustive completeness auditor. Enumerate every
-      normative claim in the spec and check whether the implementation covers
-      it. Do not assess code quality here -- that comes later. Cite evidence
-      with `file:line`.
+      You are {target}, an exhaustive completeness auditor. Enumerate
+      every normative claim in the spec and check whether the
+      implementation covers it. Do not assess code quality here -- that
+      comes later. Cite evidence with `file:line`.
     inputs:
       - name: implementation-notes
         path: runtime/implement/{task_id}-implementation-notes.md
     instructions: |
-      Audit the implementation against `docs/functional-spec/rhei-list.spec.md` for Task {task_id}.
+      Audit the implementation against the spec assigned to Task {task_id}.
 
-      Resolve the repo root via `git rev-parse --show-toplevel` and read both
-      the spec and the implementation from that checkout. The implementation
-      notes at `{input.implementation-notes.path}` are a hint, not ground
-      truth.
+      Resolve the repo root via `git rev-parse --show-toplevel`. Read the
+      assigned spec path from `runtime/manifests/{task_id}-spec.txt` and
+      use that file (and the implementation in the repo) as the scope of
+      this audit. The implementation notes at
+      `{input.implementation-notes.path}` are a hint, not ground truth.
 
-      For every normative requirement, behavior contract, edge case, error
-      path, validation rule, and CLI/API surface in the spec, mark it as
-      one of:
+      For every normative requirement, behavior contract, edge case,
+      error path, validation rule, and CLI/API surface in the spec, mark
+      it as one of:
 
         - covered      (with file:line evidence)
         - partial      (covered but with a concrete gap)
         - missing      (no implementation)
         - not-normative (spec text is descriptive, not normative)
 
-      Write the inventory to `{output.completeness-gaps.path}`. Do not edit
-      any repository files. Transition to `completeness-aggregate`.
+      Write the inventory to `{output.completeness-gaps.path}`. Do not
+      edit any repository files. Transition to `completeness-aggregate`.
     outputs:
       - name: completeness-gaps
         path: runtime/completeness/{task_id}-gaps-{target.slug}.md
@@ -141,20 +270,22 @@ states:
     description: Merge per-reviewer inventories into a single gap list.
     target: codex[xhigh]:openai:gpt-5.5
     personality: |
-      You are the completeness aggregator. Merge conservatively: a finding is
-      a gap if any reviewer marked it `missing` or `partial` and no reviewer
-      cited concrete file:line evidence that it is already covered.
+      You are the completeness aggregator. Merge conservatively: a
+      finding is a gap if any reviewer marked it `missing` or `partial`
+      and no reviewer cited concrete file:line evidence that it is
+      already covered.
     instructions: |
       Aggregate completeness inventories for Task {task_id}.
 
       Read every file matching `runtime/completeness/{task_id}-gaps-*.md`.
       Deduplicate per spec section. For each section:
 
-        - If any reviewer marked it `missing` or `partial` and no reviewer
-          cited refuting file:line evidence, keep it as a `gap`.
-        - If every reviewer marked it `covered` with concrete evidence, drop
-          it.
-        - Preserve genuine disagreements so `completeness-fix` can decide.
+        - If any reviewer marked it `missing` or `partial` and no
+          reviewer cited refuting file:line evidence, keep it as a `gap`.
+        - If every reviewer marked it `covered` with concrete evidence,
+          drop it.
+        - Preserve genuine disagreements so `completeness-fix` can
+          decide.
 
       Write the merged list to `{output.completeness-gap-list.path}`.
       Transition to `completeness-fix`.
@@ -167,24 +298,25 @@ states:
     description: Fill the gaps identified by the completeness pass.
     target: claude-code[yolo]:anthropic:claude-opus-4-7
     personality: |
-      You are the completeness fixer. Close exactly the gaps listed; do not
-      broaden the change. If a gap is genuinely impossible to close now,
-      record it as `deferred` with a concrete reason.
+      You are the completeness fixer. Close exactly the gaps listed; do
+      not broaden the change. If a gap is genuinely impossible to close
+      now, record it as `deferred` with a concrete reason.
     inputs:
       - name: completeness-gap-list
         path: runtime/completeness/{task_id}-gap-list.md
     instructions: |
       Close completeness gaps for Task {task_id}.
 
-      Resolve the repo root via `git rev-parse --show-toplevel`. Code edits
-      happen there; runtime artifacts stay in this workspace.
+      Resolve the repo root via `git rev-parse --show-toplevel`. Code
+      edits happen there; runtime artifacts stay in this workspace.
 
-      Read `{input.completeness-gap-list.path}`. Implement every listed gap
+      Read `{input.completeness-gap-list.path}` and the spec assignment at
+      `runtime/manifests/{task_id}-spec.txt`. Implement every listed gap
       and update or add tests as the spec requires.
 
-      Write the fix log to `{output.completeness-fix-log.path}` listing each
-      gap, the files edited, and the tests added or updated. Transition to
-      `quality-review`.
+      Write the fix log to `{output.completeness-fix-log.path}` listing
+      each gap, the files edited, and the tests added or updated.
+      Transition to `quality-review`.
     outputs:
       - name: completeness-fix-log
         path: runtime/completeness/{task_id}-fix-log.md
@@ -203,14 +335,16 @@ states:
     personality: |
       You are {target}, a rigorous implementation reviewer. Focus on
       correctness, regressions, contract violations, concurrency, error
-      handling, and material risks. Skip pure style nits unless they signal a
-      real defect. Do not repeat findings from earlier passes of this task.
+      handling, and material risks. Skip pure style nits unless they
+      signal a real defect. Do not repeat findings from earlier passes of
+      this task.
     instructions: |
       Quality review pass {visit_count} of {visits} for Task {task_id}.
 
-      Resolve the repo root via `git rev-parse --show-toplevel` and read the
-      implementation from there. Read the spec at `docs/functional-spec/rhei-list.spec.md` and compare
-      actual behavior to specified behavior.
+      Resolve the repo root via `git rev-parse --show-toplevel`. Read the
+      assigned spec path from `runtime/manifests/{task_id}-spec.txt` and
+      compare actual behavior in the implementation against specified
+      behavior.
 
       Earlier passes' artifacts live under `runtime/quality/`:
 
@@ -227,8 +361,8 @@ states:
         - Concurrency, error handling, and resource management
         - Contract violations at public interfaces
 
-      Organize findings into these focus subsections. Every subsection must
-      appear, even if empty (write `- none`):
+      Organize findings into these focus subsections. Every subsection
+      must appear, even if empty (write `- none`):
         - performance
         - error handling
         - concurrency
@@ -244,7 +378,8 @@ states:
           - Evidence: <specific code or spec evidence>
           - Suggested fix: <minimal direction>
 
-      Do not edit any repository files. Transition to `quality-aggregate`.
+      Do not edit any repository files. Transition to
+      `quality-aggregate`.
     outputs:
       - name: quality-findings
         path: runtime/quality/{task_id}-pass-{visit_count}-{target.slug}.md
@@ -256,18 +391,19 @@ states:
     visits: 2
     personality: |
       You are the quality aggregator. Deduplicate per-reviewer findings,
-      preserve disagreements, and decide which deserve a fix. Reject or defer
-      nits and low-value findings whose fix would be broad or risky.
+      preserve disagreements, and decide which deserve a fix. Reject or
+      defer nits and low-value findings whose fix would be broad or
+      risky.
     instructions: |
       Aggregate quality findings for pass {visit_count} of {visits} for
       Task {task_id}.
 
       Read every file matching
-      `runtime/quality/{task_id}-pass-{visit_count}-*.md` (one per reviewer).
-      Deduplicate aggressively, preserve disagreements, and classify each
-      candidate as `accepted`, `rejected`, or `defer`. Accepted items must
-      have bounded, testable fixes; reject or defer anything whose fix would
-      broaden scope significantly.
+      `runtime/quality/{task_id}-pass-{visit_count}-*.md` (one per
+      reviewer). Deduplicate aggressively, preserve disagreements, and
+      classify each candidate as `accepted`, `rejected`, or `defer`.
+      Accepted items must have bounded, testable fixes; reject or defer
+      anything whose fix would broaden scope significantly.
 
       Write the plan to `{output.quality-fix-plan.path}`:
 
@@ -300,50 +436,57 @@ states:
         path: runtime/quality/{task_id}-pass-{visit_count}-fix-plan.md
     personality: |
       You are the quality fixer. Apply only fixes marked `accepted`. Keep
-      each change narrow. If a fix turns out to need broader scope than the
-      plan describes, mark it `skipped` in the log instead of expanding the
-      patch.
+      each change narrow. If a fix turns out to need broader scope than
+      the plan describes, mark it `skipped` in the log instead of
+      expanding the patch.
     instructions: |
       Apply quality fixes for pass {visit_count} of {visits} for
       Task {task_id}.
 
-      Resolve the repo root via `git rev-parse --show-toplevel`. Code edits
-      happen there; runtime artifacts stay in this workspace.
+      Resolve the repo root via `git rev-parse --show-toplevel`. Code
+      edits happen there; runtime artifacts stay in this workspace.
 
-      Read `{input.quality-fix-plan.path}`. Apply only `accepted` fixes and
-      run the tests or checks listed in the plan when feasible.
+      Read `{input.quality-fix-plan.path}`. Apply only `accepted` fixes
+      and run the tests or checks listed in the plan when feasible.
 
-      Write the log to `{output.quality-fix-log.path}` listing each accepted
-      fix id, the files edited, the checks run (or why they were skipped),
-      and any items intentionally left unfixed.
+      Write the log to `{output.quality-fix-log.path}` listing each
+      accepted fix id, the files edited, the checks run (or why they
+      were skipped), and any items intentionally left unfixed.
 
-      If `visit_count < visits`, transition back to `quality-review` for the
-      next pass. Otherwise transition to `e2e-write`.
+      If `visit_count < visits`, transition back to `quality-review` for
+      the next pass. Otherwise transition to `completed`. The shared
+      `e2e-aggregate` task picks up once every per-spec task is complete.
     outputs:
       - name: quality-fix-log
         path: runtime/quality/{task_id}-pass-{visit_count}-fix-log.md
         description: Summary of fixes applied in one pass.
 
   # ---------------------------------------------------------------------------
-  # 4. E2E loop: extend end-to-end coverage, verify, repeat
+  # 4. E2E loop: extend end-to-end coverage across all implemented specs
   # ---------------------------------------------------------------------------
 
   e2e-write:
-    description: Add or extend end-to-end tests for the implemented spec, using the mock agent by default.
+    description: Add or extend end-to-end tests across the implemented specs, using the mock agent by default.
     target: claude-code[yolo]:anthropic:claude-opus-4-7
     visits: 2
     personality: |
-      You are the e2e writer ({target}). Add end-to-end tests that exercise
-      spec-defined behavior through the public interface. Avoid duplicating
-      existing unit-test coverage; focus on flows only e2e tests can
-      validate. Default to the mock agent (`mock`); only add a
-      real-agent test when no mock-driven test could meaningfully cover the
-      behavior.
+      You are the e2e writer ({target}). Add end-to-end tests that
+      exercise spec-defined behavior through the public interface. Avoid
+      duplicating existing unit-test coverage; focus on flows only e2e
+      tests can validate. Default to the mock agent (`mock`);
+      only add a real-agent test when no mock-driven test could
+      meaningfully cover the behavior.
     instructions: |
-      Extend e2e coverage pass {visit_count} of {visits} for Task {task_id}.
+      Extend e2e coverage pass {visit_count} of {visits} for
+      Task {task_id}.
 
-      Resolve the repo root via `git rev-parse --show-toplevel`. Test edits
-      happen there; runtime artifacts stay in this workspace.
+      Resolve the repo root via `git rev-parse --show-toplevel`. Test
+      edits happen there; runtime artifacts stay in this workspace.
+
+      Read the implemented spec set from
+      `runtime/manifests/coordinate-spec-assignments.md` (written by the
+      coordinator at the start of the workspace). Every spec listed there
+      is in scope for this loop.
 
       The project's e2e tests live under `e2e`. Add tests
       there.
@@ -355,33 +498,35 @@ states:
       The standard suite must stay fast and deterministic and must not
       depend on a real model provider being reachable.
 
-      A small set of release-only tests may invoke real agent operations to
-      verify that the agent integration still works end-to-end. These tests
-      MUST be marked with `release-only` so the project's CI
-      runner can exclude them from the default test command and include them
-      only in release builds.
+      A small set of release-only tests may invoke real agent operations
+      to verify that the agent integration still works end-to-end. These
+      tests MUST be marked with `release-only` so the
+      project's CI runner can exclude them from the default test command
+      and include them only in release builds.
 
-      Release-only tests live under `e2e/release-only`. Keep them
-      there, separate from the mock-driven suite.
+      Release-only tests live under `e2e/release-only`. Keep
+      them there, separate from the mock-driven suite.
 
-      Keep the release-only set small. Rule of thumb: one happy-path test
-      per distinct real-agent integration. Do not add a release-only test
-      for a behavior the mock-driven suite already covers; do not add a
-      release-only test in the same pass as a brand-new feature unless an
-      existing mock-driven test fails to exercise the integration boundary.
+      Keep the release-only set small. Rule of thumb: one happy-path
+      test per distinct real-agent integration. Do not add a release-only
+      test for a behavior the mock-driven suite already covers; do not
+      add a release-only test in the same pass as a brand-new feature
+      unless an existing mock-driven test fails to exercise the
+      integration boundary.
 
       ## What to add in this pass
 
       If `visit_count > 1`, read every prior verify report under
-      `runtime/e2e/{task_id}-verify-pass-*.md` and address the gaps listed
-      in the most recent one first. Otherwise enumerate user-facing spec
-      behaviors with no e2e coverage and pick the highest-value ones.
+      `runtime/e2e/{task_id}-verify-pass-*.md` and address the gaps
+      listed in the most recent one first. Otherwise enumerate
+      user-facing behaviors across the implemented specs that have no
+      e2e coverage and pick the highest-value ones.
 
-      Run the e2e suite after adding tests (mock-driven tests only — do not
-      run the release-only subset here). Record each new test, the spec
-      behavior it covers, whether it is mock-driven or release-only, and
-      the suite run result to `{output.e2e-write-report.path}`. Transition
-      to `e2e-verify`.
+      Run the e2e suite after adding tests (mock-driven tests only -- do
+      not run the release-only subset here). Record each new test, the
+      spec behavior it covers, whether it is mock-driven or release-only,
+      and the suite run result to `{output.e2e-write-report.path}`.
+      Transition to `e2e-verify`.
     outputs:
       - name: e2e-write-report
         path: runtime/e2e/{task_id}-write-pass-{visit_count}.md
@@ -398,44 +543,47 @@ states:
       You are the e2e verifier ({target}). Independently run the suite,
       audit the tests the writer added, and identify remaining coverage
       gaps. Enforce the mock-agent policy and the size cap on the
-      release-only subset. Do not write new tests in this state -- that is
-      the next write pass's job. Be specific about what is missing.
+      release-only subset. Do not write new tests in this state -- that
+      is the next write pass's job. Be specific about what is missing.
     instructions: |
-      Verify e2e coverage pass {visit_count} of {visits} for Task {task_id}.
+      Verify e2e coverage pass {visit_count} of {visits} for
+      Task {task_id}.
 
-      Resolve the repo root via `git rev-parse --show-toplevel` and run the
-      e2e suite from there. Inspection and run commands happen against the
-      checkout; runtime artifacts stay in this workspace.
+      Resolve the repo root via `git rev-parse --show-toplevel` and run
+      the e2e suite from there. Inspection and run commands happen
+      against the checkout; runtime artifacts stay in this workspace.
 
-      Read `{input.e2e-write-report.path}`. Independently:
+      Read `{input.e2e-write-report.path}` and the implemented spec set
+      at `runtime/manifests/coordinate-spec-assignments.md`.
+      Independently:
 
         - Re-run the standard e2e suite (mock-driven tests only; exclude
-          tests marked `release-only`). Record pass/fail counts.
-          Do not invoke real agents in this state.
-        - Audit the writer's new tests: do they actually exercise the spec
-          behaviors they claim to cover? Are assertions meaningful?
+          tests marked `release-only`). Record pass/fail
+          counts. Do not invoke real agents in this state.
+        - Audit the writer's new tests: do they actually exercise the
+          spec behaviors they claim to cover? Are assertions meaningful?
         - Enforce the mock-agent policy: every newly-added test that is
-          NOT marked `release-only` MUST target the mock agent
-          (`mock`). Flag any standard test that calls real-agent
-          code paths as a policy violation that must be fixed in the next
-          write pass.
+          NOT marked `release-only` MUST target the mock
+          agent (`mock`). Flag any standard test that calls
+          real-agent code paths as a policy violation that must be fixed
+          in the next write pass.
         - Audit the release-only subset overall (not just the new tests):
-          enumerate every test marked `release-only` across the
-          repository (under `e2e/release-only`).
+          enumerate every test marked `release-only` across
+          the repository (under `e2e/release-only`).
           Flag growth as a concern when the set materially exceeds one
-          happy-path test per real-agent integration, or when newly-added
-          release-only tests duplicate behavior already covered by a
-          mock-driven test.
-        - List remaining e2e coverage gaps: spec behaviors no test
-          exercises through the public interface.
+          happy-path test per real-agent integration, or when
+          newly-added release-only tests duplicate behavior already
+          covered by a mock-driven test.
+        - List remaining e2e coverage gaps across the implemented specs.
 
-      Write the verify report to `{output.e2e-verify-report.path}` with the
-      suite result, audit findings, mock-agent policy verdict, release-only
-      subset audit, and a prioritized gap list for the next write pass.
+      Write the verify report to `{output.e2e-verify-report.path}` with
+      the suite result, audit findings, mock-agent policy verdict,
+      release-only subset audit, and a prioritized gap list for the next
+      write pass.
 
-      If `visit_count < visits`, transition back to `e2e-write` so the gaps
-      and policy violations can be addressed. Otherwise transition to
-      `completed`.
+      If `visit_count < visits`, transition back to `e2e-write` so the
+      gaps and policy violations can be addressed. Otherwise transition
+      to `completed`.
     outputs:
       - name: e2e-verify-report
         path: runtime/e2e/{task_id}-verify-pass-{visit_count}.md
@@ -446,11 +594,10 @@ states:
   # ---------------------------------------------------------------------------
 
   completed:
-    description: Spec implemented, completeness audited, quality reviewed and fixed, and e2e coverage extended.
+    description: Task is done.
     final: true
     instructions: |
-      Task {task_id} is complete. The spec at `docs/functional-spec/rhei-list.spec.md` has been
-      implemented and reviewed end-to-end.
+      Task {task_id} is complete.
 
   cancelled:
     description: Task cancelled before completion.
@@ -460,7 +607,12 @@ states:
 
 transitions:
 
-  # Linear pipeline through the completeness pass
+  # Coordinator
+  - from: coordinate
+    to: completed
+    description: Spec assignments, per-spec task files, and the e2e-aggregate task are all appended.
+
+  # Per-spec pipeline
   - from: implement
     to: completeness-review
     description: Initial implementation done; audit completeness.
@@ -477,7 +629,6 @@ transitions:
     to: quality-review
     description: Gaps closed; begin the quality review/fix loop.
 
-  # Quality loop
   - from: quality-review
     to: quality-aggregate
     description: Every reviewer wrote findings for this pass; aggregate.
@@ -492,11 +643,11 @@ transitions:
     description: Fixes applied; budget remains, run another review pass.
 
   - from: quality-fix
-    to: e2e-write
+    to: completed
     condition: visitCount >= visits
-    description: Quality loop budget exhausted; start the e2e coverage loop.
+    description: Quality loop budget exhausted; per-spec task is done. The e2e-aggregate task picks up once every per-spec task completes.
 
-  # E2E loop
+  # E2E aggregate loop
   - from: e2e-write
     to: e2e-verify
     description: New e2e tests written; hand off to the verifier.
@@ -509,29 +660,9 @@ transitions:
   - from: e2e-verify
     to: completed
     condition: visitCount >= visits
-    description: E2e loop budget exhausted; task is done.
+    description: E2e loop budget exhausted; workflow is done.
 
   # Escape hatch
   - from: "*"
     to: cancelled
     description: Cancel the task from any non-final state.
-
-profiles:
-  spec-implementation:
-    initial: implement
-    allowed:
-      - implement
-      - completeness-review
-      - completeness-aggregate
-      - completeness-fix
-      - quality-review
-      - quality-aggregate
-      - quality-fix
-      - e2e-write
-      - e2e-verify
-      - completed
-      - cancelled
-
-node_policy:
-  root: spec-implementation
-  default: spec-implementation
