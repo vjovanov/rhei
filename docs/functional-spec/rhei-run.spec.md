@@ -34,6 +34,15 @@ Flags are grouped by concern:
 | `--agent-mode <MODE>`   | Override the agent mode (named flag set) for this run                   |
 | `--model <MODEL>`       | Override the model for this run                                         |
 
+### Snapshots
+
+| Flag | Description |
+|------|-------------|
+| `--from-snapshot <ref>` | Override the concrete source selected by an authored `snapshot.inherit:` after that state's constraints are applied. See [Snapshots Specification — `rhei run --from-snapshot`](rhei-snapshots.spec.md#rhei-run---from-snapshot-ref). |
+| `--override-inherit` | Explicitly bypass authored source-selection and compatibility constraints for an ad-hoc debug run. The target state must still declare `snapshot.inherit:`. Requires `--from-snapshot`. |
+| `--task <id>` | Select the task for an ambiguous snapshot override. |
+| `--target <slug>` | Select the fanout target for an ambiguous snapshot override. |
+
 ### Program Execution
 
 | Flag                           | Description                                                                      |
@@ -51,12 +60,26 @@ Mode selection: `rhei run` uses orchestrated subprocess execution whenever any r
 2. Scan all tasks and compute the *ready set*: tasks whose `**Prior:**` are all in terminal states, whose current state is non-terminal and non-gating, and whose current state's required `inputs:` all exist. Tasks whose current state declares `poll:` and whose `metadata.tasks.<id>.pollNextAttemptAt.<state-name>` is later than the current wall-clock time are excluded from the ready set until the interval elapses. See [Next Command](rhei-next.spec.md#default-behavior-claim-mode) for the full claimability rule and [Polling States](#polling-states) for the poll scheduling rule.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
    - Resolve the state's target: either an agent subprocess (`agent` or resolved target selector) or a program (`program`).
+   - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#environment-variables)), and timeout.
    - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
 4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#completion-condition): exit code `0` plus every required `outputs:` artifact present on disk.
-5. If the condition holds, select the first declared transition whose `condition` / `exit_code` matches and execute it. The subprocess **must not** call `rhei transition` or `rhei complete`; the orchestrator owns the transition.
-6. If the condition fails (non-zero exit or missing outputs), route through the state's error or timeout transition per [Agents Specification — Execution Loop](rhei-agents.spec.md#execution-loop). When no error transition is declared and `--continue-on-error` is unset, `rhei run` aborts with a non-zero exit code.
-7. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
+5. Select the outgoing transition without applying it yet. If the condition
+   holds, select the first declared transition whose `condition` / `exit_code`
+   matches. If the condition fails (non-zero exit or missing outputs), route
+   through the state's error or timeout transition per
+   [Agents Specification — Execution Loop](rhei-agents.spec.md#execution-loop).
+   When no error transition is declared and `--continue-on-error` is unset,
+   `rhei run` aborts with a non-zero exit code.
+6. For agent-bearing states with supported snapshot sessions, write
+   auto-emitted `_state` snapshots and any matching named `snapshot.emit:`
+   after transition selection and before the transition is applied. Poll
+   self-loop attempts do not emit because the selected transition is known;
+   terminal poll exits may emit. See
+   [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#emit-on-exit).
+7. Apply the selected transition. The subprocess **must not** call
+   `rhei transition` or `rhei complete`; the orchestrator owns the transition.
+8. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
 
@@ -100,6 +123,10 @@ If, at the end of a pass, every remaining non-terminal task is either in a gatin
 
 Once `stateVisits.<state-name>` reaches `poll.max_attempts`, the engine refuses to select a self-loop transition and picks the first matching non-self-loop instead. If no non-self-loop transition matches, the run halts that task with a "polling exhausted with no matching non-self-loop transition" error — `--continue-on-error` applies as with any other task failure. A non-self-loop exit at any attempt clears both `pollNextAttemptAt.<state-name>` and `stateVisits.<state-name>`.
 
+`snapshot.inherit` is rejected on polling states in v1. Snapshot emit,
+including auto-emit, is suppressed for self-loop attempts and runs only on a
+terminal non-self-loop exit when the state is otherwise snapshot-capable.
+
 ### Concurrent vs. Serial States
 
 The [`concurrent`](rhei-states.spec.md#per-state-fields) flag on a `StateDef` determines whether multiple ready tasks in the same state may be scheduled together in one pass:
@@ -119,6 +146,7 @@ See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) f
 
 - [Agents Specification](rhei-agents.spec.md) — completion authority, completion condition, timeout handling, environment variables
 - [Program States Specification](rhei-programs.spec.md) — exit-code transitions and program-specific semantics
+- [Snapshots Specification](rhei-snapshots.spec.md) — snapshot side effects, inheritance preload, and `--from-snapshot`
 - [Run TUI Specification](rhei-run-tui.spec.md) — live terminal UI and transition journal
 - [Transitions Specification](rhei-transitions.spec.md) — transition YAML schema and callbacks
 - [Next Command](rhei-next.spec.md), [Complete Command](rhei-complete.spec.md), [Transition Command](rhei-transition-cmd.spec.md) — manual-worker counterparts

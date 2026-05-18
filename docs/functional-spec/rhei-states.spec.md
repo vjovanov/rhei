@@ -77,6 +77,7 @@ can start in different states within the same state machine.
 | `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. |
 | `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
 | `all_models` | string array | No | The complete set of declared model profile identifiers allowed to work this state |
+| `snapshot` | object | No | Per-state session snapshot emit/inherit contract. Optional; details and closed-schema validation live in [Snapshots Specification](rhei-snapshots.spec.md). |
 | `model` | string | No | A single model profile identifier from the machine-level `models` list |
 | `agent` | string | No | The coding agent CLI that executes work in this state. Must be an agent id resolved against the merged `agents` registry (built-ins → global → project `settings.json`). Inline agent objects are not permitted — define custom agents in the `agents` registry. See [Agents Specification](rhei-agents.spec.md). |
 | `agent_mode` | string | No | Named flag set applied to the resolved agent for this state. Must match a key in the resolved agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#modes). |
@@ -106,6 +107,13 @@ can start in different states within the same state machine.
   `<agent>[<mode>]:<provider>:<model>`.
 - `state.all_targets`, when present, must be a non-empty list of unique
   selectors following the same grammar as `state.target`.
+- The normalized `target.slug` values produced by a single fanout state
+  (`state.all_targets` or legacy `state.all_models`) must be unique within
+  that state's fanout set for any snapshot-capable agent invocation;
+  collisions are validation errors. The same target slug may appear in
+  different tasks, states, snapshot names, or visits because those fields are
+  part of the snapshot storage identity. See
+  [Snapshots Specification — Target Slug](rhei-snapshots.spec.md#target-slug).
 - `state.target` and `state.all_targets` are mutually exclusive.
 - `state.target` and `state.all_targets` must not be combined with any of
   `state.model`, `state.all_models`, `state.agent`, or `state.agent_mode`.
@@ -120,6 +128,9 @@ can start in different states within the same state machine.
 - `state.all_models`, when present, must be a list of unique non-empty strings drawn from the machine-level `models` list.
 - A state must not declare both `all_models: [..]` and `model: <name>`.
 - `state.all_models: []` is treated the same as omitting the field.
+- When a state with `all_models` participates in snapshots, each resolved
+  model invocation receives its own effective target tuple and `target.slug`;
+  snapshot selectors treat it the same as `all_targets`.
 - `state.visits`, when present, must be an integer greater than or equal to `1`.
 - `state.agent`, when present, must be a non-empty string id. Object-valued `agent:` entries are rejected: define the custom agent in the `agents` registry in `settings.json` and reference it by id. The id must resolve against the merged `agents` registry at run time (built-ins → global → project).
 - `state.agent` on a `final: true` state is a validation error (terminal states have no work to execute).
@@ -147,6 +158,13 @@ can start in different states within the same state machine.
 - `state.poll` on a `gating: true` state is a validation error (gating states require human action; polling executes autonomously).
 - `state.poll` combined with `state.visits` is a validation error. `poll.max_attempts` replaces the `visits` cap for the poll state and populates the same `stateVisits` counter.
 - A state that declares `poll` must have at least one self-loop transition (`from: <state>, to: <state>`); without it the "retry" branch is unreachable.
+- A state that declares both `poll` and `snapshot.inherit` is a validation
+  error in v1. Polling states may still emit snapshots on terminal exit when
+  otherwise snapshot-capable. See [Snapshots Specification — Counted Loops, Fanout, and Polling](rhei-snapshots.spec.md#counted-loops-fanout-and-polling).
+- Snapshot operations require a resolved effective target tuple `(agent, mode?,
+  provider, model)`. Legacy `agent`/`model` and `all_models` states may use
+  snapshots only when normal resolution can derive that tuple; otherwise
+  explicit snapshot fields are rejected and auto-emit is skipped.
 
 Counted-loop counters are task-instance data, not state-definition data. The state machine declares the cap with `visits`; runtimes persist the current per-task counts in task metadata and mirror the active visit in markdown by appending `-<n>` to `**State:**` for visits greater than `1`.
 
