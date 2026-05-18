@@ -64,7 +64,6 @@ struct SnapshotSettings {
     /// Optional allow-list for redactor environment forwarding. The v1 hook
     /// keeps the parent environment closed by default per §4.2.
     #[serde(default)]
-    #[allow(dead_code)]
     redactor_env: Vec<String>,
 }
 
@@ -189,7 +188,7 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
     }
 
     let modes_yolo_only = |yolo: Vec<String>| {
-        let mut modes = BTreeMap::new();
+        let mut modes = IndexMap::new();
         modes.insert("yolo".to_string(), yolo);
         modes
     };

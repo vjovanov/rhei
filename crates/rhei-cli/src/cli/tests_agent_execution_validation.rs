@@ -1,17 +1,3 @@
-  while IFS= read -r line || [ -n "$line" ]; do
-    printf 'stdin:%s\n' "$line"
-  done
-fi
-printf 'partial'
-"#,
-        )
-        .expect("write fake agent");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("chmod");
-        script
-    }
-
     #[cfg(unix)]
     fn run_fake_agent_profile(
         profile: CustomAgentProfile,
@@ -358,6 +344,50 @@ printf 'stdout:before-background\n'
     }
 
     #[test]
+    fn unknown_tooling_id_validation_rejects_defaults_and_state_references() {
+        let mut settings = default_settings();
+        settings.defaults.mcp_servers = Some(vec![StateMcpEntry::Id("missing-default".to_string())]);
+        settings.defaults.skills = Some(vec![StateSkillEntry::Id("missing-skill".to_string())]);
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    mcp_servers: [missing-state]\n    skills: [missing-state-skill]\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+
+        let errs = validate_machine_settings_references(&machine, &settings);
+
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("defaults.mcp_servers references unknown mcp server 'missing-default'")));
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("defaults.skills references unknown skill 'missing-skill'")));
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("state 'pending' mcp_servers references unknown mcp server 'missing-state'")));
+        assert!(errs
+            .iter()
+            .any(|e| e.contains("state 'pending' skills references unknown skill 'missing-state-skill'")));
+    }
+
+    #[test]
+    fn unknown_tooling_id_validation_keeps_known_optional_unavailable_runtime_status() {
+        let mut settings = default_settings();
+        settings.skills.insert(
+            "known".to_string(),
+            SkillProfile { path: "/definitely/not/present".to_string(), description: None },
+        );
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    skills:\n      - id: known\n        optional: true\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+
+        let errs = validate_machine_settings_references(&machine, &settings);
+        assert!(errs.is_empty(), "known optional unavailable tooling is a runtime status: {errs:?}");
+        let tooling = resolve_tooling(&machine, "pending", &settings);
+        assert_eq!(tooling.skills.len(), 1);
+        assert!(tooling.skills[0].definition.is_none());
+        assert!(tooling.skills[0].optional);
+    }
+
+    #[test]
     fn validates_snapshot_operations_require_target_and_session_profile() {
         let settings = default_settings();
         let no_target = machine_with_states(
@@ -466,3 +496,6 @@ printf 'stdout:before-background\n'
         let mcp_idxs: Vec<usize> =
             args.iter().enumerate().filter(|(_, a)| *a == "--mcp").map(|(i, _)| i).collect();
         assert_eq!(mcp_idxs.len(), 2, "one --mcp per resolved server: {args:?}");
+        assert_eq!(args[mcp_idxs[0] + 1], "linear");
+        assert_eq!(args[mcp_idxs[1] + 1], "postgres");
+    }

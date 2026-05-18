@@ -312,6 +312,40 @@ fn run_agent_mode(
             }
         }
 
+        let program_tasks = {
+            let mut filtered: Vec<(String, String, String, ResolvedProgram)> = Vec::new();
+            let mut state_claimant: HashMap<String, String> = HashMap::new();
+            let mut deferred: BTreeSet<String> = BTreeSet::new();
+            for entry in program_tasks {
+                let is_concurrent =
+                    machine.states.get(&entry.2).map(|d| d.concurrent).unwrap_or(false);
+                if is_concurrent {
+                    filtered.push(entry);
+                    continue;
+                }
+                match state_claimant.get(&entry.2) {
+                    Some(claimant) if claimant == &entry.0 => filtered.push(entry),
+                    Some(_) => {
+                        deferred.insert(entry.0);
+                    }
+                    None => {
+                        state_claimant.insert(entry.2.clone(), entry.0.clone());
+                        filtered.push(entry);
+                    }
+                }
+            }
+            if !deferred.is_empty() {
+                let deferred_vec: Vec<String> = deferred.iter().cloned().collect();
+                run_info!(
+                    "Deferred {} task(s) in non-concurrent states to a later pass: {}",
+                    deferred_vec.len(),
+                    deferred_vec.join(", ")
+                );
+                sink.emit(RunEvent::TasksDeferred { pass, tasks: deferred_vec });
+            }
+            filtered
+        };
+
         if !program_tasks.is_empty() {
             if opts.dry_run() {
                 for (task_id_str, current_state_raw, current_state, resolved) in &program_tasks {
@@ -384,16 +418,18 @@ fn run_agent_mode(
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
                 let (outcome, exit_code) = match &spawn_result {
-                    Ok(status) if status.success() => (TaskOutcome::Completed, status.code()),
-                    Ok(status) => {
-                        let code = status.code().unwrap_or(-1);
+                    Ok(program_outcome) if program_outcome.status.success() => {
+                        (TaskOutcome::Completed, program_outcome.status.code())
+                    }
+                    Ok(program_outcome) => {
+                        let code = program_outcome.status.code().unwrap_or(-1);
                         (
-                            if resolved.timeout_secs.is_some() && !status.success() {
+                            if program_outcome.timed_out {
                                 TaskOutcome::TimedOut
                             } else {
                                 TaskOutcome::Failed(format!("exit {code}"))
                             },
-                            status.code(),
+                            program_outcome.status.code(),
                         )
                     }
                     Err(err) => (TaskOutcome::Failed(err.to_string()), None),
@@ -412,7 +448,7 @@ fn run_agent_mode(
                 });
 
                 match spawn_result {
-                    Ok(status) => {
+                    Ok(program_outcome) => {
                         programs_spawned += 1;
                         let mut reloaded = load_plan(input)?;
                         let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
@@ -430,16 +466,26 @@ fn run_agent_mode(
                             continue;
                         }
 
-                        if !status.success() && resolved.timeout_secs.is_some() {
-                            let _ = fire_timeout_transition(
+                        if program_outcome.timed_out {
+                            match fire_timeout_transition(
                                 input,
                                 machine,
                                 callback_paths,
                                 task_id_str,
                                 current_state,
-                                resolved.timeout_secs,
+                                program_outcome.timeout_secs,
                                 opts.no_callbacks(),
-                            );
+                            ) {
+                                TimeoutTransitionOutcome::Fired => {}
+                                TimeoutTransitionOutcome::NoRule => {
+                                    run_warn!(
+                                        "  warning: program for task {} timed out from '{}' but no timeout transition is declared; task remains in state",
+                                        task_id_str,
+                                        current_state
+                                    );
+                                }
+                                TimeoutTransitionOutcome::Failed => {}
+                            }
                             reloaded = load_plan(input)?;
                             state_after = reloaded
                                 .rhei
@@ -459,9 +505,10 @@ fn run_agent_mode(
                                 advanced_any = true;
                                 continue;
                             }
+                            continue;
                         }
 
-                        let exit_code = status.code().unwrap_or(-1);
+                        let exit_code = program_outcome.status.code().unwrap_or(-1);
                         if let Some(to_state) = find_program_exit_transition(
                             machine,
                             loaded.rhei.metadata.as_ref(),
@@ -491,7 +538,7 @@ fn run_agent_mode(
                             } else {
                                 task_file.clone()
                             };
-                            execute_transition(
+                            execute_system_program_exit_transition(
                                 TransitionFiles {
                                     task_file: &task_file,
                                     metadata_file: &metadata_file,
@@ -501,6 +548,7 @@ fn run_agent_mode(
                                 task_id_str,
                                 current_state,
                                 &to_state,
+                                exit_code,
                                 opts.no_callbacks(),
                             )?;
                             run_info!(
@@ -510,7 +558,7 @@ fn run_agent_mode(
                                 to_state
                             );
                             advanced_any = true;
-                        } else if status.success() {
+                        } else if program_outcome.status.success() {
                             run_warn!(
                                 "  warning: program exited 0 but task {} did not advance from '{}'",
                                 task_id_str,
@@ -822,6 +870,18 @@ fn run_agent_mode(
                             state_def,
                             resolved,
                         );
+                    let missing_required_outputs = if status.success() && !outputs_ok {
+                        collect_missing_required_outputs_for_resolved_invocation(
+                            &workspace_root,
+                            machine,
+                            loaded.rhei.metadata.as_ref(),
+                            task,
+                            current_state,
+                            resolved,
+                        )
+                    } else {
+                        Vec::new()
+                    };
                     let snapshot_completion = if timed_out {
                         SnapshotCompletion::Timeout
                     } else if outputs_ok {
@@ -829,21 +889,24 @@ fn run_agent_mode(
                     } else {
                         SnapshotCompletion::Failure
                     };
-                    if let Err(err) = emit_snapshots_after_agent_exit(
-                        &workspace_root,
-                        machine,
-                        settings,
-                        task,
-                        current_state,
-                        resolved,
-                        &log,
-                        visit_count,
-                        snapshot_completion,
-                        &snapshot_preload,
-                    ) {
-                        run_error!("  error: {}", err);
-                        if !opts.continue_on_error() {
-                            return Err(err);
+                    if !status.success() {
+                        if let Err(err) = emit_snapshots_after_agent_exit(
+                            &workspace_root,
+                            machine,
+                            settings,
+                            task,
+                            current_state,
+                            None,
+                            resolved,
+                            &log,
+                            visit_count,
+                            snapshot_completion,
+                            &snapshot_preload,
+                        ) {
+                            run_error!("  error: {}", err);
+                            if !opts.continue_on_error() {
+                                return Err(err);
+                            }
                         }
                     }
                     let reloaded = load_plan(input)?;
@@ -852,6 +915,28 @@ fn run_agent_mode(
                     let state_before = current_state.as_str();
 
                     if state_after != state_before {
+                        if status.success() {
+                            if let Some(task_for_snapshot) = task_after {
+                                if let Err(err) = emit_snapshots_after_agent_exit(
+                                    &workspace_root,
+                                    machine,
+                                    settings,
+                                    task_for_snapshot,
+                                    state_before,
+                                    Some(state_after),
+                                    resolved,
+                                    &log,
+                                    visit_count,
+                                    snapshot_completion,
+                                    &snapshot_preload,
+                                ) {
+                                    run_error!("  error: {}", err);
+                                    if !opts.continue_on_error() {
+                                        return Err(err);
+                                    }
+                                }
+                            }
+                        }
                         run_info!(
                             "  Task {} advanced: '{}' -> '{}'",
                             task_id_str,
@@ -860,6 +945,15 @@ fn run_agent_mode(
                         );
                         advanced_any = true;
                     } else if status.success() {
+                        if !missing_required_outputs.is_empty() {
+                            emit_exit_zero_missing_required_outputs_warning(
+                                task_id_str,
+                                state_before,
+                                &missing_required_outputs,
+                                &sink,
+                            );
+                            continue;
+                        }
                         let pending_more = machine
                             .states
                             .get(state_before)
@@ -880,6 +974,24 @@ fn run_agent_mode(
                         if pending_more {
                             continue;
                         }
+                        let mut emit_before_transition =
+                            |task_for_snapshot: &rhei_core::ast::Task,
+                             to_state: &str|
+                             -> MietteResult<()> {
+                                emit_snapshots_after_agent_exit(
+                                    &workspace_root,
+                                    machine,
+                                    settings,
+                                    task_for_snapshot,
+                                    state_before,
+                                    Some(to_state),
+                                    resolved,
+                                    &log,
+                                    visit_count,
+                                    snapshot_completion,
+                                    &snapshot_preload,
+                                )
+                            };
                         match try_auto_advance_task(
                             input,
                             machine,
@@ -887,6 +999,7 @@ fn run_agent_mode(
                             task_id_str,
                             state_before,
                             opts.no_callbacks(),
+                            Some(&mut emit_before_transition),
                         ) {
                             Ok(Some(to_state)) => {
                                 run_info!(
@@ -1203,6 +1316,8 @@ fn run_agent_mode(
                         let target_id = parse_task_id(&task_id_str);
                         let reloaded = load_plan(input)?;
                         let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
+                        let mut missing_required_outputs = Vec::new();
+                        let mut snapshot_completion_for_emit = None;
                         if let (Some(task_for_snapshot), Some(state_def)) =
                             (task_after, machine.states.get(state_name.as_str()))
                         {
@@ -1217,6 +1332,17 @@ fn run_agent_mode(
                                     state_def,
                                     &resolved,
                                 );
+                            if status.success() && !outputs_ok {
+                                missing_required_outputs =
+                                    collect_missing_required_outputs_for_resolved_invocation(
+                                        &workspace_root,
+                                        machine,
+                                        reloaded.rhei.metadata.as_ref(),
+                                        task_for_snapshot,
+                                        &state_name,
+                                        &resolved,
+                                    );
+                            }
                             let snapshot_completion = if timed_out {
                                 SnapshotCompletion::Timeout
                             } else if outputs_ok {
@@ -1224,26 +1350,54 @@ fn run_agent_mode(
                             } else {
                                 SnapshotCompletion::Failure
                             };
-                            if let Err(err) = emit_snapshots_after_agent_exit(
-                                &workspace_root,
-                                machine,
-                                settings,
-                                task_for_snapshot,
-                                &state_name,
-                                &resolved,
-                                &log,
-                                visit_count,
-                                snapshot_completion,
-                                &snapshot_preload,
-                            ) {
-                                run_error!("  error: {}", err);
-                                if !opts.continue_on_error() {
-                                    return Err(err);
+                            if !status.success() {
+                                if let Err(err) = emit_snapshots_after_agent_exit(
+                                    &workspace_root,
+                                    machine,
+                                    settings,
+                                    task_for_snapshot,
+                                    &state_name,
+                                    None,
+                                    &resolved,
+                                    &log,
+                                    visit_count,
+                                    snapshot_completion,
+                                    &snapshot_preload,
+                                ) {
+                                    run_error!("  error: {}", err);
+                                    if !opts.continue_on_error() {
+                                        return Err(err);
+                                    }
                                 }
                             }
+                            snapshot_completion_for_emit = Some(snapshot_completion);
                         }
                         let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
                         if state_after != state_name {
+                            if status.success() {
+                                if let (Some(task_for_snapshot), Some(snapshot_completion)) =
+                                    (task_after, snapshot_completion_for_emit)
+                                {
+                                    if let Err(err) = emit_snapshots_after_agent_exit(
+                                        &workspace_root,
+                                        machine,
+                                        settings,
+                                        task_for_snapshot,
+                                        &state_name,
+                                        Some(state_after),
+                                        &resolved,
+                                        &log,
+                                        visit_count,
+                                        snapshot_completion,
+                                        &snapshot_preload,
+                                    ) {
+                                        run_error!("  error: {}", err);
+                                        if !opts.continue_on_error() {
+                                            return Err(err);
+                                        }
+                                    }
+                                }
+                            }
                             run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
                                 task_id_str,
@@ -1252,6 +1406,15 @@ fn run_agent_mode(
                             );
                             advanced_any = true;
                         } else if status.success() {
+                            if !missing_required_outputs.is_empty() {
+                                emit_exit_zero_missing_required_outputs_warning(
+                                    &task_id_str,
+                                    &state_name,
+                                    &missing_required_outputs,
+                                    &sink,
+                                );
+                                continue;
+                            }
                             let pending_more = reloaded
                                 .rhei
                                 .tasks
@@ -1276,14 +1439,47 @@ fn run_agent_mode(
                             if pending_more {
                                 continue;
                             }
-                            match try_auto_advance_task(
-                                input,
-                                machine,
-                                callback_paths,
-                                &task_id_str,
-                                &state_name,
-                                opts.no_callbacks(),
-                            ) {
+                            let auto_advance_result =
+                                if let Some(snapshot_completion) = snapshot_completion_for_emit {
+                                    let mut emit_before_transition =
+                                        |task_for_snapshot: &rhei_core::ast::Task,
+                                         to_state: &str|
+                                         -> MietteResult<()> {
+                                            emit_snapshots_after_agent_exit(
+                                                &workspace_root,
+                                                machine,
+                                                settings,
+                                                task_for_snapshot,
+                                                &state_name,
+                                                Some(to_state),
+                                                &resolved,
+                                                &log,
+                                                visit_count,
+                                                snapshot_completion,
+                                                &snapshot_preload,
+                                            )
+                                        };
+                                    try_auto_advance_task(
+                                        input,
+                                        machine,
+                                        callback_paths,
+                                        &task_id_str,
+                                        &state_name,
+                                        opts.no_callbacks(),
+                                        Some(&mut emit_before_transition),
+                                    )
+                                } else {
+                                    try_auto_advance_task(
+                                        input,
+                                        machine,
+                                        callback_paths,
+                                        &task_id_str,
+                                        &state_name,
+                                        opts.no_callbacks(),
+                                        None,
+                                    )
+                                };
+                            match auto_advance_result {
                                 Ok(Some(to_state)) => {
                                     run_info!(
                                         "  Task {} auto-advanced: '{}' -> '{}'",

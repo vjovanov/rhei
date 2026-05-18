@@ -46,6 +46,23 @@ node_policy:
     }
 
     #[test]
+    fn custom_agent_profile_modes_preserve_declaration_order() {
+        let profile: CustomAgentProfile = serde_yaml::from_str(
+            r#"command: [custom-agent]
+modes:
+  yolo: [--yolo]
+  safe: [--safe]
+"#,
+        )
+        .expect("profile parses");
+
+        assert_eq!(
+            profile.modes.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["yolo", "safe"]
+        );
+    }
+
+    #[test]
     fn profile_for_returns_none_when_not_declared() {
         let sm = sample_machine();
         assert!(sm.profile_for_node("task", 1).is_none());

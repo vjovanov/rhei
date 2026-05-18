@@ -128,6 +128,210 @@ exit 75
 }
 
 #[test]
+fn run_poll_max_attempts_counts_the_completed_attempt_before_self_looping() {
+    let machine = r#"name: run-poll-max-attempts-test
+version: 1
+states:
+  waiting:
+    description: Poll once
+    program: "mkdir -p runtime && printf attempt >> runtime/attempts.txt && exit 75"
+    poll:
+      interval: 1s
+      max_attempts: 1
+  exhausted:
+    description: Polling exhausted
+    final: true
+transitions:
+  - from: waiting
+    to: waiting
+    exit_code: 75
+  - from: waiting
+    to: exhausted
+    exit_code: 75
+"#;
+    let plan = r#"# Rhei: Poll Once
+
+## Tasks
+
+### Task 1: Wait for external status
+**State:** waiting
+"#;
+
+    let dir = unique_temp_dir("run-poll-max-attempts");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(
+        result.status.success(),
+        "poll run should route to exhaustion after one attempt\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
+    assert_eq!(task.state.as_str(), "exhausted");
+    let attempts = fs::read_to_string(dir.join("runtime/attempts.txt")).expect("read attempts");
+    assert_eq!(attempts.matches("attempt").count(), 1);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_program_fast_nonzero_with_timeout_uses_exit_code_transition() {
+    let machine = r#"name: run-program-nonzero-timeout-test
+version: 1
+states:
+  build:
+    description: Build artifact
+    program: "exit 2"
+    program_timeout: 30s
+    outputs:
+      - name: bundle
+        path: runtime/bundle.txt
+  failed-by-code:
+    description: Failed by exit code
+    final: true
+  timed-out:
+    description: Timed out
+    final: true
+transitions:
+  - from: build
+    to: failed-by-code
+    exit_code: 2
+  - from: build
+    to: timed-out
+    timeout: 30s
+"#;
+    let plan = r#"# Rhei: Fast Failure
+
+## Tasks
+
+### Task 1: Build artifact
+**State:** build
+"#;
+
+    let dir = unique_temp_dir("run-program-nonzero-timeout");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(
+        result.status.success(),
+        "fast non-zero exit should not be treated as timeout\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
+    assert_eq!(task.state.as_str(), "failed-by-code");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_program_timeout_transition_ignores_missing_success_outputs() {
+    let machine = r#"name: run-program-timeout-output-test
+version: 1
+states:
+  build:
+    description: Build artifact
+    program: "sleep 5"
+    program_timeout: 1s
+    outputs:
+      - name: bundle
+        path: runtime/bundle.txt
+  timed-out:
+    description: Timed out
+    final: true
+transitions:
+  - from: build
+    to: timed-out
+    timeout: 1s
+"#;
+    let plan = r#"# Rhei: Timeout Failure
+
+## Tasks
+
+### Task 1: Build artifact
+**State:** build
+"#;
+
+    let dir = unique_temp_dir("run-program-timeout-output");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(
+        result.status.success(),
+        "timeout transition should not require success outputs\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
+    assert_eq!(task.state.as_str(), "timed-out");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_defers_program_tasks_in_default_non_concurrent_state() {
+    let machine = r#"name: run-program-concurrency-test
+version: 1
+states:
+  build:
+    description: Build artifact
+    program: "mkdir -p runtime && echo $RHEI_TASK_ID >> runtime/order.txt"
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: build
+    to: completed
+    exit_code: 0
+"#;
+    let plan = r#"# Rhei: Program Concurrency
+
+## Tasks
+
+### Task 1: Build one
+**State:** build
+
+### Task 2: Build two
+**State:** build
+
+### Task 3: Build three
+**State:** build
+"#;
+
+    let dir = unique_temp_dir("run-program-concurrency");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks", "--parallel", "0"]);
+    assert!(
+        result.status.success(),
+        "program run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Deferred 2 task(s) in non-concurrent states")
+            && result.stdout.contains("Deferred 1 task(s) in non-concurrent states"),
+        "program tasks in the default non-concurrent state should be deferred by pass; got:\n{}",
+        result.stdout
+    );
+    let order = fs::read_to_string(dir.join("runtime/order.txt")).expect("read order");
+    assert_eq!(order.lines().count(), 3);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_executes_relative_callback_from_state_machine_directory() {
     let dir = unique_temp_dir("run-relative-callback");
     let workspace_dir = dir.join("examples");
@@ -366,4 +570,3 @@ transitions:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
-

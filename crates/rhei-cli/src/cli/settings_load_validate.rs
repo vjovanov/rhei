@@ -241,7 +241,33 @@ fn validate_machine_settings_references(
         }
     }
 
+    validate_mcp_entries_known(
+        "defaults.mcp_servers",
+        settings.defaults.mcp_servers.as_deref(),
+        &settings.mcp_servers,
+        &mut errors,
+    );
+    validate_skill_entries_known(
+        "defaults.skills",
+        settings.defaults.skills.as_deref(),
+        &settings.skills,
+        &mut errors,
+    );
+
     for (state_name, state) in &machine.states {
+        validate_mcp_entries_known(
+            &format!("state '{state_name}' mcp_servers"),
+            state.mcp_servers.as_deref(),
+            &settings.mcp_servers,
+            &mut errors,
+        );
+        validate_skill_entries_known(
+            &format!("state '{state_name}' skills"),
+            state.skills.as_deref(),
+            &settings.skills,
+            &mut errors,
+        );
+
         if let Some(agent) = state.agent.as_ref() {
             let Some(profile) = settings.agents.get(agent.id()) else {
                 errors.push(format!(
@@ -381,6 +407,32 @@ fn validate_machine_settings_references(
     }
 
     errors
+}
+
+fn validate_mcp_entries_known(
+    label: &str,
+    entries: Option<&[StateMcpEntry]>,
+    registry: &BTreeMap<String, McpServerProfile>,
+    errors: &mut Vec<String>,
+) {
+    for entry in entries.unwrap_or(&[]) {
+        if !entry.is_inline() && !registry.contains_key(entry.id()) {
+            errors.push(format!("{label} references unknown mcp server '{}'", entry.id()));
+        }
+    }
+}
+
+fn validate_skill_entries_known(
+    label: &str,
+    entries: Option<&[StateSkillEntry]>,
+    registry: &BTreeMap<String, SkillProfile>,
+    errors: &mut Vec<String>,
+) {
+    for entry in entries.unwrap_or(&[]) {
+        if !entry.is_inline() && !registry.contains_key(entry.id()) {
+            errors.push(format!("{label} references unknown skill '{}'", entry.id()));
+        }
+    }
 }
 
 fn validate_snapshot_plan_context(

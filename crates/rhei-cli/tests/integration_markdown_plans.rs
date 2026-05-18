@@ -1,13 +1,13 @@
 // Split by behavior area to keep source files bounded by §AR-source-file-size.
 include!("integration_markdown_plans/common.rs");
-include!("integration_markdown_plans/validation_1.rs");
-include!("integration_markdown_plans/validation_2.rs");
-include!("integration_markdown_plans/transitions_1.rs");
-include!("integration_markdown_plans/transitions_2.rs");
-include!("integration_markdown_plans/callbacks_1.rs");
-include!("integration_markdown_plans/callbacks_2.rs");
-include!("integration_markdown_plans/run_1.rs");
-include!("integration_markdown_plans/run_2.rs");
+include!("integration_markdown_plans/validation_cli_basics.rs");
+include!("integration_markdown_plans/validation_parse_errors.rs");
+include!("integration_markdown_plans/transitions_success.rs");
+include!("integration_markdown_plans/transitions_failures_completion.rs");
+include!("integration_markdown_plans/callbacks_execution.rs");
+include!("integration_markdown_plans/callbacks_redirect_context.rs");
+include!("integration_markdown_plans/run_basic.rs");
+include!("integration_markdown_plans/run_programs_callbacks.rs");
 include!("integration_markdown_plans/reset.rs");
-include!("integration_markdown_plans/workspace_1.rs");
-include!("integration_markdown_plans/workspace_2.rs");
+include!("integration_markdown_plans/workspace_validation.rs");
+include!("integration_markdown_plans/workspace_execution.rs");

@@ -39,7 +39,7 @@ fn resolve_snapshot_ref(
     if let Some(generation) = generation {
         matches.retain(|record| record.generation == generation);
     } else {
-        matches = select_current_records(matches);
+        matches = select_current_records(reference, matches)?;
     }
 
     match matches.len() {
@@ -173,22 +173,36 @@ fn snapshot_name_exists(
         .any(|record| record.task_id == task_id && record.snapshot_name == name))
 }
 
-fn select_current_records(records: Vec<SnapshotRecord>) -> Vec<SnapshotRecord> {
+fn select_current_records(
+    reference: &str,
+    records: Vec<SnapshotRecord>,
+) -> MietteResult<Vec<SnapshotRecord>> {
     let mut grouped: BTreeMap<SnapshotIdentity, Vec<SnapshotRecord>> = BTreeMap::new();
     for record in records {
         grouped.entry(record.identity()).or_default().push(record);
     }
-    grouped
-        .into_values()
-        .filter_map(|mut group| {
-            group.sort_by(|a, b| b.generation.cmp(&a.generation));
-            group
-                .iter()
-                .find(|record| record.is_current)
-                .cloned()
-                .or_else(|| group.into_iter().next())
-        })
-        .collect()
+    let mut selected = Vec::new();
+    for (identity, group) in grouped {
+        let Some(current) = group.iter().find(|record| record.is_current).cloned() else {
+            return Err(miette!(
+                "snapshot reference '{reference}' matched cached generations for {}, but none is marked current; retry with /g<N> or repair the current pointer",
+                snapshot_identity_ref(&identity)
+            ));
+        };
+        selected.push(current);
+    }
+    Ok(selected)
+}
+
+fn snapshot_identity_ref(identity: &SnapshotIdentity) -> String {
+    format!(
+        "{}:{}:{}@{}:{}",
+        identity.task_id,
+        identity.snapshot_name,
+        identity.emitting_state,
+        identity.visit,
+        identity.target_slug
+    )
 }
 
 fn ambiguous_snapshot_report(reference: &str, matches: &[SnapshotRecord]) -> Report {
@@ -463,4 +477,3 @@ fn replace_current_symlink(identity_dir: &Path, target: &str) -> MietteResult<()
     fs::write(&current, target)
         .map_err(|err| file_io_report(&current, "failed to update current pointer", err))
 }
-

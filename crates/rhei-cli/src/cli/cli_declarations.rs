@@ -9,6 +9,7 @@ use clap_complete::env::{
 };
 use clap_complete::CompleteEnv;
 use fs2::FileExt;
+use indexmap::IndexMap;
 use miette::{miette, Report, Result as MietteResult};
 use minijinja::{Environment as MiniJinjaEnvironment, UndefinedBehavior};
 use nix::sys::signal::{self, Signal};
@@ -394,4 +395,3 @@ enum Commands {
         dry_run: bool,
     },
 }
-

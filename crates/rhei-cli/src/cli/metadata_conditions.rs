@@ -222,7 +222,7 @@ fn loop_reentry_allowed(
     if current_state == to_state {
         if let Some(poll) = machine.states.get(current_state).and_then(|def| def.poll.as_ref()) {
             let current = task_visit_count(metadata, task_id, current_state);
-            return current < u64::from(poll.max_attempts);
+            return current.saturating_add(1) < u64::from(poll.max_attempts);
         }
     }
 
@@ -332,4 +332,3 @@ fn transition_rule_is_applicable(
 
     Ok(true)
 }
-

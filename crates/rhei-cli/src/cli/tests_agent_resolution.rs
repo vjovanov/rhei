@@ -1,17 +1,3 @@
-        let entries = vec![
-            ResolvedMcpEntry {
-                id: "postgres".to_string(),
-                optional: false,
-                definition: Some(McpServerProfile::default()),
-            },
-            ResolvedMcpEntry { id: "grafana".to_string(), optional: true, definition: None },
-        ];
-        let line = format_tooling_log_line(&entries, |e| {
-            (e.id.as_str(), e.optional, e.definition.is_some())
-        });
-        assert_eq!(line.as_deref(), Some("postgres,grafana?"));
-    }
-
     #[test]
     fn resolve_legacy_agent_uses_defaults_agent_timeout() {
         let settings = RheiSettings {
@@ -121,6 +107,63 @@
                 .expect("agent should exist");
 
         assert_eq!(resolved.timeout_secs, Some(90 * 60));
+    }
+
+    #[test]
+    fn target_selector_literal_model_uses_selector_values_when_registry_collides() {
+        let mut settings = default_settings();
+        let mut agents = BTreeMap::new();
+        agents.insert(
+            "codex".to_string(),
+            ModelAgentBinding {
+                timeout: Some("2m".to_string()),
+                ..Default::default()
+            },
+        );
+        settings.models.insert(
+            "literal-model".to_string(),
+            ModelProfile {
+                provider: Some("registry-provider".to_string()),
+                model: Some("registry-concrete-model".to_string()),
+                default_agent: None,
+                agents,
+            },
+        );
+
+        let resolved =
+            resolve_target_agent("codex:selector-provider:literal-model", None, &settings)
+                .expect("target resolves");
+
+        assert_eq!(resolved.model.as_deref(), Some("literal-model"));
+        assert_eq!(resolved.model_provider.as_deref(), Some("selector-provider"));
+        assert_eq!(resolved.model_name.as_deref(), Some("literal-model"));
+        assert_eq!(resolved.timeout_secs, Some(120));
+    }
+
+    #[test]
+    fn mode_default_order_uses_declaration_order() {
+        let settings: RheiSettings = serde_json::from_str(
+            r#"{
+              "defaults": { "agent": "custom" },
+              "agents": {
+                "custom": {
+                  "command": ["custom-agent"],
+                  "modes": {
+                    "yolo": ["--yolo"],
+                    "safe": ["--safe"]
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("settings parse");
+
+        let resolved =
+            resolve_legacy_agent_with_model(None, &settings, &default_run_options(), None)
+                .expect("agent resolves")
+                .expect("agent exists");
+
+        assert_eq!(resolved.mode.as_deref(), Some("yolo"));
     }
 
     #[test]
@@ -449,3 +492,16 @@ for arg in "$@"; do
   prev="$arg"
 done
 if [ "$read_stdin" = "1" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf 'stdin:%s\n' "$line"
+  done
+fi
+printf 'partial'
+"#,
+        )
+        .expect("write fake agent");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+        script
+    }

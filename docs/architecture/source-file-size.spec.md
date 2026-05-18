@@ -38,7 +38,7 @@ be split without making the design harder to understand.
 
 | Path | Reason | Split Trigger |
 |---|---|---|
-| `crates/rhei-cli/src/main_parts/run_agent_mode.rs` | Mechanical extraction from the former CLI monolith; still one orchestration loop. | Split into scheduler, sequential execution, parallel execution, and result handling modules. |
+| `crates/rhei-cli/src/cli/run_agent_mode.rs` | Mechanical extraction from the former CLI monolith; still one orchestration loop. | Split into scheduler, sequential execution, parallel execution, and result handling modules. |
 | `examples/hourly-human-intervention-example/states.yaml` | Example state machine intentionally shows a complete workflow in one file. | Split by template/example support if Rhei gains multi-file state machines. |
 | `.agents/rhei/templates/hourly-human-intervention/states.yaml` | Template state machine mirrors the example as an instantiable workflow. | Split by template support if Rhei gains multi-file state machines. |
 | `.agents/rhei/templates/spec-implementation/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
@@ -60,32 +60,42 @@ split mechanically as a temporary containment step; those chunks must still be
 named after the behavior they contain.
 
 `crates/rhei-cli/src/main.rs` is only the CLI shell. It includes focused parts
-under `crates/rhei-cli/src/main_parts/`:
+under `crates/rhei-cli/src/cli/`:
 
-- `cli_*` contains clap command declarations and top-level dispatch.
-- `completions_*` contains shell completion and completion-context helpers.
-- `templates_*` contains template discovery, validation, rendering, and
-  materialization.
-- `states_render`, `metadata_*`, `transition_*`, `artifacts`, and
-  `system_transitions_*` contain state-machine inspection, plan metadata,
-  artifact contracts, and transition application.
-- `run_options`, `settings_*`, `tooling_*`, `agent_resolution`,
+- `cli_declarations` and `cli_dispatch` contain clap command declarations and
+  top-level dispatch.
+- `completion_candidates` and `completion_context` contain shell completion
+  and completion-context helpers.
+- `templates_list`, `templates_instantiate`, `templates_discovery`, and
+  `templates_inputs` contain template listing, instantiation, discovery,
+  validation, input parsing, rendering, and materialization.
+- `states_render`, `metadata_conditions`, `metadata_rewrite`,
+  `transition_context`, `artifacts`, `system_transition_triggers`, and
+  `system_transition_execution` contain state-machine inspection, plan
+  metadata, artifact contracts, and transition application.
+- `run_options`, `settings_types`, `settings_load_validate`,
+  `tooling_resolution`, `agent_resolution`,
   `agent_command`, `agent_spawn`, and `programs` contain run configuration,
   settings merge/validation, tooling resolution, agent command construction,
   agent spawning, and program-state execution.
-- `snapshots_*` and `snapshot_runtime_*` contain snapshot CLI/cache handling
-  and run-loop snapshot emit/preload hooks.
+- `snapshot_records`, `snapshot_list_show`, `snapshot_refs_gc`,
+  `snapshot_continue_lock`, `snapshot_runtime_emit`, and
+  `snapshot_runtime_preload` contain snapshot CLI/cache handling and run-loop
+  snapshot emit/preload hooks.
 - `run_command`, `run_agent_mode`, `run_callback_mode`,
   `run_failure_transitions`, and `ready_transition` contain orchestration,
   scheduling, failure routing, and automatic transition selection.
-- `next_command`, `complete_reset_*`, `render_install_*`,
-  `install_skills_*`, and `diagnostics` contain the remaining command
-  families and shared diagnostics.
-- `tests_*` contains CLI unit tests split by nearby behavior. Add new unit
-  tests next to the part that owns the behavior.
+- `next_command`, `complete_reset_commands`, `complete_reset_rewrites`,
+  `render_install_commands`, `install_skill_agents`, and `diagnostics` contain
+  the remaining command families and shared diagnostics.
+- `tests_cli_render`, `tests_complete_reset_tooling`, `tests_agent_resolution`,
+  `tests_agent_execution_validation`, `tests_settings_tooling`,
+  `tests_snapshots_gc`, and `tests_snapshot_runtime` contain CLI unit tests
+  split by nearby behavior. Add new unit tests next to the part that owns the
+  behavior.
 
 `crates/rhei-validator/src/lib.rs` is only the validator shell. It includes
-focused parts under `crates/rhei-validator/src/lib_parts/`:
+focused parts under `crates/rhei-validator/src/validator/`:
 
 - `preamble` contains public imports, report types, errors, agent/profile
   schema primitives, and target parsing.
@@ -98,14 +108,14 @@ focused parts under `crates/rhei-validator/src/lib_parts/`:
   validation.
 - `state_machine_profiles` contains profile/node-policy validation, schema
   version interpretation, and template-condition validation.
-- `validation_helpers_*` contains shared semantic validators and parsing
-  helpers.
+- `validation_helpers` contains shared semantic validators and parsing helpers.
 - `validator_entry` contains public validation entrypoints, plan traversal,
   state/profile checks, dependency integrity, and terminal-tree coherence.
 - `validator_links` contains Markdown link extraction and file-reference
   validation.
-- `tests_*`, `tests_profiles`, `tests_poll`, and `tests_snapshots` contain
-  validator unit tests split by validation topic.
+- `tests_state_machine`, `tests_plan_validation`, `tests_links_tooling`,
+  `tests_profiles`, `tests_poll`, and `tests_snapshots` contain validator unit
+  tests split by validation topic.
 
 `crates/rhei-core/src/parser.rs` is only the parser API shell and shared
 frontmatter helpers. Parser implementation parts live under
@@ -146,14 +156,14 @@ parts live beside it:
 test shell. Shared fixture helpers live in
 `crates/rhei-cli/tests/integration_markdown_plans/common.rs`; behavior groups
 live in sibling files named for their command or behavior area:
-`validation_*`, `transitions_*`, `callbacks_*`, `run_*`, `reset`, and
-`workspace_*`.
+`validation_cli_basics`, `validation_parse_errors`, `transitions_success`,
+`transitions_failures_completion`, `callbacks_execution`,
+`callbacks_redirect_context`, `run_basic`, `run_programs_callbacks`, `reset`,
+`workspace_validation`, and `workspace_execution`.
 
 Future work must keep new code inside the owning part file or create a new
 part with a behavior name. If adding code would push a part past the 500-line
-range, split that part before adding more behavior. If a temporary mechanical
-part such as `tests_4` remains above the target range, only shrink or split it;
-do not add unrelated behavior to it.
+range, split that part before adding more behavior.
 
 ## Current Violations
 

@@ -178,8 +178,8 @@ pub struct CustomAgentProfile {
     /// Named modes. Each mode is an ordered flag list appended to the
     /// command at spawn time. A well-known mode name is `yolo`, but any
     /// name is allowed — Rhei does not interpret mode names.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub modes: BTreeMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub modes: IndexMap<String, Vec<String>>,
     /// Optional snapshot session block describing resume / fork / interactive
     /// continuation support and transcript layout for the agent. The schema
     /// is authoritative in
@@ -473,4 +473,3 @@ pub fn parse_execution_target(selector: &str) -> Result<ExecutionTarget, String>
         model: model.to_string(),
     })
 }
-
