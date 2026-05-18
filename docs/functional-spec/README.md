@@ -23,6 +23,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-list | `rhei list` command behavior |
 | §FS-rhei-viz | `rhei viz` command behavior |
 | §FS-rhei-templates | Rhei template format and instantiation behavior |
+| §FS-rhei-snapshots | Session snapshot/inheritance model and per-agent integration |
 | §FS-rhei-completions | Shell completion UX |
 | §FS-rhei-install-skills | `rhei install-skills` command behavior |
 | §FS-rhei-state-machine-writer | State machine writer guidance |

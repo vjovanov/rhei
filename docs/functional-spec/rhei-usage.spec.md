@@ -90,7 +90,7 @@ Each arrow is a declared transition. Agents follow the `instructions` field on e
 
 ### Command Surface
 
-The five commands that coordinate through the state machine:
+The commands that coordinate through the state machine:
 
 | Command            | What it does                                                                    |
 |--------------------|---------------------------------------------------------------------------------|
@@ -99,8 +99,14 @@ The five commands that coordinate through the state machine:
 | `rhei transition`  | Atomically changes a task's state via compare-and-swap                          |
 | `rhei complete`    | Terminal transition invoked by a manual worker; records result, releases claim  |
 | `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+| `rhei snapshot`    | Lists, shows, prunes, or continues from session snapshots captured by `rhei run` |
 
 `rhei run` and the manual-worker flow (`next` / `transition` / `complete`) are mutually exclusive per execution — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives. The typical manual-worker loop is `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
+
+The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
+`rhei run --from-snapshot` is the run-time override surface for ad-hoc
+snapshot debugging; its constraints are specified in
+[Snapshots Specification](rhei-snapshots.spec.md).
 
 ## Usage Patterns
 
@@ -123,7 +129,7 @@ The simplest way to use Rhei. No callbacks, no `workflow.sh`, no glue code.
    rhei run plan.rhei.md
    ```
 
-Rhei spawns the configured agent for each task, composing a prompt from the state machine instructions and the task content. The agent does the work for the current state, writes any required artifacts, and exits. `rhei run` then performs the state transition. No scaffolding required.
+Rhei spawns the configured agent for each task, composing a prompt from the state machine instructions and the task content. The agent does the work for the current state, writes any required artifacts, and exits. `rhei run` then writes any configured session snapshot side effects and performs the state transition. No scaffolding required.
 
 For state-specific agents (e.g., a different agent or model for review):
 

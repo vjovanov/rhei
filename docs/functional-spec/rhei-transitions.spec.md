@@ -558,6 +558,7 @@ states:
     target: <string>            # Optional: inline execution target selector
     all_targets: [<string>]     # Optional: run this state once per listed target
     all_models: [<string>]      # Optional: list of declared model profiles; run this state once per listed model
+    snapshot: <object>          # Optional: session snapshot emit/inherit contract
     model: <string>             # Optional: one declared model profile allowed for this state
     agent: <string>             # Optional: coding agent id for this state (see Agents Specification)
     agent_mode: <string>        # Optional: named mode on the resolved agent
@@ -579,6 +580,7 @@ states:
 | `target` | string | No | Inline execution target selector. Preferred over the legacy `model` + `agent` split for new workflows. |
 | `all_targets` | string array | No | Explicit list of execution target selectors; the state runs once for each listed target. Preferred over `all_models` for new fanout workflows. |
 | `all_models` | string array | No | Explicit list of declared model profile identifiers; the state runs once for each listed model |
+| `snapshot` | object | No | Per-state session snapshot emit/inherit contract. See [Snapshots Specification](rhei-snapshots.spec.md). |
 | `model` | string | No | Restricts the state to one model profile declared in the machine-level `models` list |
 | `agent` | string | No | Coding agent id for this state. Must resolve against the merged `agents` registry (built-ins + `settings.json`). Inline agent objects are not accepted — declare custom agents in `agents.<id>` first. See [Agents Specification](rhei-agents.spec.md). |
 | `agent_mode` | string | No | Named flag set from the resolved agent's `modes` map (e.g., `yolo`, `safe`). See [Agents Specification — Modes](rhei-agents.spec.md#modes). |
@@ -602,6 +604,8 @@ Model selection rules:
   `<agent>:<provider>:<model>`, or
   `<agent>[<mode>]:<provider>:<model>`.
 - `all_targets`, when present, must be a non-empty list of unique selectors.
+- Normalized target slugs must not collide within the resolved plan/fanout set
+  for any snapshot-capable agent invocation.
 - In a target selector, `<agent>` must resolve against the merged `agents`
   registry.
 - In a target selector, `<mode>`, when present, must resolve against the
@@ -613,11 +617,16 @@ Model selection rules:
 - `all_models`, when present, must be a non-empty list of unique values declared in the machine-level `models` list.
 - A state with `all_models` is executed once per listed model.
 - A state with `all_targets` is executed once per listed target.
+- For snapshot semantics, `all_models` is resolved to one effective target
+  tuple and `target.slug` per model invocation, matching `all_targets`.
 - `visits` may be combined with either `all_models` or `model`.
 - `visits` may also be combined with either `all_targets` or `target`.
 - `visits`, when present, must be an integer greater than or equal to `1`.
 - `inputs` and `outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
 - Artifact `path` values are execution-root-relative templates; see [main spec — State Artifact Contracts](rhei-plan-language.spec.md#10-state-artifact-contracts) for the definition of execution root. After expansion, they must remain within that root.
+- `snapshot.emit` and `snapshot.inherit` validation, including polling-state
+  restrictions and `all_targets`/`all_models` selector rules, is defined in
+  [Snapshots Specification](rhei-snapshots.spec.md).
 
 Artifact definition:
 
