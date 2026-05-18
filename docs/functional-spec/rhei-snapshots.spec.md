@@ -34,7 +34,10 @@ This spec depends on:
 - §FS-rhei-agents for agent transport profiles and the agents registry
 - §FS-rhei-plan-language for task identifiers and the plan hierarchy
 
-## Goals
+The CLI, run override, settings, redaction, rollout sequencing, and snapshot
+cache maintenance commands are specified in §FS-rhei-snapshot-operations.
+
+## 1. Goals
 
 - Let one agent invocation reuse conversational state from the same agent's
   prior same-task history or from an ancestor-chain branch when the
@@ -52,7 +55,7 @@ This spec depends on:
   `rhei snapshot continue`, without anticipating intervention points in the
   state machine.
 
-## Non-Goals (v1)
+## 2. Non-Goals (v1)
 
 - Cross-agent transcript translation or replay (Claude JSONL ↔ Gemini JSON ↔
   Pi JSONL ↔ Codex session state). When different agents need shared
@@ -64,7 +67,7 @@ This spec depends on:
   carry transcript bytes and metadata only.
 - Cross-workspace snapshot sharing. Snapshots are scoped to one plan workspace.
 
-## Core Model
+## 3. Core Model
 
 A *snapshot* is an immutable record of one completed agent invocation, carrying
 enough state to start a new agent invocation as a continuation or branch.
@@ -84,7 +87,7 @@ A snapshot is identified by the tuple:
 - `visit` is the counted-loop visit number of the emitting state (`1` for
   uncounted states).
 - `target_slug` is the slug of the execution target that produced the snapshot
-  (one per fanout invocation). See [Target Slug](#target-slug).
+  (one per fanout invocation). See [Target Slug](#71-target-slug).
 - `generation` is the re-emission counter; `1` for the first emission at a
   given `(task_id, snapshot_name, emitting_state, visit, target_slug)`,
   incremented if the state is re-executed.
@@ -92,7 +95,7 @@ A snapshot is identified by the tuple:
 Snapshots are immutable. Re-running a state never overwrites a snapshot;
 instead it writes a new `generation` and updates a `current` pointer.
 
-### Auto-Emitted vs Named Snapshots
+### 3.1 Auto-Emitted vs Named Snapshots
 
 The orchestrator emits an *auto* snapshot at the exit of every agent-bearing
 state (`final:`, `gating:`, and `program:` states are excluded — they have no
@@ -120,13 +123,13 @@ agent. Named-emit, by contrast, remains a hard author contract; the
 defined `unsupported-snapshot-session` failure mode applies only to
 named-emit.
 
-## State-Machine YAML Grammar
+## 4. State-Machine YAML Grammar
 
 Auto-emit requires no state-machine configuration. The two per-state fields
 below are optional and govern *named* lineage; declaring neither leaves the
 state with only its auto-emit.
 
-### `snapshot.emit`
+### 4.1 `snapshot.emit`
 
 ```yaml
 states:
@@ -152,9 +155,9 @@ an analysis or recovery flow for the same agent lineage — for example, a
 forensic state that inspects what a failed invocation did, or a retry state
 that wants to inherit the failed transcript as context. Timeouts are bundled
 into `failure` and distinguished by the manifest's `completion` field rather
-than by a separate `emit.on` value; see [Manifest Schema](#manifest-schema).
+than by a separate `emit.on` value; see [Manifest Schema](#8-manifest-schema).
 
-### `snapshot.inherit`
+### 4.2 `snapshot.inherit`
 
 ```yaml
 states:
@@ -212,7 +215,7 @@ Selector defaults and fanout requirements:
 `current`. Integer selectors are 1-based and must be greater than or equal to
 `1`.
 
-### Lineage Resolution
+### 4.3 Lineage Resolution
 
 For `from: self`, resolution builds an ordered candidate set from the same
 task's prior runtime history:
@@ -262,7 +265,7 @@ produce named snapshots. A later `select.visit: latest` may therefore resolve
 to an older successful visit rather than the immediately preceding attempt.
 Use `emit.on: always` when every iteration must be inheritable.
 
-### Inheritance Timing
+### 4.4 Inheritance Timing
 
 Snapshot inheritance happens immediately before the state invocation that
 declares `snapshot.inherit:`:
@@ -281,7 +284,7 @@ transition that led into that state and not of the next state after it. A state
 that declares both `inherit` and `emit` consumes first and emits after its own
 invocation.
 
-### Cross-Task Information Flow
+### 4.5 Cross-Task Information Flow
 
 Snapshots are not an arbitrary task-to-task messaging mechanism. They preserve
 same-agent session lineage for `from: self` and parent-to-child branching via
@@ -294,14 +297,14 @@ That artifact path is the supported way to communicate across siblings,
 cousins, unrelated tasks, and different agents. The snapshot grammar
 therefore has no `from: task` or `from: prior` form in v1. §FS-rhei-states §FS-rhei-plan-language
 
-### Fallback Behavior
+### 4.6 Fallback Behavior
 
 `required: false` has exactly one fallback: run the state cold. It does not
 try a second snapshot name, a farther ancestor, or another emitting state.
 Authors who need a real fallback chain should model it explicitly as states
 and artifacts, so the plan records which branch was taken and why.
 
-## Compatibility Predicates
+## 5. Compatibility Predicates
 
 Native compatibility and cache compatibility are evaluated independently and
 report different things.
@@ -363,7 +366,7 @@ read from the pi session JSONL header at emit time and may differ from the
 declared provider/model in the state machine. For other agents, declared and
 observed are typically identical, but both are recorded.
 
-## Sub-Task Inheritance
+## 6. Sub-Task Inheritance
 
 Sub-task inheritance is the `from: ancestor` axis of the `inherit:` block.
 
@@ -382,7 +385,7 @@ an independent branch:
 
 Sub-task inheritance never crosses workspace boundaries.
 
-### `parent_ref` Semantics
+### 6.1 `parent_ref` Semantics
 
 `parent_ref` is determined by the snapshot that was successfully preloaded
 into the invocation that produced this emission:
@@ -417,7 +420,7 @@ and never synthesize a parent edge from a failed or skipped preload.
 There is no `parent_refs` (plural) field in v1; the design only supports
 single-source preload, so the parent edge is at most one.
 
-## Storage Layout
+## 7. Storage Layout
 
 All snapshots live under the plan workspace cache:
 
@@ -448,7 +451,7 @@ updated atomically (write `current.tmp`, rename to `current`).
 The cache root is gitignored by default. Plans may opt to commit selected
 snapshots; this is a workspace-level decision outside the scope of `rhei run`.
 
-### Target Slug
+### 7.1 Target Slug
 
 The `<target.slug>` segment is derived from the resolved execution target by
 this normalization:
@@ -477,7 +480,7 @@ execution; the raw selectors are preserved only for diagnostics and are not
 used to disambiguate storage. The same target slug may appear elsewhere in the
 resolved plan when another identity component differs.
 
-### Atomic Writes
+### 7.2 Atomic Writes
 
 A snapshot generation is written by this procedure:
 
@@ -520,7 +523,7 @@ allocates the next smallest unused generation, rewrites the manifest with the
 new `generation`, and retries. This covers crashes, stale temps, and
 operator-driven concurrency without ever reusing a generation number.
 
-## Manifest Schema
+## 8. Manifest Schema
 
 `manifest.json`, version `1`:
 
@@ -597,14 +600,14 @@ operator-driven concurrency without ever reusing a generation number.
 | `transcript_path` | string | Yes | Relative path within the generation directory. |
 | `transcript_sha256` | string | Yes | SHA-256 of the transcript file contents. |
 | `transcript_bytes` | integer | Yes | Transcript size in bytes. Used for CLI listings, diagnostics, and retention decisions. |
-| `parent_ref` | object or null | Yes | Reference to the snapshot whose transcript was successfully preloaded into this invocation, including `task_id`, `snapshot_name`, `emitting_state`, `visit`, `target_slug`, and `generation`. `null` when the invocation ran cold (no `inherit:`, missing source, incompatible agent, unsupported session profile, or `compat: none`). See [`parent_ref` Semantics](#parent_ref-semantics). |
+| `parent_ref` | object or null | Yes | Reference to the snapshot whose transcript was successfully preloaded into this invocation, including `task_id`, `snapshot_name`, `emitting_state`, `visit`, `target_slug`, and `generation`. `null` when the invocation ran cold (no `inherit:`, missing source, incompatible agent, unsupported session profile, or `compat: none`). See [`parent_ref` Semantics](#61-parent_ref-semantics). |
 | `created_at` | string (RFC 3339) | Yes | Wall-clock time of generation finalization. |
 | `completion` | enum | Yes | `success`, `failure`, or `timeout`. Matches the orchestrator's classification of the underlying subprocess exit. Operator emissions use `success` or `failure` only — the agent-timeout guardian does not run for `rhei snapshot continue` sessions. |
 | `produced_by` | enum | Yes | `orchestrator` for emissions produced by `rhei run`. `operator` for emissions produced by `rhei snapshot continue`. Operator emissions never advance `current`; they are sibling generations under the same identity as the source snapshot. |
 
-## Agent Transport Integration
+## 9. Agent Transport Integration
 
-### `CustomAgentProfile.session`
+### 9.1 `CustomAgentProfile.session`
 
 A new optional nested field on `CustomAgentProfile` (§FS-rhei-agents):
 
@@ -677,7 +680,7 @@ uses `session_dir_flag` when provided to redirect the agent's session output
 into the active `g<N>.tmp-*` staging directory so emit becomes a directory scan
 rather than a hunt across the user's home directory.
 
-### Built-in Profiles
+### 9.2 Built-in Profiles
 
 | Agent | `resume` | `fork` | `interactive` | `assign_id_flag` | `session_dir_flag` | `no_session_flag` | `layout` |
 |-------|----------|--------|---------------|------------------|--------------------|--------------------|----------|
@@ -690,7 +693,7 @@ rather than a hunt across the user's home directory.
 
 The unresolved fields are deliberately blank in this spec. Locking them
 requires the per-agent prove-out described in
-[Phased Rollout](#phased-rollout). The profile shape supports any of the
+[Snapshot Operations Specification — Phased Rollout](rhei-snapshot-operations.spec.md#3-phased-rollout). The profile shape supports any of the
 plausible answers without further schema changes.
 
 Emit and preload have independent profile requirements:
@@ -715,9 +718,9 @@ is skipped for their built-in profiles, and explicit `snapshot.emit:` or
 required preload fails with `unsupported-snapshot-session` unless the user
 replaces the built-in profile with a custom snapshot-capable session block.
 
-### Per-Agent Runtime Behavior
+### 9.3 Per-Agent Runtime Behavior
 
-#### Pi
+#### 9.3.1 Pi
 
 Pi has the most complete native session surface. The flow on inheritance:
 
@@ -737,7 +740,7 @@ If the header is absent or unparsable, the snapshot is still written with
 `observed_*` set equal to `declared_*` and a warning is logged; downstream
 inheritors that require `cache_beneficial` will see the same advisory.
 
-#### Gemini
+#### 9.3.2 Gemini
 
 Gemini snapshot support is provisional and unsupported for v1 runtime preload
 or `rhei snapshot continue`. The phase spike must prove the resume surface and
@@ -752,7 +755,7 @@ spike resolves whether `--resume`, `--session-id`, and project-hash lookup are
 stable enough to support. Upstream feature request: a `--session-file <path>`
 flag analogous to pi's.
 
-#### Claude Code
+#### 9.3.3 Claude Code
 
 The adapter spike must determine:
 
@@ -766,7 +769,7 @@ Until the spike completes, the built-in claude-code profile leaves the
 unless the inheriting state sets `required: true`, in which case the run fails
 before spawn with `unsupported-snapshot-session`.
 
-#### Codex
+#### 9.3.4 Codex
 
 The current rhei transport for codex is `codex exec` (§FS-rhei-agents). The
 adapter spike must determine whether `codex exec` supports session resume,
@@ -783,14 +786,14 @@ Emit and inherit have independent dependencies for codex:
 
 Until the spike resolves, the built-in codex profile leaves the `session`
 block unset, which makes both emit and inherit unsupported (per the rules in
-[Built-in Profiles](#built-in-profiles)). The narrower outcome — emit
+[Built-in Profiles](#92-built-in-profiles)). The narrower outcome — emit
 supported, inherit unsupported — is the most likely state after the spike
 and is encoded by populating `layout` while leaving `resume:
 ResumeStrategy::None`.
 
-## Runtime Behavior
+## 10. Runtime Behavior
 
-### Spawn-Time Preload
+### 10.1 Spawn-Time Preload
 
 For each spawn of a state declaring `snapshot.inherit:`:
 
@@ -818,7 +821,7 @@ For each spawn of a state declaring `snapshot.inherit:`:
    into the inheritor's generation directory.
 8. Spawn the subprocess with the strategy-defined flags appended.
 
-### Emit on Exit
+### 10.2 Emit on Exit
 
 After every agent-state subprocess exits, the orchestrator:
 
@@ -854,13 +857,13 @@ Skipped cases. Auto-emit is suppressed for `final:`, `gating:`, and
 `program:` states (these have no agent transcript). On poll self-loop
 attempts, both auto- and named-emit are suppressed; they fire only on the
 terminal exit transition, matching the rule in
-[Counted Loops, Fanout, and Polling](#counted-loops-fanout-and-polling).
+[Counted Loops, Fanout, and Polling](#103-counted-loops-fanout-and-polling).
 
 The orchestrator owns this step; agents do not invoke snapshot emit
 directly. This matches §FS-rhei-run's invariant that the subprocess never
 calls `rhei transition`.
 
-### Counted Loops, Fanout, and Polling
+### 10.3 Counted Loops, Fanout, and Polling
 
 Counted-loop states (`visits: n`) emit a separate snapshot per visit at
 `<visit>/...`. Each visit's generation counter starts at `1` independently.
@@ -888,7 +891,7 @@ exhaustion transition fired). `snapshot.inherit` on a polling state is rejected
 in v1: preserving a staged native session across delayed attempts would require
 a broader lifecycle contract than this spec defines.
 
-## Validation Rules
+## 11. Validation Rules
 
 The validator (§FS-rhei-states) extends the per-state checks with the
 following rules. Violations are errors unless marked otherwise.
@@ -940,7 +943,7 @@ following rules. Violations are errors unless marked otherwise.
   could both be the source under the declared `name` and `emit.on` policy
   with no `select.state` to disambiguate. For `from: ancestor`, ambiguity is
   evaluated at the *nearest matching ancestor* per the
-  [Lineage Resolution](#lineage-resolution) walk: an ancestor with two
+  [Lineage Resolution](#43-lineage-resolution) walk: an ancestor with two
   matching emitters errors here even if a farther ancestor has exactly one
   match, because the runtime walk stops at the nearest matching ancestor
   rather than falling through.
@@ -987,312 +990,3 @@ exists: each manifest is compared against the current plan and state machine.
 Snapshots for tasks that no longer exist, emitting states that no longer exist,
 or target slugs that no longer resolve emit informational warnings, never
 errors.
-
-## CLI Surface
-
-All snapshot commands that accept a reference use the same parser and
-precedence table:
-
-| Form | Meaning | Precedence |
-|------|---------|------------|
-| Full path under `.rhei/cache/snapshots/` | Exact generation directory. | Highest. |
-| `<task>:<name>[:<state>][@<visit>][:<target>][/g<N>]` | Named or explicit `_state` snapshot reference. | Named snapshot matches win over shorthand auto-emit. |
-| `<task>:<state>` | Auto-emit shorthand for `<task>:_state:<state>`. | Used only when the second segment does not resolve as a named snapshot; use explicit `_state` to force auto-emit. |
-
-Unresolved positional ambiguity is an error. The command prints the matching
-candidates and guidance to retry with explicit `--task`, `--name`, `--state`,
-`--target`, or `--generation` selectors rather than applying command-specific
-tie-breakers.
-
-### `rhei snapshot list`
-
-Prints the snapshot cache contents. Options:
-
-- `--task <id>`: filter by task.
-- `--name <snapshot-name>`: filter by snapshot name. Pass `_state` to limit
-  to auto-emitted snapshots; pass an author name to limit to that named
-  lineage.
-- `--state <state-name>`: filter by emitting state. Combines with `--task`
-  for the common "what intermediate states can I continue from?" query.
-- `--produced-by orchestrator|operator|all`: filter by emission origin. The
-  default is `orchestrator`; operator generations require an explicit filter.
-- `--orphaned`: show only snapshots whose task, emitting state, or target no
-  longer resolves in the current plan and state machine.
-- `--format text|json`: output format.
-
-Default columns: task, snapshot name, emitting state, visit, target slug,
-generation, created_at, transcript bytes, completion, produced_by.
-
-### `rhei snapshot show <ref>`
-
-Prints a manifest in full and a transcript head/tail preview. It uses the
-shared snapshot reference parser above. Worked example:
-
-```
-1.2.3:implementation:pending@2:claude-code-anthropic-claude-opus-4-7/g3
-```
-
-resolves to task `1.2.3`, snapshot name `implementation`, emitting state
-`pending`, visit `2`, target slug `claude-code-anthropic-claude-opus-4-7`,
-generation `3`. Trailing positional segments may be omitted to broaden the
-match; ambiguous shorthand prints all matches and exits non-zero.
-
-### `rhei snapshot gc`
-
-Deletes snapshots by policy. Options:
-
-- `--task <id>`: filter by task.
-- `--name <snapshot-name>`: filter by snapshot name.
-- `--older-than <duration>`: e.g. `7d`, `4h`.
-- `--keep-generations <n>`: for each
-  `(task_id, snapshot_name, emitting_state, visit, target_slug)` identity,
-  retain the newest `n` orchestrator-produced generations and delete older
-  generations that also satisfy the other filters. `n` must be at least `1`.
-- `--include-operator`: include operator-produced generations in retention and
-  deletion decisions. Without this flag, operator generations are ignored by
-  `--keep-generations` and by unqualified deletion.
-- `--orphaned`: delete orphans only.
-- `--dry-run`: print what would be deleted.
-- `--force`: bypass the live-run interlock (see below).
-
-v1 GC is operator-driven only. Automatic GC is deferred. Operators can scope
-retention with existing filters such as `--task`, `--name`, and `--orphaned`
-before applying `--keep-generations`.
-
-**Live-run interlock.** GC refuses to delete a snapshot if any of the
-following hold for the same plan workspace:
-
-1. An orchestrator process holds an active `.rhei/run.lock` (the lock
-   §FS-rhei-run uses to serialize `rhei run` invocations).
-2. The snapshot's generation is reachable from any active
-   `snapshot.inherit.select.generation` on a state whose task is currently in a
-   non-terminal state. This includes explicit integer generations and
-   `latest`, not only `current`.
-
-Retention is evaluated per `(task_id, snapshot_name, emitting_state, visit,
-target_slug)` identity.
-
-The check is best-effort, not transactional: an operator who starts `rhei
-run` between the check and the delete can still race. Operators who need
-deterministic behavior must stop the orchestrator first, or pass `--force`
-to acknowledge the risk. `--force` is required to GC any snapshot in a
-workspace whose `run.lock` is held.
-
-### `rhei snapshot continue <ref>`
-
-Drops the operator into an interactive agent session preloaded with the
-referenced snapshot. The operator drives the conversation; on agent exit,
-the resulting transcript is captured as a sibling generation under the
-*same identity* as the source snapshot, with `produced_by: operator`. The
-`current` pointer is not advanced and the plan's task runtime state is
-not modified — `continue` is read-mostly from the plan's perspective.
-
-The intended use is analysis: ask the agent why it made a decision,
-explore alternatives, inspect tool output that the orchestrator did not
-preserve as an artifact. The operator's transcript stays in the cache and
-is reachable by full ref or by filtering on `produced_by: operator` in
-`rhei snapshot list`.
-
-Resolution rules for `<ref>`:
-
-- Full path: a directory under `.rhei/cache/snapshots/`.
-- Shorthand: `<task>:<name>[:<state>][@<visit>][:<target>][/g<N>]` as in
-  `rhei snapshot show`. Generations resolve to `current` when omitted.
-- Auto-emit shorthand: `<task>:<state>` is interpreted as
-  `<task>:_state:<state>`, so the common case (continue from this task at
-  this state) needs no `_state` literal unless a named snapshot of the same
-  segment exists, in which case the shared parser requires explicit `_state`.
-
-Options:
-
-- `--target <slug>`: required when the source state has multiple
-  target-slug snapshots and the operator has not pinned one in the
-  shorthand.
-- `--generation <N>`: continue from a specific generation rather than
-  `current`. Useful for revisiting an earlier orchestrator emission after
-  a re-run.
-- `--no-capture`: discard the operator's resulting transcript instead of
-  writing a sibling generation. The interactive session still runs; on
-  exit nothing is added to the cache.
-
-The command requires the resolved agent to expose a `ResumeStrategy` other
-than `None`, a usable `SessionLayout`, and an
-`InteractiveContinuationProfile`; otherwise it errors before spawn with
-`unsupported-snapshot-session`. The interactive profile must preserve TTY
-pass-through, not the headless `-p`-style invocation that `rhei run` uses.
-Agents whose built-in profiles offer only a headless transport in earlier
-phases cannot be used with `continue` until that gap is closed (see
-[Phased Rollout](#phased-rollout)).
-
-If the referenced manifest has `completion: timeout`, `continue` may proceed
-only after warning that the native transcript may be truncated.
-
-**Live-run interlock.** `continue` takes the same `.rhei/run.lock` the
-orchestrator uses for `rhei run`. If the lock is held, `continue` exits
-with a clear error directing the operator to stop the run first. No
-`--force` override exists: running an interactive analysis session
-concurrently with a live orchestrator is unsafe (both could write the
-same agent's session-output path mid-conversation), and the spec does
-not offer a way to opt into the race.
-
-The operator's generation manifest records:
-
-- `produced_by: operator`.
-- `parent_ref` pointing at the source snapshot whose transcript was
-  preloaded into the interactive session, per the same rule the
-  orchestrator follows for `rhei run` emissions.
-- `completion: success` if the agent exited cleanly; `completion:
-  failure` on a nonzero exit. There is no `timeout` classification —
-  the operator drives pacing and the agent-timeout guardian does not run.
-
-The operator's sibling generation is allocated by the same atomic-write
-procedure as any other emission. Because `current` is not advanced, the
-orchestrator's next emission for the same identity still resolves the
-next free `g<N>` slot via the existing collision-retry rule; operator
-generations interleave with orchestrator generations without disturbing
-the `current` pointer chain.
-
-### `rhei run --from-snapshot <ref>`
-
-For an ad-hoc run, `--from-snapshot <ref>` overrides the concrete source
-snapshot after the target state's authored `snapshot.inherit:` constraints have
-been applied. The target state must still declare `snapshot.inherit:` and the
-override must satisfy the declared name, `from`, `select.state`, target,
-visit/generation, `required`, and `compat` constraints unless the operator also
-passes `--override-inherit`.
-
-`--override-inherit` is an explicit bypass for debugging source-selection and
-compatibility constraints. It does not bypass the authored contract: the target
-state must still declare `snapshot.inherit:`. Without `--override-inherit`,
-`--from-snapshot` is rejected when the authored source would be `compat: none`
-or when the referenced snapshot is not natively compatible; with
-`--override-inherit`, those source and compatibility checks may be bypassed,
-but the missing-`snapshot.inherit` rejection remains.
-
-When the run context is ambiguous, the operator must provide selectors such as
-`--task <id>` and `--target <slug>` so the command identifies exactly one task
-and one fanout invocation. Ambiguous overrides exit non-zero with candidate
-matches.
-
-## Phased Rollout
-
-| Phase | Scope | Deliverable |
-|-------|-------|-------------|
-| 1 | Spec + YAML grammar + validator | This document, parser changes, validation rules including parse-time errors for unsupported `compat` values and `select.target: all`. Orphan detection is dormant unless a cache directory already exists. No runtime snapshot writes yet. |
-| 1.5 | Settings, redaction, and inspection foundation | `snapshots` settings, redactor process contract, manifest readers, and minimal `rhei snapshot list/show/gc` support before any default runtime auto-emit writes transcripts. |
-| 2 | Per-agent adapter spikes | Small prove-out scripts that exercise `claude --session-id`/`--resume`, `codex` resume surface, Gemini resume/path layout, and `pi --fork`. Findings written back into this spec; built-in profile blanks filled. |
-| 3 | claude-code end-to-end | Manifest + atomic writes + claude profile + spawn-time wiring + emit on completion. Integration tests for a same-task two-state inheritance flow and a sub-task inheritance flow. Active orphan diagnostics begin with this first cache-writing runtime phase. |
-| 4 | pi end-to-end | Pi profile with native `--fork`, underlying-provider/model parsing from JSONL headers, fanout per-target snapshots. |
-| 5 | codex end-to-end | Per phase 2 spike outcome: either profile additions or new transport variant. |
-| 6 | Interactive and run override surface | `rhei snapshot continue`, `--from-snapshot`, and the interactive-transport profile work `continue` needs for any agent whose built-in profile uses headless invocation by default in earlier phases. |
-| 7+ | Deferred | Snapshot summarizer helpers, richer retention automation, and other operator tooling that does not turn snapshots into cross-agent transcript replay. |
-
-Each phase ships standalone. Plans that do not reference snapshots are
-unaffected at every phase.
-
-Auto-emit lights up for an agent only after settings, redaction, and
-list/show/gc inspection are available and that agent's `SessionLayout` is
-resolved and wired up (phases 3–5 for supported built-in agents). There is
-no discrete "auto-emit phase" — once an agent can be snapshotted at all,
-it is snapshotted on every state exit by default, and `rhei snapshot
-continue` becomes available later when the interactive transport is supported.
-
-## Configuration
-
-### Settings Block
-
-Project and global `settings.json` may include a `snapshots` block:
-
-```jsonc
-{
-  "snapshots": {
-    "cache_dir": ".rhei/cache/snapshots",   // path relative to plan root
-    "experimental": { "gemini_snapshots": false },
-    "provider_cache_ttl": {
-      "anthropic": "<provider-default>",
-      "openai":    "<provider-default>",
-      "google":    "<provider-default>"
-    },
-    "redactor": null                         // path to a redactor program; see Privacy
-  }
-}
-```
-
-`provider_cache_ttl` populates the `cache_beneficial` predicate's TTL term per
-provider. The authoritative defaults live in the shipped settings template at
-release time; placeholder values in examples are illustrative, not normative.
-
-### Privacy: Redaction Hook
-
-If `snapshots.redactor` is set, rhei executes the named program on every
-transcript file before writing it to the cache. The program receives the
-staged transcript on stdin and must write the redacted form on stdout. A
-non-zero exit aborts the snapshot write with a clear error. Redaction runs
-inside the atomic-write window, before sha256 computation.
-
-Redactor process contract:
-
-- The redactor runs with cwd set to the plan workspace root.
-- By default it receives a minimal environment containing only variables
-  needed to locate rhei, the workspace, and the configured settings path.
-  Projects may opt into additional environment variables through settings; rhei
-  does not forward the full parent environment implicitly.
-- Rhei applies a finite timeout. On timeout it sends the platform's normal
-  termination signal, waits a short grace period, then kills the process and
-  aborts the snapshot write.
-- Stdin is the staged transcript bytes. Stdout is captured as the complete
-  replacement transcript and is subject to the same best-effort size/resource
-  limits as other runtime-captured output.
-- Stderr is captured for diagnostics and may be truncated in logs; it is never
-  written into `manifest.json`.
-- The redactor path, exit status, timeout/truncation outcome, and stderr
-  summary are logged to the run log. The manifest does not record whether a
-  redactor ran.
-
-The redaction hook is the supported privacy boundary. Gitignore alone is not
-considered sufficient for transcripts containing secrets surfaced through
-tool output.
-
-**Redaction is intentionally opaque.** Because sha256 is computed on the
-redacted bytes, downstream readers and inheritors cannot tell from the
-manifest whether redaction ran, nor distinguish redacted from original
-content. Two consequences follow:
-
-1. Snapshots produced under different redactor configurations are not
-   interchangeable. A snapshot whose transcript was scrubbed of tool output
-   may preload "successfully" but yield a degraded preload because the
-   downstream agent is missing context the upstream agent had. Operators who
-   change `redactor` should treat the change as cache-invalidating.
-2. There is no audit trail of redaction in v1. If an audit story is needed,
-   write the redactor as a logging filter that records redaction events to a
-   separate sink keyed by the eventual `transcript_sha256` (which the hook
-   can compute by mirroring its own output before emitting). Building this
-   into the manifest is reserved for a future schema version.
-
-## Open Questions
-
-These are unresolved as of v1 of this spec and will be revisited as the
-phased rollout progresses.
-
-1. Whether `--session-id` is the correct flag for assigning a session id on
-   claude-code. Determined by the adapter spike.
-2. Whether `codex exec` supports session resume or whether a separate
-   transport variant is required. Determined by the adapter spike.
-3. Whether `gemini --resume` accepts a UUID directly or only an integer index
-   from `--list-sessions`. Determined by the adapter spike.
-4. The default `provider_cache_ttl` table contents at release time. The
-   canonical defaults live in the `snapshots` block of the global
-   `settings.json` template shipped with rhei; per-provider values are derived
-   from each provider's published cache TTL immediately before v1 ships. This
-   spec deliberately uses placeholders in examples so there is exactly one
-   source of truth.
-5. Whether `snapshot.emit.on: timeout` is worth exposing as a distinct policy
-   alongside `failure` (timeout is currently bundled into `failure`).
-6. Whether automatic GC by terminal task state is preferable to TTL-based GC
-   for v2.
-7. Whether auto-emit should be opt-out per state (e.g., `snapshot.auto:
-   false`) for states where the operator should not be able to attach an
-   analysis session — for example, states whose transcripts are known to
-   contain credentials beyond what the redactor can scrub. Not in v1; the
-   redactor hook plus path-level access controls on `.rhei/cache/snapshots/`
-   are the supported privacy surface for now.
