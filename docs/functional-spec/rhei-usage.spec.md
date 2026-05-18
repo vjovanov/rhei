@@ -106,7 +106,7 @@ The commands that coordinate through the state machine:
 The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
 `rhei run --from-snapshot` is the run-time override surface for ad-hoc
 snapshot debugging; its constraints are specified in
-[Snapshots Specification](rhei-snapshots.spec.md).
+[Snapshot Operations Specification](rhei-snapshot-operations.spec.md).
 
 ## Usage Patterns
 
