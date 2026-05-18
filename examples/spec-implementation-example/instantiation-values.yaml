@@ -1,5 +1,5 @@
-spec_path: docs/functional-spec/rhei-list.spec.md
-spec_title: rhei-list Spec Implementation Example
+spec_ref: main..HEAD
+spec_title: Spec Implementation Example (current-branch spec diff)
 implementation_target: claude-code[yolo]:anthropic:claude-opus-4-7
 review_targets:
   - claude-code[yolo]:anthropic:claude-opus-4-7

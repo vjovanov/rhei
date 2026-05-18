@@ -1,98 +1,141 @@
 # spec-implementation
 
-Take a specification and produce a reviewed, fix-cycled, e2e-covered
-implementation of it — without you babysitting the loop.
+Take one or more specifications and produce reviewed, fix-cycled,
+e2e-covered implementations of them — without you babysitting the loop.
 
 ## What it does
 
-You point this template at a spec file. It instantiates a workspace whose
-single task walks one agent through implementation, then puts the result
-through three structured passes:
+You point this template at either a single spec file (`spec_path`) or a
+git reference (`spec_ref` — PR, branch, commit range, or `.diff` file)
+whose changed `*.spec.md` files become the work set. It instantiates a
+workspace with a coordinator task that resolves the input and fans out:
 
-1. **Completeness audit** — fan-out across reviewers. "Did we implement
-   everything the spec calls out?"
-2. **Quality review/fix loop** — fan-out review, smart aggregation, smart
-   fix. Repeats N times. "Is what we implemented actually correct?"
-3. **E2E coverage loop** — two agents ping-pong: one writes tests against
-   the mock agent, the other independently runs and audits them. Repeats M
-   times. "Do tests actually exercise the spec through the public
-   interface — without us paying for real model calls on every commit?"
+1. **Per-spec pipeline** (one task per spec, run in parallel):
+   - **Implementation** by `implementation_target`.
+   - **Completeness audit** — fan-out across reviewers. "Did we implement
+     everything the spec calls out?"
+   - **Quality review/fix loop** — fan-out review, smart aggregation,
+     smart fix. Repeats N times. "Is what we implemented actually correct?"
+2. **Shared E2E coverage loop** (runs once, after every per-spec task
+   completes):
+   - Two agents ping-pong: one writes tests against the mock agent, the
+     other independently runs and audits them. Repeats M times. "Do tests
+     actually exercise the specs through the public interface — without us
+     paying for real model calls on every commit?"
 
 Each stage writes its artifacts under `runtime/...` in the workspace so
 you can inspect what each agent saw and decided.
 
 ## When to use it
 
-- You have a written spec and you want an implementation you can trust
-  without doing the whole review loop by hand.
-- The work is well-scoped enough that one task can carry it end-to-end (a
-  CLI subcommand, an API endpoint, a new state machine, a small subsystem).
-  For larger work, split the spec and instantiate this template per piece.
-- You're willing to pay for ~`1 + 2N + 2M` agent invocations of the
-  configured targets — exact cost depends on `review_passes` and
-  `e2e_passes`.
+- You have a written spec (or several) and you want implementations you
+  can trust without running the whole review loop by hand.
+- For multi-spec mode, the changed specs are related enough that one
+  shared e2e pass over them makes sense. For unrelated specs, instantiate
+  separately per spec.
+- You're willing to pay for ~`1 + (1 + 2N) × S + 2M` agent invocations
+  where S is the spec count, N is `review_passes`, and M is `e2e_passes`.
 
 If your need is closer to *audit*, *review*, or *spec drafting*, use the
-neighboring templates instead (`spec-implementation-discrepancy-audit`,
-`changeset-review`, or `spec-review`).
+neighboring templates (`spec-implementation-discrepancy-audit`,
+`changeset-review`, `spec-review`).
+
+## Input mode (XOR)
+
+Exactly one of these must be set:
+
+| Mode | Input | Example |
+|---|---|---|
+| Single-spec | `spec_path` | `--set spec_path=docs/functional-spec/rhei-list.spec.md` |
+| Multi-spec from diff | `spec_ref` | `--set spec_ref=main..HEAD` or `--set spec_ref=PR#42` |
+
+The coordinator state checks the XOR at the start of the run and stops
+with a clear error if both or neither are set. (The check happens at run
+time, not at instantiation time — instantiation will still produce a
+workspace even if the inputs are wrong; the coordinator catches it.)
+
+For `spec_ref`, accepted forms:
+
+- PR URL or number (`PR#42`, full URL, `org/repo#42`) — uses `gh`.
+- Branch name — compared against the project's default branch.
+- Commit SHA or range `base..head` — uses `git diff`.
+- Path to a `.diff` or `.patch` file on disk.
+
+The coordinator filters to paths matching `*.spec.md` under the project's
+spec directory.
 
 ## Flow at a glance
 
 ```
-   implement                  (implementation_target)
+   coordinate                    (smart_target)
+     |
+     |  appends:
+     |    - tasks/NN-impl-<slug>.md   (one per spec)
+     |    - tasks/NN-e2e-aggregate.md (one, depends on every impl task)
+     v
+   completed                     (coordinator task done)
+
+   --- per impl-<slug> task ---
+   implement                     (implementation_target)
      |
      v
-   completeness-review        (fan-out: review_targets)
+   completeness-review           (fan-out: review_targets)
      |
      v
-   completeness-aggregate     (smart_target)
+   completeness-aggregate        (smart_target)
      |
      v
-   completeness-fix           (implementation_target)
+   completeness-fix              (implementation_target)
      |
      v
-   +-> quality-review         (fan-out: review_targets)
+   +-> quality-review            (fan-out: review_targets)
    |     |
    |     v
-   |   quality-aggregate      (smart_target)
+   |   quality-aggregate         (smart_target)
    |     |
    |     v
-   |   quality-fix            (smart_target)
+   |   quality-fix               (smart_target)
    +-- loop x review_passes
          |
          v
-   +-> e2e-write              (e2e_writer)
+       completed                 (per-spec task done)
+
+   --- e2e-aggregate task, after every impl-<slug> completes ---
+   +-> e2e-write                 (e2e_writer)
    |     |
    |     v
-   |   e2e-verify             (e2e_verifier)
+   |   e2e-verify                (e2e_verifier)
    +-- loop x e2e_passes
          |
          v
-       completed
+       completed                 (workflow done)
 ```
 
-The state machine diagram lives at the top of [`states.yaml`](./states.yaml).
+The state machine diagram (with per-task paths) lives at the top of
+[`states.yaml`](./states.yaml).
 
 ## Inputs
 
-The only required input is `spec_path`. Everything else has a sensible default.
+The only required choice is one of `spec_path` / `spec_ref`. Everything
+else has a sensible default.
 
 | Input | Type | Default | What it does |
 |---|---|---|---|
-| `spec_path` | string | *(required)* | Path to the spec file (or directory). |
+| `spec_path` | string | empty | Single-spec mode. Path to one spec file. |
+| `spec_ref` | string | empty | Multi-spec mode. PR / branch / commit range / diff file whose changed `*.spec.md` files become the work set. |
 | `spec_title` | string | `Spec Implementation` | Workspace title. |
 | `implementation_target` | string | `claude-code[yolo]:anthropic:claude-opus-4-7` | Agent that implements and closes completeness gaps. |
-| `review_targets` | string[] | `[claude-code…, codex…]` | Reviewers — used in both completeness and quality reviews. Add more for higher confidence at higher cost. |
-| `smart_target` | string | `codex[xhigh]:openai:gpt-5.5` | Aggregates per-reviewer findings, writes the fix plan, applies the fixes. |
-| `review_passes` | number | `2` | How many quality review/fix cycles. |
+| `review_targets` | string[] | `[claude-code…, codex…]` | Reviewers — used in both completeness and quality reviews per spec. |
+| `smart_target` | string | `codex[xhigh]:openai:gpt-5.5` | Coordinator; aggregator; writes fix plan; applies fixes. |
+| `review_passes` | number | `2` | Quality review/fix cycles per spec. |
 | `focus_areas` | string[] | `[]` | Optional focus sections each quality reviewer must address. |
-| `e2e_writer` | string | `claude-code[yolo]:anthropic:claude-opus-4-7` | Agent that adds e2e tests. |
+| `e2e_writer` | string | `claude-code[yolo]:anthropic:claude-opus-4-7` | Agent that adds e2e tests in the shared loop. |
 | `e2e_verifier` | string | `codex[xhigh]:openai:gpt-5.5` | Agent that re-runs and audits the e2e suite. Should differ from `e2e_writer`. |
-| `e2e_passes` | number | `2` | How many e2e write/verify cycles. |
+| `e2e_passes` | number | `2` | E2E write/verify cycles. |
 | `e2e_test_root` | string | empty | Where e2e tests live (e.g., `e2e/`). Empty = let the writer discover. |
-| `mock_agent` | string | `mock` | The mock agent selector / test-side name every standard e2e test must target. |
-| `release_only_marker` | string | `release-only` | Tag / attribute / filename suffix that marks tests which hit real agent operations and run only on release builds. |
-| `release_only_test_root` | string | empty | Optional separate directory for release-only real-agent tests. Empty = co-locate and rely on the marker. |
+| `mock_agent` | string | `mock` | The mock agent selector every standard e2e test must target. |
+| `release_only_marker` | string | `release-only` | Tag the CI runner uses to exclude real-agent tests from the default suite. |
+| `release_only_test_root` | string | empty | Optional separate directory for release-only real-agent tests. |
 
 ### E2E test policy (enforced by the template)
 
@@ -114,8 +157,8 @@ any standard test that calls real-agent code paths, and it flags growth in
 the release-only subset beyond ~one happy-path test per distinct real-agent
 integration.
 
-The template ships defaults that match a common project convention; override
-them per-instantiation when your project uses different names:
+Override the defaults per-instantiation when your project uses different
+names:
 
 ```bash
 --set mock_agent='MockAgent::canned' \
@@ -125,21 +168,26 @@ them per-instantiation when your project uses different names:
 
 ### Common configurations
 
-- **Default (balanced, ~2h–4h of agent time):** just set `spec_path`.
-- **Faster, lower-confidence pass:** `--set review_passes=1 --set e2e_passes=1`.
+- **Single spec, balanced:** `--set spec_path=docs/.../my-feature.spec.md`.
+- **All specs in the current branch:** `--set spec_ref=main..HEAD`.
+- **A specific PR:** `--set spec_ref=PR#42`.
+- **Faster, lower-confidence pass:** add `--set review_passes=1 --set e2e_passes=1`.
 - **Heavier audit:** `--set review_passes=3` and add a third reviewer.
-- **Skip e2e entirely:** `--set e2e_passes=1` and accept whatever the
-  verifier reports; the workflow does not yet support skipping the loop
-  altogether without editing the plan.
 
 ## Quick start
 
 ```bash
+# Single spec
 rhei instantiate spec-implementation \
   --set spec_path=docs/functional-spec/my-feature.spec.md \
   --output .agents/scratchpad/spec-implementation/
 
-rhei run .agents/scratchpad/spec-implementation/plan.rhei.md
+# All specs changed on the current branch
+rhei instantiate spec-implementation \
+  --set spec_ref=main..HEAD \
+  --output .agents/scratchpad/spec-implementation/
+
+rhei run .agents/scratchpad/spec-implementation/
 ```
 
 For non-scalar inputs (`review_targets`, `focus_areas`), use a values file:
@@ -156,20 +204,24 @@ Each state writes its artifacts under `runtime/...` in the workspace:
 
 | Directory | What's in it |
 |---|---|
-| `runtime/implement/` | Implementation notes (what was implemented, what was deferred). |
-| `runtime/completeness/` | Per-reviewer gap inventories, merged gap list, fix log. |
-| `runtime/quality/` | Per-reviewer findings, fix plan, and fix log — one set per pass. |
-| `runtime/e2e/` | Write report + verify report — one set per pass. |
+| `runtime/manifests/` | Coordinator-written spec assignments and per-task spec paths. |
+| `runtime/implement/` | Per-spec implementation notes (what was implemented, what was deferred). |
+| `runtime/completeness/` | Per-reviewer gap inventories, merged gap list, fix log — per spec. |
+| `runtime/quality/` | Per-reviewer findings, fix plan, and fix log — per spec, per pass. |
+| `runtime/e2e/` | Shared write report + verify report — per pass. |
 
 The fix-and-edit work itself happens in the repository checkout (resolved
-via `git rev-parse --show-toplevel`), not in the workspace.
+via `git rev-parse --show-toplevel`), not in the workspace. The
+coordinator also appends per-spec task files and the e2e-aggregate task
+file under `tasks/` during the run.
 
 ## What's bundled
 
 - `template.yaml` — input manifest.
 - `states.yaml` — the `spec-implementation` state machine (diagram in the
   top comment).
-- `plan.rhei.md` — the single-task plan skeleton.
+- `index.rhei.md` — workspace index.
+- `tasks/01-coordinate.md` — the initial coordinator task skeleton.
 - `settings.json` — adds Codex `high` / `xhigh` modes (the default
   `smart_target` uses `xhigh`) and sets `agent_timeout: 2h` since
   implementation states can run long.
