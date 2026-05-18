@@ -113,7 +113,7 @@ can start in different states within the same state machine.
   collisions are validation errors. The same target slug may appear in
   different tasks, states, snapshot names, or visits because those fields are
   part of the snapshot storage identity. See
-  [Snapshots Specification — Target Slug](rhei-snapshots.spec.md#target-slug).
+  [Snapshots Specification — Target Slug](rhei-snapshots.spec.md#71-target-slug).
 - `state.target` and `state.all_targets` are mutually exclusive.
 - `state.target` and `state.all_targets` must not be combined with any of
   `state.model`, `state.all_models`, `state.agent`, or `state.agent_mode`.
@@ -160,7 +160,7 @@ can start in different states within the same state machine.
 - A state that declares `poll` must have at least one self-loop transition (`from: <state>, to: <state>`); without it the "retry" branch is unreachable.
 - A state that declares both `poll` and `snapshot.inherit` is a validation
   error in v1. Polling states may still emit snapshots on terminal exit when
-  otherwise snapshot-capable. See [Snapshots Specification — Counted Loops, Fanout, and Polling](rhei-snapshots.spec.md#counted-loops-fanout-and-polling).
+  otherwise snapshot-capable. See [Snapshots Specification — Counted Loops, Fanout, and Polling](rhei-snapshots.spec.md#103-counted-loops-fanout-and-polling).
 - Snapshot operations require a resolved effective target tuple `(agent, mode?,
   provider, model)`. Legacy `agent`/`model` and `all_models` states may use
   snapshots only when normal resolution can derive that tuple; otherwise

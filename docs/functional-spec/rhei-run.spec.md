@@ -38,7 +38,7 @@ Flags are grouped by concern:
 
 | Flag | Description |
 |------|-------------|
-| `--from-snapshot <ref>` | Override the concrete source selected by an authored `snapshot.inherit:` after that state's constraints are applied. See [Snapshots Specification — `rhei run --from-snapshot`](rhei-snapshots.spec.md#rhei-run---from-snapshot-ref). |
+| `--from-snapshot <ref>` | Override the concrete source selected by an authored `snapshot.inherit:` after that state's constraints are applied. See [Snapshot Operations Specification — Run Override](rhei-snapshot-operations.spec.md#2-run-override). |
 | `--override-inherit` | Explicitly bypass authored source-selection and compatibility constraints for an ad-hoc debug run. The target state must still declare `snapshot.inherit:`. Requires `--from-snapshot`. |
 | `--task <id>` | Select the task for an ambiguous snapshot override. |
 | `--target <slug>` | Select the fanout target for an ambiguous snapshot override. |
@@ -76,7 +76,7 @@ Mode selection: `rhei run` uses orchestrated subprocess execution whenever any r
    after transition selection and before the transition is applied. Poll
    self-loop attempts do not emit because the selected transition is known;
    terminal poll exits may emit. See
-   [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#emit-on-exit).
+   [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
 7. Apply the selected transition. The subprocess **must not** call
    `rhei transition` or `rhei complete`; the orchestrator owns the transition.
 8. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
@@ -146,7 +146,8 @@ See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) f
 
 - [Agents Specification](rhei-agents.spec.md) — completion authority, completion condition, timeout handling, environment variables
 - [Program States Specification](rhei-programs.spec.md) — exit-code transitions and program-specific semantics
-- [Snapshots Specification](rhei-snapshots.spec.md) — snapshot side effects, inheritance preload, and `--from-snapshot`
+- [Snapshots Specification](rhei-snapshots.spec.md) — snapshot side effects and inheritance preload
+- [Snapshot Operations Specification](rhei-snapshot-operations.spec.md) — snapshot commands, settings, and `--from-snapshot`
 - [Run TUI Specification](rhei-run-tui.spec.md) — live terminal UI and transition journal
 - [Transitions Specification](rhei-transitions.spec.md) — transition YAML schema and callbacks
 - [Next Command](rhei-next.spec.md), [Complete Command](rhei-complete.spec.md), [Transition Command](rhei-transition-cmd.spec.md) — manual-worker counterparts

@@ -164,7 +164,7 @@ agent's `command`, flags, and modes are declared.
 | `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
 | `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
 | `modes` | object | No | Named flag sets, keyed by mode name. Values are ordered string arrays appended to the command at spawn time. See [Modes](#modes). |
-| `session` | object | No | Optional `CustomAgentProfile.session` block describing snapshot resume, fork, interactive continuation, and transcript layout capabilities. The authoritative schema is [Snapshots Specification — CustomAgentProfile.session](rhei-snapshots.spec.md#customagentprofilesession). |
+| `session` | object | No | Optional `CustomAgentProfile.session` block describing snapshot resume, fork, interactive continuation, and transcript layout capabilities. The authoritative schema is [Snapshots Specification — CustomAgentProfile.session](rhei-snapshots.spec.md#91-customagentprofilesession). |
 
 Built-in agent ids (see [Known Agent Profiles](#known-agent-profiles)) are
 preloaded as the default agents registry. A user entry with the same id in
@@ -228,7 +228,7 @@ keeps state machines portable across agents that do not implement skills.
 `snapshots` is an optional top-level settings block for session snapshot
 storage, redaction, cache TTLs, and experimental adapter gates. This spec only
 declares where the block lives in settings; field definitions and defaults are
-authoritative in [Snapshots Specification — Configuration](rhei-snapshots.spec.md#configuration).
+authoritative in [Snapshot Operations Specification — Configuration](rhei-snapshot-operations.spec.md#4-configuration).
 
 ### Per-State Settings
 
@@ -855,7 +855,7 @@ When an agent process exceeds its timeout:
 When snapshot capture is enabled, a timeout may still produce an auto-emitted
 transcript for operator inspection, but that snapshot is classified
 `completion: timeout` and is not preloadable by authored `snapshot.inherit:`.
-See [Snapshots Specification — Compatibility Predicates](rhei-snapshots.spec.md#compatibility-predicates).
+See [Snapshots Specification — Compatibility Predicates](rhei-snapshots.spec.md#5-compatibility-predicates).
 
 ### Timeout Transitions
 
