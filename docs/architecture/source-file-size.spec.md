@@ -5,7 +5,7 @@ They must stay small enough for focused review, reliable agent context loading,
 and predictable refactoring. This architecture rule supports readable,
 reviewable plans and predictable execution work. §GOAL-rhei-outcomes
 
-## File Size Policy
+## 1. File Size Policy
 
 Hand-authored source, template, example, and test files must be kept in the
 500-line range.
@@ -30,7 +30,7 @@ declarations and citations instead of being loaded as one undifferentiated file.
 They may grow past 500 lines when the declaration remains coherent and
 navigable through `grund <ID>`, `grund <ID> --toc`, and subsection reads.
 
-## Large-File Register
+## 2. Large-File Register
 
 Large-file exceptions belong in this section or in a more specific `AR-*`
 document that cites this rule. Each entry must explain why the file cannot yet
@@ -51,7 +51,7 @@ be split without making the design harder to understand.
 | `examples/changeset-review-example/states.yaml` | Example mirrors the changeset-review template state machine. | Split by template support if Rhei gains multi-file state machines. |
 | `crates/rhei-core/src/ast.rs` | AST types are reviewed together as the core language model. | Split workspace/task/state structs if more public fields are added. |
 
-## Split Shape
+## 3. Split Shape
 
 When a file crosses the hard limit, split it along existing behavioral
 boundaries first. The split should preserve public behavior and make the next
@@ -165,7 +165,7 @@ Future work must keep new code inside the owning part file or create a new
 part with a behavior name. If adding code would push a part past the 500-line
 range, split that part before adding more behavior.
 
-## Current Violations
+## 4. Current Violations
 
 No hand-authored repository file is currently known to be above the hard
 2000-line limit. New work must not introduce one.

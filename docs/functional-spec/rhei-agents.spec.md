@@ -8,7 +8,7 @@ For the state machine format see [States Specification](rhei-states.spec.md). Fo
 
 Rhei can spawn coding agents directly from `rhei run`. Instead of requiring hand-written `workflow.sh` callback scripts, the run command resolves an agent for each task, composes a prompt from the state machine instructions, and spawns the agent as a subprocess. The spawned agent does the work for the current state, writes any required artifacts, and exits. `rhei run` remains the transition authority: after the subprocess exits, the engine evaluates the declared forward transitions and performs the state change itself. Callbacks still fire on transitions — agents and callbacks are complementary.
 
-## Agent Configuration
+## 1. Agent Configuration
 
 Rhei settings separate **model identity** from **agent transport** and
 **tooling**:
@@ -28,7 +28,7 @@ This separation keeps callback-only workflows model-centric while still letting
 `rhei run` resolve the exact subprocess invocation, tool surface, and skill
 bundle when agent mode is enabled.
 
-### Global and Project Settings
+### 1.1. Global and Project Settings
 
 Files:
 
@@ -134,7 +134,7 @@ key rather than replacing the whole file.
 }
 ```
 
-#### `defaults`
+#### 1.1.1. `defaults`
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -143,10 +143,10 @@ key rather than replacing the whole file.
 | `agent_mode` | string or null | No | Default agent mode (named flag set) applied when a state does not set `agent_mode`. |
 | `agent_timeout` | string or null | No | Default autonomous agent timeout |
 | `program_timeout` | string or null | No | Default program timeout |
-| `mcp_servers` | array | No | Default MCP server entries applied to every agent state. Entries are ids or inline definitions. See [MCP Servers](#mcp-servers). |
-| `skills` | array | No | Default skill entries applied to every agent state. Entries are ids or inline definitions. See [Skills](#skills). |
+| `mcp_servers` | array | No | Default MCP server entries applied to every agent state. Entries are ids or inline definitions. See [MCP Servers](#114-mcp_servers). |
+| `skills` | array | No | Default skill entries applied to every agent state. Entries are ids or inline definitions. See [Skills](#115-skills). |
 
-#### `agents`
+#### 1.1.2. `agents`
 
 `agents` is a registry of agent transport profiles keyed by agent id. States
 and defaults reference agents by id — inline agent definitions are not
@@ -163,15 +163,15 @@ agent's `command`, flags, and modes are declared.
 | `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
 | `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
 | `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
-| `modes` | object | No | Named flag sets, keyed by mode name. Values are ordered string arrays appended to the command at spawn time. See [Modes](#modes). |
+| `modes` | object | No | Named flag sets, keyed by mode name. Values are ordered string arrays appended to the command at spawn time. See [Modes](#22-modes). |
 | `session` | object | No | Optional `CustomAgentProfile.session` block describing snapshot resume, fork, interactive continuation, and transcript layout capabilities. The authoritative schema is [Snapshots Specification — CustomAgentProfile.session](rhei-snapshots.spec.md#91-customagentprofilesession). |
 
-Built-in agent ids (see [Known Agent Profiles](#known-agent-profiles)) are
+Built-in agent ids (see [Known Agent Profiles](#2-known-agent-profiles)) are
 preloaded as the default agents registry. A user entry with the same id in
 global or project settings replaces the built-in entry wholesale — `command`,
 flags, and `modes` are taken from the user entry without field-level merging.
 
-#### `models`
+#### 1.1.3. `models`
 
 `models` is a registry of named model profiles keyed by model id.
 
@@ -190,7 +190,7 @@ Each `models.<id>.agents.<agent-id>` binding has this shape:
 | `autonomous_args` | string array | No | Arguments preferred by `rhei run` when launching autonomously |
 | `timeout` | string | No | Timeout default specific to this model-agent binding |
 
-#### `mcp_servers`
+#### 1.1.4. `mcp_servers`
 
 `mcp_servers` is a registry of named MCP server profiles keyed by server id.
 Entries describe how to launch or connect to a Model Context Protocol server
@@ -207,7 +207,7 @@ so it can be attached to an agent subprocess.
 
 `command` and `url` are mutually exclusive. An entry must declare exactly one.
 
-#### `skills`
+#### 1.1.5. `skills`
 
 `skills` is a registry of named skill profiles keyed by skill id. Each entry
 identifies an agent-side skill bundle that should be enabled for states that
@@ -220,26 +220,26 @@ list it.
 
 Skills are agent-specific capabilities. A resolved skill is wired to the agent
 only when the resolved agent profile declares a `skill_flag`; otherwise the
-skill is skipped with a warning (see [Missing Tooling](#missing-tooling)). This
+skill is skipped with a warning (see [Missing Tooling](#6-missing-tooling)). This
 keeps state machines portable across agents that do not implement skills.
 
-#### `snapshots`
+#### 1.1.6. `snapshots`
 
 `snapshots` is an optional top-level settings block for session snapshot
 storage, redaction, cache TTLs, and experimental adapter gates. This spec only
 declares where the block lives in settings; field definitions and defaults are
 authoritative in [Snapshot Operations Specification — Configuration](rhei-snapshot-operations.spec.md#4-configuration).
 
-### Per-State Settings
+### 1.2. Per-State Settings
 
 The `target` / `all_targets` fields are the preferred execution selectors on
 state definitions in `states.yaml`. The legacy `model` / `all_models`,
 optional `agent`, `mcp_servers`, and `skills` fields remain supported for
 compatibility. See
-[States Specification — Agent Field](rhei-states.spec.md#agent-field) and
-[States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills).
+[States Specification — Agent Field](rhei-states.spec.md#5-agent-field) and
+[States Specification — MCP Servers and Skills](rhei-states.spec.md#7-mcp-servers-and-skills).
 
-### Merge Semantics
+### 1.3. Merge Semantics
 
 Built-in agents load first, global settings compose over them, then project
 settings compose over the result:
@@ -265,7 +265,7 @@ This lets a project override only a model's concrete provider/model pair or
 only a model-agent binding's autonomous arguments without redefining unrelated
 global entries.
 
-### Resolution Order
+### 1.4. Resolution Order
 
 When `rhei run` or a callback needs model context for a task in a given state,
 it resolves the model id in this order:
@@ -317,7 +317,7 @@ execution must resolve an effective target tuple `(agent, mode?, provider,
 model)` before snapshot emit or inherit can run; otherwise explicit snapshot
 fields are rejected and auto-emit is skipped.
 
-#### Mode Resolution Order
+#### 1.4.1. Mode Resolution Order
 
 When the resolved agent declares `modes`, `rhei run` picks one at spawn time:
 
@@ -351,7 +351,7 @@ effective MCP server and skill sets:
 The resolved sets are distinct per state and per invocation. Changing the
 current state or restarting `rhei run` recomputes them.
 
-### Partial Overrides
+### 1.5. Partial Overrides
 
 Each level can override model and agent independently:
 
@@ -375,7 +375,7 @@ Result for `agent-review`: model=`review-deep` (from state), agent=`codex`
 (from project defaults unless `review-deep.default_agent` or a CLI override
 supersedes it).
 
-## Known Agent Profiles
+## 2. Known Agent Profiles
 
 Rhei ships with built-in invocation profiles for known coding agents. Each
 profile defines how to spawn the agent, deliver the prompt, pass the concrete
@@ -403,13 +403,13 @@ its resume and path layout.
 
 Agents marked `unsupported` for MCP or skills receive a warning at spawn time
 when the resolved state's effective set includes entries they cannot consume.
-Required MCP entries (see [Missing Tooling](#missing-tooling)) escalate the
+Required MCP entries (see [Missing Tooling](#6-missing-tooling)) escalate the
 warning to an error.
 
 A user-written entry for one of these ids in `settings.json` replaces the
-built-in entry wholesale (see [Merge Semantics](#merge-semantics)).
+built-in entry wholesale (see [Merge Semantics](#13-merge-semantics)).
 
-### Custom Agents
+### 2.1. Custom Agents
 
 When the built-in profiles don't fit, declare a new agent in the `agents`
 registry — **never inline** on a state or on `defaults.agent`:
@@ -453,7 +453,7 @@ Inline agent objects are rejected by the validator. This keeps state
 machines portable — the transport surface lives in `settings.json` where a
 project or a user can replace it without touching `states.yaml`.
 
-### Modes
+### 2.2. Modes
 
 A mode is a named ordered list of extra CLI flags. When `rhei run` spawns the
 agent, the resolved mode's flags are appended right after the base
@@ -475,9 +475,9 @@ the named flag list.
 An agent entry may declare zero, one, or many modes. When no modes are
 declared, no mode flags are appended and `agent_mode` must not be set for
 states that use this agent. See
-[Mode Resolution Order](#mode-resolution-order) for how a mode is selected.
+[Mode Resolution Order](#141-mode-resolution-order) for how a mode is selected.
 
-## Prompt Composition
+## 3. Prompt Composition
 
 When `rhei run` spawns an agent for a task, it composes a prompt from the state machine definition and the task content. The prompt has this structure:
 
@@ -508,7 +508,7 @@ Available transitions from `{state}`:
 
 The prompt carries domain instructions only. It does not contain completion
 prose such as "create every required output artifact and then exit":
-completion is enforced by the state's [Completion Condition](#completion-condition),
+completion is enforced by the state's [Completion Condition](#32-completion-condition),
 not by prompt wording. Required artifact paths are already visible to the agent
 via resolved `{output.<name>.path}` variables in the state's `instructions`,
 and every supported agent exits deterministically after one turn in its native
@@ -516,11 +516,11 @@ headless mode.
 
 Template variables (`{task_id}`, `{model}`, `{model.provider}`,
 `{model.name}`, `{visit_count}`, etc.) are resolved before the prompt is sent,
-using the same resolution rules as `rhei next`. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality).
+using the same resolution rules as `rhei next`. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality).
 
 The prompt is delivered to the agent via its configured prompt delivery mechanism (flag or stdin).
 
-### Completion Authority
+### 3.1. Completion Authority
 
 Every state has a **completion authority** — the role that decides when the
 state's work is done and drives the resulting transition. Rhei defines two
@@ -529,7 +529,7 @@ authorities; exactly one applies to any given execution of a state.
 | Authority | Applies when | Transition driver |
 |-----------|--------------|-------------------|
 | `worker` | The invoking role is a manual worker (human, `rhei-plan-worker` skill session, or direct `rhei next` / `rhei transition` / `rhei complete` caller). | The worker calls `rhei transition` or `rhei complete`. |
-| `orchestrator` | `rhei run` has spawned the agent or program for this state. | `rhei run` evaluates the state's [Completion Condition](#completion-condition), then selects and executes the matching forward transition. |
+| `orchestrator` | `rhei run` has spawned the agent or program for this state. | `rhei run` evaluates the state's [Completion Condition](#32-completion-condition), then selects and executes the matching forward transition. |
 
 Completion authority is determined by the execution mode, not declared on the
 state. The same state definition is legal under both authorities. This is what
@@ -555,7 +555,7 @@ Normative rules:
 This separation keeps state transitions serialized through one orchestrator
 even when many agents run in parallel.
 
-### Completion Condition
+### 3.2. Completion Condition
 
 When completion authority is `orchestrator`, `rhei run` decides deterministically
 when the state's work is complete. The completion condition is a property of
@@ -579,21 +579,21 @@ output artifacts; no cross-agent stop signal, sentinel file, or "done" RPC is
 defined or needed.
 
 Program states have their own exit-code-driven completion semantics documented
-in [Program States Specification](rhei-programs.spec.md#exit-code-transitions);
+in [Program States Specification](rhei-programs.spec.md#3-exit-code-transitions);
 the `outputs:` clause of the condition above does not apply to them unless the
 state also declares `outputs:`.
 
-#### Runtime Semantics
+#### 3.2.1. Runtime Semantics
 
 Under `orchestrator` authority, `rhei run`:
 
 1. Spawns the subprocess and waits on `(subprocess exit) OR (timeout fires)`.
 2. On timeout, sends `SIGTERM` to the subprocess, 10 s grace, then `SIGKILL`.
-   Timeout transitions fire per [Timeout Handling](#timeout-handling). Agents
+   Timeout transitions fire per [Timeout Handling](#7-timeout-handling). Agents
    that fork long-running descendants should install their own cleanup; the
    engine kills only the direct subprocess.
 3. On non-zero exit, routes through the exit-code / error transition path
-   documented in the [Execution Loop](#execution-loop). The artifact check is
+   documented in the [Execution Loop](#52-execution-loop). The artifact check is
    skipped.
 4. On exit code `0`:
    - Verify every required output artifact exists.
@@ -603,10 +603,10 @@ Under `orchestrator` authority, `rhei run`:
    - Otherwise, evaluate forward transitions in normal selection order and
      execute the first match.
 
-#### Timeout Requirement
+#### 3.2.2. Timeout Requirement
 
 Under `orchestrator` authority, a timeout must resolve to a finite value
-through the chain documented in [Timeout Handling](#timeout-handling). States
+through the chain documented in [Timeout Handling](#7-timeout-handling). States
 that resolve to no timeout at any level are a validation error under
 `orchestrator` authority. Under `worker` authority there is no timeout
 enforcement.
@@ -616,7 +616,7 @@ agent that hangs without producing outputs is bounded by the timeout and
 routed to the state's timeout transition (or fails the task with a warning
 when no timeout transition is declared).
 
-## Environment Variables
+## 4. Environment Variables
 
 The agent subprocess inherits these environment variables, consistent with the
 callback environment:
@@ -637,9 +637,9 @@ callback environment:
 
 The agent's working directory is set to the workspace root (for directory workspaces) or the plan file's parent directory (for single-file plans).
 
-## `rhei run` — Agent Mode
+## 5. `rhei run` — Agent Mode
 
-### CLI
+### 5.1. CLI
 
 ```
 rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
@@ -657,20 +657,20 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 | `--model <MODEL>` | | Override the model profile id for this run |
 | `--continue-on-error` | false | Continue to the next task when an agent or program exits non-zero |
 | `--parallel <N>` | 1 | Maximum number of agents/programs to run concurrently. `0` means unlimited. |
-| `--program-timeout <DURATION>` | | Override program timeout for this run (e.g., `10m`, `1h`). See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
+| `--program-timeout <DURATION>` | | Override program timeout for this run (e.g., `10m`, `1h`). See [Program States Specification](rhei-programs.spec.md#4-timeout-handling). |
 
-### Execution Loop
+### 5.2. Execution Loop
 
-#### Sequential Mode (default, `--parallel 1`)
+#### 5.2.1. Sequential Mode (default, `--parallel 1`)
 
 1. Load plan and state machine. Validate.
 2. Find the next claimable task (same eligibility as `rhei next`).
 3. Resolve the model and, if agent mode is enabled, the agent for the task's current state (resolution order above).
 4. If agent mode is enabled and no agent is configured, fail with an error.
-5. Compose the prompt (see [Prompt Composition](#prompt-composition)).
+5. Compose the prompt (see [Prompt Composition](#3-prompt-composition)).
 6. Log the spawn to `runtime/logs/task-{task_id}-{state}[-{visit_count}].log`.
 7. Spawn the agent CLI as a subprocess with the composed prompt.
-8. Wait for the agent process to exit (subject to timeout — see [Timeout Handling](#timeout-handling)).
+8. Wait for the agent process to exit (subject to timeout — see [Timeout Handling](#7-timeout-handling)).
 9. Re-read the plan. If some external actor changed the task's state while the agent was running, respect that authoritative plan state and continue the loop from there.
 10. Otherwise, if the agent exited `0`, evaluate the current state's declared forward transitions in normal transition-selection order. If one transition matches, `rhei run` executes it and logs the resulting state change.
 11. If the agent exited `0` and no forward transition matches, log a warning: `warning: agent exited 0 but task {id} did not advance from '{state}'`. Continue to the next task.
@@ -679,7 +679,7 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
     - With `--continue-on-error`: log the error, skip this task, continue.
 13. Repeat until no claimable tasks remain or all tasks are terminal.
 
-#### Parallel Mode (`--parallel N` where N > 1 or N = 0)
+#### 5.2.2. Parallel Mode (`--parallel N` where N > 1 or N = 0)
 
 1. Load plan and state machine. Validate.
 2. Find all claimable tasks (same eligibility as `rhei next`, but collect all candidates).
@@ -697,7 +697,7 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 
 **Single-file plans:** Parallel mode is limited to `--parallel 1` for single-file plans because agents could produce conflicting edits to the same file. `rhei run` prints a warning if `--parallel` > 1 is requested with a single-file plan and falls back to sequential execution.
 
-### Interaction Between Agents and Callbacks
+### 5.3. Interaction Between Agents and Callbacks
 
 Agents and callbacks are complementary, not exclusive:
 
@@ -713,7 +713,7 @@ When `rhei run` is in agent mode:
 
 `--no-callbacks` suppresses callbacks but not agent or program spawning. `--no-agent` suppresses agent spawning but not program spawning or callbacks. `--no-program` suppresses program spawning but not agent spawning or callbacks. All three can be combined independently.
 
-### Gating States
+### 5.4. Gating States
 
 When a task reaches a gating state (`gating: true`), `rhei run` does not spawn an agent. Instead it logs:
 
@@ -723,7 +723,7 @@ Task {id} is in gating state '{state}'. Waiting for human action.
 
 The task is skipped and the engine continues with other claimable tasks. When the human transitions the task out of the gating state (via `rhei transition`), the next run pass picks it up.
 
-## Missing Tooling
+## 6. Missing Tooling
 
 Tooling — MCP servers and skills — can fail to be available for reasons that
 only surface at spawn time: a binary is not on `PATH`, a remote MCP URL is
@@ -745,7 +745,7 @@ An MCP server or skill is considered **available** when:
   the MCP handshake succeeded within `startup_timeout`.
 - For skills: the configured `path` exists and is readable.
 
-### Required vs optional entries
+### 6.1. Required vs optional entries
 
 Per-state `mcp_servers` and `skills` entries may be declared required (the
 default) or `optional: true`. The `defaults` lists in `settings.json` follow
@@ -775,12 +775,12 @@ warning and are dropped.
 
 See [Transitions Specification](rhei-transitions.spec.md) for declaring
 `mcp_unavailable` / `skill_unavailable` transitions and
-[States Specification — Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality)
+[States Specification — Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)
 for `{mcp.<name>.available}` and `{skill.<id>.available}` in prompts.
 
-## Timeout Handling
+## 7. Timeout Handling
 
-### Configuration
+### 7.1. Configuration
 
 Timeout can be set at four levels:
 
@@ -823,13 +823,13 @@ Timeout can be set at four levels:
 
 Resolution: state-level > model-agent binding > agent-profile > settings defaults.
 
-Under `orchestrator` [Completion Authority](#completion-authority), a timeout
+Under `orchestrator` [Completion Authority](#31-completion-authority), a timeout
 must resolve to a finite value at some level of the chain; missing timeouts on
 orchestrator-driven states are a validation error. Under `worker` authority
 the resolution is optional and the engine does not impose a timeout on manual
 work.
 
-### Duration Format
+### 7.2. Duration Format
 
 Durations use a human-readable format: `30s`, `5m`, `1h`, `2h30m`. Supported units:
 
@@ -841,7 +841,7 @@ Durations use a human-readable format: `30s`, `5m`, `1h`, `2h30m`. Supported uni
 
 Units can be combined: `1h30m`, `2h15m30s`.
 
-### Timeout Behavior
+### 7.3. Timeout Behavior
 
 When an agent process exceeds its timeout:
 
@@ -857,9 +857,9 @@ transcript for operator inspection, but that snapshot is classified
 `completion: timeout` and is not preloadable by authored `snapshot.inherit:`.
 See [Snapshots Specification — Compatibility Predicates](rhei-snapshots.spec.md#5-compatibility-predicates).
 
-### Timeout Transitions
+### 7.4. Timeout Transitions
 
-Timeout transitions are declared in the `transitions` array with the `timeout` field. The existing `timeout` field in the transition schema (see [Transitions Specification](rhei-transitions.spec.md#transition-definition)) is used by `rhei run` to determine what to do when an agent times out.
+Timeout transitions are declared in the `transitions` array with the `timeout` field. The existing `timeout` field in the transition schema (see [Transitions Specification](rhei-transitions.spec.md#44-transition-definition)) is used by `rhei run` to determine what to do when an agent times out.
 
 When a task is being worked by an agent and the agent exceeds the state's timeout:
 
@@ -912,7 +912,7 @@ The `timeout` field on the transition and `agent_timeout` on the state serve dif
 
 When `agent_timeout` is set on a state but no transition with `timeout` exists from that state, the agent is killed but the task remains in its current state with a warning logged.
 
-### Timeout Callbacks
+### 7.5. Timeout Callbacks
 
 Timeout transitions support the same `on_leave` and `on_enter` callbacks as any other transition. This enables notification, logging, or cleanup on timeout:
 
@@ -928,11 +928,11 @@ transitions:
 
 The callback receives a `TransitionContext` with `triggeredBy: 'system'` and the timeout duration in `transitionData.timeout`.
 
-## Log Capture
+## 8. Log Capture
 
 All agent stdout and stderr are captured to log files in the `runtime/logs/` directory relative to the workspace or plan root.
 
-### Log File Naming
+### 8.1. Log File Naming
 
 | Scenario | Log file path |
 |----------|---------------|
@@ -941,7 +941,7 @@ All agent stdout and stderr are captured to log files in the `runtime/logs/` dir
 | Model-specific state | `runtime/logs/task-{task_id}-{state}-{model}.log` |
 | Both visits and model | `runtime/logs/task-{task_id}-{state}-{model}-{visit_count}.log` |
 
-### Log Format
+### 8.2. Log Format
 
 Each log file contains:
 
@@ -976,11 +976,11 @@ suffixed with `?` was declared `optional: true` and failed its availability
 check — it was dropped before spawn and is recorded for diagnostics. A
 missing line means the state declared no entries of that kind.
 
-### Log Directory
+### 8.3. Log Directory
 
 `runtime/logs/` is created automatically by `rhei run` if it does not exist. `rhei reset` removes the entire `runtime/` directory, including logs.
 
-## Dry-Run Output
+## 9. Dry-Run Output
 
 `rhei run --dry-run` in agent mode shows what would be spawned without executing:
 
@@ -1000,7 +1000,7 @@ Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
 Dry run complete - no agents were spawned.
 ```
 
-## `rhei run --no-agent` — Callback-Only Mode
+## 10. `rhei run --no-agent` — Callback-Only Mode
 
 When `--no-agent` is passed, `rhei run` reverts to pre-agent behavior: it advances tasks through the state machine using transition callbacks only, without spawning any agent processes. This is the existing behavior for backward compatibility.
 

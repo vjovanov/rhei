@@ -16,7 +16,7 @@ State transitions will be defined declaratively in YAML and executed through pla
   2. leaving the state has another call that returns what is the next state
 3. Provide a consistent API across CLI, JavaScript, Python, and Java
 
-### Requirements
+### 1. Requirements
 - State transitions must be explicitly declared - unlisted transitions are forbidden
 - Transitions trigger callbacks/functions that receive context about the task
 - Callbacks can reject transitions by returning an error (for conditional logic)
@@ -26,7 +26,7 @@ State transitions will be defined declaratively in YAML and executed through pla
 
 ---
 
-## TransitionContext Data Structure
+## 1. TransitionContext Data Structure
 
 The `TransitionContext` is the core data structure passed to all transition callbacks. It provides complete context about the rhei, the transitioning task, and the execution environment.
 
@@ -183,7 +183,7 @@ interface TransitionResult {
 }
 ```
 
-### Usage Example
+### 1.1. Usage Example
 
 ```typescript
 function findTask(nodes: TaskNode[], id: string | number): TaskNode | undefined {
@@ -211,7 +211,7 @@ rhei.onLeave('pending', 'processing', async (ctx: TransitionContext): Promise<Tr
 
 ---
 
-## Rhei File Metadata Format
+## 2. Rhei File Metadata Format
 
 Auxiliary task metadata is stored in a **YAML frontmatter section** at the plan
 root: in the plan file for single-file plans, or in `index.rhei.md` for
@@ -219,7 +219,7 @@ Directory Workspaces. Core markdown task fields such as `**State:**`,
 `**Prior:**`, `**Assignee:**`, and `> **Result:**` remain authored in markdown
 rather than frontmatter.
 
-### Naming conventions
+### 2.1. Naming conventions
 - In markdown syntax: Use `**Prior:** Task N` to declare dependencies
 - In TypeScript/JavaScript: Access via `task.metadata.dependsOn` (camelCase)
 - In Python: Access via `task.metadata.depends_on` (snake_case, idiomatic Python)
@@ -228,7 +228,7 @@ rather than frontmatter.
 
 Each platform's SDK exposes the shared data model using its idiomatic naming convention. The bindings handle translation between platform-idiomatic names and the canonical camelCase JSON form.
 
-### Metadata Storage Example
+### 2.2. Metadata Storage Example
 
 ```markdown
 # Rhei: Feature Branch CI Pipeline
@@ -263,7 +263,7 @@ Markdown-owned task fields are not duplicated in frontmatter. In particular,
 `**Assignee:**` remains a markdown field even when runtimes expose it through
 callback APIs.
 
-### Counted Loop Metadata
+### 2.3. Counted Loop Metadata
 
 When a state declares `visits: <n>`, the engine tracks the current per-task loop count in:
 
@@ -281,7 +281,7 @@ The `-1` suffix is never written; first visit is implicit. The suffixed form is
 valid only when the base state declares `visits`, and the suffix must not
 exceed that state's declared visit budget.
 
-### Metadata Access in Callbacks
+### 2.4. Metadata Access in Callbacks
 
 When a transition callback is invoked, the metadata is merged into `task.metadata`:
 
@@ -313,11 +313,11 @@ For counted loops, runtimes should additionally expose:
 
 ---
 
-## Transition Triggers
+## 3. Transition Triggers
 
 Transitions can be produced by seven distinct mechanisms. The `triggeredBy` field has four values (`user`, `callback`, `system`, `engine`) that classify these mechanisms — the three system-driven mechanisms (program exit-code, agent timeout, tooling-unavailable) all report `triggeredBy: 'system'`:
 
-### 1. User Trigger (`triggeredBy: 'user'`)
+### 3.1. User Trigger (`triggeredBy: 'user'`)
 
 Explicitly initiated by a human or external system call via the Rhei API:
 
@@ -342,7 +342,7 @@ rhei = Rhei(rhei_path="./my-rhei.rhei.md")
 rhei.transition(task_id, "running")  # triggeredBy: 'user'
 ```
 
-### 2. Callback Trigger (`triggeredBy: 'callback'`)
+### 3.2. Callback Trigger (`triggeredBy: 'callback'`)
 
 Occurs when a callback returns a `nextState` override, causing an automatic follow-up transition:
 
@@ -356,7 +356,7 @@ rhei.onLeave('processing', 'review', (ctx) => {
 });
 ```
 
-### 3. System Trigger (`triggeredBy: 'system'`)
+### 3.3. System Trigger (`triggeredBy: 'system'`)
 
 Automatic transitions based on conditions, timers, or events configured in the state machine:
 
@@ -371,7 +371,7 @@ transitions:
     timeout: 24h  # System triggers after timeout
 ```
 
-### 4. Engine Trigger (`triggeredBy: 'engine'`)
+### 3.4. Engine Trigger (`triggeredBy: 'engine'`)
 
 When using `rhei.run()` or similar autonomous execution modes, the Rhei engine advances the workflow by triggering transitions on tasks whose dependencies are satisfied:
 
@@ -383,7 +383,7 @@ await rhei.run();  // Engine triggers transitions as tasks become ready
 
 This is distinct from `system` triggers (which are condition/timer-based) and `user` triggers (which are explicit API calls). Engine triggers represent the normal workflow progression during autonomous execution.
 
-### 5. Program Exit-Code Trigger (`triggeredBy: 'system'`)
+### 3.5. Program Exit-Code Trigger (`triggeredBy: 'system'`)
 
 When a program state's subprocess exits and has not already advanced the task (via `rhei transition` or `rhei complete`), the engine evaluates exit-code transitions:
 
@@ -419,7 +419,7 @@ transitions:
 
 The `exit_code` field on the transition is only meaningful for program states. Declaring `exit_code` on a transition from a non-program state is a validation error. See [Program States Specification](rhei-programs.spec.md) for the complete exit-code evaluation algorithm and validation rules.
 
-### 6. Agent Timeout Trigger (`triggeredBy: 'system'`)
+### 3.6. Agent Timeout Trigger (`triggeredBy: 'system'`)
 
 When `rhei run` spawns an agent for a state that declares `agent_timeout`, the engine monitors the agent process duration. If the agent exceeds the timeout:
 
@@ -457,9 +457,9 @@ transitions:
 
 The `timeout` field on the transition serves dual purpose: it marks the transition as a timeout handler for `rhei run` agent mode, and it can be used by other runtimes for time-based system triggers. The `transitionData` for timeout-triggered transitions includes `{ "timeout": "<duration>", "agent": "<agent-id>" }`.
 
-See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling) for the full timeout configuration and behavior.
+See [Agents Specification — Timeout Handling](rhei-agents.spec.md#7-timeout-handling) for the full timeout configuration and behavior.
 
-### 7. Tooling-Unavailable Trigger (`triggeredBy: 'system'`)
+### 3.7. Tooling-Unavailable Trigger (`triggeredBy: 'system'`)
 
 When `rhei run` is about to spawn an agent for a state that declares required
 MCP servers or skills (`optional: false`, the default), the engine first
@@ -520,18 +520,18 @@ The `transitionData` for tooling-triggered transitions includes
 (`optional: true`) entries never trigger these transitions — they are dropped
 with a warning regardless.
 
-See [Agents Specification — Missing Tooling](rhei-agents.spec.md#missing-tooling)
+See [Agents Specification — Missing Tooling](rhei-agents.spec.md#6-missing-tooling)
 for availability semantics and
-[States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills)
+[States Specification — MCP Servers and Skills](rhei-states.spec.md#7-mcp-servers-and-skills)
 for the per-state `mcp_servers` and `skills` fields.
 
 ---
 
-## YAML State Machine Format Specification
+## 4. YAML State Machine Format Specification
 
 This section defines the formal structure of YAML state machine configuration files. All state machines must conform to this specification.
 
-### Root-Level Fields
+### 4.1. Root-Level Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -543,7 +543,7 @@ This section defines the formal structure of YAML state machine configuration fi
 | `callbacks` | object | No | Platform-specific callback mappings |
 | `error_handling` | object | No | Error handling and recovery configuration |
 
-### State Definition
+### 4.2. State Definition
 
 Each state is defined as a key-value pair in the `states` object:
 
@@ -572,8 +572,8 @@ states:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `description` | string | Yes | Human-readable explanation of what this state represents |
-| `instructions` | string | No | Agent-facing guidance for work in this state. Supports [template variables](rhei-states.spec.md#template-variables-in-instructions-and-personality) resolved by `rhei next` at output time. |
-| `personality` | string | No | Optional role framing printed alongside the next claimed task when this state is active. Supports [template variables](rhei-states.spec.md#template-variables-in-instructions-and-personality). |
+| `instructions` | string | No | Agent-facing guidance for work in this state. Supports [template variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) resolved by `rhei next` at output time. |
+| `personality` | string | No | Optional role framing printed alongside the next claimed task when this state is active. Supports [template variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality). |
 | `final` | boolean | No | Marks this as a terminal state. Tasks in final states cannot transition further |
 | `gating` | boolean | No | Marks this as a gating state. When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions (`rhei transition` with `triggeredBy: 'user'`) are allowed. |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the loop budget is exhausted |
@@ -583,13 +583,13 @@ states:
 | `snapshot` | object | No | Per-state session snapshot emit/inherit contract. See [Snapshots Specification](rhei-snapshots.spec.md). |
 | `model` | string | No | Restricts the state to one model profile declared in the machine-level `models` list |
 | `agent` | string | No | Coding agent id for this state. Must resolve against the merged `agents` registry (built-ins + `settings.json`). Inline agent objects are not accepted — declare custom agents in `agents.<id>` first. See [Agents Specification](rhei-agents.spec.md). |
-| `agent_mode` | string | No | Named flag set from the resolved agent's `modes` map (e.g., `yolo`, `safe`). See [Agents Specification — Modes](rhei-agents.spec.md#modes). |
+| `agent_mode` | string | No | Named flag set from the resolved agent's `modes` map (e.g., `yolo`, `safe`). See [Agents Specification — Modes](rhei-agents.spec.md#22-modes). |
 | `agent_timeout` | string | No | Maximum time an agent may work in this state (e.g., `30m`, `1h`). When exceeded, `rhei run` kills the agent and fires a timeout transition if one is declared. |
 | `program` | string or object | No | Deterministic program command for this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
 | `program_timeout` | string | No | Maximum time a program may run in this state (e.g., `10m`, `1h`). Same timeout mechanism as `agent_timeout`. |
 | `inputs` | artifact array | No | Required file artifacts that must exist before entering or working this state |
 | `outputs` | artifact array | No | Required file artifacts that must exist before leaving this state |
-| `mcp_servers` | array | No | MCP server entries (ids or inline definitions) attached to the agent subprocess. Individual entries may be marked `optional: true`. Mutually exclusive with `gating: true` and `program:`. See [States Specification — MCP Servers and Skills](rhei-states.spec.md#mcp-servers-and-skills). |
+| `mcp_servers` | array | No | MCP server entries (ids or inline definitions) attached to the agent subprocess. Individual entries may be marked `optional: true`. Mutually exclusive with `gating: true` and `program:`. See [States Specification — MCP Servers and Skills](rhei-states.spec.md#7-mcp-servers-and-skills). |
 | `skills` | array | No | Skill entries enabled for the agent in this state. Same shape and exclusions as `mcp_servers`. |
 
 Model selection rules:
@@ -623,7 +623,7 @@ Model selection rules:
 - `visits` may also be combined with either `all_targets` or `target`.
 - `visits`, when present, must be an integer greater than or equal to `1`.
 - `inputs` and `outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
-- Artifact `path` values are execution-root-relative templates; see [main spec — State Artifact Contracts](rhei-plan-language.spec.md#10-state-artifact-contracts) for the definition of execution root. After expansion, they must remain within that root.
+- Artifact `path` values are execution-root-relative templates; see [main spec — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts) for the definition of execution root. After expansion, they must remain within that root.
 - `snapshot.emit` and `snapshot.inherit` validation, including polling-state
   restrictions and `all_targets`/`all_models` selector rules, is defined in
   [Snapshots Specification](rhei-snapshots.spec.md).
@@ -658,7 +658,7 @@ Supported template variables:
 - `{model.provider}` - current model provider id
 - `{model.name}` - current provider model name
 
-### Counted Loops
+### 4.3. Counted Loops
 
 This section describes the runtime semantics of the `visits` field, also
 called *counted visits* in the main plan specification and the states
@@ -679,7 +679,7 @@ Rules:
 - Once `visitCount >= visits`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
 - When a state also declares `all_models`, visit accounting is scoped to each model-specific execution of that state.
 - When a state also declares `all_targets`, visit accounting is scoped to each target-specific execution of that state.
-- On a state that declares [`poll:`](rhei-states.spec.md#polling-states), the same `stateVisits` entry records poll attempts. Transitions from that state may use `pollAttempts` (alias for `visitCount`) and `pollMaxAttempts` (alias for `poll.max_attempts`) for clarity; both names are only defined on transitions whose `from` state declares `poll:`. A self-loop transition from a poll state is interpreted by `rhei run` as "retry after `poll.interval`" and releases the `--parallel` slot between attempts; once `pollAttempts >= pollMaxAttempts`, the engine refuses self-loops and picks the first matching non-self-loop transition instead.
+- On a state that declares [`poll:`](rhei-states.spec.md#2-polling-states), the same `stateVisits` entry records poll attempts. Transitions from that state may use `pollAttempts` (alias for `visitCount`) and `pollMaxAttempts` (alias for `poll.max_attempts`) for clarity; both names are only defined on transitions whose `from` state declares `poll:`. A self-loop transition from a poll state is interpreted by `rhei run` as "retry after `poll.interval`" and releases the `--parallel` slot between attempts; once `pollAttempts >= pollMaxAttempts`, the engine refuses self-loops and picks the first matching non-self-loop transition instead.
 
 Example:
 
@@ -721,7 +721,7 @@ transitions:
     description: Re-submit after fixes; increments the `agent-review` visit counter to the next visit
 ```
 
-### Transition Definition
+### 4.4. Transition Definition
 
 Each transition in the `transitions` array specifies an allowed state change:
 
@@ -750,15 +750,15 @@ transitions:
 | `on_enter` | string | No | Callback function identifier invoked after entering the target state |
 | `condition` | string | No | Expression evaluated for system-triggered transitions |
 | `timeout` | string | No | Duration (e.g., `24h`, `30m`) after which system triggers this transition |
-| `exit_code` | integer, integer array, or `"nonzero"` | No | Exit-code condition for transitions from program states. Only evaluated when a program exits without calling `rhei transition`. See [Program States Specification](rhei-programs.spec.md#exit-code-transitions). |
-| `mcp_unavailable` | boolean or string array | No | When `true`, fires when any required MCP server on the source state fails its availability check. When an array, fires only when one of the listed ids failed. Only valid on transitions from agent states. See [Tooling-Unavailable Trigger](#7-tooling-unavailable-trigger-triggeredby-system). |
+| `exit_code` | integer, integer array, or `"nonzero"` | No | Exit-code condition for transitions from program states. Only evaluated when a program exits without calling `rhei transition`. See [Program States Specification](rhei-programs.spec.md#3-exit-code-transitions). |
+| `mcp_unavailable` | boolean or string array | No | When `true`, fires when any required MCP server on the source state fails its availability check. When an array, fires only when one of the listed ids failed. Only valid on transitions from agent states. See [Tooling-Unavailable Trigger](#37-tooling-unavailable-trigger-triggeredby-system). |
 | `skill_unavailable` | boolean or string array | No | Same shape as `mcp_unavailable`, for skills. |
 | `max_retries` | integer | No | Maximum automatic retry attempts |
 | `retry_delay` | string | No | Delay between retries (e.g., `30s`, `5m`) |
 
-### Artifact Enforcement
+### 4.5. Artifact Enforcement
 
-State artifact contracts (see [States Specification — Artifact Contracts](rhei-states.spec.md#artifact-contracts) for the schema) are enforced around transitions:
+State artifact contracts (see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the schema) are enforced around transitions:
 
 1. Before entering a target state, the runtime resolves `target.inputs` and
    rejects the transition if any required input file does not exist.
@@ -772,7 +772,7 @@ State artifact contracts (see [States Specification — Artifact Contracts](rhei
 This makes artifact production and consumption part of the state-machine
 contract instead of a convention in free-form instructions.
 
-### Wildcard Semantics
+### 4.6. Wildcard Semantics
 
 The special value `"*"` in the `from` field matches any state with these rules:
 - Matches any state **except** final states (states with `final: true`)
@@ -781,7 +781,7 @@ The special value `"*"` in the `from` field matches any state with these rules:
 
 Wildcards are optional. When a machine omits wildcards, only explicitly declared transitions are valid. Engines must not synthesize wildcard transitions; if cancellation from a particular state is desired, it must be declared explicitly (as the default `rhei` machine does).
 
-### Callback Declaration
+### 4.7. Callback Declaration
 
 There are two valid ways to declare callbacks on transitions:
 
@@ -814,7 +814,7 @@ callbacks:
 
 Both models are valid. They must not be mixed within a single transition (a callback value is either prefixed or logical, not both). When both a prefix and a `callbacks:` mapping exist for the same name, the prefix takes precedence.
 
-### Callback Mappings
+### 4.8. Callback Mappings
 
 Platform-specific callback mappings allow the same logical callback name to resolve to different implementations:
 
@@ -830,7 +830,7 @@ Platform identifiers must match `Environment.platform` values:
 - `python`: Python via PyO3 bindings
 - `java`: Java via JNI
 
-### Error Handling Configuration
+### 4.9. Error Handling Configuration
 
 ```yaml
 error_handling:
@@ -847,7 +847,7 @@ error_handling:
 > The examples in this section focus on state definitions, transitions, and
 > callback wiring. For readability they omit the top-level `profiles` and
 > `node_policy` blocks that a complete state machine YAML must declare. See
-> the [States Specification](rhei-states.spec.md#profiles) for the full
+> the [States Specification](rhei-states.spec.md#8-profiles) for the full
 > profile and node-policy model and the
 > [reference machine](states.yaml) for a complete example.
 

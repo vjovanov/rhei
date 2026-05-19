@@ -95,7 +95,7 @@ A snapshot is identified by the tuple:
 Snapshots are immutable. Re-running a state never overwrites a snapshot;
 instead it writes a new `generation` and updates a `current` pointer.
 
-### 3.1 Auto-Emitted vs Named Snapshots
+### 3.1. Auto-Emitted vs Named Snapshots
 
 The orchestrator emits an *auto* snapshot at the exit of every agent-bearing
 state (`final:`, `gating:`, and `program:` states are excluded — they have no
@@ -129,7 +129,7 @@ Auto-emit requires no state-machine configuration. The two per-state fields
 below are optional and govern *named* lineage; declaring neither leaves the
 state with only its auto-emit.
 
-### 4.1 `snapshot.emit`
+### 4.1. `snapshot.emit`
 
 ```yaml
 states:
@@ -157,7 +157,7 @@ that wants to inherit the failed transcript as context. Timeouts are bundled
 into `failure` and distinguished by the manifest's `completion` field rather
 than by a separate `emit.on` value; see [Manifest Schema](#8-manifest-schema).
 
-### 4.2 `snapshot.inherit`
+### 4.2. `snapshot.inherit`
 
 ```yaml
 states:
@@ -215,7 +215,7 @@ Selector defaults and fanout requirements:
 `current`. Integer selectors are 1-based and must be greater than or equal to
 `1`.
 
-### 4.3 Lineage Resolution
+### 4.3. Lineage Resolution
 
 For `from: self`, resolution builds an ordered candidate set from the same
 task's prior runtime history:
@@ -265,7 +265,7 @@ produce named snapshots. A later `select.visit: latest` may therefore resolve
 to an older successful visit rather than the immediately preceding attempt.
 Use `emit.on: always` when every iteration must be inheritable.
 
-### 4.4 Inheritance Timing
+### 4.4. Inheritance Timing
 
 Snapshot inheritance happens immediately before the state invocation that
 declares `snapshot.inherit:`:
@@ -284,7 +284,7 @@ transition that led into that state and not of the next state after it. A state
 that declares both `inherit` and `emit` consumes first and emits after its own
 invocation.
 
-### 4.5 Cross-Task Information Flow
+### 4.5. Cross-Task Information Flow
 
 Snapshots are not an arbitrary task-to-task messaging mechanism. They preserve
 same-agent session lineage for `from: self` and parent-to-child branching via
@@ -297,7 +297,7 @@ That artifact path is the supported way to communicate across siblings,
 cousins, unrelated tasks, and different agents. The snapshot grammar
 therefore has no `from: task` or `from: prior` form in v1. §FS-rhei-states §FS-rhei-plan-language
 
-### 4.6 Fallback Behavior
+### 4.6. Fallback Behavior
 
 `required: false` has exactly one fallback: run the state cold. It does not
 try a second snapshot name, a farther ancestor, or another emitting state.
@@ -385,7 +385,7 @@ an independent branch:
 
 Sub-task inheritance never crosses workspace boundaries.
 
-### 6.1 `parent_ref` Semantics
+### 6.1. `parent_ref` Semantics
 
 `parent_ref` is determined by the snapshot that was successfully preloaded
 into the invocation that produced this emission:
@@ -451,7 +451,7 @@ updated atomically (write `current.tmp`, rename to `current`).
 The cache root is gitignored by default. Plans may opt to commit selected
 snapshots; this is a workspace-level decision outside the scope of `rhei run`.
 
-### 7.1 Target Slug
+### 7.1. Target Slug
 
 The `<target.slug>` segment is derived from the resolved execution target by
 this normalization:
@@ -480,7 +480,7 @@ execution; the raw selectors are preserved only for diagnostics and are not
 used to disambiguate storage. The same target slug may appear elsewhere in the
 resolved plan when another identity component differs.
 
-### 7.2 Atomic Writes
+### 7.2. Atomic Writes
 
 A snapshot generation is written by this procedure:
 
@@ -607,7 +607,7 @@ operator-driven concurrency without ever reusing a generation number.
 
 ## 9. Agent Transport Integration
 
-### 9.1 `CustomAgentProfile.session`
+### 9.1. `CustomAgentProfile.session`
 
 A new optional nested field on `CustomAgentProfile` (§FS-rhei-agents):
 
@@ -680,7 +680,7 @@ uses `session_dir_flag` when provided to redirect the agent's session output
 into the active `g<N>.tmp-*` staging directory so emit becomes a directory scan
 rather than a hunt across the user's home directory.
 
-### 9.2 Built-in Profiles
+### 9.2. Built-in Profiles
 
 | Agent | `resume` | `fork` | `interactive` | `assign_id_flag` | `session_dir_flag` | `no_session_flag` | `layout` |
 |-------|----------|--------|---------------|------------------|--------------------|--------------------|----------|
@@ -718,9 +718,9 @@ is skipped for their built-in profiles, and explicit `snapshot.emit:` or
 required preload fails with `unsupported-snapshot-session` unless the user
 replaces the built-in profile with a custom snapshot-capable session block.
 
-### 9.3 Per-Agent Runtime Behavior
+### 9.3. Per-Agent Runtime Behavior
 
-#### 9.3.1 Pi
+#### 9.3.1. Pi
 
 Pi has the most complete native session surface. The flow on inheritance:
 
@@ -740,7 +740,7 @@ If the header is absent or unparsable, the snapshot is still written with
 `observed_*` set equal to `declared_*` and a warning is logged; downstream
 inheritors that require `cache_beneficial` will see the same advisory.
 
-#### 9.3.2 Gemini
+#### 9.3.2. Gemini
 
 Gemini snapshot support is provisional and unsupported for v1 runtime preload
 or `rhei snapshot continue`. The phase spike must prove the resume surface and
@@ -755,7 +755,7 @@ spike resolves whether `--resume`, `--session-id`, and project-hash lookup are
 stable enough to support. Upstream feature request: a `--session-file <path>`
 flag analogous to pi's.
 
-#### 9.3.3 Claude Code
+#### 9.3.3. Claude Code
 
 The adapter spike must determine:
 
@@ -769,7 +769,7 @@ Until the spike completes, the built-in claude-code profile leaves the
 unless the inheriting state sets `required: true`, in which case the run fails
 before spawn with `unsupported-snapshot-session`.
 
-#### 9.3.4 Codex
+#### 9.3.4. Codex
 
 The current rhei transport for codex is `codex exec` (§FS-rhei-agents). The
 adapter spike must determine whether `codex exec` supports session resume,
@@ -793,7 +793,7 @@ ResumeStrategy::None`.
 
 ## 10. Runtime Behavior
 
-### 10.1 Spawn-Time Preload
+### 10.1. Spawn-Time Preload
 
 For each spawn of a state declaring `snapshot.inherit:`:
 
@@ -821,7 +821,7 @@ For each spawn of a state declaring `snapshot.inherit:`:
    into the inheritor's generation directory.
 8. Spawn the subprocess with the strategy-defined flags appended.
 
-### 10.2 Emit on Exit
+### 10.2. Emit on Exit
 
 After every agent-state subprocess exits, the orchestrator:
 
@@ -863,7 +863,7 @@ The orchestrator owns this step; agents do not invoke snapshot emit
 directly. This matches §FS-rhei-run's invariant that the subprocess never
 calls `rhei transition`.
 
-### 10.3 Counted Loops, Fanout, and Polling
+### 10.3. Counted Loops, Fanout, and Polling
 
 Counted-loop states (`visits: n`) emit a separate snapshot per visit at
 `<visit>/...`. Each visit's generation counter starts at `1` independently.

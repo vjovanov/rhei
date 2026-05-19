@@ -6,7 +6,7 @@ It expands the plan language, state machine, transition, and run-command
 contracts into the component workflow they imply. §FS-rhei-plan-language
 §FS-rhei-states §FS-rhei-transitions §FS-rhei-run
 
-## High-Level Architecture
+## 1. High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
@@ -61,7 +61,7 @@ contracts into the component workflow they imply. §FS-rhei-plan-language
 
 ---
 
-## Detailed Sequence Diagram
+## 2. Detailed Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -167,9 +167,9 @@ sequenceDiagram
 
 ---
 
-## Component Responsibilities
+## 3. Component Responsibilities
 
-### 1. User-Directed Agent
+### 3.1. User-Directed Agent
 
 The agent (e.g., a coding assistant like Claude) interprets user intent and generates structured plans:
 
@@ -180,7 +180,7 @@ The agent (e.g., a coding assistant like Claude) interprets user intent and gene
 | **Fix Errors** | Iteratively correct syntax and semantic errors until validation passes |
 | **Monitor Progress** | Track task completion and adjust plans as needed |
 
-### 2. Validation Pipeline
+### 3.2. Validation Pipeline
 
 The validation pipeline ensures plan correctness before execution:
 
@@ -211,7 +211,7 @@ The validation pipeline ensures plan correctness before execution:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Orchestrator Engine
+### 3.3. Orchestrator Engine
 
 The orchestrator manages workflow execution through state transitions:
 
@@ -255,7 +255,7 @@ The orchestrator manages workflow execution through state transitions:
 
 ---
 
-## State Transition Flow
+## 4. State Transition Flow
 
 The orchestrator advances tasks through states based on the state machine definition:
 
@@ -314,7 +314,7 @@ The orchestrator advances tasks through states based on the state machine defini
 
 ---
 
-## Trigger Types
+## 5. Trigger Types
 
 The orchestrator responds to different trigger sources:
 
@@ -327,7 +327,7 @@ The orchestrator responds to different trigger sources:
 
 ---
 
-## Error Handling
+## 6. Error Handling
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

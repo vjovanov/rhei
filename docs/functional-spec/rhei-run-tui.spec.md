@@ -17,7 +17,7 @@ For the surrounding `rhei run` behavior see [Rhei Usage](rhei-usage.spec.md) and
 - Streaming agent stdout to a central log aggregator. Agents continue to write per-task log files; the TUI tails those files.
 - Remote visualization. The TUI renders to the local terminal only.
 
-## Architecture
+## 1. Architecture
 
 A single `rhei run` process decomposes into three concerns:
 
@@ -32,7 +32,7 @@ engine ──► Tee ──┬──► JournalSink   (runtime/transitions.log, 
 
 Slot-oriented events (see below) mean the renderer updates exactly one tile per event. The engine assigns a slot index when it spawns an agent and releases it when the agent exits.
 
-### Event Surface
+### 1.1. Event Surface
 
 ```rust
 // crates/rhei-tui/src/event.rs
@@ -63,7 +63,7 @@ pub trait EventSink: Send + Sync {
 
 `Tee` is a composite sink implementing `EventSink` by forwarding each event to a fixed list of inner sinks.
 
-### Live Agent Traffic
+### 1.2. Live Agent Traffic
 
 `rhei run` intercepts stdout and stderr for built-in autonomous agents through a shared subprocess capture path:
 
@@ -77,13 +77,13 @@ Agent-specific behavior belongs only to command construction and prompt delivery
 
 The TUI keeps a bounded recent traffic buffer per active slot and may drop display events if the render channel is full. Dropped display events do not affect `runtime/logs/*`: the log writer remains the durable sink and receives every captured line unless the filesystem write itself fails. Long or control-sequence-heavy lines may be sanitized and truncated for rendering, but the log preserves the raw bytes captured from the subprocess stream.
 
-### Sink Implementations
+### 1.3. Sink Implementations
 
 - **`JournalSink`** — opens `runtime/transitions.log` in append mode at construction and writes one line per `SlotAssigned` and one line per `SlotReleased`. Line format is fixed-column and tail-friendly (see below). The journal is always written, in every mode.
 - **`StdoutSink`** — reproduces the current `println!` output exactly. It is the default frontend when stdout is not a TTY.
 - **`TuiSink`** — owns a bounded `crossbeam_channel` and a render thread. It implements `EventSink` by pushing events onto the channel; the render thread consumes events and updates the UI.
 
-### Frontend Selection
+### 1.4. Frontend Selection
 
 At the entry of `run_plan`, the frontend is decided once:
 
@@ -95,7 +95,7 @@ At the entry of `run_plan`, the frontend is decided once:
 
 Auto-detection uses `std::io::IsTerminal`. The `--tui` override exists for edge cases where detection is wrong (nested shells, certain tmux configurations). The `--no-tui` override is for scripted demos and debugging.
 
-### Layout Rules (TuiSink)
+### 1.5. Layout Rules (TuiSink)
 
 The renderer allocates a fixed pool of N slots matching `--parallel N`. Slots are reused as tasks complete — the grid does not grow unbounded.
 
@@ -117,7 +117,7 @@ Each tile shows:
 
 Idle slots show `— idle —`.
 
-### Journal Format
+### 1.6. Journal Format
 
 `runtime/transitions.log` is a UTF-8, append-only, newline-delimited text file. Each line is one event. Columns are space-separated; columns 1–3 are fixed-width, column 4 is a path, and optional trailing fields are comma-separated key=value pairs.
 
@@ -136,7 +136,7 @@ Rules:
 
 A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second line on the same state (recording exit status and duration). For multi-invocation states (`all_targets`), each invocation is a distinct pair of lines with the target suffix visible in the log path.
 
-### Failure Modes
+### 1.7. Failure Modes
 
 - **Panic in the execution engine** — a panic hook registered by `TuiSink` calls `ratatui::restore()` before re-raising, so the terminal is never left in raw mode.
 - **Ctrl+C** — because the TUI runs the terminal in raw mode, Ctrl+C arrives as a key event rather than an automatic `SIGINT`. `TuiSink` restores the terminal, explicitly re-raises `SIGINT` for the process, and then exits its render loop.
@@ -144,7 +144,7 @@ A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second 
 - **Slow log file growth** — the log tailer uses a bounded 50-line ring buffer and never blocks the engine thread.
 - **Journal write failure** — log a warning to stderr and continue; journal errors never abort a run.
 
-### Reuse
+### 1.8. Reuse
 
 `rhei-tui` is a standalone crate with no dependency on `rhei-cli`. Any future subcommand that fans out to a worker pool constructs:
 
@@ -157,7 +157,7 @@ rhei_tui::run_with_frontend(
 
 and receives an `EventSink` it writes to. The frontend choice (TUI vs stdout) and the journal are handled by the helper. `rhei-cli` only depends on `rhei-tui` for the event types and the helper; it does not see `ratatui` or `crossterm` directly.
 
-## CLI Changes
+## 2. CLI Changes
 
 Two new flags on `rhei run`:
 
@@ -170,17 +170,17 @@ The two flags are mutually exclusive. When neither is given, the frontend is aut
 
 Existing flags (`--parallel`, `--dry-run`, `--continue-on-error`, `--agent`, etc.) retain their current semantics.
 
-## Backward Compatibility
+## 3. Backward Compatibility
 
 - Without `--tui` and in any non-TTY context, output matches the current line-oriented format byte-for-byte. Existing integration tests that grep stdout continue to pass.
 - The journal file is new. Runs that never produced a journal before will now produce one at `runtime/transitions.log`. This file is additive and does not alter plan state.
 - No existing flags change meaning.
 
-## Implementation Surface
+## 4. Implementation Surface
 
 The engine refactor replaces direct `println!` sites in `run_agent_mode` (currently around `crates/rhei-cli/src/main.rs` lines 5007–5700) with `sink.emit(...)` calls. The call sites themselves do not change otherwise; the loop structure, task resolution, and spawn logic are preserved. The behavior of `StdoutSink` is defined to match today's formatted output, so this refactor is observably a no-op for all non-TTY users.
 
-## Dependencies
+## 5. Dependencies
 
 The new `rhei-tui` crate adds:
 

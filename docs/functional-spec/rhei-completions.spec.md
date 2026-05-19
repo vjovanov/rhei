@@ -19,7 +19,7 @@ Completions are advisory and must never change command semantics. If completion
 cannot load dynamic context, the CLI still runs normally and static completions
 continue to work.
 
-## Usage
+## 1. Usage
 
 ```bash
 rhei completions <SHELL>
@@ -33,13 +33,13 @@ rhei completions powershell
 rhei completions elvish
 ```
 
-## Arguments
+## 2. Arguments
 
 | Argument | Description |
 |----------|-------------|
 | `<SHELL>` | Target shell. Supported values: `bash`, `zsh`, `fish`, `powershell`, `elvish` |
 
-## Options
+## 3. Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -49,7 +49,7 @@ rhei completions elvish
 | `--output <PATH>` | | Write to an explicit path instead of the default user or system path |
 | `--dry-run` | | Print the destination path without writing files |
 
-## Supported Shells
+## 4. Supported Shells
 
 Rhei supports the notable interactive shells covered by `clap_complete`:
 
@@ -61,7 +61,7 @@ Rhei supports the notable interactive shells covered by `clap_complete`:
 | PowerShell | `powershell` | `${XDG_CONFIG_HOME:-~/.config}/powershell/rhei-completions.ps1` | `/usr/local/share/powershell/Completions/rhei-completions.ps1` |
 | Elvish | `elvish` | `${XDG_CONFIG_HOME:-~/.config}/elvish/lib/rhei-completions.elv` | `/usr/local/share/elvish/lib/rhei-completions.elv` |
 
-## Output Contract
+## 5. Output Contract
 
 - The command prints only the completion script to stdout.
 - Diagnostics and parse errors are written to stderr through the normal CLI error path.
@@ -70,13 +70,13 @@ Rhei supports the notable interactive shells covered by `clap_complete`:
 - Generated completions call back into the current binary through the `COMPLETE` environment variable and reflect the current binary's command tree, global options, subcommands, flags, value enums, and supported dynamic argument values.
 - `rhei instantiate <TEMPLATE>` completes discovered project and user template names using the same precedence as `rhei templates`: `<project>/.agents/rhei/templates/<name>/` first, then `~/.agents/rhei/templates/<name>/`. If the partially typed value is path-like (absolute, dot-prefixed, or contains `/`), directory completion is used instead.
 
-## Completion Contract
+## 6. Completion Contract
 
 Completion is part of the CLI UX, not a best-effort extra. The generated scripts
 must expose the same completion behavior across Bash, Zsh, Fish, PowerShell, and
 Elvish as far as each shell's completion model permits.
 
-### Global Rules
+### 6.1. Global Rules
 
 - Complete subcommands at every command position.
 - Complete every flag and option, including global flags such as
@@ -94,7 +94,7 @@ Elvish as far as each shell's completion model permits.
   template manifest cannot be read, return the best static/path completions that
   remain valid.
 
-### Candidate Display
+### 6.2. Candidate Display
 
 When the shell supports descriptions, candidates should include concise help:
 
@@ -116,7 +116,7 @@ should sort before values from user/global configuration. Already supplied
 non-repeatable values should be hidden unless the current token is editing that
 same value.
 
-### Filesystem Values
+### 6.3. Filesystem Values
 
 Filesystem completion should match the argument's domain:
 
@@ -134,7 +134,7 @@ Filesystem completion should match the argument's domain:
 Path-like template references are completed as directories. A template reference
 is path-like when it is absolute, dot-prefixed, or contains `/`.
 
-### Dynamic Context
+### 6.4. Dynamic Context
 
 Dynamic completion may inspect only local files and configuration:
 
@@ -147,7 +147,7 @@ Dynamic completion may inspect only local files and configuration:
 Completion must not use the network. It must not execute template output,
 program states, state callbacks, or agent commands.
 
-## Command Coverage
+## 7. Command Coverage
 
 All command arguments and option values should complete as follows.
 
@@ -196,7 +196,7 @@ All command arguments and option values should complete as follows.
 
 Boolean flags complete as flags only; they do not take `true` / `false` values.
 
-## Template Input Completion
+## 8. Template Input Completion
 
 `rhei instantiate` has the richest completion behavior because the valid
 arguments depend on the selected template. Completion must parse the command
@@ -212,7 +212,7 @@ The parser used for completion should follow the same rules as instantiation:
 manifest defaults < `--values` files < positional input values < bare
 `KEY=VALUE` and `--set` < `--set-file`.
 
-### Template Name Slot
+### 8.1. Template Name Slot
 
 Before a template is selected:
 
@@ -222,7 +222,7 @@ Before a template is selected:
 - If the current token is path-like, complete directories instead of template
   names.
 
-### Positional Slots
+### 8.2. Positional Slots
 
 After a template is selected, a bare argument without `=` completes the next
 available positional input.
@@ -262,7 +262,7 @@ single-required-input fallback in the template spec.
 If completion cannot determine a valid positional slot, it should suggest
 remaining `KEY=` assignments rather than inventing a positional meaning.
 
-### Assignment Keys
+### 8.3. Assignment Keys
 
 At any input position after the template name, completion should suggest
 remaining input assignment keys as `KEY=`:
@@ -291,7 +291,7 @@ Inputs already supplied by an explicit assignment should be hidden from the
 normal suggestion list. They may reappear when the current token is editing the
 same input because overriding an input remains legal.
 
-### Assignment Values
+### 8.4. Assignment Values
 
 When the cursor is after `KEY=`, complete the value according to the input type:
 
@@ -317,7 +317,7 @@ For `--set-file KEY=PATH`, the key completes like `--set`, but the value always
 uses file path completion regardless of the input type because the value is read
 from disk.
 
-### Values Files
+### 8.5. Values Files
 
 When one or more `--values` files are present, completion may parse readable
 YAML/JSON files to suppress already-supplied input keys. Failure to parse a
@@ -326,14 +326,14 @@ completion ranking.
 
 `--values <TAB>` completes `.yaml`, `.yml`, and `.json` files.
 
-### List Inputs Mode
+### 8.6. List Inputs Mode
 
 `--list-inputs` does not require user-supplied required inputs. Completion after
 `--list-inputs` should still offer flags such as `--values` and `--output` only
 when they remain syntactically valid, but it should not pressure the user to
 fill required template inputs.
 
-### Unknown Or Invalid Templates
+### 8.7. Unknown Or Invalid Templates
 
 If the template cannot be found or its manifest cannot be parsed, completion
 should still offer:
@@ -344,7 +344,7 @@ should still offer:
 
 The shell must not display parse errors as completion candidates.
 
-## Task And State Completion
+## 9. Task And State Completion
 
 Commands that inspect or operate on tasks should complete task and plan-derived
 values after a plan/workspace argument is present:
@@ -389,7 +389,7 @@ selected plan/workspace when possible:
 - `--limit` completes useful numeric examples but accepts any non-negative
   integer.
 
-## Agent And Skill Completion
+## 10. Agent And Skill Completion
 
 `rhei run` should complete agent-related overrides from the same merged settings
 and state-machine resolution used by execution:
@@ -409,7 +409,7 @@ rhei install-skills --skills rhei-plan-worker,rhei-<TAB>
 Completion should replace only the segment after the last comma and should not
 duplicate skills already present in the comma-separated list.
 
-## Performance And Reliability
+## 11. Performance And Reliability
 
 Completion should feel instant. Implementations should prefer shallow,
 targeted reads over full validation:
@@ -425,7 +425,7 @@ Completion should avoid unbounded directory walks. Project/user template roots
 and workspace task directories may be scanned; arbitrary recursive scans should
 be avoided unless the shell's path completer owns the traversal.
 
-## Acceptance Tests
+## 12. Acceptance Tests
 
 The completion test suite should cover at least:
 
@@ -449,7 +449,7 @@ The completion test suite should cover at least:
 - Invalid manifests, unreadable plans, and unreadable values files degrade
   without stdout diagnostics.
 
-## System Installation
+## 13. System Installation
 
 `cargo install` only installs the `rhei` binary. It cannot install shell completion files by itself.
 

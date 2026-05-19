@@ -4,7 +4,7 @@ This guide shows how to author Rhei Plan documents that conform to the
 [Rhei Language Specification](rhei-plan-language.spec.md). It focuses on practical
 patterns rather than formal grammar — consult the spec for precise rules.
 
-## A Minimal Plan
+## 1. A Minimal Plan
 
 The smallest valid plan declares a title, a `## Tasks` section, and at least
 one task with a `**State:**` field:
@@ -27,7 +27,7 @@ rhei validate my-plan.rhei.md
 When no `**States:**` field is declared, the plan uses the built-in `rhei`
 state machine.
 
-## Authoring Workflow
+## 2. Authoring Workflow
 
 A typical plan grows in three passes:
 
@@ -42,9 +42,9 @@ A typical plan grows in three passes:
 Keep content sections before `## Tasks`. Everything after `## Tasks` is
 parsed as task structure.
 
-## Tasks and Child Tasks
+## 3. Tasks and Child Tasks
 
-### Numeric vs named tasks
+### 3.1. Numeric vs named tasks
 
 Numeric task ids (`### Task 1:`) are ordered and may contain child tasks.
 Named task ids (`### Task setup:`) are useful for conceptual anchors that
@@ -59,7 +59,7 @@ other tasks depend on — they must not declare child tasks.
 **Prior:** Task infra
 ```
 
-### Child task nodes
+### 3.2. Child task nodes
 
 Root tasks live at `###` (H3). Child tasks are declared at the next heading
 level (`####`, H4), their children at `#####` (H5), and so on. A child task
@@ -84,7 +84,7 @@ are rejected.
 **Prior:** Task 2.1
 ```
 
-### Depth and node kinds
+### 3.3. Depth and node kinds
 
 By default a plan permits a root task plus one level of children, using
 only the `Task` node kind. Plans that need deeper trees or additional
@@ -103,7 +103,7 @@ that exceed the declared depth or use a heading kind not listed in
 `nodeKinds`. When `structure` is omitted, the defaults are
 `maxLevels: 2, nodeKinds: [task]`.
 
-## Metadata
+## 4. Metadata
 
 `**State:**` is mandatory and must be the first line after the task header.
 `**Prior:**` is optional and, when present, must immediately follow
@@ -115,7 +115,7 @@ that exceed the declared depth or use a heading kind not listed in
 **Prior:** Task 1, Task 2
 ```
 
-### State values with spaces
+### 4.1. State values with spaces
 
 Single-word states are written bare. Multi-word states must be wrapped in
 backticks:
@@ -128,7 +128,7 @@ The state value must be defined in the active states file — multi-word
 states typically require a custom states file such as
 [`examples/states-with-spaces.yaml`](../../examples/states-with-spaces.yaml).
 
-### Dependencies
+### 4.2. Dependencies
 
 List prerequisites by id, separated by commas. References must resolve to
 tasks defined in the same document, and the dependency graph must stay
@@ -150,10 +150,10 @@ point `**Prior:**` at the completed task.
 `**Prior:**` is the markdown authoring form. SDKs expose the same data under
 idiomatic names — `task.metadata.dependsOn` (TypeScript/JavaScript, Java,
 CLI JSON) or `task.metadata.depends_on` (Python). See
-[Transitions Specification — Naming conventions](rhei-transitions.spec.md#naming-conventions)
+[Transitions Specification — Naming conventions](rhei-transitions.spec.md#21-naming-conventions)
 for the full table.
 
-## Using a Custom State Machine
+## 5. Using a Custom State Machine
 
 To reuse one state machine across plans, declare it on the line directly
 after the `# Rhei:` title:
@@ -175,7 +175,7 @@ rhei validate plans/content-refresh.rhei.md
 
 See the [States Specification](rhei-states.spec.md) for the states file format.
 
-## Common Pitfalls
+## 6. Common Pitfalls
 
 - **Missing `**State:**`** — every task header must be followed by a
   `**State:**` line.
@@ -203,7 +203,7 @@ exercise the patterns above:
 - [`escaped-state-values.rhei.md`](../../examples/escaped-state-values.rhei.md) —
   multi-word state values paired with a custom states file.
 
-## Advancing Task States with `rhei transition`
+## 7. Advancing Task States with `rhei transition`
 
 While `**State:**` values can be edited by hand, the `rhei transition`
 command provides an atomic, validated way to advance a task's state:
@@ -223,7 +223,7 @@ The command:
    transitions are rejected before any write occurs.
 5. **Writes the new state** to the markdown and releases the lock.
 
-### Flags
+### 7.1. Flags
 
 | Flag             | Required | Description                                     |
 | ---------------- | -------- | ----------------------------------------------- |
@@ -237,7 +237,7 @@ agent already transitioned the task) it exits non-zero with a message
 indicating the actual current state. Agents should re-read the plan and
 re-select when this happens.
 
-### Parallel safety
+### 7.2. Parallel safety
 
 When multiple agents work on the same plan, `rhei transition` is the
 coordination primitive. Because the `--from` flag acts as a
@@ -246,7 +246,7 @@ the loser gets a clean error and picks a different task. See
 [How Rhei Is Used — Pattern 3](rhei-usage.spec.md) for the full
 parallel-workers pattern.
 
-## Next Steps
+## 8. Next Steps
 
 - Read the [Plan Language Specification](rhei-plan-language.spec.md) for the
   formal grammar and semantic constraints.
@@ -255,7 +255,7 @@ parallel-workers pattern.
 - Use `rhei render --format github` to produce review-friendly views of
   a plan, or `--format progress` for a terminal overview.
 
-### Progress format
+### 8.1. Progress format
 
 `--format progress` renders the plan as a compact ANSI terminal report intended
 for quick navigation.  Its structure is:
