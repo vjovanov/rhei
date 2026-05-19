@@ -400,7 +400,7 @@
 
         assert!(args.windows(2).any(|pair| pair == ["--sandbox", "danger-full-access"]));
         assert!(args.iter().any(|arg| arg == "--skip-git-repo-check"));
-        assert!(args.windows(2).any(|pair| pair == ["-a", "never"]));
+        assert!(args.windows(2).any(|pair| pair == ["-c", "approval_policy=\"never\""]));
     }
 
     #[derive(Default)]

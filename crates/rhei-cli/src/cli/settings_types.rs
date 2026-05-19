@@ -211,7 +211,9 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
 
     // codex: `codex exec` is non-interactive. The `yolo` mode mirrors the
     // spec table at docs/functional-spec/rhei-agents.spec.md §Known Agent
-    // Profiles — `--sandbox danger-full-access --skip-git-repo-check -a never`.
+    // Profiles — `--sandbox danger-full-access --skip-git-repo-check
+    // -c approval_policy="never"`. `-c approval_policy="never"` replaced the
+    // older `-a never` short flag, which codex-cli no longer accepts.
     agents.insert(
         "codex".to_string(),
         CustomAgentProfile {
@@ -224,8 +226,8 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
                 "--sandbox",
                 "danger-full-access",
                 "--skip-git-repo-check",
-                "-a",
-                "never",
+                "-c",
+                "approval_policy=\"never\"",
             ])),
             ..Default::default()
         },

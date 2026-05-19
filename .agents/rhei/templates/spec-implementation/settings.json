@@ -16,15 +16,15 @@
           "--sandbox",
           "danger-full-access",
           "--skip-git-repo-check",
-          "-a",
-          "never"
+          "-c",
+          "approval_policy=\"never\""
         ],
         "high": [
           "--sandbox",
           "danger-full-access",
           "--skip-git-repo-check",
-          "-a",
-          "never",
+          "-c",
+          "approval_policy=\"never\"",
           "-c",
           "model_reasoning_effort=\"high\""
         ],
@@ -32,8 +32,8 @@
           "--sandbox",
           "danger-full-access",
           "--skip-git-repo-check",
-          "-a",
-          "never",
+          "-c",
+          "approval_policy=\"never\"",
           "-c",
           "model_reasoning_effort=\"xhigh\""
         ]
