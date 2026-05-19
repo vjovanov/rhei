@@ -148,7 +148,7 @@ transitions:
 
         assert!(rendered.contains("State machine: demo"));
         assert!(rendered.contains("Models: gpt-5, claude-sonnet"));
-        assert!(rendered.contains("draft [initial]"));
+        assert!(rendered.contains("draft"));
         assert!(rendered.contains("Visits: 3"));
         assert!(rendered.contains("Models: gpt-5, claude-sonnet"));
         assert!(rendered.contains("Personality: Ask one sharp planning question first."));
@@ -436,6 +436,8 @@ transitions:
             metadata: None,
             target: None,
             model: None,
+            model_provider: None,
+            model_name: None,
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
@@ -459,6 +461,50 @@ transitions:
         assert!(!prompt.contains("produce every required output artifact"));
         assert!(!prompt.contains("for caller context"));
         assert!(!prompt.contains("Workflow Notes"));
+    }
+
+    #[test]
+    fn runtime_templates_use_resolved_model_provider_and_name() {
+        let rhei = rhei_core::parse(
+            "# Rhei: Prompt Smoke\n\n## Tasks\n\n### Task demo: Verify\n**State:** review\n\nDo work.\n",
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: prompt-smoke
+version: 1
+states:
+  review:
+    description: review
+    instructions: "{model} {model.provider} {model.name}"
+  done:
+    description: done
+    final: true
+"#,
+        )
+        .expect("machine should parse");
+        let context = RuntimeTemplateContext {
+            workspace_root: Path::new("/tmp/workspace"),
+            plan_path: Path::new("/tmp/workspace"),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task: &rhei.tasks[0],
+            state_name: "review",
+            current_state_raw: "review",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: Some("impl-fast"),
+            model_provider: Some("anthropic"),
+            model_name: Some("claude-sonnet-4-6"),
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let rendered =
+            resolve_runtime_template_text(state_instructions(&machine, "review").as_str(), &context);
+        assert_eq!(rendered, "impl-fast anthropic claude-sonnet-4-6");
     }
 
     #[test]

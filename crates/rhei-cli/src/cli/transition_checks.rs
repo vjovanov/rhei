@@ -7,6 +7,8 @@ fn ensure_state_inputs_exist(
     visit_count: Option<u64>,
     target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    model_provider: Option<&str>,
+    model_name: Option<&str>,
     agent: Option<&str>,
     agent_mode: Option<&str>,
     context: &str,
@@ -23,9 +25,18 @@ fn ensure_state_inputs_exist(
             visit_count,
             target,
             model,
+            model_provider,
+            model_name,
             agent,
             agent_mode,
         );
+        if artifact_relative_path_escapes_root(&relative) {
+            return Err(miette!(
+                "{context}\nInput artifact '{}' expands to '{}' which escapes the workspace root",
+                artifact.name,
+                relative
+            ));
+        }
         if !path.exists() {
             return Err(miette!(
                 "{context}\nMissing required input artifact: {} ({})",
@@ -47,6 +58,8 @@ fn ensure_state_outputs_exist(
     visit_count: Option<u64>,
     target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    model_provider: Option<&str>,
+    model_name: Option<&str>,
     agent: Option<&str>,
     agent_mode: Option<&str>,
 ) -> MietteResult<()> {
@@ -59,9 +72,20 @@ fn ensure_state_outputs_exist(
             visit_count,
             target,
             model,
+            model_provider,
+            model_name,
             agent,
             agent_mode,
         );
+        if artifact_relative_path_escapes_root(&relative) {
+            return Err(miette!(
+                "Task {} cannot leave state {}.\nOutput artifact '{}' expands to '{}' which escapes the workspace root",
+                task_id,
+                state_name,
+                artifact.name,
+                relative
+            ));
+        }
         if !path.exists() {
             return Err(miette!(
                 "Task {} cannot leave state {}.\nMissing required output artifact: {} ({})",

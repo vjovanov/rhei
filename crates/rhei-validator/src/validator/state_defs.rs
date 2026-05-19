@@ -1,5 +1,5 @@
 /// One entry from the `states` map in a YAML states file.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StateDef {
     /// Optional descriptive text; the current schema intentionally keeps this permissive.
     pub description: Option<String>,
@@ -91,7 +91,7 @@ pub struct StateDef {
 
 /// Per-state polling configuration. See the States Specification —
 /// Polling States.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PollConfig {
     /// Minimum wall-clock wait between poll attempts (duration string, e.g.
     /// `30s`, `5m`, `1h`).
@@ -102,7 +102,7 @@ pub struct PollConfig {
 }
 
 /// Per-state snapshot declaration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StateSnapshotConfig {
     #[serde(default)]
@@ -112,7 +112,7 @@ pub struct StateSnapshotConfig {
 }
 
 /// `snapshot.emit` declaration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotEmitConfig {
     pub name: String,
@@ -121,7 +121,7 @@ pub struct SnapshotEmitConfig {
 }
 
 /// `snapshot.inherit` declaration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotInheritConfig {
     pub name: String,
@@ -136,7 +136,7 @@ pub struct SnapshotInheritConfig {
 }
 
 /// `snapshot.inherit.select` declaration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotInheritSelectConfig {
     #[serde(default)]
@@ -222,7 +222,7 @@ fn statically_resolved_snapshot_agent(state: &StateDef) -> Option<String> {
 
 /// A named, reusable `{initial, allowed}` state policy referenced from
 /// [`NodePolicy`]. See the States Specification — Profiles section.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Profile {
     /// Initial state that nodes bound to this profile start in.
     pub initial: String,
@@ -234,7 +234,7 @@ pub struct Profile {
 ///
 /// See the States Specification — Node Policy section for the resolution order
 /// (`overrides` → `by_type[<kind>]` → `default`) and validation rules.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodePolicy {
     /// Profile bound to the plan-root node (always the `rhei` kind).
     pub root: String,
@@ -252,7 +252,7 @@ pub struct NodePolicy {
 
 /// Ordered override in [`NodePolicy`]. `match` selects by non-root node kind
 /// and/or task-tree level. §FS-rhei-states
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodePolicyOverride {
     /// Type/level selector. An empty selector matches every non-root node.
     #[serde(rename = "match")]
@@ -263,7 +263,7 @@ pub struct NodePolicyOverride {
 
 /// Node-policy override selector. Unknown keys are rejected so typos do not
 /// silently change profile resolution. §FS-rhei-states
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodePolicyMatch {
     /// Optional node kind selector.
@@ -313,4 +313,3 @@ pub struct StateMachine {
 
 /// The built-in default states YAML shipped with rhei.
 const DEFAULT_STATES_YAML: &str = include_str!("../default-states.yaml");
-

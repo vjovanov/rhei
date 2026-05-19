@@ -37,6 +37,48 @@ fn extract_if_conditions(text: &str) -> Vec<&str> {
     conditions
 }
 
+fn validate_no_nested_conditionals(
+    state_name: &str,
+    field_name: &str,
+    text: &str,
+) -> Result<(), StateMachineLoadError> {
+    let mut depth = 0u8;
+    let mut idx = 0usize;
+
+    while idx < text.len() {
+        let remaining = &text[idx..];
+        let next_if = remaining.find("{if ").map(|pos| (pos, "if"));
+        let next_endif = remaining.find("{endif}").map(|pos| (pos, "endif"));
+        let next = match (next_if, next_endif) {
+            (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+        let Some((offset, tag)) = next else { break };
+        idx += offset;
+
+        match tag {
+            "if" => {
+                if depth > 0 {
+                    return Err(StateMachineLoadError::Invalid(format!(
+                        "state '{state_name}' {field_name} contains nested conditional blocks, which are not supported in v1"
+                    )));
+                }
+                depth = 1;
+                idx += "{if ".len();
+            }
+            "endif" => {
+                depth = 0;
+                idx += "{endif}".len();
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_state_mcp_entries(
     state_name: &str,
     state: &StateDef,
@@ -439,4 +481,3 @@ pub fn parse_duration_secs(s: &str) -> Option<u64> {
 
     Some(total)
 }
-

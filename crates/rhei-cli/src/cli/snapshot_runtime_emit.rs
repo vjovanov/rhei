@@ -36,7 +36,7 @@ fn emit_snapshots_after_agent_exit(
     current_state: &str,
     selected_to_state: Option<&str>,
     resolved: &ResolvedAgent,
-    _log_path: &Path,
+    log_path: &Path,
     visit_count: u64,
     completion: SnapshotCompletion,
     preload: &SnapshotPreload,
@@ -102,6 +102,21 @@ fn emit_snapshots_after_agent_exit(
         );
         return Ok(());
     };
+    if !snapshot_emit_session_supported(session) {
+        if emit.is_some() {
+            return Err(miette!(
+                "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
+                current_state,
+                resolved.agent.id()
+            ));
+        }
+        eprintln!(
+            "info: auto snapshot skipped for state '{}' because agent '{}' has no supported snapshot session layout",
+            current_state,
+            resolved.agent.id()
+        );
+        return Ok(());
+    }
     let Some(session_layout) = snapshot_layout_manifest(session) else {
         return Err(miette!(
             "unsupported-snapshot-session: agent '{}' has an incomplete snapshot session layout",
@@ -126,6 +141,8 @@ fn emit_snapshots_after_agent_exit(
         return Ok(());
     };
     let cache_root = snapshot_cache_dir(settings, workspace_root);
+    let (observed_provider, observed_model) =
+        observed_snapshot_target(resolved, &transcript_source, &transcript_ext);
 
     write_snapshot_generation_atomic(
         &cache_root,
@@ -142,9 +159,12 @@ fn emit_snapshots_after_agent_exit(
         &session_id,
         &transcript_source,
         &transcript_ext,
+        &observed_provider,
+        &observed_model,
         preload.parent_ref.as_ref(),
         completion,
         SnapshotProducedBy::Orchestrator,
+        Some(log_path),
     )?;
 
     let Some(emit) = emit else {
@@ -169,9 +189,12 @@ fn emit_snapshots_after_agent_exit(
         &session_id,
         &transcript_source,
         &transcript_ext,
+        &observed_provider,
+        &observed_model,
         preload.parent_ref.as_ref(),
         completion,
         SnapshotProducedBy::Orchestrator,
+        Some(log_path),
     )?;
     Ok(())
 }

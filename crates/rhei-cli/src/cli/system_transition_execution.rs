@@ -1,4 +1,43 @@
 
+struct TransitionTaskInfo {
+    current_state: String,
+    kind: String,
+    level: u8,
+}
+
+fn task_profile_allows_state(
+    machine: &rhei_validator::StateMachine,
+    kind: &str,
+    level: u8,
+    state: &str,
+) -> bool {
+    machine
+        .profile_for_node(kind, level)
+        .is_none_or(|profile| profile.allowed.iter().any(|allowed| allowed == state))
+}
+
+fn ensure_task_profile_allows_state(
+    machine: &rhei_validator::StateMachine,
+    task_id_str: &str,
+    kind: &str,
+    level: u8,
+    state: &str,
+) -> MietteResult<()> {
+    let Some(profile) = machine.profile_for_node(kind, level) else {
+        return Ok(());
+    };
+    if profile.allowed.iter().any(|allowed| allowed == state) {
+        return Ok(());
+    }
+
+    Err(miette!(
+        "Task {} cannot enter state '{}': state is not allowed by its resolved profile. Profile allows: [{}]",
+        task_id_str,
+        state,
+        profile.allowed.join(", ")
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn execute_transition_with_origin(
     files: TransitionFiles<'_>,
@@ -55,7 +94,8 @@ fn execute_transition_with_origin(
     // Parse to validate structure and find the task.
     // Try full plan parse first; fall back to workspace task-file parse.
     let target_id = parse_task_id(task_id_str);
-    let current_state_raw = find_task_current_state(&task_raw, task_file, &target_id, task_id_str)?;
+    let task_info = find_task_transition_info(&task_raw, task_file, &target_id, task_id_str)?;
+    let current_state_raw = task_info.current_state;
     let current_state = normalized_state_name(&current_state_raw, machine);
     let metadata = if task_file == metadata_file {
         rhei_core::parse(&metadata_raw)
@@ -86,6 +126,19 @@ fn execute_transition_with_origin(
             current_state_raw,
             from
         ));
+    }
+    if let Err(err) = ensure_task_profile_allows_state(
+        machine,
+        task_id_str,
+        &task_info.kind,
+        task_info.level,
+        to,
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = task_handle.unlock();
+        }
+        let _ = metadata_handle.unlock();
+        return Err(err);
     }
 
     // Now that we know the task really is in `from`, check whether the
@@ -252,6 +305,18 @@ fn execute_transition_with_origin(
             }
             let _ = metadata_handle.unlock();
             return Err(miette!("on_leave callback redirected to unknown state '{}'", redirect));
+        } else if let Err(err) = ensure_task_profile_allows_state(
+            machine,
+            task_id_str,
+            &task_info.kind,
+            task_info.level,
+            redirect,
+        ) {
+            if let Some(task_handle) = &task_handle {
+                let _ = task_handle.unlock();
+            }
+            let _ = metadata_handle.unlock();
+            return Err(err);
         } else if let Some(rule) =
             machine.transitions().iter().find(|r| r.from.0 == from && r.to.0 == redirect).or_else(
                 || machine.transitions().iter().find(|r| r.from.0 == "*" && r.to.0 == redirect),
@@ -416,26 +481,35 @@ fn execute_transition_with_origin(
     Ok(())
 }
 
-/// Extract the current state of a task from raw markdown content.
+/// Extract the current state and node-policy inputs for a task from raw
+/// markdown content.
 ///
 /// Tries full-plan parsing first, falls back to workspace task-file parsing.
-fn find_task_current_state(
+fn find_task_transition_info(
     raw: &str,
     file_path: &Path,
     target_id: &TaskId,
     task_id_str: &str,
-) -> MietteResult<String> {
+) -> MietteResult<TransitionTaskInfo> {
     // Try full plan parse.
     if let Ok(rhei) = rhei_core::parse(raw) {
-        if let Some(task) = rhei.tasks.iter().find(|t| &t.id == target_id) {
-            return Ok(task.state.as_str().to_string());
+        if let Some(task) = find_task_by_id(&rhei.tasks, target_id) {
+            return Ok(TransitionTaskInfo {
+                current_state: task.state.as_str().to_string(),
+                kind: task.kind.clone(),
+                level: task.id.depth() as u8,
+            });
         }
     }
 
     // Try workspace task-file parse.
     if let Ok(tasks) = rhei_core::parser::parse_workspace_tasks(raw) {
-        if let Some(task) = tasks.iter().find(|t| &t.id == target_id) {
-            return Ok(task.state.as_str().to_string());
+        if let Some(task) = find_task_by_id(&tasks, target_id) {
+            return Ok(TransitionTaskInfo {
+                current_state: task.state.as_str().to_string(),
+                kind: task.kind.clone(),
+                level: task.id.depth() as u8,
+            });
         }
     }
 

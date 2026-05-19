@@ -267,11 +267,15 @@ fn record_poll_self_loop_if_needed(
         return Ok(false);
     };
     let interval = rhei_validator::parse_duration_secs(&poll.interval).unwrap_or(0);
+    let next_attempt_count =
+        current_state_visit_count(metadata, &task.id, current_state, task.state.as_str(), machine)
+            .saturating_add(1);
     let metadata = set_poll_next_attempt_metadata(
         metadata,
         &task.id,
         current_state,
         current_unix_secs().saturating_add(interval),
+        next_attempt_count,
     );
     write_plan_metadata(input, &metadata)?;
     Ok(true)
@@ -289,4 +293,3 @@ fn merge_transition_data(dst: &mut serde_json::Value, src: &serde_json::Value) {
         dst_map.insert(key.clone(), value.clone());
     }
 }
-

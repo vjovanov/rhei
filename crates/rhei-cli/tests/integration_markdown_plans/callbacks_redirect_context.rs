@@ -101,6 +101,64 @@ transitions:
 }
 
 #[test]
+fn states_profile_allowed_rejects_callback_redirect_destination() {
+    let machine_yaml = r#"name: profile-redirect-guard
+version: 3
+states:
+  pending:
+    description: Not started
+  in-progress:
+    description: Allowed target
+    final: true
+  rejected:
+    description: Globally valid but outside the resolved profile
+    final: true
+profiles:
+  simple:
+    initial: pending
+    allowed: [pending, in-progress]
+node_policy:
+  root: simple
+  default: simple
+transitions:
+  - from: pending
+    to: in-progress
+    on_leave: 'cli:printf ''{"success": true, "nextState": "rejected"}'''
+  - from: pending
+    to: rejected
+"#;
+    let dir = unique_temp_dir("states-profile-redirect-transition");
+    let plan = r#"# Rhei: Profile Redirect Guard
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result =
+        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+
+    assert!(
+        !result.status.success(),
+        "callback redirect into profile-disallowed state should fail"
+    );
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("not allowed") && normalized.contains("resolved") && normalized.contains("profile"),
+        "stderr should explain profile allowed-state guard; got:\n{}",
+        result.stderr
+    );
+
+    let contents = fs::read_to_string(&plan_path).expect("read plan");
+    assert_eq!(contents, plan);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn callback_receives_transition_context_on_stdin() {
     // The callback reads its stdin and writes it back into a file we
     // then inspect. This verifies the TransitionContext JSON payload is
@@ -210,4 +268,3 @@ transitions:
 }
 
 // ---- Run command integration tests ----
-

@@ -45,6 +45,13 @@ fn complete_command(
             current_state_raw
         ));
     }
+    if machine.states.get(&current_state).map(|def| def.gating).unwrap_or(false) {
+        return Err(miette!(
+            "Task {} cannot be completed from gating state '{}'; use an explicit human transition",
+            task_id_str,
+            current_state
+        ));
+    }
 
     let open_children = non_terminal_descendants(task, &machine);
     if !open_children.is_empty() {
@@ -223,4 +230,3 @@ fn initial_state_name(machine: &rhei_validator::StateMachine) -> MietteResult<St
         )),
     }
 }
-

@@ -10,6 +10,8 @@ struct RuntimeTemplateContext<'a> {
     metadata: Option<&'a Metadata>,
     target: Option<&'a ExecutionTarget>,
     model: Option<&'a str>,
+    model_provider: Option<&'a str>,
+    model_name: Option<&'a str>,
     agent: Option<&'a str>,
     agent_mode: Option<&'a str>,
     /// Resolved MCP servers and skills for the current state (Half A).
@@ -48,6 +50,8 @@ fn artifact_relative_path(
     visit_count: Option<u64>,
     target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    model_provider: Option<&str>,
+    model_name: Option<&str>,
     agent: Option<&str>,
     agent_mode: Option<&str>,
 ) -> String {
@@ -58,13 +62,15 @@ fn artifact_relative_path(
     if let Some(target) = target {
         relative = relative.replace("{target}", &target.selector());
         relative = relative.replace("{target.slug}", &target.slug());
-        if let Some(provider) = target.provider.as_deref() {
-            relative = relative.replace("{model.provider}", provider);
-        }
+    }
+    if let Some(provider) = model_provider.or_else(|| target.and_then(|target| target.provider.as_deref())) {
+        relative = relative.replace("{model.provider}", provider);
     }
     if let Some(model) = model {
         relative = relative.replace("{model}", model);
-        relative = relative.replace("{model.name}", model);
+    }
+    if let Some(model_name) = model_name.or(model) {
+        relative = relative.replace("{model.name}", model_name);
     }
     if let Some(agent) = agent {
         relative = relative.replace("{agent}", agent);
@@ -84,6 +90,8 @@ fn resolve_artifact_path(
     visit_count: Option<u64>,
     target: Option<&ExecutionTarget>,
     model: Option<&str>,
+    model_provider: Option<&str>,
+    model_name: Option<&str>,
     agent: Option<&str>,
     agent_mode: Option<&str>,
 ) -> (String, PathBuf) {
@@ -94,10 +102,30 @@ fn resolve_artifact_path(
         visit_count,
         target,
         model,
+        model_provider,
+        model_name,
         agent,
         agent_mode,
     );
     (relative.clone(), workspace_root.join(&relative))
+}
+
+fn artifact_relative_path_escapes_root(relative: &str) -> bool {
+    let mut depth = 0usize;
+    for component in Path::new(relative).components() {
+        match component {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => return true,
+            std::path::Component::ParentDir => {
+                if depth == 0 {
+                    return true;
+                }
+                depth -= 1;
+            }
+            std::path::Component::Normal(_) => depth += 1,
+            std::path::Component::CurDir => {}
+        }
+    }
+    false
 }
 
 fn resolve_runtime_template_variable(
@@ -122,17 +150,15 @@ fn resolve_runtime_template_variable(
         "target" => context.target.map(ExecutionTarget::selector),
         "target.slug" => context.target.map(ExecutionTarget::slug),
         "model" => context.model.map(str::to_string),
+        "model.provider" => context.model_provider.map(str::to_string),
+        "model.name" => context.model_name.or(context.model).map(str::to_string),
         "agent" => context.agent.map(str::to_string),
         "agent.mode" => context.agent_mode.map(str::to_string),
         "plan_title" => Some(context.plan_title.to_string()),
         "plan_path" => Some(context.plan_path.display().to_string()),
         _ => {
-            if let Some(key) = variable.strip_prefix("model.") {
-                return match key {
-                    "provider" => context.target.and_then(|target| target.provider.clone()),
-                    "name" => context.model.map(str::to_string),
-                    _ => None,
-                };
+            if variable.strip_prefix("model.").is_some() {
+                return None;
             }
             if let Some(key) = variable.strip_prefix("meta.") {
                 return task_metadata_map(context.metadata, &context.task.id)
@@ -161,6 +187,8 @@ fn resolve_runtime_template_variable(
                             visit_count,
                             context.target,
                             context.model,
+                            context.model_provider,
+                            context.model_name,
                             context.agent,
                             context.agent_mode,
                         )
@@ -181,6 +209,8 @@ fn resolve_runtime_template_variable(
                             visit_count,
                             context.target,
                             context.model,
+                            context.model_provider,
+                            context.model_name,
                             context.agent,
                             context.agent_mode,
                         );
@@ -201,6 +231,8 @@ fn resolve_runtime_template_variable(
                             visit_count,
                             context.target,
                             context.model,
+                            context.model_provider,
+                            context.model_name,
                             context.agent,
                             context.agent_mode,
                         )
@@ -248,6 +280,8 @@ fn evaluate_if_condition(condition: &str, context: &RuntimeTemplateContext<'_>) 
                     visit_count,
                     context.target,
                     context.model,
+                    context.model_provider,
+                    context.model_name,
                     context.agent,
                     context.agent_mode,
                 );
@@ -410,4 +444,3 @@ fn resolve_runtime_template_text(text: &str, context: &RuntimeTemplateContext<'_
 
     rendered
 }
-

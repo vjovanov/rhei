@@ -6,6 +6,7 @@ impl StateMachine {
 
     /// Load a StateMachine from YAML string contents.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
+        reject_explicit_empty_all_targets(yaml)?;
         let sm: Self = serde_yaml::from_str(yaml)?;
         sm.validate_model_configuration()?;
         sm.validate_program_configuration()?;
@@ -261,4 +262,24 @@ impl StateMachine {
     }
 
 
+}
+
+fn reject_explicit_empty_all_targets(yaml: &str) -> Result<(), StateMachineLoadError> {
+    let raw: serde_yaml::Value = serde_yaml::from_str(yaml)?;
+    let Some(states) = raw.get("states").and_then(serde_yaml::Value::as_mapping) else {
+        return Ok(());
+    };
+
+    for (state_name, state_value) in states {
+        let Some(state) = state_value.as_mapping() else { continue };
+        let Some(all_targets) = state.get("all_targets") else { continue };
+        if all_targets.as_sequence().is_some_and(Vec::is_empty) {
+            let label = state_name.as_str().unwrap_or("<unknown>");
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{label}' declares 'all_targets: []' but all_targets must be a non-empty list when present"
+            )));
+        }
+    }
+
+    Ok(())
 }

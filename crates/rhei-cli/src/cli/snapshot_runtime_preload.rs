@@ -27,6 +27,7 @@ fn preload_snapshot_inherit_before_spawn(
     resolved: &ResolvedAgent,
     settings: &RheiSettings,
     visit_count: u64,
+    override_selection: Option<&SnapshotOverrideRunSelection>,
     opts: &RunOptions,
 ) -> MietteResult<SnapshotPreload> {
     let mut preload = SnapshotPreload::default();
@@ -37,13 +38,6 @@ fn preload_snapshot_inherit_before_spawn(
         .and_then(|snapshot| snapshot.inherit.as_ref())
         .is_some();
 
-    if opts.snapshot_override_ref().is_some() && !declares_inherit {
-        return Err(miette!(
-            "--from-snapshot requires the target state '{}' to declare snapshot.inherit; --override-inherit does not bypass that authored contract",
-            current_state
-        ));
-    }
-
     let target_slug = if declares_inherit {
         Some(snapshot_target_slug_or_err(resolved)?)
     } else {
@@ -52,6 +46,18 @@ fn preload_snapshot_inherit_before_spawn(
     let Some(target_slug) = target_slug else {
         return Ok(preload);
     };
+    let override_applies = snapshot_override_applies_to_invocation(
+        override_selection,
+        task,
+        &target_slug,
+        opts.snapshot_override_ref().is_some(),
+    );
+    if override_applies && !declares_inherit {
+        return Err(miette!(
+            "--from-snapshot requires the target state '{}' to declare snapshot.inherit; --override-inherit does not bypass that authored contract",
+            current_state
+        ));
+    }
     if let Some(session) = snapshot_session(resolved) {
         if let Some(flag) = snapshot_session_string(session, "session_dir_flag") {
             let dir = snapshot_session_dir(
@@ -79,7 +85,7 @@ fn preload_snapshot_inherit_before_spawn(
     };
     let required = inherit.required.unwrap_or(false);
     let compat = inherit.compat.as_deref().unwrap_or("native");
-    if opts.snapshot_override_ref().is_some() && compat == "none" && !opts.override_inherit() {
+    if override_applies && compat == "none" && !opts.override_inherit() {
         return Err(miette!(
             "--from-snapshot cannot override snapshot.inherit '{}' because compat: none disables authored preload; pass --override-inherit to bypass compatibility checks",
             inherit.name
@@ -91,7 +97,10 @@ fn preload_snapshot_inherit_before_spawn(
     }
 
     let cache_root = snapshot_cache_dir(settings, workspace_root);
-    let source = if let Some(reference) = opts.snapshot_override_ref() {
+    let source = if override_applies {
+        let reference = opts.snapshot_override_ref().ok_or_else(|| {
+            miette!("internal error: snapshot override selected without a reference")
+        })?;
         let loaded = load_plan(input)?;
         let ctx = SnapshotCommandContext {
             workspace_root: workspace_root.to_path_buf(),
@@ -101,15 +110,6 @@ fn preload_snapshot_inherit_before_spawn(
             settings: settings.clone(),
         };
         let record = resolve_snapshot_ref(&ctx, reference, opts.snapshot_target_selector(), None)?;
-        if let Some(task_selector) = opts.snapshot_task_selector() {
-            if record.task_id != task_selector {
-                return Err(miette!(
-                    "--task selected snapshot task '{}', but override resolved task '{}'",
-                    task_selector,
-                    record.task_id
-                ));
-            }
-        }
         if !opts.override_inherit() {
             validate_snapshot_override_contract(
                 &cache_root,
@@ -187,7 +187,7 @@ fn preload_snapshot_inherit_before_spawn(
         );
         return Ok(preload);
     };
-    if !snapshot_resume_supported(session) && snapshot_strategy_flag(session, "fork").is_none() {
+    if !snapshot_preload_session_supported(session) {
         if required {
             return Err(miette!(
                 "unsupported-snapshot-session: agent '{}' has no supported snapshot preload strategy",
@@ -240,6 +240,20 @@ fn preload_snapshot_inherit_before_spawn(
     }
     preload.parent_ref = Some(snapshot_parent_ref(&source));
     Ok(preload)
+}
+
+fn snapshot_override_applies_to_invocation(
+    override_selection: Option<&SnapshotOverrideRunSelection>,
+    task: &rhei_core::ast::Task,
+    target_slug: &str,
+    has_override_ref: bool,
+) -> bool {
+    if !has_override_ref {
+        return false;
+    }
+    override_selection.is_none_or(|selection| {
+        selection.task_id == task.id.to_string() && selection.target_slug == target_slug
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
