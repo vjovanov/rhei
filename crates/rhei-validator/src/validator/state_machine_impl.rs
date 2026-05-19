@@ -265,6 +265,10 @@ impl StateMachine {
 }
 
 fn reject_explicit_empty_all_targets(yaml: &str) -> Result<(), StateMachineLoadError> {
+    // `all_targets` carries `#[serde(default)]`, so serde collapses missing
+    // and explicit-empty into the same empty Vec. Re-parse the raw YAML to
+    // distinguish them and reject `all_targets: []` as authoring sugar that
+    // most likely means "I intended to list targets here and forgot."
     let raw: serde_yaml::Value = serde_yaml::from_str(yaml)?;
     let Some(states) = raw.get("states").and_then(serde_yaml::Value::as_mapping) else {
         return Ok(());

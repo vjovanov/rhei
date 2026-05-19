@@ -318,10 +318,15 @@ fn snapshot_declared_model(resolved: &ResolvedAgent) -> &str {
 }
 
 fn pi_jsonl_observed_target(transcript_source: &Path) -> Option<(String, String)> {
+    // Scan a small leading slice of the transcript for the first object that
+    // carries a provider/model pair. The pi format puts this header within the
+    // first few lines; cap the search so a transcript without a header doesn't
+    // turn into a full-file read.
+    const PI_HEADER_LOOKBACK_LINES: usize = 8;
     let file = fs::File::open(transcript_source).ok()?;
     let mut reader = std::io::BufReader::new(file);
     let mut line = String::new();
-    for _ in 0..8 {
+    for _ in 0..PI_HEADER_LOOKBACK_LINES {
         line.clear();
         if reader.read_line(&mut line).ok()? == 0 {
             break;
@@ -519,15 +524,20 @@ fn apply_snapshot_redactor(
 }
 
 fn snapshot_redactor_default_env(workspace_root: &Path) -> Vec<(&'static str, PathBuf)> {
-    let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rhei"));
-    let global_settings =
-        home_dir().map(|home| home.join(".config/rhei/settings.json")).unwrap_or_default();
-    vec![
-        ("RHEI_EXECUTABLE_PATH", executable),
-        ("RHEI_WORKSPACE_ROOT", workspace_root.to_path_buf()),
-        ("RHEI_PROJECT_SETTINGS_PATH", workspace_root.join(".rhei/settings.json")),
-        ("RHEI_GLOBAL_SETTINGS_PATH", global_settings),
-    ]
+    // env_clear() wipes the child env first, so anything omitted here is simply
+    // unset for the redactor. Skip RHEI_EXECUTABLE_PATH / RHEI_GLOBAL_SETTINGS_PATH
+    // when their source fails rather than passing an empty PathBuf, which would
+    // appear to the redactor as a real-but-empty path.
+    let mut env: Vec<(&'static str, PathBuf)> = Vec::with_capacity(4);
+    if let Ok(executable) = std::env::current_exe() {
+        env.push(("RHEI_EXECUTABLE_PATH", executable));
+    }
+    env.push(("RHEI_WORKSPACE_ROOT", workspace_root.to_path_buf()));
+    env.push(("RHEI_PROJECT_SETTINGS_PATH", workspace_root.join(".rhei/settings.json")));
+    if let Ok(home) = home_dir() {
+        env.push(("RHEI_GLOBAL_SETTINGS_PATH", home.join(".config/rhei/settings.json")));
+    }
+    env
 }
 
 fn append_snapshot_redactor_diagnostic(
