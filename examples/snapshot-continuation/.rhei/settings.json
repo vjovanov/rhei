@@ -1,0 +1,20 @@
+{
+  "agents": {
+    "analysis-agent": {
+      "command": ["analysis-agent"],
+      "prompt_flag": "--prompt",
+      "model_flag": "--model",
+      "timeout": "20m",
+      "session": {
+        "resume": { "flag": "--resume" },
+        "fork": { "flag": "--fork" },
+        "interactive": {
+          "command": ["analysis-agent"],
+          "args": ["--interactive"]
+        },
+        "session_dir_flag": "--session-dir",
+        "layout": { "kind": "FlatById", "ext": "jsonl" }
+      }
+    }
+  }
+}

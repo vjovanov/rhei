@@ -137,6 +137,66 @@ Options:
   writing a sibling generation. The interactive session still runs; on
   exit nothing is added to the cache.
 
+**Example.** A state machine can emit a reusable implementation snapshot and
+then require that same snapshot for review:
+
+```yaml
+states:
+  implement:
+    target: analysis-agent:acme:model-a
+    snapshot:
+      emit:
+        name: implementation
+        on: always
+  review:
+    target: analysis-agent:acme:model-a
+    snapshot:
+      inherit:
+        name: implementation
+        required: true
+        select:
+          state: implement
+          target: same
+```
+
+The agent profile declares the native session surface once:
+
+```jsonc
+{
+  "agents": {
+    "analysis-agent": {
+      "command": ["analysis-agent"],
+      "prompt_flag": "--prompt",
+      "model_flag": "--model",
+      "session": {
+        "resume": { "flag": "--resume" },
+        "fork": { "flag": "--fork" },
+        "interactive": {
+          "command": ["analysis-agent"],
+          "args": ["--interactive"]
+        },
+        "session_dir_flag": "--session-dir",
+        "layout": { "kind": "FlatById", "ext": "jsonl" }
+      }
+    }
+  }
+}
+```
+
+After `rhei run` emits `1:implementation:implement@1:analysis-agent-acme-model-a/g1`,
+an operator can attach to it without changing the plan:
+
+```bash
+rhei snapshot continue \
+  1:implementation:implement@1:analysis-agent-acme-model-a \
+  --plan examples/snapshot-continuation
+```
+
+If the agent exits cleanly, Rhei writes a sibling operator generation such as
+`g2` with `parent_ref.generation = 1`; the identity's `current` pointer still
+points at the orchestrator generation. Use `--no-capture` for throwaway
+analysis sessions that should not add `g<N>` entries.
+
 The command requires the resolved agent to expose a `ResumeStrategy` other
 than `None`, a usable `SessionLayout`, and an
 `InteractiveContinuationProfile`; otherwise it errors before spawn with
