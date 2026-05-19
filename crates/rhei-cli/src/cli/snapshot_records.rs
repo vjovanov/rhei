@@ -335,8 +335,12 @@ fn pi_jsonl_observed_target(transcript_source: &Path) -> Option<(String, String)
         if trimmed.is_empty() {
             continue;
         }
-        let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
-        return pi_header_target_from_value(&value);
+        let Ok(value) = serde_json::from_str(trimmed) else {
+            continue;
+        };
+        if let Some(target) = pi_header_target_from_value(&value) {
+            return Some(target);
+        }
     }
     None
 }

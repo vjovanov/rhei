@@ -940,6 +940,125 @@ transitions:
     }
 
     #[test]
+    fn snapshot_from_snapshot_run_target_selector_does_not_filter_source_snapshot() {
+        let dir = snapshot_workspace();
+        fs::write(
+            dir.path().join("states.yaml"),
+            r#"name: snapshot-test
+version: 1
+states:
+  source:
+    description: source
+    target: claude-code:anthropic:model-a
+    snapshot:
+      emit:
+        name: impl
+  pending:
+    description: pending
+    initial: true
+    all_targets:
+      - claude-code:anthropic:model-a
+      - claude-code:anthropic:model-b
+    snapshot:
+      inherit:
+        name: impl
+        required: true
+        select:
+          state: source
+          target: claude-code-anthropic-model-a
+  done:
+    description: done
+    final: true
+transitions:
+  - from: pending
+    to: done
+"#,
+        )
+        .expect("write states");
+        let settings = snapshot_preload_settings();
+        let loaded = load_plan(dir.path()).expect("load plan");
+        let machine = rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+            .expect("state machine");
+        let task = loaded.rhei.tasks.first().expect("task");
+        let resolved =
+            resolve_agent_invocations(&machine, "pending", &settings, &default_run_options())
+                .expect("resolve");
+        assert_eq!(resolved.len(), 2);
+        let source_slug = "claude-code-anthropic-model-a";
+        let selected_run_slug = "claude-code-anthropic-model-b";
+        assert_eq!(
+            resolved_agent_target_slug(&resolved[1]).as_deref(),
+            Some(selected_run_slug)
+        );
+
+        let cache_root = snapshot_cache_dir(&settings, dir.path());
+        write_snapshot_generation(
+            &cache_root,
+            "1",
+            "impl",
+            "source",
+            1,
+            source_slug,
+            1,
+            "orchestrator",
+        );
+        refresh_current_links(
+            &cache_root,
+            [SnapshotIdentity {
+                task_id: "1".to_string(),
+                snapshot_name: "impl".to_string(),
+                emitting_state: "source".to_string(),
+                visit: 1,
+                target_slug: source_slug.to_string(),
+            }]
+            .into_iter()
+            .collect(),
+        )
+        .expect("current");
+
+        let invocations = resolved
+            .iter()
+            .cloned()
+            .map(|resolved| {
+                (
+                    "1".to_string(),
+                    "pending".to_string(),
+                    "pending".to_string(),
+                    resolved,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut opts = snapshot_override_options("1:impl:source@1/g1", false);
+        opts.snapshot.snapshot_target = Some(selected_run_slug.to_string());
+        let selection = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
+            .expect("selected")
+            .expect("selection");
+        assert_eq!(selection.target_slug, selected_run_slug);
+
+        let preload = preload_snapshot_inherit_before_spawn(
+            dir.path(),
+            dir.path(),
+            &machine,
+            task,
+            "pending",
+            &resolved[1],
+            &settings,
+            1,
+            Some(&selection),
+            &opts,
+        )
+        .expect("run target selector should not filter the source snapshot");
+        assert_eq!(
+            preload
+                .parent_ref
+                .as_ref()
+                .and_then(|value| value.get("target_slug"))
+                .and_then(serde_json::Value::as_str),
+            Some(source_slug)
+        );
+    }
+
+    #[test]
     fn snapshot_redactor_replaces_transcript_before_hashing() {
         let dir = snapshot_workspace();
         write_snapshot_emit_machine(dir.path());
@@ -1183,6 +1302,25 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
             Some("provider mismatch")
         );
         assert!(records.iter().any(|record| record.snapshot_name == "impl"));
+    }
+
+    #[test]
+    fn snapshot_pi_header_scanner_skips_non_header_jsonl_records() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let transcript = dir.path().join("pi.jsonl");
+        fs::write(
+            &transcript,
+            br#"{"role":"assistant","content":"ordinary event"}
+{"event":"token","text":"still not a header"}
+{"model":{"provider":"anthropic","name":"claude-sonnet-4-6"}}
+"#,
+        )
+        .expect("transcript");
+
+        assert_eq!(
+            pi_jsonl_observed_target(&transcript),
+            Some(("anthropic".to_string(), "claude-sonnet-4-6".to_string()))
+        );
     }
 
     #[test]
