@@ -1379,6 +1379,12 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
             "layout": {"kind": "FlatById", "ext": "jsonl"}
         }))));
         assert!(profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": "none",
+            "fork": {"flag": "--fork"},
+            "interactive": {},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+        assert!(profile_supports_interactive_continue(&Some(serde_json::json!({
             "resume": {"flag": "--resume"},
             "interactive": {"command": ["agent", "tty"], "args": ["--interactive"]},
             "layout": {"kind": "FlatById", "ext": "jsonl"}

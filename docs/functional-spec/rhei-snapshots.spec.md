@@ -652,7 +652,8 @@ pub struct InteractiveContinuationProfile {
     /// the agent profile's base `command` is used.
     pub command: Option<Vec<String>>,
     /// Arguments that preserve TTY pass-through for `rhei snapshot continue`;
-    /// headless prompt transports alone are not sufficient.
+    /// headless prompt transports alone are not sufficient. Defaults to an
+    /// empty list.
     pub args: Vec<String>,
 }
 
@@ -675,15 +676,16 @@ pub enum ProjectHashSource {
 
 The enum-over-flags shape forces every profile to declare a *strategy* rather
 than relying on flag presence. A `ResumeStrategy::None` profile is
-self-documenting: snapshot preload cannot run for that profile, and
-`rhei validate` emits a hint when state machines reference such an agent under
-an optional `inherit:` block.
+self-documenting: snapshot preload cannot run for that profile unless a
+`ForkStrategy` is declared, and `rhei validate` emits a hint when state
+machines reference a profile with neither source-loading strategy under an
+optional `inherit:` block.
 
 `interactive.command` is only needed when the agent's TTY continuation command
-differs from its headless `rhei run` command. `interactive.args` is appended
-after profile mode/model flags and before snapshot resume/fork/session-dir
-flags. `rhei snapshot continue` inherits stdin, stdout, and stderr so the
-operator talks to the agent directly.
+differs from its headless `rhei run` command. `interactive.args` defaults to
+an empty list and is appended after profile mode/model flags and before
+snapshot resume/fork/session-dir flags. `rhei snapshot continue` inherits
+stdin, stdout, and stderr so the operator talks to the agent directly.
 
 `session_dir_flag` and `no_session_flag` are profile-level affordances. Rhei
 uses `session_dir_flag` when provided to redirect the agent's session output
@@ -710,14 +712,14 @@ Emit and preload have independent profile requirements:
 
 - *Emit* requires only a `SessionLayout` (rhei needs to know where the agent
   wrote its session file). An agent with `ResumeStrategy::None` but a valid
-  `SessionLayout` can still emit snapshots — they just cannot be consumed
-  later as preload sources by that same agent.
-- *Preload* requires both a `SessionLayout` and a `ResumeStrategy` other than
-  `None`.
+  `SessionLayout` can still emit snapshots; those snapshots become preload
+  sources only if the profile also declares a `ForkStrategy`.
+- *Preload* requires both a `SessionLayout` and a usable source-loading
+  strategy: either a `ResumeStrategy` other than `None` or a `ForkStrategy`.
 
 An agent whose profile has no `session` block, or whose `SessionLayout` is
 unset, is unsupported for *either* emit or preload. An agent with a layout
-but `ResumeStrategy::None` is unsupported for preload only. Unsupported
+but neither resume nor fork is unsupported for preload only. Unsupported
 preload follows the same rule as a missing or incompatible snapshot:
 `required: false` runs cold with a warning, and `required: true` fails
 before spawn. Unsupported emit fails the spawn with
