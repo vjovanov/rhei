@@ -339,4 +339,3 @@ fn workspace_transition_updates_correct_task_file() {
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
-

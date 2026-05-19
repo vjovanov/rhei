@@ -128,3 +128,14 @@ Publish `rhei-cli` first. The `rhei-api` package depends on
 Do not block the alpha on Homebrew or GHCR. After a tagged GitHub release has
 Linux/macOS artifacts, add a tap formula named `rhei` under a project-owned tap.
 Add GHCR images only when there is a CI/service entrypoint worth containerizing.
+
+## Post-Alpha Snapshot Continuation
+
+Interactive `rhei snapshot continue` remains roadmap work. The released
+snapshot surface should treat list/show/gc, redaction, runtime emit/preload,
+and `rhei run --from-snapshot` as separate from the deferred interactive
+transport that drops an operator into a preloaded agent session and captures
+the resulting operator generation. Implementing that continuation flow requires
+the phase-6 agent transport work described in §FS-rhei-snapshot-operations and
+must preserve the snapshot lineage and operator-generation semantics in
+§FS-rhei-snapshots.

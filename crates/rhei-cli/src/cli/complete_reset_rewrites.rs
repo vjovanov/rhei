@@ -385,4 +385,3 @@ fn state_instructions(machine: &rhei_validator::StateMachine, state: &str) -> St
         .trim()
         .to_string()
 }
-

@@ -247,4 +247,3 @@ transitions:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
-

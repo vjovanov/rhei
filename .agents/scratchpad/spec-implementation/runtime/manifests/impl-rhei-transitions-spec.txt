@@ -1,1 +1,0 @@
-docs/functional-spec/rhei-transitions.spec.md

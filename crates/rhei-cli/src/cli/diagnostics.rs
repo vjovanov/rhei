@@ -384,4 +384,3 @@ fn format_validation_errors(errors: &[String]) -> String {
 fn line_text(input: &str, line_number: usize) -> Option<&str> {
     input.lines().nth(line_number.saturating_sub(1))
 }
-
