@@ -198,7 +198,32 @@ Each tile shows:
 
 Idle slots show `— idle —`.
 
-### 1.6. Journal Format
+### 1.6. Browser Dashboard
+
+When the TUI frontend is selected, `rhei run` also serves the loopback browser
+dashboard unless `--no-dashboard` is set. `--dashboard` force-enables the
+dashboard outside TUI mode, while `--no-dashboard` disables it. The dashboard is
+a power-user view for both live execution monitoring and static plan-shape
+inspection. §FS-rhei-viz
+
+The dashboard tab order is:
+
+1. **Gantt** — default view; renders the derived plan row and all task rows
+   against level-grouped state axes.
+2. **Cube** — renders a dense top-level-task by child-slot heatmap.
+3. **Sankey** — summarizes child states flowing from each top-level task.
+4. **Tasks** — lists all tasks with state, assignee, dependencies, readiness,
+   and current worker slot.
+5. **Slots** — shows worker cards and live captured output.
+6. **Journal** — shows recent run events.
+7. **Links** — shows workspace shortcuts and run-emitted links.
+
+The dashboard obtains plan data from the lazily reloaded `/snapshot` payload.
+That payload includes `plan_state`, derived from top-level task states only, and
+the flattened task rows used by all dashboard views. The dashboard remains
+self-contained: no external scripts, stylesheets, fonts, or network assets.
+
+### 1.7. Journal Format
 
 `runtime/transitions.log` is a UTF-8, append-only, newline-delimited text file. Each line is one event. Columns are space-separated; columns 1–3 are fixed-width, column 4 is a path, and optional trailing fields are comma-separated key=value pairs.
 
@@ -217,7 +242,7 @@ Rules:
 
 A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second line on the same state (recording exit status and duration). For multi-invocation states (`all_targets`), each invocation is a distinct pair of lines with the target suffix visible in the log path.
 
-### 1.7. Failure Modes
+### 1.8. Failure Modes
 
 - **Panic in the execution engine** — a panic hook registered by `TuiSink` calls `ratatui::restore()` before re-raising, so the terminal is never left in raw mode.
 - **Ctrl+C** — because the TUI runs the terminal in raw mode, Ctrl+C arrives as a key event rather than an automatic `SIGINT`. `TuiSink` restores the terminal, explicitly re-raises `SIGINT` for the process, and then exits its render loop.
@@ -225,7 +250,7 @@ A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second 
 - **Slow log file growth** — the log tailer uses a bounded 50-line ring buffer and never blocks the engine thread.
 - **Journal write failure** — log a warning to stderr and continue; journal errors never abort a run.
 
-### 1.8. Reuse
+### 1.9. Reuse
 
 `rhei-tui` is a standalone crate with no dependency on `rhei-cli`. Any future subcommand that fans out to a worker pool constructs:
 

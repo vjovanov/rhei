@@ -282,6 +282,9 @@ pub(super) struct SnapshotPayload<'a> {
     #[serde(flatten)]
     pub(super) state: &'a DashboardState,
     pub(super) plan_title: Option<String>,
+    /// Derived from top-level task state for the dashboard visualization tabs.
+    /// §FS-rhei-viz.3
+    pub(super) plan_state: Option<String>,
     pub(super) tasks: Vec<TaskRow>,
     pub(super) auto_links: Vec<DashboardLink>,
 }
@@ -295,4 +298,47 @@ pub(super) struct TaskRow {
     /// `true` if this task was ready this pass but was held back by
     /// non-`concurrent` scheduling. Cleared at `PassStarted`.
     pub(super) deferred_this_pass: bool,
+}
+
+pub(super) fn derive_plan_state(tasks: &[DashboardTask]) -> String {
+    let root_states: Vec<&str> = tasks
+        .iter()
+        .filter(|task| task.parent.is_none() || task.depth == 1)
+        .map(|task| task.state.as_str())
+        .collect();
+
+    if root_states.is_empty() {
+        return "pending".to_string();
+    }
+    if root_states.iter().all(|state| *state == "draft") {
+        return "draft".to_string();
+    }
+    if root_states.iter().all(|state| *state == "completed") {
+        return "completed".to_string();
+    }
+    if root_states.iter().all(|state| is_dashboard_terminal(state)) {
+        return "archived".to_string();
+    }
+    if root_states.iter().any(|state| is_dashboard_active_like(state)) {
+        return "active".to_string();
+    }
+    "pending".to_string()
+}
+
+fn is_dashboard_terminal(state: &str) -> bool {
+    matches!(state, "completed" | "cancelled" | "archived" | "failed")
+}
+
+fn is_dashboard_active_like(state: &str) -> bool {
+    matches!(
+        state,
+        "in_progress"
+            | "in-progress"
+            | "needs-review"
+            | "review"
+            | "prove"
+            | "consolidate"
+            | "agent-review"
+            | "agent-review-fix"
+    )
 }
