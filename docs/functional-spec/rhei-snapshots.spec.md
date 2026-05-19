@@ -736,9 +736,11 @@ Pi has the most complete native session surface. The flow on inheritance:
 
 Pi's session JSONL header carries the underlying provider and model. The emit
 path parses that header to populate `observed_provider` and `observed_model`.
-If the header is absent or unparsable, the snapshot is still written with
-`observed_*` set equal to `declared_*` and a warning is logged; downstream
-inheritors that require `cache_beneficial` will see the same advisory.
+The parser scans a small leading window and skips ordinary non-header JSONL
+records until a provider/model header is found. If the header is absent or
+unparsable, the snapshot is still written with `observed_*` set equal to
+`declared_*` and a warning is logged; downstream inheritors that require
+`cache_beneficial` will see the same advisory.
 
 #### 9.3.2. Gemini
 

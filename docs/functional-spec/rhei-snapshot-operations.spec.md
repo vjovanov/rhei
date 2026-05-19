@@ -194,7 +194,10 @@ but the missing-`snapshot.inherit` rejection remains.
 When the run context is ambiguous, the operator must provide selectors such as
 `--task <id>` and `--target <slug>` so the command identifies exactly one task
 and one fanout invocation. Ambiguous overrides exit non-zero with candidate
-matches.
+matches. These selectors scope only the inheriting run invocation; they do not
+filter the source snapshot reference. Source snapshot target selection comes
+from the reference itself and from the target state's authored
+`snapshot.inherit.select.target` constraint.
 
 ## 3. Phased Rollout
 
