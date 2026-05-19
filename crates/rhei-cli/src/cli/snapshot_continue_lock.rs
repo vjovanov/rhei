@@ -37,6 +37,15 @@ fn snapshot_continue_command(
             resolved.agent.id()
         ));
     }
+    // Continue preloads the native session identified by the source manifest.
+    // Reject settings drift before staging or claiming parent lineage. §FS-rhei-snapshots
+    if !snapshot_record_native_compatible(&record, &resolved) {
+        return Err(miette!(
+            "incompatible-snapshot: selected snapshot {} is not native-compatible with agent '{}'",
+            record.display_ref(),
+            resolved.agent.id()
+        ));
+    }
 
     let preload = prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session)?;
     let status = spawn_snapshot_continue_agent(ctx, &record, &resolved, session, &preload.inner)?;
