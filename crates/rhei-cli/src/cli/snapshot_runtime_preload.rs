@@ -109,7 +109,10 @@ fn preload_snapshot_inherit_before_spawn(
             machine: machine.clone(),
             settings: settings.clone(),
         };
-        let record = resolve_snapshot_ref(&ctx, reference, opts.snapshot_target_selector(), None)?;
+        // `--target` has already selected the inheriting invocation. Source
+        // snapshot target constraints come from the reference and inherit
+        // contract, not from the run invocation selector.
+        let record = resolve_snapshot_ref(&ctx, reference, None, None)?;
         if !opts.override_inherit() {
             validate_snapshot_override_contract(
                 &cache_root,
