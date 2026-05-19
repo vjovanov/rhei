@@ -92,8 +92,9 @@ states:
           - Implementation hint: <smallest useful implementation slice>
 
       Prefer a few high-quality entries over a long backlog. Do not implement
-      anything in this state. Transition to `aggregate-validate` after the
-      entries file is written.
+      anything in this state. After the entries file is written and the agent
+      exits successfully, the parent `rhei run` process advances to
+      `aggregate-validate`.
     outputs:
       - name: pm-entries
         path: runtime/product-management/{task_id}/entries-pass-{visit_count}-{target.slug}.md
@@ -171,8 +172,9 @@ states:
 
         - <ordered list for the implementation target>
 
-      Do not edit product artifacts in this state. Transition to `implement`
-      after the validated slice is written.
+      Do not edit product artifacts in this state. After the validated slice
+      is written and the agent exits successfully, the parent `rhei run`
+      process advances to `implement`.
     outputs:
       - name: validated-slice
         path: runtime/product-management/{task_id}/validated-slice-pass-{visit_count}.md
@@ -230,8 +232,10 @@ states:
 
         - <observations PM agents should consider on the next pass>
 
-      If `visit_count < visits`, transition back to `product-run` for the next
-      PM pass. Otherwise transition to `completed`.
+      After the report is written and the agent exits successfully, the
+      parent `rhei run` process advances the task. The next pass re-enters
+      `product-run` while `visit_count < visits`; otherwise the run finishes
+      in `completed`.
     outputs:
       - name: implementation-report
         path: runtime/product-management/{task_id}/implementation-pass-{visit_count}.md

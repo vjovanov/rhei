@@ -284,7 +284,8 @@ function renderTaskFilters(data) {
     ready: (data.ready || []).filter(id => !(data.deferred || []).includes(id)).length,
     deferred: (data.deferred || []).length,
     blocked: tasks.filter(t => !isTerminal(t.state) && t.in_slot == null
-      && !(data.ready || []).includes(t.id)).length,
+      && !(data.ready || []).includes(t.id)
+      && !(data.deferred || []).includes(t.id)).length,
     done: tasks.filter(t => isTerminal(t.state)).length,
   };
   const box = document.getElementById("task-filters");
@@ -298,11 +299,23 @@ function renderTaskFilters(data) {
   }));
 }
 
-function nowKindForTask(t, data) {
+function blockedReasonForTask(t, taskById) {
+  for (const priorId of t.prior || []) {
+    const prior = taskById.get(priorId);
+    if (prior && !isTerminal(prior.state)) {
+      return `blocked - waiting on ${prior.id} (${prior.state})`;
+    }
+  }
+  return null;
+}
+
+function nowKindForTask(t, data, taskById) {
   if (t.in_slot != null) return { cls: "busy", text: `slot ${t.in_slot} · running` };
   if ((data.deferred || []).includes(t.id)) return { cls: "warn", text: "deferred · next pass" };
   if ((data.ready || []).includes(t.id)) return { cls: "outline", text: "ready" };
   if (isTerminal(t.state)) return { cls: "muted", text: t.state };
+  const reason = blockedReasonForTask(t, taskById);
+  if (reason) return { cls: "warn", text: reason };
   return { cls: "muted", text: "blocked" };
 }
 
@@ -313,13 +326,15 @@ function renderTasks(data) {
     tbody.innerHTML = `<tr><td colspan="6" class="empty">No plan loaded.</td></tr>`;
     return;
   }
+  const taskById = new Map(tasks.map(t => [t.id, t]));
   const filtered = tasks.filter(t => {
     switch (UI.taskFilter) {
       case "running":  return t.in_slot != null;
       case "ready":    return (data.ready || []).includes(t.id) && !(data.deferred || []).includes(t.id);
       case "deferred": return (data.deferred || []).includes(t.id);
       case "blocked":  return !isTerminal(t.state) && t.in_slot == null
-                                && !(data.ready || []).includes(t.id);
+                                && !(data.ready || []).includes(t.id)
+                                && !(data.deferred || []).includes(t.id);
       case "done":     return isTerminal(t.state);
       default:         return true;
     }
@@ -329,7 +344,7 @@ function renderTasks(data) {
     return;
   }
   tbody.innerHTML = filtered.map(t => {
-    const now = nowKindForTask(t, data);
+    const now = nowKindForTask(t, data, taskById);
     const indent = t.depth > 1 ? "&nbsp;".repeat((t.depth - 1) * 2) + "↳ " : "";
     const stateChip = `<span class="chip" style="background:${stateColor(t.state)}">${escapeHtml(t.state)}</span>`;
     const prior = (t.prior || []).length
