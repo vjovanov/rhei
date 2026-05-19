@@ -2,9 +2,9 @@
 
 All notable user-facing changes to Rhei are tracked here.
 
-## 0.1.0-alpha.1 - 2026-05-05
+## 0.1.0 - 2026-05-19
 
-Initial alpha release candidate.
+Initial release.
 
 ### Added
 

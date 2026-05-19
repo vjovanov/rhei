@@ -237,7 +237,7 @@ grund check .
 
 Typical flow inside Rust code:
 
-1. Add `rhei_core = { package = "rhei-plan-core", version = "0.1.0-alpha.1" }`
+1. Add `rhei_core = { package = "rhei-plan-core", version = "0.1.0" }`
 2. Parse markdown with `rhei_core::parse`
 3. Load a states definition with `rhei_validator::StateMachine::from_yaml_file`
 4. Validate with `rhei_validator::validate_with_machine` or `rhei_validator::validate_from_machine_file`

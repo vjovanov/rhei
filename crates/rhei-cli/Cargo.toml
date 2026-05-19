@@ -10,10 +10,10 @@ keywords.workspace = true
 description = "Command-line interface for validating, running, and rendering Rhei markdown plans."
 
 [dependencies]
-rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0-alpha.1" }
-rhei-validator = { package = "rhei-cli-validator", path = "../rhei-validator", version = "=0.1.0-alpha.1" }
-rhei-output = { package = "rhei-cli-output", path = "../rhei-output", version = "=0.1.0-alpha.1" }
-rhei-tui = { package = "rhei-cli-tui", path = "../rhei-tui", version = "=0.1.0-alpha.1" }
+rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }
+rhei-validator = { package = "rhei-cli-validator", path = "../rhei-validator", version = "=0.1.0" }
+rhei-output = { package = "rhei-cli-output", path = "../rhei-output", version = "=0.1.0" }
+rhei-tui = { package = "rhei-cli-tui", path = "../rhei-tui", version = "=0.1.0" }
 clap = { version = "=4.5.60", features = ["derive"] }
 clap_complete = { version = "=4.5.60", features = ["unstable-dynamic"] }
 # `cargo install --path` ignores the workspace lockfile, so pin clap_lex to a
