@@ -362,13 +362,15 @@ fn collect_missing_required_outputs(
                 (
                     resolved.target.as_ref(),
                     resolved.model.as_deref(),
+                    resolved.model_provider.as_deref(),
+                    resolved.model_name.as_deref(),
                     Some(resolved.agent.id()),
                     resolved.mode.as_deref(),
                 )
             })
             .collect()
     };
-    for (target, model, agent, agent_mode) in contexts {
+    for (target, model, model_provider, model_name, agent, agent_mode) in contexts {
         for artifact in &state_def.outputs {
             let (_, path) = resolve_artifact_path(
                 workspace_root,
@@ -378,6 +380,8 @@ fn collect_missing_required_outputs(
                 visit_count,
                 target,
                 model,
+                model_provider,
+                model_name,
                 agent,
                 agent_mode,
             );
@@ -416,6 +420,8 @@ fn collect_missing_required_outputs_for_resolved_invocation(
             visit_count,
             resolved.target.as_ref(),
             resolved.model.as_deref(),
+            resolved.model_provider.as_deref(),
+            resolved.model_name.as_deref(),
             Some(resolved.agent.id()),
             resolved.mode.as_deref(),
         );

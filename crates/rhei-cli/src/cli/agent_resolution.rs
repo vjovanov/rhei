@@ -17,15 +17,7 @@ fn resolve_target_agent(
     })?;
 
     if let Some(mode) = target.mode.as_deref() {
-        if profile.modes.is_empty() {
-            return Err(miette!(
-                "agent '{}' has no modes; remove the explicit mode '{}' from the \
-                 target selector",
-                agent.id(),
-                mode
-            ));
-        }
-        if !profile.modes.contains_key(mode) {
+        if !profile.modes.is_empty() && !profile.modes.contains_key(mode) {
             return Err(miette!(
                 "agent '{}' has no mode '{}'. Available modes: {}.",
                 agent.id(),
@@ -145,14 +137,7 @@ fn resolve_legacy_agent_with_model(
     };
 
     if let Some(name) = &mode {
-        if profile.modes.is_empty() {
-            return Err(miette!(
-                "agent '{}' has no modes; do not set agent_mode '{}' on this state",
-                agent.id(),
-                name
-            ));
-        }
-        if !profile.modes.contains_key(name) {
+        if !profile.modes.is_empty() && !profile.modes.contains_key(name) {
             return Err(miette!(
                 "agent '{}' has no mode '{}'. Available modes: {}.",
                 agent.id(),
@@ -236,6 +221,14 @@ fn resolve_agent_invocations(
     Ok(resolve_legacy_agent_with_model(state_def, settings, opts, None)?.into_iter().collect())
 }
 
+fn state_declares_autonomous_agent_work(state_def: &rhei_validator::StateDef) -> bool {
+    state_def.agent.is_some()
+        || state_def.model.is_some()
+        || !state_def.all_models.is_empty()
+        || state_def.target.is_some()
+        || !state_def.all_targets.is_empty()
+}
+
 fn resolve_agent(
     machine: &rhei_validator::StateMachine,
     state_name: &str,
@@ -246,7 +239,14 @@ fn resolve_agent(
 }
 
 type TransitionInvocationContext<'a> =
-    (Option<&'a ExecutionTarget>, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+    (
+        Option<&'a ExecutionTarget>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+        Option<&'a str>,
+    );
 
 fn transition_contexts_for_state<'a>(
     state_def: &'a rhei_validator::StateDef,
@@ -259,6 +259,8 @@ fn transition_contexts_for_state<'a>(
                 (
                     resolved.target.as_ref(),
                     resolved.model.as_deref(),
+                    resolved.model_provider.as_deref(),
+                    resolved.model_name.as_deref(),
                     Some(resolved.agent.id()),
                     resolved.mode.as_deref(),
                 )
@@ -270,15 +272,15 @@ fn transition_contexts_for_state<'a>(
         return state_def
             .all_models
             .iter()
-            .map(|model| (None, Some(model.as_str()), None, None))
+            .map(|model| (None, Some(model.as_str()), None, None, None, None))
             .collect();
     }
 
     if let Some(model) = state_def.model.as_deref() {
-        return vec![(None, Some(model), None, None)];
+        return vec![(None, Some(model), None, None, None, None)];
     }
 
-    vec![(None, None, None, None)]
+    vec![(None, None, None, None, None, None)]
 }
 
 fn callback_contexts_for_state<'a>(
@@ -287,7 +289,7 @@ fn callback_contexts_for_state<'a>(
 ) -> Vec<(Option<&'a str>, Option<&'a str>)> {
     transition_contexts_for_state(state_def, resolved_invocations)
         .into_iter()
-        .map(|(_, model, agent, _)| (model, agent))
+        .map(|(_, model, _, _, agent, _)| (model, agent))
         .collect()
 }
 
@@ -351,6 +353,8 @@ fn state_outputs_exist_for_resolved_invocation(
         Some(render_visit_count(metadata, &task.id, state_name, current_state_raw, machine)),
         resolved.target.as_ref(),
         resolved.model.as_deref(),
+        resolved.model_provider.as_deref(),
+        resolved.model_name.as_deref(),
         Some(resolved.agent.id()),
         resolved.mode.as_deref(),
     )

@@ -98,9 +98,18 @@ fn build_program_command(
                 input_visit_count,
                 render_context.target,
                 render_context.model,
+                render_context.model_provider,
+                render_context.model_name,
                 render_context.agent,
                 render_context.agent_mode,
             );
+            if artifact_relative_path_escapes_root(&relative) {
+                return Err(miette!(
+                    "input artifact '{}' expands to '{}' which escapes the workspace root",
+                    artifact.name,
+                    relative
+                ));
+            }
             cmd.env(format!("RHEI_INPUT_{env_base}_EXISTS"), path.exists().to_string());
             cmd.env(format!("RHEI_INPUT_{env_base}_PATH"), relative);
         }
@@ -229,6 +238,32 @@ fn transition_matches_exit_code(rule: &rhei_core::ast::TransitionRule, exit_code
     }
 }
 
+fn transition_has_exact_exit_code(rule: &rhei_core::ast::TransitionRule) -> bool {
+    matches!(rule.exit_code, Some(YamlValue::Number(_)) | Some(YamlValue::Sequence(_)))
+}
+
+fn transition_is_nonzero_exit_code(rule: &rhei_core::ast::TransitionRule) -> bool {
+    matches!(rule.exit_code, Some(YamlValue::String(ref value)) if value == "nonzero")
+}
+
+fn program_transition_is_applicable(
+    rule: &rhei_core::ast::TransitionRule,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task: &rhei_core::ast::Task,
+    current_state: &str,
+) -> bool {
+    transition_rule_is_applicable(
+        rule,
+        machine,
+        metadata,
+        &task.id,
+        current_state,
+        task.state.as_str(),
+    )
+    .unwrap_or(false)
+}
+
 fn find_program_exit_transition(
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
@@ -236,48 +271,34 @@ fn find_program_exit_transition(
     current_state: &str,
     exit_code: i32,
 ) -> MietteResult<Option<String>> {
-    let specific_match = machine
-        .transitions
+    let applicable_exact_match_exists = exit_code != 0
+        && machine
+            .transitions()
+            .iter()
+            .filter(|rule| rule.from.0 == current_state)
+            .filter(|rule| transition_has_exact_exit_code(rule))
+            .filter(|rule| transition_matches_exit_code(rule, exit_code))
+            .any(|rule| {
+                program_transition_is_applicable(rule, machine, metadata, task, current_state)
+            });
+
+    let ordered_match = machine
+        .transitions()
         .iter()
         .filter(|rule| rule.from.0 == current_state)
         .filter(|rule| {
-            matches!(rule.exit_code, Some(YamlValue::Number(_)) | Some(YamlValue::Sequence(_)))
-        })
-        .filter(|rule| transition_matches_exit_code(rule, exit_code))
-        .find(|rule| {
-            transition_rule_is_applicable(
-                rule,
-                machine,
-                metadata,
-                &task.id,
-                current_state,
-                task.state.as_str(),
-            )
-            .unwrap_or(false)
-        });
-    if let Some(rule) = specific_match {
-        return Ok(Some(rule.to.0.clone()));
-    }
-    if exit_code == 0 {
-        return Ok(None);
-    }
-
-    let nonzero_match = machine
-        .transitions
-        .iter()
-        .filter(|rule| rule.from.0 == current_state)
-        .filter(|rule| matches!(rule.exit_code, Some(YamlValue::String(ref value)) if value == "nonzero"))
-        .find(|rule| {
-            transition_rule_is_applicable(
-                rule,
-                machine,
-                metadata,
-                &task.id,
-                current_state,
-                task.state.as_str(),
-            )
-            .unwrap_or(false)
+            rule.exit_code.is_none()
+                || transition_matches_exit_code(rule, exit_code)
         });
 
-    Ok(nonzero_match.map(|rule| rule.to.0.clone()))
+    for rule in ordered_match {
+        if applicable_exact_match_exists && transition_is_nonzero_exit_code(rule) {
+            continue;
+        }
+        if program_transition_is_applicable(rule, machine, metadata, task, current_state) {
+            return Ok(Some(rule.to.0.clone()));
+        }
+    }
+
+    Ok(None)
 }

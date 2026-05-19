@@ -179,6 +179,108 @@ transitions:
 }
 
 #[test]
+fn run_poll_allows_self_loop_until_max_attempt_cap() {
+    let machine = r#"name: run-poll-max-attempts-cap-test
+version: 1
+states:
+  waiting:
+    description: Poll until attempts are exhausted
+    program: "mkdir -p runtime && printf 'attempt\n' >> runtime/attempts.txt && exit 75"
+    poll:
+      interval: 0s
+      max_attempts: 3
+  exhausted:
+    description: Polling exhausted
+    final: true
+transitions:
+  - from: waiting
+    to: waiting
+    exit_code: 75
+  - from: waiting
+    to: exhausted
+    exit_code: 75
+"#;
+    let plan = r#"# Rhei: Poll Three Times
+
+## Tasks
+
+### Task 1: Wait for external status
+**State:** waiting
+"#;
+
+    let dir = unique_temp_dir("run-poll-max-attempts-cap");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(
+        result.status.success(),
+        "poll run should route to exhaustion after three attempts\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
+    assert_eq!(task.state.as_str(), "exhausted");
+    let attempts = fs::read_to_string(dir.join("runtime/attempts.txt")).expect("read attempts");
+    assert_eq!(attempts.lines().count(), 3);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_poll_program_uses_condition_only_transitions_after_success() {
+    let machine = r#"name: run-program-poll-condition-test
+version: 1
+states:
+  waiting:
+    description: Poll with successful condition-only transitions
+    program: "mkdir -p runtime && printf 'attempt\n' >> runtime/attempts.txt"
+    poll:
+      interval: 0s
+      max_attempts: 3
+  exhausted:
+    description: Polling exhausted
+    final: true
+transitions:
+  - from: waiting
+    to: waiting
+    condition: pollAttempts < pollMaxAttempts
+  - from: waiting
+    to: exhausted
+    condition: pollAttempts >= pollMaxAttempts
+"#;
+    let plan = r#"# Rhei: Poll Success Conditions
+
+## Tasks
+
+### Task 1: Wait for external status
+**State:** waiting
+"#;
+
+    let dir = unique_temp_dir("run-program-poll-condition");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(
+        result.status.success(),
+        "successful program poll should evaluate condition-only transitions\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
+    assert_eq!(task.state.as_str(), "exhausted");
+    let attempts = fs::read_to_string(dir.join("runtime/attempts.txt")).expect("read attempts");
+    assert_eq!(attempts.lines().count(), 3);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_program_fast_nonzero_with_timeout_uses_exit_code_transition() {
     let machine = r#"name: run-program-nonzero-timeout-test
 version: 1

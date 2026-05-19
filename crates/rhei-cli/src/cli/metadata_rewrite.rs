@@ -137,6 +137,7 @@ fn set_poll_next_attempt_metadata(
     task_id: &TaskId,
     state_name: &str,
     next_attempt_at: u64,
+    next_attempt_count: u64,
 ) -> Metadata {
     let mut root = existing.cloned().unwrap_or_default();
     let metadata_section = ensure_mapping(&mut root, yaml_key("metadata"));
@@ -145,10 +146,7 @@ fn set_poll_next_attempt_metadata(
     let poll_next = ensure_mapping(task_entry, yaml_key("pollNextAttemptAt"));
     poll_next.insert(yaml_key(state_name), yaml_u64(next_attempt_at));
     let state_visits = ensure_mapping(task_entry, yaml_key("stateVisits"));
-    let state_key = yaml_key(state_name);
-    let next =
-        state_visits.get(&state_key).and_then(yaml_value_to_u64).map(|n| n.max(1) + 1).unwrap_or(1);
-    state_visits.insert(state_key, yaml_u64(next));
+    state_visits.insert(yaml_key(state_name), yaml_u64(next_attempt_count.max(1)));
     root
 }
 
@@ -189,4 +187,3 @@ fn clear_poll_state_metadata(
     }
     Some(root)
 }
-

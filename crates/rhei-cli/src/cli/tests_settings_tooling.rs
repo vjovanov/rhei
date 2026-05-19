@@ -364,21 +364,26 @@
 
     #[test]
     fn defaults_only_agent_mode_selects_agent_mode_for_effective_agents() {
+        let rhei = rhei_core::parse(
+            "# Rhei: Test\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n\nDo work.\n",
+        )
+        .expect("parse plan");
+        let dir = tempfile::tempdir().expect("tmpdir");
         let bare_machine = machine_with_states(
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let model_machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    model: impl-fast\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+            "name: t\nversion: 1\nmodels:\n  - impl-fast\nstates:\n  pending:\n    description: x\n    model: impl-fast\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
 
         let mut cli_opts = default_run_options();
         cli_opts.agent.agent = Some("codex".to_string());
-        assert!(should_use_agent_mode(&bare_machine, &default_settings(), &cli_opts)
+        assert!(should_use_agent_mode(&rhei, &bare_machine, &default_settings(), &cli_opts, dir.path())
             .expect("cli agent mode selection"));
 
         let mut defaults_agent = default_settings();
         defaults_agent.defaults.agent = Some(AgentConfig::from("codex"));
-        assert!(should_use_agent_mode(&bare_machine, &defaults_agent, &default_run_options())
+        assert!(should_use_agent_mode(&rhei, &bare_machine, &defaults_agent, &default_run_options(), dir.path())
             .expect("defaults.agent mode selection"));
 
         let mut defaults_model = default_settings();
@@ -392,7 +397,7 @@
                 agents: BTreeMap::new(),
             },
         );
-        assert!(should_use_agent_mode(&bare_machine, &defaults_model, &default_run_options())
+        assert!(should_use_agent_mode(&rhei, &bare_machine, &defaults_model, &default_run_options(), dir.path())
             .expect("defaults.model mode selection"));
 
         let mut model_default_agent = default_settings();
@@ -405,7 +410,7 @@
                 agents: BTreeMap::new(),
             },
         );
-        assert!(should_use_agent_mode(&model_machine, &model_default_agent, &default_run_options())
+        assert!(should_use_agent_mode(&rhei, &model_machine, &model_default_agent, &default_run_options(), dir.path())
             .expect("models.<id>.default_agent mode selection"));
     }
 
@@ -527,6 +532,8 @@ states:
             metadata: rhei.metadata.as_ref(),
             target: None,
             model: None,
+            model_provider: None,
+            model_name: None,
             agent: Some("codex"),
             agent_mode: None,
             tooling: Some(&gate.tooling),

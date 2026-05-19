@@ -228,6 +228,7 @@ impl StateMachine {
                 ("personality", state.personality.as_deref()),
             ] {
                 let Some(text) = text else { continue };
+                validate_no_nested_conditionals(state_name, field_name, text)?;
                 for condition in extract_if_conditions(text) {
                     if let Some(input_name) =
                         condition.strip_prefix("input.").and_then(|s| s.strip_suffix(".exists"))

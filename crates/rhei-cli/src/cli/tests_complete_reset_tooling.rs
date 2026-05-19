@@ -143,6 +143,27 @@ transitions:
     }
 
     #[test]
+    fn complete_command_blocks_gating_state() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let plan = dir.path().join("plan.rhei.md");
+        let states = dir.path().join("states.yaml");
+        fs::write(
+            &plan,
+            "# Rhei: Gate\n\n## Tasks\n\n### Task 1: Review\n**State:** human-review\n\nReview.\n",
+        )
+        .expect("write plan");
+        fs::write(
+            &states,
+            "name: test\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: human-review\n    to: completed\n",
+        )
+        .expect("write states");
+
+        let err = complete_command(&plan, Some(&states), "1", "done", true)
+            .expect_err("gating completion must fail");
+        assert!(err.to_string().contains("gating state"), "{err}");
+    }
+
+    #[test]
     fn rewrite_task_completion_removes_assignee_and_appends_result_link() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");

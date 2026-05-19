@@ -13,17 +13,22 @@ metadata:
       stateVisits:
         quality-review: 2
         quality-aggregate: 2
-        quality-fix: 1
+        quality-fix: 2
     impl-rhei-snapshot-operations:
       stateVisits:
         quality-review: 2
         quality-aggregate: 2
-        quality-fix: 1
+        quality-fix: 2
     impl-rhei-snapshots:
       stateVisits:
-        quality-review: 1
-        quality-aggregate: 1
-        quality-fix: 1
+        quality-review: 2
+        quality-aggregate: 2
+        quality-fix: 2
+    impl-rhei-states:
+      stateVisits:
+        quality-review: 2
+        quality-aggregate: 2
+        quality-fix: 2
 ---
 
 ## What this workspace does

@@ -256,9 +256,12 @@ Redactor process contract:
 
 - The redactor runs with cwd set to the plan workspace root.
 - By default it receives a minimal environment containing only variables
-  needed to locate rhei, the workspace, and the configured settings path.
+  needed to locate rhei, the workspace, and the configured settings path:
+  `RHEI_EXECUTABLE_PATH`, `RHEI_WORKSPACE_ROOT`,
+  `RHEI_PROJECT_SETTINGS_PATH`, and `RHEI_GLOBAL_SETTINGS_PATH`.
   Projects may opt into additional environment variables through settings; rhei
-  does not forward the full parent environment implicitly.
+  applies those allowlist overrides after setting the defaults and does not
+  forward the full parent environment implicitly.
 - Rhei applies a finite timeout. On timeout it sends the platform's normal
   termination signal, waits a short grace period, then kills the process and
   aborts the snapshot write.

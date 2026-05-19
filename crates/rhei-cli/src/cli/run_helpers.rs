@@ -28,7 +28,8 @@ fn ensure_state_inputs_exist_for_transition(
     let invocations =
         resolve_agent_invocations(machine, state_name, settings, &default_run_options())
             .unwrap_or_default();
-    for (target, model, agent, agent_mode) in transition_contexts_for_state(state_def, &invocations)
+    for (target, model, model_provider, model_name, agent, agent_mode) in
+        transition_contexts_for_state(state_def, &invocations)
     {
         ensure_state_inputs_exist(
             workspace_root,
@@ -38,6 +39,8 @@ fn ensure_state_inputs_exist_for_transition(
             visit_count,
             target,
             model,
+            model_provider,
+            model_name,
             agent,
             agent_mode,
             context,
@@ -59,7 +62,8 @@ fn ensure_state_outputs_exist_for_transition(
     let invocations =
         resolve_agent_invocations(machine, state_name, settings, &default_run_options())
             .unwrap_or_default();
-    for (target, model, agent, agent_mode) in transition_contexts_for_state(state_def, &invocations)
+    for (target, model, model_provider, model_name, agent, agent_mode) in
+        transition_contexts_for_state(state_def, &invocations)
     {
         ensure_state_outputs_exist(
             workspace_root,
@@ -69,6 +73,8 @@ fn ensure_state_outputs_exist_for_transition(
             visit_count,
             target,
             model,
+            model_provider,
+            model_name,
             agent,
             agent_mode,
         )?;
@@ -88,6 +94,10 @@ fn task_has_pending_agent_invocations(
     state_def: &rhei_validator::StateDef,
     settings: &RheiSettings,
 ) -> MietteResult<bool> {
+    if state_def.outputs.is_empty() {
+        return Ok(false);
+    }
+
     let invocations =
         resolve_agent_invocations(machine, state_name, settings, &default_run_options())?;
     Ok(invocations.iter().any(|resolved| {

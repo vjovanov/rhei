@@ -241,6 +241,15 @@ fn validate_machine_settings_references(
         }
     }
 
+    for model in &machine.models {
+        if !settings.models.contains_key(model) {
+            errors.push(format!(
+                "top-level models references unknown settings model profile '{}'",
+                model
+            ));
+        }
+    }
+
     validate_mcp_entries_known(
         "defaults.mcp_servers",
         settings.defaults.mcp_servers.as_deref(),
@@ -278,15 +287,7 @@ fn validate_machine_settings_references(
                 continue;
             };
             if let Some(mode) = state.agent_mode.as_deref() {
-                if profile.modes.is_empty() {
-                    errors.push(format!(
-                        "state '{}' sets agent_mode '{}' but agent '{}' declares no \
-                         modes; remove agent_mode for this state",
-                        state_name,
-                        mode,
-                        agent.id()
-                    ));
-                } else if !profile.modes.contains_key(mode) {
+                if !profile.modes.is_empty() && !profile.modes.contains_key(mode) {
                     errors.push(format!(
                         "state '{}' references unknown mode '{}' for agent '{}'",
                         state_name,
@@ -314,13 +315,7 @@ fn validate_machine_settings_references(
                         continue;
                     };
                     if let Some(mode) = target.mode.as_deref() {
-                        if profile.modes.is_empty() {
-                            errors.push(format!(
-                                "state '{}' target selector '{}' sets mode '{}' but \
-                                 agent '{}' declares no modes",
-                                state_name, selector, mode, target.agent
-                            ));
-                        } else if !profile.modes.contains_key(mode) {
+                        if !profile.modes.is_empty() && !profile.modes.contains_key(mode) {
                             errors.push(format!(
                                 "state '{}' references unknown target mode '{}' for agent '{}' in '{}'",
                                 state_name, mode, target.agent, selector
@@ -504,21 +499,9 @@ fn snapshot_record_is_orphaned_for_loaded(
 }
 
 fn profile_has_snapshot_layout(session: &Option<serde_json::Value>) -> bool {
-    session.as_ref().and_then(|session| session.get("layout")).is_some()
+    session.as_ref().is_some_and(snapshot_emit_session_supported)
 }
 
 fn profile_has_snapshot_preload(session: &Option<serde_json::Value>) -> bool {
-    profile_has_snapshot_layout(session) && profile_has_snapshot_resume(session)
-}
-
-fn profile_has_snapshot_resume(session: &Option<serde_json::Value>) -> bool {
-    let Some(session) = session.as_ref() else {
-        return false;
-    };
-    match session.get("resume") {
-        Some(serde_json::Value::String(value)) => value != "none",
-        Some(serde_json::Value::Object(map)) => !map.is_empty(),
-        Some(serde_json::Value::Null) | None => false,
-        Some(_) => true,
-    }
+    session.as_ref().is_some_and(snapshot_preload_session_supported)
 }

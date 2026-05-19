@@ -126,9 +126,20 @@ fn find_claimable_tasks<'a>(
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
             let state = normalized_state_name(task.state.as_str(), machine);
-            machine.states.get(&state).map(|def| def.initial).unwrap_or(false)
+            task_is_in_initial_state(task, &state, machine)
         })
         .collect()
+}
+
+fn task_is_in_initial_state(
+    task: &rhei_core::ast::Task,
+    normalized_state: &str,
+    machine: &rhei_validator::StateMachine,
+) -> bool {
+    machine
+        .profile_for_node(task.kind.as_str(), task.id.depth() as u8)
+        .map(|profile| profile.initial == normalized_state)
+        .unwrap_or_else(|| machine.states.get(normalized_state).map(|def| def.initial).unwrap_or(false))
 }
 
 /// Build an actionable error message for `rhei next` when no task can be
@@ -182,8 +193,7 @@ fn diagnose_no_claimable(
         .copied()
         .filter(|t| {
             let s = normalized_state_name(t.state.as_str(), machine);
-            let is_initial = machine.states.get(&s).map(|def| def.initial).unwrap_or(false);
-            !is_initial && priors_satisfied(t)
+            !task_is_in_initial_state(t, &s, machine) && priors_satisfied(t)
         })
         .collect();
 
@@ -256,6 +266,12 @@ fn find_next_transition(
     // First, look for an exact from-state match.
     for rule in machine.transitions() {
         if rule.from.0 == current_state
+            && task_profile_allows_state(
+                machine,
+                task.kind.as_str(),
+                task.id.depth() as u8,
+                &rule.to.0,
+            )
             && transition_rule_is_applicable(
                 rule,
                 machine,
@@ -275,6 +291,12 @@ fn find_next_transition(
             let is_terminal =
                 machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
             if !is_terminal
+                && task_profile_allows_state(
+                    machine,
+                    task.kind.as_str(),
+                    task.id.depth() as u8,
+                    &rule.to.0,
+                )
                 && transition_rule_is_applicable(
                     rule,
                     machine,
@@ -292,6 +314,9 @@ fn find_next_transition(
     Ok(None)
 }
 
+type BeforeTransitionCallback<'a> =
+    &'a mut dyn FnMut(&rhei_core::ast::Task, &str) -> MietteResult<()>;
+
 fn try_auto_advance_task(
     input: &Path,
     machine: &rhei_validator::StateMachine,
@@ -299,9 +324,7 @@ fn try_auto_advance_task(
     task_id_str: &str,
     current_state: &str,
     no_callbacks: bool,
-    mut before_transition: Option<
-        &mut dyn FnMut(&rhei_core::ast::Task, &str) -> MietteResult<()>,
-    >,
+    mut before_transition: Option<BeforeTransitionCallback<'_>>,
 ) -> MietteResult<Option<String>> {
     // The spec splits agent exit into:
     //   (5) select the outgoing transition without applying it,

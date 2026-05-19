@@ -18,6 +18,7 @@
             &resolved,
             &settings,
             1,
+            None,
             &default_run_options(),
         )
         .expect("targetless state without inherit runs cold");
@@ -88,6 +89,7 @@
             &resolved,
             &settings,
             1,
+            None,
             &default_run_options(),
         )
         .expect_err("explicit inherit requires target");
@@ -221,6 +223,42 @@ transitions:
             &preload,
         )
         .expect("poll self-loop skips emit");
+        let records =
+            read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
+        assert!(records.is_empty());
+
+        emit_snapshots_after_agent_exit(
+            dir.path(),
+            &machine,
+            &settings,
+            task,
+            "pending",
+            Some("pending"),
+            &resolved,
+            &log_path,
+            1,
+            SnapshotCompletion::Failure,
+            &preload,
+        )
+        .expect("poll failure self-loop skips emit");
+        let records =
+            read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
+        assert!(records.is_empty());
+
+        emit_snapshots_after_agent_exit(
+            dir.path(),
+            &machine,
+            &settings,
+            task,
+            "pending",
+            Some("pending"),
+            &resolved,
+            &log_path,
+            1,
+            SnapshotCompletion::Timeout,
+            &preload,
+        )
+        .expect("poll timeout self-loop skips emit");
         let records =
             read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
         assert!(records.is_empty());
@@ -417,6 +455,7 @@ transitions:
             &resolved,
             &settings,
             1,
+            None,
             &default_run_options(),
         )
         .expect("preload");
@@ -527,6 +566,7 @@ transitions:
                 &resolved,
                 &settings,
                 1,
+                None,
                 &opts,
             ) {
                 Ok(preload) => {
@@ -585,6 +625,7 @@ transitions:
             &resolved,
             &settings,
             1,
+            None,
             &opts,
         )
         .expect_err("compat none should reject override without bypass");
@@ -636,6 +677,7 @@ transitions:
             &resolved,
             &settings,
             1,
+            None,
             &opts,
         )
         .expect("override-inherit bypasses authored source checks");
@@ -646,6 +688,228 @@ transitions:
                 .and_then(|value| value.get("emitting_state"))
                 .and_then(serde_json::Value::as_str),
             Some("review")
+        );
+    }
+
+    #[test]
+    fn snapshot_reader_ignores_stale_staging_manifests() {
+        let _home = TempHome::new();
+        let dir = snapshot_workspace();
+        write_snapshot_inherit_machine(
+            dir.path(),
+            "        name: impl\n        required: true\n        select:\n          state: source\n          target: same\n",
+        );
+        let settings = snapshot_preload_settings();
+        let cache_root = snapshot_cache_dir(&settings, dir.path());
+        write_snapshot_generation(
+            &cache_root,
+            "1",
+            "impl",
+            "source",
+            1,
+            "claude-code-anthropic-model",
+            1,
+            "orchestrator",
+        );
+        write_snapshot_staging_generation(
+            &cache_root,
+            "1",
+            "impl",
+            "source",
+            1,
+            "claude-code-anthropic-model",
+            2,
+            "stale",
+        );
+        refresh_current_links(
+            &cache_root,
+            [SnapshotIdentity {
+                task_id: "1".to_string(),
+                snapshot_name: "impl".to_string(),
+                emitting_state: "source".to_string(),
+                visit: 1,
+                target_slug: "claude-code-anthropic-model".to_string(),
+            }]
+            .into_iter()
+            .collect(),
+        )
+        .expect("current");
+
+        let records = read_snapshot_records(&cache_root).expect("records ignore stale staging");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].generation, 1);
+
+        let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
+        let shown = resolve_snapshot_ref(&ctx, "1:impl:source", None, None).expect("show ref");
+        assert_eq!(shown.generation, 1);
+
+        let (loaded, machine, _resolved) = snapshot_preload_parts(dir.path(), &settings);
+        let task = loaded.rhei.tasks.first().expect("task");
+        let inherit = machine
+            .states
+            .get("pending")
+            .and_then(|state| state.snapshot.as_ref())
+            .and_then(|snapshot| snapshot.inherit.as_ref())
+            .expect("inherit");
+        let preloaded = resolve_inherit_snapshot_source(
+            &cache_root,
+            task,
+            "pending",
+            inherit,
+            "claude-code-anthropic-model",
+            1,
+        )
+        .expect("preload-visible records ignore staging")
+        .expect("source snapshot");
+        assert_eq!(preloaded.generation, 1);
+    }
+
+    #[test]
+    fn snapshot_from_snapshot_requires_unique_run_invocation() {
+        let dir = snapshot_workspace();
+        fs::write(
+            dir.path().join("states.yaml"),
+            r#"name: snapshot-test
+version: 1
+states:
+  source:
+    description: source
+    target: claude-code:anthropic:model-a
+    snapshot:
+      emit:
+        name: impl
+  pending:
+    description: pending
+    initial: true
+    all_targets:
+      - claude-code:anthropic:model-a
+      - claude-code:anthropic:model-b
+    snapshot:
+      inherit:
+        name: impl
+        required: true
+        select:
+          state: source
+          target: same
+  done:
+    description: done
+    final: true
+transitions:
+  - from: pending
+    to: done
+"#,
+        )
+        .expect("write states");
+        let settings = snapshot_preload_settings();
+        let loaded = load_plan(dir.path()).expect("load plan");
+        let machine = rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+            .expect("state machine");
+        let task = loaded.rhei.tasks.first().expect("task");
+        let resolved =
+            resolve_agent_invocations(&machine, "pending", &settings, &default_run_options())
+                .expect("resolve");
+        assert_eq!(resolved.len(), 2);
+        let slug_a = resolved_agent_target_slug(&resolved[0]).expect("slug a");
+        let slug_b = resolved_agent_target_slug(&resolved[1]).expect("slug b");
+        let cache_root = snapshot_cache_dir(&settings, dir.path());
+        for slug in [&slug_a, &slug_b] {
+            write_snapshot_generation(
+                &cache_root,
+                "1",
+                "impl",
+                "source",
+                1,
+                slug,
+                1,
+                "orchestrator",
+            );
+        }
+        refresh_current_links(
+            &cache_root,
+            [slug_a.clone(), slug_b.clone()]
+                .into_iter()
+                .map(|target_slug| SnapshotIdentity {
+                    task_id: "1".to_string(),
+                    snapshot_name: "impl".to_string(),
+                    emitting_state: "source".to_string(),
+                    visit: 1,
+                    target_slug,
+                })
+                .collect(),
+        )
+        .expect("current");
+        let invocations = resolved
+            .iter()
+            .cloned()
+            .map(|resolved| {
+                (
+                    "1".to_string(),
+                    "pending".to_string(),
+                    "pending".to_string(),
+                    resolved,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut opts = snapshot_override_options(
+            &format!("1:impl:source@1:{slug_a}/g1"),
+            false,
+        );
+        let err = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
+            .expect_err("ambiguous run invocation is rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("ambiguous"));
+        assert!(msg.contains(&format!("task=1 target={slug_a}")));
+        assert!(msg.contains(&format!("task=1 target={slug_b}")));
+
+        opts.snapshot.snapshot_target = Some(slug_a.clone());
+        let selection = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
+            .expect("selected")
+            .expect("selection");
+        assert_eq!(selection.task_id, "1");
+        assert_eq!(selection.target_slug, slug_a);
+
+        let preload_a = preload_snapshot_inherit_before_spawn(
+            dir.path(),
+            dir.path(),
+            &machine,
+            task,
+            "pending",
+            &resolved[0],
+            &settings,
+            1,
+            Some(&selection),
+            &opts,
+        )
+        .expect("selected target uses override");
+        assert_eq!(
+            preload_a
+                .parent_ref
+                .as_ref()
+                .and_then(|value| value.get("target_slug"))
+                .and_then(serde_json::Value::as_str),
+            Some(selection.target_slug.as_str())
+        );
+
+        let preload_b = preload_snapshot_inherit_before_spawn(
+            dir.path(),
+            dir.path(),
+            &machine,
+            task,
+            "pending",
+            &resolved[1],
+            &settings,
+            1,
+            Some(&selection),
+            &opts,
+        )
+        .expect("non-selected target keeps authored inheritance");
+        assert_eq!(
+            preload_b
+                .parent_ref
+                .as_ref()
+                .and_then(|value| value.get("target_slug"))
+                .and_then(serde_json::Value::as_str),
+            Some(slug_b.as_str())
         );
     }
 
@@ -754,6 +1018,188 @@ transitions:
         let records =
             read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
         assert!(records.is_empty());
+    }
+
+    #[test]
+    fn snapshot_redactor_receives_minimal_default_env_and_logs_diagnostics() {
+        let _home = TempHome::new();
+        let dir = snapshot_workspace();
+        write_snapshot_emit_machine(dir.path());
+        let env_capture = dir.path().join("redactor-env.txt");
+        std::env::set_var("RHEI_REDACTOR_ALLOWED", "allowed-value");
+        std::env::set_var("RHEI_REDACTOR_BLOCKED", "blocked-value");
+        let redactor = write_executable_redactor(
+            dir.path(),
+            "env-redact.sh",
+            &format!(
+                "capture='{}'\n\
+printf 'RHEI_EXECUTABLE_PATH=%s\\n' \"$RHEI_EXECUTABLE_PATH\" > \"$capture\"\n\
+printf 'RHEI_WORKSPACE_ROOT=%s\\n' \"$RHEI_WORKSPACE_ROOT\" >> \"$capture\"\n\
+printf 'RHEI_PROJECT_SETTINGS_PATH=%s\\n' \"$RHEI_PROJECT_SETTINGS_PATH\" >> \"$capture\"\n\
+printf 'RHEI_GLOBAL_SETTINGS_PATH=%s\\n' \"$RHEI_GLOBAL_SETTINGS_PATH\" >> \"$capture\"\n\
+printf 'RHEI_REDACTOR_ALLOWED=%s\\n' \"$RHEI_REDACTOR_ALLOWED\" >> \"$capture\"\n\
+printf 'RHEI_REDACTOR_BLOCKED=%s\\n' \"${{RHEI_REDACTOR_BLOCKED-unset}}\" >> \"$capture\"\n\
+printf 'redactor diagnostic\\n' >&2\n\
+while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
+                env_capture.display()
+            ),
+        );
+        let mut settings = RheiSettings { agents: built_in_agents(), ..Default::default() };
+        settings.snapshots = Some(SnapshotSettings {
+            redactor: Some(redactor),
+            redactor_env: vec!["RHEI_REDACTOR_ALLOWED".to_string()],
+            ..Default::default()
+        });
+        let loaded = load_plan(dir.path()).expect("load plan");
+        let machine = rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+            .expect("state machine");
+        let resolved =
+            resolve_agent_invocations(&machine, "pending", &settings, &default_run_options())
+                .expect("resolve")
+                .remove(0);
+        let task = loaded.rhei.tasks.first().expect("task");
+        let log_path = dir.path().join("runtime/logs/task-1-pending.log");
+        fs::create_dir_all(log_path.parent().expect("log parent")).expect("log dir");
+        fs::write(&log_path, "agent log\n").expect("log");
+        let snapshot_preload =
+            snapshot_preload_with_native_session(dir.path(), "redactor-env-session", b"secret\n");
+
+        emit_snapshots_after_agent_exit(
+            dir.path(),
+            &machine,
+            &settings,
+            task,
+            "pending",
+            Some("done"),
+            &resolved,
+            &log_path,
+            1,
+            SnapshotCompletion::Success,
+            &snapshot_preload,
+        )
+        .expect("emit snapshots");
+
+        let captured = fs::read_to_string(&env_capture).expect("captured env");
+        assert!(captured.contains("RHEI_EXECUTABLE_PATH="));
+        assert!(captured.contains(&format!("RHEI_WORKSPACE_ROOT={}", dir.path().display())));
+        assert!(captured.contains(&format!(
+            "RHEI_PROJECT_SETTINGS_PATH={}",
+            dir.path().join(".rhei/settings.json").display()
+        )));
+        assert!(captured.contains("RHEI_GLOBAL_SETTINGS_PATH="));
+        assert!(captured.contains("RHEI_REDACTOR_ALLOWED=allowed-value"));
+        assert!(captured.contains("RHEI_REDACTOR_BLOCKED=unset"));
+
+        let log = fs::read_to_string(&log_path).expect("log");
+        assert!(log.contains("snapshot redactor: path="));
+        assert!(log.contains("status=exit status: 0"));
+        assert!(log.contains("timeout=false"));
+        assert!(log.contains("stderr_truncated=false"));
+        assert!(log.contains("stderr=redactor diagnostic"));
+        let records =
+            read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
+        assert!(records.iter().all(|record| record.manifest.get("redactor").is_none()));
+        std::env::remove_var("RHEI_REDACTOR_ALLOWED");
+        std::env::remove_var("RHEI_REDACTOR_BLOCKED");
+    }
+
+    #[test]
+    fn snapshot_pi_emit_records_observed_provider_model_from_header() {
+        let dir = snapshot_workspace();
+        write_snapshot_emit_machine(dir.path());
+        let settings = default_settings();
+        let (loaded, machine, resolved) = snapshot_preload_parts(dir.path(), &settings);
+        let task = loaded.rhei.tasks.first().expect("task");
+        let log_path = dir.path().join("runtime/logs/task-1-pending.log");
+        fs::create_dir_all(log_path.parent().expect("log parent")).expect("log dir");
+        fs::write(&log_path, "log\n").expect("log");
+        let preload = snapshot_preload_with_native_session(
+            dir.path(),
+            "pi-observed",
+            br#"{"provider":"anthropic","model":"claude-sonnet-4-6"}
+{"role":"assistant","content":"done"}
+"#,
+        );
+
+        emit_snapshots_after_agent_exit(
+            dir.path(),
+            &machine,
+            &settings,
+            task,
+            "pending",
+            Some("done"),
+            &resolved,
+            &log_path,
+            1,
+            SnapshotCompletion::Success,
+            &preload,
+        )
+        .expect("emit pi snapshot");
+
+        let records =
+            read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
+        let state_record =
+            records.iter().find(|record| record.snapshot_name == "_state").expect("state record");
+        assert_eq!(
+            state_record.manifest.get("declared_provider").and_then(serde_json::Value::as_str),
+            Some("openai")
+        );
+        assert_eq!(
+            state_record.manifest.get("observed_provider").and_then(serde_json::Value::as_str),
+            Some("anthropic")
+        );
+        assert_eq!(
+            state_record.manifest.get("observed_model").and_then(serde_json::Value::as_str),
+            Some("claude-sonnet-4-6")
+        );
+        assert_eq!(
+            snapshot_cache_benefit_reason(state_record, &resolved).as_deref(),
+            Some("provider mismatch")
+        );
+        assert!(records.iter().any(|record| record.snapshot_name == "impl"));
+    }
+
+    #[test]
+    fn snapshot_pi_emit_falls_back_to_declared_target_when_header_unparsable() {
+        let dir = snapshot_workspace();
+        write_snapshot_emit_machine(dir.path());
+        let settings = default_settings();
+        let (loaded, machine, resolved) = snapshot_preload_parts(dir.path(), &settings);
+        let task = loaded.rhei.tasks.first().expect("task");
+        let log_path = dir.path().join("runtime/logs/task-1-pending.log");
+        fs::create_dir_all(log_path.parent().expect("log parent")).expect("log dir");
+        fs::write(&log_path, "log\n").expect("log");
+        let preload =
+            snapshot_preload_with_native_session(dir.path(), "pi-fallback", b"not json\n");
+
+        emit_snapshots_after_agent_exit(
+            dir.path(),
+            &machine,
+            &settings,
+            task,
+            "pending",
+            Some("done"),
+            &resolved,
+            &log_path,
+            1,
+            SnapshotCompletion::Success,
+            &preload,
+        )
+        .expect("emit pi snapshot with fallback target");
+
+        let records =
+            read_snapshot_records(&snapshot_cache_dir(&settings, dir.path())).expect("records");
+        let state_record =
+            records.iter().find(|record| record.snapshot_name == "_state").expect("state record");
+        assert_eq!(
+            state_record.manifest.get("observed_provider").and_then(serde_json::Value::as_str),
+            Some("openai")
+        );
+        assert_eq!(
+            state_record.manifest.get("observed_model").and_then(serde_json::Value::as_str),
+            Some("model")
+        );
+        assert!(snapshot_cache_benefit_reason(state_record, &resolved).is_none());
     }
 
     fn snapshot_preload_settings() -> RheiSettings {
@@ -987,6 +1433,31 @@ transitions:
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn write_snapshot_staging_generation(
+        cache_root: &Path,
+        task_id: &str,
+        name: &str,
+        state: &str,
+        visit: u64,
+        target_slug: &str,
+        generation: u64,
+        suffix: &str,
+    ) {
+        write_snapshot_generation_at_dir(
+            cache_root,
+            task_id,
+            name,
+            state,
+            visit,
+            target_slug,
+            generation,
+            "orchestrator",
+            "2026-05-18T08:14:22Z",
+            &format!("g{generation}.tmp-{suffix}"),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn write_snapshot_generation_with_created_at(
         cache_root: &Path,
         task_id: &str,
@@ -998,13 +1469,40 @@ transitions:
         produced_by: &str,
         created_at: &str,
     ) {
+        write_snapshot_generation_at_dir(
+            cache_root,
+            task_id,
+            name,
+            state,
+            visit,
+            target_slug,
+            generation,
+            produced_by,
+            created_at,
+            &format!("g{generation}"),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_snapshot_generation_at_dir(
+        cache_root: &Path,
+        task_id: &str,
+        name: &str,
+        state: &str,
+        visit: u64,
+        target_slug: &str,
+        generation: u64,
+        produced_by: &str,
+        created_at: &str,
+        generation_dir_name: &str,
+    ) {
         let dir = cache_root
             .join(task_id)
             .join(name)
             .join(state)
             .join(visit.to_string())
             .join(target_slug)
-            .join(format!("g{generation}"));
+            .join(generation_dir_name);
         fs::create_dir_all(&dir).expect("snapshot dir");
         fs::write(dir.join("transcript.jsonl"), format!("generation {generation}\n"))
             .expect("transcript");

@@ -89,6 +89,17 @@ fn fire_tooling_unavailable_transition(
     }
 }
 
+fn find_timeout_transition(
+    machine: &rhei_validator::StateMachine,
+    from_state: &str,
+) -> Option<String> {
+    machine
+        .transitions
+        .iter()
+        .find(|rule| (rule.from.0 == from_state || rule.from.0 == "*") && rule.timeout.is_some())
+        .map(|rule| rule.to.0.clone())
+}
+
 /// Try to fire a timeout transition for a task after an agent was killed by
 /// the watchdog. Returns whether a rule existed and whether it fired.
 ///
@@ -104,15 +115,32 @@ fn fire_timeout_transition(
     timeout_secs: Option<u64>,
     no_callbacks: bool,
 ) -> TimeoutTransitionOutcome {
-    let timeout_rule = machine
-        .transitions
-        .iter()
-        .find(|rule| (rule.from.0 == from_state || rule.from.0 == "*") && rule.timeout.is_some());
-    let Some(rule) = timeout_rule else {
+    let Some(to_state) = find_timeout_transition(machine, from_state) else {
         return TimeoutTransitionOutcome::NoRule;
     };
+    fire_selected_timeout_transition(
+        input,
+        machine,
+        callback_paths,
+        task_id_str,
+        from_state,
+        &to_state,
+        timeout_secs,
+        no_callbacks,
+    )
+}
 
-    let to_state = &rule.to.0;
+#[allow(clippy::too_many_arguments)]
+fn fire_selected_timeout_transition(
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    task_id_str: &str,
+    from_state: &str,
+    to_state: &str,
+    timeout_secs: Option<u64>,
+    no_callbacks: bool,
+) -> TimeoutTransitionOutcome {
     let loaded = match load_plan(input) {
         Ok(l) => l,
         Err(_) => return TimeoutTransitionOutcome::Failed,
@@ -125,7 +153,17 @@ fn fire_timeout_transition(
     };
     let timeout_label = timeout_secs
         .map(format_duration_human)
-        .or_else(|| rule.timeout.clone())
+        .or_else(|| {
+            machine
+                .transitions
+                .iter()
+                .find(|rule| {
+                    (rule.from.0 == from_state || rule.from.0 == "*")
+                        && rule.timeout.is_some()
+                        && rule.to.0 == to_state
+                })
+                .and_then(|rule| rule.timeout.clone())
+        })
         .unwrap_or_default();
     match execute_system_timeout_transition(
         TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
@@ -147,6 +185,54 @@ fn fire_timeout_transition(
         Err(err) => {
             eprintln!(
                 "  warning: failed to fire timeout transition for Task {}: {}",
+                task_id_str, err
+            );
+            TimeoutTransitionOutcome::Failed
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fire_agent_exit_transition(
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    task_id_str: &str,
+    from_state: &str,
+    to_state: &str,
+    exit_code: i32,
+    no_callbacks: bool,
+) -> TimeoutTransitionOutcome {
+    let loaded = match load_plan(input) {
+        Ok(l) => l,
+        Err(_) => return TimeoutTransitionOutcome::Failed,
+    };
+    let task_file = loaded.task_file(task_id_str, input);
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
+    match execute_system_program_exit_transition(
+        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        callback_paths,
+        machine,
+        task_id_str,
+        from_state,
+        to_state,
+        exit_code,
+        no_callbacks,
+    ) {
+        Ok(()) => {
+            println!(
+                "  Error transition: Task {} '{}' -> '{}' (exit {})",
+                task_id_str, from_state, to_state, exit_code
+            );
+            TimeoutTransitionOutcome::Fired
+        }
+        Err(err) => {
+            eprintln!(
+                "  warning: failed to fire error transition for Task {}: {}",
                 task_id_str, err
             );
             TimeoutTransitionOutcome::Failed
@@ -288,4 +374,3 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         blocked_by_gate(task, &rhei.tasks, &state_map, machine, &mut HashSet::new())
     })
 }
-
