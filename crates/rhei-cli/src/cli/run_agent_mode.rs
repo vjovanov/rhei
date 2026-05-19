@@ -149,7 +149,6 @@ fn run_agent_mode(
     let mut agents_spawned = 0u32;
     let mut programs_spawned = 0u32;
     let mut callback_transitions_made = 0u32;
-    let mut blocked_by_missing_program_outputs = false;
     let mut pass = 0u32;
 
     loop {
@@ -612,7 +611,6 @@ fn run_agent_mode(
                                         current_state,
                                         missing_required_outputs.join(", ")
                                     );
-                                    blocked_by_missing_program_outputs = true;
                                     continue;
                                 }
                             }
@@ -1100,7 +1098,6 @@ fn run_agent_mode(
                                 &missing_required_outputs,
                                 &sink,
                             );
-                            blocked_by_missing_program_outputs = true;
                             break;
                         }
                         let pending_more = machine
@@ -1663,7 +1660,6 @@ fn run_agent_mode(
                                     &missing_required_outputs,
                                     &sink,
                                 );
-                                blocked_by_missing_program_outputs = true;
                                 continue;
                             }
                             let pending_more = reloaded
@@ -1964,7 +1960,6 @@ fn run_agent_mode(
             .count();
         if terminal_count < loaded.rhei.tasks.len()
             && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine)
-            && !blocked_by_missing_program_outputs
         {
             return Err(miette!(
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"

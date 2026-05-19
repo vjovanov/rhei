@@ -241,15 +241,6 @@ fn validate_machine_settings_references(
         }
     }
 
-    for model in &machine.models {
-        if !settings.models.contains_key(model) {
-            errors.push(format!(
-                "top-level models references unknown settings model profile '{}'",
-                model
-            ));
-        }
-    }
-
     validate_mcp_entries_known(
         "defaults.mcp_servers",
         settings.defaults.mcp_servers.as_deref(),
@@ -315,7 +306,7 @@ fn validate_machine_settings_references(
                         continue;
                     };
                     if let Some(mode) = target.mode.as_deref() {
-                        if !profile.modes.is_empty() && !profile.modes.contains_key(mode) {
+                        if !profile.modes.contains_key(mode) {
                             errors.push(format!(
                                 "state '{}' references unknown target mode '{}' for agent '{}' in '{}'",
                                 state_name, mode, target.agent, selector

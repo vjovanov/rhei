@@ -176,7 +176,7 @@ transitions:
 }
 
 #[test]
-fn run_program_exit_zero_missing_outputs_leaves_task_without_error() {
+fn run_program_exit_zero_missing_outputs_fails_run_and_leaves_task_in_place() {
     let machine = r#"name: program-missing-output
 version: 1
 states:
@@ -208,14 +208,20 @@ transitions:
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
     assert!(
-        result.status.success(),
-        "run should not abort when a successful program misses outputs\nstdout:\n{}\nstderr:\n{}",
+        !result.status.success(),
+        "run should fail when a successful program misses outputs\nstdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr
     );
     assert!(
         result.stderr.contains("program exited 0 but required outputs are missing"),
         "missing-output warning should be shown; got stdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("non-terminal tasks remaining"),
+        "run should report stalled non-terminal work; got stdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr
     );
@@ -228,7 +234,7 @@ transitions:
 }
 
 #[test]
-fn run_agent_exit_zero_missing_outputs_emits_failure_snapshots() {
+fn run_agent_exit_zero_missing_outputs_emits_failure_snapshots_and_fails_run() {
     let machine = r#"name: agent-missing-output-snapshot
 version: 1
 states:
@@ -287,14 +293,20 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
     assert!(
-        result.status.success(),
-        "run should warn but not fail on missing outputs\nstdout:\n{}\nstderr:\n{}",
+        !result.status.success(),
+        "run should fail on missing outputs\nstdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr
     );
     assert!(
         result.stderr.contains("agent exited 0 but required outputs are missing"),
         "missing-output warning should be shown; got stdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("non-terminal tasks remaining"),
+        "run should report stalled non-terminal work; got stdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr
     );

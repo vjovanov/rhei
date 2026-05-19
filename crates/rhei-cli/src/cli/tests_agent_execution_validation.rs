@@ -486,7 +486,7 @@ printf 'stdout:before-background\n'
             },
         );
         let inherit_machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\n",
         );
         let errs = validate_machine_settings_references(&inherit_machine, &settings);
         assert!(
@@ -509,6 +509,25 @@ printf 'stdout:before-background\n'
         assert!(
             errs.is_empty(),
             "agent_mode is permitted when the resolved agent declares no modes: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn validates_target_selector_mode_must_exist_on_agent_profile() {
+        let mut settings = default_settings();
+        settings.agents.insert(
+            "noop".to_string(),
+            CustomAgentProfile { command: vec!["noop".to_string()], ..Default::default() },
+        );
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: noop[review]:openai:gpt\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+        let errs = validate_machine_settings_references(&machine, &settings);
+        assert!(
+            errs.iter().any(|e| {
+                e.contains("unknown target mode 'review'") && e.contains("noop[review]:openai:gpt")
+            }),
+            "target selector modes must be declared by the agent profile: {errs:?}"
         );
     }
 

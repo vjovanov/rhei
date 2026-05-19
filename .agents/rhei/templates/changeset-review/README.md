@@ -38,7 +38,7 @@ Per-task paths through the machine:
 |---|---|
 | coordinator | `split` -> `completed` |
 | `review-<slug>` | `review` -> `completed` |
-| `aggregate` | `aggregate-reviews` -> `validate-review` -> `propose-fixes` -> `aggregate-proposals` -> `decide` -> `[prepare-workspace]` -> `final-fix` -> `[commit-fix]` -> `completed` |
+| `aggregate` | `aggregate-reviews` -> `validate-review` -> `propose-fixes` -> `aggregate-proposals` -> `decide` -> `human-review` -> `[prepare-workspace]` -> `final-fix` -> `[commit-fix]` -> `completed` |
 
 ## Flow
 
@@ -54,7 +54,8 @@ Per-task paths through the machine:
 6. `smart_target` aggregates those proposals into a proposal matrix.
 7. `smart_target` resolves discrepancies, rejects unsupported issues, and
    writes the final fix plan.
-8. `smart_target` applies accepted fixes, optionally in an isolated workspace
+8. A human reviews the final fix plan and explicitly approves the fix phase.
+9. `smart_target` applies accepted fixes, optionally in an isolated workspace
    and optionally followed by a commit/push/PR step.
 
 ## Instantiate
