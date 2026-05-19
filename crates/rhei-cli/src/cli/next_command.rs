@@ -305,12 +305,21 @@ fn next_command(
         .find(|t| t.id == target_id)
         .ok_or_else(|| miette!("task '{}' not found after transition", task_id_str))?;
 
-    // Resolve agent/model for display.
+    // Resolve agent/model for display. `next` should still print the next
+    // task even when the state's agent is misconfigured, so demote resolution
+    // errors to a stderr warning instead of failing the command outright.
     let settings = load_merged_settings(&workspace_root)?;
     let no_agent_opts = default_run_options();
-    let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts)
-        .ok()
-        .flatten();
+    let resolved = match resolve_agent(&machine, &final_state, &settings, &no_agent_opts) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            eprintln!(
+                "warning: could not resolve agent for state '{}': {:?}",
+                final_state, err
+            );
+            None
+        }
+    };
     let agent_id_str = resolved.as_ref().map(|r| r.agent.id().to_string());
     let model_id_str = resolved.as_ref().and_then(|r| r.model.clone());
     let model_provider_str = resolved.as_ref().and_then(|r| r.model_provider.clone());
