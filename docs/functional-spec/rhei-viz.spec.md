@@ -1,210 +1,132 @@
-# FS-rhei-viz: `rhei viz`
+# FS-rhei-viz: Dashboard Visualization
 
-Render an interactive, browser-based visualization of a rhei plan (or a workspace of plans). The view shows the three Rhei levels — plan, task, subtask — and their states, laid out so a human can see the whole plan's shape at a glance.
+Render plan-shape visualizations inside the browser dashboard that accompanies
+`rhei run`. The visualization surface is read-only and uses the dashboard's
+existing loopback server and `/snapshot` payload; there is no current standalone
+`rhei viz` CLI command or `rhei-viz` crate. §FS-rhei-run-tui
 
-For the plan grammar see the [Plan Language Specification](rhei-plan-language.spec.md). For the state machine see the [States Specification](rhei-states.spec.md). For the TUI that runs alongside `rhei run`, see [Run TUI](rhei-run-tui.spec.md) — `rhei viz` is a distinct command aimed at static plan inspection, not live parallel execution.
+For the plan grammar see the [Plan Language Specification](rhei-plan-language.spec.md).
+For the state machine see the [States Specification](rhei-states.spec.md).
 
 ## Goals
 
-1. **Make plan shape legible.** One page shows every task, every subtask, and each element's current state — without the user scrolling through markdown.
-2. **Separate state vocabularies by level.** Plan, task, and subtask states often draw from different sets (the default machine uses different states at task vs subtask granularity). The visualization keeps them visually distinct so a `review` at level 1 is not confused with a `needs-review` at level 2.
-3. **Be self-contained.** The rendered artifact is a single HTML file. No network access, no CDN dependencies, no build step at view time.
-4. **Be live when requested.** Under `--serve`, the view updates when the underlying `.rhei.md` file changes on disk, so a plan author can iterate with the view open in a second window.
+1. **Make plan shape legible.** One page shows the plan, every task, every
+   subtask, and each element's current state without reading raw markdown.
+2. **Separate state vocabularies by level.** Plan, task, and subtask states may
+   draw from different vocabularies; the visualization keeps them visually
+   distinct so similarly named states at different levels are not conflated.
+3. **Stay live with execution.** Views refresh through the same dashboard polling
+   loop as slots, tasks, journal events, and links.
+4. **Be self-contained.** The dashboard HTML contains its CSS and JavaScript
+   inline, with no external scripts, stylesheets, fonts, or network assets.
 
 ## Non-Goals
 
-- **Not a replacement for `rhei run`'s TUI.** `rhei viz` does not follow live execution; it snapshots the plan as it is on disk. For live parallel-run visualization, use `rhei run --tui` (see [Run TUI](rhei-run-tui.spec.md)).
-- **Not a plan editor.** Clicks navigate and filter; they do not mutate the plan. Editing remains the responsibility of `rhei` CLI commands or a text editor.
-- **No remote deployment.** The optional server binds to loopback only.
+- No standalone `rhei viz` command in the current CLI surface.
+- No plan editing, editor-opening, diff mode, or mutation from the dashboard.
+- No remote dashboard deployment; the dashboard remains loopback-only.
 
-## 1. Usage
+## 1. Dashboard Views
 
-```
-rhei viz [PATH]                    # default: current workspace or ./*.rhei.md
-rhei viz plan.rhei.md              # single plan
-rhei viz ./examples                # directory — auto-discovers *.rhei.md
-rhei viz --output viz.html         # write the HTML and do not open a browser
-rhei viz --serve                   # start the live-reload server and open browser
-rhei viz --no-open                 # emit HTML, skip the browser launch
-```
+The dashboard exposes visualization tabs before the operational tabs:
 
-Default behavior when `PATH` is omitted: resolve the workspace via the same rules as `rhei run`. If the workspace contains one or more `.rhei.md` files, all are loaded and exposed via a plan selector in the UI.
+1. **Gantt** — the default tab.
+2. **Cube**.
+3. **Sankey**.
+4. **Tasks**.
+5. **Slots**.
+6. **Journal**.
+7. **Links**.
 
-## 2. Options
+Tab switching is local to the browser. All views share the same `/snapshot`
+payload and must tolerate temporary plan reload failures by rendering the last
+good snapshot already cached by the dashboard.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `PATH` | (workspace) | A single `.rhei.md` file, a directory of plans, or omitted to use the current workspace. |
-| `--output <PATH>` | — | Write the rendered HTML to `<PATH>` and exit. Implies `--no-open`. |
-| `--serve` | `false` | Start a local HTTP server on `127.0.0.1` that watches input files and pushes updates to the open page. |
-| `--port <N>` | `auto` | Port for `--serve`. Default picks the first free port in `7272..7371`. |
-| `--no-open` | `false` | Do not launch a browser. Print the file path or `http://127.0.0.1:<port>/` URL to stdout. |
-| `--view <NAME>` | `gantt` | Default tab: `gantt`, `cube`, or `sankey`. |
-| `--plan-state <NAME>` | derived | Override the plan-level state (see [Plan-Level State Derivation](#5-plan-level-state-derivation)). |
+### 1.1. Swimlane Gantt
 
-## 3. Views
+Each row is one item: a plan row, one row per top-level task, and one row per
+child task indented beneath its parent. The x-axis is state, split into level
+groups so level-0, level-1, and level-2 state vocabularies render in separate
+axis strips unless all levels share the same vocabulary.
 
-The rendered page has three tabs that share a single parsed dataset. Tab switching is instant (no reparse, no reload).
+Each item places exactly one state pill in the group for its level. The plan row
+is visually distinct from task rows and uses the derived plan state.
 
-### 3.1. Swimlane Gantt (default)
+### 1.2. Heatmap Cube
 
-Each row is an item: one row for the plan (level 0), one per task (level 1), and one per subtask (level 2) indented under its task. The x-axis is **state**, split into up to three column groups by level so each level's vocabulary renders in its own axis strip:
+Rows are top-level tasks. A left cell shows each task's own state;
+descendant-state cells are laid out by root-relative descendant slot (`.1`,
+`.2`, `.db`, `.auth.model`, ...). The derived plan state is shown as a
+full-width strip above the grid.
 
-```
-┌─────────────────────────┬─── LEVEL 0 — PLAN ───┬─── LEVEL 1 — TASK ──────────────────┬─── LEVEL 2 — SUBTASK ──────────────────┐
-│ ◆  ·   rhei-run-tui     │               [active]│                                      │                                         │
-├─────────────────────────┼───────────────────────┼──────────────────────────────────────┼─────────────────────────────────────────┤
-│ ■  1   Create crate …   │                       │                [in_progress]         │                                         │
-│ ·  1.1 Create crate …   │                       │                                      │                  [completed]            │
-│ ·  1.2 Define RunEvent  │                       │                                      │            [in_progress]                │
-│ ■  2   JournalSink …    │                       │       [pending]                      │                                         │
-│ ·  2.1 Open log file    │                       │                                      │    [pending]                            │
-│ …                       │                       │                                      │                                         │
-└─────────────────────────┴───────────────────────┴──────────────────────────────────────┴─────────────────────────────────────────┘
-```
+This view favors density over labels so operators can quickly scan for failed,
+blocked, review, or active work.
 
-Each level's pill only lands in its own column group. A gutter separates the groups. Empty groups (level has one state, or is collapsed) are omitted. When all three levels share an identical state vocabulary, the axis collapses to a single shared group.
+### 1.3. Sankey Flow
 
-Hovering a pill shows a tooltip with the item id, title, and state. The plan row is visually distinct (diamond bullet, stronger stroke, colored label).
+Left nodes are top-level tasks. Right nodes are descendant states. Ribbons flow
+from each task to the states its descendants are in; ribbon thickness equals the
+descendant count in that state. The derived plan state appears as a band above
+the flow.
 
-### 3.2. Heatmap Cube
+Plans without descendants render a useful empty state instead of a blank chart.
 
-A dense grid: rows are tasks, columns are subtask slots (`.1`, `.2`, …). Each cell is colored by the subtask's state. A bordered cell to the left of each row shows the task's own state. The plan row is rendered as a full-width strip above the grid, colored by plan state.
+## 2. Level-Grouped Axis Rules
 
-Purpose: scan the whole plan at once. Good for answering "are there any red cells?" without reading labels.
+Let `S0`, `S1`, and `S2` be the distinct states observed at the plan, top-level
+task, and child-task levels respectively.
 
-### 3.3. Sankey Flow
+- If `S0 = S1 = S2`, render one shared axis group.
+- Otherwise, render one group per non-empty level from left to right.
+- A pill may only render in the group for its own level.
+- States within a group use this canonical order, with unknown states sorted
+  alphabetically after known states:
 
-Left column: one node per task. Right column: one node per state in the level-2 vocabulary. Ribbons flow from each task to the states its subtasks are in; ribbon thickness equals the count of subtasks in that state. The plan's aggregate state appears as a band above.
-
-Purpose: spot bottlenecks — "most subtasks are stuck in `needs-review`" is immediately visible.
-
-## 4. Level-Grouped Axis Rules (Gantt)
-
-Let `S₀`, `S₁`, `S₂` be the set of distinct states observed at the plan, task, and subtask levels respectively. The Gantt view computes:
-
-- If `S₀ = S₁ = S₂`: render a single column group covering `S₀ ∪ S₁ ∪ S₂`. Every level's pills share the axis.
-- Otherwise: render up to three column groups laid out left to right, one per non-empty level, with a 2-column-wide gutter between groups. Each group's columns list that level's states in the canonical ordering below. A level's pills only ever render in its own group.
-
-Canonical state ordering (states not in this list sort after these, alphabetically):
-
-```
-draft → pending → in_progress → needs-review → review → prove → consolidate → completed → blocked/failed → cancelled → archived
+```text
+draft -> pending -> in_progress -> in-progress -> needs-review -> review ->
+prove -> consolidate -> fix -> agent-review -> agent-review-fix ->
+human-review -> active -> completed -> blocked -> failed -> cancelled ->
+archived
 ```
 
-This ordering governs column placement within every group.
+## 3. Plan-State Derivation
 
-## 5. Plan-Level State Derivation
-
-A `.rhei.md` plan does not carry an explicit `**State:**` at the top level (see [Plan Language Specification](rhei-plan-language.spec.md)). `rhei viz` derives a plan-level state from the top-level task states:
+A `.rhei.md` plan does not carry an explicit top-level state. The dashboard
+derives `plan_state` from top-level tasks only:
 
 | Condition | Derived plan state |
-|-----------|--------------------|
+| --- | --- |
 | All top-level tasks are `draft` | `draft` |
-| All top-level tasks are terminal-success (`completed`) | `completed` |
-| All top-level tasks are terminal (`completed`, `cancelled`, `archived`) and at least one is not `completed` | `archived` |
-| Any top-level task is `in_progress`, `needs-review`, `review`, `prove`, `consolidate`, or `agent-review` | `active` |
+| All top-level tasks are `completed` | `completed` |
+| All top-level tasks are terminal and at least one is not `completed` | `archived` |
+| Any top-level task is active-like | `active` |
 | Otherwise | `pending` |
 
-Derivation is done from the active state machine's terminal-state declarations — a plan using a custom state machine still derives correctly as long as the machine declares its terminal states.
+The dashboard treats `completed`, `cancelled`, `archived`, and `failed` as
+terminal for this derivation. Active-like states are `in_progress`,
+`in-progress`, `needs-review`, `review`, `prove`, `consolidate`, and
+`agent-review`, and `agent-review-fix`.
 
-`--plan-state <NAME>` overrides this derivation and forces a value (useful for demos or when the user wants to mark a plan `shipping` externally).
+## 4. Dashboard Data
 
-## 6. Serving Modes
-
-### 6.1. Static (default)
-
-`rhei viz [PATH]` writes a self-contained HTML file to a temp directory (`$TMPDIR/rhei-viz-<hash>.html`) with the plan data inlined as JSON, then launches the system browser against the `file://` URL. No background process remains after the browser opens.
-
-The HTML contains zero external references: no `<script src>`, no `<link rel=stylesheet>`, no fonts loaded from the network. All CSS and JS are embedded. This means the page works offline, behind firewalls, and in review environments.
-
-`--output <PATH>` redirects the file to a user-chosen location and suppresses the browser launch.
-
-### 6.2. Live (`--serve`)
-
-`rhei viz --serve` starts a local HTTP server bound to `127.0.0.1`, serves the page at `/`, and opens the browser. The server:
-
-- Watches every input `.rhei.md` file (and the enclosing workspace directory for file additions/removals) via the same `notify` crate already used by `rhei-tui`.
-- On change: reparses the affected plan and pushes a `PlanUpdated` event over a long-poll or `EventSource` channel.
-- Exits on `SIGINT` / Ctrl-C or when the last browser client disconnects for longer than 60 seconds.
-
-The server is loopback-only. It does not accept remote connections and does not require authentication. Queries carry no credentials; the data served is already readable to the local user.
-
-## 7. Output Format
-
-The rendered HTML has the following structure (abridged):
-
-```html
-<!doctype html>
-<title>Rhei Viz — <plan title></title>
-<style>/* inlined */</style>
-<body>
-  <header>plan selector, tab bar</header>
-  <main>
-    <svg id="svg-gantt">…</svg>
-    <svg id="svg-cube">…</svg>
-    <svg id="svg-sankey">…</svg>
-  </main>
-  <script>
-    const DATA = { "<plan-key>": { title, state, tasks: [...] }, … };
-    // rendering functions
-  </script>
-</body>
-```
-
-SVG is used instead of canvas so the output is scalable, copyable as an image, and crawlable by text-searching tools. No external JS framework.
-
-## 8. Data Shape
+`/snapshot` includes:
 
 ```ts
-type Plan = {
-  title: string;
-  source: string;   // absolute path to the .rhei.md file
-  state: string;    // level-0 (derived unless overridden)
-  tasks: Task[];
-};
-
-type Task = {
-  id: string;       // "1", "2", …
-  title: string;
-  state: string;    // level-1
-  prior: string[];  // task ids this task depends on
-  subtasks: Subtask[];
-};
-
-type Subtask = {
-  id: string;       // "1.1", "1.2", …
-  title: string;
-  state: string;    // level-2
-  prior: string[];  // subtask ids or task ids
+type Snapshot = {
+  plan_title?: string;
+  plan_state?: string;
+  tasks: TaskRow[];
+  // plus existing run, slot, journal, ready/deferred, and link fields
 };
 ```
 
-The parser that produces this shape lives in `crates/rhei-core` (sharing code with `rhei next` / `rhei run`).
-
-## 9. CLI Integration
-
-Add a `Viz` variant to the `Commands` enum in `crates/rhei-cli/src/main.rs`, with the clap fields above. The handler function `viz_command()` delegates to a new `crates/rhei-viz` crate that owns the HTML template, the static file embedding, and — gated behind the `serve` cargo feature — the HTTP server.
-
-The `rhei-viz` crate depends on:
-- `rhei-core` for plan parsing.
-- `serde_json` for data inlining.
-- `tiny_http` or `axum-minimal` (feature-gated) for `--serve`.
-- `notify` (feature-gated) for file watching.
-
-The non-`serve` build has no HTTP stack and no watcher; the default build stays small.
-
-## 10. Security Considerations
-
-- The HTML file contains the full plan content (titles, contexts). Users writing plans with sensitive content should avoid `rhei viz --output` into shared directories.
-- `--serve` binds to `127.0.0.1` only; it is not a multi-user server.
-- Inlined plan data is injected as JSON via `serde_json::to_string()` and rendered into a `<script>` block. Titles and state names are escaped when used as text nodes (`textContent`) and when interpolated into tooltip HTML.
+Visualization views use the existing flattened task fields: `id`, `title`,
+`parent`, `depth`, `state`, and `prior`. Root tasks are `depth == 1` or have no
+`parent`; child tasks are rows with a parent.
 
 ## Future Work
 
-- **Click to open in editor.** A click on a task or subtask label opens the corresponding `.rhei.md` line range in `$EDITOR`.
-- **Filter by state / level.** Click a state pill in the legend to dim items in other states.
-- **DAG view.** A fourth tab that draws the `**Prior:**` graph, showing ready / blocked chains.
-- **Diff mode.** `rhei viz --diff <git-ref>` highlights items whose state changed versus a prior commit.
-
-These are explicitly out of scope for the first implementation and are listed here so reviewers can weigh them when evaluating the v1 design.
+- Click to open a task in an editor.
+- Filter or dim by state and level.
+- DAG/dependency graph view.
+- Diff visualization against another snapshot or git ref.

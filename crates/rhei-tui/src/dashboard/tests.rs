@@ -18,6 +18,20 @@ fn assigned(from: &str, to: &str) -> RunEvent {
     }
 }
 
+fn dashboard_task(id: &str, state: &str, parent: Option<&str>, depth: u8) -> DashboardTask {
+    DashboardTask {
+        id: id.to_string(),
+        title: format!("Task {id}"),
+        kind: "Task".to_string(),
+        parent: parent.map(str::to_string),
+        depth,
+        state: state.to_string(),
+        assignee: None,
+        prior: Vec::new(),
+        result_link: None,
+    }
+}
+
 /// Per `RunEvent::SlotAssigned`'s contract, `from == to` means the
 /// engine started a worker in an autonomous state — not a transition.
 /// `slot.transition` must stay `None` so renderers don't paint a phantom
@@ -72,4 +86,84 @@ fn url_path_encodes_unsafe_bytes_and_preserves_slashes() {
     assert_eq!(encode_url_path("/has#hash?and"), "/has%23hash%3Fand");
     // Two UTF-8 bytes for `é`.
     assert_eq!(encode_url_path("/caf\u{00e9}"), "/caf%C3%A9");
+}
+
+#[test]
+fn derives_plan_state_from_root_tasks() {
+    assert_eq!(derive_plan_state(&[dashboard_task("1", "draft", None, 1)]), "draft");
+    assert_eq!(
+        derive_plan_state(&[
+            dashboard_task("1", "completed", None, 1),
+            dashboard_task("2", "completed", None, 1),
+        ]),
+        "completed"
+    );
+    assert_eq!(
+        derive_plan_state(&[
+            dashboard_task("1", "completed", None, 1),
+            dashboard_task("2", "cancelled", None, 1),
+        ]),
+        "archived"
+    );
+    assert_eq!(
+        derive_plan_state(&[
+            dashboard_task("1", "pending", None, 1),
+            dashboard_task("2", "agent-review-fix", None, 1),
+        ]),
+        "active"
+    );
+    assert_eq!(
+        derive_plan_state(&[
+            dashboard_task("1", "pending", None, 1),
+            dashboard_task("2", "blocked", None, 1),
+        ]),
+        "pending"
+    );
+}
+
+#[test]
+fn plan_state_derivation_ignores_child_task_states() {
+    let tasks = vec![
+        dashboard_task("1", "draft", None, 1),
+        dashboard_task("1.1", "agent-review", Some("1"), 2),
+        dashboard_task("1.2", "failed", Some("1"), 2),
+    ];
+
+    assert_eq!(derive_plan_state(&tasks), "draft");
+}
+
+#[test]
+fn snapshot_payload_exposes_plan_state() {
+    let state = empty_state();
+    let payload = SnapshotPayload {
+        state: &state,
+        plan_title: Some("Demo".to_string()),
+        plan_state: Some("active".to_string()),
+        tasks: Vec::new(),
+        auto_links: Vec::new(),
+    };
+
+    let value = serde_json::to_value(&payload).expect("serialize snapshot payload");
+    assert_eq!(value["plan_state"], "active");
+}
+
+#[test]
+fn dashboard_html_includes_visualization_tabs_and_stays_self_contained() {
+    assert!(DASHBOARD_HTML.contains(r#"data-view="gantt""#));
+    assert!(DASHBOARD_HTML.contains(r#"data-view="cube""#));
+    assert!(DASHBOARD_HTML.contains(r#"data-view="sankey""#));
+    assert!(DASHBOARD_HTML.contains(r#"<button class="tab active" data-view="gantt">"#));
+    assert!(DASHBOARD_HTML.contains("function descendantsByRoot"));
+    assert!(DASHBOARD_HTML.contains("function cubeColumnSlots"));
+    assert!(DASHBOARD_HTML.contains("Dense task-by-descendant-state heatmap"));
+    assert!(DASHBOARD_HTML.contains("Descendant-state flow by top-level task"));
+    assert!(DASHBOARD_HTML.contains("overflow-x: auto"));
+    assert!(DASHBOARD_HTML.contains("white-space: nowrap"));
+    assert!(DASHBOARD_HTML.contains("String(task.id).slice(prefix.length)"));
+    assert!(DASHBOARD_HTML.contains("<title>${escapeHtml(slot)}</title>"));
+    assert!(DASHBOARD_HTML
+        .contains("new Map(descendants.map(child => [descendantSlot(root, child), child]))"));
+    assert!(DASHBOARD_HTML.contains("<title>${title}</title>"));
+    assert!(!DASHBOARD_HTML.contains("<script src="));
+    assert!(!DASHBOARD_HTML.contains("<link rel=\"stylesheet\""));
 }
