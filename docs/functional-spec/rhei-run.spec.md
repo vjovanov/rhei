@@ -24,6 +24,8 @@ Flags are grouped by concern:
 | `--parallel <N>`         | 1       | Maximum number of agents or programs to run concurrently (0 = unlimited)   |
 | `--tui`                  | auto    | Force TUI mode even when stdout is not detected as a TTY                   |
 | `--no-tui`               | auto    | Force plain stdout output even when stdout is a TTY                        |
+| `--dashboard`            | auto    | Serve the loopback browser dashboard for this run                          |
+| `--no-dashboard`         | auto    | Disable the loopback browser dashboard                                     |
 
 ### 2.2. Agent Execution
 
