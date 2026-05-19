@@ -314,7 +314,7 @@ fn next_command(
         Ok(resolved) => resolved,
         Err(err) => {
             eprintln!(
-                "warning: could not resolve agent for state '{}': {:?}",
+                "warning: could not resolve agent for state '{}': {}",
                 final_state, err
             );
             None
