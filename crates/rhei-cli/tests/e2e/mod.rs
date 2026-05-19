@@ -2,6 +2,7 @@ mod completions_tests;
 mod install_skills_tests;
 mod next_tests;
 mod run_tests;
+mod snapshot_tests;
 mod templates_tests;
 mod transition_tests;
 
