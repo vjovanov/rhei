@@ -17,7 +17,7 @@ A **template** is a directory containing:
 
 Materialized template files may contain **instantiation templates** (`{{ ... }}`, `{% ... %}`) that are resolved at instantiation time from user-supplied inputs. These are distinct from the single-brace **runtime variables** (`{name}`) defined by the state-machine and plan specifications. Rendering is ordered: first resolve MiniJinja templates across template files during `rhei instantiate`, then let later `rhei` commands resolve runtime `{...}` variables against the instantiated workspace. The manifest (`template.yaml`) is parsed before rendering and is never itself templated.
 
-## Template Discovery
+## 1. Template Discovery
 
 Templates are resolved in order, first match wins:
 
@@ -34,7 +34,7 @@ Discovery errors are handled per command:
 - `rhei instantiate <name>` fails if the matched template directory is unreadable or invalid.
 - `rhei instantiate <path>` fails if the explicit template path is unreadable or invalid.
 
-## Directory Layout
+## 2. Directory Layout
 
 ```
 <name>/
@@ -52,7 +52,7 @@ Discovery errors are handled per command:
 
 A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error.
 
-## Manifest Schema (`template.yaml`)
+## 3. Manifest Schema (`template.yaml`)
 
 ```yaml
 name: <identifier>             # Template identifier (must match directory name)
@@ -81,7 +81,7 @@ inputs:
         ...
 ```
 
-### Validation Rules
+### 3.1. Validation Rules
 
 - `name` must match the enclosing directory name.
 - `inputs[].name` values must be unique within the manifest.
@@ -102,7 +102,7 @@ inputs:
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
 - `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value.
 
-## Template-Shipped Settings
+## 4. Template-Shipped Settings
 
 A template may bundle a `settings.json` file alongside `template.yaml` to
 declare project-scoped settings that the instantiated workspace should start
@@ -110,7 +110,7 @@ with — most commonly, the MCP server and skill profiles the state machine
 references.
 
 The file uses the standard project settings schema documented in
-[Agents Specification — Global and Project Settings](rhei-agents.spec.md#global-and-project-settings).
+[Agents Specification — Global and Project Settings](rhei-agents.spec.md#11-global-and-project-settings).
 It is treated as a text template file: instantiation variables (`{{name}}`)
 are resolved at instantiation time so a template can parameterize
 workspace-specific values (workspace ids, paths, hostnames) without exposing
@@ -167,7 +167,7 @@ Rules:
   template-declared entries, add project-specific overrides, or clear the
   `defaults` lists.
 
-## Instantiation Template Syntax
+## 5. Instantiation Template Syntax
 
 Instantiation rendering uses a restricted [MiniJinja](https://github.com/mitsuhiko/minijinja)-style environment. This is intentionally distinct from the single-brace runtime variables (`{task_id}`, `{visit_count}`, etc.) that later `rhei` commands resolve at execution time.
 
@@ -185,7 +185,7 @@ The renderer is **strict**:
 - `template.yaml` is parsed before rendering and is never templated.
 - The environment does not load external templates; includes/imports are unavailable.
 
-### Resolution Rules
+### 5.1. Resolution Rules
 
 - Instantiation templates are resolved **at instantiation time**, producing a concrete plan with no remaining `{{...}}` / `{% ... %}` markers.
 - Runtime variables (`{...}`) pass through instantiation untouched — they remain in the output for `rhei next` to resolve later.
@@ -196,7 +196,7 @@ The renderer is **strict**:
 - Text template files must decode as UTF-8. If a file is classified as text but cannot be decoded as UTF-8, instantiation fails with a file-read error.
 - Binary files (images, compiled artifacts) are copied without instantiation-variable resolution or UTF-8 decoding.
 
-### Escaping
+### 5.2. Escaping
 
 To emit a literal `{{` or `{%`, prefer MiniJinja raw blocks:
 
@@ -206,9 +206,9 @@ To emit a literal `{{` or `{%`, prefer MiniJinja raw blocks:
 
 For backward compatibility, `\{{` also emits a literal `{{` and the backslash is consumed during instantiation.
 
-## CLI Commands
+## 6. CLI Commands
 
-### `rhei instantiate`
+### 6.1. `rhei instantiate`
 
 Create a concrete plan workspace from a template.
 
@@ -234,7 +234,7 @@ Options:
   --list-inputs                Print the template's input schema and exit
 ```
 
-#### Input UX
+#### 6.1.1. Input UX
 
 `rhei instantiate` supports three equivalent ways to provide simple template
 inputs:
@@ -297,7 +297,7 @@ Input arguments are parsed as follows:
 - `--set-file KEY=PATH` remains the file-content form and has higher precedence
   than positional values, `KEY=VALUE`, and `--set`.
 
-#### Behavior
+#### 6.1.2. Behavior
 
 1. **Locate template.** Resolve `<template>` through the discovery chain unless it is already a filesystem path. Direct paths include absolute paths, relative paths containing `/`, and dot-prefixed relative paths such as `./my-template` or `../templates/review`.
 2. **Load manifest.** Parse `template.yaml`, validate schema.
@@ -309,7 +309,7 @@ Input arguments are parsed as follows:
 8. **Print invocation.** Print a shell-safe `rhei instantiate ... --output <path>` command that shows how to instantiate the same template and input values again. The printed command uses the resolved output path, so shell expressions such as `$(date ...)` appear as the concrete path value seen by the CLI.
 9. **Execute (optional).** When `--execute` is passed, invoke `rhei run <output>` after successful validation. `rhei run` uses the instantiated output's root `states.yaml` by default when present; otherwise it falls back to the built-in default.
 
-#### Instantiation Summary Output
+#### 6.1.3. Instantiation Summary Output
 
 After successful validation, `rhei instantiate` prints a compact report before
 the reproducible invocation. The report is intended to be useful for both
@@ -372,14 +372,14 @@ their own recent definitions when they are among the last five tasks.
 - If none of the above applies, the reason says validation succeeded but no
   claimable task was found.
 
-#### Exit Codes
+#### 6.1.4. Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
 | 1 | Any instantiation error, including template lookup failure, missing or invalid inputs, unresolved instantiation variables, output-path conflicts, validation failure, or `--execute` runtime failure surfaced by the CLI |
 
-### `rhei templates`
+### 6.2. `rhei templates`
 
 List available templates.
 
@@ -554,7 +554,7 @@ states:
 
 All `{{...}}` are resolved during instantiation. All `{...}` remain for runtime.
 
-## Interaction with Existing Features
+## 7. Interaction with Existing Features
 
 | Feature | Interaction |
 |---------|-------------|
@@ -566,13 +566,13 @@ All `{{...}}` are resolved during instantiation. All `{...}` remain for runtime.
 | **Skills** | The `rhei-plan-worker` skill works on instantiated plans identically to hand-authored plans. No skill changes required. |
 | **`install-skills`** | Unchanged. Templates are orthogonal to skill installation. |
 
-## Grammar Extension
+## 8. Grammar Extension
 
 The `rhei_document` and `workspace_index` productions are unchanged. Templates are a pre-processing layer that produces valid Rhei documents — the parser never sees `{{...}}` syntax.
 
 No changes to the Rhei plan grammar are required.
 
-## Manifest Fields
+## 9. Manifest Fields
 
 `template.yaml` is a YAML mapping parsed by field name, not by key order. The following schema is normative:
 
@@ -595,7 +595,7 @@ Each `inputs[]` entry is a YAML mapping with these fields:
 | `positional` | positive integer | No | Optional 1-based CLI positional input slot. Values must be unique and contiguous starting at `1`. |
 | `validate` | string | No | Rust `regex`-crate pattern, matched against the fully rendered value. |
 
-## File Extension
+## 10. File Extension
 
 Template manifest files use the `.yaml` extension. Template plan entry points are exactly `plan.rhei.md` or `index.rhei.md`. In directory-workspace templates, files under `tasks/` may use `.md` consistent with standard Rhei workspaces.
 

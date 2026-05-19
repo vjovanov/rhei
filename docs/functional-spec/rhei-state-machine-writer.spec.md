@@ -14,9 +14,9 @@ The default `rhei` state machine covers a generic agent workflow (draft, pending
 
 The state machine writer analyzes two inputs — the **project specification** and the **project teams** — and produces a state machine YAML file that encodes the project's real workflow as Rhei states and transitions.
 
-## Inputs
+## 1. Inputs
 
-### 1. Project Specification
+### 1.1. Project Specification
 
 The project specification describes what the project does, its deliverables, phases, quality gates, and constraints. This can come from:
 
@@ -35,7 +35,7 @@ The state machine writer extracts from the specification:
 | Failure modes and recovery paths | Error/retry states and transitions |
 | Automated checks | Callback-eligible transitions |
 
-### 2. Project Teams
+### 1.2. Project Teams
 
 The team structure describes who is involved and what authority each team or role has. This can come from:
 
@@ -53,11 +53,11 @@ The state machine writer maps teams to workflow elements:
 | Autonomous agents | Non-gating states with agent instructions |
 | Human decision-makers | Gating states (no autonomous exit) |
 
-## Output
+## 2. Output
 
-The state machine writer produces a single YAML file conforming to the [YAML State Machine Format](rhei-transitions.spec.md#yaml-state-machine-format-specification). The file is ready to be referenced by a Rhei plan's `**States:**` declaration.
+The state machine writer produces a single YAML file conforming to the [YAML State Machine Format](rhei-transitions.spec.md#4-yaml-state-machine-format-specification). The file is ready to be referenced by a Rhei plan's `**States:**` declaration.
 
-### Output Structure
+### 2.1. Output Structure
 
 ```yaml
 name: <project-derived-name>
@@ -119,11 +119,11 @@ When a machine declares `models`, each state may either:
 
 It must not set both `all_models` and `model` on the same state.
 
-## Design Rules
+## 3. Design Rules
 
 The state machine writer follows these rules when designing a state machine:
 
-### State Design
+### 3.1. State Design
 
 1. **Every distinct workflow phase gets its own state.** Don't overload a single state with multiple meanings. If two phases have different instructions or different exit conditions, they are different states.
 
@@ -139,7 +139,7 @@ The state machine writer follows these rules when designing a state machine:
 
 7. **Include recovery states when failure is expected.** If a phase can fail and be retried, model the retry path explicitly (e.g., `validation-failed` → `fixing` → `validating`). Don't rely on implicit "go back to the previous state."
 
-### Transition Design
+### 3.2. Transition Design
 
 1. **Every transition must be explicitly declared.** Unlisted transitions are forbidden. This is the core safety property of Rhei state machines.
 
@@ -153,7 +153,7 @@ The state machine writer follows these rules when designing a state machine:
 
 6. **Team handoffs are transitions.** When work passes from one team to another, model it as a transition between team-owned states. The `on_leave` callback on the source state packages the deliverable; the `on_enter` callback on the target state notifies the receiving team.
 
-### Profile and Node Policy Design
+### 3.3. Profile and Node Policy Design
 
 1. **Start with a single default profile.** If every node kind in the plan follows the same flow, define one profile (for example `default`) whose `allowed` set is the full list of states, and point both `node_policy.root` and `node_policy.default` at it. Only split into multiple profiles once you have concrete evidence that different kinds need different flows — it's easier to split later than to collapse prematurely fractured profiles.
 
@@ -165,17 +165,17 @@ The state machine writer follows these rules when designing a state machine:
 
 5. **Use `overrides` only when `by_type` cannot express the rule.** `by_type` covers the common case ("all tasks follow this flow"). Add an `overrides` entry only for genuinely multi-dimensional cases — for example, "leaf-level tasks skip review." Entries are first-match-wins in declaration order; keep the list short enough to read top to bottom.
 
-### Instructions Design
+### 3.4. Instructions Design
 
 1. **Write instructions for the actor in that state.** If the state is for an agent, write what the agent should do. If the state is a human gate, write what the human is expected to decide.
 
-2. **Encode exit conditions structurally, not in instructions.** Under `orchestrator` authority, `rhei run` derives completion from subprocess exit plus the state's required `outputs:`, and it selects the next state from transition `condition` / `exit_code` fields. `instructions` and `personality` therefore describe the domain work only; they must not tell the actor how or when to stop, or when to call transition commands. Gating states (`gating: true`) are the one exception: no subprocess is spawned there, so their instructions address a human reader and should explicitly say "do not transition out of this state autonomously" to mark the hand-off. See [Agents Specification — Completion Authority](rhei-agents.spec.md#completion-authority).
+2. **Encode exit conditions structurally, not in instructions.** Under `orchestrator` authority, `rhei run` derives completion from subprocess exit plus the state's required `outputs:`, and it selects the next state from transition `condition` / `exit_code` fields. `instructions` and `personality` therefore describe the domain work only; they must not tell the actor how or when to stop, or when to call transition commands. Gating states (`gating: true`) are the one exception: no subprocess is spawned there, so their instructions address a human reader and should explicitly say "do not transition out of this state autonomously" to mark the hand-off. See [Agents Specification — Completion Authority](rhei-agents.spec.md#31-completion-authority).
 
 3. **Reference concrete artifacts.** Don't write "review the work." Write "review the implementation against the task description and its child task nodes. Check that tests pass and lint is clean."
 
-4. **Use template variables instead of placeholders.** When instructions reference task-specific data, use resolved template variables (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`) instead of prose placeholders like `<id>`. When a state declares artifact contracts (`inputs:` / `outputs:` — see [States Specification — Artifact Contracts](rhei-states.spec.md#artifact-contracts) for the YAML schema), reference them by name (`{input.<name>.path}`, `{output.<name>.path}`) instead of repeating raw paths. See the [States Specification](rhei-states.spec.md#template-variables-in-instructions-and-personality) for the full variable namespace.
+4. **Use template variables instead of placeholders.** When instructions reference task-specific data, use resolved template variables (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`) instead of prose placeholders like `<id>`. When a state declares artifact contracts (`inputs:` / `outputs:` — see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the YAML schema), reference them by name (`{input.<name>.path}`, `{output.<name>.path}`) instead of repeating raw paths. See the [States Specification](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) for the full variable namespace.
 
-## Workflow
+## 4. Workflow
 
 The state machine writer follows this process:
 
@@ -206,7 +206,7 @@ The state machine writer follows this process:
    - No orphan states (defined in `states` but not referenced by any profile's `allowed`, transition, or override).
    - State names are lowercase, hyphenated identifiers (matching the `IDENTIFIER` grammar production).
    - Non-terminal states encode their exit conditions structurally — through required `outputs:` artifacts and through transition `condition` / `exit_code` fields — not in prose inside `instructions`. Gating states must instead tell the human reader not to transition autonomously.
-   - Under `orchestrator` authority, every non-gating, non-final state resolves to a finite `agent_timeout` or `program_timeout` at some level of the timeout chain; see [Agents Specification — Timeout Requirement](rhei-agents.spec.md#timeout-requirement).
+   - Under `orchestrator` authority, every non-gating, non-final state resolves to a finite `agent_timeout` or `program_timeout` at some level of the timeout chain; see [Agents Specification — Timeout Requirement](rhei-agents.spec.md#322-timeout-requirement).
 
 10. **Write the YAML file.** Emit the file conforming to the YAML State Machine Format.
 
@@ -483,7 +483,7 @@ Use a custom state machine when:
 - Automated callbacks should fire on specific transitions.
 - The default states don't capture the project's real workflow.
 
-## File Placement
+## 5. File Placement
 
 State machine YAML files should be placed in the project at a conventional location:
 

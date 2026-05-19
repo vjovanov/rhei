@@ -2,7 +2,7 @@
 
 Reset every task in a plan to its resolved profile's `initial` state and remove runtime output. This is the inverse of a forward run: it restores the plan to a clean, pre-execution state so the same plan can be re-executed from scratch.
 
-## Usage
+## 1. Usage
 
 ```bash
 rhei reset <RHEI_PLAN_OR_WORKSPACE>
@@ -10,7 +10,7 @@ rhei reset <RHEI_PLAN_OR_WORKSPACE>
 
 `<RHEI_PLAN_OR_WORKSPACE>` may be either a `.rhei.md` file (single-file plan) or a directory workspace root (containing `index.rhei.md` and `tasks/`).
 
-## Behavior
+## 2. Behavior
 
 1. Load the state machine and plan. Validate the plan (reset refuses to operate on an invalid plan).
 2. Acquire a file lock on the plan file (single-file) or on `index.rhei.md` (workspace).
@@ -29,13 +29,13 @@ Reset does **not**:
 - Remove user-authored files outside of `runtime/`.
 - Alter the state machine or template source of the plan.
 
-## Safety
+## 3. Safety
 
 Reset is destructive with respect to runtime state. It does not prompt and has no `--dry-run` flag; callers that need a preview should inspect `runtime/` and the current `**State:**` values before invoking it.
 
 Because reset operates under a file lock, it is safe against concurrent `rhei next` / `rhei transition` / `rhei complete` calls: those calls either run before the reset acquires the lock or after it releases.
 
-## Output
+## 4. Output
 
 On success, two lines are printed:
 
@@ -58,7 +58,7 @@ directory did not exist.
 
 `rhei reset` inverts the forward commands (`next`, `transition`, `complete`, `run`): it returns every task to its profile's `initial` state and removes the `runtime/` directory.
 
-See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) for the full table comparing all five coordination commands.
+See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface) for the full table comparing all five coordination commands.
 
 ## Related Specifications
 

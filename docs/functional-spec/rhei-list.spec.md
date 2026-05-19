@@ -5,7 +5,7 @@ dependency, hierarchy, free-text, and readiness. Modeled after `bd list` from
 beads, restricted to fields Rhei stores in markdown (no priority, labels, or
 timestamps).
 
-## Usage
+## 1. Usage
 
 ```bash
 rhei list <RHEI_PLAN> [FILTERS] [--limit N] [--json]
@@ -13,7 +13,7 @@ rhei list <RHEI_PLAN> [FILTERS] [--limit N] [--json]
 
 `<RHEI_PLAN>` is a single-file plan or a Directory Workspace path.
 
-## Options
+## 2. Options
 
 | Flag                     | Description                                                                       |
 |--------------------------|-----------------------------------------------------------------------------------|
@@ -34,7 +34,7 @@ rhei list <RHEI_PLAN> [FILTERS] [--limit N] [--json]
 
 Filters combine with logical AND. Empty result sets are not an error.
 
-## Behavior
+## 3. Behavior
 
 1. Load the plan and resolve the state machine the same way `rhei validate` does
    (auto-discovery, `**States:**` field, `--state-machine` override).
@@ -47,9 +47,9 @@ Filters combine with logical AND. Empty result sets are not an error.
 5. Apply `--limit` after filtering.
 6. Emit the result. The plan file is **not** modified and no lock is acquired.
 
-## Output
+## 4. Output
 
-### Text (default)
+### 4.1. Text (default)
 
 One task per line, indented two spaces per depth level, in source order:
 
@@ -66,7 +66,7 @@ The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 When no task matches, `rhei list` prints `(no tasks match the given filters)`
 and exits 0.
 
-### JSON (`--json`)
+### 4.2. JSON (`--json`)
 
 A flat array of objects (no hierarchy nesting); the `parent` field carries the
 parent id when present.

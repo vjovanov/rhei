@@ -2,13 +2,13 @@
 
 Atomically complete a task: transition to a terminal state, write the result to a file, link it from the task body, and remove the `**Assignee:**` line. This is the single command an agent calls when it is done with a task.
 
-## Usage
+## 1. Usage
 
 ```bash
 rhei complete <RHEI_PLAN> --task <TASK_ID> --result <MESSAGE>
 ```
 
-## Options
+## 2. Options
 
 | Flag             | Required | Default | Description                                       |
 |------------------|----------|---------|---------------------------------------------------|
@@ -16,7 +16,7 @@ rhei complete <RHEI_PLAN> --task <TASK_ID> --result <MESSAGE>
 | `--result <MSG>` | Yes      |         | Result message for the task                       |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave`/`on_enter` callbacks |
 
-## Result File
+## 3. Result File
 
 Each task has a result file at a fixed path:
 
@@ -34,7 +34,7 @@ before child nodes):
 
 This keeps task files concise — the result detail lives in a separate artifact under `runtime/`, consistent with how other runtime outputs (findings, verifications, fixes) are stored in directory workspaces.
 
-### Result File Format
+### 3.1. Result File Format
 
 The result file contains one entry per state transition, appended by both `rhei transition` and `rhei complete`. Each entry is a markdown heading with the transition arrow followed by the message (if any):
 
@@ -56,12 +56,12 @@ Example result file after a task goes `draft → pending → completed`:
 Added avatar_url column and migration 0042
 ```
 
-## Behavior
+## 4. Behavior
 
 1. Load the state machine and plan (single file or directory workspace). Validate.
 2. Locate the task by ID. Fail if the task does not exist.
 3. Reject if the task is already in a terminal state.
-4. Reject if the task's current state is a [gating state](rhei-states.spec.md#per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
+4. Reject if the task's current state is a [gating state](rhei-states.spec.md#12-per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
 5. Reject if any descendant task node of the target task is still in a
    non-terminal state. A parent task must not be completed while any child,
    grandchild, or deeper descendant remains open.
@@ -79,19 +79,19 @@ are full stateful task nodes. `rhei complete` must therefore inspect all
 descendants of the target task and reject completion until every descendant is
 in a terminal state.
 
-### Completion Target Selection
+### 4.1. Completion Target Selection
 
 The command scans declared transitions for a non-cancelled terminal state reachable in one hop from the task's current state. If multiple terminal states are reachable, the first non-cancelled one wins. If only `cancelled` is reachable, the command fails.
 
-### Single-File Plans
+### 4.2. Single-File Plans
 
 The result file is written relative to the plan file's parent directory. The state change, assignee removal, and result link are applied in the plan file itself.
 
-### Directory Workspaces
+### 4.3. Directory Workspaces
 
 The result file is written relative to the workspace root. The state change, assignee removal, and result link are applied in the task file under `tasks/`.
 
-## Output
+## 5. Output
 
 ```text
 Task <ID> completed: '<from>' -> '<to>' (runtime/results/<ID>.md)
@@ -119,7 +119,7 @@ rhei complete ./my-workspace --task review-seed \
 
 `rhei complete` is the terminal step of the manual-worker loop: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release). It transitions the task to a terminal state, appends a result entry, and releases the claim.
 
-See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) for the full table comparing all five coordination commands.
+See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface) for the full table comparing all five coordination commands.
 
 ## Related Specifications
 
