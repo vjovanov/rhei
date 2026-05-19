@@ -61,7 +61,7 @@ fn build_agent_command(
 
     // Use the concrete provider model name from the `models` registry when
     // available; fall back to the model id otherwise so untracked literals
-    // (`gpt-5`) still pass through. See spec §`models` and §`agents`.
+    // §FS-rhei-agents.1.1.2 §FS-rhei-agents.1.1.3: Model flag value resolution.
     let model_flag_value = resolved.model_name.as_deref().or(resolved.model.as_deref());
     if let (Some(flag), Some(model)) = (&profile.model_flag, model_flag_value) {
         cmd.arg(flag).arg(model);
@@ -73,8 +73,7 @@ fn build_agent_command(
 
     // Append MCP and skill flags. Only entries whose definition resolved
     // (registry hit or inline) are emitted; this matches `RHEI_MCP_SERVERS`
-    // / `RHEI_SKILLS` semantics. See spec §Known Agent Profiles and
-    // §Missing Tooling.
+    // §FS-rhei-agents.2 §FS-rhei-agents.6: Emit available tooling flags only.
     if let Some(flag) = profile.mcp_flag.as_deref() {
         for entry in &tooling.mcp_servers {
             if entry.definition.is_some() {
@@ -197,7 +196,7 @@ fn write_mcp_config_file(
 
 /// Expand `${VAR}` references in a string against the current process
 /// environment. Unknown variables expand to the empty string, matching the
-/// `${VAR}` semantics described in spec §`mcp_servers`.
+/// §FS-rhei-agents.1.1.4: Expand MCP profile environment references.
 fn expand_env_vars(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
@@ -224,9 +223,9 @@ fn expand_env_vars(input: &str) -> String {
 /// Skills resolve only when the agent declares `skill_flag`; MCP entries
 /// resolve only when the agent declares `mcp_flag` or `mcp_config_flag`.
 /// State-declared entries that the agent cannot wire are reported here so
-/// operators can see why no flags were emitted. See spec §Skills and
-/// §Missing Tooling — required entries' escalation to error is part of the
-/// availability subsystem (deferred Half B) and is not driven from here.
+/// operators can see why no flags were emitted. Required-entry escalation to
+/// error is part of the availability subsystem and is not driven from here.
+// §FS-rhei-agents.1.1.5 §FS-rhei-agents.6: Unsupported tooling diagnostics.
 fn collect_unsupported_tooling_warnings(
     resolved: &ResolvedAgent,
     tooling: &ResolvedTooling,

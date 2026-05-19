@@ -30,36 +30,117 @@ engine ──► Tee ──┬──► JournalSink   (runtime/transitions.log, 
                  └──► FrontendSink  (TuiSink if TTY, else StdoutSink)
 ```
 
-Slot-oriented events (see below) mean the renderer updates exactly one tile per event. The engine assigns a slot index when it spawns an agent and releases it when the agent exits.
+Slot-oriented events (see below) mean the renderer updates exactly one tile per event. The engine assigns a `Slot` when it spawns an agent or program and releases it when that invocation exits. `Slot` is a `u16`, not a byte-sized value, so very large `--parallel` values cannot silently collide after slot 255.
 
 ### 1.1. Event Surface
 
 ```rust
 // crates/rhei-tui/src/event.rs
-pub enum RunEvent {
-    RunStarted    { workspace: PathBuf, parallel: u8, total_tasks: usize },
-    PassStarted   { pass: u32, ready: Vec<TaskId> },
-    SlotAssigned  { slot: u8, task: TaskId, from: StateName, to: StateName,
-                    log_path: PathBuf, started_at: Instant },
-    SlotReleased  { slot: u8, task: TaskId, outcome: TaskOutcome,
-                    finished_at: Instant },
-    AgentOutput   { slot: u8, task: TaskId, stream: AgentStream,
-                    line: String, wall_clock: SystemTime },
-    PassEnded     { pass: u32, progressed: bool },
-    RunFinished   { summary: RunSummary },
+pub type Slot = u16;
+
+pub enum TaskOutcome {
+    Completed,
+    Failed(String),
+    Cancelled,
+    TimedOut,
 }
 
-pub enum AgentStream { Stdout, Stderr }
-pub enum TaskOutcome { Completed, Failed(String), Cancelled, TimedOut }
+pub struct RunSummary {
+    pub agents_spawned: u32,
+    pub programs_spawned: u32,
+    pub terminal_tasks: usize,
+    pub total_tasks: usize,
+}
+
+pub enum MessageLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+pub enum AgentStream {
+    Stdout,
+    Stderr,
+}
+
+pub enum RunEvent {
+    RunStarted {
+        workspace: PathBuf,
+        parallel: u16,
+        total_tasks: usize,
+    },
+    PassStarted {
+        pass: u32,
+        ready: Vec<String>,
+    },
+    SlotAssigned {
+        slot: Slot,
+        task: String,
+        from: String,
+        to: String,
+        agent: Option<String>,
+        log_path: PathBuf,
+        started_at: Instant,
+        wall_clock: SystemTime,
+    },
+    SlotReleased {
+        slot: Slot,
+        task: String,
+        from: String,
+        to: String,
+        log_path: PathBuf,
+        outcome: TaskOutcome,
+        finished_at: Instant,
+        wall_clock: SystemTime,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+    },
+    PassEnded {
+        pass: u32,
+        progressed: bool,
+    },
+    TasksDeferred {
+        pass: u32,
+        tasks: Vec<String>,
+    },
+    RunFinished {
+        summary: RunSummary,
+    },
+    Message {
+        level: MessageLevel,
+        text: String,
+    },
+    RunLink {
+        label: String,
+        url: String,
+    },
+    AgentOutput {
+        slot: Slot,
+        task: String,
+        stream: AgentStream,
+        line: String,
+        wall_clock: SystemTime,
+    },
+}
 
 pub trait EventSink: Send + Sync {
     fn emit(&self, event: RunEvent);
 }
 ```
 
-`SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right tile without reconciliation.
+`RunStarted` is emitted once per run with the workspace root, resolved parallelism, and total task count. `PassStarted` and `PassEnded` bracket each scheduler pass; `PassStarted.ready` is the current ready set in source-order task ids.
+
+`SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right tile without reconciliation. Both events also carry `from` and `to`: when `from == to`, the worker started or ended in the same autonomous state and renderers must not present that as a real self-transition.
+
+`SlotAssigned.agent` identifies the resolved agent or target label when the invocation is agent-backed; it is `None` for program-backed work. `SlotReleased.exit_code` is the subprocess exit status when one is available, and `duration_ms` is the invocation duration in milliseconds.
 
 `AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
+
+`TasksDeferred` is emitted when tasks were ready in the current pass but not scheduled because another task in the same non-`concurrent` state consumed the available same-state slot. Deferred tasks remain eligible for later passes.
+
+`Message` carries human-oriented engine diagnostics with `info`, `warn`, or `error` severity. `RunLink` carries URLs or file links produced by the run process, such as dashboard links or callback-emitted artifacts. Frontends may render both in a journal pane; they do not represent task state changes.
+
+`RunFinished` is emitted once with aggregate counts for spawned agents, spawned programs, terminal tasks, and total tasks.
 
 `Tee` is a composite sink implementing `EventSink` by forwarding each event to a fixed list of inner sinks.
 

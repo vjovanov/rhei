@@ -61,8 +61,7 @@ struct ProgramExecutionFlags {
 
 /// Flags that control snapshot inheritance overrides for `rhei run`.
 ///
-/// See `docs/functional-spec/rhei-run.spec.md` § Snapshots and
-/// `docs/functional-spec/rhei-snapshot-operations.spec.md` § 2. Run Override.
+/// §FS-rhei-run.2.3 §FS-rhei-snapshot-operations.2: Snapshot run flags.
 #[derive(Args, Clone, Debug, Default)]
 #[command(next_help_heading = "Snapshots")]
 struct SnapshotExecutionFlags {

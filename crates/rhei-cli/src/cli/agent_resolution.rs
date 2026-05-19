@@ -69,8 +69,10 @@ fn resolve_legacy_agent_with_model(
 ) -> MietteResult<Option<ResolvedAgent>> {
     // Resolve the model id first so that step 5 of the agent resolution chain
     // — `models.<id>.default_agent` — has something to look up. Precedence
-    // matches docs/functional-spec/rhei-agents.spec.md §Resolution Order:
-    // CLI > state > nested `defaults.model` > legacy top-level `model`.
+    // matches the resolution order: CLI > state > nested `defaults.model` >
+    // legacy top-level `model`.
+
+    // §FS-rhei-agents.1.4: Agent/model resolution precedence.
     let model = if let Some(ovr) = model_override {
         Some(ovr)
     } else if let Some(ovr) = opts.model_override() {
@@ -299,9 +301,10 @@ fn callback_contexts_for_state<'a>(
 /// `state.agent_timeout > models.<id>.agents.<agent>.timeout > agents.<id>.timeout > defaults.agent_timeout`.
 ///
 /// This is the runtime counterpart to the Completion Authority / Completion
-/// Condition rules in `docs/functional-spec/rhei-agents.spec.md`. A missing timeout
+/// Condition rules. A missing timeout
 /// would mean the subprocess could hang indefinitely without a deterministic
 /// fallback, which defeats deterministic completion under `rhei run`.
+// §FS-rhei-agents.3.1 §FS-rhei-agents.3.2: Orchestrator completion timeout.
 fn ensure_orchestrator_timeout(resolved: &ResolvedAgent, state_name: &str) -> MietteResult<()> {
     if resolved.timeout_secs.is_some() {
         return Ok(());

@@ -12,7 +12,7 @@
 //! ancestor-as-prior rejection, subtask parent-number consistency, and
 //! terminal parent/subtask coherence.
 
-// The validator is split into include parts to keep source files bounded by §AR-source-file-size.
+// §AR-source-file-size: The validator is split into bounded include parts.
 include!("validator/preamble.rs");
 include!("validator/state_defs.rs");
 include!("validator/state_machine_impl.rs");

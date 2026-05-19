@@ -126,9 +126,11 @@ fn build_task_index(rhei: &Rhei) -> HashMap<TaskId, &Task> {
     map
 }
 
+// §FS-rhei-states.9.3: Validate node policy selectors against plan structure.
+
 /// Validate the plan-dependent parts of `node_policy`: by-type keys and
 /// override selectors are checked against the current plan's
-/// `structure.nodeKinds` and `structure.maxLevels`. §FS-rhei-states
+/// `structure.nodeKinds` and `structure.maxLevels`.
 fn validate_node_policy_against_structure(
     machine: &StateMachine,
     structure: &Structure,

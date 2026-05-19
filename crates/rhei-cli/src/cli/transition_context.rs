@@ -51,10 +51,11 @@ fn execution_workspace_root(plan_path: &Path) -> PathBuf {
 /// Build the cross-language `TransitionContext` JSON payload that is
 /// delivered to callbacks on stdin.
 ///
-/// Shape matches `docs/functional-spec/rhei-transitions.spec.md` #transitioncontext-data-structure.
+/// Shape matches the TransitionContext data structure.
 /// The `triggered_by` field must be one of `"user" | "callback" | "system" | "engine"`.
 /// `transition_data` seeds the `transitionData` slot; pass `serde_json::Value::Object(Map::new())`
 /// for the initial `on_leave` call, and the accumulated data from `on_leave` for `on_enter`.
+// §FS-rhei-transitions.1: TransitionContext callback payload.
 #[allow(clippy::too_many_arguments)]
 fn build_transition_context_json(
     plan: Option<&rhei_core::ast::Rhei>,

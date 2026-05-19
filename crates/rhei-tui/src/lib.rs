@@ -1,6 +1,6 @@
 //! Live visualization and transition journal for `rhei run`.
 //!
-//! See `docs/functional-spec/rhei-run-tui.spec.md` for the normative specification.
+//! §FS-rhei-run-tui: Live visualization and transition journal behavior.
 
 mod dashboard;
 mod event;

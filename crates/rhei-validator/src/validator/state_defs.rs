@@ -29,6 +29,7 @@ pub struct StateDef {
     /// "retry after `poll.interval`", the `--parallel` slot is released
     /// between attempts, and the state's visit counter is capped at
     /// `poll.max_attempts`. Mutually exclusive with `visits`.
+    // §FS-rhei-states.2: Poll state semantics.
     #[serde(default)]
     pub poll: Option<PollConfig>,
     /// Optional visit budget for returning to this state.
@@ -38,7 +39,8 @@ pub struct StateDef {
     /// The operational CLI and run override surface inspect this field to
     /// enforce that `--from-snapshot` only applies to states with an authored
     /// inherit contract. Full static snapshot validation is owned by
-    /// `docs/functional-spec/rhei-snapshots.spec.md` §11.
+    /// the snapshot validation rules.
+    // §FS-rhei-snapshots.11: Snapshot validation rules.
     #[serde(default)]
     pub snapshot: Option<StateSnapshotConfig>,
     /// Inline execution target selector for one run of the state.
@@ -89,8 +91,7 @@ pub struct StateDef {
     pub skills: Option<Vec<StateSkillEntry>>,
 }
 
-/// Per-state polling configuration. See the States Specification —
-/// Polling States.
+/// §FS-rhei-states.2.1: Per-state polling configuration shape.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PollConfig {
     /// Minimum wall-clock wait between poll attempts (duration string, e.g.
@@ -220,8 +221,7 @@ fn statically_resolved_snapshot_agent(state: &StateDef) -> Option<String> {
     state.agent.as_ref().map(|agent| agent.id().to_string())
 }
 
-/// A named, reusable `{initial, allowed}` state policy referenced from
-/// [`NodePolicy`]. See the States Specification — Profiles section.
+/// §FS-rhei-states.8: Named reusable `{initial, allowed}` state policy.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Profile {
     /// Initial state that nodes bound to this profile start in.
@@ -232,8 +232,8 @@ pub struct Profile {
 
 /// Node-policy resolution: maps node type/level selectors to named profiles.
 ///
-/// See the States Specification — Node Policy section for the resolution order
-/// (`overrides` → `by_type[<kind>]` → `default`) and validation rules.
+/// Resolution order: `overrides`, `by_type[<kind>]`, then `default`.
+// §FS-rhei-states.9.2: Node-policy resolution order.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodePolicy {
     /// Profile bound to the plan-root node (always the `rhei` kind).
@@ -250,8 +250,7 @@ pub struct NodePolicy {
     pub overrides: Vec<NodePolicyOverride>,
 }
 
-/// Ordered override in [`NodePolicy`]. `match` selects by non-root node kind
-/// and/or task-tree level. §FS-rhei-states
+/// §FS-rhei-states.9.1: Ordered node-policy override selector.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodePolicyOverride {
     /// Type/level selector. An empty selector matches every non-root node.
@@ -261,8 +260,7 @@ pub struct NodePolicyOverride {
     pub profile: String,
 }
 
-/// Node-policy override selector. Unknown keys are rejected so typos do not
-/// silently change profile resolution. §FS-rhei-states
+/// §FS-rhei-states.9.3: Reject unknown node-policy match keys.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodePolicyMatch {
@@ -304,9 +302,10 @@ pub struct StateMachine {
     /// The current schema revision makes this required, but the field is
     /// decoded optionally so legacy YAML without profiles still loads. When
     /// present, [`NodePolicy`] must be present as well.
+    // §FS-rhei-states.8: Profile map.
     #[serde(default)]
     pub profiles: Option<IndexMap<String, Profile>>,
-    /// Node-policy block that binds nodes to profiles. See [`NodePolicy`].
+    /// §FS-rhei-states.9: Node-policy block that binds nodes to profiles.
     #[serde(default)]
     pub node_policy: Option<NodePolicy>,
 }

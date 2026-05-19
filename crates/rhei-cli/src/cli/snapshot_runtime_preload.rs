@@ -3,20 +3,21 @@
 /// spawning the agent subprocess for a state that declares
 /// `snapshot.inherit:`.
 ///
-/// Per `docs/functional-spec/rhei-run.spec.md` § Execution Loop step 3 and
-/// `docs/functional-spec/rhei-snapshots.spec.md` § 10.1 Spawn-Time Preload,
-/// the orchestrator resolves the source snapshot (honoring `--from-snapshot`,
-/// `--override-inherit`, `--task`, and `--target` overrides), evaluates
+/// Per the run execution loop and snapshot preload contract, the orchestrator
+/// resolves the source snapshot (honoring `--from-snapshot`, `--override-inherit`,
+/// `--task`, and `--target` overrides), evaluates
 /// `compat:`, applies the agent's `ResumeStrategy` / `ForkStrategy`, and
 /// stages the session into the inheritor's generation directory before the
 /// subprocess starts.
+// §FS-rhei-run.3 §FS-rhei-snapshots.10.1: Preload before spawning.
 ///
 /// The actual preload is owned by the impl-rhei-snapshots task; this hook
 /// pins the call site so the orchestration ordering is encoded in code, not
 /// just in the spec text. Once impl-rhei-snapshots delivers the snapshot
 /// module, the body of this function calls into that module and may return a
 /// `missing-snapshot`, `incompatible-snapshot`, or
-/// `unsupported-snapshot-session` error per spec § 10.1.
+/// `unsupported-snapshot-session` error.
+// §FS-rhei-snapshots.10.1: Snapshot preload errors.
 #[allow(clippy::too_many_arguments)]
 fn preload_snapshot_inherit_before_spawn(
     input: &Path,

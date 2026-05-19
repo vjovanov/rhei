@@ -269,8 +269,9 @@ printf 'stdout:before-background\n'
     // Closing gaps from completeness audit (impl-rhei-agents).
     //
     // These tests pin the new validation, command-building, and runtime
-    // behavior added when the audit gaps for
-    // `docs/functional-spec/rhei-agents.spec.md` were closed.
+    // behavior added when the audit gaps for agent execution were closed.
+
+    // §FS-rhei-agents: Agent execution behavior.
     // ---------------------------------------------------------------------
 
     fn machine_with_states(yaml: &str) -> rhei_validator::StateMachine {

@@ -1,9 +1,8 @@
 # RM-rhei-roadmap: Roadmap
 
-Use Rhei plans in `docs/plans/` for concrete implementation sequencing. The
-roadmap is sequenced against the project outcomes. §GOAL-rhei-outcomes
+This roadmap is sequenced against the project outcomes. §GOAL-rhei-outcomes
 
-## 0.1.0 Release Checklist
+## Release Checklist for 0.1.0
 
 This checklist is for the `0.1.0` release line.
 
@@ -127,6 +126,21 @@ Publish `rhei-cli` first. The `rhei-api` package depends on
 Do not block the alpha on Homebrew or GHCR. After a tagged GitHub release has
 Linux/macOS artifacts, add a tap formula named `rhei` under a project-owned tap.
 Add GHCR images only when there is a CI/service entrypoint worth containerizing.
+
+## Post-Alpha Dashboard Visualization
+
+Fold the standalone visualization ideas into the run dashboard: add the
+Gantt, heatmap cube, and Sankey plan views currently described for `rhei viz`
+to the browser dashboard that accompanies `rhei run`. The dashboard should
+remain the live execution monitor for slots, task state, journal events, and
+links, while also giving operators static plan-shape views without switching
+tools. §FS-rhei-viz §FS-rhei-run-tui
+
+The TUI should always surface the dashboard as a power-user view when
+`rhei run` selects the TUI frontend. Normal TUI users should not need a
+separate `--dashboard` option to discover or open it; the roadmap work includes
+reconciling the current CLI flag, completion surface, and functional specs with
+that always-available TUI behavior. §FS-rhei-completions §FS-rhei-run
 
 ## Post-Alpha Snapshot Continuation
 

@@ -1,7 +1,7 @@
 //! Abstract Syntax Tree (AST) definitions for the Markdown Plan Compiler.
 //!
 //! These types model the hierarchical structure parsed from plan markdown,
-//! aligning with the specification in docs/functional-spec/rhei-plan-language.spec.md.
+//! aligning with the plan language AST.
 //!
 //! High-level model:
 //! - `Rhei`: holds the plan title, free-form content blocks prior to the Tasks
@@ -9,6 +9,8 @@
 //! - `Task`: a task node with a hierarchical id, a node kind, metadata, and
 //!   zero or more child task nodes.
 //! - `ContentSection`: a named H2 section with title and content.
+
+// §FS-rhei-plan-language.5: AST data model.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

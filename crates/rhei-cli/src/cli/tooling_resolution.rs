@@ -271,7 +271,7 @@ struct ResolvedAgent {
     timeout_secs: Option<u64>,
     /// `models.<id>.agents.<agent-id>.autonomous_args` — ordered flag list
     /// appended after the mode flags when `rhei run` launches the agent
-    /// autonomously. See spec §`models` and §Modes.
+    /// §FS-rhei-agents.1.1.3 §FS-rhei-agents.2.2: Autonomous model-agent flags.
     autonomous_args: Vec<String>,
 }
 

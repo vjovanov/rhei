@@ -1,4 +1,4 @@
-// Split by behavior area to keep source files bounded by §AR-source-file-size.
+// §AR-source-file-size: Split integration tests by behavior area.
 include!("integration_markdown_plans/common.rs");
 include!("integration_markdown_plans/validation_cli_basics.rs");
 include!("integration_markdown_plans/validation_parse_errors.rs");
