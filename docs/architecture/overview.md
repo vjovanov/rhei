@@ -195,8 +195,8 @@ For workflows requiring automation, Rhei supports formal state transitions with 
 
 See the [Transitions Specification](../functional-spec/rhei-transitions.spec.md) for:
 
-- [`TransitionContext`](../functional-spec/rhei-transitions.spec.md#transitioncontext-data-structure) — Data passed to callbacks
-- [YAML State Machine Format](../functional-spec/rhei-transitions.spec.md#yaml-state-machine-format-specification) — Configuration schema
+- [`TransitionContext`](../functional-spec/rhei-transitions.spec.md#1-transitioncontext-data-structure) — Data passed to callbacks
+- [YAML State Machine Format](../functional-spec/rhei-transitions.spec.md#4-yaml-state-machine-format-specification) — Configuration schema
 - [Transition Callback Examples](../functional-spec/rhei-callbacks.spec.md) — CLI, JavaScript, Python, and Java examples
 
 ---

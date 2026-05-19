@@ -50,29 +50,29 @@ Examples:
 - `gemini[yolo]:google:gemini-3.1-pro-preview`
 - `codex[safe]:openai:gpt-5-codex`
 
-## Schema Additions
+## 1. Schema Additions
 
-### Top-level fields
+### 1.1. Top-level fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `models` | string array | No | The complete set of model profile identifiers available to the machine |
 | `profiles` | map of name to `{initial, allowed}` | Yes | Named, reusable state profiles. Each profile declares the `initial` state and the `allowed` state subset for any node assigned to it. Referenced by `node_policy`. |
-| `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` and `default`. Optionally defines `by_type` and `overrides`. See [Node Policy](#node-policy). |
+| `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` and `default`. Optionally defines `by_type` and `overrides`. See [Node Policy](#9-node-policy). |
 
 The `profiles` and `node_policy` blocks replace the earlier per-state
 `initial: true` boolean. A state definition no longer carries its own initial
 flag; the initial state is a property of each profile, so different node kinds
 can start in different states within the same state machine.
 
-### Per-state fields
+### 1.2. Per-state fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
 | `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
-| `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#polling-states). |
+| `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#2-polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#51-polling-states). |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
 | `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. |
 | `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
@@ -80,25 +80,25 @@ can start in different states within the same state machine.
 | `snapshot` | object | No | Per-state session snapshot emit/inherit contract. Optional; details and closed-schema validation live in [Snapshots Specification](rhei-snapshots.spec.md). |
 | `model` | string | No | A single model profile identifier from the machine-level `models` list |
 | `agent` | string | No | The coding agent CLI that executes work in this state. Must be an agent id resolved against the merged `agents` registry (built-ins → global → project `settings.json`). Inline agent objects are not permitted — define custom agents in the `agents` registry. See [Agents Specification](rhei-agents.spec.md). |
-| `agent_mode` | string | No | Named flag set applied to the resolved agent for this state. Must match a key in the resolved agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#modes). |
-| `agent_timeout` | string | No | Maximum time an agent may work in this state before being killed (e.g., `30m`, `1h`). See [Agents Specification — Timeout Handling](rhei-agents.spec.md#timeout-handling). |
+| `agent_mode` | string | No | Named flag set applied to the resolved agent for this state. Must match a key in the resolved agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#22-modes). |
+| `agent_timeout` | string | No | Maximum time an agent may work in this state before being killed (e.g., `30m`, `1h`). See [Agents Specification — Timeout Handling](rhei-agents.spec.md#7-timeout-handling). |
 | `program` | string or object | No | The program command to execute in this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
-| `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#timeout-handling). |
+| `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#4-timeout-handling). |
 | `inputs` | artifact array | No | Artifacts that must exist before the task can enter this state. Individual entries may be marked `optional: true` to skip the existence check. |
 | `outputs` | artifact array | No | Required artifacts that must exist before the task can leave this state |
-| `mcp_servers` | array | No | MCP servers attached to the agent subprocess for this state. Entries are ids from the `mcp_servers` settings registry or inline server definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#mcp-servers-and-skills). |
-| `skills` | array | No | Agent skills enabled for this state. Entries are ids from the `skills` settings registry or inline skill definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#mcp-servers-and-skills). |
+| `mcp_servers` | array | No | MCP servers attached to the agent subprocess for this state. Entries are ids from the `mcp_servers` settings registry or inline server definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#7-mcp-servers-and-skills). |
+| `skills` | array | No | Agent skills enabled for this state. Entries are ids from the `skills` settings registry or inline skill definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#7-mcp-servers-and-skills). |
 
-### Validation Rules
+### 1.3. Validation Rules
 
 - `profiles` must be present and non-empty. Each entry must declare `initial`
   (a state name) and `allowed` (a list of state names). See
-  [Profiles](#profiles) for per-profile validation.
+  [Profiles](#8-profiles) for per-profile validation.
 - `node_policy.root` and `node_policy.default` are required and must name
   defined profiles. `node_policy.by_type`, when present, maps each declared
   non-root node kind to a defined profile. `node_policy.overrides`, when
   present, is an ordered list of `{match, profile}` entries. See
-  [Node Policy](#node-policy) for resolution and validation rules.
+  [Node Policy](#9-node-policy) for resolution and validation rules.
 - A state definition must not declare `initial: true`. The initial state is
   a property of each profile, not of the state itself.
 - `state.target`, when present, must be a non-empty string matching one of:
@@ -135,7 +135,7 @@ can start in different states within the same state machine.
 - `state.agent`, when present, must be a non-empty string id. Object-valued `agent:` entries are rejected: define the custom agent in the `agents` registry in `settings.json` and reference it by id. The id must resolve against the merged `agents` registry at run time (built-ins → global → project).
 - `state.agent` on a `final: true` state is a validation error (terminal states have no work to execute).
 - `state.agent` on a `gating: true` state is a validation warning (gating states are human-only; the agent will never be invoked by `rhei run`).
-- `state.agent_mode`, when present, must be a non-empty string and requires `state.agent` to be set. The mode name must match a key in the resolved agent's `modes` map, or the agent must declare no modes. See [Agents Specification — Mode Resolution Order](rhei-agents.spec.md#mode-resolution-order).
+- `state.agent_mode`, when present, must be a non-empty string and requires `state.agent` to be set. The mode name must match a key in the resolved agent's `modes` map, or the agent must declare no modes. See [Agents Specification — Mode Resolution Order](rhei-agents.spec.md#141-mode-resolution-order).
 - `state.agent_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
 - A state must not declare both `agent` and `program`.
 - `state.program`, when present, must be a non-empty string or a valid program object with at least a `command` field. See [Program States Specification](rhei-programs.spec.md).
@@ -143,13 +143,13 @@ can start in different states within the same state machine.
 - `state.program` on a `gating: true` state is a validation error (gating states require human action; programs execute autonomously).
 - `state.program_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
 - `state.inputs` / `state.outputs`, when present, must be arrays of unique artifact definitions keyed by `name`.
-- Artifact `path` values must be relative to the plan's execution root (the plan-file directory for a single-file plan, or the workspace root for a directory workspace; see [main spec — State Artifact Contracts](rhei-plan-language.spec.md#10-state-artifact-contracts)) and must not escape that root after template expansion.
+- Artifact `path` values must be relative to the plan's execution root (the plan-file directory for a single-file plan, or the workspace root for a directory workspace; see [main spec — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)) and must not escape that root after template expansion.
 - `artifact.optional`, when present, must be a boolean. Only valid on `inputs` entries; declaring `optional: true` on an `outputs` entry is a validation error (required outputs are always enforced).
 - An `optional: true` input that is missing does not block state entry. Its `{input.<name>.exists}` variable resolves to `false` and its `{input.<name>.path}` resolves to the declared path regardless.
 - `state.mcp_servers` / `state.skills`, when present, must be arrays. Each entry is either a non-empty string (registry id) or an object with at least an `id` field plus the inline definition fields accepted by the corresponding settings registry.
 - Every string id and every `id` field in an inline entry must be unique within the state's list for that kind.
 - Every registry id in `state.mcp_servers` must resolve in the merged `mcp_servers` settings registry. Every id in `state.skills` must resolve in the merged `skills` registry. Inline entries do not require a registry match.
-- An `mcp_servers` or `skills` entry may declare `optional: true` (default `false`). When `optional: true`, a failure to start the server or locate the skill at spawn time does not block the agent; when `false`, it does. See [Agents Specification — Missing Tooling](rhei-agents.spec.md#missing-tooling).
+- An `mcp_servers` or `skills` entry may declare `optional: true` (default `false`). When `optional: true`, a failure to start the server or locate the skill at spawn time does not block the agent; when `false`, it does. See [Agents Specification — Missing Tooling](rhei-agents.spec.md#6-missing-tooling).
 - `state.mcp_servers` and `state.skills` on a `gating: true` state are a validation error (gating states are human-only; the agent will never be invoked).
 - `state.mcp_servers` and `state.skills` on a state with `program:` set are a validation error (programs execute deterministically and do not consume tool surfaces).
 - `state.mcp_servers: []` and `state.skills: []` are valid and mean "clear the inherited `defaults` tooling for this state" — not "ignore the field".
@@ -172,7 +172,7 @@ When a state declares `all_targets` and `visits`, the engine runs the state
 once per listed target and each target-specific execution tracks its own visit
 budget. The same scoping rule applies to `all_models`.
 
-## Polling States
+## 2. Polling States
 
 A state marked with a `poll:` block is a *time-triggered* state: on each attempt
 the state's `agent` or `program` runs once, the engine evaluates transitions,
@@ -181,7 +181,7 @@ and a self-loop transition is interpreted as "not done yet, come back in
 deployments, review approvals exposed over an API) without occupying a
 `--parallel` slot during the wait.
 
-### Shape
+### 2.1. Shape
 
 ```yaml
 states:
@@ -198,9 +198,9 @@ states:
 | `interval` | duration string | Yes | Minimum wall-clock wait between attempts (e.g., `30s`, `5m`, `1h`). The `--parallel` slot is released during the wait. |
 | `max_attempts` | integer | Yes | Upper bound on total attempts for this state within one task lifetime. Must be ≥ `1`. |
 
-### Semantics
+### 2.2. Semantics
 
-- **Attempt counter.** `poll.max_attempts` replaces the `visits` cap for the state. The same `metadata.tasks.<id>.stateVisits.<state-name>` counter records attempts; the counter starts at `1` on first entry and increments on every self-loop re-entry, identical to the `visits` accounting in [Transitions Specification — Counted Loops](rhei-transitions.spec.md#counted-loops).
+- **Attempt counter.** `poll.max_attempts` replaces the `visits` cap for the state. The same `metadata.tasks.<id>.stateVisits.<state-name>` counter records attempts; the counter starts at `1` on first entry and increments on every self-loop re-entry, identical to the `visits` accounting in [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
 - **Retry signal.** Any self-loop transition (`from: X, to: X`) selected by the normal transition-matching rules is interpreted as "not done yet." The engine persists `metadata.tasks.<id>.pollNextAttemptAt.<state-name> = now() + interval`, releases the slot, and stops working this task for this pass. On later passes the task is excluded from the ready set until `pollNextAttemptAt` has elapsed.
 - **Exit.** Any non-self-loop transition exits the state normally and clears both `pollNextAttemptAt.<state-name>` and `stateVisits.<state-name>` for that state.
 - **Exhaustion.** When `stateVisits.<state-name> >= poll.max_attempts`, the engine will *not* execute a self-loop transition even if one matches. Instead it re-evaluates transitions and picks the first matching non-self-loop. The recommended pattern is an explicit exhaustion transition:
@@ -211,7 +211,7 @@ states:
   ```
   If no non-self-loop matches after exhaustion, the task remains in its current state and `rhei run` aborts the task with a clear error (same behavior as "no matching transition found").
 
-### Variables for transition conditions
+### 2.3. Variables for transition conditions
 
 Polling states expose two additional names alongside the existing `visitCount`
 and `visits`:
@@ -222,14 +222,14 @@ and `visits`:
 Both names are available only on transitions whose `from` state declares
 `poll:`. Outside a poll state they are undefined.
 
-### Interaction with other state features
+### 2.4. Interaction with other state features
 
 - **`agent` / `program`.** `poll` works for both. The attempt is one subprocess invocation whose exit code / outputs drive transition matching as usual.
 - **`all_targets` / `all_models`.** Fanout composes: each per-target or per-model execution tracks its own `stateVisits.<state-name>` entry (same scoping as `visits`). Slot release applies per fanout invocation.
 - **`concurrent`.** Independent: a `concurrent: true` poll state may have multiple tasks in flight simultaneously, each with its own `pollNextAttemptAt`.
 - **`agent_timeout` / `program_timeout`.** Bound one attempt's duration; they do not bound the total polling wall-clock time. Combine with `max_attempts` to bound the total.
 
-## Artifact Contracts
+## 3. Artifact Contracts
 
 States may declare required file artifacts as explicit contracts. This lets a
 workflow say "review must produce findings" or "fix cannot begin until findings
@@ -273,11 +273,11 @@ Runtime semantics:
     (name uppercased, hyphens and spaces replaced with underscores).
 - Artifact contracts are file-existence contracts in v1. They do not yet define
   JSON schemas, required headings, or content-level validation.
-- Under `orchestrator` [Completion Authority](rhei-agents.spec.md#completion-authority),
+- Under `orchestrator` [Completion Authority](rhei-agents.spec.md#31-completion-authority),
   the `outputs:` existence check doubles as the state's deterministic completion
   signal: the subprocess exit alone is not sufficient, and a zero-exit with any
   missing required output leaves the task in its current state. See
-  [Completion Condition](rhei-agents.spec.md#completion-condition).
+  [Completion Condition](rhei-agents.spec.md#32-completion-condition).
 
 Example:
 
@@ -302,7 +302,7 @@ states:
         description: Findings produced by `agent-review`
 ```
 
-### Optional Inputs
+### 3.1. Optional Inputs
 
 Optional inputs are declared with `optional: true`. The engine does not block
 state entry when an optional input is absent, but still resolves the path and
@@ -359,11 +359,11 @@ The surrounding blank lines are preserved when the block is included and
 collapsed to a single blank line when it is removed, so the output is clean in
 both cases.
 
-## Template Variables in Instructions and Personality
+## 4. Template Variables in Instructions and Personality
 
 The `instructions` and `personality` fields support template variable substitution. Variables use the same `{variable}` syntax as artifact path templates. `rhei next` resolves all template variables before printing output, so agents receive fully expanded prompts with no manual variable resolution required.
 
-### Variable Namespace
+### 4.1. Variable Namespace
 
 | Variable | Source | Description | Example Value |
 |----------|--------|-------------|---------------|
@@ -388,7 +388,7 @@ The `instructions` and `personality` fields support template variable substituti
 | `{skill.<id>.available}` | tooling | Whether the skill with id `<id>` is enabled for the current agent | `true`, `false` |
 | `{meta.<key>}` | task metadata | Value from the task's YAML metadata section | `alice`, `2` |
 
-### Resolution Rules
+### 4.2. Resolution Rules
 
 - **Resolve at output time, not load time.** Template variables are expanded by `rhei next` when printing instructions to an agent. The state machine YAML remains portable — the same `states.yaml` works across different plans.
 - **Fail-open on unknown variables.** An unrecognized variable like `{foo}` is left verbatim in the output. This avoids breaking existing instructions that happen to contain braces and makes templates forward-compatible with future variables.
@@ -448,7 +448,7 @@ Transition back to `review` if 2 < 2.
 Otherwise, transition to `completed`.
 ```
 
-### Multi-Target Example
+### 4.3. Multi-Target Example
 
 ```yaml
 states:
@@ -490,7 +490,7 @@ Recommended authoring pattern for heterogeneous multi-target runs:
 - Add a later synthesis state that consumes the per-target artifacts and writes
   one final document.
 
-## Agent Field
+## 5. Agent Field
 
 States can declare which coding agent transport executes work in that state. The
 `agent` field is always a string id. Rhei resolves the id against the merged
@@ -501,7 +501,7 @@ object-shaped agent definitions are not accepted on a state; a custom agent
 must be declared in the registry first.
 
 The optional `agent_mode` field selects a named flag set from the resolved
-agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#modes)
+agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#22-modes)
 for the common `yolo` / `safe` conventions and the full mode resolution order.
 
 ```yaml
@@ -553,7 +553,7 @@ combo in settings. The `agent` field is an optional transport for autonomous
 execution. Either can be set independently at any configuration level, and the
 resolution merges across levels.
 
-## Program States
+## 6. Program States
 
 States can declare a deterministic program to execute instead of spawning an AI agent. The `program` field names a command (string form) or provides a structured command definition (object form). Program states are the right choice for build, test, lint, deploy, and other steps where the behavior is fixed and an AI agent adds no value.
 
@@ -599,7 +599,7 @@ A state must not declare both `agent` and `program` — they are mutually exclus
 
 See [Program States Specification](rhei-programs.spec.md) for the complete specification including program declaration forms, exit-code transitions, environment variables, timeout handling, and validation rules.
 
-## MCP Servers and Skills
+## 7. MCP Servers and Skills
 
 States can attach **MCP servers** and **skills** to the agent subprocess. MCP
 servers expose tools through the Model Context Protocol; skills bundle
@@ -608,11 +608,11 @@ can do in a given phase — research, implementation, review, and so on.
 
 The `mcp_servers` and `skills` fields are lists. Each entry is either a
 **registry id** (a string naming an entry in the merged
-[`mcp_servers`](rhei-agents.spec.md#mcp_servers) or
-[`skills`](rhei-agents.spec.md#skills) settings registry) or an **inline
+[`mcp_servers`](rhei-agents.spec.md#114-mcp_servers) or
+[`skills`](rhei-agents.spec.md#115-skills) settings registry) or an **inline
 object** for one-offs that shouldn't pollute global settings.
 
-### Entry forms
+### 7.1. Entry forms
 
 ```yaml
 states:
@@ -639,17 +639,17 @@ registry entry (`command`/`url`/`transport`/`env`/... for MCP servers; `path`
 and `description` for skills). The string form is shorthand for `{id: <name>}`
 with `optional: false`.
 
-### Effective set
+### 7.2. Effective set
 
 The **effective set** for a state is `defaults.<kind>` ∪ `state.<kind>`,
 deduplicated by id. State-level entries override identically-ided defaults.
 Passing `mcp_servers: []` or `skills: []` on a state clears the inherited
 `defaults` tooling for that state — leaving the field out inherits the
 defaults unchanged. See
-[Agents Specification — Resolution Order](rhei-agents.spec.md#resolution-order)
+[Agents Specification — Resolution Order](rhei-agents.spec.md#14-resolution-order)
 for the full algorithm.
 
-### Runtime semantics
+### 7.3. Runtime semantics
 
 - Entries are resolved and availability-checked by `rhei run` at agent spawn
   time — not at `rhei next`.
@@ -669,7 +669,7 @@ for the full algorithm.
   `RHEI_SKILLS` as comma-separated id lists containing only the entries that
   started successfully.
 
-See [Agents Specification — Missing Tooling](rhei-agents.spec.md#missing-tooling)
+See [Agents Specification — Missing Tooling](rhei-agents.spec.md#6-missing-tooling)
 for availability semantics, timeout behavior, and the
 `mcp_unavailable` / `skill_unavailable` transition contract. See
 [Transitions Specification](rhei-transitions.spec.md) for declaring those
@@ -722,7 +722,7 @@ states:
       {endif}
 ```
 
-## Profiles
+## 8. Profiles
 
 A **profile** is a named bundle of `{initial, allowed}` that defines a
 per-node state policy. Profiles are defined once at the top level of the
@@ -744,7 +744,7 @@ Separating policy from state definitions means:
 > entry is a state policy assigned to nodes. They live at different layers
 > of the machine and never resolve against each other.
 
-### Shape
+### 8.1. Shape
 
 ```yaml
 profiles:
@@ -753,7 +753,7 @@ profiles:
     allowed: [<state-name>, ...] # states any such node may ever hold
 ```
 
-### Per-profile validation
+### 8.2. Per-profile validation
 
 - `initial` must be defined in `states`.
 - Every entry in `allowed` must be defined in `states`.
@@ -786,12 +786,12 @@ profiles:
 merged. Two profiles that share most of their states still list each state
 explicitly.
 
-## Node Policy
+## 9. Node Policy
 
 `node_policy` maps each node in a plan to a profile. It has four keys: the
 required `root` and `default`, and the optional `by_type` and `overrides`.
 
-### Shape
+### 9.1. Shape
 
 ```yaml
 node_policy:
@@ -804,7 +804,7 @@ node_policy:
       profile: <profile-name>
 ```
 
-### Resolution
+### 9.2. Resolution
 
 For a given node, resolve its profile in this order:
 
@@ -821,7 +821,7 @@ The resolved profile's `initial` is the node's starting state; its `allowed`
 set is the authoritative list of states that node may ever hold. `rhei reset`
 returns each node to its resolved profile's `initial`.
 
-### Validation
+### 9.3. Validation
 
 - `node_policy.root` is required; it must reference a profile defined in
   `profiles`.
@@ -860,7 +860,7 @@ level-2 `task` uses `reviewed` (via `by_type`), a `bug` at any level uses
 `light-review`, and a `story` — a declared kind without a `by_type` entry —
 uses `simple`.
 
-## States
+## 10. States
 
 | State | Description | Final | Gating |
 |-------|-------------|-------|--------|
@@ -873,10 +873,10 @@ uses `simple`.
 | `cancelled` | Task no longer needed; skip entirely | Yes | No |
 
 Whether a state is a node's starting state is determined by the node's
-resolved profile (see [Profiles](#profiles) and [Node Policy](#node-policy)),
+resolved profile (see [Profiles](#8-profiles) and [Node Policy](#9-node-policy)),
 not by a per-state flag.
 
-## Transitions
+## 11. Transitions
 
 See [states.yaml](states.yaml) for the enforced transition table. Summary:
 
@@ -888,7 +888,7 @@ See [states.yaml](states.yaml) for the enforced transition table. Summary:
 
 Any transition not listed in `states.yaml` is forbidden.
 
-### Completion paths
+### 11.1. Completion paths
 
 Not every state can be completed directly via `rhei complete`. The command requires a non-cancelled terminal state reachable in one hop:
 

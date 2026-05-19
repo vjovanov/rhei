@@ -2,13 +2,13 @@
 
 Atomically advance a task's state using compare-and-swap semantics. `rhei transition` is the coordination primitive for manual workers and concurrent agents: only the caller whose expected `--from` matches the task's actual current state wins the race, and every transition is validated against the active state machine before any write.
 
-## Usage
+## 1. Usage
 
 ```bash
 rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 ```
 
-## Options
+## 2. Options
 
 | Flag             | Required | Default | Description                                                                 |
 |------------------|----------|---------|-----------------------------------------------------------------------------|
@@ -17,16 +17,16 @@ rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 | `--to <STATE>`   | Yes      |         | Target state                                                                |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave` / `on_enter` callbacks registered on the edge  |
 
-State values passed to `--from` and `--to` follow the state-value rendering rules in the [main spec](rhei-plan-language.spec.md#2-state-validity): bare for names that match `IDENTIFIER`, backtick-wrapped otherwise.
+State values passed to `--from` and `--to` follow the state-value rendering rules in the [main spec](rhei-plan-language.spec.md#32-state-validity): bare for names that match `IDENTIFIER`, backtick-wrapped otherwise.
 
-## Behavior
+## 3. Behavior
 
 1. Load the state machine and plan (single-file or directory workspace). Validate.
 2. Locate the task by id. Fail if it does not exist.
 3. Acquire a file lock on the plan file (single-file plan) or on the task file that contains the task (directory workspace).
 4. Re-read the task's current state under the lock. If it does not equal `--from`, fail with a compare-and-swap conflict error and print the actual current state.
 5. Validate that a declared transition exists from `--from` to `--to` in the active state machine. Reject if the edge is unlisted.
-6. Verify that every required `outputs:` artifact declared on the source state exists (see [States Specification — Artifact Contracts](rhei-states.spec.md#artifact-contracts)). Missing outputs abort the transition.
+6. Verify that every required `outputs:` artifact declared on the source state exists (see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts)). Missing outputs abort the transition.
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
 8. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
 9. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
@@ -35,9 +35,9 @@ State values passed to `--from` and `--to` follow the state-value rendering rule
 
 `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment and unassignment are owned by `rhei next` and `rhei complete` respectively.
 
-Counted-visit accounting: if the target state declares a `visits` budget and `--to` is a loop-back re-entry, the runtime increments `metadata.tasks.<id>.stateVisits.<target>` and renders the new visit number in `**State:**` using the `-<n>` suffix. See [Transitions Specification — Counted Loops](rhei-transitions.spec.md#counted-loops).
+Counted-visit accounting: if the target state declares a `visits` budget and `--to` is a loop-back re-entry, the runtime increments `metadata.tasks.<id>.stateVisits.<target>` and renders the new visit number in `**State:**` using the `-<n>` suffix. See [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
 
-## Compare-and-Swap Conflicts
+## 4. Compare-and-Swap Conflicts
 
 Two agents that race on the same task both specify the same `--from`. The first call to acquire the lock rewrites the state. The second call re-reads under the lock, sees the actual state no longer matches `--from`, and fails non-zero with:
 
@@ -48,7 +48,7 @@ Error: Task <ID> is in state '<actual>', not '<from>'.
 
 Losers are expected to re-read the plan and either re-select with `rhei next` or retry against the new state.
 
-## Output
+## 5. Output
 
 On success:
 

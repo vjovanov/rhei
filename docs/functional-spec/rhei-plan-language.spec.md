@@ -90,15 +90,15 @@ The worker reads the plan, loads the state machine, and enters a loop: claim the
 
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
-For programmatic execution with `rhei run`, see [Pattern 6: Programmatic State Transitions](rhei-usage.spec.md#pattern-6-programmatic-state-transitions).
+For programmatic execution with `rhei run`, see [Pattern 6: Programmatic State Transitions](rhei-usage.spec.md#38-pattern-6-programmatic-state-transitions).
 
 
 
-## Plan Formats
+## 1. Plan Formats
 
 A Rhei plan can be authored as either a **Single-File Plan** or a **Directory Workspace**.
 
-### Single-File Plan (1 Agent, or low concurrency)
+### 1.1. Single-File Plan (1 Agent, or low concurrency)
 
 The single-file format is a hierarchical structure:
 
@@ -126,7 +126,7 @@ revision. See [ADR 0002](../adr/0002-hierarchical-task-nodes.md) for the rationa
 behind the nested task-node model and for migration rules from pre-revision
 plans.
 
-### Directory Workspace (Agent Teams, High Concurrency)
+### 1.2. Directory Workspace (Agent Teams, High Concurrency)
 
 To prevent Git merge conflicts when multiple agents or humans work in parallel across disparate branches, a Rhei plan can be structured as a directory. This functions similarly to distributed issue trackers.
 
@@ -146,7 +146,7 @@ recommended for Directory Workspaces. Because the grammar requires an
 `IDENTIFIER` to start with a letter, distributed ids should use forms such as
 `task-550e8400-e29b-41d4-a716-446655440000` rather than a bare UUID or hash.
 
-### Directory Workspace Metadata
+### 1.3. Directory Workspace Metadata
 
 YAML frontmatter for a Directory Workspace belongs in `index.rhei.md`. Workspace
 task files start directly with task definitions and must not introduce
@@ -179,7 +179,7 @@ frontmatter-backed task metadata still serialize through `index.rhei.md`, so
 metadata-heavy workflows reintroduce a narrow shared-write hotspot until a
 workspace-local metadata format is specified.
 
-## Grammar (EBNF)
+## 2. Grammar (EBNF)
 
 ```ebnf
 (* ============================================== *)
@@ -362,7 +362,7 @@ ESCAPED_BACKTICK = "\\`" ;
 NEWLINE         = ? line terminator (LF or CRLF) ? ;
 ```
 
-## Semantic Constraints
+## 3. Semantic Constraints
 
 Beyond the syntactic rules, the following semantic constraints must be validated:
 
@@ -411,10 +411,10 @@ ever hold — is resolved from the active state machine's `profiles` and
 `node_policy` blocks. The root (always `rhei`) resolves through
 `node_policy.root`; all other nodes resolve through `node_policy.overrides`,
 then `node_policy.by_type[<kind>]`, then `node_policy.default`. See the
-[States Specification](rhei-states.spec.md#node-policy) for the full
+[States Specification](rhei-states.spec.md#9-node-policy) for the full
 resolution order and validation rules.
 
-### 1. Dependency Integrity
+### 3.1. Dependency Integrity
 
 All task references in `**Prior:**` fields must resolve to existing task nodes
 in the same logical plan: in a Single-File Plan that means the same document,
@@ -459,7 +459,7 @@ Invalid child dependency example:
 **Prior:** Task fetch-prs    ← ERROR: child cannot depend on its parent
 ```
 
-### 2. State Validity
+### 3.2. State Validity
 
 All state values must be defined in the associated states configuration. By default, that configuration is loaded from the plan's auto-discovered `states.yaml` when `**States:**` is declared, or from the built-in `rhei` state machine when it is omitted. `--state-machine <path>` may override the auto-discovered file.
 
@@ -518,7 +518,7 @@ Additional examples:
 **State:** `review-2`              ← either literal state `review-2` or, if absent, state `review` visit 2
 ```
 
-### 3. Acyclic Dependencies
+### 3.3. Acyclic Dependencies
 
 The task dependency graph must be a Directed Acyclic Graph (DAG). Circular dependencies are forbidden:
 
@@ -532,7 +532,7 @@ The task dependency graph must be a Directed Acyclic Graph (DAG). Circular depen
 **Prior:** Task 1    ← ERROR: creates cycle
 ```
 
-### 4. Hierarchical Task Consistency
+### 3.4. Hierarchical Task Consistency
 
 Task nodes form a tree. Authored heading depth and task-id path depth must
 match:
@@ -577,14 +577,14 @@ extends the parent id by one segment:
 
 Task depth must not exceed `structure.maxLevels`.
 
-### 5. Identifier Uniqueness
+### 3.5. Identifier Uniqueness
 
 Task ids must be unique across the entire plan. In a Single-File Plan, two
 task nodes with the same id are an error. In a Directory Workspace, two task
 nodes with the same id across *any* files within the `tasks/` directory are an
 error.
 
-### 6. Link Integrity
+### 3.6. Link Integrity
 
 All relative markdown links (`[text](target)`) in content sections and task
 node content must resolve to existing files. In a Single-File Plan, links
@@ -629,7 +629,7 @@ See [protocol](specs/http.md#post)  ← checks <workspace>/specs/http.md only
 See [notes](#api-notes)             ← fragment-only anchor, not checked
 ```
 
-### 7. Node Kind Validity
+### 3.7. Node Kind Validity
 
 The heading keyword for each task node must be listed in `structure.nodeKinds`.
 When `structure.nodeKinds` is omitted, only `Task` is valid.
@@ -654,7 +654,7 @@ structure:
 **State:** pending        ← ERROR: `spike` is not a declared node kind
 ```
 
-### 8. Result Block Consistency
+### 3.8. Result Block Consistency
 
 When a task contains a `> **Result:**` block, that block must describe the
 enclosing task itself:
@@ -679,7 +679,7 @@ Example:
 link-integrity check above. The file may be created later by runtime commands
 such as `rhei complete`.
 
-### 9. Terminal Tree Coherence
+### 3.9. Terminal Tree Coherence
 
 A task node in a terminal state must not contain any non-terminal descendants.
 
@@ -691,7 +691,7 @@ A task node in a terminal state must not contain any non-terminal descendants.
 **State:** pending        ← ERROR: terminal parent with non-terminal child
 ```
 
-### 10. State Artifact Contracts
+### 3.10. State Artifact Contracts
 
 The active state machine may declare required file `inputs` and `outputs` for a
 state. These contracts are part of execution semantics, not markdown syntax:
@@ -734,7 +734,7 @@ Artifact path: runtime/reviews/release.md
 Resolves to: /repo/release/runtime/reviews/release.md
 ```
 
-## Token Types
+## 4. Token Types
 
 This section is illustrative and non-normative. A complete implementation must
 support every normative grammar production above, including YAML frontmatter,
@@ -757,7 +757,7 @@ For lexer implementation, the following token types are a reasonable minimum:
 | `ResultBlock` | `^> \*\*Result:\*\* \[[^]]+\]\([^)]+\)\s*$` | `> **Result:** [task-1](runtime/results/task-1.md)` |
 | `Text` | Any other line | Description text |
 
-## AST Node Types
+## 5. AST Node Types
 
 This section is also illustrative and non-normative. It shows one viable shape
 for a parser AST, but it is not a complete or exclusive contract.
@@ -805,7 +805,7 @@ struct ResultLink {
 }
 ```
 
-## Language Classification
+## 6. Language Classification
 
 The Rhei Plan language is **context-sensitive** because:
 
@@ -817,11 +817,11 @@ The Rhei Plan language is **context-sensitive** because:
 
 The language cannot be fully described by a context-free grammar alone; semantic analysis is required for complete validation.
 
-## File Extension
+## 7. File Extension
 
 The recommended file extension for Rhei Plan documents is `.rhei.md` or simply `.md` when the context is clear.
 
-## CLI Command Groups
+## 8. CLI Command Groups
 
 The `rhei` CLI help currently organizes its subcommands into five groups:
 

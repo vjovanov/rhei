@@ -10,9 +10,9 @@ A program state runs a command as a subprocess. The command receives context thr
 
 Program states participate in the same `rhei run` execution loop as agent states. They support the same artifact contracts, counted loops, timeout handling, log capture, and callback integration. The only difference is how the work is performed: a fixed command instead of a prompted agent.
 
-## Program Declaration
+## 1. Program Declaration
 
-### String Form
+### 1.1. String Form
 
 The simplest form runs a shell command:
 
@@ -26,7 +26,7 @@ states:
 
 String-form commands are executed via the system shell (`/bin/sh -c` on Unix, `cmd /c` on Windows).
 
-### Object Form
+### 1.2. Object Form
 
 For more control over execution:
 
@@ -49,7 +49,7 @@ states:
 | `working_directory` | string | No | Override the subprocess working directory. Relative to workspace root. Supports template variables. Default: workspace root. |
 | `shell` | boolean | No | Force shell execution even for array-form commands. Default: `false` for arrays, `true` for strings. |
 
-### Template Variables in Commands
+### 1.3. Template Variables in Commands
 
 Program commands support the same template variables as `instructions` and agent prompts:
 
@@ -66,9 +66,9 @@ states:
         TASK_TITLE: "{task_title}"
 ```
 
-Variables are resolved by `rhei run` before spawning the process, using the same resolution rules as agent prompt composition. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality).
+Variables are resolved by `rhei run` before spawning the process, using the same resolution rules as agent prompt composition. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality).
 
-## Environment Variables
+## 2. Environment Variables
 
 Program subprocesses inherit the same base environment as agent subprocesses:
 
@@ -85,7 +85,7 @@ Additional variables declared in `program.env` are merged on top of this base se
 
 The working directory defaults to the workspace root (for directory workspaces) or the plan file's parent directory (for single-file plans), unless overridden by `program.working_directory`.
 
-## Exit-Code Transitions
+## 3. Exit-Code Transitions
 
 Programs communicate their outcome through exit codes. Transitions from program states can declare an `exit_code` condition that matches specific exit values, enabling automatic routing without the program needing to call `rhei transition` directly.
 
@@ -134,7 +134,7 @@ transitions:
     exit_code: nonzero
 ```
 
-### `exit_code` Field
+### 3.1. `exit_code` Field
 
 Added to the transition definition schema (see [Transitions Specification](rhei-transitions.spec.md)):
 
@@ -147,7 +147,7 @@ Values:
 - **integer array** (`[1, 2, 3]`): matches any listed exit code.
 - **`"nonzero"`**: matches any non-zero exit code not already matched by a more specific transition from the same source state.
 
-### Evaluation Order
+### 3.2. Evaluation Order
 
 When a program exits and has not already advanced the task (via `rhei transition` or `rhei complete`):
 
@@ -159,7 +159,7 @@ When a program exits and has not already advanced the task (via `rhei transition
 6. If no transition matches and exit code is `0`, log a warning: `warning: program exited 0 but task {id} did not advance from '{state}'`.
 7. If no transition matches and exit code is non-zero, log an error and apply the `--continue-on-error` policy.
 
-### Mixing Exit-Code and Manual Transitions
+### 3.3. Mixing Exit-Code and Manual Transitions
 
 Programs may also call `rhei transition` or `rhei complete` directly via subprocess invocation, just like agents. When a program does so, the task state changes before the program exits, and exit-code evaluation is skipped entirely — the explicit transition takes precedence.
 
@@ -167,11 +167,11 @@ If a transition from a program state has no `exit_code` field, it is available f
 
 This allows hybrid approaches where a program handles the common case via exit codes and calls `rhei transition` for edge cases that need more nuanced routing.
 
-## Timeout Handling
+## 4. Timeout Handling
 
 Program timeout uses the same mechanism as agent timeout.
 
-### Configuration
+### 4.1. Configuration
 
 Timeout can be set at three levels:
 
@@ -192,31 +192,31 @@ Timeout can be set at three levels:
 
 Resolution: CLI override > state-level > settings-level.
 
-Duration format is the same as `agent_timeout`: `30s`, `5m`, `1h`, `2h30m`. See [Agents Specification — Duration Format](rhei-agents.spec.md#duration-format).
+Duration format is the same as `agent_timeout`: `30s`, `5m`, `1h`, `2h30m`. See [Agents Specification — Duration Format](rhei-agents.spec.md#72-duration-format).
 
-### Behavior
+### 4.2. Behavior
 
-Program timeout uses the same SIGTERM → 10 s grace → SIGKILL sequence and the same timeout-transition evaluation as agent timeout. See [Agents Specification — Timeout Behavior](rhei-agents.spec.md#timeout-behavior) for the full step-by-step. The only program-specific differences are:
+Program timeout uses the same SIGTERM → 10 s grace → SIGKILL sequence and the same timeout-transition evaluation as agent timeout. See [Agents Specification — Timeout Behavior](rhei-agents.spec.md#73-timeout-behavior) for the full step-by-step. The only program-specific differences are:
 
 - The log line reads `program timed out after {duration}` (not `agent timed out`).
 - The state-level field is `program_timeout` (not `agent_timeout`).
 
-Timeout transitions fire with `triggeredBy: 'system'`. See [Transitions Specification — Agent Timeout Trigger](rhei-transitions.spec.md#6-agent-timeout-trigger-triggeredby-system) for the transition selection rules.
+Timeout transitions fire with `triggeredBy: 'system'`. See [Transitions Specification — Agent Timeout Trigger](rhei-transitions.spec.md#36-agent-timeout-trigger-triggeredby-system) for the transition selection rules.
 
-## Log Capture
+## 5. Log Capture
 
 Program stdout and stderr are captured using the same log format and naming conventions as agents. All output is written to `runtime/logs/` relative to the workspace or plan root.
 
-### Log File Naming
+### 5.1. Log File Naming
 
 | Scenario | Log file path |
 |----------|---------------|
 | Simple state | `runtime/logs/task-{task_id}-{state}.log` |
 | Counted-loop state | `runtime/logs/task-{task_id}-{state}-{visit_count}.log` |
 
-### Log Format
+### 5.2. Log Format
 
-Programs use the same header / body / footer structure as agent logs (see [Agents Specification — Log Format](rhei-agents.spec.md#log-format)). The program-specific differences are:
+Programs use the same header / body / footer structure as agent logs (see [Agents Specification — Log Format](rhei-agents.spec.md#82-log-format)). The program-specific differences are:
 
 - The header marker is `=== rhei program log v1 ===` (not `rhei agent log v1`).
 - The header carries `program:` (the resolved command) instead of `agent:`, `model:`, `provider:`, `model_name:`, `mcp_servers:`, and `skills:` — those fields are agent-only.
@@ -243,9 +243,9 @@ ended: 2026-04-20T10:32:15Z
 ===
 ```
 
-## `rhei run` Integration
+## 6. `rhei run` Integration
 
-### Execution Loop
+### 6.1. Execution Loop
 
 Program states integrate into the same `rhei run` loop as agent states. The resolution priority when `rhei run` encounters a state is:
 
@@ -256,9 +256,9 @@ Program states integrate into the same `rhei run` loop as agent states. The reso
 
 Programs take precedence because they are declared explicitly on the state and represent a deliberate choice for deterministic execution.
 
-### Sequential Mode
+### 6.2. Sequential Mode
 
-Within the sequential execution loop (see [Agents Specification](rhei-agents.spec.md#sequential-mode-default---parallel-1)):
+Within the sequential execution loop (see [Agents Specification](rhei-agents.spec.md#521-sequential-mode-default-parallel-1)):
 
 1. Find the next claimable task.
 2. Check the task's current state.
@@ -272,11 +272,11 @@ Within the sequential execution loop (see [Agents Specification](rhei-agents.spe
 10. If an exit-code transition matches, fire it and continue.
 11. If no match: warning (exit 0) or error (exit non-zero).
 
-### Parallel Mode
+### 6.3. Parallel Mode
 
 Programs respect the same independence rules as agents in parallel mode. Independent tasks with program states can run concurrently up to `--parallel N`.
 
-### Flags
+### 6.4. Flags
 
 | Flag | Effect on Program States |
 |------|--------------------------|
@@ -286,7 +286,7 @@ Programs respect the same independence rules as agents in parallel mode. Indepen
 | `--parallel <N>` | Programs respect the same independence and concurrency rules as agents |
 | `--program-timeout <duration>` | Override program timeout for this run |
 
-### Dry-Run Output
+### 6.5. Dry-Run Output
 
 ```
 Pass 1: 2 ready, 0 terminal, 5 total.
@@ -304,15 +304,15 @@ Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
 Dry run complete - nothing was executed.
 ```
 
-### Gating States
+### 6.6. Gating States
 
 A state must not declare both `program` and `gating: true`. Programs execute autonomously; gating states require human action. This combination is a validation error.
 
-## Interaction with Other Features
+## 7. Interaction with Other Features
 
-### Artifact Contracts
+### 7.1. Artifact Contracts
 
-Program states use the same `inputs` / `outputs` artifact contracts as any other state — see [States Specification — Artifact Contracts](rhei-states.spec.md#artifact-contracts) for the schema, path template variables, and general semantics.
+Program states use the same `inputs` / `outputs` artifact contracts as any other state — see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the schema, path template variables, and general semantics.
 
 Program-specific timing:
 
@@ -339,7 +339,7 @@ states:
         path: coverage/lcov.info
 ```
 
-### Callbacks
+### 7.2. Callbacks
 
 Programs and callbacks are complementary, the same as agents and callbacks:
 
@@ -356,7 +356,7 @@ transitions:
     on_enter: "cli:bash ./workflow.sh prepare-test-env"
 ```
 
-### Counted Loops
+### 7.3. Counted Loops
 
 Programs work with `visits` for retry and iteration patterns:
 
@@ -396,19 +396,19 @@ transitions:
     exit_code: 0
 ```
 
-### Instructions and Personality
+### 7.4. Instructions and Personality
 
 `instructions` on program states serve as documentation — they describe what the program does for human operators viewing `rhei next` output. They are not passed to the program.
 
 `personality` is ignored for program states.
 
-### Models
+### 7.5. Models
 
 `model` and `all_models` are ignored for program states. Programs do not use AI models. Declaring both `program` and `model`/`all_models` on the same state is a validation warning (not an error, to allow gradual migration).
 
-## Validation Rules
+## 8. Validation Rules
 
-### State-Level
+### 8.1. State-Level
 
 - `state.program`, when present, must be a non-empty string or a valid program object with at least a `command` field.
 - A state must not declare both `agent` and `program`.
@@ -419,7 +419,7 @@ transitions:
 - `program.env` values must be strings (after template variable resolution).
 - `program.working_directory`, when present, must resolve to a path within the workspace root after template expansion.
 
-### Transition-Level
+### 8.2. Transition-Level
 
 - Transitions with `exit_code` must originate from a state that declares `program`. An `exit_code` on a transition from a non-program state is a validation error.
 - Exit-code transitions from the same source state must not have overlapping values at the same specificity. Specifically:
@@ -429,14 +429,14 @@ transitions:
   - At most one `"nonzero"` transition per source state (before `condition` disambiguation).
 - When multiple `"nonzero"` or overlapping transitions exist from the same source, they must have mutually exclusive `condition` fields to disambiguate.
 
-## Per-State Fields (additions to States Specification)
+## 9. Per-State Fields (additions to States Specification)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `program` | string or object | No | The program command to execute in this state. Mutually exclusive with `agent`. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. |
 | `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. |
 
-## Transition Field (addition to Transitions Specification)
+## 10. Transition Field (addition to Transitions Specification)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

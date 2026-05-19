@@ -2,7 +2,7 @@
 
 Install rhei skills (plan-writer, plan-worker, state-machine-writer) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
 
-## Usage
+## 1. Usage
 
 ```
 rhei install-skills [OPTIONS]
@@ -13,7 +13,7 @@ rhei install-skills --local --agent claude-code
 rhei install-skills --uninstall --agent claude-code
 ```
 
-## Options
+## 2. Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -24,11 +24,11 @@ rhei install-skills --uninstall --agent claude-code
 | `--dry-run` | | Print what would be done without changing anything |
 | `--skills <LIST>` | `rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer` | Comma-separated list of skills to install |
 
-## Agent Targets
+## 3. Agent Targets
 
 Each agent has a different configuration layout. The command handles each one. The tables below show global (default) and project-local (`--local`) paths.
 
-### Claude Code (`claude-code`)
+### 3.1. Claude Code (`claude-code`)
 
 | Mode | Skill files | Registration |
 |------|-------------|--------------|
@@ -47,7 +47,7 @@ When the user types `/rhei-plan-writer`, `/rhei-plan-worker`, or `/rhei-state-ma
 
 In local mode, the paths in the registration block use relative paths (e.g., `.claude/skills/rhei-plan-writer/SKILL.md`).
 
-### Cursor (`cursor`)
+### 3.2. Cursor (`cursor`)
 
 | Mode | Skill files |
 |------|-------------|
@@ -67,7 +67,7 @@ alwaysApply: false
 <SKILL.md content>
 ```
 
-### Windsurf (`windsurf`)
+### 3.3. Windsurf (`windsurf`)
 
 | Mode | Skill files |
 |------|-------------|
@@ -76,7 +76,7 @@ alwaysApply: false
 
 **Format:** Plain markdown sections, delimited with `<!-- rhei:start -->` / `<!-- rhei:end -->` markers for clean uninstall.
 
-### GitHub Copilot (`copilot`)
+### 3.4. GitHub Copilot (`copilot`)
 
 | Mode | Skill files |
 |------|-------------|
@@ -87,7 +87,7 @@ alwaysApply: false
 
 **Note:** Copilot's instruction file has no skill/trigger system — the content is injected as system context. Skills are presented as "when the user asks to create/execute a Rhei plan, follow these instructions."
 
-### Kilocode (`kilocode`)
+### 3.5. Kilocode (`kilocode`)
 
 | Mode | Skill files |
 |------|-------------|
@@ -96,7 +96,7 @@ alwaysApply: false
 
 **Format:** Plain markdown with Kilocode's frontmatter if supported, otherwise raw content.
 
-### Pi (`pi`)
+### 3.6. Pi (`pi`)
 
 | Mode | Skill files |
 |------|-------------|
@@ -105,7 +105,7 @@ alwaysApply: false
 
 **Format:** Plain markdown rule files. Pi loads all `.md` files from its rules directory as system context.
 
-### OpenAI Codex (`codex`)
+### 3.7. OpenAI Codex (`codex`)
 
 | Mode | Skill files | Registration |
 |------|-------------|--------------|
@@ -116,7 +116,7 @@ alwaysApply: false
 
 **Note:** Codex discovers skills by scanning `.agents/skills` from the current working directory up to the repository root, plus `$HOME/.agents/skills` for user-level skills. No registration or marker injection file is needed. Custom spawned agents are configured separately under `.codex/agents/*.toml` or `~/.codex/agents/*.toml`; they inherit the parent session's available skills unless `skills.config` is explicitly overridden.
 
-### Google Antigravity (`antigravity`)
+### 3.8. Google Antigravity (`antigravity`)
 
 | Mode | Skill files |
 |------|-------------|
@@ -125,9 +125,9 @@ alwaysApply: false
 
 **Format:** Plain markdown rule files.
 
-## Behavior
+## 4. Behavior
 
-### Local installation
+### 4.1. Local installation
 
 With `--local`, skills are installed into the current project directory instead of the user's home directory. The command resolves the project root by walking up from the current directory to find a `.git` directory, `Cargo.toml`, `package.json`, or similar project marker. If no project root is found, it falls back to the current working directory.
 
@@ -139,27 +139,27 @@ Local installation is useful for:
 
 When `--local` is combined with `--link`, the symlinks use relative paths so the project stays portable. Files installed with `--local` and `--link` should be added to `.gitignore` unless the intent is to commit them.
 
-### Detect installed skills
+### 4.2. Detect installed skills
 
 Before writing, remove or replace any existing rhei skill files for the target agent and install the requested set again. Re-running `install-skills` refreshes previously installed skills in place instead of skipping.
 
-### Resolve skill source
+### 4.3. Resolve skill source
 
 The command finds skill files relative to the `rhei` binary (e.g., `../share/rhei/skills/` for installed binaries, or `skills/` in the repo for dev builds).
 
-### Symlink vs copy
+### 4.4. Symlink vs copy
 
 The default behavior copies skill files into the target directory. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
 
-### Registration
+### 4.5. Registration
 
 For agents that require explicit registration (Claude Code's `CLAUDE.md`), the command appends a delimited section. It uses markers (`<!-- rhei:start -->` / `<!-- rhei:end -->` or an `# rhei` heading) so uninstall and updates can find and replace the block idempotently.
 
-### Dry run
+### 4.6. Dry run
 
 With `--dry-run`, print each action (symlink, copy, append) without executing.
 
-### Uninstall
+### 4.7. Uninstall
 
 With `--uninstall`, remove symlinks/copied files and delete the registered section from agent config files.
 

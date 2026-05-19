@@ -2,19 +2,19 @@
 
 Select and optionally claim the next eligible task from a plan.
 
-## Usage
+## 1. Usage
 
 ```bash
 rhei next <RHEI_PLAN> [--peek]
 ```
 
-## Options
+## 2. Options
 
 | Flag     | Required | Default | Description                                            |
 |----------|----------|---------|--------------------------------------------------------|
 | `--peek` | No       | false   | Print the next claimable task without transitioning it |
 
-## Default Behavior (Claim Mode)
+## 3. Default Behavior (Claim Mode)
 
 Without `--peek`, `rhei next` atomically claims the next claimable task: it assigns the task to the current agent and prints the task instructions. The task's state is **not** advanced — the agent works in the current state and uses `rhei transition` or `rhei complete` to advance when ready. This is the standard entry point for agents beginning work.
 
@@ -27,7 +27,7 @@ A task is *claimable* when:
 3. Its current state is not terminal (`final: true`) and not gating (`gating: true`).
 4. All required `inputs` declared on the task's current state exist.
 
-### Behavior
+### 3.1. Behavior
 
 1. Load the state machine and plan. Validate.
 2. Scan all tasks in plan order. For each task that satisfies dependency,
@@ -44,14 +44,14 @@ A task is *claimable* when:
 7. Set `**Assignee:** <current-agent>` on the task, where `<current-agent>` is the agent id resolved for the task's current state via the [agent resolution order](rhei-agents.spec.md) (state `agent:` field → project settings → global settings). When no agent is configured, the assignee is omitted rather than written as a placeholder.
 8. Write the task file atomically (temp file + rename), release lock.
 9. Resolve template variables in the state's `instructions` and `personality`
-   fields (see [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality)).
+   fields (see [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)).
 10. Print the task id, title, current state, and resolved instructions to stdout.
 
-If no claimable task exists, print a status summary (see [No Tasks Ready](#no-tasks-ready)).
+If no claimable task exists, print a status summary (see [No Tasks Ready](#5-no-tasks-ready)).
 
-### Output (claim mode)
+### 3.2. Output (claim mode)
 
-Template variables in `instructions` and `personality` are resolved before output. See [Template Variables](rhei-states.spec.md#template-variables-in-instructions-and-personality) for the full variable namespace and resolution rules.
+Template variables in `instructions` and `personality` are resolved before output. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) for the full variable namespace and resolution rules.
 
 ```text
 Task <ID>: <title>
@@ -60,7 +60,7 @@ State: <current-state>
 <resolved instructions from state definition>
 ```
 
-### Missing Artifact Error
+### 3.3. Missing Artifact Error
 
 If the task that would otherwise be claimed is missing one or more required
 input artifacts for its current state, `rhei next` fails and prints an explicit
@@ -73,7 +73,7 @@ Error: Task review-cache-key cannot be claimed in state agent-review-fix.
 Missing required input artifact: findings (runtime/findings/review-cache-key.md)
 ```
 
-## Peek Mode (`--peek`)
+## 4. Peek Mode (`--peek`)
 
 With `--peek`, `rhei next` performs a read-only scan and prints the next task that *would* be claimed, without modifying the plan or acquiring a lock. This is safe for PM-style navigation, scripting, and inspection.
 
@@ -88,7 +88,7 @@ Peek mode still resolves required `inputs` for the first otherwise-claimable
 task. If any are missing, `--peek` fails with the same missing-artifact error as
 claim mode.
 
-### Output (peek mode)
+### 4.1. Output (peek mode)
 
 ```text
 Next: Task <ID>: <title>
@@ -97,7 +97,7 @@ State: <current-state>
 
 If no claimable task exists, the same status summary is printed as in claim mode.
 
-## No Tasks Ready
+## 5. No Tasks Ready
 
 When no claimable task is found, `rhei next` (with or without `--peek`) prints one of three status messages depending on the plan state:
 
@@ -107,15 +107,15 @@ When no claimable task is found, `rhei next` (with or without `--peek`) prints o
 | One or more tasks in a gating state              | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...`                   |
 | All non-terminal tasks are claimed (in-flight)   | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>), ...` |
 
-These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan. See [States Specification — State Definition](rhei-states.spec.md#per-state-fields) for the `gating: true` field (e.g., `human-review` in the default machine; custom machines may define additional gating states such as `security-review` or `legal-review`).
+These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan. See [States Specification — State Definition](rhei-states.spec.md#12-per-state-fields) for the `gating: true` field (e.g., `human-review` in the default machine; custom machines may define additional gating states such as `security-review` or `legal-review`).
 
 ## Relationship to Other Commands
 
 `rhei next` is the claim step of the manual-worker loop: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release). `--peek` is the read-only variant that inspects the next claimable task without taking it.
 
-See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#command-surface) for the full table comparing all five coordination commands.
+See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface) for the full table comparing all five coordination commands.
 
-## Agent Context
+## 6. Agent Context
 
 When a state declares an `agent` field (or an agent is resolved from project/global settings), `rhei next` includes the agent identifier in its JSON output:
 

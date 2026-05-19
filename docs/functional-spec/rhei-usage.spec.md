@@ -4,11 +4,11 @@ This document describes how Rhei plans are consumed by agents, humans, and progr
 
 For the formal grammar see the [Plan Language Specification](rhei-plan-language.spec.md). For authoring patterns see the [Usage Guide](rhei-authoring.spec.md).
 
-## Roles
+## 1. Roles
 
 A Rhei plan is a shared artifact read and written by several distinct roles. Each role has a narrow mandate — what it may read, what it may change, and when it must stop.
 
-### Plan Writer
+### 1.1. Plan Writer
 
 The plan writer creates and restructures plans. It translates a goal into a dependency graph of tasks with states, child task nodes, and prose context.
 
@@ -21,7 +21,7 @@ Responsibilities:
 
 The plan writer does **not** execute tasks or advance states during implementation. Structural edits and implementation progress are separate concerns.
 
-### Plan Worker
+### 1.2. Plan Worker
 
 The plan worker picks up an existing plan and makes progress on it. It is driven entirely by the plan: the state machine defines what transitions are legal, `**Prior:**` edges define what is ready, and state instructions define what to do.
 
@@ -34,9 +34,9 @@ Responsibilities:
 
 The plan worker does **not** add tasks, reorder tasks, change dependencies, or delete sections. In interactive/manual execution it may edit `**State:**` values and progress logs inside a task body (including child task bodies). Under `rhei run`, spawned workers leave `**State:**` changes to the orchestrator and only produce the work and artifacts for the current state.
 
-The Plan Worker role corresponds to `worker` [Completion Authority](rhei-agents.spec.md#completion-authority); `rhei run` corresponds to `orchestrator` authority. The same state definition is legal under both — what differs is who decides the state's work is done and drives the resulting transition.
+The Plan Worker role corresponds to `worker` [Completion Authority](rhei-agents.spec.md#31-completion-authority); `rhei run` corresponds to `orchestrator` authority. The same state definition is legal under both — what differs is who decides the state's work is done and drives the resulting transition.
 
-### Reviewer
+### 1.3. Reviewer
 
 The reviewer inspects completed work before it advances to the next state. In the default Rhei state machine, this role appears in two forms:
 
@@ -44,7 +44,7 @@ The reviewer inspects completed work before it advances to the next state. In th
 
 - **Human reviewer** (`human-review`): A human inspects the work. No agent may transition out of this state autonomously. The human decides: return to `pending` (rework), `completed` (approve), or `cancelled` (abandon).
 
-### Human Operator
+### 1.4. Human Operator
 
 The human operator has full authority over the plan. They can:
 
@@ -55,7 +55,7 @@ The human operator has full authority over the plan. They can:
 
 The human is the only role that can unblock `human-review` gates. This is by design: certain decisions (ship/no-ship, scope changes, external approvals) require human judgment.
 
-## Coordination Through the State Machine
+## 2. Coordination Through the State Machine
 
 The state machine is the single coordination protocol between all roles. It defines:
 
@@ -65,7 +65,7 @@ The state machine is the single coordination protocol between all roles. It defi
 
 This means agents do not need to communicate with each other directly. They communicate through artifacts and the authoritative plan state managed by the orchestrator: one agent writes outputs for its state, `rhei run` advances the task, and the next agent reads the resulting state and artifacts.
 
-### State Flow (Default Machine)
+### 2.1. State Flow (Default Machine)
 
 ```
 draft --> pending --> agent-review --> completed
@@ -88,7 +88,7 @@ The `human-review` state is deliberately isolated: agents can send work into it 
 
 Each arrow is a declared transition. Agents follow the `instructions` field on each state to know what work must be completed before the next handoff. The transition itself is then performed either by an interactive/manual worker or by the `rhei run` orchestrator.
 
-### Command Surface
+### 2.2. Command Surface
 
 The commands that coordinate through the state machine:
 
@@ -108,9 +108,9 @@ The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
 snapshot debugging; its constraints are specified in
 [Snapshot Operations Specification](rhei-snapshot-operations.spec.md).
 
-## Usage Patterns
+## 3. Usage Patterns
 
-### Pattern 0: Zero-Config Agent Execution
+### 3.1. Pattern 0: Zero-Config Agent Execution
 
 The simplest way to use Rhei. No callbacks, no `workflow.sh`, no glue code.
 
@@ -163,7 +163,7 @@ rhei run plan.rhei.md --parallel 4
 
 See [Agents Specification](rhei-agents.spec.md) for configuration, resolution order, timeout handling, and log capture.
 
-### Pattern 1: Single Agent, Start to Finish
+### 3.2. Pattern 1: Single Agent, Start to Finish
 
 One agent session acts as both writer and worker. This is useful when the agent session itself drives the workflow rather than `rhei run`.
 
@@ -175,7 +175,7 @@ One agent session acts as both writer and worker. This is useful when the agent 
 
 This is the default for small, well-scoped work within a single agent session. The plan still provides value: it gives the human a structured view of progress, and the agent a memory of what it has and hasn't done. For larger work or multi-agent workflows, Pattern 0 (`rhei run`) is preferred.
 
-### Pattern 2: Writer and Worker as Separate Sessions
+### 3.3. Pattern 2: Writer and Worker as Separate Sessions
 
 For larger work, the plan writer and plan worker run in separate agent sessions — possibly days apart.
 
@@ -186,7 +186,7 @@ For larger work, the plan writer and plan worker run in separate agent sessions 
 
 The plan file is the handoff mechanism. No session state needs to survive between sessions — the plan captures everything.
 
-### Pattern 3: Parallel Workers on Independent Branches
+### 3.4. Pattern 3: Parallel Workers on Independent Branches
 
 When a plan's DAG has independent branches (tasks with no shared dependencies), multiple workers can operate in parallel.
 
@@ -238,14 +238,14 @@ This eliminates last-write-wins races without requiring an external scheduler. T
 
 For `rhei run --parallel N`, the same concurrency rule applies, but the spawned agents are not the ones issuing transition commands. Each spawned agent works only on the current state of its assigned task and exits. `rhei run` serializes the resulting state changes, which keeps transition authority centralized even when task work is distributed across multiple agents.
 
-### Pattern 3b: Highly Distributed Swarms (Directory Workspaces)
+### 3.5. Pattern 3b: Highly Distributed Swarms (Directory Workspaces)
 
 If parallel workers are distributed across multiple branches or machines, the single-file lock approach breaks down (leading to Git merge conflicts). In these highly concurrent scenarios, agents use **Directory Workspaces**.
 
 Instead of a single `plan.rhei.md`, the plan is hosted as a directory with tasks separated into a `tasks/` directory (`tasks/db-schema.md`, `tasks/integration.md`). 
 Because tasks are isolated in distinct files, Git effortlessly merges cross-branch progress without text collisions, mirroring the resilience of database-backed trackers like Beads.
 
-### Pattern 4: Human-in-the-Loop Checkpoints
+### 3.6. Pattern 4: Human-in-the-Loop Checkpoints
 
 Plans that require human approval use the `human-review` state as a gate.
 
@@ -264,7 +264,7 @@ When a task reaches `human-review`:
 
 Meanwhile, agents continue working on other branches of the DAG that are not blocked by this gate. The plan stays productive even when one branch is waiting on human input.
 
-### Pattern 5: Draft Expansion
+### 3.7. Pattern 5: Draft Expansion
 
 For exploratory or long-running projects, tasks start as `draft` — placeholder titles that are not yet ready for execution.
 
@@ -276,19 +276,19 @@ For exploratory or long-running projects, tasks start as `draft` — placeholder
 
 This prevents agents from planning against stale or incomplete project state. The `draft` state is a signal: "this task exists in the plan but needs analysis before it can be specified and executed." Because `rhei next` claims without transitioning, the agent has a dedicated phase to do the analysis work before advancing the state.
 
-### Pattern 6: Programmatic State Transitions
+### 3.8. Pattern 6: Programmatic State Transitions
 
 Beyond agent-driven workflows, Rhei plans can be advanced programmatically through the transition callback system. State machines declare `on_leave` and `on_enter` callbacks that fire during transitions — they can approve, reject, or redirect transitions, turning the plan into an executable workflow engine.
 
 Callbacks are supported for bash (via `--handlers`), TypeScript/JavaScript (NAPI), Python (PyO3), and Java (JNI). See [Transitions Specification](rhei-transitions.spec.md) for the formal `TransitionContext` / `TransitionResult` API and [Transition Callback Examples](rhei-callbacks.spec.md) for per-language code.
 
-### Pattern 7: Multi-Target Analysis with `all_targets`
+### 3.9. Pattern 7: Multi-Target Analysis with `all_targets`
 
 When the same task should be run once per model and then synthesized, prefer one shared task state with `all_targets` over cloning one state or one task per model. `rhei run` executes the state once per listed target; artifact paths and prompts template on `{target}`, `{target.slug}`, `{agent}`, `{agent.mode}`, and `{model}`. A downstream `summarize` state then consumes the per-target artifacts and writes one final result.
 
-See [States Specification — `all_targets`](rhei-states.spec.md#per-state-fields) for the schema, selector grammar, and a worked example.
+See [States Specification — `all_targets`](rhei-states.spec.md#12-per-state-fields) for the schema, selector grammar, and a worked example.
 
-### Pattern 8: Living Workspace Expansion
+### 3.10. Pattern 8: Living Workspace Expansion
 
 A directory workspace can stay intentionally incomplete at authoring time and be
 expanded by the orchestrator while `rhei run` is executing. This is useful when
@@ -341,13 +341,13 @@ This keeps the Rhei truthful: speculative fixes do not appear in the task graph
 until the review artifact justifies them. The checked-in example lives in
 [`examples/living-review-loop`](../../examples/living-review-loop/README.md).
 
-### Pattern 9: Program States for Deterministic Steps
+### 3.11. Pattern 9: Program States for Deterministic Steps
 
 Program states execute a fixed command instead of spawning an AI agent — use them for deterministic workflow steps (builds, tests, linting, deployment) where an agent would add latency and cost without value. Programs communicate outcomes through exit codes, so transitions from program states can declare an `exit_code` condition that routes automatically. Program and agent states coexist in the same state machine: a common pattern is an agent-program feedback loop where the agent implements code, a deterministic build/test program verifies, and failures return control to the agent.
 
 See [Program States Specification](rhei-programs.spec.md) for program declaration, the full exit-code evaluation algorithm, timeout handling, and validation rules.
 
-### Pattern 10: CI/CD Pipeline as a Plan
+### 3.12. Pattern 10: CI/CD Pipeline as a Plan
 
 A Rhei plan can model a CI/CD pipeline where each task is a pipeline stage. The state machine encodes the pipeline's control flow, and callbacks integrate with build systems, test runners, and deployment tools.
 
@@ -379,7 +379,7 @@ A Rhei plan can model a CI/CD pipeline where each task is a pipeline stage. The 
 
 Task 5 starts as `draft` — it will only be promoted to `pending` after staging is verified. The pipeline advances automatically through callbacks, but human gates can be inserted at any stage.
 
-## The Plan as Shared Memory
+## 4. The Plan as Shared Memory
 
 The central design principle: **the plan file is the single source of truth**. Agents do not maintain internal state about what has been done or what comes next. They read the plan, act on it, write back to it, and validate. This has several consequences:
 

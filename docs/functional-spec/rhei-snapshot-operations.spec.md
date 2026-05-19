@@ -10,7 +10,7 @@ profiles and settings precedence in §FS-rhei-agents.
 
 ## 1. CLI Surface
 
-### 1.1 Snapshot Reference Parser
+### 1.1. Snapshot Reference Parser
 
 All snapshot commands that accept a reference use the same parser and
 precedence table:
@@ -26,7 +26,7 @@ candidates and guidance to retry with explicit `--task`, `--name`, `--state`,
 `--target`, or `--generation` selectors rather than applying command-specific
 tie-breakers.
 
-### 1.2 `rhei snapshot list`
+### 1.2. `rhei snapshot list`
 
 Prints the snapshot cache contents. Options:
 
@@ -45,7 +45,7 @@ Prints the snapshot cache contents. Options:
 Default columns: task, snapshot name, emitting state, visit, target slug,
 generation, created_at, transcript bytes, completion, produced_by.
 
-### 1.3 `rhei snapshot show <ref>`
+### 1.3. `rhei snapshot show <ref>`
 
 Prints a manifest in full and a transcript head/tail preview. It uses the
 shared snapshot reference parser above. Worked example:
@@ -59,7 +59,7 @@ resolves to task `1.2.3`, snapshot name `implementation`, emitting state
 generation `3`. Trailing positional segments may be omitted to broaden the
 match; ambiguous shorthand prints all matches and exits non-zero.
 
-### 1.4 `rhei snapshot gc`
+### 1.4. `rhei snapshot gc`
 
 Deletes snapshots by policy. Options:
 
@@ -100,7 +100,7 @@ deterministic behavior must stop the orchestrator first, or pass `--force`
 to acknowledge the risk. `--force` is required to GC any snapshot in a
 workspace whose `run.lock` is held.
 
-### 1.5 `rhei snapshot continue <ref>`
+### 1.5. `rhei snapshot continue <ref>`
 
 Drops the operator into an interactive agent session preloaded with the
 referenced snapshot. The operator drives the conversation; on agent exit,
@@ -221,7 +221,7 @@ continue` becomes available later when the interactive transport is supported.
 
 ## 4. Configuration
 
-### 4.1 Settings Block
+### 4.1. Settings Block
 
 Project and global `settings.json` may include a `snapshots` block:
 
@@ -244,7 +244,7 @@ Project and global `settings.json` may include a `snapshots` block:
 provider. The authoritative defaults live in the shipped settings template at
 release time; placeholder values in examples are illustrative, not normative.
 
-### 4.2 Privacy: Redaction Hook
+### 4.2. Privacy: Redaction Hook
 
 If `snapshots.redactor` is set, rhei executes the named program on every
 transcript file before writing it to the cache. The program receives the

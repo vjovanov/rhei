@@ -17,7 +17,7 @@ For the plan grammar see the [Plan Language Specification](rhei-plan-language.sp
 - **Not a plan editor.** Clicks navigate and filter; they do not mutate the plan. Editing remains the responsibility of `rhei` CLI commands or a text editor.
 - **No remote deployment.** The optional server binds to loopback only.
 
-## Usage
+## 1. Usage
 
 ```
 rhei viz [PATH]                    # default: current workspace or ./*.rhei.md
@@ -30,7 +30,7 @@ rhei viz --no-open                 # emit HTML, skip the browser launch
 
 Default behavior when `PATH` is omitted: resolve the workspace via the same rules as `rhei run`. If the workspace contains one or more `.rhei.md` files, all are loaded and exposed via a plan selector in the UI.
 
-## Options
+## 2. Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -40,13 +40,13 @@ Default behavior when `PATH` is omitted: resolve the workspace via the same rule
 | `--port <N>` | `auto` | Port for `--serve`. Default picks the first free port in `7272..7371`. |
 | `--no-open` | `false` | Do not launch a browser. Print the file path or `http://127.0.0.1:<port>/` URL to stdout. |
 | `--view <NAME>` | `gantt` | Default tab: `gantt`, `cube`, or `sankey`. |
-| `--plan-state <NAME>` | derived | Override the plan-level state (see [Plan-Level State Derivation](#plan-level-state-derivation)). |
+| `--plan-state <NAME>` | derived | Override the plan-level state (see [Plan-Level State Derivation](#5-plan-level-state-derivation)). |
 
-## Views
+## 3. Views
 
 The rendered page has three tabs that share a single parsed dataset. Tab switching is instant (no reparse, no reload).
 
-### 1. Swimlane Gantt (default)
+### 3.1. Swimlane Gantt (default)
 
 Each row is an item: one row for the plan (level 0), one per task (level 1), and one per subtask (level 2) indented under its task. The x-axis is **state**, split into up to three column groups by level so each level's vocabulary renders in its own axis strip:
 
@@ -67,19 +67,19 @@ Each level's pill only lands in its own column group. A gutter separates the gro
 
 Hovering a pill shows a tooltip with the item id, title, and state. The plan row is visually distinct (diamond bullet, stronger stroke, colored label).
 
-### 2. Heatmap Cube
+### 3.2. Heatmap Cube
 
 A dense grid: rows are tasks, columns are subtask slots (`.1`, `.2`, …). Each cell is colored by the subtask's state. A bordered cell to the left of each row shows the task's own state. The plan row is rendered as a full-width strip above the grid, colored by plan state.
 
 Purpose: scan the whole plan at once. Good for answering "are there any red cells?" without reading labels.
 
-### 3. Sankey Flow
+### 3.3. Sankey Flow
 
 Left column: one node per task. Right column: one node per state in the level-2 vocabulary. Ribbons flow from each task to the states its subtasks are in; ribbon thickness equals the count of subtasks in that state. The plan's aggregate state appears as a band above.
 
 Purpose: spot bottlenecks — "most subtasks are stuck in `needs-review`" is immediately visible.
 
-## Level-Grouped Axis Rules (Gantt)
+## 4. Level-Grouped Axis Rules (Gantt)
 
 Let `S₀`, `S₁`, `S₂` be the set of distinct states observed at the plan, task, and subtask levels respectively. The Gantt view computes:
 
@@ -94,7 +94,7 @@ draft → pending → in_progress → needs-review → review → prove → cons
 
 This ordering governs column placement within every group.
 
-## Plan-Level State Derivation
+## 5. Plan-Level State Derivation
 
 A `.rhei.md` plan does not carry an explicit `**State:**` at the top level (see [Plan Language Specification](rhei-plan-language.spec.md)). `rhei viz` derives a plan-level state from the top-level task states:
 
@@ -110,9 +110,9 @@ Derivation is done from the active state machine's terminal-state declarations �
 
 `--plan-state <NAME>` overrides this derivation and forces a value (useful for demos or when the user wants to mark a plan `shipping` externally).
 
-## Serving Modes
+## 6. Serving Modes
 
-### Static (default)
+### 6.1. Static (default)
 
 `rhei viz [PATH]` writes a self-contained HTML file to a temp directory (`$TMPDIR/rhei-viz-<hash>.html`) with the plan data inlined as JSON, then launches the system browser against the `file://` URL. No background process remains after the browser opens.
 
@@ -120,7 +120,7 @@ The HTML contains zero external references: no `<script src>`, no `<link rel=sty
 
 `--output <PATH>` redirects the file to a user-chosen location and suppresses the browser launch.
 
-### Live (`--serve`)
+### 6.2. Live (`--serve`)
 
 `rhei viz --serve` starts a local HTTP server bound to `127.0.0.1`, serves the page at `/`, and opens the browser. The server:
 
@@ -130,7 +130,7 @@ The HTML contains zero external references: no `<script src>`, no `<link rel=sty
 
 The server is loopback-only. It does not accept remote connections and does not require authentication. Queries carry no credentials; the data served is already readable to the local user.
 
-## Output Format
+## 7. Output Format
 
 The rendered HTML has the following structure (abridged):
 
@@ -154,7 +154,7 @@ The rendered HTML has the following structure (abridged):
 
 SVG is used instead of canvas so the output is scalable, copyable as an image, and crawlable by text-searching tools. No external JS framework.
 
-## Data Shape
+## 8. Data Shape
 
 ```ts
 type Plan = {
@@ -182,7 +182,7 @@ type Subtask = {
 
 The parser that produces this shape lives in `crates/rhei-core` (sharing code with `rhei next` / `rhei run`).
 
-## CLI Integration
+## 9. CLI Integration
 
 Add a `Viz` variant to the `Commands` enum in `crates/rhei-cli/src/main.rs`, with the clap fields above. The handler function `viz_command()` delegates to a new `crates/rhei-viz` crate that owns the HTML template, the static file embedding, and — gated behind the `serve` cargo feature — the HTTP server.
 
@@ -194,7 +194,7 @@ The `rhei-viz` crate depends on:
 
 The non-`serve` build has no HTTP stack and no watcher; the default build stays small.
 
-## Security Considerations
+## 10. Security Considerations
 
 - The HTML file contains the full plan content (titles, contexts). Users writing plans with sensitive content should avoid `rhei viz --output` into shared directories.
 - `--serve` binds to `127.0.0.1` only; it is not a multi-user server.

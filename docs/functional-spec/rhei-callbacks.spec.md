@@ -17,7 +17,7 @@ This document provides practical examples of state transition callbacks across a
 
 The simplest callback pattern: approve or reject a transition based on a condition.
 
-### TypeScript
+### 1.1. TypeScript
 
 ```typescript
 import { Rhei, TransitionContext, TransitionResult } from 'rhei-napi';
@@ -33,7 +33,7 @@ rhei.onLeave('draft', 'pending', async (ctx: TransitionContext): Promise<Transit
 });
 ```
 
-### Python
+### 1.2. Python
 
 ```python
 from rhei import Rhei, TransitionContext, TransitionResult
@@ -48,7 +48,7 @@ def validate_title(ctx: TransitionContext) -> TransitionResult:
     return TransitionResult(success=True)
 ```
 
-### Java
+### 1.3. Java
 
 ```java
 import io.rhei.Rhei;
@@ -66,7 +66,7 @@ public class BasicCallbacks {
 }
 ```
 
-### Bash (CLI)
+### 1.4. Bash (CLI)
 
 ```bash
 #!/usr/bin/env bash
@@ -92,7 +92,7 @@ validate_title() {
 
 Check that all prior tasks are completed before allowing a transition.
 
-### TypeScript
+### 2.1. TypeScript
 
 ```typescript
 rhei.onLeave('pending', 'in-progress', async (ctx: TransitionContext): Promise<TransitionResult> => {
@@ -117,7 +117,7 @@ rhei.onLeave('pending', 'in-progress', async (ctx: TransitionContext): Promise<T
 });
 ```
 
-### Python
+### 2.2. Python
 
 ```python
 @rhei.on_leave("pending", "in-progress")
@@ -144,7 +144,7 @@ def check_dependencies(ctx: TransitionContext) -> TransitionResult:
     return TransitionResult(success=True)
 ```
 
-### Java
+### 2.3. Java
 
 ```java
 public static TransitionResult checkDependencies(TransitionContext ctx) {
@@ -174,7 +174,7 @@ public static TransitionResult checkDependencies(TransitionContext ctx) {
 }
 ```
 
-### Bash (CLI)
+### 2.4. Bash (CLI)
 
 ```bash
 check_dependencies() {
@@ -211,7 +211,7 @@ check_dependencies() {
 
 Pass data from `on_leave` to `on_enter` via `transitionData`.
 
-### TypeScript
+### 3.1. TypeScript
 
 ```typescript
 // on_leave: collect data for the next phase
@@ -248,7 +248,7 @@ rhei.onEnter('review', async (ctx: TransitionContext): Promise<TransitionResult>
 });
 ```
 
-### Python
+### 3.2. Python
 
 ```python
 @rhei.on_leave("processing", "review")
@@ -285,7 +285,7 @@ def setup_review(ctx: TransitionContext) -> TransitionResult:
     return TransitionResult(success=True)
 ```
 
-### Java
+### 3.3. Java
 
 ```java
 public static TransitionResult packageResults(TransitionContext ctx) {
@@ -317,7 +317,7 @@ public static TransitionResult setupReview(TransitionContext ctx) {
 }
 ```
 
-### Bash (CLI)
+### 3.4. Bash (CLI)
 
 ```bash
 package_results() {
@@ -365,7 +365,7 @@ setup_review() {
 
 Dynamically redirect to a different state based on runtime conditions.
 
-### TypeScript
+### 4.1. TypeScript
 
 ```typescript
 rhei.onLeave('validation', 'approved', async (ctx: TransitionContext): Promise<TransitionResult> => {
@@ -394,7 +394,7 @@ rhei.onLeave('validation', 'approved', async (ctx: TransitionContext): Promise<T
 });
 ```
 
-### Python
+### 4.2. Python
 
 ```python
 @rhei.on_leave("validation", "approved")
@@ -422,7 +422,7 @@ def validate_and_route(ctx: TransitionContext) -> TransitionResult:
     return TransitionResult(success=True)
 ```
 
-### Java
+### 4.3. Java
 
 ```java
 public static TransitionResult validateAndRoute(TransitionContext ctx) {
@@ -451,7 +451,7 @@ public static TransitionResult validateAndRoute(TransitionContext ctx) {
 }
 ```
 
-### Bash (CLI)
+### 4.4. Bash (CLI)
 
 ```bash
 validate_and_route() {
@@ -492,7 +492,7 @@ EOF
 
 Use arbitrary metadata fields stored in the plan file's YAML frontmatter.
 
-### TypeScript
+### 5.1. TypeScript
 
 ```typescript
 rhei.onLeave('queued', 'processing', async (ctx: TransitionContext): Promise<TransitionResult> => {
@@ -522,7 +522,7 @@ rhei.onLeave('queued', 'processing', async (ctx: TransitionContext): Promise<Tra
 });
 ```
 
-### Python
+### 5.2. Python
 
 ```python
 @rhei.on_leave("queued", "processing")
@@ -552,7 +552,7 @@ def check_metadata(ctx: TransitionContext) -> TransitionResult:
     )
 ```
 
-### Java
+### 5.3. Java
 
 ```java
 public static TransitionResult checkMetadata(TransitionContext ctx) {
@@ -578,7 +578,7 @@ public static TransitionResult checkMetadata(TransitionContext ctx) {
 }
 ```
 
-### Bash (CLI)
+### 5.4. Bash (CLI)
 
 ```bash
 check_metadata() {
@@ -619,7 +619,7 @@ EOF
 
 Adapt behavior based on the execution environment.
 
-### TypeScript
+### 6.1. TypeScript
 
 ```typescript
 rhei.onEnter('deploying', async (ctx: TransitionContext): Promise<TransitionResult> => {
@@ -657,7 +657,7 @@ rhei.onEnter('deploying', async (ctx: TransitionContext): Promise<TransitionResu
 });
 ```
 
-### Python
+### 6.2. Python
 
 ```python
 import subprocess
@@ -695,7 +695,7 @@ def deploy_task(ctx: TransitionContext) -> TransitionResult:
     )
 ```
 
-### Java
+### 6.3. Java
 
 ```java
 public static TransitionResult deployTask(TransitionContext ctx) {
@@ -739,7 +739,7 @@ public static TransitionResult deployTask(TransitionContext ctx) {
 }
 ```
 
-### Bash (CLI)
+### 6.4. Bash (CLI)
 
 ```bash
 deploy_task() {
