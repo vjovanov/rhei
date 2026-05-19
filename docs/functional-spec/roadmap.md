@@ -3,9 +3,9 @@
 Use Rhei plans in `docs/plans/` for concrete implementation sequencing. The
 roadmap is sequenced against the project outcomes. §GOAL-rhei-outcomes
 
-## 0.1.0-alpha.1 Release Checklist
+## 0.1.0 Release Checklist
 
-This checklist is for the `0.1.0-alpha.1` release line.
+This checklist is for the `0.1.0` release line.
 
 ### Preflight
 
@@ -33,8 +33,8 @@ cargo run -p rhei-cli -- version
 4. Tag the commit:
 
 ```bash
-git tag -a v0.1.0-alpha.1 -m "Rhei 0.1.0-alpha.1"
-git push origin v0.1.0-alpha.1
+git tag -a v0.1.0 -m "Rhei 0.1.0"
+git push origin v0.1.0
 ```
 
 5. Create a GitHub release using the `CHANGELOG.md` entry as release notes.
@@ -100,13 +100,12 @@ Publish the CLI package first. It is stored in `packages/npm/rhei-cli`, but its
 npm package name is `rhei`. The `rhei-api` package depends on the matching
 `rhei` npm version.
 
-The npm packages are source-built alpha wrappers: installing them requires Rust
-and Cargo, then runs `cargo install rhei-cli --version 0.1.0-alpha.1`.
+The npm packages are source-built wrappers: installing them requires Rust
+and Cargo, then runs `cargo install rhei-cli --version 0.1.0`.
 
 ### PyPI Packages
 
-The PyPI release packages live under `packages/python/`. PyPI uses PEP 440
-versions, so `0.1.0-alpha.1` maps to `0.1.0a1`.
+The PyPI release packages live under `packages/python/`.
 
 ```bash
 cd packages/python/rhei-cli
@@ -121,7 +120,7 @@ python3 -m twine upload dist/*
 ```
 
 Publish `rhei-cli` first. The `rhei-api` package depends on
-`rhei-cli==0.1.0a1`.
+`rhei-cli==0.1.0`.
 
 ### Homebrew and GHCR
 

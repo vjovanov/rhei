@@ -1,6 +1,6 @@
 # Rhei Release Plan
 
-This plan is for the `0.1.0-alpha.1` release.
+This plan is for the `0.1.0` release.
 
 ## Naming
 
@@ -219,8 +219,8 @@ Return to the repository root:
 
 ```bash
 cd /home/vjovanov/c/rhei
-git tag -a v0.1.0-alpha.1 -m "Rhei 0.1.0-alpha.1"
-git push origin v0.1.0-alpha.1
+git tag -a v0.1.0 -m "Rhei 0.1.0"
+git push origin v0.1.0
 ```
 
 Create a GitHub release from the `CHANGELOG.md` entry.

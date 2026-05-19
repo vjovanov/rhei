@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.0-alpha.1"
-PY_VERSION="0.1.0a1"
+VERSION="0.1.0"
+PY_VERSION="0.1.0"
 TAG="v${VERSION}"
 MODE="dry-run"
 SKIP_TESTS=0
