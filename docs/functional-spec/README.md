@@ -36,9 +36,9 @@ one `FS-<slug>` ID at its H1.
 This index is navigational. Normative citations should target the specific
 declaration ID rather than this file.
 
-Supporting product documents in this folder:
+Supporting product documents:
 
-- [Project purpose](grund.md)
+- [Project purpose](../grund.md) §GND-rhei-purpose
 - [Goals](goals.md)
 - [Roadmap](roadmap.md) §RM-rhei-roadmap
 - [Comparison](comparison.md)
