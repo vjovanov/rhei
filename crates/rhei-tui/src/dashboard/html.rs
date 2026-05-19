@@ -39,10 +39,11 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
   .banner.error { background: #3a0d12; color: #fecaca; border-bottom: 1px solid #7f1d1d; }
   .banner.done  { background: #062e21; color: #6ee7b7; border-bottom: 1px solid #047857; }
   .tabs { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--line);
-    background: var(--panel); position: sticky; top: 0; z-index: 10; }
+    background: var(--panel); position: sticky; top: 0; z-index: 10; overflow-x: auto;
+    scrollbar-width: thin; }
   button.tab { background: transparent; color: var(--muted); border: 0;
     border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px;
-    font: inherit; cursor: pointer; }
+    font: inherit; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
   button.tab.active { color: var(--ink); border-bottom-color: var(--accent); }
   button.tab .count { color: var(--muted); margin-left: 6px; font-size: 11px; }
   main { padding: 18px 20px; }
@@ -56,6 +57,14 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
     overflow: hidden; }
   .panel + .panel { margin-top: 10px; }
+  .viz-panel { overflow: auto; padding: 12px; }
+  .viz-svg { display: block; min-width: 100%; }
+  .viz-axis { fill: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .viz-label { fill: var(--ink); font-size: 12px; }
+  .viz-muted { fill: var(--muted); font-size: 11px; }
+  .viz-line { stroke: var(--line); stroke-width: 1; }
+  .viz-pill-text { fill: #0b1020; font-size: 11px; font-weight: 700; }
+  .viz-node-text { fill: var(--ink); font-size: 12px; font-weight: 600; }
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
     padding: 8px 12px; border-bottom: 1px solid var(--line); background: #0f1530;
@@ -117,7 +126,10 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
 </header>
 <div class="banner" id="banner"></div>
 <div class="tabs">
-  <button class="tab active" data-view="tasks">Tasks <span class="count" id="count-tasks"></span></button>
+  <button class="tab active" data-view="gantt">Gantt <span class="count" id="count-gantt"></span></button>
+  <button class="tab" data-view="cube">Cube <span class="count" id="count-cube"></span></button>
+  <button class="tab" data-view="sankey">Sankey <span class="count" id="count-sankey"></span></button>
+  <button class="tab" data-view="tasks">Tasks <span class="count" id="count-tasks"></span></button>
   <button class="tab" data-view="slots">Slots <span class="count" id="count-slots"></span></button>
   <button class="tab" data-view="journal">Journal <span class="count" id="count-journal"></span></button>
   <button class="tab" data-view="links">Links <span class="count" id="count-links"></span></button>
@@ -125,7 +137,22 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
 <main>
   <div class="legend" id="legend"></div>
 
-  <div class="view active" id="view-tasks">
+  <div class="view active" id="view-gantt">
+    <div class="caption">Plan shape by level. State axes are separated when level vocabularies differ.</div>
+    <div class="panel viz-panel" id="gantt-panel"></div>
+  </div>
+
+  <div class="view" id="view-cube">
+    <div class="caption">Dense task-by-descendant-state heatmap for scanning the whole plan.</div>
+    <div class="panel viz-panel" id="cube-panel"></div>
+  </div>
+
+  <div class="view" id="view-sankey">
+    <div class="caption">Descendant-state flow by top-level task. Ribbon thickness is descendant count.</div>
+    <div class="panel viz-panel" id="sankey-panel"></div>
+  </div>
+
+  <div class="view" id="view-tasks">
     <div class="caption">Every task in the plan. Re-read on each refresh.</div>
     <div class="filters" id="task-filters"></div>
     <div class="panel">
@@ -160,10 +187,10 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
 </main>
 <script>
 const STATE_ORDER = [
-  "draft", "pending", "in-progress", "in_progress", "needs-review",
+  "draft", "pending", "in_progress", "in-progress", "needs-review",
   "review", "prove", "consolidate", "fix", "agent-review",
-  "agent-review-fix", "human-review", "completed", "blocked", "failed",
-  "cancelled", "archived",
+  "agent-review-fix", "human-review", "active", "completed", "blocked",
+  "failed", "cancelled", "archived",
 ];
 const STATE_COLOR = {
   "draft":            "#64748b",
@@ -178,6 +205,7 @@ const STATE_COLOR = {
   "agent-review":     "#8b5cf6",
   "agent-review-fix": "#ec4899",
   "human-review":     "#22c55e",
+  "active":           "#38bdf8",
   "completed":        "#10b981",
   "blocked":          "#ef4444",
   "failed":           "#ef4444",
@@ -259,6 +287,7 @@ function isTerminal(state) {
 function renderLegend(data) {
   const box = document.getElementById("legend");
   const states = new Set();
+  if (data.plan_state) states.add(data.plan_state);
   for (const t of data.tasks || []) if (t.state) states.add(t.state);
   for (const s of data.slots || []) if (s.state) states.add(s.state);
   const ordered = [...states].sort((a, b) => stateIndex(a) - stateIndex(b));
@@ -268,12 +297,295 @@ function renderLegend(data) {
 }
 
 function setCounts(data) {
+  const childCount = (data.tasks || []).filter(t => isChildTask(t)).length;
+  document.getElementById("count-gantt").textContent = data.plan_state || "";
+  document.getElementById("count-cube").textContent = childCount || "";
+  document.getElementById("count-sankey").textContent = childCount || "";
   document.getElementById("count-tasks").textContent = (data.tasks || []).length || "";
   const running = (data.slots || []).filter(s => s.active).length;
   document.getElementById("count-slots").textContent = running ? `${running}/${(data.slots || []).length}` : "";
   document.getElementById("count-journal").textContent = (data.recent || []).length || "";
   const links = (data.auto_links || []).length + (data.links || []).length;
   document.getElementById("count-links").textContent = links || "";
+}
+
+function truncateLabel(s, n) {
+  s = String(s == null ? "" : s);
+  return s.length > n ? s.slice(0, Math.max(0, n - 1)) + "…" : s;
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => {
+    const ai = stateIndex(a);
+    const bi = stateIndex(b);
+    if (ai !== bi) return ai - bi;
+    return String(a).localeCompare(String(b));
+  });
+}
+
+function isRootTask(t) {
+  return !t.parent || t.depth === 1;
+}
+
+function isChildTask(t) {
+  return !!t.parent && t.depth > 1;
+}
+
+function childrenByParent(tasks) {
+  const map = new Map();
+  for (const task of tasks) {
+    if (!task.parent) continue;
+    if (!map.has(task.parent)) map.set(task.parent, []);
+    map.get(task.parent).push(task);
+  }
+  return map;
+}
+
+function descendantsByRoot(tasks) {
+  const taskById = new Map(tasks.map(t => [t.id, t]));
+  const rootIds = new Set(tasks.filter(isRootTask).map(t => t.id));
+  const out = new Map();
+  for (const rootId of rootIds) out.set(rootId, []);
+  for (const task of tasks) {
+    if (!isChildTask(task)) continue;
+    let cursor = task;
+    let rootId = null;
+    const seen = new Set();
+    while (cursor && cursor.parent && !seen.has(cursor.id)) {
+      seen.add(cursor.id);
+      if (rootIds.has(cursor.parent)) {
+        rootId = cursor.parent;
+        break;
+      }
+      cursor = taskById.get(cursor.parent);
+    }
+    if (rootId && out.has(rootId)) out.get(rootId).push(task);
+  }
+  return out;
+}
+
+function descendantSlot(root, task) {
+  const prefix = `${root.id}.`;
+  return String(task.id || "").startsWith(prefix) ? String(task.id).slice(prefix.length) : String(task.id || "");
+}
+
+function cubeColumnSlots(roots, byRoot) {
+  const slots = new Set();
+  for (const root of roots) {
+    for (const descendant of byRoot.get(root.id) || []) {
+      const slot = descendantSlot(root, descendant);
+      if (slot) slots.add(slot);
+    }
+  }
+  return [...slots].sort((a, b) => String(a).localeCompare(String(b), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  }));
+}
+
+function svgEmpty(text) {
+  return `<div class="empty">${escapeHtml(text)}</div>`;
+}
+
+function rowTooltip(row) {
+  return escapeHtml(`${row.id} · ${row.title} · ${row.state}`);
+}
+
+function renderGantt(data) {
+  const box = document.getElementById("gantt-panel");
+  const tasks = data.tasks || [];
+  if (!tasks.length) {
+    box.innerHTML = svgEmpty("No plan loaded.");
+    return;
+  }
+  const planState = data.plan_state || "pending";
+  const rows = [
+    { id: "◆", title: data.plan_title || "Plan", state: planState, level: 0, plan: true },
+    ...tasks.map(t => ({
+      id: t.id,
+      title: t.title,
+      state: t.state,
+      level: isRootTask(t) ? 1 : 2,
+      depth: t.depth || 1,
+    })),
+  ];
+  const levels = [
+    { level: 0, label: "LEVEL 0 - PLAN", states: uniqueSorted([planState]) },
+    { level: 1, label: "LEVEL 1 - TASK", states: uniqueSorted(tasks.filter(isRootTask).map(t => t.state)) },
+    { level: 2, label: "LEVEL 2 - CHILD", states: uniqueSorted(tasks.filter(isChildTask).map(t => t.state)) },
+  ].filter(g => g.states.length);
+  const sameAxis = levels.length > 1 && levels.every(g => g.states.join("\0") === levels[0].states.join("\0"));
+  const groups = sameAxis
+    ? [{ levels: levels.map(g => g.level), label: "STATE", states: levels[0].states }]
+    : levels.map(g => ({ levels: [g.level], label: g.label, states: g.states }));
+  const labelW = 300;
+  const stateW = 104;
+  const rowH = 30;
+  const headerH = 54;
+  const gutter = 18;
+  let x = labelW;
+  for (const group of groups) {
+    group.x = x;
+    group.w = Math.max(1, group.states.length) * stateW;
+    x += group.w + gutter;
+  }
+  const width = Math.max(760, x + 20);
+  const height = headerH + rows.length * rowH + 22;
+  const groupHeaders = groups.map(group => {
+    const stateLabels = group.states.map((s, i) =>
+      `<text class="viz-axis" x="${group.x + i * stateW + stateW / 2}" y="42" text-anchor="middle">${escapeHtml(s)}</text>`
+    ).join("");
+    return `<text class="viz-axis" x="${group.x + group.w / 2}" y="18" text-anchor="middle">${escapeHtml(group.label)}</text>` +
+      `<line class="viz-line" x1="${group.x}" y1="24" x2="${group.x + group.w}" y2="24"/>${stateLabels}`;
+  }).join("");
+  const rowSvg = rows.map((row, i) => {
+    const y = headerH + i * rowH;
+    const group = groups.find(g => g.levels.includes(row.level)) || groups[0];
+    const col = Math.max(0, group.states.indexOf(row.state));
+    const pillX = group.x + col * stateW + 12;
+    const pillY = y + 7;
+    const indent = row.plan ? 0 : Math.max(0, (row.depth || 1) - 1) * 14;
+    const labelWeight = row.plan ? 700 : 500;
+    const label = `${row.id} ${truncateLabel(row.title, row.plan ? 34 : 42)}`;
+    return `<g>
+      <line class="viz-line" x1="0" y1="${y}" x2="${width}" y2="${y}"/>
+      <text class="viz-label" x="${12 + indent}" y="${y + 20}" font-weight="${labelWeight}">${escapeHtml(label)}</text>
+      <rect x="${pillX}" y="${pillY}" width="${Math.max(58, Math.min(92, row.state.length * 7 + 18))}" height="17" rx="8" fill="${stateColor(row.state)}">
+        <title>${rowTooltip(row)}</title>
+      </rect>
+      <text class="viz-pill-text" x="${pillX + 10}" y="${pillY + 12}">${escapeHtml(truncateLabel(row.state, 11))}</text>
+    </g>`;
+  }).join("");
+  box.innerHTML = `<svg class="viz-svg" id="svg-gantt" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Gantt visualization">
+    <rect width="${width}" height="${height}" fill="transparent"/>
+    <text class="viz-axis" x="12" y="36">ITEM</text>
+    ${groupHeaders}
+    ${rowSvg}
+  </svg>`;
+}
+
+function renderCube(data) {
+  const box = document.getElementById("cube-panel");
+  const tasks = data.tasks || [];
+  const roots = tasks.filter(isRootTask);
+  if (!roots.length) {
+    box.innerHTML = svgEmpty("No plan loaded.");
+    return;
+  }
+  const byRoot = descendantsByRoot(tasks);
+  const columnSlots = cubeColumnSlots(roots, byRoot);
+  if (!columnSlots.length) {
+    box.innerHTML = svgEmpty("This plan has no descendant tasks to render in the cube.");
+    return;
+  }
+  const planState = data.plan_state || "pending";
+  const labelW = 260;
+  const taskStateW = 112;
+  const cellW = 92;
+  const rowH = 34;
+  const headerH = 70;
+  const width = Math.max(760, labelW + taskStateW + columnSlots.length * cellW + 28);
+  const height = headerH + roots.length * rowH + 20;
+  const headers = columnSlots.map((slot, i) =>
+    `<text class="viz-axis" x="${labelW + taskStateW + i * cellW + cellW / 2}" y="60" text-anchor="middle"><title>${escapeHtml(slot)}</title>${escapeHtml(truncateLabel(slot, 10))}</text>`
+  ).join("");
+  const rows = roots.map((root, rowIdx) => {
+    const y = headerH + rowIdx * rowH;
+    const descendants = byRoot.get(root.id) || [];
+    const descendantsBySlot = new Map(descendants.map(child => [descendantSlot(root, child), child]));
+    const cells = columnSlots.map((slot, i) => {
+      const child = descendantsBySlot.get(slot);
+      const fill = child ? stateColor(child.state) : "#0f1530";
+      const label = child ? truncateLabel(child.state, 9) : "";
+      const title = child ? rowTooltip(child) : escapeHtml(`${root.id}.${slot} empty`);
+      return `<rect x="${labelW + taskStateW + i * cellW}" y="${y + 5}" width="${cellW - 8}" height="22" rx="4" fill="${fill}" stroke="#263259">
+          <title>${title}</title>
+        </rect>
+        <text class="viz-pill-text" x="${labelW + taskStateW + i * cellW + 8}" y="${y + 20}">${escapeHtml(label)}</text>`;
+    }).join("");
+    return `<g>
+      <line class="viz-line" x1="0" y1="${y}" x2="${width}" y2="${y}"/>
+      <text class="viz-label" x="12" y="${y + 22}">${escapeHtml(`${root.id} ${truncateLabel(root.title, 34)}`)}</text>
+      <rect x="${labelW}" y="${y + 5}" width="${taskStateW - 8}" height="22" rx="4" fill="${stateColor(root.state)}"><title>${rowTooltip(root)}</title></rect>
+      <text class="viz-pill-text" x="${labelW + 8}" y="${y + 20}">${escapeHtml(truncateLabel(root.state, 11))}</text>
+      ${cells}
+    </g>`;
+  }).join("");
+  box.innerHTML = `<svg class="viz-svg" id="svg-cube" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Cube visualization">
+    <rect width="${width}" height="${height}" fill="transparent"/>
+    <rect x="0" y="0" width="${width}" height="30" rx="5" fill="${stateColor(planState)}"/>
+    <text class="viz-pill-text" x="12" y="20">Plan · ${escapeHtml(planState)}</text>
+    <text class="viz-axis" x="12" y="60">TASK</text>
+    <text class="viz-axis" x="${labelW}" y="60">STATE</text>
+    ${headers}
+    ${rows}
+  </svg>`;
+}
+
+function renderSankey(data) {
+  const box = document.getElementById("sankey-panel");
+  const tasks = data.tasks || [];
+  const roots = tasks.filter(isRootTask);
+  const byRoot = descendantsByRoot(tasks);
+  const links = [];
+  const stateTotals = new Map();
+  for (const root of roots) {
+    const counts = new Map();
+    for (const descendant of byRoot.get(root.id) || []) {
+      counts.set(descendant.state, (counts.get(descendant.state) || 0) + 1);
+      stateTotals.set(descendant.state, (stateTotals.get(descendant.state) || 0) + 1);
+    }
+    for (const [state, count] of counts) links.push({ root, state, count });
+  }
+  const states = uniqueSorted([...stateTotals.keys()]);
+  if (!links.length) {
+    box.innerHTML = svgEmpty("This plan has no descendant-state flow to summarize.");
+    return;
+  }
+  const planState = data.plan_state || "pending";
+  const width = 920;
+  const height = Math.max(260, Math.max(roots.length, states.length) * 58 + 86);
+  const leftX = 240;
+  const rightX = 690;
+  const rootPos = new Map();
+  const statePos = new Map();
+  roots.forEach((root, i) => rootPos.set(root.id, 72 + i * 58));
+  states.forEach((state, i) => statePos.set(state, 72 + i * 58));
+  const paths = links.map(link => {
+    const y1 = rootPos.get(link.root.id) + 12;
+    const y2 = statePos.get(link.state) + 12;
+    const stroke = Math.max(5, 4 + link.count * 4);
+    return `<path d="M ${leftX + 130} ${y1} C ${leftX + 250} ${y1}, ${rightX - 120} ${y2}, ${rightX} ${y2}" fill="none" stroke="${stateColor(link.state)}" stroke-width="${stroke}" stroke-opacity="0.42">
+      <title>${escapeHtml(`${link.root.id} -> ${link.state}: ${link.count}`)}</title>
+    </path>`;
+  }).join("");
+  const rootNodes = roots.map(root => {
+    const y = rootPos.get(root.id);
+    const count = (byRoot.get(root.id) || []).length;
+    return `<g>
+      <rect x="${leftX}" y="${y}" width="130" height="24" rx="5" fill="${stateColor(root.state)}"/>
+      <text class="viz-pill-text" x="${leftX + 8}" y="${y + 16}">${escapeHtml(`${root.id} (${count})`)}</text>
+      <text class="viz-muted" x="12" y="${y + 16}">${escapeHtml(truncateLabel(root.title, 32))}</text>
+    </g>`;
+  }).join("");
+  const stateNodes = states.map(state => {
+    const y = statePos.get(state);
+    const count = stateTotals.get(state) || 0;
+    return `<g>
+      <rect x="${rightX}" y="${y}" width="140" height="24" rx="5" fill="${stateColor(state)}"/>
+      <text class="viz-pill-text" x="${rightX + 8}" y="${y + 16}">${escapeHtml(`${state} (${count})`)}</text>
+    </g>`;
+  }).join("");
+  box.innerHTML = `<svg class="viz-svg" id="svg-sankey" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Sankey visualization">
+    <rect width="${width}" height="${height}" fill="transparent"/>
+    <rect x="0" y="0" width="${width}" height="30" rx="5" fill="${stateColor(planState)}"/>
+    <text class="viz-pill-text" x="12" y="20">Plan · ${escapeHtml(planState)}</text>
+    <text class="viz-axis" x="${leftX}" y="54">TASKS</text>
+    <text class="viz-axis" x="${rightX}" y="54">CHILD STATES</text>
+    ${paths}
+    ${rootNodes}
+    ${stateNodes}
+  </svg>`;
 }
 
 function renderTaskFilters(data) {
@@ -463,6 +775,9 @@ function render(data) {
   renderHeader(data);
   renderLegend(data);
   setCounts(data);
+  renderGantt(data);
+  renderCube(data);
+  renderSankey(data);
   renderTaskFilters(data);
   renderTasks(data);
   renderSlots(data);

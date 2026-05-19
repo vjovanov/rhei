@@ -15,7 +15,7 @@ mod html;
 mod state;
 
 use html::DASHBOARD_HTML;
-use state::{DashboardLink, DashboardState, SnapshotPayload, TaskRow};
+use state::{derive_plan_state, DashboardLink, DashboardState, SnapshotPayload, TaskRow};
 
 const RECENT_LIMIT: usize = 200;
 const SLOT_TRAFFIC_LIMIT: usize = 60;
@@ -181,8 +181,9 @@ fn handle_client(
             };
 
             let auto_links = derive_auto_links(&snapshot_state.workspace);
-            let (plan_title, tasks) = match plan_snapshot {
+            let (plan_title, plan_state, tasks) = match plan_snapshot {
                 Some(p) => {
+                    let plan_state = derive_plan_state(&p.tasks);
                     let active_tasks: HashSet<&str> =
                         snapshot_state.slots.iter().filter_map(|s| s.task.as_deref()).collect();
                     let deferred_set: HashSet<&str> =
@@ -202,12 +203,18 @@ fn handle_client(
                             TaskRow { task, in_slot, deferred_this_pass }
                         })
                         .collect();
-                    (Some(p.title), rows)
+                    (Some(p.title), Some(plan_state), rows)
                 }
-                None => (None, Vec::new()),
+                None => (None, None, Vec::new()),
             };
 
-            let payload = SnapshotPayload { state: &snapshot_state, plan_title, tasks, auto_links };
+            let payload = SnapshotPayload {
+                state: &snapshot_state,
+                plan_title,
+                plan_state,
+                tasks,
+                auto_links,
+            };
             match serde_json::to_vec(&payload) {
                 Ok(body) => write_response(&mut stream, "application/json", &body),
                 Err(err) => write_response(
