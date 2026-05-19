@@ -53,7 +53,8 @@ Flow:
    proposal matrix.
 7. The smart target (`{{smart_target}}`) decides discrepancies and writes the
    final fix plan.
-8. The smart target applies the accepted fixes{% if fix_prepare != "none" %} in a `{{fix_prepare}}` workspace{% endif %}{% if fix_commit != "none" %} and performs the `{{fix_commit}}` commit step{% endif %}.
+8. A human reviews the final fix plan and explicitly approves the fix phase.
+9. The smart target applies the accepted fixes{% if fix_prepare != "none" %} in a `{{fix_prepare}}` workspace{% endif %}{% if fix_commit != "none" %} and performs the `{{fix_commit}}` commit step{% endif %}.
 
 ## Notes
 

@@ -90,10 +90,10 @@
 
     #[cfg(unix)]
     #[test]
-    fn missing_outputs_reschedule_fanout_spawns_once_and_keeps_state() {
+    fn missing_outputs_reschedule_fanout_spawns_each_target_once_and_keeps_state() {
         let (dir, count_file) = missing_outputs_reschedule_workspace(true);
         let count = fs::read_to_string(count_file).expect("spawn count");
-        assert_eq!(count.trim(), "1");
+        assert_eq!(count.trim(), "2");
         let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
         assert!(plan.contains("**State:** pending"));
     }
