@@ -74,10 +74,36 @@
         assert!(err.to_string().contains("snapshot-requires-target"));
 
         let inherit_dir = snapshot_workspace();
-        write_targetless_snapshot_machine(
-            inherit_dir.path(),
-            "    snapshot:\n      inherit:\n        name: impl\n        required: true\n",
-        );
+        fs::write(
+            inherit_dir.path().join("states.yaml"),
+            r#"name: snapshot-test
+version: 1
+states:
+  source:
+    description: source
+    agent: fake
+    snapshot:
+      emit:
+        name: impl
+  pending:
+    description: pending
+    initial: true
+    agent: fake
+    snapshot:
+      inherit:
+        name: impl
+        required: true
+        select:
+          state: source
+  done:
+    description: done
+    final: true
+transitions:
+  - from: pending
+    to: done
+"#,
+        )
+        .expect("write states");
         let (loaded, machine, resolved) = snapshot_preload_parts(inherit_dir.path(), &settings);
         let task = loaded.rhei.tasks.first().expect("task");
         let err = preload_snapshot_inherit_before_spawn(

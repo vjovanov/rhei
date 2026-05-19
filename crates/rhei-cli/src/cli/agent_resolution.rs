@@ -17,7 +17,7 @@ fn resolve_target_agent(
     })?;
 
     if let Some(mode) = target.mode.as_deref() {
-        if !profile.modes.is_empty() && !profile.modes.contains_key(mode) {
+        if !profile.modes.contains_key(mode) {
             return Err(miette!(
                 "agent '{}' has no mode '{}'. Available modes: {}.",
                 agent.id(),

@@ -308,7 +308,9 @@ fn next_command(
     // Resolve agent/model for display.
     let settings = load_merged_settings(&workspace_root)?;
     let no_agent_opts = default_run_options();
-    let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts)?;
+    let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts)
+        .ok()
+        .flatten();
     let agent_id_str = resolved.as_ref().map(|r| r.agent.id().to_string());
     let model_id_str = resolved.as_ref().and_then(|r| r.model.clone());
     let model_provider_str = resolved.as_ref().and_then(|r| r.model_provider.clone());

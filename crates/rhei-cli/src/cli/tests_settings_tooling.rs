@@ -673,7 +673,12 @@ transitions:
         let mut opts = default_run_options();
         opts.standalone.continue_on_error = true;
         opts.standalone.no_tui = true;
-        run_command(&plan, Some(&states), opts).expect("run skips unavailable tooling");
+        let err = run_command(&plan, Some(&states), opts)
+            .expect_err("required unavailable tooling leaves non-terminal work");
+        assert!(
+            err.to_string().contains("non-terminal tasks remaining"),
+            "unexpected run error: {err}"
+        );
 
         assert!(!spawned.exists(), "required missing skill must block agent spawn");
     }

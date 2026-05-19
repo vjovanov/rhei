@@ -16,6 +16,7 @@
 #        --> propose-fixes  (all_targets: proposal_targets)
 #        --> aggregate-proposals (smart_target)
 #        --> decide         (smart_target; default gpt-5.5 xhigh)
+#        --> human-review   (gating)
 #        --> [prepare-workspace]
 #        --> final-fix      (smart_target; default gpt-5.5 xhigh)
 #        --> [commit-fix]
@@ -27,8 +28,9 @@
 #   coordinator:   split -> completed
 #   review-<slug>: review -> completed
 #   aggregate:     aggregate-reviews -> validate-review -> propose-fixes
-#                  -> aggregate-proposals -> decide [-> prepare-workspace]
-#                  -> final-fix [-> commit-fix] -> completed
+#                  -> aggregate-proposals -> decide -> human-review
+#                  [-> prepare-workspace] -> final-fix [-> commit-fix]
+#                  -> completed
 
 name: changeset-review
 version: 1.1.0
@@ -380,11 +382,25 @@ states:
         - I-002 - rejected | defer
           - Reason: <why not fixing now>
 
-      Transition to `{% if fix_prepare != "none" %}prepare-workspace{% else %}final-fix{% endif %}`.
+      Transition to `human-review`.
     outputs:
       - name: final-decision
         path: runtime/decisions/{task_id}-final-decision.md
         description: Smart-target adjudication and final fix plan
+
+  human-review:
+    description: Human approval gate before autonomous final fixes run.
+    gating: true
+    inputs:
+      - name: final-decision
+        path: runtime/decisions/{task_id}-final-decision.md
+    instructions: |
+      Review the final fix decision for Task {task_id}: {task_title}.
+
+      Read `{input.final-decision.path}` and decide whether the accepted fixes
+      should be applied. Do not transition out of this state autonomously.
+      A human must transition to `{% if fix_prepare != "none" %}prepare-workspace{% else %}final-fix{% endif %}`
+      to approve the fix phase, or to `cancelled` to stop the workflow.
 
 {% if fix_prepare != "none" %}
   prepare-workspace:
@@ -572,18 +588,22 @@ transitions:
     to: decide
     description: Proposal matrix is written; smart target decides discrepancies.
 
-{% if fix_prepare != "none" %}
   - from: decide
+    to: human-review
+    description: Final decision is written; wait for human approval.
+
+{% if fix_prepare != "none" %}
+  - from: human-review
     to: prepare-workspace
-    description: Final decision is written; prepare isolated workspace.
+    description: Human approved the final fix plan; prepare isolated workspace.
 
   - from: prepare-workspace
     to: final-fix
     description: Isolated workspace is ready; apply final fixes.
 {% else %}
-  - from: decide
+  - from: human-review
     to: final-fix
-    description: Final decision is written; apply final fixes.
+    description: Human approved the final fix plan; apply final fixes.
 {% endif %}
 
 {% if fix_commit != "none" %}

@@ -57,6 +57,14 @@ fn should_use_agent_mode(
     opts: &RunOptions,
     workspace_root: &Path,
 ) -> MietteResult<bool> {
+    if !opts.no_agent()
+        && machine.states.values().any(|def| {
+            !def.terminal && !def.gating && state_declares_autonomous_agent_work(def)
+        })
+    {
+        return Ok(true);
+    }
+
     for task in find_runnable_tasks(rhei, machine, workspace_root) {
         let state_name = normalized_state_name(task.state.as_str(), machine);
         let Some(def) = machine.states.get(&state_name) else {

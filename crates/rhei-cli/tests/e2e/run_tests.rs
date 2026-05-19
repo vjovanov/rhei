@@ -412,6 +412,22 @@ fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
         .get("human-review")
         .unwrap_or_else(|| panic!("{} missing human-review state", example_path.display()));
     assert!(human_review.gating, "{} should mark human-review as gating", example_path.display());
+    assert!(
+        machine
+            .transitions
+            .iter()
+            .any(|rule| rule.from.0 == "decide" && rule.to.0 == "human-review"),
+        "{} should route final decisions through human-review",
+        example_path.display()
+    );
+    assert!(
+        machine
+            .transitions
+            .iter()
+            .any(|rule| rule.from.0 == "human-review" && rule.to.0 == "prepare-workspace"),
+        "{} should require human approval before workspace preparation",
+        example_path.display()
+    );
 
     let template_path = repo_root.join(".agents/rhei/templates/changeset-review/states.yaml");
     let template = fs::read_to_string(&template_path).expect("read template states.yaml");
@@ -426,6 +442,17 @@ fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
     assert!(
         human_review_block.contains("\n    gating: true\n"),
         "{} should mark human-review as gating",
+        template_path.display()
+    );
+    assert!(
+        template.contains("\n  - from: decide\n    to: human-review\n"),
+        "{} should route final decisions through human-review",
+        template_path.display()
+    );
+    assert!(
+        template.contains("\n  - from: human-review\n    to: prepare-workspace\n")
+            && template.contains("\n  - from: human-review\n    to: final-fix\n"),
+        "{} should require human approval before either fix path",
         template_path.display()
     );
 }
