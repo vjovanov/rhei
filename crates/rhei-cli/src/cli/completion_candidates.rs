@@ -476,4 +476,3 @@ fn completion_workspace_root() -> PathBuf {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."))
 }
-

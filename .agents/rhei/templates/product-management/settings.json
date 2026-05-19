@@ -4,7 +4,10 @@
   },
   "agents": {
     "codex": {
-      "command": ["codex", "exec"],
+      "command": [
+        "codex",
+        "exec"
+      ],
       "model_flag": "--model",
       "stdin_prompt": true,
       "mcp_flag": "--mcp",
@@ -12,12 +15,16 @@
         "yolo": [
           "--sandbox",
           "danger-full-access",
-          "--skip-git-repo-check"
+          "--skip-git-repo-check",
+          "-a",
+          "never"
         ],
         "medium": [
           "--sandbox",
           "danger-full-access",
           "--skip-git-repo-check",
+          "-a",
+          "never",
           "-c",
           "model_reasoning_effort=\"medium\""
         ],
@@ -25,6 +32,8 @@
           "--sandbox",
           "danger-full-access",
           "--skip-git-repo-check",
+          "-a",
+          "never",
           "-c",
           "model_reasoning_effort=\"high\""
         ],
@@ -32,6 +41,8 @@
           "--sandbox",
           "danger-full-access",
           "--skip-git-repo-check",
+          "-a",
+          "never",
           "-c",
           "model_reasoning_effort=\"xhigh\""
         ]

@@ -428,4 +428,3 @@ fn list_command(
 
     Ok(())
 }
-

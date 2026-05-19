@@ -1,1 +1,0 @@
-docs/functional-spec/rhei-snapshots.spec.md

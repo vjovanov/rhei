@@ -73,6 +73,19 @@ fn format_snapshot_override_candidates(candidates: &[SnapshotOverrideRunSelectio
         .join("\n")
 }
 
+fn format_dry_run_agent_transition(
+    task_id: &str,
+    from: &str,
+    to: &str,
+    resolved: &ResolvedAgent,
+) -> String {
+    let base = format_dry_run_transition(task_id, from, to);
+    match resolved_agent_target_slug(resolved) {
+        Some(target_slug) => format!("{base} [target={target_slug}]"),
+        None => base,
+    }
+}
+
 /// Agent-driven execution mode: spawn coding agents for tasks.
 fn run_agent_mode(
     input: &Path,
@@ -765,11 +778,16 @@ fn run_agent_mode(
                     if let Some(to_state) = find_next_transition(task, &loaded.rhei, machine)? {
                         run_info!(
                             "{}",
-                            format_dry_run_transition(task_id_str, current_state_raw, &to_state)
+                            format_dry_run_agent_transition(
+                                task_id_str,
+                                current_state_raw,
+                                &to_state,
+                                resolved,
+                            )
                         );
                     }
                 }
-                let _ = (current_state, resolved);
+                let _ = current_state;
             }
             sink.emit(RunEvent::PassEnded { pass, progressed: false });
             break;

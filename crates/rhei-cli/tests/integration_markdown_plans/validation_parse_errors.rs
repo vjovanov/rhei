@@ -260,4 +260,3 @@ fn malformed_state_metadata_reports_parse_error_instead_of_missing_state_validat
 }
 
 // ---- Transition command integration tests ----
-

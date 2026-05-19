@@ -264,6 +264,61 @@ fn run_dry_run_shows_transitions_without_changes() {
 }
 
 #[test]
+fn run_dry_run_labels_agent_fanout_targets() {
+    let plan = r#"# Rhei: Fanout Dry Run Test
+
+## Tasks
+
+### Task 1: Parallel review
+**State:** review
+"#;
+    let machine = r#"name: fanout-dry-run-test
+version: 1
+states:
+  review:
+    description: Review in parallel
+    all_targets:
+      - codex[yolo]:openai:gpt-5.5
+      - codex[yolo]:openai:gpt-5.4
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("run-dry-fanout");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--dry-run"]);
+
+    assert!(
+        result.status.success(),
+        "dry run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result
+            .stdout
+            .contains("would transition: Task 1  review -> completed [target=codex-yolo-openai-gpt-5.5]"),
+        "should label the first fanout target; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result
+            .stdout
+            .contains("would transition: Task 1  review -> completed [target=codex-yolo-openai-gpt-5.4]"),
+        "should label the second fanout target; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_callback_failure_halts_execution() {
     let machine = r#"name: run-callback-test
 version: 1
