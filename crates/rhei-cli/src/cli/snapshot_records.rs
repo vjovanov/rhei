@@ -1,5 +1,6 @@
 struct SnapshotCommandContext {
     workspace_root: PathBuf,
+    plan_path: PathBuf,
     cache_root: PathBuf,
     loaded: LoadedPlan,
     machine: rhei_validator::StateMachine,

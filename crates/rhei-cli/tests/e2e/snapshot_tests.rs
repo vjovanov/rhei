@@ -88,6 +88,7 @@ fn snapshot_cli_lists_shows_and_run_preloads_from_snapshot() {
       "timeout": "5s",
       "session": {{
         "resume": {{"flag": "--resume"}},
+        "interactive": {{"args": ["--interactive"]}},
         "session_dir_flag": "--session-dir",
         "layout": {{"kind": "FlatById", "ext": "jsonl"}}
       }}
@@ -214,6 +215,86 @@ transitions:
             && agent_log.contains("\"snapshot_name\":\"impl\""),
         "expected inherited run to preload the selected snapshot; got:\n{}",
         agent_log
+    );
+
+    let continued = run_snapshot_command(
+        &plan_path,
+        &machine_path,
+        &["continue", snapshot_ref, "--plan", &plan_arg],
+    );
+    assert_success(&continued);
+    assert!(
+        continued.stdout.contains("captured 1:impl:source@1:fake-acme-model-a/g2"),
+        "expected snapshot continue to capture an operator generation; got:\n{}",
+        continued.stdout
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+
+    let operator = run_snapshot_command(
+        &plan_path,
+        &machine_path,
+        &["show", "1:impl:source@1:fake-acme-model-a/g2", "--plan", &plan_arg],
+    );
+    assert_success(&operator);
+    assert!(
+        operator.stdout.contains("\"produced_by\": \"operator\"")
+            && operator.stdout.contains("\"completion\": \"success\"")
+            && operator.stdout.contains("\"parent_ref\"")
+            && operator.stdout.contains("\"generation\": 1"),
+        "expected operator generation to record success and source parent_ref; got:\n{}",
+        operator.stdout
+    );
+
+    let after_continue = run_snapshot_command(
+        &plan_path,
+        &machine_path,
+        &["list", "--plan", &plan_arg, "--format", "json", "--produced-by", "all"],
+    );
+    assert_success(&after_continue);
+    let rows: serde_json::Value =
+        serde_json::from_str(&after_continue.stdout).expect("snapshot list json should parse");
+    let rows = rows.as_array().expect("snapshot list should be an array");
+    assert!(
+        rows.iter().any(|row| {
+            row["snapshot_name"] == "impl"
+                && row["emitting_state"] == "source"
+                && row["generation"] == 1
+                && row["produced_by"] == "orchestrator"
+                && row["current"] == true
+        }) && rows.iter().any(|row| {
+            row["snapshot_name"] == "impl"
+                && row["emitting_state"] == "source"
+                && row["generation"] == 2
+                && row["produced_by"] == "operator"
+                && row["current"] == false
+        }),
+        "expected operator generation to leave current on orchestrator generation; got:\n{}",
+        after_continue.stdout
+    );
+
+    let no_capture = run_snapshot_command(
+        &plan_path,
+        &machine_path,
+        &["continue", snapshot_ref, "--plan", &plan_arg, "--no-capture"],
+    );
+    assert_success(&no_capture);
+    let after_no_capture = run_snapshot_command(
+        &plan_path,
+        &machine_path,
+        &["list", "--plan", &plan_arg, "--format", "json", "--produced-by", "all"],
+    );
+    assert_success(&after_no_capture);
+    let rows: serde_json::Value =
+        serde_json::from_str(&after_no_capture.stdout).expect("snapshot list json should parse");
+    let rows = rows.as_array().expect("snapshot list should be an array");
+    assert!(
+        !rows.iter().any(|row| {
+            row["snapshot_name"] == "impl"
+                && row["emitting_state"] == "source"
+                && row["generation"] == 3
+        }),
+        "--no-capture must not write another generation; got:\n{}",
+        after_no_capture.stdout
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

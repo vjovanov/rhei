@@ -648,9 +648,11 @@ pub enum ForkStrategy {
 }
 
 pub struct InteractiveContinuationProfile {
-    /// Command or argument profile that preserves TTY pass-through for
-    /// `rhei snapshot continue`; headless prompt transports alone are not
-    /// sufficient.
+    /// Optional command override for `rhei snapshot continue`. When absent,
+    /// the agent profile's base `command` is used.
+    pub command: Option<Vec<String>>,
+    /// Arguments that preserve TTY pass-through for `rhei snapshot continue`;
+    /// headless prompt transports alone are not sufficient.
     pub args: Vec<String>,
 }
 
@@ -676,6 +678,12 @@ than relying on flag presence. A `ResumeStrategy::None` profile is
 self-documenting: snapshot preload cannot run for that profile, and
 `rhei validate` emits a hint when state machines reference such an agent under
 an optional `inherit:` block.
+
+`interactive.command` is only needed when the agent's TTY continuation command
+differs from its headless `rhei run` command. `interactive.args` is appended
+after profile mode/model flags and before snapshot resume/fork/session-dir
+flags. `rhei snapshot continue` inherits stdin, stdout, and stderr so the
+operator talks to the agent directly.
 
 `session_dir_flag` and `no_session_flag` are profile-level affordances. Rhei
 uses `session_dir_flag` when provided to redirect the agent's session output

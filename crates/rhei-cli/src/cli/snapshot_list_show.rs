@@ -84,6 +84,7 @@ fn load_snapshot_context(
     let cache_root = snapshot_cache_dir(&settings, &workspace_root);
     Ok(SnapshotCommandContext {
         workspace_root,
+        plan_path: callback_paths.plan_path,
         cache_root,
         loaded,
         machine: resolved.machine,

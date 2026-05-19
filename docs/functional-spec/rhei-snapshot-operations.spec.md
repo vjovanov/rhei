@@ -142,6 +142,9 @@ than `None`, a usable `SessionLayout`, and an
 `InteractiveContinuationProfile`; otherwise it errors before spawn with
 `unsupported-snapshot-session`. The interactive profile must preserve TTY
 pass-through, not the headless `-p`-style invocation that `rhei run` uses.
+It may provide an alternate command when the agent exposes a distinct TTY
+binary or subcommand; otherwise Rhei reuses the profile's base command with
+the interactive arguments appended.
 Agents whose built-in profiles offer only a headless transport in earlier
 phases cannot be used with `continue` until that gap is closed (see
 [Phased Rollout](#3-phased-rollout)).

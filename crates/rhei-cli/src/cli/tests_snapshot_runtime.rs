@@ -1366,6 +1366,35 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         assert!(snapshot_cache_benefit_reason(state_record, &resolved).is_none());
     }
 
+    #[test]
+    fn snapshot_continue_interactive_profile_requires_resume_layout_and_interactive() {
+        assert!(!profile_supports_interactive_continue(&None));
+        assert!(!profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": {"flag": "--resume"},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+        assert!(!profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": "none",
+            "interactive": {"args": []},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+        assert!(profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": {"flag": "--resume"},
+            "interactive": {"command": ["agent", "tty"], "args": ["--interactive"]},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+    }
+
+    #[test]
+    fn snapshot_continue_run_lock_is_nonblocking_and_held_until_drop() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let held = try_acquire_run_lock(dir.path()).expect("lock").expect("available");
+        assert!(run_lock_is_held(dir.path()).expect("inspect held lock"));
+        assert!(try_acquire_run_lock(dir.path()).expect("second lock").is_none());
+        drop(held);
+        assert!(!run_lock_is_held(dir.path()).expect("inspect released lock"));
+    }
+
     fn snapshot_preload_settings() -> RheiSettings {
         let mut agents = BTreeMap::new();
         agents.insert(
