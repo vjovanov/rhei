@@ -35,6 +35,64 @@
     }
 
     #[test]
+    fn should_revalidate_matches_workspace_task_files() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let workspace = dir.path().join("workspace");
+        let tasks = workspace.join("tasks");
+        fs::create_dir_all(&tasks).expect("workspace tasks dir");
+        fs::write(workspace.join("index.rhei.md"), "# Rhei: Watch\n").expect("index");
+        let task_path = tasks.join("alpha.md");
+        fs::write(&task_path, "### Task 1: Alpha\n**State:** pending\n").expect("task");
+
+        let watch_plan = validation_watch_plan(&workspace, None);
+        let event = Event {
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![task_path],
+            attrs: Default::default(),
+        };
+
+        assert!(should_revalidate(&event, &watch_plan.targets));
+    }
+
+    #[test]
+    fn validation_watch_plan_does_not_require_a_valid_initial_plan() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let broken_plan = dir.path().join("broken.rhei.md");
+
+        let watch_plan = validation_watch_plan(&broken_plan, None);
+
+        assert!(path_matches(&broken_plan, &watch_plan.targets));
+        assert!(watch_plan
+            .roots
+            .iter()
+            .any(|root| root.path == canonical_watch_path(dir.path())
+                && root.mode == RecursiveMode::NonRecursive));
+    }
+
+    #[test]
+    fn watch_targets_match_created_relative_missing_plan() {
+        fs::create_dir_all("target").expect("target dir");
+        let current_thread = std::thread::current();
+        let thread_name = current_thread.name().unwrap_or("unnamed");
+        let rel_path = PathBuf::from(format!(
+            "target/rhei-watch-missing-{}-{}.rhei.md",
+            std::process::id(),
+            thread_name
+        ));
+        let _ = fs::remove_file(&rel_path);
+
+        let watch_plan = validation_watch_plan(&rel_path, None);
+        fs::write(&rel_path, "# Rhei: Created Later\n\n## Tasks\n").expect("create plan");
+        let created_path = rel_path.canonicalize().expect("canonical created plan");
+
+        assert!(path_matches(&created_path, &watch_plan.targets));
+
+        fs::remove_file(&rel_path).expect("cleanup created plan");
+    }
+
+    #[test]
     fn parses_complete_command_with_result() {
         let cli = Cli::try_parse_from([
             "rhei",

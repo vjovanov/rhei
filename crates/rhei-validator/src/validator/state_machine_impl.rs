@@ -34,13 +34,11 @@ impl StateMachine {
         )))
     }
 
-    /// Resolve the profile that applies to a non-root node with the given
-    /// kind and level.
-    ///
-    /// Resolution order matches the States Specification — Node Policy:
-    /// `overrides` (first matching `{type, level}`) → `by_type[<kind>]` →
-    /// `default`. Returns `None` when the machine does not declare
-    /// `profiles` / `node_policy`. §FS-rhei-states
+    // §FS-rhei-states.9.2: Resolve non-root node profiles by policy order.
+
+    /// Resolve the profile for a non-root node, following node-policy order:
+    /// `overrides`, `by_type[<kind>]`, then `default`.
+    /// Returns `None` when `profiles` / `node_policy` is absent.
     pub fn profile_for_node(&self, kind: &str, level: u8) -> Option<&Profile> {
         let (profiles, policy) = self.profiles.as_ref().zip(self.node_policy.as_ref())?;
         let resolved_name = policy
@@ -59,7 +57,7 @@ impl StateMachine {
         profiles.get(resolved_name)
     }
 
-    /// Resolve the profile bound to the plan-root node.
+    /// §FS-rhei-states.9.2: Resolve the profile bound to the plan-root node.
     pub fn root_profile(&self) -> Option<&Profile> {
         let (profiles, policy) = self.profiles.as_ref().zip(self.node_policy.as_ref())?;
         profiles.get(policy.root.as_str())

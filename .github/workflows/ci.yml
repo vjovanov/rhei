@@ -26,6 +26,14 @@ jobs:
       - name: Cache cargo/target
         uses: Swatinem/rust-cache@v2
 
+      - name: Install grund
+        run: RUSTUP_TOOLCHAIN=stable cargo install grund --locked
+
+      - name: Grund check
+        run: |
+          grund config validate
+          grund check .
+
       - name: Format check
         run: cargo fmt --all -- --check
 

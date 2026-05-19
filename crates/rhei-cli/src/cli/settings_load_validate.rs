@@ -71,7 +71,8 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
         skills.insert(id, profile);
     }
     // `models` merge by model id; within a matching id, `models.<id>.agents`
-    // is deep-merged by agent id per spec §Merge Semantics.
+    // is deep-merged by agent id.
+    // §FS-rhei-agents.1.3: Merge models by id and model-agent bindings by agent id.
     let mut models = global.models.clone();
     for (id, project_profile) in project.models {
         let project_model_raw = json_child(json_child(project_raw, "models"), &id);
@@ -186,7 +187,7 @@ fn validate_machine_settings_references(
 
     // Agent registry self-validation: `command` is required, and
     // `mcp_flag` and `mcp_config_flag` are mutually exclusive per
-    // docs/functional-spec/rhei-agents.spec.md §`agents`.
+    // §FS-rhei-agents.1.1.2: Validate agent transport profile settings.
     for (id, profile) in &settings.agents {
         if profile.command.is_empty() {
             errors.push(format!(
@@ -197,15 +198,14 @@ fn validate_machine_settings_references(
         if profile.mcp_flag.is_some() && profile.mcp_config_flag.is_some() {
             errors.push(format!(
                 "agent '{}' declares both 'mcp_flag' and 'mcp_config_flag'; \
-                 they are mutually exclusive per docs/functional-spec/rhei-agents.spec.md \
-                 §`agents`",
+                 they are mutually exclusive",
                 id
             ));
         }
     }
 
     // MCP server registry self-validation: exactly one of `command`/`url`;
-    // URL form requires `transport`. See spec §`mcp_servers`.
+    // §FS-rhei-agents.1.1.4: Validate MCP server registry entries.
     for (id, profile) in &settings.mcp_servers {
         match (profile.command.is_some(), profile.url.is_some()) {
             (false, false) => errors.push(format!(
@@ -231,7 +231,7 @@ fn validate_machine_settings_references(
     }
 
     // Model registry self-validation: `provider` and `model` are required
-    // per spec §`models`.
+    // §FS-rhei-agents.1.1.3: Validate model profile registry entries.
     for (id, profile) in &settings.models {
         if profile.provider.as_deref().map_or(true, str::is_empty) {
             errors.push(format!("models.'{}' is missing required field 'provider'", id));
@@ -326,7 +326,7 @@ fn validate_machine_settings_references(
         {
             // Settings-aware snapshot checks need the merged agent/model
             // registry, so they live in the CLI validation layer rather than
-            // the raw YAML loader. §FS-rhei-snapshots.9.2 §FS-rhei-snapshots.11
+            // §FS-rhei-snapshots.9.2 §FS-rhei-snapshots.11: Registry-aware checks.
             match resolve_agent_invocations(machine, state_name, settings, &default_run_options()) {
                 Ok(invocations) if invocations.is_empty() => {
                     errors.push(format!(

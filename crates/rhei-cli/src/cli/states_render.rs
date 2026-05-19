@@ -311,24 +311,13 @@ fn print_validation_report(warnings: &[String]) {
 
 /// Watch the plan and states files and re-run validation on relevant changes.
 fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
-    let loaded = load_plan(input)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
-    let watched_paths = match resolved.path.as_deref() {
-        Some(sm) => canonical_watched_paths(input, sm),
-        None => canonical_watched_paths(input, input), // only watch the plan itself
-    };
-    let watch_roots = match resolved.path.as_deref() {
-        Some(sm) => watch_roots(input, sm),
-        None => watch_roots(input, input),
-    };
+    let watch_plan = validation_watch_plan(input, state_machine);
 
     println!(
         "Watch mode started for '{}' (states: {})",
         input.display(),
-        state_machine_label(resolved.path.as_deref()),
+        watch_plan.state_machine_label,
     );
-
-    run_validation_pass(input, state_machine);
 
     let (tx, rx) = mpsc::channel();
     let mut watcher: RecommendedWatcher = RecommendedWatcher::new(
@@ -339,11 +328,13 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
     )
     .map_err(|err| miette!("failed to initialize file watcher: {err}"))?;
 
-    for root in &watch_roots {
+    for root in &watch_plan.roots {
         watcher
-            .watch(root, RecursiveMode::NonRecursive)
-            .map_err(|err| miette!("failed to watch '{}': {err}", root.display()))?;
+            .watch(&root.path, root.mode)
+            .map_err(|err| miette!("failed to watch '{}': {err}", root.path.display()))?;
     }
+
+    run_validation_pass(input, state_machine);
 
     loop {
         let event = match rx.recv() {
@@ -355,11 +346,11 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
             Err(err) => return Err(miette!("watch channel disconnected: {err}")),
         };
 
-        if !should_revalidate(&event, &watched_paths) {
+        if !should_revalidate(&event, &watch_plan.targets) {
             continue;
         }
 
-        while debounce_has_relevant_event(&rx, &watched_paths) {}
+        while debounce_has_relevant_event(&rx, &watch_plan.targets) {}
 
         println!("--- change detected, revalidating ---");
         run_validation_pass(input, state_machine);
@@ -375,10 +366,10 @@ fn run_validation_pass(input: &Path, state_machine: Option<&Path>) {
 
 fn debounce_has_relevant_event(
     rx: &mpsc::Receiver<notify::Result<Event>>,
-    watched_paths: &[PathBuf],
+    targets: &[WatchTarget],
 ) -> bool {
     match rx.recv_timeout(Duration::from_millis(250)) {
-        Ok(Ok(event)) => should_revalidate(&event, watched_paths),
+        Ok(Ok(event)) => should_revalidate(&event, targets),
         Ok(Err(err)) => {
             eprintln!("watch error: {err}");
             false
@@ -388,12 +379,12 @@ fn debounce_has_relevant_event(
     }
 }
 
-fn should_revalidate(event: &Event, watched_paths: &[PathBuf]) -> bool {
+fn should_revalidate(event: &Event, targets: &[WatchTarget]) -> bool {
     if !is_relevant_event_kind(&event.kind) {
         return false;
     }
 
-    event.paths.iter().any(|path| path_matches(path, watched_paths))
+    event.paths.iter().any(|path| path_matches(path, targets))
 }
 
 fn is_relevant_event_kind(kind: &EventKind) -> bool {
@@ -403,8 +394,11 @@ fn is_relevant_event_kind(kind: &EventKind) -> bool {
     )
 }
 
-fn path_matches(path: &Path, watched_paths: &[PathBuf]) -> bool {
-    watched_paths.iter().any(|watched| paths_equivalent(path, watched))
+fn path_matches(path: &Path, targets: &[WatchTarget]) -> bool {
+    targets.iter().any(|target| match target {
+        WatchTarget::Exact(watched) => paths_equivalent(path, watched),
+        WatchTarget::Descendant(root) => path_is_under(path, root),
+    })
 }
 
 fn paths_equivalent(candidate: &Path, watched: &Path) -> bool {
@@ -420,25 +414,134 @@ fn paths_equivalent(candidate: &Path, watched: &Path) -> bool {
         && candidate.components().last() == watched.components().last()
 }
 
-fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<PathBuf> {
-    [input, state_machine]
-        .into_iter()
-        .map(|path| normalize_path(path).unwrap_or_else(|| path.to_path_buf()))
-        .collect()
+fn path_is_under(candidate: &Path, root: &Path) -> bool {
+    match (normalize_path(candidate), normalize_path(root)) {
+        (Some(candidate), Some(root)) => candidate.starts_with(root),
+        _ => candidate.starts_with(root),
+    }
 }
 
-fn watch_roots(input: &Path, state_machine: &Path) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
+#[derive(Debug, Clone)]
+struct ValidationWatchPlan {
+    targets: Vec<WatchTarget>,
+    roots: Vec<WatchRoot>,
+    state_machine_label: String,
+}
 
-    for path in [input, state_machine] {
-        let root = path.parent().unwrap_or_else(|| Path::new("."));
-        let normalized = normalize_path(root).unwrap_or_else(|| root.to_path_buf());
-        if !roots.iter().any(|existing| existing == &normalized) {
-            roots.push(normalized);
-        }
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum WatchTarget {
+    Exact(PathBuf),
+    Descendant(PathBuf),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct WatchRoot {
+    path: PathBuf,
+    mode: RecursiveMode,
+}
+
+fn validation_watch_plan(input: &Path, state_machine: Option<&Path>) -> ValidationWatchPlan {
+    let state_machine_path = state_machine.map(Path::to_path_buf).or_else(|| {
+        let candidate = watch_auto_state_machine_path(input);
+        if candidate.is_file() { Some(candidate) } else { None }
+    });
+    let state_machine_label = state_machine_label(state_machine_path.as_deref());
+
+    let mut targets = plan_watch_targets(input);
+    if let Some(path) = state_machine {
+        targets.push(WatchTarget::Exact(canonical_watch_path(path)));
+    } else {
+        targets.push(WatchTarget::Exact(canonical_watch_path(&watch_auto_state_machine_path(input))));
     }
 
-    roots
+    let mut roots = Vec::new();
+    for target in &targets {
+        add_watch_root_for_target(&mut roots, target);
+    }
+
+    ValidationWatchPlan { targets, roots, state_machine_label }
+}
+
+fn plan_watch_targets(input: &Path) -> Vec<WatchTarget> {
+    if let Some(workspace_root) = workspace::workspace_dir(input) {
+        return workspace_watch_targets(&workspace_root);
+    }
+
+    if input.is_dir() {
+        workspace_watch_targets(input)
+    } else {
+        vec![WatchTarget::Exact(canonical_watch_path(input))]
+    }
+}
+
+fn workspace_watch_targets(workspace_root: &Path) -> Vec<WatchTarget> {
+    vec![
+        WatchTarget::Exact(canonical_watch_path(&workspace_root.join("index.rhei.md"))),
+        WatchTarget::Descendant(canonical_watch_path(&workspace_root.join("tasks"))),
+    ]
+}
+
+fn watch_auto_state_machine_path(input: &Path) -> PathBuf {
+    if let Some(workspace_root) = workspace::workspace_dir(input) {
+        workspace_root.join("states.yaml")
+    } else if input.is_dir() {
+        input.join("states.yaml")
+    } else {
+        input.parent().unwrap_or_else(|| Path::new(".")).join("states.yaml")
+    }
+}
+
+#[cfg(test)]
+fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarget> {
+    let mut targets = plan_watch_targets(input);
+    targets.push(WatchTarget::Exact(canonical_watch_path(state_machine)));
+    targets
+}
+
+fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
+    let (path, mode) = match target {
+        WatchTarget::Exact(path) => {
+            let root = path.parent().unwrap_or_else(|| Path::new("."));
+            (canonical_watch_path(root), RecursiveMode::NonRecursive)
+        }
+        WatchTarget::Descendant(path) => {
+            if path.is_dir() {
+                (canonical_watch_path(path), RecursiveMode::Recursive)
+            } else {
+                let root = path.parent().unwrap_or_else(|| Path::new("."));
+                (canonical_watch_path(root), RecursiveMode::Recursive)
+            }
+        }
+    };
+
+    let root = WatchRoot { path, mode };
+    if !roots.iter().any(|existing| existing == &root) {
+        roots.push(root);
+    }
+}
+
+fn canonical_watch_path(path: &Path) -> PathBuf {
+    if let Some(normalized) = normalize_path(path) {
+        return normalized;
+    }
+
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(path)
+    };
+
+    let Some(parent) = absolute.parent() else {
+        return absolute;
+    };
+    let Some(normalized_parent) = normalize_path(parent) else {
+        return absolute;
+    };
+
+    absolute
+        .file_name()
+        .map(|name| normalized_parent.join(name))
+        .unwrap_or(normalized_parent)
 }
 
 fn normalize_path(path: &Path) -> Option<PathBuf> {

@@ -9,7 +9,8 @@ struct TransitionOrigin {
     /// `"user"` (or `"callback"` when an on_leave redirect rerouted).
     triggered_by: Option<&'static str>,
     /// Initial `transitionData` payload. On_leave callbacks merge into this
-    /// last-write-wins per spec §Timeout Callbacks.
+    /// last-write-wins.
+    // §FS-rhei-agents.7.5: Timeout transition data merge.
     seed_data: Option<serde_json::Value>,
     /// System failure routes leave the source state because work failed, not
     /// because the source state's success artifacts were produced.
@@ -18,8 +19,8 @@ struct TransitionOrigin {
 
 /// Variant of [`execute_transition`] that fires the rule with a system-set
 /// origin — currently used by the timeout watchdog to label the transition
-/// as `triggeredBy: 'system'` and to seed `transitionData.timeout` per
-/// spec §Timeout Callbacks.
+/// as `triggeredBy: 'system'` and to seed `transitionData.timeout`.
+// §FS-rhei-agents.7.5: System timeout transition origin.
 #[allow(clippy::too_many_arguments)]
 fn execute_system_timeout_transition(
     files: TransitionFiles<'_>,

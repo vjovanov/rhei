@@ -275,7 +275,8 @@ fn run_callback_mode(
 
 /// Emit the "agent exited 0 but ..." warning(s) after a 0-exit run that did
 /// not advance the task. When required outputs are missing, the warning
-/// includes the missing names per spec §Runtime Semantics.
+/// includes the missing names.
+// §FS-rhei-agents.3.2.1: Missing-output warning contents.
 #[allow(clippy::too_many_arguments)]
 fn emit_exit_zero_warnings(
     workspace_root: &Path,

@@ -182,11 +182,10 @@ pub struct CustomAgentProfile {
     pub modes: IndexMap<String, Vec<String>>,
     /// Optional snapshot session block describing resume / fork / interactive
     /// continuation support and transcript layout for the agent. The schema
-    /// is authoritative in
-    /// `docs/functional-spec/rhei-snapshots.spec.md` §9.1
-    /// (`CustomAgentProfile.session`); the field is retained here so settings
+    /// is authoritative for `CustomAgentProfile.session`; the field is retained here so settings
     /// round-trip without rejecting unknown keys, and so the snapshot module
     /// can inspect it at runtime without re-parsing the file.
+    // §FS-rhei-snapshots.9.1: CustomAgentProfile.session schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<serde_json::Value>,
 }
@@ -349,10 +348,9 @@ pub struct ExecutionTarget {
 }
 
 impl ExecutionTarget {
-    /// Return a filesystem-safe slug for this selector.
+    /// §FS-rhei-snapshots.7.1: Normalize execution target selectors for storage.
     ///
-    /// Snapshot target slugs preserve `.`, `_`, and `-` while normalizing any
-    /// other separator to `-`, per §FS-rhei-snapshots.7.1.
+    /// Return a filesystem-safe slug for this selector.
     pub fn slug(&self) -> String {
         let mut slug = String::new();
         let mut last_was_dash = false;

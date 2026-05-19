@@ -149,23 +149,31 @@ program states, state callbacks, or agent commands.
 
 ## 7. Command Coverage
 
-All command arguments and option values should complete as follows.
+All command arguments, option values, and boolean flag surfaces should complete
+as follows. Boolean flags complete as flags only and are called out so coverage
+does not silently drift from the current CLI surface.
 
 | Command | Argument / option | Completion source |
 |---------|-------------------|-------------------|
 | global | `--state-machine` | YAML file path completion |
 | `validate` | `RHEI_PLAN` | Rhei plan/workspace path completion |
+| `validate` | `--watch` | Static flag completion |
 | `render` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `render` | `--format` | `json`, `github`, `progress` |
+| `render` | `--pretty`, `--no-color`, `--no-metadata`, `--no-content` | Static flag completion |
 | `states` | `--json` | Static flag completion |
 | `list` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `list` | `--state` | Comma-aware state name completion from the resolved state machine |
 | `list` | `--assignee` | Assignee values present in the selected plan/workspace |
+| `list` | `--no-assignee` | Static flag completion |
 | `list` | `--kind` | Node kinds present in the selected plan/workspace |
 | `list` | `--has-prior` | Task ids from the selected plan/workspace |
 | `list` | `--parent` | Task ids from the selected plan/workspace |
+| `list` | `--root` | Static flag completion |
 | `list` | `--contains` | No fixed candidates; shell should preserve free text |
+| `list` | `--terminal`, `--non-terminal`, `--ready`, `--blocked`, `--json` | Static flag completion |
 | `list` | `--limit` | Small integer suggestions (`10`, `25`, `50`, `100`, `0`) |
+| `templates` | `--json` | Static flag completion |
 | `templates` | `--source` | `all`, `project`, `user` |
 | `instantiate` | `TEMPLATE` | Discovered template names or directory paths |
 | `instantiate` | `[input ...]` | Template-specific positional and `KEY=VALUE` completion |
@@ -173,26 +181,62 @@ All command arguments and option values should complete as follows.
 | `instantiate` | `--set-file` | Template input `KEY=PATH` completion |
 | `instantiate` | `--values` | YAML/JSON file path completion |
 | `instantiate` | `--output` | Output path completion |
+| `instantiate` | `--execute`, `--dry-run`, `--keep-on-error`, `--list-inputs` | Static flag completion |
 | `run` | `RHEI_PLAN` | Rhei plan/workspace path completion |
+| `run` | `--dry-run`, `--no-callbacks`, `--continue-on-error` | Static flag completion |
 | `run` | `--parallel` | Small integer suggestions (`1`, `2`, `4`, `8`, `0`) |
+| `run` | `--tui`, `--no-tui`, `--dashboard`, `--no-dashboard` | Static flag completion |
+| `run` | `--no-agent` | Static flag completion |
 | `run` | `--agent` | Agent names from resolved settings/state machine |
 | `run` | `--agent-mode` | Modes for the selected/resolved agent |
 | `run` | `--model` | Model aliases from resolved settings/state machine |
+| `run` | `--no-program` | Static flag completion |
 | `run` | `--program-timeout` | Duration examples (`30s`, `1m`, `5m`, `15m`, `1h`) |
+| `run` | `--from-snapshot` | No fixed candidates; shell should preserve snapshot references |
+| `run` | `--override-inherit` | Static flag completion |
+| `run` | `--task` | Task ids from the selected plan/workspace, scoped to snapshot override selection |
+| `run` | `--target` | No fixed candidates; shell should preserve target slugs |
+| `snapshot` | subcommand | `list`, `show`, `gc`, `continue` |
+| `snapshot list` | `--plan` | Rhei plan/workspace path completion |
+| `snapshot list` | `--task` | Task ids from the selected plan/workspace |
+| `snapshot list` | `--name` | No fixed candidates; shell should preserve snapshot names |
+| `snapshot list` | `--state` | State name completion from the resolved state machine |
+| `snapshot list` | `--produced-by` | `orchestrator`, `operator`, `all` |
+| `snapshot list` | `--orphaned` | Static flag completion |
+| `snapshot list` | `--format` | `text`, `json` |
+| `snapshot show` | `REF` | No fixed candidates; shell should preserve snapshot references |
+| `snapshot show` | `--plan` | Rhei plan/workspace path completion |
+| `snapshot gc` | `--plan` | Rhei plan/workspace path completion |
+| `snapshot gc` | `--task` | Task ids from the selected plan/workspace |
+| `snapshot gc` | `--name` | No fixed candidates; shell should preserve snapshot names |
+| `snapshot gc` | `--older-than` | Duration examples (`4h`, `1d`, `7d`, `30d`) |
+| `snapshot gc` | `--keep-generations` | Small integer suggestions (`1`, `2`, `3`, `5`, `10`) |
+| `snapshot gc` | `--include-operator`, `--orphaned`, `--dry-run`, `--force` | Static flag completion |
+| `snapshot continue` | `REF` | No fixed candidates; shell should preserve snapshot references |
+| `snapshot continue` | `--plan` | Rhei plan/workspace path completion |
+| `snapshot continue` | `--target` | No fixed candidates; shell should preserve target slugs |
+| `snapshot continue` | `--generation` | Small integer suggestions (`1`, `2`, `3`, `5`, `10`) |
+| `snapshot continue` | `--no-capture` | Static flag completion |
 | `next` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `next` | `--task` | Task ids from the selected plan/workspace |
+| `next` | `--json`, `--no-callbacks`, `--peek` | Static flag completion |
 | `complete` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `complete` | `--task` | Task ids from the selected plan/workspace |
 | `complete` | `--result` | No fixed candidates; shell should preserve free text |
+| `complete` | `--no-callbacks` | Static flag completion |
 | `transition` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `transition` | `--task` | Task ids from the selected plan/workspace |
 | `transition` | `--from` | Current task state when `--task` is known; otherwise state names |
 | `transition` | `--to` | Allowed target states from `--from`; when `--task` is known and `--from` is omitted, allowed target states from the task's current state |
+| `transition` | `--no-callbacks` | Static flag completion |
 | `reset` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `install-skills` | `--agent` | `claude-code`, `cursor`, `windsurf`, `copilot`, `kilocode`, `pi`, `codex`, `antigravity`, `all` |
+| `install-skills` | `--local`, `--link`, `--uninstall`, `--dry-run` | Static flag completion |
 | `install-skills` | `--skills` | Comma-aware skill name completion |
 | `completions` | `SHELL` | `bash`, `zsh`, `fish`, `powershell`, `elvish` |
+| `completions` | `--install`, `--user`, `--system`, `--dry-run` | Static flag completion |
 | `completions` | `--output` | File path completion |
+| `version` | none | No arguments or options |
 
 Boolean flags complete as flags only; they do not take `true` / `false` values.
 

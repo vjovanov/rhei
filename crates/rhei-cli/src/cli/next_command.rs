@@ -26,10 +26,11 @@ fn parse_task_id(s: &str) -> TaskId {
 ///
 /// Locates the `### Task <id>:` header, walks through its metadata block
 /// (`**State:**`, optional `**Prior:**`), and inserts the Assignee line at
-/// the end of that block, matching the grammar order specified in
-/// docs/functional-spec/rhei-plan-language.spec.md §268. A duplicate insertion is a no-op if the task
+/// the end of that block, matching the task grammar order. A duplicate
+/// insertion is a no-op if the task
 /// already has an assignee line; the caller is responsible for ensuring the
 /// field is absent first (use claim-time eligibility checks).
+// §FS-rhei-plan-language.2: Task metadata grammar order.
 fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResult<String> {
     let lines: Vec<&str> = raw.lines().collect();
     let mut result: Vec<String> = Vec::with_capacity(lines.len() + 1);

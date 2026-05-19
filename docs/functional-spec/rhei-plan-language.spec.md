@@ -829,9 +829,14 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 | --- | --- | --- |
 | **Inspection** | `validate`, `render`, `states`, `list` | Read-only commands that examine or render a plan without modifying it |
 | **Templates** | `templates`, `instantiate` | Discover and instantiate reusable plan and workspace templates |
-| **Execution** | `transition`, `run`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state |
+| **Execution** | `transition`, `run`, `snapshot`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state, or operate on execution runtime artifacts |
 | **Setup** | `install-skills`, `completions` | Install packaged Rhei skills and generate shell completion scripts |
 | **Info** | `version`, `help` | Meta commands about the tool itself |
+
+`rhei viz` remains specified as a visualization behavior surface (§FS-rhei-viz),
+but it is not currently declared as a CLI variant or listed in the generated
+help. Until the command is reintroduced, current CLI command groups must exclude
+`viz` and treat the visualization spec as non-current implementation guidance.
 
 ## Related Specifications
 
@@ -839,6 +844,9 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 - [Plan Language Usage Guide](rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs
 - [States Specification](rhei-states.spec.md) - Defines the states configuration format
 - [Transitions Specification](rhei-transitions.spec.md) - Formal state transition system, callbacks, and YAML schema
+- [Validate Command](rhei-validate.spec.md) - `rhei validate` semantic checks
+- [Render Command](rhei-render.spec.md) - `rhei render` output formats
+- [States Command](rhei-states-cmd.spec.md) - `rhei states` state-machine inspection
 - [List Command](rhei-list.spec.md) - `rhei list` filter set and output format
 - [Next Command](rhei-next.spec.md) - `rhei next` behavioral contract, including `--peek` mode
 - [Transition Command](rhei-transition-cmd.spec.md) - `rhei transition` compare-and-swap contract
@@ -846,4 +854,5 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 - [Run Command](rhei-run.spec.md) - `rhei run` execution loop under orchestrator authority
 - [Reset Command](rhei-reset.spec.md) - `rhei reset` behavior for restoring initial state
 - [Completions Command](rhei-completions.spec.md) - `rhei completions` shell completion generation
+- [Version Command](rhei-version.spec.md) - `rhei version` component version output
 - [State Machine Writer](rhei-state-machine-writer.spec.md) - Designing custom state machines from project specs and teams

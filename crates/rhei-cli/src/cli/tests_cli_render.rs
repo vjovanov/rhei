@@ -291,8 +291,7 @@ transitions: []
         assert!(help.contains("Program Execution:"));
         assert!(help.contains("--no-program"));
         assert!(help.contains("--program-timeout <DURATION>"));
-        // Snapshots flag group, per docs/functional-spec/rhei-run.spec.md
-        // § Snapshots.
+        // §FS-rhei-run.2.3: Snapshots flag group.
         assert!(help.contains("Snapshots:"));
         assert!(help.contains("--from-snapshot <REF>"));
         assert!(help.contains("--override-inherit"));

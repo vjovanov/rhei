@@ -14,17 +14,16 @@ struct RheiSettings {
     program_timeout: Option<String>,
     /// Spec-aligned nested defaults. The `defaults.{model, agent,
     /// agent_mode, agent_timeout, program_timeout, mcp_servers, skills}` keys
-    /// are the canonical settings shape from
-    /// `docs/functional-spec/rhei-agents.spec.md` §Agent Configuration. The
-    /// top-level `agent` / `model` / `agent_timeout` / `program_timeout` /
-    /// `agent_mode` fields above remain readable for backward compatibility.
+    /// are the canonical settings shape. The top-level `agent` / `model` /
+    /// `agent_timeout` / `program_timeout` / `agent_mode` fields above remain
+    /// readable for backward compatibility.
+    // §FS-rhei-agents.1.1.1: Nested settings defaults.
     #[serde(default)]
     defaults: SettingsDefaults,
     /// Registry of agent transport profiles keyed by agent id.
     #[serde(default)]
     agents: BTreeMap<String, CustomAgentProfile>,
-    /// Registry of model profiles keyed by model id. See
-    /// `docs/functional-spec/rhei-agents.spec.md` §`models`.
+    /// §FS-rhei-agents.1.1.3: Registry of model profiles keyed by model id.
     #[serde(default)]
     models: BTreeMap<String, ModelProfile>,
     /// Registry of MCP server profiles keyed by server id.
@@ -36,10 +35,8 @@ struct RheiSettings {
     /// Top-level snapshots block. The field is retained verbatim from
     /// settings so the snapshot subsystem (impl-rhei-snapshots) can read its
     /// configured `cache_dir`, `redactor`, and adapter gates without
-    /// reparsing the file. See
-    /// `docs/functional-spec/rhei-agents.spec.md` §`snapshots` and
-    /// `docs/functional-spec/rhei-snapshot-operations.spec.md` §Configuration
-    /// for the authoritative schema.
+    /// reparsing the file.
+    // §FS-rhei-agents.1.1.6 §FS-rhei-snapshot-operations.4: Snapshot settings.
     #[serde(default)]
     snapshots: Option<SnapshotSettings>,
 }
@@ -48,9 +45,8 @@ struct RheiSettings {
 ///
 /// `cache_dir` defaults to `.rhei/cache/snapshots` under the plan workspace;
 /// fields omitted here inherit from global settings before defaults are
-/// applied. See
-/// `docs/functional-spec/rhei-snapshot-operations.spec.md` §4.1 Settings
-/// Block and §4.2 Privacy: Redaction Hook.
+/// applied.
+// §FS-rhei-snapshot-operations.4.1 §FS-rhei-snapshot-operations.4.2: Settings block.
 #[derive(Debug, Default, Deserialize, Clone)]
 struct SnapshotSettings {
     #[serde(default)]
@@ -108,8 +104,7 @@ fn snapshot_cache_dir(settings: &RheiSettings, workspace_root: &Path) -> PathBuf
     }
 }
 
-/// One entry in the merged `models` registry. See
-/// `docs/functional-spec/rhei-agents.spec.md` §`models`.
+/// §FS-rhei-agents.1.1.3: One entry in the merged `models` registry.
 #[derive(Debug, Default, Deserialize, Clone)]
 struct ModelProfile {
     /// Provider identifier such as `anthropic` or `openai`.
@@ -149,7 +144,7 @@ struct ModelAgentBinding {
 /// distinguish "unset" (inherit) from "empty" (explicitly clear inherited).
 #[derive(Debug, Default, Deserialize, Clone)]
 struct SettingsDefaults {
-    /// Default model profile id. See spec §`defaults`.
+    /// §FS-rhei-agents.1.1.1: Default model profile id.
     #[serde(default)]
     model: Option<String>,
     /// Default agent id resolved against the `agents` registry. The spec
@@ -164,7 +159,7 @@ struct SettingsDefaults {
     agent_mode: Option<String>,
     #[serde(default)]
     agent_timeout: Option<String>,
-    /// Default program timeout. See spec §`defaults`.
+    /// §FS-rhei-agents.1.1.1: Default program timeout.
     #[serde(default)]
     program_timeout: Option<String>,
     #[serde(default)]
@@ -210,10 +205,11 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
     );
 
     // codex: `codex exec` is non-interactive. The `yolo` mode mirrors the
-    // spec table at docs/functional-spec/rhei-agents.spec.md §Known Agent
-    // Profiles — `--sandbox danger-full-access --skip-git-repo-check
+    // known-agent profile table: `--sandbox danger-full-access --skip-git-repo-check
     // -c approval_policy="never"`. `-c approval_policy="never"` replaced the
     // older `-a never` short flag, which codex-cli no longer accepts.
+
+    // §FS-rhei-agents.2: Built-in codex profile.
     agents.insert(
         "codex".to_string(),
         CustomAgentProfile {
@@ -280,8 +276,9 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
     // pi (openclaw / badlogic pi-coding-agent). Headless mode exits
     // deterministically after one turn. pi has no permission layer — modes
     // are intentionally empty; isolation is the caller's responsibility
-    // (e.g. sandbox/container). See docs/functional-spec/rhei-agents.spec.md §Known
-    // Agent Profiles.
+    // (e.g. sandbox/container).
+
+    // §FS-rhei-agents.2: Built-in pi profile.
     agents.insert(
         "pi".to_string(),
         CustomAgentProfile {

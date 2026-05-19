@@ -48,9 +48,8 @@
 
     #[test]
     fn resolve_legacy_agent_pulls_default_agent_from_model_registry() {
-        // Per docs/functional-spec/rhei-agents.spec.md §Resolution Order step
-        // 5, when no agent is configured at any level the model's
-        // `default_agent` is consulted.
+        // When no agent is configured at any level, the resolution order
+        // §FS-rhei-agents.1.4: Fallback to model default_agent.
         let mut settings = default_settings();
         settings.model = Some("impl-fast".to_string());
         settings.models.insert(
@@ -367,9 +366,8 @@
 
     #[test]
     fn built_in_codex_yolo_includes_approval_never() {
-        // docs/functional-spec/rhei-agents.spec.md §Known Agent Profiles
-        // requires the codex yolo mode to include `-a never` so the agent
-        // never prompts for approval interactively.
+        // The known-agent profile pins codex yolo to a non-interactive approval mode.
+        // §FS-rhei-agents.2: Built-in codex yolo is non-interactive.
         let profile = built_in_agents().remove("codex").expect("built-in codex");
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("codex"),

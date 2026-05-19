@@ -22,7 +22,7 @@ For the plan grammar see the [Plan Language Specification](rhei-plan-language.sp
 ```
 rhei viz [PATH]                    # default: current workspace or ./*.rhei.md
 rhei viz plan.rhei.md              # single plan
-rhei viz ./docs/plans              # directory — auto-discovers *.rhei.md
+rhei viz ./examples                # directory — auto-discovers *.rhei.md
 rhei viz --output viz.html         # write the HTML and do not open a browser
 rhei viz --serve                   # start the live-reload server and open browser
 rhei viz --no-open                 # emit HTML, skip the browser launch
