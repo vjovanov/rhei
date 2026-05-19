@@ -41,7 +41,7 @@ A `§<ID>` is a pointer to a fact, not a file path. Resolve it with `grund` and 
 
 ### Project map
 
-- [GND](docs/functional-spec/grund.md): Reason for existence
+- [GND](docs/grund.md): Reason for existence
 - [GOAL](docs/functional-spec/goals.md): Outcomes the project is trying to achieve
 - [FS](docs/functional-spec): User-visible behavior and requirements
 - [AR](docs/architecture): System design and technical structure

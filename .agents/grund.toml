@@ -21,7 +21,7 @@ slug_pattern = "[a-z0-9][a-z0-9-]*"
 
 [[kinds]]
 prefix = "GND"
-file = "docs/functional-spec/grund.md"
+file = "docs/grund.md"
 title = "Reason for existence"
 
 [[kinds]]
