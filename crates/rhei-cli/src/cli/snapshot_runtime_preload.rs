@@ -105,6 +105,7 @@ fn preload_snapshot_inherit_before_spawn(
         let loaded = load_plan(input)?;
         let ctx = SnapshotCommandContext {
             workspace_root: workspace_root.to_path_buf(),
+            plan_path: input.to_path_buf(),
             cache_root: cache_root.clone(),
             loaded,
             machine: machine.clone(),

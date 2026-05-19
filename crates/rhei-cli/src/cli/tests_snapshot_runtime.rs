@@ -1366,6 +1366,93 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         assert!(snapshot_cache_benefit_reason(state_record, &resolved).is_none());
     }
 
+    #[test]
+    fn snapshot_continue_interactive_profile_requires_resume_layout_and_interactive() {
+        assert!(!profile_supports_interactive_continue(&None));
+        assert!(!profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": {"flag": "--resume"},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+        assert!(!profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": "none",
+            "interactive": {"args": []},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+        assert!(profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": "none",
+            "fork": {"flag": "--fork"},
+            "interactive": {},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+        assert!(profile_supports_interactive_continue(&Some(serde_json::json!({
+            "resume": {"flag": "--resume"},
+            "interactive": {"command": ["agent", "tty"], "args": ["--interactive"]},
+            "layout": {"kind": "FlatById", "ext": "jsonl"}
+        }))));
+    }
+
+    #[test]
+    fn snapshot_continue_does_not_capture_unchanged_staged_resume_source() {
+        let _home = TempHome::new();
+        let dir = snapshot_workspace();
+        let mut settings = snapshot_preload_settings();
+        if let Some(profile) = settings.agents.get_mut("claude-code") {
+            profile.session = Some(serde_json::json!({
+                "resume": {"flag": "--resume"},
+                "interactive": {"args": []},
+                "session_dir_flag": "--session-dir",
+                "layout": {"kind": "FlatById", "ext": "jsonl"}
+            }));
+        }
+        let ctx = SnapshotCommandContext {
+            workspace_root: dir.path().to_path_buf(),
+            plan_path: dir.path().join("index.rhei.md"),
+            cache_root: snapshot_cache_dir(&settings, dir.path()),
+            loaded: load_plan(dir.path()).expect("load plan"),
+            machine: rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+                .expect("state machine"),
+            settings,
+        };
+        write_snapshot_generation(
+            &ctx.cache_root,
+            "1",
+            "impl",
+            "pending",
+            1,
+            "claude-code-anthropic-model",
+            1,
+            "orchestrator",
+        );
+        let record = resolve_snapshot_ref(&ctx, "1:impl:pending/g1", None, None)
+            .expect("resolve source snapshot");
+        let resolved = resolve_snapshot_continue_agent(&ctx, &record).expect("resolve agent");
+        let session = resolved.profile.session.as_ref().expect("session");
+        let preload =
+            prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session).expect("preload");
+
+        let err = capture_snapshot_continue_generation(
+            &ctx,
+            &record,
+            &resolved,
+            session,
+            &preload,
+            SnapshotCompletion::Success,
+        )
+        .expect_err("unchanged staged source must not be captured");
+        assert!(err.to_string().contains("did not produce a supported native session transcript"));
+        assert!(resolve_snapshot_ref(&ctx, "1:impl:pending/g2", None, None).is_err());
+    }
+
+    #[test]
+    fn snapshot_continue_run_lock_is_nonblocking_and_held_until_drop() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let held = try_acquire_run_lock(dir.path()).expect("lock").expect("available");
+        assert!(run_lock_is_held(dir.path()).expect("inspect held lock"));
+        assert!(try_acquire_run_lock(dir.path()).expect("second lock").is_none());
+        drop(held);
+        assert!(!run_lock_is_held(dir.path()).expect("inspect released lock"));
+    }
+
     fn snapshot_preload_settings() -> RheiSettings {
         let mut agents = BTreeMap::new();
         agents.insert(

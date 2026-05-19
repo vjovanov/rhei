@@ -7,7 +7,9 @@ states:
     description: Task currently being worked on
   completed:
     description: Task finished successfully
+    final: true
   "in review":
     description: Waiting for a reviewer with a space-containing state name
   "ready to ship":
     description: Approved and queued for release
+    final: true

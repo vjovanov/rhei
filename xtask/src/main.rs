@@ -58,6 +58,12 @@ const EXAMPLES: &[Example] = &[
         runnable: false,
     },
     Example {
+        name: "snapshot-continuation",
+        path: "examples/snapshot-continuation",
+        state_machine: Some("examples/snapshot-continuation/states.yaml"),
+        runnable: false,
+    },
+    Example {
         name: "hourly-human-intervention",
         path: "examples/hourly-human-intervention-example",
         state_machine: Some("examples/hourly-human-intervention-example/states.yaml"),

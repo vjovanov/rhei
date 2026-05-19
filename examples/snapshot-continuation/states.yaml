@@ -1,0 +1,40 @@
+name: snapshot-continuation
+version: 1
+
+states:
+  implement:
+    description: Implement the fix and emit a reusable named snapshot.
+    target: analysis-agent:acme:model-a
+    agent_timeout: 20m
+    snapshot:
+      emit:
+        name: implementation
+        on: always
+    instructions: |
+      Diagnose the cache invalidation issue, implement the smallest safe fix,
+      and write a short note about the reasoning behind the change.
+
+  review:
+    description: Review the implementation while inheriting the implementation transcript.
+    target: analysis-agent:acme:model-a
+    agent_timeout: 15m
+    snapshot:
+      inherit:
+        name: implementation
+        required: true
+        select:
+          state: implement
+          target: same
+    instructions: |
+      Continue from the implementation transcript, review the change for
+      correctness, and record any follow-up questions or approval notes.
+
+  completed:
+    description: The fix has been reviewed.
+    final: true
+
+transitions:
+  - from: implement
+    to: review
+  - from: review
+    to: completed
