@@ -69,7 +69,7 @@ key rather than replacing the whole file.
       "mcp_flag": "--mcp",
       "stdin_prompt": true,
       "modes": {
-        "yolo": ["--sandbox", "danger-full-access", "--skip-git-repo-check", "-a", "never"],
+        "yolo": ["--sandbox", "danger-full-access", "--skip-git-repo-check", "-c", "approval_policy=\"never\""],
         "safe": ["--sandbox", "workspace-write"]
       }
     },
@@ -386,7 +386,7 @@ historically the agent's default.
 | Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | `yolo` Mode Flags |
 |----------|--------|-----------------|------------|------------|--------------|-------------------|
 | `claude-code` | `claude` | `-p <prompt>` | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
-| `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check` |
+| `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check -c approval_policy="never"` |
 | `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode yolo` |
 | `cursor` | `cursor-agent` | `--print <prompt>` | `--model <m>` | unsupported | unsupported | `--force` |
 | `kilocode` | `kilo` | positional via `--auto <prompt>` | `--model <m>` | unsupported | unsupported | `--yolo` |
