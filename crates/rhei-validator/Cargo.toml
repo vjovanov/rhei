@@ -14,7 +14,7 @@ name = "rhei_validator"
 path = "src/lib.rs"
 
 [dependencies]
-rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0-alpha.1" }
+rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
