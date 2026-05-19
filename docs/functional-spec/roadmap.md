@@ -127,21 +127,6 @@ Do not block the alpha on Homebrew or GHCR. After a tagged GitHub release has
 Linux/macOS artifacts, add a tap formula named `rhei` under a project-owned tap.
 Add GHCR images only when there is a CI/service entrypoint worth containerizing.
 
-## Post-Alpha Dashboard Visualization
-
-Fold the standalone visualization ideas into the run dashboard: add the
-Gantt, heatmap cube, and Sankey plan views currently described for `rhei viz`
-to the browser dashboard that accompanies `rhei run`. The dashboard should
-remain the live execution monitor for slots, task state, journal events, and
-links, while also giving operators static plan-shape views without switching
-tools. §FS-rhei-viz §FS-rhei-run-tui
-
-The TUI should always surface the dashboard as a power-user view when
-`rhei run` selects the TUI frontend. Normal TUI users should not need a
-separate `--dashboard` option to discover or open it; the roadmap work includes
-reconciling the current CLI flag, completion surface, and functional specs with
-that always-available TUI behavior. §FS-rhei-completions §FS-rhei-run
-
 ## Post-Alpha Snapshot Continuation
 
 Interactive `rhei snapshot continue` remains roadmap work. The released
@@ -152,3 +137,15 @@ the resulting operator generation. Implementing that continuation flow requires
 the phase-6 agent transport work described in §FS-rhei-snapshot-operations and
 must preserve the snapshot lineage and operator-generation semantics in
 §FS-rhei-snapshots.
+
+## Completed: Post-Alpha Dashboard Visualization
+
+Status: completed. The browser dashboard that accompanies `rhei run` includes
+Gantt, heatmap cube, and Sankey plan views ahead of the operational Tasks,
+Slots, Journal, and Links tabs. The dashboard remains the live execution
+monitor for slots, task state, journal events, and links while also providing
+static plan-shape views without switching tools. §FS-rhei-viz §FS-rhei-run-tui
+
+The TUI surfaces the dashboard as a power-user view when `rhei run` selects the
+TUI frontend, while `--dashboard` and `--no-dashboard` remain explicit
+overrides in the CLI and completion surface. §FS-rhei-completions §FS-rhei-run
