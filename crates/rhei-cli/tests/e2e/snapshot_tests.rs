@@ -28,8 +28,12 @@ fn write_fake_snapshot_agent(dir: &Path) -> String {
         r#"#!/bin/sh
 session_dir=""
 resume_value=""
+interactive=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --interactive)
+      interactive=1
+      ;;
     --session-dir)
       shift
       session_dir="${1:-}"
@@ -61,7 +65,8 @@ if [ -n "$session_dir" ]; then
   {
     printf '{"session":{"provider":"%s","model":"%s"}}\n' \
       "${RHEI_MODEL_PROVIDER:-acme}" "${RHEI_MODEL_NAME:-model-a}"
-    printf '{"role":"assistant","content":"%s"}\n' "$RHEI_STATE"
+    printf '{"role":"assistant","content":"%s","interactive":%s}\n' \
+      "$RHEI_STATE" "$interactive"
   } > "$session_dir/$session_id.jsonl"
 fi
 "#,

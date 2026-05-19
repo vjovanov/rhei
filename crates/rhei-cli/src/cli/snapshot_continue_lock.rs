@@ -39,7 +39,7 @@ fn snapshot_continue_command(
     }
 
     let preload = prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session)?;
-    let status = spawn_snapshot_continue_agent(ctx, &record, &resolved, session, &preload)?;
+    let status = spawn_snapshot_continue_agent(ctx, &record, &resolved, session, &preload.inner)?;
     let completion = if status.success() {
         SnapshotCompletion::Success
     } else {
@@ -60,6 +60,19 @@ fn snapshot_continue_command(
             status
         ))
     }
+}
+
+#[derive(Debug)]
+struct SnapshotContinuePreload {
+    inner: SnapshotPreload,
+    staged_source: Option<SnapshotContinueStagedSource>,
+}
+
+#[derive(Debug)]
+struct SnapshotContinueStagedSource {
+    path: PathBuf,
+    sha256: String,
+    bytes: u64,
 }
 
 fn profile_supports_interactive_continue(session: &Option<serde_json::Value>) -> bool {
@@ -118,8 +131,9 @@ fn prepare_snapshot_continue_preload(
     workspace_root: &Path,
     record: &SnapshotRecord,
     session: &serde_json::Value,
-) -> MietteResult<SnapshotPreload> {
+) -> MietteResult<SnapshotContinuePreload> {
     let mut preload = SnapshotPreload::default();
+    let mut staged_source = None;
     if let Some(flag) = snapshot_session_string(session, "session_dir_flag") {
         let dir = snapshot_session_dir(
             workspace_root,
@@ -147,7 +161,7 @@ fn prepare_snapshot_continue_preload(
         preload.extra_args.push(flag);
         preload.extra_args.push(session_id.to_string());
         if let Some(session_dir) = preload.session_dir.as_ref() {
-            stage_snapshot_continue_resume_source(record, session_dir)?;
+            staged_source = Some(stage_snapshot_continue_resume_source(record, session_dir)?);
         }
     } else {
         return Err(miette!(
@@ -155,13 +169,13 @@ fn prepare_snapshot_continue_preload(
         ));
     }
     preload.parent_ref = Some(snapshot_parent_ref(record));
-    Ok(preload)
+    Ok(SnapshotContinuePreload { inner: preload, staged_source })
 }
 
 fn stage_snapshot_continue_resume_source(
     record: &SnapshotRecord,
     session_dir: &Path,
-) -> MietteResult<()> {
+) -> MietteResult<SnapshotContinueStagedSource> {
     let ext = record
         .manifest
         .get("session_layout")
@@ -173,7 +187,17 @@ fn stage_snapshot_continue_resume_source(
     fs::copy(record.transcript_path(), &target).map_err(|err| {
         file_io_report(&target, "failed to stage snapshot transcript for continue", err)
     })?;
-    Ok(())
+    snapshot_continue_staged_source(&target)
+}
+
+fn snapshot_continue_staged_source(path: &Path) -> MietteResult<SnapshotContinueStagedSource> {
+    let bytes = fs::read(path)
+        .map_err(|err| file_io_report(path, "failed to read staged snapshot transcript", err))?;
+    Ok(SnapshotContinueStagedSource {
+        path: path.to_path_buf(),
+        sha256: sha256_hex(&bytes),
+        bytes: bytes.len() as u64,
+    })
 }
 
 fn spawn_snapshot_continue_agent(
@@ -303,7 +327,7 @@ fn capture_snapshot_continue_generation(
     source: &SnapshotRecord,
     resolved: &ResolvedAgent,
     session: &serde_json::Value,
-    preload: &SnapshotPreload,
+    preload: &SnapshotContinuePreload,
     completion: SnapshotCompletion,
 ) -> MietteResult<SnapshotRecord> {
     let layout = snapshot_session_layout(session).ok_or_else(|| {
@@ -319,7 +343,11 @@ fn capture_snapshot_continue_generation(
         ));
     };
     let Some((transcript_source, transcript_ext, session_id)) =
-        transcript_source_for_snapshot(preload.session_dir.as_deref(), layout)
+        transcript_source_for_snapshot_continue(
+            preload.inner.session_dir.as_deref(),
+            layout,
+            preload.staged_source.as_ref(),
+        )?
     else {
         return Err(miette!(
             "unsupported-snapshot-session: agent '{}' did not produce a supported native session transcript",
@@ -352,6 +380,75 @@ fn capture_snapshot_continue_generation(
         SnapshotProducedBy::Operator,
         None,
     )
+}
+
+fn transcript_source_for_snapshot_continue(
+    session_dir: Option<&Path>,
+    layout: &serde_json::Value,
+    staged_source: Option<&SnapshotContinueStagedSource>,
+) -> MietteResult<Option<(PathBuf, String, String)>> {
+    let Some(session_dir) = session_dir else {
+        return Ok(None);
+    };
+    let Some(ext) = snapshot_layout_ext(layout) else {
+        return Ok(None);
+    };
+    if snapshot_layout_kind(layout).as_deref() != Some("FlatById") {
+        return Ok(None);
+    }
+    let entries = fs::read_dir(session_dir).map_err(|err| {
+        file_io_report(session_dir, "failed to inspect snapshot continue session dir", err)
+    })?;
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in entries {
+        let entry = entry.map_err(|err| {
+            file_io_report(session_dir, "failed to inspect snapshot continue session entry", err)
+        })?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(OsStr::to_str) != Some(ext.as_str()) {
+            continue;
+        }
+        if snapshot_continue_path_is_unchanged_staged_source(&path, staged_source)? {
+            continue;
+        }
+        let modified = entry.metadata().and_then(|metadata| metadata.modified()).map_err(|err| {
+            file_io_report(&path, "failed to inspect snapshot continue transcript", err)
+        })?;
+        if newest.as_ref().is_none_or(|(existing, _)| modified > *existing) {
+            newest = Some((modified, path));
+        }
+    }
+    let Some((_, path)) = newest else {
+        return Ok(None);
+    };
+    let session_id = path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            miette!("unsupported-snapshot-session: snapshot continue transcript has no session id")
+        })?
+        .to_string();
+    Ok(Some((path, ext, session_id)))
+}
+
+fn snapshot_continue_path_is_unchanged_staged_source(
+    path: &Path,
+    staged_source: Option<&SnapshotContinueStagedSource>,
+) -> MietteResult<bool> {
+    let Some(staged_source) = staged_source else {
+        return Ok(false);
+    };
+    if path != staged_source.path {
+        return Ok(false);
+    }
+    let metadata = fs::metadata(path)
+        .map_err(|err| file_io_report(path, "failed to inspect staged snapshot transcript", err))?;
+    if metadata.len() != staged_source.bytes {
+        return Ok(false);
+    }
+    let bytes = fs::read(path)
+        .map_err(|err| file_io_report(path, "failed to read staged snapshot transcript", err))?;
+    Ok(sha256_hex(&bytes) == staged_source.sha256)
 }
 
 fn parse_snapshot_duration_secs(value: &str) -> MietteResult<u64> {
