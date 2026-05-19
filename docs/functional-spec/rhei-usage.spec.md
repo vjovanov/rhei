@@ -107,6 +107,8 @@ The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
 `rhei run --from-snapshot` is the run-time override surface for ad-hoc
 snapshot debugging; its constraints are specified in
 [Snapshot Operations Specification](rhei-snapshot-operations.spec.md).
+A complete checked example lives in
+[`examples/snapshot-continuation`](../../examples/snapshot-continuation/README.md).
 
 ## 3. Usage Patterns
 

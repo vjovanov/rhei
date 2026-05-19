@@ -58,6 +58,14 @@ This directory contains example inputs for the current markdown plan compiler im
   - counted `review` and `fix` states with two total passes each
   - one review artifact file and one fix artifact updated across the loop
 
+- `snapshot-continuation/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/`
+  - a project-scoped `.rhei/settings.json` with a snapshot-capable agent profile
+  - a named `snapshot.emit:` followed by required same-agent `snapshot.inherit:`
+  - documented `snapshot list`, `snapshot continue`, `snapshot show`, and
+    `run --from-snapshot` commands
+
 - `hourly-human-intervention-example/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`

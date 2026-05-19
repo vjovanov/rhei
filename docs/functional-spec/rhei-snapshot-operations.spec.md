@@ -135,13 +135,83 @@ Options:
   a re-run.
 - `--no-capture`: discard the operator's resulting transcript instead of
   writing a sibling generation. The interactive session still runs; on
-  exit nothing is added to the cache.
+  exit nothing is added to the cache. Use this when the agent can be
+  interactively preloaded but cannot redirect its new transcript to a
+  Rhei-readable session directory.
 
-The command requires the resolved agent to expose a `ResumeStrategy` other
-than `None`, a usable `SessionLayout`, and an
+**Example.** A state machine can emit a reusable implementation snapshot and
+then require that same snapshot for review:
+
+```yaml
+states:
+  implement:
+    target: analysis-agent:acme:model-a
+    snapshot:
+      emit:
+        name: implementation
+        on: always
+  review:
+    target: analysis-agent:acme:model-a
+    snapshot:
+      inherit:
+        name: implementation
+        required: true
+        select:
+          state: implement
+          target: same
+```
+
+The agent profile declares the native session surface once:
+
+```jsonc
+{
+  "agents": {
+    "analysis-agent": {
+      "command": ["analysis-agent"],
+      "prompt_flag": "--prompt",
+      "model_flag": "--model",
+      "session": {
+        "resume": { "flag": "--resume" },
+        "fork": { "flag": "--fork" },
+        "interactive": {
+          "command": ["analysis-agent"],
+          "args": ["--interactive"]
+        },
+        "session_dir_flag": "--session-dir",
+        "layout": { "kind": "FlatById", "ext": "jsonl" }
+      }
+    }
+  }
+}
+```
+
+After `rhei run` emits `1:implementation:implement@1:analysis-agent-acme-model-a/g1`,
+an operator can attach to it without changing the plan:
+
+```bash
+rhei snapshot continue \
+  1:implementation:implement@1:analysis-agent-acme-model-a \
+  --plan examples/snapshot-continuation
+```
+
+If the agent exits cleanly, Rhei writes a sibling operator generation such as
+`g2` with `parent_ref.generation = 1`; the identity's `current` pointer still
+points at the orchestrator generation. Use `--no-capture` for throwaway
+analysis sessions that should not add `g<N>` entries. Captured operator
+generations require a profile-level `session_dir_flag` or an equivalent
+agent-specific adapter that makes the new native transcript discoverable
+through the declared `SessionLayout`; otherwise `continue` fails before
+spawn unless `--no-capture` is passed.
+
+The command requires the resolved agent to expose a usable preload strategy
+(a `ResumeStrategy` other than `None` or a `ForkStrategy`), a usable
+`SessionLayout`, and an
 `InteractiveContinuationProfile`; otherwise it errors before spawn with
 `unsupported-snapshot-session`. The interactive profile must preserve TTY
 pass-through, not the headless `-p`-style invocation that `rhei run` uses.
+It may provide an alternate command when the agent exposes a distinct TTY
+binary or subcommand; otherwise Rhei reuses the profile's base command with
+the interactive arguments appended.
 Agents whose built-in profiles offer only a headless transport in earlier
 phases cannot be used with `continue` until that gap is closed (see
 [Phased Rollout](#3-phased-rollout)).
