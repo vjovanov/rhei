@@ -50,6 +50,19 @@ be split without making the design harder to understand.
 | `crates/rhei-cli/tests/e2e/run_tests.rs` | Run-command E2E scenarios share setup and process assertions. | Split by callback, agent, program, and snapshot behavior when new cases are added. |
 | `examples/changeset-review-example/states.yaml` | Example mirrors the changeset-review template state machine. | Split by template support if Rhei gains multi-file state machines. |
 | `crates/rhei-core/src/ast.rs` | AST types are reviewed together as the core language model. | Split workspace/task/state structs if more public fields are added. |
+| `crates/rhei-cli/src/cli/tests_snapshot_runtime.rs` | Snapshot runtime tests share preload/emit/redactor fixtures and helper builders. | Split into preload, emit, redactor, and fanout-target groups when new cases are added. |
+| `crates/rhei-cli/src/cli/snapshot_records.rs` | Snapshot record loading, manifest schema, and pi-header parsing share serde types. | Split manifest IO from pi-header probing once a second native-header parser exists. |
+| `crates/rhei-cli/src/cli/tests_snapshots_gc.rs` | Snapshot GC tests share cache-root fixtures and generation builders. | Split ref-gc from retention scans when retention policies grow. |
+| `crates/rhei-cli/src/cli/tests_settings_tooling.rs` | Settings load/merge/validate tests share workspace and home-dir fixtures. | Split by load-vs-validate when settings gain new sections. |
+| `crates/rhei-cli/tests/integration_markdown_plans/run_programs_callbacks.rs` | Program-and-callback integration cases share workspace setup and process assertions. | Split programs from callbacks when either grows a new behavior. |
+| `crates/rhei-cli/tests/integration_markdown_plans/run_agent_regressions.rs` | Run-agent regression cases share workspace setup and process assertions. | Split by regression class (snapshot, fanout, polling) when new clusters appear. |
+| `crates/rhei-cli/src/cli/tests_agent_execution_validation.rs` | Agent execution validation tests share spawn-environment fixtures. | Split by validation surface (env, args, transport) when new surfaces are added. |
+| `crates/rhei-validator/src/validator/tests_state_machine.rs` | State-machine validation tests share YAML fixtures and assertion helpers. | Split by feature group (poll, fanout, snapshot, programs) when new rules are added. |
+| `crates/rhei-cli/src/cli/snapshot_runtime_preload.rs` | Preload sequencing, override-contract validation, and parent_ref staging form one ordered procedure. | Split override-contract checks from the preload pipeline if a second consumer needs them. |
+| `crates/rhei-cli/src/cli/tests_cli_render.rs` | CLI render tests share golden output and command fixtures. | Split by command group when new render surfaces are added. |
+| `crates/rhei-cli/src/cli/system_transition_execution.rs` | System-transition execution carries the failure/timeout routing pipeline as one ordered procedure. | Split per outcome class once routing policies diverge. |
+| `crates/rhei-cli/src/cli/tests_agent_resolution.rs` | Agent resolution tests share execution-target fixtures. | Split by resolution surface (target, all_targets, legacy) when new surfaces are added. |
+| `crates/rhei-cli/src/cli/agent_command.rs` | `rhei agent` subcommand dispatch holds list/show/resolve/spawn next to each other for one help surface. | Split subcommand handlers from dispatch when a fifth subcommand is added. |
 
 ## 3. Split Shape
 

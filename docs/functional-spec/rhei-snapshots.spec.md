@@ -115,6 +115,8 @@ and may have different `on:` outcomes (an `on: success` named-emit on a
 failed state does not fire while the auto-emit still does).
 Until transcript-level deduplication exists, firing both writes a second
 cached copy of the same transcript bytes under the named snapshot identity.
+Cache-size impact and the GC controls that bound it are specified in
+§FS-rhei-snapshot-operations.
 
 Auto-emit is best-effort by design: if the resolved agent profile has no
 supported `SessionLayout`, auto-emit is silently skipped for that state —
@@ -831,7 +833,9 @@ After every agent-state subprocess exits, the orchestrator:
 2. Selects the outgoing transition according to §FS-rhei-run step 5, including
    normal success transitions, error or timeout routing, and poll self-loop or
    exhaustion behavior. The transition is not applied until after snapshot
-   emit decisions are complete.
+   emit decisions are complete. This ordering is what lets a poll self-loop
+   selection suppress both auto- and named-emit for the attempt — see
+   [Counted Loops, Fanout, and Polling](#103-counted-loops-fanout-and-polling).
 3. Classifies completion: `success` if exit code is `0` and required outputs
    exist; `timeout` if the subprocess was killed by the agent-timeout
    guardian; `failure` otherwise.
@@ -968,7 +972,9 @@ following rules. Violations are errors unless marked otherwise.
   YAML using `_state` as a snapshot name is rejected at parse time by the
   existing regex check.
 - A `snapshot.inherit:` referencing a fanout source (an emitter with
-  `all_targets` or `all_models`) without a `select.target` is an error.
+  `all_targets` or `all_models`) must declare `select.target`. The value may
+  be an explicit target slug or `same`; both forms satisfy this rule.
+  Omitting `select.target` entirely is an error.
 - Snapshot operations require a resolved effective target tuple `(agent, mode?,
   provider, model)`. `target` and `all_targets` provide that tuple directly.
   Legacy `agent`/`model` or `all_models` states may use snapshots only when

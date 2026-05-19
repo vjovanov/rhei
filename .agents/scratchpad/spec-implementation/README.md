@@ -210,6 +210,18 @@ Each state writes its artifacts under `runtime/...` in the workspace:
 | `runtime/quality/` | Per-reviewer findings, fix plan, and fix log — per spec, per pass. |
 | `runtime/e2e/` | Shared write report + verify report — per pass. |
 
+> **Note on tracked runtime artifacts.** The committed files under
+> `runtime/quality/` and `runtime/completeness/` are a frozen record of the
+> review passes that produced this branch's snapshot work. Some entries cite
+> the in-flight source layout used during those passes — for example paths
+> like `crates/rhei-cli/src/main_parts/snapshot_runtime_1.rs` or
+> `crates/rhei-cli/src/main_parts/tests_7.rs`. After the source-tree split
+> (see `docs/architecture/source-file-size.spec.md`), the equivalent code
+> now lives under `crates/rhei-cli/src/cli/` with behavior-named modules
+> (`snapshot_runtime_emit.rs`, `snapshot_runtime_preload.rs`,
+> `tests_snapshot_runtime.rs`, etc.). Treat the paths and line numbers in
+> the runtime logs as historical evidence pointers, not navigation links.
+
 The fix-and-edit work itself happens in the repository checkout (resolved
 via `git rev-parse --show-toplevel`), not in the workspace. The
 coordinator also appends per-spec task files and the e2e-aggregate task
