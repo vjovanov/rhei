@@ -294,4 +294,3 @@ struct ResolvedProgram {
     program: ProgramSpec,
     timeout_secs: Option<u64>,
 }
-

@@ -496,4 +496,3 @@
 
         template.map(|template| (template, input_args))
     }
-

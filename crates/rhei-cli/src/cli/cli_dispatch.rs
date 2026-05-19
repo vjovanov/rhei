@@ -317,4 +317,3 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         }
     }
 }
-
