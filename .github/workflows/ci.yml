@@ -27,7 +27,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install grund
-        run: cargo install grund --locked
+        run: RUSTUP_TOOLCHAIN=stable cargo install grund --locked
 
       - name: Grund check
         run: |
