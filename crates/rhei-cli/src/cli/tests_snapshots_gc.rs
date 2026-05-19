@@ -497,6 +497,7 @@ states:
     snapshot:
       inherit:
         name: impl
+        from: ancestor
         select:
           state: pending
           generation: latest
@@ -537,6 +538,165 @@ transitions:
         assert!(
             snapshot_generation_protected_by_active_inherit(&latest, &ctx),
             "child task active inherit must protect selected generation"
+        );
+    }
+
+    #[test]
+    fn snapshot_active_inherit_protection_respects_source_axis() {
+        let _home = TempHome::new();
+
+        let self_dir = snapshot_workspace();
+        write_snapshot_workspace_task(
+            self_dir.path(),
+            "### Task 1: Parent\n**State:** completed\n\nParent.\n\n#### Task 1.1: Child\n**State:** review\n\nChild.\n",
+        );
+        fs::write(
+            self_dir.path().join("states.yaml"),
+            r#"name: snapshot-test
+version: 1
+states:
+  pending:
+    description: pending
+    target: claude-code:anthropic:model
+    snapshot:
+      emit:
+        name: impl
+  review:
+    description: review
+    target: claude-code:anthropic:model
+    snapshot:
+      inherit:
+        name: impl
+        select:
+          state: pending
+          generation: current
+  completed:
+    description: completed
+    final: true
+transitions:
+  - from: pending
+    to: review
+  - from: review
+    to: completed
+"#,
+        )
+        .expect("write states");
+        let self_ctx = load_snapshot_context(self_dir.path(), None).expect("snapshot context");
+        for task_id in ["1", "1.1"] {
+            write_snapshot_generation(
+                &self_ctx.cache_root,
+                task_id,
+                "impl",
+                "pending",
+                1,
+                "claude-code-anthropic-model",
+                1,
+                "orchestrator",
+            );
+        }
+        refresh_current_links(
+            &self_ctx.cache_root,
+            ["1", "1.1"]
+                .into_iter()
+                .map(|task_id| SnapshotIdentity {
+                    task_id: task_id.to_string(),
+                    snapshot_name: "impl".to_string(),
+                    emitting_state: "pending".to_string(),
+                    visit: 1,
+                    target_slug: "claude-code-anthropic-model".to_string(),
+                })
+                .collect(),
+        )
+        .expect("current");
+        let parent =
+            resolve_snapshot_ref(&self_ctx, "1:impl/g1", None, None).expect("parent snapshot");
+        let child =
+            resolve_snapshot_ref(&self_ctx, "1.1:impl/g1", None, None).expect("child snapshot");
+        assert!(
+            !snapshot_generation_protected_by_active_inherit(&parent, &self_ctx),
+            "from: self must not protect ancestor snapshots"
+        );
+        assert!(
+            snapshot_generation_protected_by_active_inherit(&child, &self_ctx),
+            "from: self protects the active task's own selected snapshot"
+        );
+
+        let ancestor_dir = snapshot_workspace();
+        write_snapshot_workspace_task(
+            ancestor_dir.path(),
+            "### Task 1: Parent\n**State:** completed\n\nParent.\n\n#### Task 1.1: Child\n**State:** review\n\nChild.\n",
+        );
+        fs::write(
+            ancestor_dir.path().join("states.yaml"),
+            r#"name: snapshot-test
+version: 1
+states:
+  pending:
+    description: pending
+    target: claude-code:anthropic:model
+    snapshot:
+      emit:
+        name: impl
+  review:
+    description: review
+    target: claude-code:anthropic:model
+    snapshot:
+      inherit:
+        name: impl
+        from: ancestor
+        select:
+          state: pending
+          generation: current
+  completed:
+    description: completed
+    final: true
+transitions:
+  - from: pending
+    to: review
+  - from: review
+    to: completed
+"#,
+        )
+        .expect("write states");
+        let ancestor_ctx =
+            load_snapshot_context(ancestor_dir.path(), None).expect("snapshot context");
+        for task_id in ["1", "1.1"] {
+            write_snapshot_generation(
+                &ancestor_ctx.cache_root,
+                task_id,
+                "impl",
+                "pending",
+                1,
+                "claude-code-anthropic-model",
+                1,
+                "orchestrator",
+            );
+        }
+        refresh_current_links(
+            &ancestor_ctx.cache_root,
+            ["1", "1.1"]
+                .into_iter()
+                .map(|task_id| SnapshotIdentity {
+                    task_id: task_id.to_string(),
+                    snapshot_name: "impl".to_string(),
+                    emitting_state: "pending".to_string(),
+                    visit: 1,
+                    target_slug: "claude-code-anthropic-model".to_string(),
+                })
+                .collect(),
+        )
+        .expect("current");
+        let ancestor_parent = resolve_snapshot_ref(&ancestor_ctx, "1:impl/g1", None, None)
+            .expect("ancestor parent snapshot");
+        let ancestor_child = resolve_snapshot_ref(&ancestor_ctx, "1.1:impl/g1", None, None)
+            .expect("ancestor child snapshot");
+        assert!(
+            snapshot_generation_protected_by_active_inherit(&ancestor_parent, &ancestor_ctx),
+            "from: ancestor protects ancestor snapshots"
+        );
+        assert!(
+            !snapshot_generation_protected_by_active_inherit(&ancestor_child, &ancestor_ctx),
+            "from: ancestor must not protect the active task's own snapshot"
         );
     }
 

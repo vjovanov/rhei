@@ -119,7 +119,7 @@ fn read_snapshot_records(cache_root: &Path) -> MietteResult<Vec<SnapshotRecord>>
         return Ok(Vec::new());
     }
     let mut manifests = Vec::new();
-    collect_manifest_paths(cache_root, &mut manifests)
+    collect_manifest_paths(cache_root, cache_root, &mut manifests)
         .map_err(|err| file_io_report(cache_root, "failed to read snapshot cache", err))?;
 
     let mut records = Vec::new();
@@ -137,7 +137,7 @@ fn read_snapshot_records(cache_root: &Path) -> MietteResult<Vec<SnapshotRecord>>
     Ok(records)
 }
 
-fn collect_manifest_paths(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+fn collect_manifest_paths(cache_root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -146,12 +146,35 @@ fn collect_manifest_paths(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result
             continue;
         }
         if file_type.is_dir() {
-            collect_manifest_paths(&path, out)?;
-        } else if entry.file_name() == OsStr::new("manifest.json") {
+            if entry.file_name().to_str().is_some_and(|name| name.contains(".tmp-")) {
+                continue;
+            }
+            collect_manifest_paths(cache_root, &path, out)?;
+        } else if entry.file_name() == OsStr::new("manifest.json")
+            && is_committed_snapshot_manifest(cache_root, &path)
+        {
             out.push(path);
         }
     }
     Ok(())
+}
+
+fn is_committed_snapshot_manifest(cache_root: &Path, manifest_path: &Path) -> bool {
+    let relative = manifest_path.strip_prefix(cache_root).unwrap_or(manifest_path);
+    if relative.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name.contains(".tmp-"))
+    }) {
+        return false;
+    }
+    manifest_path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(OsStr::to_str)
+        .and_then(|name| name.strip_prefix('g'))
+        .is_some_and(|generation| !generation.is_empty() && generation.parse::<u64>().is_ok())
 }
 
 fn snapshot_record_from_manifest(
@@ -459,4 +482,3 @@ fn print_snapshot_show(record: &SnapshotRecord) -> MietteResult<()> {
     }
     Ok(())
 }
-

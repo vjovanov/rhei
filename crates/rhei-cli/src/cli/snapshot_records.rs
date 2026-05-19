@@ -164,12 +164,15 @@ fn snapshot_session_string(session: &serde_json::Value, key: &str) -> Option<Str
 
 fn snapshot_strategy_flag(session: &serde_json::Value, key: &str) -> Option<String> {
     match session.get(key)? {
-        serde_json::Value::String(value) if value != "none" => Some(value.clone()),
+        serde_json::Value::String(value) if value != "none" && !value.trim().is_empty() => {
+            Some(value.clone())
+        }
         serde_json::Value::Object(map) => map
             .get("flag")
             .or_else(|| map.get("native").and_then(|value| value.get("flag")))
             .or_else(|| map.get("copy_and_resume").and_then(|value| value.get("flag")))
             .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
             .map(str::to_string),
         _ => None,
     }
@@ -192,6 +195,24 @@ fn snapshot_layout_manifest(session: &serde_json::Value) -> Option<serde_json::V
         }
     }
     Some(serde_json::Value::Object(object))
+}
+
+fn snapshot_emit_session_supported(session: &serde_json::Value) -> bool {
+    snapshot_session_has_supported_layout(session)
+        && snapshot_session_string(session, "session_dir_flag").is_some()
+}
+
+fn snapshot_session_has_supported_layout(session: &serde_json::Value) -> bool {
+    let Some(layout) = snapshot_session_layout(session) else {
+        return false;
+    };
+    snapshot_layout_ext(layout).is_some()
+        && matches!(snapshot_layout_kind(layout).as_deref(), Some("FlatById"))
+}
+
+fn snapshot_preload_session_supported(session: &serde_json::Value) -> bool {
+    snapshot_session_has_supported_layout(session)
+        && (snapshot_resume_supported(session) || snapshot_strategy_flag(session, "fork").is_some())
 }
 
 fn snapshot_target_slug_or_err(resolved: &ResolvedAgent) -> MietteResult<String> {
@@ -288,6 +309,79 @@ fn transcript_source_for_snapshot(
     }
 }
 
+fn snapshot_declared_provider(resolved: &ResolvedAgent) -> &str {
+    resolved.model_provider.as_deref().unwrap_or_default()
+}
+
+fn snapshot_declared_model(resolved: &ResolvedAgent) -> &str {
+    resolved.model_name.as_deref().or(resolved.model.as_deref()).unwrap_or_default()
+}
+
+fn pi_jsonl_observed_target(transcript_source: &Path) -> Option<(String, String)> {
+    let file = fs::File::open(transcript_source).ok()?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    for _ in 0..8 {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 {
+            break;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+        return pi_header_target_from_value(&value);
+    }
+    None
+}
+
+fn pi_header_target_from_value(value: &serde_json::Value) -> Option<(String, String)> {
+    fn string_at<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+        let mut cursor = value;
+        for key in keys {
+            cursor = cursor.get(*key)?;
+        }
+        cursor.as_str().filter(|text| !text.trim().is_empty())
+    }
+
+    let candidates = [
+        (["provider"].as_slice(), ["model"].as_slice()),
+        (["provider"].as_slice(), ["model_name"].as_slice()),
+        (["model", "provider"].as_slice(), ["model", "name"].as_slice()),
+        (["model", "provider"].as_slice(), ["model", "model"].as_slice()),
+        (["target", "provider"].as_slice(), ["target", "model"].as_slice()),
+        (["session", "provider"].as_slice(), ["session", "model"].as_slice()),
+    ];
+    candidates.iter().find_map(|(provider_path, model_path)| {
+        let provider = string_at(value, provider_path)?;
+        let model = string_at(value, model_path)?;
+        Some((provider.to_string(), model.to_string()))
+    })
+}
+
+fn observed_snapshot_target(
+    resolved: &ResolvedAgent,
+    transcript_source: &Path,
+    transcript_ext: &str,
+) -> (String, String) {
+    let declared_provider = snapshot_declared_provider(resolved).to_string();
+    let declared_model = snapshot_declared_model(resolved).to_string();
+    if resolved.agent.id() != "pi" || transcript_ext != "jsonl" {
+        return (declared_provider, declared_model);
+    }
+    if let Some((provider, model)) = pi_jsonl_observed_target(transcript_source) {
+        return (provider, model);
+    }
+    eprintln!(
+        "warning: pi snapshot transcript '{}' has no parseable provider/model header; falling back to declared target {}:{}",
+        transcript_source.display(),
+        declared_provider,
+        declared_model
+    );
+    (declared_provider, declared_model)
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(digest.len() * 2);
@@ -310,6 +404,7 @@ fn apply_snapshot_redactor(
     settings: &RheiSettings,
     workspace_root: &Path,
     transcript_bytes: Vec<u8>,
+    log_path: Option<&Path>,
 ) -> MietteResult<Vec<u8>> {
     let Some(snapshot_settings) = settings.snapshots.as_ref() else {
         return Ok(transcript_bytes);
@@ -327,6 +422,9 @@ fn apply_snapshot_redactor(
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    for (key, value) in snapshot_redactor_default_env(workspace_root) {
+        command.env(key, value);
+    }
     for key in &snapshot_settings.redactor_env {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
@@ -390,7 +488,15 @@ fn apply_snapshot_redactor(
         .join()
         .map_err(|_| miette!("snapshot redactor stderr reader panicked"))?
         .map_err(|err| miette!("failed to read snapshot redactor stderr: {err}"))?;
-    let stderr_summary = snapshot_redactor_stderr_summary(&stderr_bytes);
+    let (stderr_summary, stderr_truncated) = snapshot_redactor_stderr_summary(&stderr_bytes);
+    append_snapshot_redactor_diagnostic(
+        log_path,
+        &redactor_label,
+        &status,
+        timed_out,
+        stderr_truncated,
+        &stderr_summary,
+    )?;
 
     if timed_out {
         return Err(miette!(
@@ -412,20 +518,58 @@ fn apply_snapshot_redactor(
     Ok(stdout_bytes)
 }
 
-fn snapshot_redactor_stderr_summary(bytes: &[u8]) -> String {
+fn snapshot_redactor_default_env(workspace_root: &Path) -> Vec<(&'static str, PathBuf)> {
+    let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rhei"));
+    let global_settings =
+        home_dir().map(|home| home.join(".config/rhei/settings.json")).unwrap_or_default();
+    vec![
+        ("RHEI_EXECUTABLE_PATH", executable),
+        ("RHEI_WORKSPACE_ROOT", workspace_root.to_path_buf()),
+        ("RHEI_PROJECT_SETTINGS_PATH", workspace_root.join(".rhei/settings.json")),
+        ("RHEI_GLOBAL_SETTINGS_PATH", global_settings),
+    ]
+}
+
+fn append_snapshot_redactor_diagnostic(
+    log_path: Option<&Path>,
+    redactor_path: &str,
+    status: &std::process::ExitStatus,
+    timed_out: bool,
+    stderr_truncated: bool,
+    stderr_summary: &str,
+) -> MietteResult<()> {
+    let Some(log_path) = log_path else {
+        return Ok(());
+    };
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| file_io_report(parent, "failed to create snapshot log dir", err))?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .map_err(|err| file_io_report(log_path, "failed to append snapshot redactor diagnostic", err))?;
+    let summary = stderr_summary.replace('\n', "\\n").replace('\r', "\\r");
+    writeln!(
+        file,
+        "snapshot redactor: path={} status={} timeout={} stderr_truncated={} stderr={}",
+        redactor_path, status, timed_out, stderr_truncated, summary
+    )
+    .map_err(|err| file_io_report(log_path, "failed to write snapshot redactor diagnostic", err))
+}
+
+fn snapshot_redactor_stderr_summary(bytes: &[u8]) -> (String, bool) {
     const LIMIT: usize = 1024;
     if bytes.is_empty() {
-        return "<empty>".to_string();
+        return ("<empty>".to_string(), false);
     }
     let clipped = &bytes[..bytes.len().min(LIMIT)];
     let mut summary = String::from_utf8_lossy(clipped).trim().to_string();
     if summary.is_empty() {
         summary = "<empty>".to_string();
     }
-    if bytes.len() > LIMIT {
-        summary.push_str(" [truncated]");
-    }
-    summary
+    (summary, bytes.len() > LIMIT)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -444,9 +588,12 @@ fn write_snapshot_generation_atomic(
     session_id: &str,
     transcript_source: &Path,
     transcript_ext: &str,
+    observed_provider: &str,
+    observed_model: &str,
     parent_ref: Option<&serde_json::Value>,
     completion: SnapshotCompletion,
     produced_by: SnapshotProducedBy,
+    redactor_log_path: Option<&Path>,
 ) -> MietteResult<SnapshotRecord> {
     let identity_dir = cache_root
         .join(task_id)
@@ -471,7 +618,8 @@ fn write_snapshot_generation_atomic(
     let transcript_bytes = fs::read(transcript_source).map_err(|err| {
         file_io_report(transcript_source, "failed to read snapshot transcript source", err)
     })?;
-    let transcript_bytes = apply_snapshot_redactor(settings, workspace_root, transcript_bytes)?;
+    let transcript_bytes =
+        apply_snapshot_redactor(settings, workspace_root, transcript_bytes, redactor_log_path)?;
     let transcript_sha256 = sha256_hex(&transcript_bytes);
     let transcript_name = format!("transcript.{transcript_ext}");
     let mut generation = next_snapshot_generation(&identity_dir)?;
@@ -501,10 +649,10 @@ fn write_snapshot_generation_atomic(
                 "slug": target_slug,
                 "resolved": snapshot_resolved_target_json(resolved),
             },
-            "declared_provider": resolved.model_provider.as_deref().unwrap_or_default(),
-            "declared_model": resolved.model_name.as_deref().or(resolved.model.as_deref()).unwrap_or_default(),
-            "observed_provider": resolved.model_provider.as_deref().unwrap_or_default(),
-            "observed_model": resolved.model_name.as_deref().or(resolved.model.as_deref()).unwrap_or_default(),
+            "declared_provider": snapshot_declared_provider(resolved),
+            "declared_model": snapshot_declared_model(resolved),
+            "observed_provider": observed_provider,
+            "observed_model": observed_model,
             "session_id": session_id,
             "session_layout": session_layout,
             "transcript_path": transcript_name,

@@ -8,6 +8,22 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
     if !machine.models.is_empty() {
         out.push_str(&format!("Models: {}\n", machine.models.join(", ")));
     }
+    if let Some(profiles) = machine.profiles.as_ref() {
+        out.push_str("Profiles:\n");
+        for (name, profile) in profiles {
+            out.push_str(&format!(
+                "  {name}: initial={}, allowed=[{}]\n",
+                profile.initial,
+                profile.allowed.join(", ")
+            ));
+        }
+    }
+    if let Some(policy) = machine.node_policy.as_ref() {
+        out.push_str(&format!(
+            "Node policy: root={}, default={}\n",
+            policy.root, policy.default
+        ));
+    }
 
     out.push_str("\nStates:\n");
     if machine.states.is_empty() {
@@ -18,11 +34,14 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
                 out.push('\n');
             }
             let mut flags = Vec::new();
-            if def.initial {
-                flags.push("initial");
-            }
             if def.terminal {
                 flags.push("final");
+            }
+            if def.gating {
+                flags.push("gating");
+            }
+            if def.concurrent {
+                flags.push("concurrent");
             }
             let flag_suffix =
                 if flags.is_empty() { String::new() } else { format!(" [{}]", flags.join(", ")) };
@@ -35,10 +54,48 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
             if let Some(visits) = def.visits {
                 out.push_str(&format!("      Visits: {visits}\n"));
             }
+            if let Some(poll) = def.poll.as_ref() {
+                out.push_str(&format!(
+                    "      Poll: interval={}, max_attempts={}\n",
+                    poll.interval, poll.max_attempts
+                ));
+            }
+            if let Some(target) = def.target.as_deref() {
+                out.push_str(&format!("      Target: {target}\n"));
+            }
+            if !def.all_targets.is_empty() {
+                out.push_str(&format!("      Targets: {}\n", def.all_targets.join(", ")));
+            }
             if !def.all_models.is_empty() {
                 out.push_str(&format!("      Models: {}\n", def.all_models.join(", ")));
             } else if let Some(model) = def.model.as_deref() {
                 out.push_str(&format!("      Model: {model}\n"));
+            }
+            if let Some(agent) = def.agent.as_ref() {
+                out.push_str(&format!("      Agent: {}\n", agent.id()));
+            }
+            if let Some(mode) = def.agent_mode.as_deref() {
+                out.push_str(&format!("      Agent mode: {mode}\n"));
+            }
+            if let Some(timeout) = def.agent_timeout.as_deref() {
+                out.push_str(&format!("      Agent timeout: {timeout}\n"));
+            }
+            if def.program.is_some() {
+                out.push_str("      Program: configured\n");
+            }
+            if let Some(timeout) = def.program_timeout.as_deref() {
+                out.push_str(&format!("      Program timeout: {timeout}\n"));
+            }
+            if let Some(mcp_servers) = def.mcp_servers.as_ref() {
+                let ids = mcp_servers.iter().map(|entry| entry.id()).collect::<Vec<_>>();
+                out.push_str(&format!("      MCP servers: {}\n", ids.join(", ")));
+            }
+            if let Some(skills) = def.skills.as_ref() {
+                let ids = skills.iter().map(|entry| entry.id()).collect::<Vec<_>>();
+                out.push_str(&format!("      Skills: {}\n", ids.join(", ")));
+            }
+            if def.snapshot.is_some() {
+                out.push_str("      Snapshot: configured\n");
             }
             if !def.inputs.is_empty() {
                 out.push_str("      Inputs:\n");
@@ -101,16 +158,28 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
         .map(|(name, def)| {
             serde_json::json!({
                 "name": name,
-                "description": def.description,
-                "instructions": def.instructions,
-                "personality": def.personality,
-                "initial": def.initial,
+                "description": &def.description,
+                "instructions": &def.instructions,
+                "personality": &def.personality,
                 "final": def.terminal,
+                "gating": def.gating,
+                "concurrent": def.concurrent,
+                "poll": &def.poll,
                 "visits": def.visits,
-                "all_models": def.all_models,
-                "model": def.model,
-                "inputs": def.inputs,
-                "outputs": def.outputs,
+                "target": &def.target,
+                "all_targets": &def.all_targets,
+                "all_models": &def.all_models,
+                "model": &def.model,
+                "agent": def.agent.as_ref().map(|agent| agent.id()),
+                "agent_mode": &def.agent_mode,
+                "agent_timeout": &def.agent_timeout,
+                "program": &def.program,
+                "program_timeout": &def.program_timeout,
+                "mcp_servers": &def.mcp_servers,
+                "skills": &def.skills,
+                "snapshot": &def.snapshot,
+                "inputs": &def.inputs,
+                "outputs": &def.outputs,
             })
         })
         .collect();
@@ -122,7 +191,9 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
 
     let payload = serde_json::json!({
         "name": machine.name,
-        "models": machine.models,
+        "models": &machine.models,
+        "profiles": &machine.profiles,
+        "node_policy": &machine.node_policy,
         "version": version,
         "states": states,
         "transitions": transitions,
@@ -373,4 +444,3 @@ fn watch_roots(input: &Path, state_machine: &Path) -> Vec<PathBuf> {
 fn normalize_path(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
-

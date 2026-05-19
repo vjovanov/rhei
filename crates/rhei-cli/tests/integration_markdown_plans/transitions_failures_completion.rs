@@ -104,6 +104,124 @@ fn transition_wildcard_from_allows_any_source() {
 }
 
 #[test]
+fn states_profile_allowed_rejects_manual_transition_destination() {
+    let machine_yaml = r#"name: profile-transition-guard
+version: 3
+states:
+  pending:
+    description: Not started
+  review:
+    description: Globally valid but not allowed for simple tasks
+  completed:
+    description: Done
+    final: true
+profiles:
+  simple:
+    initial: pending
+    allowed: [pending, completed]
+node_policy:
+  root: simple
+  default: simple
+transitions:
+  - from: pending
+    to: review
+  - from: pending
+    to: completed
+  - from: review
+    to: completed
+"#;
+    let plan = r#"# Rhei: Profile Transition Guard
+
+## Tasks
+
+### Task 1: Simple task
+**State:** pending
+"#;
+    let dir = unique_temp_dir("states-profile-manual-transition");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result = run_transition(&plan_path, &machine_path, "1", "pending", "review");
+
+    assert!(
+        !result.status.success(),
+        "profile-disallowed transition target should fail"
+    );
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("not allowed") && normalized.contains("resolved") && normalized.contains("profile"),
+        "stderr should explain profile allowed-state guard; got:\n{}",
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read unchanged plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
+    assert_eq!(task.state.as_str(), "pending");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn states_profile_allowed_skips_disallowed_automatic_transition_destination() {
+    let machine_yaml = r#"name: profile-auto-transition-guard
+version: 3
+states:
+  pending:
+    description: Not started
+  review:
+    description: Globally valid but not allowed for simple tasks
+  completed:
+    description: Done
+    final: true
+profiles:
+  simple:
+    initial: pending
+    allowed: [pending, completed]
+node_policy:
+  root: simple
+  default: simple
+transitions:
+  - from: pending
+    to: review
+  - from: pending
+    to: completed
+  - from: review
+    to: completed
+"#;
+    let plan = r#"# Rhei: Profile Auto Transition Guard
+
+## Tasks
+
+### Task 1: Simple task
+**State:** pending
+"#;
+    let dir = unique_temp_dir("states-profile-auto-transition");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let result = run_run_command(&plan_path, &machine_path, &[]);
+
+    assert!(
+        result.status.success(),
+        "run should skip the disallowed transition and use the allowed target\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
+    assert_eq!(task.state.as_str(), "completed");
+    assert!(
+        !result.stdout.contains("review"),
+        "run output should not show the skipped disallowed state; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn complete_rejects_parent_with_non_terminal_subtasks() {
     let plan = r#"# Rhei: Parent Completion Guard
 
@@ -190,4 +308,3 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
 }
 
 // --- Callback execution integration tests ---
-

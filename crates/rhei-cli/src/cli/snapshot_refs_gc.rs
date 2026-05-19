@@ -329,6 +329,19 @@ fn snapshot_generation_protected_by_active_inherit(
         else {
             continue;
         };
+        let active_task_id = task.id.to_string();
+        match inherit.from_axis.as_deref().unwrap_or("self") {
+            "self" if record.task_id != active_task_id => continue,
+            "ancestor"
+                if !ancestor_task_ids(&active_task_id)
+                    .iter()
+                    .any(|ancestor| ancestor == &record.task_id) =>
+            {
+                continue;
+            }
+            "self" | "ancestor" => {}
+            _ => continue,
+        }
         if inherit.name != record.snapshot_name {
             continue;
         }

@@ -434,7 +434,69 @@ printf 'stdout:before-background\n'
     }
 
     #[test]
-    fn validates_agent_mode_forbidden_on_modeless_agent() {
+    fn validates_snapshot_session_profiles_match_runtime_support() {
+        let mut settings = default_settings();
+        let emit_machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+        );
+
+        settings.agents.insert(
+            "fake".to_string(),
+            CustomAgentProfile {
+                command: vec!["fake".to_string()],
+                session: Some(serde_json::json!({
+                    "session_dir_flag": "--session-dir",
+                    "layout": { "kind": "UnknownLayout", "ext": "jsonl" }
+                })),
+                ..Default::default()
+            },
+        );
+        let errs = validate_machine_settings_references(&emit_machine, &settings);
+        assert!(
+            errs.iter().any(|e| e.contains("unsupported-snapshot-session")),
+            "unsupported layout kind must error: {errs:?}"
+        );
+
+        settings.agents.insert(
+            "fake".to_string(),
+            CustomAgentProfile {
+                command: vec!["fake".to_string()],
+                session: Some(serde_json::json!({
+                    "session_dir_flag": "--session-dir",
+                    "layout": { "kind": "FlatById" }
+                })),
+                ..Default::default()
+            },
+        );
+        let errs = validate_machine_settings_references(&emit_machine, &settings);
+        assert!(
+            errs.iter().any(|e| e.contains("unsupported-snapshot-session")),
+            "incomplete layout must error: {errs:?}"
+        );
+
+        settings.agents.insert(
+            "fake".to_string(),
+            CustomAgentProfile {
+                command: vec!["fake".to_string()],
+                session: Some(serde_json::json!({
+                    "layout": { "kind": "FlatById", "ext": "jsonl" },
+                    "resume": { "native": {} }
+                })),
+                ..Default::default()
+            },
+        );
+        let inherit_machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\n",
+        );
+        let errs = validate_machine_settings_references(&inherit_machine, &settings);
+        assert!(
+            errs.iter().any(|e| e.contains("unsupported-snapshot-session")),
+            "non-empty unsupported resume object must error: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn validates_agent_mode_allowed_on_modeless_agent() {
         let mut settings = default_settings();
         settings.agents.insert(
             "noop".to_string(),
@@ -445,9 +507,24 @@ printf 'stdout:before-background\n'
         );
         let errs = validate_machine_settings_references(&machine, &settings);
         assert!(
-            errs.iter().any(|e| e.contains("'noop' declares no modes")),
-            "agent_mode on modeless agent must error: {errs:?}"
+            errs.is_empty(),
+            "agent_mode is permitted when the resolved agent declares no modes: {errs:?}"
         );
+    }
+
+    #[test]
+    fn poll_attempt_condition_aliases_are_available_on_first_attempt() {
+        let rhei = rhei_core::parse(
+            "# Rhei: Poll\n\n## Tasks\n\n### Task 1: Wait\n**State:** wait\n\nWait.\n",
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            "name: poll\nversion: 1\nstates:\n  wait:\n    description: wait\n    program: \"true\"\n    poll:\n      interval: 1s\n      max_attempts: 1\n  done:\n    description: done\n    final: true\ntransitions:\n  - from: wait\n    to: wait\n  - from: wait\n    to: done\n    condition: pollAttempts >= pollMaxAttempts\n",
+        );
+
+        let to_state =
+            find_next_transition(&rhei.tasks[0], &rhei, &machine).expect("transition eval");
+        assert_eq!(to_state.as_deref(), Some("done"));
     }
 
     #[test]

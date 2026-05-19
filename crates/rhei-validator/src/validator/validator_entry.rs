@@ -58,6 +58,7 @@ impl Validator {
 
         let index = build_task_index(rhei);
         validate_node_policy_against_structure(&self.machine, &rhei.structure, &mut report);
+        validate_state_machine_warnings(&self.machine, &mut report);
         validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
@@ -95,6 +96,16 @@ pub fn validate_from_machine_file<P: AsRef<Path>>(
 ) -> Result<ValidationReport, StateMachineLoadError> {
     let machine = StateMachine::from_yaml_file(machine_path)?;
     Ok(Validator::new(machine).validate(rhei))
+}
+
+fn validate_state_machine_warnings(machine: &StateMachine, report: &mut ValidationReport) {
+    for (state_name, state) in &machine.states {
+        if state.gating && state.agent.is_some() {
+            report.warnings.push(format!(
+                "state '{state_name}' declares 'agent' on a gating state; gating states are human-only, so rhei run will not invoke this agent"
+            ));
+        }
+    }
 }
 
 // ---------------------------

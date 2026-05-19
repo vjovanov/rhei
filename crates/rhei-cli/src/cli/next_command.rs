@@ -177,7 +177,7 @@ fn next_command(
             .find(|t| t.id == target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
         let state_name = normalized_state_name(task.state.as_str(), &machine);
-        let is_initial = machine.states.get(&state_name).map(|def| def.initial).unwrap_or(false);
+        let is_initial = task_is_in_initial_state(task, &state_name, &machine);
         if is_initial {
             let state_map: HashMap<&TaskId, String> = loaded
                 .rhei
@@ -247,7 +247,14 @@ fn next_command(
 
     // Determine whether we need a state transition.
     // Tasks in an initial state (e.g. draft) are transitioned forward.
-    let is_initial = machine.states.get(&current_state).map(|d| d.initial).unwrap_or(false);
+    let target_id = parse_task_id(&task_id_str);
+    let selected_task = loaded
+        .rhei
+        .tasks
+        .iter()
+        .find(|task| task.id == target_id)
+        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+    let is_initial = task_is_in_initial_state(selected_task, &current_state, &machine);
     let current_state_def = machine
         .states
         .get(&current_state)
@@ -304,6 +311,8 @@ fn next_command(
     let resolved = resolve_agent(&machine, &final_state, &settings, &no_agent_opts)?;
     let agent_id_str = resolved.as_ref().map(|r| r.agent.id().to_string());
     let model_id_str = resolved.as_ref().and_then(|r| r.model.clone());
+    let model_provider_str = resolved.as_ref().and_then(|r| r.model_provider.clone());
+    let model_name_str = resolved.as_ref().and_then(|r| r.model_name.clone());
 
     // Claim mode only: write `**Assignee:**` to the task file so a second
     // `rhei next` cannot re-claim the same task. Skipped in peek mode and
@@ -326,6 +335,8 @@ fn next_command(
         metadata: loaded.rhei.metadata.as_ref(),
         target: resolved.as_ref().and_then(|r| r.target.as_ref()),
         model: model_id_str.as_deref(),
+        model_provider: model_provider_str.as_deref(),
+        model_name: model_name_str.as_deref(),
         agent: agent_id_str.as_deref(),
         agent_mode: resolved.as_ref().and_then(|r| r.mode.as_deref()),
         tooling: Some(&tooling),

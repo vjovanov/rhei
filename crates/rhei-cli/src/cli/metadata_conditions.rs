@@ -121,6 +121,10 @@ fn current_state_visit_count(
         return 1;
     }
 
+    if machine.states.get(current_state).and_then(|def| def.poll.as_ref()).is_some() {
+        return 1;
+    }
+
     0
 }
 
@@ -149,6 +153,32 @@ fn resolve_condition_operand(
                 miette!("state '{}' does not declare a visit limit", current_state)
             })?;
             Ok(limit as i64)
+        }
+        "pollAttempts" => {
+            let Some(_) = machine.states.get(current_state).and_then(|def| def.poll.as_ref())
+            else {
+                return Err(miette!(
+                    "condition operand 'pollAttempts' is only available on poll states"
+                ));
+            };
+            Ok(current_state_visit_count(
+                metadata,
+                task_id,
+                current_state,
+                current_state_raw,
+                machine,
+            ) as i64)
+        }
+        "pollMaxAttempts" => {
+            let limit = machine
+                .states
+                .get(current_state)
+                .and_then(|def| def.poll.as_ref())
+                .map(|poll| poll.max_attempts)
+                .ok_or_else(|| {
+                    miette!("condition operand 'pollMaxAttempts' is only available on poll states")
+                })?;
+            Ok(i64::from(limit))
         }
         other => {
             let value = task_metadata_number(metadata, task_id, other).ok_or_else(|| {
@@ -221,8 +251,14 @@ fn loop_reentry_allowed(
 ) -> bool {
     if current_state == to_state {
         if let Some(poll) = machine.states.get(current_state).and_then(|def| def.poll.as_ref()) {
-            let current = task_visit_count(metadata, task_id, current_state);
-            return current.saturating_add(1) < u64::from(poll.max_attempts);
+            let current = current_state_visit_count(
+                metadata,
+                task_id,
+                current_state,
+                current_state_raw,
+                machine,
+            );
+            return current < u64::from(poll.max_attempts);
         }
     }
 

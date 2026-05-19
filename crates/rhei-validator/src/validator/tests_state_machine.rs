@@ -139,6 +139,24 @@ states:
     }
 
     #[test]
+    fn rejects_explicit_empty_all_targets() {
+        let yaml = r#"
+name: multi-target
+version: 1.0
+states:
+  analyze:
+    description: analyze
+    all_targets: []
+  done:
+    description: done
+    final: true
+"#;
+
+        let err = StateMachine::from_yaml_str(yaml).expect_err("empty all_targets rejected");
+        assert!(err.to_string().contains("all_targets must be a non-empty list"));
+    }
+
+    #[test]
     fn rejects_state_machine_with_conflicting_target_and_model_selectors() {
         let yaml = r#"
 name: multi-target
@@ -299,6 +317,35 @@ states:
     }
 
     #[test]
+    fn rejects_nested_template_conditionals() {
+        let yaml = r#"
+name: test
+version: 1.0
+states:
+  implement:
+    description: do work
+    instructions: |
+      {if input.notes.exists}
+      Read the notes.
+      {if mcp.grafana.available}
+      Check Grafana.
+      {endif}
+      {endif}
+    inputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+        optional: true
+    mcp_servers:
+      - grafana
+  done:
+    description: done
+    final: true
+"#;
+        let err = StateMachine::from_yaml_str(yaml).expect_err("nested conditionals rejected");
+        assert!(err.to_string().contains("nested conditional blocks"));
+    }
+
+    #[test]
     fn accepts_if_condition_in_personality_referencing_declared_input() {
         let yaml = r#"
 name: test
@@ -389,6 +436,36 @@ states:
         let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
+    }
+
+    #[test]
+    fn warns_when_gating_state_declares_agent() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Review
+**State:** review
+"#;
+        let yaml = r#"
+name: gate-agent
+version: 1.0
+states:
+  review:
+    description: review
+    gating: true
+    agent: codex
+  done:
+    description: done
+    final: true
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let machine = StateMachine::from_yaml_str(yaml).expect("states load");
+        let report = validate_with_machine(&rhei, &machine);
+        assert!(report.errors.is_empty(), "warning should not be fatal: {report:?}");
+        assert!(
+            report.warnings.iter().any(|warning| warning.contains("gating state")),
+            "expected gating-agent warning, got {report:?}"
+        );
     }
 
     #[test]
@@ -496,4 +573,3 @@ states:
             joined
         );
     }
-

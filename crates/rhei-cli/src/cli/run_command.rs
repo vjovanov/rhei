@@ -40,7 +40,8 @@ fn run_command(
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
-    let use_standalone_mode = should_use_agent_mode(&machine, &settings, &opts)?;
+    let use_standalone_mode =
+        should_use_agent_mode(&loaded.rhei, &machine, &settings, &opts, &workspace_root)?;
 
     if use_standalone_mode {
         run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
@@ -50,21 +51,28 @@ fn run_command(
 }
 
 fn should_use_agent_mode(
+    rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     settings: &RheiSettings,
     opts: &RunOptions,
+    workspace_root: &Path,
 ) -> MietteResult<bool> {
-    for (state_name, def) in &machine.states {
+    for task in find_runnable_tasks(rhei, machine, workspace_root) {
+        let state_name = normalized_state_name(task.state.as_str(), machine);
+        let Some(def) = machine.states.get(&state_name) else {
+            continue;
+        };
         if def.terminal || def.gating {
             continue;
         }
         if def.program.is_some() && !opts.no_program() {
             return Ok(true);
         }
-        if !opts.no_agent()
-            && !resolve_agent_invocations(machine, state_name, settings, opts)?.is_empty()
-        {
-            return Ok(true);
+        if !opts.no_agent() {
+            let invocations = resolve_agent_invocations(machine, &state_name, settings, opts)?;
+            if !invocations.is_empty() || state_declares_autonomous_agent_work(def) {
+                return Ok(true);
+            }
         }
     }
     Ok(false)
