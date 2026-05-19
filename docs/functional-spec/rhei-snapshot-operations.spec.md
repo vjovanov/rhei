@@ -45,6 +45,10 @@ Prints the snapshot cache contents. Options:
 Default columns: task, snapshot name, emitting state, visit, target slug,
 generation, created_at, transcript bytes, completion, produced_by.
 
+If the text output has no matching rows, it still prints the header followed by
+a short empty-state hint that suggests running `rhei run` first or adjusting
+filters such as `--produced-by all`. JSON output remains an empty array.
+
 ### 1.3. `rhei snapshot show <ref>`
 
 Prints a manifest in full and a transcript head/tail preview. It uses the
@@ -137,7 +141,8 @@ Options:
   writing a sibling generation. The interactive session still runs; on
   exit nothing is added to the cache. Use this when the agent can be
   interactively preloaded but cannot redirect its new transcript to a
-  Rhei-readable session directory.
+  Rhei-readable session directory. A successful no-capture continuation prints
+  an explicit confirmation that no snapshot was written.
 
 **Example.** A state machine can emit a reusable implementation snapshot and
 then require that same snapshot for review:
@@ -202,6 +207,13 @@ generations require a profile-level `session_dir_flag` or an equivalent
 agent-specific adapter that makes the new native transcript discoverable
 through the declared `SessionLayout`; otherwise `continue` fails before
 spawn unless `--no-capture` is passed.
+
+After a captured continuation, stdout prints the captured reference and a hint
+that operator generations are hidden from the default list view; operators can
+use `rhei snapshot list --produced-by operator` or `--produced-by all` to see
+them. If a referenced snapshot is not native-compatible with the currently
+resolved agent profile, the error names the stored manifest layout and the
+current profile layout so configuration drift is diagnosable before spawn.
 
 The command requires the resolved agent to expose a usable preload strategy
 (a `ResumeStrategy` other than `None` or a `ForkStrategy`), a usable

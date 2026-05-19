@@ -1480,6 +1480,8 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
 
         assert!(err.to_string().contains("incompatible-snapshot"));
         assert!(err.to_string().contains("not native-compatible"));
+        assert!(err.to_string().contains("stored layout FlatById/jsonl"));
+        assert!(err.to_string().contains("current profile expects FlatById/txt"));
     }
 
     #[test]

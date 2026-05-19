@@ -1,7 +1,7 @@
 {
   "agents": {
     "analysis-agent": {
-      "command": ["analysis-agent"],
+      "command": ["sh", "scripts/fake-analysis-agent.sh"],
       "prompt_flag": "--prompt",
       "model_flag": "--model",
       "timeout": "20m",
@@ -9,7 +9,7 @@
         "resume": { "flag": "--resume" },
         "fork": { "flag": "--fork" },
         "interactive": {
-          "command": ["analysis-agent"],
+          "command": ["sh", "scripts/fake-analysis-agent.sh"],
           "args": ["--interactive"]
         },
         "session_dir_flag": "--session-dir",

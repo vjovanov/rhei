@@ -39,11 +39,12 @@ fn snapshot_continue_command(
     }
     // Continue preloads the native session identified by the source manifest.
     // Reject settings drift before staging or claiming parent lineage. §FS-rhei-snapshots
-    if !snapshot_record_native_compatible(&record, &resolved) {
+    if let Some(reason) = snapshot_record_native_incompatibility(&record, &resolved) {
         return Err(miette!(
-            "incompatible-snapshot: selected snapshot {} is not native-compatible with agent '{}'",
+            "incompatible-snapshot: selected snapshot {} is not native-compatible with agent '{}': {}",
             record.display_ref(),
-            resolved.agent.id()
+            resolved.agent.id(),
+            reason
         ));
     }
 
@@ -59,6 +60,14 @@ fn snapshot_continue_command(
             ctx, &record, &resolved, session, &preload, completion,
         )?;
         println!("captured {}", captured.display_ref());
+        println!(
+            "hint: operator generations are hidden by the default list view; use `rhei snapshot list --produced-by operator` or `--produced-by all`."
+        );
+    } else if status.success() {
+        println!(
+            "continued from {} without capture; no snapshot written",
+            record.display_ref()
+        );
     }
     if status.success() {
         Ok(())
