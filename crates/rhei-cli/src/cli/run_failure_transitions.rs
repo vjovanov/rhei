@@ -1,8 +1,8 @@
 
 /// Result of [`fire_timeout_transition`]. The caller uses this to decide
 /// whether to count the task as advanced and whether to emit the
-/// "no timeout transition is declared" warning required by
-/// `docs/functional-spec/rhei-agents.spec.md` §Timeout Behavior.
+/// "no timeout transition is declared" warning required by timeout behavior.
+// §FS-rhei-agents.7.3: Timeout transition outcome handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TimeoutTransitionOutcome {
     /// A matching timeout transition fired successfully.
@@ -105,7 +105,8 @@ fn find_timeout_transition(
 ///
 /// Sets `triggeredBy: 'system'` and `transitionData.timeout = <duration>`
 /// on the resulting transition context (the duration is the agent's
-/// resolved timeout, when known), matching spec §Timeout Callbacks.
+/// resolved timeout, when known), matching timeout callback behavior.
+// §FS-rhei-agents.7.5: Timeout callback context payload.
 fn fire_timeout_transition(
     input: &Path,
     machine: &rhei_validator::StateMachine,

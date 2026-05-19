@@ -1,4 +1,4 @@
-// The CLI is split into include parts to keep source files bounded by §AR-source-file-size.
+// §AR-source-file-size: The CLI is split into bounded include parts.
 include!("cli/cli_declarations.rs");
 include!("cli/cli_dispatch.rs");
 include!("cli/completion_candidates.rs");

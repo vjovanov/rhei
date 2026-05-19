@@ -142,10 +142,10 @@ fn spawn_and_wait_agent(
             .map_err(|e| miette!("failed to create log file '{}': {e}", log_path.display()))?,
     ));
 
-    // Write log header. Format documented in
-    // `docs/functional-spec/rhei-agents.spec.md` §Log Capture. The `v1`
-    // suffix is the structural-format version: any future change to the
-    // header/footer layout must bump it.
+    // §FS-rhei-agents.8: Agent log header format.
+
+    // Write log header. The `v1` suffix is the structural-format version:
+    // any future change to the header/footer layout must bump it.
     let started_wall = std::time::SystemTime::now();
     with_agent_log(&log_file, |f| {
         writeln!(f, "=== rhei agent log v1 ===")?;
@@ -190,7 +190,7 @@ fn spawn_and_wait_agent(
     .map_err(|e| miette!("failed to write log header '{}': {e}", log_path.display()))?;
 
     // Emit spawn-time warnings for tooling the agent profile cannot wire.
-    // See spec §Skills and §Missing Tooling.
+    // §FS-rhei-agents.1.1.5 §FS-rhei-agents.6: Spawn-time tooling warnings.
     for warning in collect_unsupported_tooling_warnings(resolved, tooling) {
         let _ = with_agent_log(&log_file, |f| writeln!(f, "{warning}"));
         eprintln!("{warning}");
@@ -297,10 +297,12 @@ fn spawn_and_wait_agent(
     }
 
     // Write log footer. The `ended:` ISO timestamp and human-readable
-    // `duration:` mirror the header per spec §Log Capture. When the engine
+    // `duration:` mirror the header. When the engine
     // killed the agent for exceeding its timeout, we emit the spec-required
     // `agent timed out after {duration}` line so operators see the cause
     // without inferring it from the exit code alone.
+
+    // §FS-rhei-agents.8: Agent log footer and timeout cause.
     let timeout_message =
         if timed_out { resolved.timeout_secs.map(format_duration_human) } else { None };
     with_agent_log(&log_file, |f| {

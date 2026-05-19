@@ -245,11 +245,13 @@ fn run_agent_mode(
                         callback_tasks.push((task_id_str, current_state_raw, current_state));
                         continue;
                     }
-                    // Surface every remediation slot from spec
-                    // §Resolution Order: `defaults.agent`, the state's
+                    // Surface every remediation slot from the resolution order:
+                    // `defaults.agent`, the state's
                     // `agent`, `models.<id>.default_agent`, and `--agent`.
                     // Mention the resolved model id when one is set so
                     // operators can locate `models.<id>.default_agent`.
+
+                    // §FS-rhei-agents.1.4: Explain unresolved agent slots.
                     let resolved_model = state_def
                         .model
                         .clone()
@@ -302,9 +304,9 @@ fn run_agent_mode(
                 // `rhei run` will actually spawn must resolve to a finite
                 // timeout so that a non-returning agent cannot block forever.
                 // Invocations whose outputs already exist have been filtered
-                // out above and do not need a timeout. See
-                // docs/functional-spec/rhei-agents.spec.md §Completion Authority /
-                // §Completion Condition.
+                // out above and do not need a timeout.
+
+                // §FS-rhei-agents.3.1 §FS-rhei-agents.3.2: Require timeout.
                 if !opts.dry_run() {
                     for resolved in &pending {
                         ensure_orchestrator_timeout(resolved, &current_state)?;

@@ -14,6 +14,9 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-callbacks | Transition callback examples |
 | §FS-rhei-agents | Agent configuration, execution, and timeout behavior |
 | §FS-rhei-programs | Deterministic program states |
+| §FS-rhei-validate | `rhei validate` command behavior |
+| §FS-rhei-render | `rhei render` command behavior |
+| §FS-rhei-states-cmd | `rhei states` command behavior |
 | §FS-rhei-run | `rhei run` command behavior |
 | §FS-rhei-run-tui | `rhei run` TUI and transition journal |
 | §FS-rhei-next | `rhei next` command behavior |
@@ -21,12 +24,13 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-complete | `rhei complete` command behavior |
 | §FS-rhei-reset | `rhei reset` command behavior |
 | §FS-rhei-list | `rhei list` command behavior |
-| §FS-rhei-viz | `rhei viz` command behavior |
+| §FS-rhei-viz | Visualization behavior surface; specified, not a current CLI variant |
 | §FS-rhei-templates | Rhei template format and instantiation behavior |
 | §FS-rhei-snapshots | Session snapshot/inheritance model, storage, runtime, and per-agent integration |
 | §FS-rhei-snapshot-operations | Snapshot CLI, run override, settings, redaction, and rollout |
 | §FS-rhei-completions | Shell completion UX |
 | §FS-rhei-install-skills | `rhei install-skills` command behavior |
+| §FS-rhei-version | `rhei version` command behavior |
 | §FS-rhei-state-machine-writer | State machine writer guidance |
 
 This index is navigational. Normative citations should target the specific

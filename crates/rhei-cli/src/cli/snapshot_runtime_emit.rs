@@ -2,12 +2,12 @@
 /// Orchestration hook for snapshot emission, invoked after the orchestrator
 /// has selected the outgoing transition but before the transition is applied.
 ///
-/// Per `docs/functional-spec/rhei-run.spec.md` § Execution Loop step 6 and
-/// `docs/functional-spec/rhei-snapshots.spec.md` § 10.2 Emit on Exit, this
-/// is where the orchestrator writes auto-emitted `_state` snapshots and any
+/// Per the run execution loop and snapshot emit contract, this is where the
+/// orchestrator writes auto-emitted `_state` snapshots and any
 /// matching named `snapshot.emit:` for agent-bearing states with supported
 /// snapshot sessions. Poll self-loop attempts must not emit because they keep
 /// the state visit open; only terminal poll exits emit.
+// §FS-rhei-run.3 §FS-rhei-snapshots.10.2: Emit snapshots after transition selection.
 ///
 /// The actual snapshot writes are owned by the impl-rhei-snapshots task; this
 /// function is a deliberate no-op stub that pins the call site so the
@@ -23,8 +23,7 @@ fn emit_snapshots_after_transition_selection(
     let _ = (machine, task, current_state, selected_to_state);
     // Suppression rule for poll self-loop attempts is honored by the snapshot
     // module by inspecting (current_state, selected_to_state); the call site
-    // does not need to filter here. See rhei-run.spec.md § Polling States and
-    // rhei-snapshots.spec.md § 10.3 Counted Loops, Fanout, and Polling.
+    // §FS-rhei-run.5.1 §FS-rhei-snapshots.10.3: Poll self-loops suppress emit.
 }
 
 #[allow(clippy::too_many_arguments)]

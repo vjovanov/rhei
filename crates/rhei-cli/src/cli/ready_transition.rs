@@ -330,9 +330,10 @@ fn try_auto_advance_task(
     //   (5) select the outgoing transition without applying it,
     //   (6) emit snapshots after selection / before application,
     //   (7) apply the selected transition.
-    // See docs/functional-spec/rhei-run.spec.md § Execution Loop steps 5–7.
     // Step 6 is delegated to the snapshot module owned by impl-rhei-snapshots;
     // see `emit_snapshots_after_transition_selection` for the call site.
+
+    // §FS-rhei-run.3: Select, emit, then apply transitions.
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(task_id_str);
     let Some(task) = loaded.rhei.tasks.iter().find(|t| t.id == target_id) else {

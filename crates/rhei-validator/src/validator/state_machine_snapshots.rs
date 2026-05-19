@@ -7,7 +7,7 @@ impl StateMachine {
 
             // This pass covers the state-machine-local snapshot grammar and
             // static lineage checks. Settings-dependent profile checks are
-            // performed by the CLI after registry merge. §FS-rhei-snapshots.11
+            // §FS-rhei-snapshots.11: CLI performs registry-dependent snapshot checks.
             if let Some(emit) = snapshot.emit.as_ref() {
                 validate_snapshot_name(state_name, "snapshot.emit.name", &emit.name)?;
                 if let Some(on) = emit.on.as_deref() {

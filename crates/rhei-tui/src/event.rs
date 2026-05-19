@@ -46,9 +46,10 @@ pub enum AgentStream {
 
 /// Events emitted by the execution engine.
 ///
-/// The shape follows `docs/functional-spec/rhei-run-tui.spec.md`. `Message` is an
-/// additional variant used while the stdout path still emits humanized
-/// strings; a TUI frontend can surface these in its journal pane.
+/// The shape follows the TUI event surface. `Message` is an additional variant
+/// used while the stdout path still emits humanized strings; a TUI frontend can
+/// surface these in its journal pane.
+// §FS-rhei-run-tui.1.1: Run event surface.
 #[derive(Debug, Clone)]
 pub enum RunEvent {
     RunStarted {
