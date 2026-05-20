@@ -15,6 +15,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-agents | Agent configuration, execution, and timeout behavior |
 | §FS-rhei-programs | Deterministic program states |
 | §FS-rhei-validate | `rhei validate` command behavior |
+| §FS-rhei-lsp | `rhei lsp` language-server authoring surface |
 | §FS-rhei-render | `rhei render` command behavior |
 | §FS-rhei-states-cmd | `rhei states` command behavior |
 | §FS-rhei-run | `rhei run` command behavior |
