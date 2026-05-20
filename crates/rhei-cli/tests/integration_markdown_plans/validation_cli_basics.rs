@@ -19,7 +19,7 @@ fn bare_cli_prints_help_and_exits_successfully() {
         result.stdout
     );
     assert!(
-        result.stdout.contains("Validate and compile markdown plans into structured outputs"),
+        result.stdout.contains("Run governed agent workflows from Markdown plans"),
         "help output should include the CLI summary:\n{}",
         result.stdout
     );

@@ -11,6 +11,7 @@ struct AgentSpawnOutcome {
     status: std::process::ExitStatus,
     timed_out: bool,
     timeout_secs: Option<u64>,
+    usage_capture_path: Option<PathBuf>,
 }
 
 #[cfg(not(test))]
@@ -196,6 +197,13 @@ fn spawn_and_wait_agent(
         eprintln!("{warning}");
     }
 
+    // §FS-rhei-cost-accounting.4: Usage capture is declared before the agent starts.
+    let usage_capture_path =
+        accounting_capture_path_for_spawn(runtime_dir, task_id, state_name, resolved);
+    if let Some(parent) = usage_capture_path.as_ref().and_then(|path| path.parent()) {
+        let _ = fs::create_dir_all(parent);
+    }
+
     let mut cmd = build_agent_command(
         resolved,
         prompt,
@@ -207,6 +215,7 @@ fn spawn_and_wait_agent(
         tooling,
         runtime_dir,
     );
+    configure_accounting_capture(&mut cmd, usage_capture_path.as_deref());
     if let Some(snapshot_preload) = snapshot_preload {
         for arg in &snapshot_preload.extra_args {
             cmd.arg(arg);
@@ -324,5 +333,10 @@ fn spawn_and_wait_agent(
     })
     .map_err(|e| miette!("failed to append to log file '{}': {e}", log_path.display()))?;
 
-    Ok(AgentSpawnOutcome { status, timed_out, timeout_secs: resolved.timeout_secs })
+    Ok(AgentSpawnOutcome {
+        status,
+        timed_out,
+        timeout_secs: resolved.timeout_secs,
+        usage_capture_path,
+    })
 }

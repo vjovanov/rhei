@@ -1,7 +1,7 @@
 {
   "name": "rhei",
   "version": "0.1.0",
-  "description": "Command-line interface for validating, running, and rendering Rhei markdown plans.",
+  "description": "Command-line driver for the Rhei agent runtime.",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",

@@ -33,7 +33,7 @@ pub struct TuiSink {
 }
 
 enum Msg {
-    Event(RunEvent),
+    Event(Box<RunEvent>),
     Shutdown,
 }
 
@@ -96,11 +96,11 @@ impl EventSink for TuiSink {
             // Agent output is best-effort because the durable per-task log has
             // the full transcript. Dropping here keeps output bursts from
             // filling the shared channel indefinitely.
-            let _ = self.tx.try_send(Msg::Event(event));
+            let _ = self.tx.try_send(Msg::Event(Box::new(event)));
         } else {
             // Lifecycle events define slot state. Preserve them even during
             // output floods so the UI cannot get stuck showing stale work.
-            let _ = self.tx.send(Msg::Event(event));
+            let _ = self.tx.send(Msg::Event(Box::new(event)));
         }
     }
 }

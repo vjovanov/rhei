@@ -4,7 +4,8 @@ Rhei exists because useful agent work must outlive the private session that
 started it. Agents can move fast, but real work also needs memory, sequencing,
 review, evidence, and handoff. Rhei turns agent plans into repository state:
 plain-text workflows that humans and agents can inspect, edit, validate, run,
-pause, resume, and reuse.
+pause, resume, and reuse. It is an agent runtime first: the CLI is one driver
+for the same governed execution model that crates and bindings can also embed.
 
 ## 1. The problem
 
@@ -24,10 +25,10 @@ while being strict enough for predictable execution.
 
 ## 2. What this project does about it
 
-Rhei makes the plan the shared memory and control surface. A Rhei is a
-human-editable Markdown workflow with explicit task state, dependencies,
-hierarchy, artifacts, and transitions. The file is the thing people review,
-agents follow, commands validate, and automation advances.
+Rhei makes the plan the shared memory and control surface for an agent runtime.
+A Rhei is a human-editable Markdown workflow with explicit task state,
+dependencies, hierarchy, artifacts, and transitions. The file is the thing
+people review, agents follow, commands validate, and automation advances.
 
 The same model must support:
 
@@ -40,9 +41,10 @@ The same model must support:
 - multi-agent handoffs without relying on private session state.
 
 Rhei should be flexible in shape and predictable in execution. Plans remain
-plain files that can be reviewed in normal repository workflows, while the CLI
-provides enough validation, orchestration, transition control, and monitoring to
-make progress mechanical when the work matters.
+plain files that can be reviewed in normal repository workflows, while the
+runtime provides enough validation, orchestration, transition control, and
+monitoring to make progress mechanical when the work matters. The CLI exposes
+that runtime directly, but it is not the only intended driver.
 
 ## 3. Who it is for
 

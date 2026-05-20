@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::event::{AgentStream, MessageLevel, RunEvent, RunSummary, Slot, TaskOutcome};
+use crate::event::{
+    AccountingRunSummary, AgentStream, DimensionStatus, DimensionSummary, MessageLevel,
+    PricingStatus, RunEvent, RunSummary, Slot, TaskOutcome, UsageCoverage, UsageStatus,
+    UsageSummary,
+};
 
 use super::{now_ms, system_time_ms, DashboardTask, RECENT_LIMIT, SLOT_TRAFFIC_LIMIT};
 
@@ -19,6 +23,9 @@ pub(super) struct DashboardState {
     pub(super) slots: Vec<DashboardSlot>,
     pub(super) recent: Vec<JournalLine>,
     pub(super) links: Vec<DashboardLink>,
+    pub(super) accounting: Option<AccountingRunSummary>,
+    #[serde(skip)]
+    pub(super) invocations: Vec<DashboardUsageRecord>,
     pub(super) finished: bool,
     pub(super) summary: Option<DashboardSummary>,
     pub(super) started_at_ms: u128,
@@ -45,6 +52,8 @@ impl DashboardState {
             slots: vec![DashboardSlot::default(); parallel as usize],
             recent: Vec::new(),
             links: Vec::new(),
+            accounting: None,
+            invocations: Vec::new(),
             finished: false,
             summary: None,
             started_at_ms: now,
@@ -92,6 +101,7 @@ impl DashboardState {
                 slot_state.duration_ms = None;
                 slot_state.exit_code = None;
                 slot_state.outcome = None;
+                slot_state.usage = None;
                 slot_state.traffic.clear();
                 if from == to {
                     self.push_recent("info", format!("slot {slot}: task {task} started in {to}"));
@@ -202,6 +212,25 @@ impl DashboardState {
                 }
                 self.push_recent("info", format!("{label}: {url}"));
             }
+            RunEvent::UsageReported { slot, task, invocation_id, usage } => {
+                // §FS-rhei-cost-accounting.7: Usage updates task, slot, and run totals.
+                self.invocations.push(DashboardUsageRecord {
+                    slot: *slot,
+                    task: task.clone(),
+                    invocation_id: invocation_id.clone(),
+                    usage: usage.clone(),
+                });
+                self.accounting =
+                    summarize_usage(self.invocations.iter().map(|entry| &entry.usage));
+                if let Some(slot) = slot {
+                    let slot_state = self.slot_mut(*slot);
+                    slot_state.usage = Some(usage.clone());
+                }
+                self.push_recent(
+                    "info",
+                    format!("task {task}: usage reported for {}", usage.agent),
+                );
+            }
         }
     }
 
@@ -235,6 +264,15 @@ pub(super) struct DashboardSlot {
     pub(super) exit_code: Option<i32>,
     pub(super) outcome: Option<String>,
     pub(super) traffic: Vec<DashboardTraffic>,
+    pub(super) usage: Option<UsageSummary>,
+}
+
+#[derive(Clone, Serialize)]
+pub(super) struct DashboardUsageRecord {
+    pub(super) slot: Option<Slot>,
+    pub(super) task: String,
+    pub(super) invocation_id: String,
+    pub(super) usage: UsageSummary,
 }
 
 #[derive(Clone, Serialize)]
@@ -262,6 +300,7 @@ pub(super) struct DashboardSummary {
     pub(super) programs_spawned: u32,
     pub(super) terminal_tasks: usize,
     pub(super) total_tasks: usize,
+    pub(super) accounting: Option<AccountingRunSummary>,
 }
 
 impl From<&RunSummary> for DashboardSummary {
@@ -271,6 +310,7 @@ impl From<&RunSummary> for DashboardSummary {
             programs_spawned: summary.programs_spawned,
             terminal_tasks: summary.terminal_tasks,
             total_tasks: summary.total_tasks,
+            accounting: summary.accounting.clone(),
         }
     }
 }
@@ -298,6 +338,206 @@ pub(super) struct TaskRow {
     /// `true` if this task was ready this pass but was held back by
     /// non-`concurrent` scheduling. Cleared at `PassStarted`.
     pub(super) deferred_this_pass: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) accounting: Option<TaskAccounting>,
+}
+
+#[derive(Clone, Serialize)]
+pub(super) struct TaskAccounting {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) direct: Option<AccountingRunSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) subtree: Option<AccountingRunSummary>,
+}
+
+pub(super) fn task_accounting_for_tasks(
+    tasks: &[DashboardTask],
+    invocations: &[DashboardUsageRecord],
+) -> std::collections::BTreeMap<String, TaskAccounting> {
+    // §FS-rhei-cost-accounting.6: Dashboard derives direct and subtree totals.
+    let mut direct = std::collections::BTreeMap::<String, Vec<&UsageSummary>>::new();
+    for entry in invocations {
+        direct.entry(entry.task.clone()).or_default().push(&entry.usage);
+    }
+
+    let mut descendants = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for task in tasks {
+        let id = task.id.as_str();
+        for candidate in tasks {
+            if candidate.id == task.id {
+                continue;
+            }
+            if candidate.id.starts_with(id) && candidate.id.as_bytes().get(id.len()) == Some(&b'.')
+            {
+                descendants.entry(task.id.clone()).or_default().push(candidate.id.clone());
+            }
+        }
+    }
+
+    let mut out = std::collections::BTreeMap::new();
+    for task in tasks {
+        let direct_summary =
+            direct.get(&task.id).and_then(|items| summarize_usage(items.iter().copied()));
+        let mut subtree_items: Vec<&UsageSummary> =
+            direct.get(&task.id).into_iter().flatten().copied().collect();
+        if let Some(children) = descendants.get(&task.id) {
+            for child in children {
+                if let Some(items) = direct.get(child) {
+                    subtree_items.extend(items.iter().copied());
+                }
+            }
+        }
+        let subtree_summary = summarize_usage(subtree_items.into_iter());
+        if direct_summary.is_some() || subtree_summary.is_some() {
+            out.insert(
+                task.id.clone(),
+                TaskAccounting { direct: direct_summary, subtree: subtree_summary },
+            );
+        }
+    }
+    out
+}
+
+fn summarize_usage<'a>(
+    usages: impl IntoIterator<Item = &'a UsageSummary>,
+) -> Option<AccountingRunSummary> {
+    let usages: Vec<&UsageSummary> = usages.into_iter().collect();
+    if usages.is_empty() {
+        return None;
+    }
+
+    let measured_invocation_count =
+        usages.iter().filter(|usage| usage.status == UsageStatus::Measured).count() as u64;
+    let missing_invocation_count = usages.len() as u64 - measured_invocation_count;
+    let priced_cost_micro = sum_options(usages.iter().map(|usage| usage.priced_cost_micro));
+    let cost_micro = if usages.iter().all(|usage| usage.cost_micro.is_some()) {
+        Some(usages.iter().filter_map(|usage| usage.cost_micro).sum())
+    } else {
+        None
+    };
+    let currency = usages.iter().find_map(|usage| usage.currency.clone());
+    let pricing_status = summarize_pricing_status(&usages);
+    let coverage = summarize_coverage(&usages, cost_micro, priced_cost_micro);
+
+    Some(AccountingRunSummary {
+        input_total: summarize_dimension(usages.iter().map(|usage| &usage.input_total)),
+        input_cached_read: summarize_dimension(usages.iter().map(|usage| &usage.input_cached_read)),
+        input_cache_write: summarize_dimension(usages.iter().map(|usage| &usage.input_cache_write)),
+        output_total: summarize_dimension(usages.iter().map(|usage| &usage.output_total)),
+        output_cached_read: summarize_dimension(
+            usages.iter().map(|usage| &usage.output_cached_read),
+        ),
+        output_cache_write: summarize_dimension(
+            usages.iter().map(|usage| &usage.output_cache_write),
+        ),
+        cost_micro,
+        priced_cost_micro,
+        currency,
+        coverage,
+        pricing_status,
+        invocation_count: usages.len() as u64,
+        measured_invocation_count,
+        missing_invocation_count,
+    })
+}
+
+fn summarize_dimension<'a>(
+    dimensions: impl IntoIterator<Item = &'a DimensionSummary>,
+) -> DimensionSummary {
+    let mut value = 0u64;
+    let mut saw_value = false;
+    let mut missing_count = 0u64;
+    let mut measured_count = 0u64;
+    let mut unavailable_status = None;
+
+    for dimension in dimensions {
+        if let Some(v) = dimension.value {
+            value = value.saturating_add(v);
+            saw_value = true;
+        }
+        measured_count = measured_count.saturating_add(dimension.measured_count);
+        missing_count = missing_count.saturating_add(dimension.missing_count);
+        if dimension.status != DimensionStatus::Measured {
+            unavailable_status = Some(dimension.status);
+        }
+    }
+
+    let status = if saw_value && missing_count == 0 {
+        DimensionStatus::Measured
+    } else if saw_value {
+        DimensionStatus::Partial
+    } else {
+        unavailable_status.unwrap_or(DimensionStatus::Unknown)
+    };
+
+    DimensionSummary { value: saw_value.then_some(value), status, missing_count, measured_count }
+}
+
+fn sum_options(values: impl IntoIterator<Item = Option<u64>>) -> Option<u64> {
+    let mut total = 0u64;
+    let mut saw = false;
+    for value in values.into_iter().flatten() {
+        total = total.saturating_add(value);
+        saw = true;
+    }
+    saw.then_some(total)
+}
+
+fn summarize_pricing_status(usages: &[&UsageSummary]) -> PricingStatus {
+    let mut saw_priced = false;
+    let mut saw_partial = false;
+    let mut saw_unpriced = false;
+    let mut saw_applicable = false;
+    for usage in usages {
+        match usage.pricing_status {
+            PricingStatus::Priced => {
+                saw_priced = true;
+                saw_applicable = true;
+            }
+            PricingStatus::PartialPrice => {
+                saw_partial = true;
+                saw_applicable = true;
+            }
+            PricingStatus::Unpriced => {
+                saw_unpriced = true;
+                saw_applicable = true;
+            }
+            PricingStatus::NotApplicable => {}
+        }
+    }
+    if !saw_applicable {
+        PricingStatus::NotApplicable
+    } else if saw_partial || (saw_priced && saw_unpriced) {
+        PricingStatus::PartialPrice
+    } else if saw_priced {
+        PricingStatus::Priced
+    } else {
+        PricingStatus::Unpriced
+    }
+}
+
+fn summarize_coverage(
+    usages: &[&UsageSummary],
+    cost_micro: Option<u64>,
+    priced_cost_micro: Option<u64>,
+) -> UsageCoverage {
+    if usages.iter().all(|usage| usage.coverage == UsageCoverage::None) {
+        return UsageCoverage::None;
+    }
+    if usages.iter().any(|usage| {
+        matches!(usage.coverage, UsageCoverage::Partial) || usage.status != UsageStatus::Measured
+    }) {
+        return UsageCoverage::Partial;
+    }
+    if cost_micro.is_some() {
+        UsageCoverage::Complete
+    } else if priced_cost_micro.is_some() {
+        UsageCoverage::Partial
+    } else if usages.iter().any(|usage| usage.coverage == UsageCoverage::Unpriced) {
+        UsageCoverage::Unpriced
+    } else {
+        UsageCoverage::None
+    }
 }
 
 #[cfg(test)]

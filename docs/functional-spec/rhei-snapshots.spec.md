@@ -4,8 +4,7 @@ This document defines the *session snapshot* model: how `rhei run` captures
 an agent's transcript at supported agent-bearing state exits — for same-agent
 state inheritance, ancestor-chain sub-task branching, operator analysis
 sessions that attach to past states, and (when the provider permits it) for
-prompt-cache benefits.
-§GOAL-rhei-outcomes
+prompt-cache benefits. §GOAL-rhei-outcomes
 
 Snapshots come in two flavors that share the same storage and manifest
 schema:
@@ -115,8 +114,7 @@ and may have different `on:` outcomes (an `on: success` named-emit on a
 failed state does not fire while the auto-emit still does).
 Until transcript-level deduplication exists, firing both writes a second
 cached copy of the same transcript bytes under the named snapshot identity.
-Cache-size impact and the GC controls that bound it are specified in
-§FS-rhei-snapshot-operations.
+Cache-size impact and the GC controls that bound it are specified in §FS-rhei-snapshot-operations.
 
 Auto-emit is best-effort by design: if the resolved agent profile has no
 supported `SessionLayout`, auto-emit is silently skipped for that state —

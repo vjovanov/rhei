@@ -1,8 +1,7 @@
 # FS-rhei-version: `rhei version`
 
 Print the CLI and core crate versions so operators can include exact tool
-versions in bug reports, CI logs, release checks, and support handoffs.
-§GOAL-rhei-outcomes
+versions in bug reports, CI logs, release checks, and support handoffs. §GOAL-rhei-outcomes
 
 ## 1. Usage
 

@@ -131,6 +131,7 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
   <button class="tab" data-view="sankey">Sankey <span class="count" id="count-sankey"></span></button>
   <button class="tab" data-view="tasks">Tasks <span class="count" id="count-tasks"></span></button>
   <button class="tab" data-view="slots">Slots <span class="count" id="count-slots"></span></button>
+  <button class="tab" data-view="cost">Cost <span class="count" id="count-cost"></span></button>
   <button class="tab" data-view="journal">Journal <span class="count" id="count-journal"></span></button>
   <button class="tab" data-view="links">Links <span class="count" id="count-links"></span></button>
 </div>
@@ -171,6 +172,11 @@ pub(super) const DASHBOARD_HTML: &str = r##"<!doctype html>
     <div class="caption">One card per worker. Idle workers are dimmed.</div>
     <label class="toggle"><input type="checkbox" id="hide-stderr"> Hide stderr lines</label>
     <div id="slots-detail"></div>
+  </div>
+
+  <div class="view" id="view-cost">
+    <div class="caption">Token and cost accounting reported by agent invocations.</div>
+    <div class="panel" id="cost-panel"></div>
   </div>
 
   <div class="view" id="view-journal">
@@ -249,6 +255,24 @@ function fmtClock(ms) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+function fmtTokens(v) {
+  if (v == null) return "—";
+  if (v >= 1000000) return (v / 1000000).toFixed(v >= 10000000 ? 0 : 1) + "M";
+  if (v >= 1000) return (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k";
+  return String(v);
+}
+
+function fmtCostMicro(v, currency) {
+  if (v == null) return "—";
+  const amount = v / 1000000;
+  if (!currency || currency === "USD") return "$" + amount.toFixed(2);
+  return amount.toFixed(2) + " " + currency;
+}
+
+function dimValue(summary) {
+  return summary && summary.value != null ? summary.value : null;
+}
+
 let UI = {
   taskFilter: "all",
   hideStderr: false,
@@ -287,6 +311,12 @@ function renderHeader(data) {
   } else {
     segs.push(`<span class="seg">${fmtDuration(elapsedMs)} elapsed</span>`);
   }
+  if (data.accounting) {
+    segs.push(`<span class="seg">Cost ${fmtCostMicro(data.accounting.cost_micro ?? data.accounting.priced_cost_micro, data.accounting.currency)}</span>`);
+    segs.push(`<span class="seg">In ${fmtTokens(dimValue(data.accounting.input_total))}</span>`);
+    segs.push(`<span class="seg">Out ${fmtTokens(dimValue(data.accounting.output_total))}</span>`);
+    segs.push(`<span class="seg">Coverage ${escapeHtml(data.accounting.coverage || "unknown")}</span>`);
+  }
   document.getElementById("status").innerHTML = segs.join("");
 }
 
@@ -315,6 +345,7 @@ function setCounts(data) {
   document.getElementById("count-tasks").textContent = rowCount || "";
   const running = (data.slots || []).filter(s => s.active).length;
   document.getElementById("count-slots").textContent = running ? `${running}/${(data.slots || []).length}` : "";
+  document.getElementById("count-cost").textContent = data.accounting ? (data.accounting.invocation_count || "") : "";
   document.getElementById("count-journal").textContent = (data.recent || []).length || "";
   const links = (data.auto_links || []).length + (data.links || []).length;
   document.getElementById("count-links").textContent = links || "";
@@ -654,8 +685,12 @@ function nowKindForTask(t, data, taskById) {
 function renderTasks(data) {
   const tbody = document.getElementById("tasks");
   const tasks = data.tasks || [];
+  const hasAccounting = !!data.accounting;
+  document.querySelector("#view-tasks thead tr").innerHTML = hasAccounting
+    ? `<th>ID</th><th>Title</th><th>State</th><th>Assignee</th><th>Direct</th><th>Subtree</th><th>Tokens</th><th>Now</th>`
+    : `<th>ID</th><th>Title</th><th>State</th><th>Assignee</th><th>Prior</th><th>Now</th>`;
   if (!tasks.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">No plan loaded.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${hasAccounting ? 8 : 6}" class="empty">No plan loaded.</td></tr>`;
     return;
   }
   const taskById = new Map(tasks.map(t => [t.id, t]));
@@ -672,7 +707,7 @@ function renderTasks(data) {
     }
   });
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">No tasks match this filter.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${hasAccounting ? 8 : 6}" class="empty">No tasks match this filter.</td></tr>`;
     return;
   }
   tbody.innerHTML = filtered.map(t => {
@@ -688,15 +723,44 @@ function renderTasks(data) {
       ? ` <a href="file://${encodeURI(data.workspace || "")}/${encodeURI(t.result_link)}" target="_blank" rel="noreferrer" title="open result file">→ result</a>`
       : "";
     const cls = t.in_slot != null ? "row-running" : (isTerminal(t.state) ? "row-done" : "");
+    const direct = t.accounting && t.accounting.direct;
+    const subtree = t.accounting && t.accounting.subtree;
+    const accountingCells = hasAccounting
+      ? `<td class="mono">${fmtCostMicro(direct && (direct.cost_micro ?? direct.priced_cost_micro), direct && direct.currency)}</td>
+         <td class="mono">${fmtCostMicro(subtree && (subtree.cost_micro ?? subtree.priced_cost_micro), subtree && subtree.currency)}</td>
+         <td class="mono">in ${fmtTokens(dimValue(subtree && subtree.input_total))} / out ${fmtTokens(dimValue(subtree && subtree.output_total))}</td>`
+      : `<td>${prior}</td>`;
     return `<tr class="${cls}">
       <td class="mono">${indent}${escapeHtml(t.id)}</td>
       <td>${escapeHtml(t.title)}${resultLink}</td>
       <td>${stateChip}</td>
       <td class="mono">${escapeHtml(t.assignee || "—")}</td>
-      <td>${prior}</td>
+      ${accountingCells}
       <td><span class="chip ${now.cls}">${escapeHtml(now.text)}</span></td>
     </tr>`;
   }).join("");
+}
+
+function renderCost(data) {
+  const box = document.getElementById("cost-panel");
+  const accounting = data.accounting;
+  if (!accounting) {
+    box.innerHTML = `<div class="empty">(no accounting records found)</div>`;
+    return;
+  }
+  const rows = [
+    ["Cost", fmtCostMicro(accounting.cost_micro ?? accounting.priced_cost_micro, accounting.currency)],
+    ["Input tokens", fmtTokens(dimValue(accounting.input_total))],
+    ["Output tokens", fmtTokens(dimValue(accounting.output_total))],
+    ["Cached input", fmtTokens(dimValue(accounting.input_cached_read))],
+    ["Cached output", fmtTokens(dimValue(accounting.output_cached_read))],
+    ["Coverage", accounting.coverage],
+    ["Pricing", accounting.pricing_status],
+    ["Invocations", accounting.invocation_count],
+  ];
+  box.innerHTML = `<table><tbody>${rows.map(([k, v]) =>
+    `<tr><td>${escapeHtml(k)}</td><td class="mono">${escapeHtml(v)}</td></tr>`
+  ).join("")}</tbody></table>`;
 }
 
 function renderSlots(data) {
@@ -801,6 +865,7 @@ function render(data) {
   renderTaskFilters(data);
   renderTasks(data);
   renderSlots(data);
+  renderCost(data);
   renderJournal(data);
   renderLinks(data);
 }

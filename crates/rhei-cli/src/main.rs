@@ -27,6 +27,7 @@ include!("cli/agent_resolution.rs");
 include!("cli/run_helpers.rs");
 include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");
+include!("cli/accounting.rs");
 include!("cli/programs.rs");
 include!("cli/snapshot_records.rs");
 include!("cli/snapshot_list_show.rs");
@@ -52,6 +53,7 @@ mod tests {
     include!("cli/tests_complete_reset_tooling.rs");
     include!("cli/tests_agent_resolution.rs");
     include!("cli/tests_agent_execution_validation.rs");
+    include!("cli/tests_accounting.rs");
     include!("cli/tests_settings_tooling.rs");
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_runtime.rs");

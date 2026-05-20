@@ -7,7 +7,7 @@ rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
-description = "Command-line interface for validating, running, and rendering Rhei markdown plans."
+description = "Command-line driver for the Rhei agent runtime."
 
 [dependencies]
 rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }

@@ -50,6 +50,7 @@ pub struct RunSummary {
     pub programs_spawned: u32,
     pub terminal_tasks: usize,
     pub total_tasks: usize,
+    pub accounting: Option<AccountingRunSummary>,
 }
 
 pub enum MessageLevel {
@@ -61,6 +62,62 @@ pub enum MessageLevel {
 pub enum AgentStream {
     Stdout,
     Stderr,
+}
+
+pub enum DimensionStatus {
+    Measured,
+    Partial,
+    Unsupported,
+    Omitted,
+    Unknown,
+}
+
+pub struct DimensionSummary {
+    pub value: Option<u64>,
+    pub status: DimensionStatus,
+    pub missing_count: u64,
+    pub measured_count: u64,
+}
+
+pub enum UsageCoverage {
+    Complete,
+    Partial,
+    Unpriced,
+    None,
+}
+
+pub enum UsageStatus {
+    Measured,
+    UnsupportedAgent,
+    ExtractorUnavailable,
+    ExtractorFailed,
+    NoUsageEmitted,
+}
+
+pub enum PricingStatus {
+    Priced,
+    PartialPrice,
+    Unpriced,
+    NotApplicable,
+}
+
+pub struct UsageSummary {
+    pub invocation_id: String,
+    pub agent: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub input_total: DimensionSummary,
+    pub input_cached_read: DimensionSummary,
+    pub input_cache_write: DimensionSummary,
+    pub output_total: DimensionSummary,
+    pub output_cached_read: DimensionSummary,
+    pub output_cache_write: DimensionSummary,
+    pub cost_micro: Option<u64>,
+    pub priced_cost_micro: Option<u64>,
+    pub currency: Option<String>,
+    pub coverage: UsageCoverage,
+    pub status: UsageStatus,
+    pub pricing_status: PricingStatus,
 }
 
 pub enum RunEvent {
@@ -121,6 +178,12 @@ pub enum RunEvent {
         line: String,
         wall_clock: SystemTime,
     },
+    UsageReported {
+        slot: Option<Slot>,
+        task: String,
+        invocation_id: String,
+        usage: UsageSummary,
+    },
 }
 
 pub trait EventSink: Send + Sync {
@@ -136,11 +199,16 @@ pub trait EventSink: Send + Sync {
 
 `AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
 
+`UsageReported` is emitted after a `runtime/accounting/invocations/` record is
+durably written. It may arrive after `SlotReleased`; renderers update the
+matching task, slot history, and run totals without assuming the slot is still
+active. §FS-rhei-cost-accounting
+
 `TasksDeferred` is emitted when tasks were ready in the current pass but not scheduled because another task in the same non-`concurrent` state consumed the available same-state slot. Deferred tasks remain eligible for later passes.
 
 `Message` carries human-oriented engine diagnostics with `info`, `warn`, or `error` severity. `RunLink` carries URLs or file links produced by the run process, such as dashboard links or callback-emitted artifacts. Frontends may render both in a journal pane; they do not represent task state changes.
 
-`RunFinished` is emitted once with aggregate counts for spawned agents, spawned programs, terminal tasks, and total tasks.
+`RunFinished` is emitted once with aggregate counts for spawned agents, spawned programs, terminal tasks, total tasks, and accounting totals when available.
 
 `Tee` is a composite sink implementing `EventSink` by forwarding each event to a fixed list of inner sinks.
 
@@ -194,9 +262,15 @@ Each tile shows:
 - task id + short title
 - current state (the `to` field of its `SlotAssigned` event)
 - elapsed time (updated once per second)
+- latest known invocation cost, input/output tokens, cached tokens, and
+  accounting coverage when available
 - last 5 lines of the log file at `log_path`, tailed via the `notify` crate with a bounded 50-line ring buffer
 
 Idle slots show `— idle —`.
+
+When any accounting data is available, the TUI header includes a compact
+run-level cost strip with total cost, input tokens, output tokens, cache-hit
+ratio, and accounting coverage. §FS-rhei-cost-accounting
 
 ### 1.6. Browser Dashboard
 
@@ -215,13 +289,18 @@ The dashboard tab order is:
 4. **Tasks** — lists all tasks with state, assignee, dependencies, readiness,
    and current worker slot.
 5. **Slots** — shows worker cards and live captured output.
-6. **Journal** — shows recent run events.
-7. **Links** — shows workspace shortcuts and run-emitted links.
+6. **Cost** — shows run, task, subtree, invocation, agent, provider, model, and
+   state accounting views. §FS-rhei-cost-accounting
+7. **Journal** — shows recent run events.
+8. **Links** — shows workspace shortcuts and run-emitted links.
 
 The dashboard obtains plan data from the lazily reloaded `/snapshot` payload.
 That payload includes `plan_state`, derived from top-level task states only, and
 the flattened task rows used by all dashboard views. The dashboard remains
 self-contained: no external scripts, stylesheets, fonts, or network assets.
+Compact accounting rollups live in `/snapshot`; invocation-level accounting
+detail is served from a separate loopback dashboard endpoint so polling remains
+lightweight. §FS-rhei-cost-accounting
 
 ### 1.7. Journal Format
 
