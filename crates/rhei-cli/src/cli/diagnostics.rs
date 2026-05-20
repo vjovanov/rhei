@@ -266,6 +266,56 @@ fn parse_errors_report(
     miette!("{}", render_multi_parse_diagnostic(path, input, errors))
 }
 
+struct ParseErrorGroup {
+    path: PathBuf,
+    input: String,
+    errors: Vec<rhei_core::parser::ParseError>,
+}
+
+fn workspace_parse_errors_report(groups: &[ParseErrorGroup]) -> Report {
+    miette!("{}", render_workspace_parse_diagnostic(groups))
+}
+
+fn render_workspace_parse_diagnostic(groups: &[ParseErrorGroup]) -> String {
+    let error_count: usize = groups.iter().map(|group| group.errors.len()).sum();
+    let file_count = groups.len();
+    let problem_word = if error_count == 1 { "problem" } else { "problems" };
+    let file_word = if file_count == 1 { "file" } else { "files" };
+    let mut lines = vec![
+        "-- PARSE ERROR ----------------------------".to_string(),
+        format!("in Directory Workspace task files ({error_count} {problem_word}, {file_count} {file_word})"),
+    ];
+    lines.push(String::new());
+    lines.push("I got stuck while reading this workspace's markdown task files.".to_string());
+
+    let mut index = 1usize;
+    for group in groups {
+        lines.push(String::new());
+        lines.push(format!("{}:", group.path.display()));
+        for err in &group.errors {
+            match err.line {
+                Some(line_number) => {
+                    lines.push(format!("{index}. line {line_number}: {}", err.message));
+                    if let Some(source_line) = line_text(&group.input, line_number) {
+                        lines.push(format!("   {line_number}| {source_line}"));
+                    }
+                }
+                None => {
+                    lines.push(format!("{index}. {}", err.message));
+                }
+            }
+            index += 1;
+        }
+    }
+
+    lines.push(String::new());
+    lines.push(
+        "Hint: fix the problems above — each one refers to a distinct file, line, or task."
+            .to_string(),
+    );
+    lines.join("\n")
+}
+
 fn render_multi_parse_diagnostic(
     path: &Path,
     input: &str,

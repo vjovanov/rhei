@@ -84,6 +84,58 @@ fn workspace_loads_and_validates_correctly() {
 }
 
 #[test]
+fn workspace_validate_accumulates_parse_errors_across_task_files() {
+    let (ws, machine_path) = create_workspace(
+        "ws-parse-errors",
+        "# Rhei: Workspace Parse Errors\n",
+        &[
+            (
+                "a.md",
+                "### Task 1: Missing state\n\n### Task 2: Valid fallback\n**State:** pending\n",
+            ),
+            (
+                "b.md",
+                "### Task 3: Bad state field\n**State** pending\n\n### Task 4: Valid fallback\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(&machine_path)
+        .arg("validate")
+        .arg(&ws)
+        .output()
+        .expect("validate command should run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "validate should fail\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(stderr.contains("PARSE ERROR"), "expected parse header, got:\n{stderr}");
+    assert!(stderr.contains("2 problems"), "expected problem count, got:\n{stderr}");
+    assert!(stderr.contains("a.md"), "expected first task file, got:\n{stderr}");
+    assert!(stderr.contains("b.md"), "expected second task file, got:\n{stderr}");
+    assert!(stderr.contains("line 1"), "expected first line hint, got:\n{stderr}");
+    assert!(stderr.contains("line 2"), "expected second line hint, got:\n{stderr}");
+    assert!(
+        stderr.contains("missing mandatory **State:**")
+            && stderr.contains("Malformed metadata field"),
+        "expected both parse errors, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("VALIDATION ERROR"),
+        "parse failures should not fall through to validation output, got:\n{stderr}"
+    );
+
+    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
 fn validate_and_list_accept_workspace_index_file_path() {
     let (ws, machine_path) = create_workspace(
         "ws-index-path",
