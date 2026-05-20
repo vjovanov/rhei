@@ -224,9 +224,12 @@ pass-through, not the headless `-p`-style invocation that `rhei run` uses.
 It may provide an alternate command when the agent exposes a distinct TTY
 binary or subcommand; otherwise Rhei reuses the profile's base command with
 the interactive arguments appended.
-Agents whose built-in profiles offer only a headless transport in earlier
-phases cannot be used with `continue` until that gap is closed (see
-[Phased Rollout](#3-phased-rollout)).
+Agents whose built-in profiles offer only a headless transport or lack a
+Rhei-readable transcript layout cannot be used with `continue`; the command
+fails with `unsupported-snapshot-session`. In v1, the built-in Pi profile is
+the only built-in profile that declares the complete interactive continuation
+surface. Other agents may still participate when the user supplies a custom
+session-capable profile.
 
 If the referenced manifest has `completion: timeout`, `continue` may proceed
 only after warning that the native transcript may be truncated.
@@ -287,11 +290,11 @@ from the reference itself and from the target state's authored
 |-------|-------|-------------|
 | 1 | Spec + YAML grammar + validator | The snapshot specs, parser changes, validation rules including parse-time errors for unsupported `compat` values and `select.target: all`. Orphan detection is dormant unless a cache directory already exists. No runtime snapshot writes yet. |
 | 1.5 | Settings, redaction, and inspection foundation | `snapshots` settings, redactor process contract, manifest readers, and minimal `rhei snapshot list/show/gc` support before any default runtime auto-emit writes transcripts. |
-| 2 | Per-agent adapter spikes | Small prove-out scripts that exercise `claude --session-id`/`--resume`, `codex` resume surface, Gemini resume/path layout, and `pi --fork`. Findings written back into this spec; built-in profile blanks filled. |
-| 3 | claude-code end-to-end | Manifest + atomic writes + claude profile + spawn-time wiring + emit on completion. Integration tests for a same-task two-state inheritance flow and a sub-task inheritance flow. Active orphan diagnostics begin with this first cache-writing runtime phase. |
-| 4 | pi end-to-end | Pi profile with native `--fork`, underlying-provider/model parsing from JSONL headers, fanout per-target snapshots. |
-| 5 | codex end-to-end | Per phase 2 spike outcome: either profile additions or new transport variant. |
-| 6 | Interactive and run override surface | `rhei snapshot continue`, `--from-snapshot`, and the interactive-transport profile work `continue` needs for any agent whose built-in profile uses headless invocation by default in earlier phases. |
+| 2 | Per-agent adapter probes | Probe built-in agent session surfaces and record the v1 support boundary in the specs. Pi is proven; Claude Code, Codex, Gemini, Cursor, and Kilocode remain unsupported as built-ins until they expose safe transcript capture. |
+| 3 | Runtime emit/preload foundation | Manifest + atomic writes + spawn-time wiring + emit on completion. Integration tests cover same-task and sub-task inheritance flows with snapshot-capable profiles. Active orphan diagnostics begin with this first cache-writing runtime phase. |
+| 4 | Pi end-to-end | Pi profile with native `--fork`, underlying-provider/model parsing from JSONL headers, fanout per-target snapshots, and interactive continuation. |
+| 5 | Unsupported built-in diagnostics | Built-in agents without a proven session capture surface fail explicit snapshot operations with `unsupported-snapshot-session` and can be replaced by custom session-capable profiles. |
+| 6 | Interactive and run override surface | `rhei snapshot continue`, `--from-snapshot`, and the interactive-transport profile work `continue` needs. Built-in Pi is enabled; other built-ins remain explicitly unsupported until they expose a Rhei-readable session capture surface. |
 | 7+ | Deferred | Snapshot summarizer helpers, richer retention automation, and other operator tooling that does not turn snapshots into cross-agent transcript replay. |
 
 Each phase ships standalone. Plans that do not reference snapshots are
