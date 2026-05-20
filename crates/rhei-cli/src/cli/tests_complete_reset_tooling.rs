@@ -405,6 +405,84 @@ Body text.
     }
 
     #[test]
+    fn rewrite_task_completion_ignores_task_shaped_heading_inside_code_fence() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = dir.path().join("plan.md");
+        fs::write(
+            &path,
+            r#"### Task 1: Parent
+**State:** completed
+
+```markdown
+#### Task 1.1: Example
+**State:** completed
+```
+
+#### Task 1.1: Real child
+**State:** completed
+**Assignee:** codex
+Body.
+"#,
+        )
+        .expect("write");
+
+        rewrite_task_completion(&path, "1.1", "1.1", "runtime/results/1.1.md", true)
+            .expect("rewrite");
+
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(content.contains("#### Task 1.1: Example\n**State:** completed\n```"));
+        assert!(!content.contains("**Assignee:** codex"));
+        assert!(content.contains("#### Task 1.1: Real child\n**State:** completed\nBody."));
+        assert!(content.contains("> **Result:** [1.1](runtime/results/1.1.md)"));
+    }
+
+    #[test]
+    fn write_task_assignee_rechecks_required_inputs() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = dir.path().join("task.md");
+        fs::write(&path, "### Task 1: Needs input\n**State:** fix\n").expect("write");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: input-recheck
+version: 1
+states:
+  fix:
+    description: Fix
+    inputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: fix
+    to: completed
+"#,
+        )
+        .expect("load machine");
+        let settings = load_merged_settings(dir.path()).expect("settings");
+        let state_def = machine.states.get("fix").expect("fix state");
+
+        let err = write_task_assignee(
+            &path,
+            "1",
+            "fix",
+            &machine,
+            TaskAssigneeClaimContext {
+                workspace_root: dir.path(),
+                metadata: None,
+                state_def,
+                settings: &settings,
+            },
+            "codex",
+        )
+        .expect_err("missing input should block claim");
+        assert!(err.to_string().contains("Missing required input artifact: findings"));
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(!content.contains("**Assignee:**"));
+    }
+
+    #[test]
     fn reset_rewrite_strips_assignees() {
         let raw = r#"# Rhei: Reset
 

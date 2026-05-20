@@ -37,9 +37,10 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     let mut last_metadata_idx: Option<usize> = None;
     let mut already_present = false;
     let mut inserted = false;
+    let mut in_code_block = false;
 
     for line in lines.iter() {
-        if let Some(id) = node_heading_id(line) {
+        if let Some(id) = node_heading_id_outside_code(line, &mut in_code_block) {
             if let Some(meta_idx) = last_metadata_idx.take() {
                 // Leaving previous target without finding a home for the
                 // assignee line — insert immediately after its last metadata
@@ -50,10 +51,13 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
             in_target_task = id == task_id;
         }
 
-        if in_target_task && line.starts_with("**Assignee:**") {
+        if !in_code_block && in_target_task && line.starts_with("**Assignee:**") {
             already_present = true;
         }
-        if in_target_task && (line.starts_with("**State:**") || line.starts_with("**Prior:**")) {
+        if !in_code_block
+            && in_target_task
+            && (line.starts_with("**State:**") || line.starts_with("**Prior:**"))
+        {
             last_metadata_idx = Some(result.len());
         }
 
@@ -86,8 +90,25 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     Ok(output)
 }
 
-fn node_heading_id(line: &str) -> Option<&str> {
-    node_heading(line).map(|(_, id)| id)
+fn node_heading_id_outside_code<'a>(
+    line: &'a str,
+    in_code_block: &mut bool,
+) -> Option<&'a str> {
+    node_heading_outside_code(line, in_code_block).map(|(_, id)| id)
+}
+
+fn node_heading_outside_code<'a>(
+    line: &'a str,
+    in_code_block: &mut bool,
+) -> Option<(usize, &'a str)> {
+    if line.trim_start().starts_with("```") {
+        *in_code_block = !*in_code_block;
+        return None;
+    }
+    if *in_code_block {
+        return None;
+    }
+    node_heading(line)
 }
 
 fn node_heading(line: &str) -> Option<(usize, &str)> {
@@ -163,6 +184,22 @@ mod next_assignee_rewrite_tests {
         assert!(rewritten.contains("### Task 1: Parent\n**State:** draft"));
         assert!(rewritten.contains("#### Task 1.1: Child\n**State:** pending\nBody"));
     }
+
+    #[test]
+    fn insert_assignee_ignores_task_shaped_heading_inside_code_fence() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Parent\n**State:** pending\n```markdown\n#### Task 1.1: Example\n**State:** draft\n```\n\n#### Task 1.1: Real child\n**State:** pending\nBody\n";
+        let rewritten = insert_task_assignee(raw, "1.1", "codex").expect("rewrite");
+        assert!(rewritten.contains("#### Task 1.1: Example\n**State:** draft\n```"));
+        assert!(rewritten.contains("#### Task 1.1: Real child\n**State:** pending\n**Assignee:** codex\nBody"));
+    }
+
+    #[test]
+    fn rewrite_state_ignores_task_shaped_heading_inside_code_fence() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Parent\n**State:** draft\n```markdown\n#### Task 1.1: Example\n**State:** draft\n```\n\n#### Task 1.1: Real child\n**State:** draft\nBody\n";
+        let rewritten = rewrite_task_state(raw, "1.1", "pending").expect("rewrite");
+        assert!(rewritten.contains("#### Task 1.1: Example\n**State:** draft\n```"));
+        assert!(rewritten.contains("#### Task 1.1: Real child\n**State:** pending\nBody"));
+    }
 }
 
 /// Rewrite the `**State:**` line for a specific task in the raw markdown.
@@ -175,15 +212,16 @@ fn rewrite_task_state(raw: &str, task_id: &str, new_state: &str) -> MietteResult
 
     let mut in_target_task = false;
     let mut state_replaced = false;
+    let mut in_code_block = false;
 
     for line in &lines {
         if !state_replaced {
-            if let Some(id) = node_heading_id(line) {
+            if let Some(id) = node_heading_id_outside_code(line, &mut in_code_block) {
                 in_target_task = id == task_id;
             }
         }
 
-        if in_target_task && !state_replaced && line.starts_with("**State:**") {
+        if !in_code_block && in_target_task && !state_replaced && line.starts_with("**State:**") {
             let formatted = format!("**State:** {}", format_state_metadata_value(new_state));
             result.push(formatted);
             state_replaced = true;
@@ -379,7 +417,23 @@ fn next_command(
     // when the task already has an assignee set.
     if !peek && task.assignee.is_none() {
         if let Some(agent) = agent_id_str.as_deref() {
-            write_task_assignee(&task_file, &task_id_str, &final_state, &machine, agent)?;
+            let final_state_def = machine
+                .states
+                .get(&final_state)
+                .ok_or_else(|| miette!("state '{}' missing from loaded machine", final_state))?;
+            write_task_assignee(
+                &task_file,
+                &task_id_str,
+                &final_state,
+                &machine,
+                TaskAssigneeClaimContext {
+                    workspace_root: &workspace_root,
+                    metadata: loaded.rhei.metadata.as_ref(),
+                    state_def: final_state_def,
+                    settings: &settings,
+                },
+                agent,
+            )?;
         }
     }
     let tooling = resolve_tooling(&machine, &final_state, &settings);

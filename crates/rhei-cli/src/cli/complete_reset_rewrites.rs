@@ -303,11 +303,19 @@ fn append_result_entry(
 /// task state and existing assignee so a stale claim cannot overwrite another
 /// worker's claim.
 // §FS-rhei-next.3.1: Re-check claimability under the file lock before claiming.
+struct TaskAssigneeClaimContext<'a> {
+    workspace_root: &'a Path,
+    metadata: Option<&'a Metadata>,
+    state_def: &'a rhei_validator::StateDef,
+    settings: &'a RheiSettings,
+}
+
 fn write_task_assignee(
     task_file: &Path,
     task_id: &str,
     expected_state: &str,
     machine: &rhei_validator::StateMachine,
+    claim: TaskAssigneeClaimContext<'_>,
     assignee: &str,
 ) -> MietteResult<()> {
     let handle = fs::File::open(task_file)
@@ -334,6 +342,22 @@ fn write_task_assignee(
         let _ = handle.unlock();
         return Err(miette!("Task {} is already assigned to {}", task_id, existing));
     }
+    ensure_state_inputs_exist_for_transition(
+        claim.workspace_root,
+        task_id,
+        &current_state,
+        claim.state_def,
+        Some(render_visit_count(
+            claim.metadata,
+            &task.id,
+            &current_state,
+            task.state.as_str(),
+            machine,
+        )),
+        machine,
+        claim.settings,
+        &format!("Task {} cannot be claimed in state {}.", task_id, current_state),
+    )?;
 
     let rewritten = insert_task_assignee(&raw, task_id, assignee)?;
 
@@ -392,9 +416,10 @@ fn rewrite_task_completion(
     let mut target_found = false;
     let mut link_inserted = !insert_link; // skip insertion when not requested
     let result_line = format!("> **Result:** [{}]({})", link_text, link_path);
+    let mut in_code_block = false;
 
     for line in &lines {
-        let heading = node_heading(line);
+        let heading = node_heading_outside_code(line, &mut in_code_block);
         if in_target_task && !link_inserted && heading.is_some() {
             result_lines.push(String::new());
             result_lines.push(result_line.clone());
@@ -407,7 +432,7 @@ fn rewrite_task_completion(
         }
 
         // Strip the assignee line from the target task.
-        if in_target_task && line.starts_with("**Assignee:**") {
+        if !in_code_block && in_target_task && line.starts_with("**Assignee:**") {
             continue;
         }
 
