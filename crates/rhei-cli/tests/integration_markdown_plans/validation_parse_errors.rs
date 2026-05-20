@@ -17,6 +17,41 @@ fn cli_validate_reports_malformed_task_heading_parse_failure() {
 }
 
 #[test]
+fn cli_validate_accumulates_single_file_parse_errors() {
+    let result = run_validate(
+        r#"# Rhei: Multiple Parse Errors
+
+## Tasks
+
+### Task 1: Missing state
+
+### Task 2: Prior typo
+**Prior** Task 1
+**State:** pending
+
+### Task 3: Valid task
+**State:** pending
+"#,
+        fixtures::TEST_STATE_MACHINE,
+        "integration-cli-multiple-parse-errors",
+    );
+
+    assert!(
+        !result.status.success(),
+        "expected parse failure\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(result.stderr.contains("PARSE ERROR"));
+    assert!(result.stderr.contains("2 problems"));
+    assert!(result.stderr.contains("line 5"));
+    assert!(result.stderr.contains("line 8"));
+    assert!(result.stderr.contains("missing mandatory **State:**"));
+    assert!(result.stderr.contains("Malformed metadata field"));
+    assert!(!result.stderr.contains("VALIDATION ERROR"));
+}
+
+#[test]
 fn cli_validate_reports_child_id_not_extending_parent_as_parse_failure() {
     // Renamed from cli_validate_reports_malformed_subtask_heading_parse_failure.
     // The "Missing decimal component" fixture now parses as `#### Task 1: ...`,

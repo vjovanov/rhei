@@ -41,8 +41,10 @@ pass `--state-machine`.
 
 ## 4. Behavior
 
-1. Load and parse the plan. Single-file validation collects every recoverable
-   parse error before returning so users can fix related issues in one pass.
+1. Load and parse the plan. Single-file validation and Directory Workspace task
+   file validation collect every recoverable parse error before returning so
+   users can fix related issues in one pass. Workspace index parse errors remain
+   fail-fast because later task-file diagnostics may depend on index structure.
 2. Resolve the state machine and validate plan semantics, including state
    values, task ids, dependencies, node policy, terminal and gating states,
    counted-loop syntax, and artifact contracts. §FS-rhei-plan-language

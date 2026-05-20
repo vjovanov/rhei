@@ -377,7 +377,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
         if re_prior_like.is_match(line) {
             if node_stack.last().is_some() {
                 return Err(ParseError::new(
-                    "Malformed metadata field: expected '**Prior:** Task <id>[, Task <id>...]'",
+                    "Malformed metadata field: expected '**Prior:** Task <id>'",
                     Some(line_number),
                 ));
             }

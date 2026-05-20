@@ -136,15 +136,19 @@ copy-pasteable `rhei transition` commands for each outgoing transition, while
 blocked-prerequisite diagnostics name the first unfinished prior and its state.
 §FS-rhei-next §FS-rhei-transition-cmd
 
+## Completed: CLI Parse Error Accumulation
+
+Status: completed. `rhei validate` now accumulates recoverable parse errors for
+single-file plans and Directory Workspace task files so authors can fix a batch
+of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-language
+§FS-rhei-validate
+
 ## Planned: CLI UX and Release Polish
 
 Status: planned. This section is the canonical home for useful follow-up work
 from the April 2026 PM review and the product-management pre-release pass. The
 old notes are historical; this roadmap owns the remaining backlog.
 
-- Accumulate multiple plan parse errors in one run so authors can fix a batch
-  of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-language
-  §FS-rhei-validate
 - Make failed `rhei complete` attempts from loop states explain the exact
   blocked transition condition and the currently available next transitions.
   §FS-rhei-complete §FS-rhei-transitions
