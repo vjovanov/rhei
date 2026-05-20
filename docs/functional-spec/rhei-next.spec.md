@@ -99,15 +99,24 @@ If no claimable task exists, the same status summary is printed as in claim mode
 
 ## 5. No Tasks Ready
 
-When no claimable task is found, `rhei next` (with or without `--peek`) prints one of three status messages depending on the plan state:
+When no claimable task is found, `rhei next` (with or without `--peek`) prints a
+status message that explains why no claim was possible and what the next human
+action is:
 
-| Condition                                        | Message                                                                                    |
-|--------------------------------------------------|--------------------------------------------------------------------------------------------|
-| All tasks in terminal states                     | `Plan complete. All <N> tasks are in terminal states.`                                     |
-| One or more tasks in a gating state              | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...`                   |
-| All non-terminal tasks are claimed (in-flight)   | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>), ...` |
+| Condition | Message |
+|-----------|---------|
+| All tasks in terminal states | `Plan complete. All <N> task(s) are in terminal states.` |
+| One or more otherwise-ready tasks are in a gating state | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...` |
+| All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
+| A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
+| Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: Task <ID> waiting on Task <PRIOR> (<state>) blocked by incomplete prerequisites.` |
 
-These distinct messages allow a PM or orchestrator to tell apart a finished plan, a blocked plan, and a fully in-flight plan. See [States Specification — State Definition](rhei-states.spec.md#12-per-state-fields) for the `gating: true` field (e.g., `human-review` in the default machine; custom machines may define additional gating states such as `security-review` or `legal-review`).
+These distinct messages allow a PM or orchestrator to tell apart a finished
+plan, a human gate, fully in-flight work, manual transition selection, and
+ordinary prerequisite blocking. See [States Specification — State
+Definition](rhei-states.spec.md#12-per-state-fields) for the `gating: true`
+field (e.g., `human-review` in the default machine; custom machines may define
+additional gating states such as `security-review` or `legal-review`).
 
 ## Relationship to Other Commands
 

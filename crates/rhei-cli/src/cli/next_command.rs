@@ -278,17 +278,21 @@ fn next_command(
         let state_name = normalized_state_name(task.state.as_str(), &machine);
         let is_initial = task_is_in_initial_state(task, &state_name, &machine);
         if is_initial {
-            let state_map: HashMap<&TaskId, String> = loaded
-                .rhei
-                .tasks
-                .iter()
-                .map(|t| (&t.id, normalized_state_name(t.state.as_str(), &machine)))
-                .collect();
+            let mut all_tasks = Vec::new();
+            collect_plan_tasks(&loaded.rhei.tasks, &mut all_tasks);
+            let state_map = plan_state_map(&all_tasks, &machine);
             let all_priors_done = task.prior.iter().all(|dep_id| {
                 state_map.get(dep_id).map(|s| dependency_is_satisfied(s, &machine)).unwrap_or(false)
             });
             if !all_priors_done {
-                return Err(miette!("Task {} is blocked by incomplete prerequisites", tid));
+                let detail = first_blocking_prior(task, &state_map, &machine)
+                    .map(|prior| format!("; waiting on {}", prior))
+                    .unwrap_or_default();
+                return Err(miette!(
+                    "Task {} is blocked by incomplete prerequisites{}",
+                    tid,
+                    detail
+                ));
             }
         }
         let state_def = machine
@@ -316,7 +320,10 @@ fn next_command(
     } else {
         let ready = find_claimable_tasks(&loaded.rhei, &machine, &workspace_root);
         if ready.is_empty() {
-            return Err(miette!("{}", diagnose_no_claimable(&loaded.rhei, &machine)));
+            return Err(miette!(
+                "{}",
+                diagnose_no_claimable(&loaded.rhei, &machine, input, resolved.path.as_deref())
+            ));
         }
         let task = ready.into_iter().next().unwrap();
         let state_name = normalized_state_name(task.state.as_str(), &machine);

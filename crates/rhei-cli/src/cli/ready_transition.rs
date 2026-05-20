@@ -141,44 +141,137 @@ fn task_is_in_initial_state(
         .unwrap_or_else(|| machine.states.get(normalized_state).map(|def| def.initial).unwrap_or(false))
 }
 
+fn collect_plan_tasks<'a>(
+    tasks: &'a [rhei_core::ast::Task],
+    out: &mut Vec<&'a rhei_core::ast::Task>,
+) {
+    for task in tasks {
+        out.push(task);
+        collect_plan_tasks(&task.children, out);
+    }
+}
+
+fn plan_state_map<'a>(
+    tasks: &[&'a rhei_core::ast::Task],
+    machine: &rhei_validator::StateMachine,
+) -> std::collections::HashMap<&'a TaskId, String> {
+    tasks
+        .iter()
+        .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machine)))
+        .collect()
+}
+
+fn first_blocking_prior(
+    task: &rhei_core::ast::Task,
+    state_map: &std::collections::HashMap<&TaskId, String>,
+    machine: &rhei_validator::StateMachine,
+) -> Option<String> {
+    task.prior.iter().find_map(|dep_id| match state_map.get(dep_id) {
+        Some(state) if !dependency_is_satisfied(state, machine) => {
+            Some(format!("Task {} ({})", dep_id, state))
+        }
+        None => Some(format!("Task {} (missing)", dep_id)),
+        _ => None,
+    })
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    if value.bytes().all(|byte| {
+        matches!(
+            byte,
+            b'a'..=b'z'
+                | b'A'..=b'Z'
+                | b'0'..=b'9'
+                | b'_'
+                | b'-'
+                | b'.'
+                | b'/'
+                | b':'
+                | b'@'
+                | b'%'
+                | b'+'
+                | b'='
+                | b','
+        )
+    }) {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn transition_command_lines(
+    task: &rhei_core::ast::Task,
+    state_name: &str,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    plan_arg: &str,
+    state_machine_path: Option<&Path>,
+) -> Vec<String> {
+    let state_machine_arg = state_machine_path
+        .map(|path| format!(" --state-machine={}", shell_quote(&path.display().to_string())))
+        .unwrap_or_default();
+    let from_arg = shell_quote(state_name);
+    machine
+        .transitions()
+        .iter()
+        .filter(|rule| rule.from.0 == state_name || rule.from.0 == "*")
+        .filter(|rule| {
+            task_profile_allows_state(
+                machine,
+                task.kind.as_str(),
+                task.id.depth() as u8,
+                &rule.to.0,
+            )
+        })
+        .filter(|rule| {
+            transition_rule_is_applicable(
+                rule,
+                machine,
+                metadata,
+                &task.id,
+                state_name,
+                task.state.as_str(),
+            )
+            .unwrap_or(false)
+        })
+        .map(|rule| {
+            let to_arg = shell_quote(&rule.to.0);
+            format!(
+                "  rhei{} transition {} --task {} --from={} --to={}",
+                state_machine_arg, plan_arg, task.id, from_arg, to_arg
+            )
+        })
+        .collect()
+}
+
 /// Build an actionable error message for `rhei next` when no task can be
 /// auto-claimed.
-///
-/// Distinguishes between three situations:
-/// - every task is in a terminal state (nothing left to do),
-/// - some task is ready but sitting in a non-initial state (mid-workflow —
-///   the user needs `rhei transition` to pick an outgoing edge),
-/// - every non-terminal task is blocked by unsatisfied prerequisites.
 fn diagnose_no_claimable(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
+    plan_path: &Path,
+    state_machine_path: Option<&Path>,
 ) -> String {
-    use std::collections::HashMap;
-
-    fn collect<'a>(task: &'a rhei_core::ast::Task, out: &mut Vec<&'a rhei_core::ast::Task>) {
-        out.push(task);
-        for c in &task.children {
-            collect(c, out);
-        }
-    }
     let mut all = Vec::new();
-    for t in &rhei.tasks {
-        collect(t, &mut all);
-    }
+    collect_plan_tasks(&rhei.tasks, &mut all);
 
     if all.is_empty() {
         return "no tasks are ready to claim (plan has no tasks)".to_string();
     }
 
-    let state_map: HashMap<&TaskId, String> =
-        all.iter().map(|t| (&t.id, normalized_state_name(t.state.as_str(), machine))).collect();
+    let state_map = plan_state_map(&all, machine);
 
     let non_terminal: Vec<&rhei_core::ast::Task> =
         all.iter().copied().filter(|t| !is_terminal_state(t.state.as_str(), machine)).collect();
 
     if non_terminal.is_empty() {
-        return "no tasks are ready to claim: every task is already in a terminal state."
-            .to_string();
+        return format!(
+            "Plan complete. All {} task(s) are in terminal states.",
+            all.len()
+        );
     }
 
     let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
@@ -186,6 +279,38 @@ fn diagnose_no_claimable(
             state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
         })
     };
+
+    let gating_ready: Vec<&rhei_core::ast::Task> = non_terminal
+        .iter()
+        .copied()
+        .filter(|task| {
+            let state = normalized_state_name(task.state.as_str(), machine);
+            machine.states.get(&state).map(|def| def.gating).unwrap_or(false)
+                && priors_satisfied(task)
+        })
+        .collect();
+
+    if !gating_ready.is_empty() {
+        let items: Vec<String> = gating_ready
+            .iter()
+            .take(3)
+            .map(|task| {
+                let state = normalized_state_name(task.state.as_str(), machine);
+                format!("Task {} ({})", task.id, state)
+            })
+            .collect();
+        let suffix = if gating_ready.len() > 3 {
+            format!(" (+{} more)", gating_ready.len() - 3)
+        } else {
+            String::new()
+        };
+        return format!(
+            "Blocked: {} task(s) waiting on human action: {}{}.",
+            gating_ready.len(),
+            items.join(", "),
+            suffix
+        );
+    }
 
     let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal
         .iter()
@@ -225,32 +350,56 @@ fn diagnose_no_claimable(
         .copied()
         .filter(|t| {
             let s = normalized_state_name(t.state.as_str(), machine);
-            !task_is_in_initial_state(t, &s, machine) && priors_satisfied(t)
+            let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
+            !gating && !task_is_in_initial_state(t, &s, machine) && priors_satisfied(t)
         })
         .collect();
 
     if let Some(task) = ready_non_initial.first() {
         let state_name = normalized_state_name(task.state.as_str(), machine);
-        let outgoing: Vec<String> = machine
-            .transitions()
-            .iter()
-            .filter(|rule| rule.from.0 == state_name || rule.from.0 == "*")
-            .map(|rule| rule.to.0.clone())
-            .collect();
-        let outgoing =
-            if outgoing.is_empty() { "(none declared)".to_string() } else { outgoing.join(", ") };
+        let plan_arg = shell_quote(&plan_path.display().to_string());
+        let normalized_metadata = ensure_current_state_visit_count(
+            rhei.metadata.as_ref(),
+            &task.id,
+            &state_name,
+            task.state.as_str(),
+            machine,
+        );
+        let metadata_for_checks = normalized_metadata.as_ref().or(rhei.metadata.as_ref());
+        let commands = transition_command_lines(
+            task,
+            &state_name,
+            machine,
+            metadata_for_checks,
+            &plan_arg,
+            state_machine_path,
+        );
+        let guidance = if commands.is_empty() {
+            "No outgoing transitions are currently applicable for this state.".to_string()
+        } else {
+            format!("Available transitions:\n{}", commands.join("\n"))
+        };
         return format!(
-            "no tasks can be auto-claimed: Task {} is mid-workflow in state '{}'. \
-             Pick one of its outgoing transitions [{}] with \
-             `rhei transition <plan> --task {} --from {} --to <state>`.",
-            task.id, state_name, outgoing, task.id, state_name
+            "No tasks can be auto-claimed: Task {} is mid-workflow in state '{}'. \
+             Pick one of its outgoing transitions explicitly.\n{}",
+            task.id, state_name, guidance
         );
     }
 
     let blocked: Vec<&rhei_core::ast::Task> =
         non_terminal.iter().copied().filter(|t| !priors_satisfied(t)).collect();
     if !blocked.is_empty() {
-        let ids: Vec<String> = blocked.iter().take(3).map(|t| format!("Task {}", t.id)).collect();
+        let ids: Vec<String> = blocked
+            .iter()
+            .take(3)
+            .map(|task| {
+                if let Some(prior) = first_blocking_prior(task, &state_map, machine) {
+                    format!("Task {} waiting on {}", task.id, prior)
+                } else {
+                    format!("Task {}", task.id)
+                }
+            })
+            .collect();
         let suffix = if blocked.len() > 3 {
             format!(" (+{} more)", blocked.len() - 3)
         } else {

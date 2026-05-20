@@ -127,6 +127,77 @@ Do not block the alpha on Homebrew or GHCR. After a tagged GitHub release has
 Linux/macOS artifacts, add a tap formula named `rhei` under a project-owned tap.
 Add GHCR images only when there is a CI/service entrypoint worth containerizing.
 
+## Completed: CLI Next No-Claim Diagnostics
+
+Status: completed. `rhei next` now distinguishes completed plans, human-gated
+tasks, claimed in-flight tasks, mid-workflow tasks that need an explicit
+transition, and prerequisite-blocked tasks. Mid-workflow diagnostics include
+copy-pasteable `rhei transition` commands for each outgoing transition, while
+blocked-prerequisite diagnostics name the first unfinished prior and its state.
+§FS-rhei-next §FS-rhei-transition-cmd
+
+## Planned: CLI UX and Release Polish
+
+Status: planned. This section is the canonical home for useful follow-up work
+from the April 2026 PM review and the product-management pre-release pass. The
+old notes are historical; this roadmap owns the remaining backlog.
+
+- Accumulate multiple plan parse errors in one run so authors can fix a batch
+  of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-language
+  §FS-rhei-validate
+- Make failed `rhei complete` attempts from loop states explain the exact
+  blocked transition condition and the currently available next transitions.
+  §FS-rhei-complete §FS-rhei-transitions
+- Decide and normalize `rhei transition` result-file behavior: either stop
+  writing result files for bare transitions or link/audit them consistently
+  with `rhei complete`. §FS-rhei-transition-cmd §FS-rhei-complete
+- Improve template discovery and preflight output: list searched paths when no
+  templates are found, surface reusable values-file scaffolds in template
+  READMEs, and make nested `--list-inputs` defaults copyable. §FS-rhei-templates
+- Resolve `type: path` input semantics: keep the current existence check for
+  user-supplied paths, decide whether defaults should be checked, and decide
+  whether an explicit `--allow-missing-paths` escape hatch belongs in the CLI.
+  §FS-rhei-templates
+- Extend JSON error output beyond the current `{ "error": { "message": ... } }`
+  envelope with a stable `kind` and optional `path` taxonomy before downstream
+  integrations depend on it. §FS-rhei-render §FS-rhei-next
+- Clean up small human-output ambiguities: show agent and model as distinct
+  fields, reword built-in validation source labels, clarify live template
+  variables versus prose in state instructions, and decide whether rendered
+  JSON should keep or flatten `metadata.metadata`. §FS-rhei-next
+  §FS-rhei-validate §FS-rhei-states §FS-rhei-render
+
+## Planned: Dashboard and Monitoring Follow-Ups
+
+Status: planned. The first dashboard visualization pass is complete; these
+items improve operator diagnosis without changing the execution model.
+
+- Add richer readiness reasons in the dashboard for missing input artifacts and
+  human gates. The current dashboard explains unfinished `Prior:` blockers but
+  intentionally leaves non-prior causes generic. §FS-rhei-run-tui §FS-rhei-viz
+- Add task-opening affordances, state/level filtering or dimming, a dependency
+  graph view, and diff visualization against another snapshot or git ref.
+  §FS-rhei-viz
+
+## Planned: Snapshot Adapter and Retention Work
+
+Status: planned. Snapshot v1 intentionally ships a conservative built-in
+support boundary; Pi is supported, while other built-in agents require adapter
+spikes before Rhei can safely capture and resume their native sessions.
+
+- Resolve built-in adapter spikes for Claude Code, Codex, and Gemini session
+  capture/resume surfaces, then update the built-in profile table and runtime
+  support boundary. §FS-rhei-snapshot-operations §FS-rhei-snapshots
+- Finalize provider cache TTL defaults in shipped settings and keep the
+  snapshot specs pointing at that single source of truth. §FS-rhei-snapshot-operations
+- Decide whether `snapshot.emit.on: timeout` should be distinct from
+  `failure`, whether terminal-task automatic GC should replace TTL-based GC in
+  v2, and whether sensitive states need a per-state auto-emit opt-out.
+  §FS-rhei-snapshot-operations §FS-rhei-snapshots
+- Add snapshot summarizer helpers, richer retention automation, and redaction
+  audit support in a future manifest schema without turning snapshots into
+  cross-agent transcript replay. §FS-rhei-snapshot-operations §FS-rhei-snapshots
+
 ## Completed: Post-Alpha Snapshot Continuation
 
 Status: completed. Interactive `rhei snapshot continue` drops an operator into

@@ -2,6 +2,13 @@ use std::fs;
 
 use super::*;
 
+fn normalize_miette_stderr(text: &str) -> String {
+    text.lines()
+        .map(|line| line.trim_start().trim_start_matches('×').trim_start_matches('│').trim())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[test]
 fn next_auto_discovers_sibling_state_machine_from_states_declaration() {
     let plan = r#"# Rhei: Auto-discovered Machine
@@ -90,8 +97,8 @@ fn next_single_file_repeated_to_completion() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "next should fail when all tasks are completed");
     assert!(
-        result.stderr.contains("no tasks are ready"),
-        "expected 'no tasks are ready'; got:\n{}",
+        result.stderr.contains("Plan complete. All 3 task(s) are in terminal states."),
+        "expected plan-complete diagnostic; got:\n{}",
         result.stderr
     );
 
@@ -441,6 +448,230 @@ transitions:
 }
 
 #[test]
+fn next_no_claimable_mid_workflow_lists_transition_commands() {
+    let plan = r#"# Rhei: Mid Workflow
+
+## Tasks
+
+### Task 1: Already pending
+**State:** pending
+"#;
+
+    let (dir, plan_path, machine_path) = setup_single_file("next-mid-workflow", plan);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
+    let stderr = normalize_miette_stderr(&result.stderr);
+    assert!(!result.status.success(), "mid-workflow task should require explicit transition");
+    assert!(
+        stderr.contains("Task 1 is mid-workflow in state 'pending'"),
+        "expected mid-workflow diagnostic; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        stderr.contains("Available transitions:"),
+        "expected transition command list; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        stderr.contains("--task 1 --from=pending --to=completed"),
+        "expected concrete completed transition command; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        stderr.contains("--task 1 --from=pending --to=cancelled"),
+        "expected concrete cancelled transition command; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_no_claimable_mid_workflow_quotes_custom_transition_command() {
+    let plan = r#"# Rhei: Mid Workflow Custom Machine
+
+## Tasks
+
+### Task 1: Already in progress
+**State:** `in progress`
+"#;
+    let machine = r#"name: custom-space-machine
+version: 1
+states:
+  "in progress":
+    description: Already underway
+  "done now":
+    final: true
+    description: Done
+transitions:
+  - from: "in progress"
+    to: "done now"
+"#;
+
+    let dir = unique_temp_dir("next-mid-workflow-custom-machine");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "custom states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
+    let stderr = normalize_miette_stderr(&result.stderr);
+    assert!(!result.status.success(), "mid-workflow task should require explicit transition");
+    assert!(
+        stderr.contains("Task 1 is mid-workflow in state 'in progress'"),
+        "expected mid-workflow diagnostic; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        stderr.contains("rhei --state-machine='")
+            && stderr.contains("custom states.yaml' transition"),
+        "expected suggested command to include quoted custom state-machine path; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        stderr.contains("--from='in progress' --to='done now'"),
+        "expected suggested command to quote state names; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_no_claimable_mid_workflow_only_lists_applicable_transitions() {
+    let plan = r#"# Rhei: Mid Workflow Conditional
+
+## Tasks
+
+### Task 1: Fix review findings
+**State:** fix
+"#;
+    let machine = r#"name: conditional-mid-workflow
+version: 1
+states:
+  draft:
+    initial: true
+    description: Draft
+  fix:
+    description: Fix findings
+    visits: 2
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: fix
+  - from: fix
+    to: fix
+    condition: visitCount < visits
+  - from: fix
+    to: completed
+    condition: visitCount >= visits
+"#;
+
+    let dir = unique_temp_dir("next-mid-workflow-conditional");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
+    let stderr = normalize_miette_stderr(&result.stderr);
+    assert!(!result.status.success(), "mid-workflow task should require explicit transition");
+    assert!(
+        stderr.contains("--task 1 --from=fix --to=fix"),
+        "expected applicable self-loop transition command; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        !stderr.contains("--to=completed"),
+        "blocked completed transition should not be suggested; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_no_claimable_mid_workflow_uses_equals_for_hyphen_leading_states() {
+    let plan = r#"# Rhei: Mid Workflow Hyphen States
+
+## Tasks
+
+### Task 1: Already fixing
+**State:** --fix
+"#;
+    let machine = r#"name: hyphen-state-machine
+version: 1
+states:
+  "--fix":
+    description: Fixing
+  "--done":
+    final: true
+    description: Done
+transitions:
+  - from: "--fix"
+    to: "--done"
+"#;
+
+    let dir = unique_temp_dir("next-mid-workflow-hyphen-state");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
+    let stderr = normalize_miette_stderr(&result.stderr);
+    assert!(!result.status.success(), "mid-workflow task should require explicit transition");
+    assert!(
+        stderr.contains("--from=--fix --to=--done"),
+        "expected equals-form option values for leading-hyphen states; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_no_claimable_gating_state_reports_human_action() {
+    let plan = r#"# Rhei: Human Gate
+
+## Tasks
+
+### Task 1: Approve rollout
+**State:** human-review
+"#;
+    let machine = r#"name: human-gate
+version: 1
+states:
+  draft:
+    initial: true
+    description: Draft
+  human-review:
+    description: Human approval
+    gating: true
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: human-review
+  - from: human-review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-human-gate");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(!result.status.success(), "human-gated task should not be claimable");
+    assert!(
+        result
+            .stderr
+            .contains("Blocked: 1 task(s) waiting on human action: Task 1 (human-review)."),
+        "expected human-gate diagnostic; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn next_workspace_writes_assignee_to_task_file() {
     let index = "# Rhei: Workspace Codex Claim\n";
     let machine = r#"name: workspace-codex-claim
@@ -634,7 +865,7 @@ fn next_respects_dependency_order() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert!(!result.status.success(), "no new task should be claimable");
     assert!(
-        result.stderr.contains("no tasks can be auto-claimed")
+        result.stderr.contains("No tasks can be auto-claimed")
             || result.stderr.contains("no tasks are ready"),
         "expected no-claimable diagnostic; got:\n{}",
         result.stderr
@@ -730,8 +961,8 @@ fn next_fails_when_all_completed() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "should fail when nothing to advance");
     assert!(
-        result.stderr.contains("no tasks are ready"),
-        "expected 'no tasks are ready'; got:\n{}",
+        result.stderr.contains("Plan complete. All 1 task(s) are in terminal states."),
+        "expected plan-complete diagnostic; got:\n{}",
         result.stderr
     );
 
@@ -757,15 +988,19 @@ fn next_does_not_allow_cancelled_prerequisite_to_unblock_dependents() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "cancelled prerequisite should keep Task 2 blocked");
     assert!(
-        result.stderr.contains("no tasks are ready"),
-        "expected 'no tasks are ready'; got:\n{}",
+        result.stderr.contains("Task 2 waiting on Task 1 (cancelled)")
+            && result.stderr.contains("blocked")
+            && result.stderr.contains("incomplete prerequisites"),
+        "expected blocking-prior diagnostic; got:\n{}",
         result.stderr
     );
 
     let targeted = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "2"]);
     assert!(!targeted.status.success(), "targeted next should still respect blocked prerequisites");
     assert!(
-        targeted.stderr.contains("blocked by incomplete prerequisites"),
+        targeted.stderr.contains("blocked by incomplete prerequisites")
+            && targeted.stderr.contains("waiting on Task 1")
+            && targeted.stderr.contains("(cancelled)"),
         "expected blocked-prerequisite error; got:\n{}",
         targeted.stderr
     );

@@ -2,19 +2,24 @@
 
 ## Status
 
-proposed
+accepted and implemented
 
 ## Context
 
-Today, a coding-agent profile (command, prompt flag, model flag, stdin
-behavior, MCP/skill wiring) can appear in three places:
+At the time this decision was written, a coding-agent profile (command,
+prompt flag, model flag, stdin behavior, MCP/skill wiring) could appear in
+three places:
 
 1. The `agents` registry in `settings.json` — specified in
-   [rhei-agents.spec.md](../functional-spec/rhei-agents.spec.md) but **not implemented**
-   in `RheiSettings` today.
+   [rhei-agents.spec.md](../functional-spec/rhei-agents.spec.md) but not yet
+   implemented in `RheiSettings`.
 2. `defaults.agent` in `settings.json` — string id **or** inline object.
 3. The `agent:` field on a state in `states.yaml` — string id **or** inline
    object (via `AgentConfig::Custom(CustomAgentProfile)`).
+
+The current implementation has applied the decision: `agent:` is a string
+reference, `RheiSettings` has an `agents` registry, and modes are resolved from
+CLI, state, defaults, and agent profile configuration.
 
 The inline form makes agent definitions redundant across states, leaks
 transport details into workflow definitions, and forces templates to expose
@@ -34,10 +39,10 @@ same underlying CLI.
 
 ## Decision
 
-Agents are defined **only** in the `agents` registry in `settings.json`
-(global or project). `states.yaml` and `defaults.agent` reference agents by
-string id. Each agent entry declares a set of named **modes**, each of which
-is an ordered list of extra flags appended at spawn time.
+Agents are defined in the `agents` registry in `settings.json` (global or
+project). `states.yaml` and `defaults.agent` reference agents by string id.
+Each agent entry declares a set of named **modes**, each of which is an ordered
+list of extra flags appended at spawn time.
 
 ### 1. Agent registry schema
 
@@ -76,12 +81,14 @@ is an ordered list of extra flags appended at spawn time.
 
 ### 2. Built-in agents ship as the default global layer
 
-The built-in profiles (`claude-code`, `codex`, `aider`, `kilocode`, `cursor`)
-are materialized as a default global `agents` registry at load time, each
-with a `yolo` mode carrying the flags that are currently their hard-coded
-defaults. A user-written entry with the same id in global **or** project
-settings replaces the built-in entry **wholesale** — there is no per-field
-merge within a single agent entry, to keep the transport surface predictable.
+The built-in profiles (`claude-code`, `codex`, `gemini`, `kilocode`, `cursor`,
+and `pi`) are materialized as a default global `agents` registry at load time.
+Built-ins with an autonomous permission posture expose it as a `yolo` mode.
+The `pi` profile has no permission mode and instead declares its supported
+snapshot session surface. A user-written entry with the same id in global
+**or** project settings replaces the built-in entry **wholesale** — there is
+no per-field merge within a single agent entry, to keep the transport surface
+predictable.
 
 ### 3. Config layers
 
@@ -124,8 +131,8 @@ states:
 }
 ```
 
-Any object-shaped value for `agent:` is a validation error with a message
-pointing to the `agents` registry.
+Any object-shaped value for `agent:` is a decode/validation error with a
+message pointing to the `agents` registry.
 
 ### 5. Mode resolution
 
@@ -166,22 +173,20 @@ binaries without explicit configuration.
 Prompt delivery via stdin (`stdin_prompt: true`) suppresses `<prompt_flag>
 <prompt>`, matching today's behavior.
 
-### 8. Code changes (`crates/rhei-validator`, `crates/rhei-cli`)
+### 8. Implemented code changes (`crates/rhei-validator`, `crates/rhei-cli`)
 
-- Remove `AgentConfig::Custom` and the `#[serde(untagged)]` attribute on
-  `AgentConfig`. `agent:` deserializes as a plain string. Internally, keep a
-  newtype (or just `String`) for clarity.
-- Keep `CustomAgentProfile` as the value type of the `agents` registry; add
-  a `modes: BTreeMap<String, Vec<String>>` field (default empty).
-- Add `agents: BTreeMap<String, CustomAgentProfile>` to `RheiSettings`.
-- Extend `load_merged_settings` to merge `agents` by id (wholesale per
-  entry), seeded by the built-in registry.
-- Add `agent_mode: Option<String>` on `StateDef`, `RheiSettings`,
-  `SettingsDefaults`, and as `--agent-mode` on `rhei run`.
-- Rewrite `build_agent_command` around the unified `CustomAgentProfile`
-  (there is only one code path after this change; the three
-  `AgentConfig::Custom` arms collapse).
-- Delete the "unknown id → treat as binary" fallback branch.
+- `AgentConfig` is a string newtype; inline custom agent objects are no longer
+  accepted in state-machine agent slots.
+- `CustomAgentProfile` is the value type of the `agents` registry and carries a
+  declaration-order-preserving `modes` map.
+- `RheiSettings` includes `agents`, and `load_merged_settings` merges built-in,
+  global, and project registries by id with wholesale per-entry replacement.
+- `agent_mode` exists on `StateDef`, `RheiSettings`, `SettingsDefaults`, and
+  `rhei run --agent-mode`.
+- Agent command construction resolves through a unified `CustomAgentProfile`
+  path.
+- Unknown agent ids are reported as missing definitions instead of silently
+  becoming raw host binaries.
 
 ### 9. Spec changes
 
