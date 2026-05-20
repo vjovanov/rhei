@@ -127,16 +127,16 @@ Do not block the alpha on Homebrew or GHCR. After a tagged GitHub release has
 Linux/macOS artifacts, add a tap formula named `rhei` under a project-owned tap.
 Add GHCR images only when there is a CI/service entrypoint worth containerizing.
 
-## Post-Alpha Snapshot Continuation
+## Completed: Post-Alpha Snapshot Continuation
 
-Interactive `rhei snapshot continue` remains roadmap work. The released
-snapshot surface should treat list/show/gc, redaction, runtime emit/preload,
-and `rhei run --from-snapshot` as separate from the deferred interactive
-transport that drops an operator into a preloaded agent session and captures
-the resulting operator generation. Implementing that continuation flow requires
-the phase-6 agent transport work described in §FS-rhei-snapshot-operations and
-must preserve the snapshot lineage and operator-generation semantics in
-§FS-rhei-snapshots.
+Status: completed. Interactive `rhei snapshot continue` drops an operator into
+a preloaded agent session and, unless `--no-capture` is passed, captures the
+resulting transcript as an operator generation without advancing the snapshot
+`current` pointer or mutating plan state. The built-in Pi profile provides the
+v1 built-in interactive continuation surface; built-in agents without a proven
+Rhei-readable session capture layout fail clearly with
+`unsupported-snapshot-session` and can still be replaced by custom
+session-capable profiles. §FS-rhei-snapshot-operations §FS-rhei-snapshots
 
 ## Completed: Post-Alpha Dashboard Visualization
 
