@@ -1,10 +1,13 @@
 # Rhei
 
-Rhei is a Rust workspace for parsing, validating, executing, and rendering structured markdown plans.
+Rhei is an agent runtime for governed work. It turns Markdown workflows into
+predictable agent and program execution with explicit state, dependencies,
+artifacts, monitoring, snapshots, and reusable templates. The runtime can be
+driven from the `rhei` CLI, embedded Rust crates, and language bindings.
 
 ## Why Rhei
 
-Rhei is the only agent task-planning system that combines all of:
+Rhei is the only agent runtime that combines all of:
 
 - **Markdown is the source of truth.** A plan is a `.rhei.md` file you can read,
   diff, and edit in any editor — not a database, not a chat scratchpad.
@@ -20,6 +23,10 @@ Rhei is the only agent task-planning system that combines all of:
   conflicts; `rhei transition` provides atomic compare-and-swap on state.
 - **Deterministic ready-work selection.** `rhei next` claims the next eligible
   task by terminal-state prerequisites and node policy, no LLM guesswork.
+- **Runtime orchestration from CLI or API.** `rhei run` advances ready work
+  through state machines, spawns agents or deterministic programs, captures
+  logs and artifacts, and exposes the same model through reusable crates and
+  bindings.
 - **Full validator.** `rhei validate` checks syntax, state validity, dependency
   integrity, hierarchy/id alignment, link integrity, terminal-tree coherence,
   and artifact contracts.
@@ -35,18 +42,30 @@ beads, beans, opencode, Claude Code TodoWrite, Cline, Cursor, Roo, Devin, and
 Augment.
 
 Current workspace crates:
-- `rhei-plan-core` (`rhei_core`): AST types plus markdown plan parsing
+- `rhei-plan-core` (`rhei_core`): core plan model for the agent runtime,
+  including AST types, parsing, callbacks, and workspace primitives
+- `rhei-agent-core` (`rhei_agent_core`): embeddable runtime-facing facade for
+  agent workflow integrations
 - `rhei-cli-validator` (`rhei_validator`): semantic validation against a YAML states definition
 - `rhei-cli-output` (`rhei_output`): JSON, GitHub-style markdown, and progress-report rendering
-- `rhei-cli`: `rhei` command for validation, execution, and rendering
+- `rhei-cli`: `rhei` command-line driver for validation, execution, monitoring,
+  snapshots, templating, and rendering
 - `rhei-api-napi`: Node.js bindings
 
-## Markdown plan compiler
+## Agent runtime
 
-The markdown plan compiler currently supports:
-- parsing rhei/task/subtask structure from markdown plans
-- validating task metadata and dependencies against a states definition in [`docs/functional-spec/states.yaml`](docs/functional-spec/states.yaml)
-- rendering parsed plans as JSON, GitHub-style markdown, or terminal-oriented progress output
+The runtime currently supports:
+- parsing Rhei, task, and subtask structure from Markdown workflows
+- validating task metadata, dependencies, state machines, and artifact
+  contracts against [`docs/functional-spec/states.yaml`](docs/functional-spec/states.yaml)
+- selecting ready work deterministically with `rhei next`
+- atomically advancing work with `rhei transition`, `rhei complete`, and
+  `rhei reset`
+- orchestrating agents and deterministic programs with `rhei run`
+- recording runtime logs, results, snapshots, and dashboard state under
+  `runtime/`
+- rendering plans as JSON, GitHub-style markdown, or terminal-oriented progress
+  output
 
 The primary reference documents are:
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — **start here** for tool usage and specification index
@@ -235,21 +254,24 @@ grund check .
 
 ## Library usage
 
-Typical flow inside Rust code:
+Typical flow inside Rust code that embeds the runtime model:
 
-1. Add `rhei_core = { package = "rhei-plan-core", version = "0.1.0" }`
-2. Parse markdown with `rhei_core::parse`
+1. Add `rhei_agent_core = { package = "rhei-agent-core", version = "0.1.0" }`
+2. Parse markdown with `rhei_agent_core::parse`
 3. Load a states definition with `rhei_validator::StateMachine::from_yaml_file`
 4. Validate with `rhei_validator::validate_with_machine` or `rhei_validator::validate_from_machine_file`
 5. Render with helpers from `rhei_output`
 
 The published package names are conflict-free, while the Rust crate import
-names remain `rhei_core`, `rhei_validator`, and `rhei_output`.
+names include `rhei_agent_core`, `rhei_core`, `rhei_validator`, and
+`rhei_output`.
 
 ## Status notes
 
 This documentation reflects the current repository behavior. In particular:
 - parsing retains rhei-level text and subtask body content
 - validation enforces required `**State:**` metadata, dependency existence, metadata ordering, cycle detection, and subtask numbering checks
+- runtime execution is available through `rhei run`, `rhei next`,
+  `rhei transition`, `rhei complete`, `rhei reset`, and `rhei snapshot`
 - rendering is available for JSON, GitHub-style markdown, and progress reports
 - examples beyond repository documents are tracked separately by subtask 8.4

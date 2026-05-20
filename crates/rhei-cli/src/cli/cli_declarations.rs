@@ -35,13 +35,13 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Command-line interface for the markdown plan compiler.
+/// Command-line driver for the Rhei agent runtime.
 #[derive(Parser, Debug)]
 #[command(
     name = "rhei",
     author,
     version,
-    about = "Validate and compile markdown plans into structured outputs",
+    about = "Run governed agent workflows from Markdown plans",
     long_about = None,
     arg_required_else_help = true,
     help_template = "\
@@ -62,6 +62,7 @@ Templates:
 Execution:
   transition  Atomically transition a task from one state to another (compare-and-swap)
   run         Execute a plan by advancing tasks through the state machine in dependency order
+  cost        Inspect run token and cost accounting artifacts
   snapshot    Inspect, prune, or continue from session snapshots
   next        Transition the next ready task to the next state
   complete    Complete a task: transition to terminal state, write result file,\n              link it from the task, and remove the assignee
@@ -229,6 +230,21 @@ enum Commands {
         program: ProgramExecutionFlags,
         #[command(flatten)]
         snapshot: SnapshotExecutionFlags,
+    },
+    /// Inspect run token and cost accounting artifacts
+    Cost {
+        /// Path to the markdown plan file (.rhei.md) or workspace directory
+        #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: PathBuf,
+        /// Show direct and subtree accounting for one task id
+        #[arg(long, value_name = "ID", add = ArgValueCompleter::new(complete_task_id))]
+        task: Option<String>,
+        /// Emit output as JSON for machine consumption
+        #[arg(long)]
+        json: bool,
+        /// Group run totals in text/JSON output
+        #[arg(long, value_enum, default_value = "node")]
+        by: CostGroup,
     },
     /// Inspect, prune, or continue from session snapshots
     Snapshot {

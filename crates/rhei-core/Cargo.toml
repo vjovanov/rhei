@@ -7,7 +7,7 @@ rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
-description = "Core parser and AST types for Rhei markdown plans."
+description = "Core plan model and primitives for the Rhei agent runtime."
 
 [lib]
 name = "rhei_core"

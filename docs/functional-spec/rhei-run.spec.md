@@ -73,15 +73,18 @@ Mode selection: `rhei run` uses orchestrated subprocess execution whenever any r
    [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
    When no error transition is declared and `--continue-on-error` is unset,
    `rhei run` aborts with a non-zero exit code.
-6. For agent-bearing states with supported snapshot sessions, write
+6. For agent invocations, extract measured usage and write the accounting
+   invocation record when the resolved agent supports accounting. Accounting
+   failures affect cost coverage but do not alter transition selection. §FS-rhei-cost-accounting
+7. For agent-bearing states with supported snapshot sessions, write
    auto-emitted `_state` snapshots and any matching named `snapshot.emit:`
    after transition selection and before the transition is applied. Poll
    self-loop attempts do not emit because the selected transition is known;
    terminal poll exits may emit. See
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
-7. Apply the selected transition. The subprocess **must not** call
+8. Apply the selected transition. The subprocess **must not** call
    `rhei transition` or `rhei complete`; the orchestrator owns the transition.
-8. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
+9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
 
@@ -151,5 +154,6 @@ See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface
 - [Snapshots Specification](rhei-snapshots.spec.md) — snapshot side effects and inheritance preload
 - [Snapshot Operations Specification](rhei-snapshot-operations.spec.md) — snapshot commands, settings, and `--from-snapshot`
 - [Run TUI Specification](rhei-run-tui.spec.md) — live terminal UI and transition journal
+- [Cost Accounting Specification](rhei-cost-accounting.spec.md) — token/cost ledger and rollups
 - [Transitions Specification](rhei-transitions.spec.md) — transition YAML schema and callbacks
 - [Next Command](rhei-next.spec.md), [Complete Command](rhei-complete.spec.md), [Transition Command](rhei-transition-cmd.spec.md) — manual-worker counterparts

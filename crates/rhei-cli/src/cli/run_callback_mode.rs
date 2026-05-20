@@ -248,6 +248,7 @@ fn run_callback_mode(
             programs_spawned: 0,
             terminal_tasks: terminal_count,
             total_tasks,
+            accounting: None,
         },
     });
     frontend.write_frozen_dashboard();

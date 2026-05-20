@@ -58,7 +58,7 @@ Declarations are heading lines `# FS-user-login: …` in markdown. In a code doc
 ### Rules
 
 - **Spec first.** For behavior or design changes, write or update the most-specific spec point before code.
-- **Cite as you write.** Place `§<ID>` at the point a claim or behavior is made — on the doc-comment for a whole behavior, inline beside the clause it enforces.
-- **Inline citation style.** Inline notes: ≤ 1 line preferred, hard cap 3 lines; ≤ 100 columns.
+- **Cite meaningful implementation behavior.** For spec-backed code and executable tests, place `§<ID>` near non-trivial behavior that enforces the spec: commands, events, artifact paths, persistence formats, validation rules, rollups, failure modes, protocol boundaries, and externally visible UI/output behavior. Do not cite simple variable definitions, plain data containers, obvious field declarations, or mechanical glue unless they are the primary place where the spec behavior is enforced.
+- **Inline citation style.** Inline notes: ≤ 1 line preferred, hard cap 3 lines; ≤ 120 columns.
 - **Always cite the most-specific point.**
 - **Citations climb to reasons (grund.md).** Goals cite reasons, specs cite goals; architecture cites specs; code and executable tests cite specs.
