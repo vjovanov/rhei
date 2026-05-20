@@ -2,6 +2,9 @@
 
 Generate shell completion scripts for the `rhei` CLI. The command writes the script to stdout so users can either source it in the current shell or install it into their shell's normal completion directory.
 
+This specification covers shell completions only. Editor completions delivered
+through the Language Server Protocol are specified separately in §FS-rhei-lsp.
+
 The generated scripts are dynamic: the shell calls back into the installed
 `rhei` binary at completion time. This keeps completions in sync with the
 current working directory, including discovered template names for
