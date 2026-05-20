@@ -273,6 +273,39 @@ transitions: []
         );
     }
 
+    /// Dashboard startup follows the TUI/default and explicit override contract.
+    /// §FS-rhei-run-tui.1.6 §FS-rhei-run
+    #[test]
+    fn dashboard_policy_follows_tui_default_and_explicit_flags() {
+        let mut opts = default_run_options();
+
+        assert!(opts.dashboard_enabled(true));
+        assert!(!opts.dashboard_enabled(false));
+
+        opts.standalone.no_dashboard = true;
+        assert!(!opts.dashboard_enabled(true));
+        assert!(!opts.dashboard_enabled(false));
+
+        opts.standalone.no_dashboard = false;
+        opts.standalone.dashboard = true;
+        assert!(opts.dashboard_enabled(true));
+        assert!(opts.dashboard_enabled(false));
+    }
+
+    /// Dry runs are planning-only and must not start live dashboard side effects.
+    /// §FS-rhei-run.2
+    #[test]
+    fn dry_run_frontend_never_starts_dashboard() {
+        let mut opts = default_run_options();
+        opts.standalone.dry_run = true;
+        opts.standalone.dashboard = true;
+
+        let frontend =
+            start_run_frontend(Path::new("."), Path::new("missing-plan.rhei.md"), &opts, 1, 0);
+
+        assert!(frontend.dashboard.is_none());
+    }
+
     #[test]
     fn run_help_separates_standalone_and_agent_flags() {
         let mut command = Cli::command();

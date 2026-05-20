@@ -1967,6 +1967,7 @@ fn run_agent_mode(
             total_tasks,
         },
     });
+    frontend.write_frozen_dashboard();
     drop(sink);
     drop(frontend);
 

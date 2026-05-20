@@ -300,15 +300,24 @@ pub(super) struct TaskRow {
     pub(super) deferred_this_pass: bool,
 }
 
+#[cfg(test)]
 pub(super) fn derive_plan_state(tasks: &[DashboardTask]) -> String {
-    let root_states: Vec<&str> = tasks
-        .iter()
-        .filter(|task| task.parent.is_none() || task.depth == 1)
-        .map(|task| task.state.as_str())
-        .collect();
+    derive_plan_state_with_active_roots(tasks, &HashSet::new())
+}
+
+pub(super) fn derive_plan_state_with_active_roots(
+    tasks: &[DashboardTask],
+    active_task_ids: &HashSet<&str>,
+) -> String {
+    let root_tasks: Vec<&DashboardTask> =
+        tasks.iter().filter(|task| task.parent.is_none() || task.depth == 1).collect();
+    let root_states: Vec<&str> = root_tasks.iter().map(|task| task.state.as_str()).collect();
 
     if root_states.is_empty() {
         return "pending".to_string();
+    }
+    if root_tasks.iter().any(|task| active_task_ids.contains(task.id.as_str())) {
+        return "active".to_string();
     }
     if root_states.iter().all(|state| *state == "draft") {
         return "draft".to_string();

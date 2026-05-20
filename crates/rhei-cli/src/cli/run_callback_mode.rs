@@ -250,6 +250,7 @@ fn run_callback_mode(
             total_tasks,
         },
     });
+    frontend.write_frozen_dashboard();
     drop(sink);
     drop(frontend);
 
