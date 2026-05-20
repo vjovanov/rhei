@@ -330,26 +330,45 @@ pub enum RunEvent {
     UsageReported {
         slot: Option<Slot>,
         task: String,
+        state: String,
         invocation_id: String,
         usage: UsageSummary,
     }
 }
 ```
 
+`UsageReported.state` is the state that produced the invocation, not
+necessarily the task's current state when the event is rendered.
 `UsageReported` may arrive after `SlotReleased`; frontends must update task,
-slot history, and run totals without assuming the slot is still active. §FS-rhei-run-tui
+state, slot history, and run totals without assuming the slot is still active.
+§FS-rhei-run-tui
 
 `RunSummary.accounting` contains an optional `AccountingRunSummary` with the
 same dimension, cost, currency, coverage, and pricing-status shape as
 `UsageSummary`. It is `None` when the run did not enter agent mode or no
 accounting records were produced.
 
+After the run loop has halted and rollups have been regenerated, `rhei run`
+prints a final accounting block when accounting records exist:
+
+```text
+Accounting: $1.23 | In 2.4M | Out 180k | Coverage Complete | Invocations 4
+By target:
+  codex-yolo-openai-gpt-5.5: $0.81 | in=1.7M | out=110k | invocations=3 | coverage=Complete
+  claude-code-anthropic-claude-sonnet-4-6: $0.42 | in=700k | out=70k | invocations=1 | coverage=Complete
+```
+
+The target key is the resolved target slug recorded on the invocation. For
+targetless invocations, Rhei derives a stable fallback key from the agent,
+provider, and model fields. The block is omitted when no accounting records
+exist. §FS-rhei-run
+
 ## 8. CLI Inspection
 
 `rhei cost` reads accounting artifacts without changing the plan:
 
 ```bash
-rhei cost <RHEI_PLAN_OR_WORKSPACE> [--task <ID>] [--json] [--by agent|model|state|node]
+rhei cost <RHEI_PLAN_OR_WORKSPACE> [--task <ID>] [--json] [--by agent|target|model|state|node]
 ```
 
 Default text output shows run totals, coverage, and highest-cost nodes by
@@ -388,7 +407,7 @@ summary update when `UsageReported` arrives.
 The browser dashboard adds a **Cost** tab before **Journal**. It shows:
 
 - run totals and coverage;
-- grouped totals by agent, provider, model, and state;
+- grouped totals by task/state, agent, provider, and model;
 - highest-cost task nodes by subtree cost;
 - per-invocation drill-down with token dimensions and pricing status.
 
@@ -407,6 +426,12 @@ type TaskAccounting = {
   subtree?: AccountingRollup;
 };
 
+type AccountingStateRow = {
+  task: string;
+  state: string;
+  summary: AccountingRollup;
+};
+
 type TaskRow = {
   // existing flattened task fields
   accounting?: TaskAccounting;
@@ -414,6 +439,7 @@ type TaskRow = {
 
 type Snapshot = {
   accounting?: AccountingRunSummary;
+  accounting_by_state?: AccountingStateRow[];
   tasks: TaskRow[];
 };
 ```

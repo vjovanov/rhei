@@ -169,6 +169,7 @@ struct AgentAccountingInvocation<'a> {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CostGroup {
     Agent,
+    Target,
     Model,
     State,
     Node,
@@ -232,6 +233,7 @@ fn record_agent_accounting_invocation(
     invocation.sink.emit(rhei_tui::RunEvent::UsageReported {
         slot: invocation.slot,
         task: invocation.task.id.to_string(),
+        state: invocation.state.to_string(),
         invocation_id,
         usage: usage.clone(),
     });
@@ -477,6 +479,41 @@ fn print_task_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, tas
     }
 }
 
+fn final_run_accounting_lines(workspace_root: &Path) -> Vec<String> {
+    let accounting_root = workspace_root.join("runtime/accounting");
+    let inspection = read_cost_inspection(&accounting_root);
+    format_final_run_accounting_lines(&inspection)
+}
+
+fn format_final_run_accounting_lines(inspection: &CostInspection) -> Vec<String> {
+    let Some(summary) = inspection.summary.as_ref() else {
+        return Vec::new();
+    };
+    let mut lines = vec![format!(
+        "\nAccounting: {} | In {} | Out {} | Coverage {:?} | Invocations {}",
+        format_summary_cost(summary),
+        format_dimension_value(&summary.input_total),
+        format_dimension_value(&summary.output_total),
+        summary.coverage,
+        summary.invocation_count
+    )];
+    // §FS-rhei-cost-accounting.7: Final `rhei run` accounting is grouped by target.
+    lines.push("By target:".to_string());
+    for (target, records) in grouped_records(inspection, CostGroup::Target) {
+        if let Some(summary) = summarize_records(records.into_iter()) {
+            lines.push(format!(
+                "  {target}: {} | in={} | out={} | invocations={} | coverage={:?}",
+                format_summary_cost(&summary),
+                format_dimension_value(&summary.input_total),
+                format_dimension_value(&summary.output_total),
+                summary.invocation_count,
+                summary.coverage
+            ));
+        }
+    }
+    lines
+}
+
 fn grouped_records(
     inspection: &CostInspection,
     by: CostGroup,
@@ -485,6 +522,7 @@ fn grouped_records(
     for (_, record) in &inspection.invocations {
         let key = match by {
             CostGroup::Agent => record.agent.clone(),
+            CostGroup::Target => record_target_key(record),
             CostGroup::Model => record.model.clone().unwrap_or_else(|| "(unknown)".to_string()),
             CostGroup::State => record.state.clone(),
             CostGroup::Node => record.task_id.clone(),
@@ -492,6 +530,20 @@ fn grouped_records(
         groups.entry(key).or_default().push(record);
     }
     groups.into_iter().collect()
+}
+
+fn record_target_key(record: &AccountingInvocationRecord) -> String {
+    if let Some(target_slug) = record.target_slug.as_ref().filter(|slug| !slug.is_empty()) {
+        return target_slug.clone();
+    }
+    let selector = match (record.provider.as_deref(), record.model.as_deref()) {
+        (Some(provider), Some(model)) => format!("{}:{provider}:{model}", record.agent),
+        (Some(provider), None) => format!("{}:{provider}", record.agent),
+        (None, Some(model)) => format!("{}:{model}", record.agent),
+        (None, None) => record.agent.clone(),
+    };
+    let slug = slugify_target_value(&selector);
+    if slug.is_empty() { "(unknown-target)".to_string() } else { slug }
 }
 
 fn highest_subtree_nodes(

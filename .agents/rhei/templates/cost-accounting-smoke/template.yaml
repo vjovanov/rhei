@@ -1,0 +1,59 @@
+name: cost-accounting-smoke
+version: 1.0.0
+description: Local smoke workflow that emits structured task/state accounting for dashboard verification
+
+inputs:
+  - name: plan_title
+    description: Title of the instantiated accounting smoke workspace
+    type: string
+    default: Cost Accounting Smoke
+
+  - name: task_title
+    description: Title of the single task that runs through two accounting states
+    type: string
+    default: Exercise task/state accounting
+
+  - name: scenario
+    description: Human-readable scenario shown in the task body
+    type: string
+    default: Verify that Rhei displays per-task and per-state token and cost accounting.
+
+  - name: collect_input_tokens
+    description: Input tokens emitted by the collect state
+    type: number
+    default: 12000
+
+  - name: collect_output_tokens
+    description: Output tokens emitted by the collect state
+    type: number
+    default: 800
+
+  - name: collect_cached_input_tokens
+    description: Cached input tokens emitted by the collect state
+    type: number
+    default: 4000
+
+  - name: verify_input_tokens
+    description: Input tokens emitted by the verify state
+    type: number
+    default: 6000
+
+  - name: verify_output_tokens
+    description: Output tokens emitted by the verify state
+    type: number
+    default: 500
+
+  - name: verify_cached_input_tokens
+    description: Cached input tokens emitted by the verify state
+    type: number
+    default: 1000
+
+  - name: collect_delay_seconds
+    description: Seconds the collect state should spend before emitting usage
+    type: number
+    default: 4
+
+  - name: verify_delay_seconds
+    description: Seconds the verify state should spend before emitting usage
+    type: number
+    default: 3

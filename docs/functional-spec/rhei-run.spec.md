@@ -59,7 +59,16 @@ Flags are grouped by concern:
 Mode selection: `rhei run` uses orchestrated subprocess execution whenever any reachable non-terminal, non-gating state declares autonomous work via `program`, `agent`, `target`, `all_targets`, `model`, or `all_models`. Callback-only advancement is entered only when no such state exists, or when the caller explicitly disables spawning with `--no-agent` and/or `--no-program`. If a state declares model/target-driven work but no agent transport resolves, `rhei run` fails with a missing-agent configuration error; it does not silently fall back to callback-only transitions for that state.
 
 1. Load the state machine and plan. Validate.
-2. Scan all tasks and compute the *ready set*: tasks whose `**Prior:**` are all in terminal states, whose current state is non-terminal and non-gating, and whose current state's required `inputs:` all exist. Tasks whose current state declares `poll:` and whose `metadata.tasks.<id>.pollNextAttemptAt.<state-name>` is later than the current wall-clock time are excluded from the ready set until the interval elapses. See [Next Command](rhei-next.spec.md#3-default-behavior-claim-mode) for the full claimability rule and [Polling States](#51-polling-states) for the poll scheduling rule.
+2. Scan leaf tasks and compute the *ready set*: leaf tasks whose `**Prior:**`
+   are all in terminal states, whose current state is non-terminal and
+   non-gating, and whose current state's required `inputs:` all exist. Non-leaf
+   task nodes are structural rollups and are never scheduled for autonomous
+   execution. Tasks whose current state declares `poll:` and whose
+   `metadata.tasks.<id>.pollNextAttemptAt.<state-name>` is later than the
+   current wall-clock time are excluded from the ready set until the interval
+   elapses. See [Next Command](rhei-next.spec.md#3-default-behavior-claim-mode)
+   for the full claimability rule and [Polling States](#51-polling-states) for
+   the poll scheduling rule.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#5-parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
    - Resolve the state's target: either an agent subprocess (`agent` or resolved target selector) or a program (`program`).
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
@@ -68,8 +77,11 @@ Mode selection: `rhei run` uses orchestrated subprocess execution whenever any r
 4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk.
 5. Select the outgoing transition without applying it yet. If the condition
    holds, select the first declared transition whose `condition` / `exit_code`
-   matches. If the condition fails (non-zero exit or missing outputs), route
-   through the state's error or timeout transition per
+   matches. If the subprocess exits `0` but required outputs are missing, leave
+   the task in its current state and fire no transition, per
+   [Agents Specification — Completion Condition](rhei-agents.spec.md#32-completion-condition).
+   If the subprocess exits non-zero or times out, route through the state's
+   error or timeout transition per
    [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
    When no error transition is declared and `--continue-on-error` is unset,
    `rhei run` aborts with a non-zero exit code.
@@ -82,9 +94,16 @@ Mode selection: `rhei run` uses orchestrated subprocess execution whenever any r
    self-loop attempts do not emit because the selected transition is known;
    terminal poll exits may emit. See
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
-8. Apply the selected transition. The subprocess **must not** call
-   `rhei transition` or `rhei complete`; the orchestrator owns the transition.
-9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
+8. Apply the selected transition using the artifact order defined in
+   [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts),
+   including target-state `inputs:` checks before the state write. The
+   subprocess **must not** call `rhei transition` or `rhei complete`; the
+   orchestrator owns the transition.
+9. Repeat until no pass makes progress.
+10. Regenerate accounting rollups and, when accounting records exist, print a
+    final run-level cost/token summary plus cost/token totals grouped by target.
+    §FS-rhei-cost-accounting.7
+11. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
 

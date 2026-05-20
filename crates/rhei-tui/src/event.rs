@@ -221,6 +221,7 @@ pub enum RunEvent {
     UsageReported {
         slot: Option<Slot>,
         task: String,
+        state: String,
         invocation_id: String,
         usage: UsageSummary,
     },

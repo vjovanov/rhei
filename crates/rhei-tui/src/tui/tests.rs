@@ -1,5 +1,5 @@
 use super::handle_key_event;
-use super::render::slot_lines;
+use super::render::{header_line, slot_lines};
 use super::state::UiState;
 use super::text::{sanitize_terminal_text, truncate_chars};
 use super::{InputAction, SLOT_TRAFFIC_BUFFER};
@@ -45,6 +45,26 @@ fn agent_output_is_added_to_slot_and_journal() {
     assert_eq!(state.slots[0].traffic.len(), 1);
     assert_eq!(state.slots[0].traffic[0].text, "hello");
     assert_eq!(state.journal.back().map(String::as_str), Some("· [slot 0 stdout] hello"));
+}
+
+#[test]
+fn dashboard_link_is_promoted_to_header() {
+    let mut state = UiState::new(1, 1);
+    state.apply(&RunEvent::RunLink {
+        label: "Dashboard".to_string(),
+        url: "http://127.0.0.1:43210".to_string(),
+    });
+
+    let snapshot = state.clone_snapshot();
+    let header = header_line(&snapshot, 120);
+    let rendered = header.spans.iter().map(|span| span.content.as_ref()).collect::<String>();
+
+    assert_eq!(snapshot.dashboard_url.as_deref(), Some("http://127.0.0.1:43210"));
+    assert!(rendered.contains("web: http://127.0.0.1:43210"));
+    assert_eq!(
+        snapshot.journal.last().map(String::as_str),
+        Some("Dashboard: http://127.0.0.1:43210")
+    );
 }
 
 #[test]

@@ -212,11 +212,12 @@ impl DashboardState {
                 }
                 self.push_recent("info", format!("{label}: {url}"));
             }
-            RunEvent::UsageReported { slot, task, invocation_id, usage } => {
+            RunEvent::UsageReported { slot, task, state, invocation_id, usage } => {
                 // §FS-rhei-cost-accounting.7: Usage updates task, slot, and run totals.
                 self.invocations.push(DashboardUsageRecord {
                     slot: *slot,
                     task: task.clone(),
+                    state: state.clone(),
                     invocation_id: invocation_id.clone(),
                     usage: usage.clone(),
                 });
@@ -228,7 +229,7 @@ impl DashboardState {
                 }
                 self.push_recent(
                     "info",
-                    format!("task {task}: usage reported for {}", usage.agent),
+                    format!("task {task} state {state}: usage reported for {}", usage.agent),
                 );
             }
         }
@@ -271,6 +272,7 @@ pub(super) struct DashboardSlot {
 pub(super) struct DashboardUsageRecord {
     pub(super) slot: Option<Slot>,
     pub(super) task: String,
+    pub(super) state: String,
     pub(super) invocation_id: String,
     pub(super) usage: UsageSummary,
 }
@@ -326,6 +328,7 @@ pub(super) struct SnapshotPayload<'a> {
     /// §FS-rhei-viz.3
     pub(super) plan_state: Option<String>,
     pub(super) tasks: Vec<TaskRow>,
+    pub(super) accounting_by_state: Vec<AccountingStateRow>,
     pub(super) auto_links: Vec<DashboardLink>,
 }
 
@@ -348,6 +351,30 @@ pub(super) struct TaskAccounting {
     pub(super) direct: Option<AccountingRunSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) subtree: Option<AccountingRunSummary>,
+}
+
+#[derive(Clone, Serialize)]
+pub(super) struct AccountingStateRow {
+    pub(super) task: String,
+    pub(super) state: String,
+    pub(super) summary: AccountingRunSummary,
+}
+
+pub(super) fn task_state_accounting_rows(
+    invocations: &[DashboardUsageRecord],
+) -> Vec<AccountingStateRow> {
+    // §FS-rhei-cost-accounting.10: Dashboard exposes compact task/state rollups.
+    let mut grouped = std::collections::BTreeMap::<(String, String), Vec<&UsageSummary>>::new();
+    for entry in invocations {
+        grouped.entry((entry.task.clone(), entry.state.clone())).or_default().push(&entry.usage);
+    }
+
+    grouped
+        .into_iter()
+        .filter_map(|((task, state), usages)| {
+            summarize_usage(usages).map(|summary| AccountingStateRow { task, state, summary })
+        })
+        .collect()
 }
 
 pub(super) fn task_accounting_for_tasks(

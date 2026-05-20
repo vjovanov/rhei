@@ -31,10 +31,10 @@ impl EventSink for StdoutSink {
             }
         } else if let RunEvent::RunLink { label, url } = event {
             println!("{label}: {url}");
-        } else if let RunEvent::UsageReported { task, usage, .. } = event {
+        } else if let RunEvent::UsageReported { task, state, usage, .. } = event {
             if let Some(cost) = usage.cost_micro.or(usage.priced_cost_micro) {
                 println!(
-                    "accounting: task {task} {} {}",
+                    "accounting: task {task} state {state} {} {}",
                     usage.agent,
                     format_cost_micro(cost, usage.currency.as_deref())
                 );

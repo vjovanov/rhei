@@ -269,6 +269,10 @@ function fmtCostMicro(v, currency) {
   return amount.toFixed(2) + " " + currency;
 }
 
+function fmtSummaryCost(summary) {
+  return fmtCostMicro(summary && (summary.cost_micro ?? summary.priced_cost_micro), summary && summary.currency);
+}
+
 function dimValue(summary) {
   return summary && summary.value != null ? summary.value : null;
 }
@@ -345,7 +349,7 @@ function setCounts(data) {
   document.getElementById("count-tasks").textContent = rowCount || "";
   const running = (data.slots || []).filter(s => s.active).length;
   document.getElementById("count-slots").textContent = running ? `${running}/${(data.slots || []).length}` : "";
-  document.getElementById("count-cost").textContent = data.accounting ? (data.accounting.invocation_count || "") : "";
+  document.getElementById("count-cost").textContent = data.accounting ? ((data.accounting_by_state || []).length || data.accounting.invocation_count || "") : "";
   document.getElementById("count-journal").textContent = (data.recent || []).length || "";
   const links = (data.auto_links || []).length + (data.links || []).length;
   document.getElementById("count-links").textContent = links || "";
@@ -748,6 +752,7 @@ function renderCost(data) {
     box.innerHTML = `<div class="empty">(no accounting records found)</div>`;
     return;
   }
+  const stateRows = data.accounting_by_state || [];
   const rows = [
     ["Cost", fmtCostMicro(accounting.cost_micro ?? accounting.priced_cost_micro, accounting.currency)],
     ["Input tokens", fmtTokens(dimValue(accounting.input_total))],
@@ -758,9 +763,25 @@ function renderCost(data) {
     ["Pricing", accounting.pricing_status],
     ["Invocations", accounting.invocation_count],
   ];
-  box.innerHTML = `<table><tbody>${rows.map(([k, v]) =>
+  const totals = `<table><tbody>${rows.map(([k, v]) =>
     `<tr><td>${escapeHtml(k)}</td><td class="mono">${escapeHtml(v)}</td></tr>`
   ).join("")}</tbody></table>`;
+  const byState = stateRows.length
+    ? `<table><thead><tr><th>Task</th><th>State</th><th>Invocations</th><th>In</th><th>Out</th><th>Cached In</th><th>Cost</th><th>Coverage</th></tr></thead><tbody>${stateRows.map(row => {
+        const s = row.summary || {};
+        return `<tr>
+          <td class="mono">${escapeHtml(row.task)}</td>
+          <td><span class="chip" style="background:${stateColor(row.state)}">${escapeHtml(row.state)}</span></td>
+          <td class="mono">${escapeHtml(String(s.invocation_count ?? "—"))}</td>
+          <td class="mono">${fmtTokens(dimValue(s.input_total))}</td>
+          <td class="mono">${fmtTokens(dimValue(s.output_total))}</td>
+          <td class="mono">${fmtTokens(dimValue(s.input_cached_read))}</td>
+          <td class="mono">${fmtSummaryCost(s)}</td>
+          <td class="mono">${escapeHtml(s.coverage || "unknown")}</td>
+        </tr>`;
+      }).join("")}</tbody></table>`
+    : `<div class="empty">No task/state accounting rows.</div>`;
+  box.innerHTML = `${totals}${byState}`;
 }
 
 function renderSlots(data) {
@@ -811,6 +832,9 @@ function renderSlotCard(slot, i, data) {
     slot.exit_code != null ? `exit ${slot.exit_code}` : null,
     slot.log_path ? `<a href="file://${encodeURI(slot.log_path)}" target="_blank" rel="noreferrer">view full log</a>` : null,
   ].filter(Boolean).join(" · ");
+  const usage = slot.usage
+    ? `<div class="meta">usage: <span class="mono">${fmtSummaryCost(slot.usage)}</span> · in <span class="mono">${fmtTokens(dimValue(slot.usage.input_total))}</span> · out <span class="mono">${fmtTokens(dimValue(slot.usage.output_total))}</span> · <span class="mono">${escapeHtml(slot.usage.coverage || "unknown")}</span></div>`
+    : "";
   const traffic = (slot.traffic || []).filter(t => !UI.hideStderr || t.stream !== "stderr");
   const lines = traffic.length
     ? traffic.map(t => {
@@ -823,6 +847,7 @@ function renderSlotCard(slot, i, data) {
   return `<div class="panel slot-card">
     <div class="head">Worker ${i + 1} · ${escapeHtml(slot.task || "—")} ${stateChip} ${outcome}</div>
     <div class="meta">${meta}</div>
+    ${usage}
     <div class="out" data-slot="${i}">${lines}</div>
   </div>`;
 }

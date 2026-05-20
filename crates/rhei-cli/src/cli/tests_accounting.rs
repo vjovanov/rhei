@@ -24,6 +24,22 @@ fn accounting_test_record() -> AccountingInvocationRecord {
     }
 }
 
+fn measured_accounting_test_record(
+    target_slug: Option<&str>,
+    input: u64,
+    output: u64,
+    cost_micro: u64,
+) -> AccountingInvocationRecord {
+    let mut record = accounting_test_record();
+    record.target_slug = target_slug.map(str::to_string);
+    record.tokens.input.total = AccountingTokenDimension::measured(input);
+    record.tokens.output.total = AccountingTokenDimension::measured(output);
+    record.pricing.status = "priced".to_string();
+    record.pricing.amount_micro = Some(cost_micro);
+    record.pricing.priced_amount_micro = Some(cost_micro);
+    record
+}
+
 fn accounting_usage(
     coverage: rhei_tui::UsageCoverage,
     pricing_status: rhei_tui::PricingStatus,
@@ -95,6 +111,34 @@ fn accounting_mixed_priced_and_unpriced_rollup_is_partial() {
     assert_eq!(summary.pricing_status, rhei_tui::PricingStatus::PartialPrice);
     assert_eq!(summary.cost_micro, None);
     assert_eq!(summary.priced_cost_micro, Some(100));
+}
+
+#[test]
+fn final_run_accounting_summary_groups_by_target() {
+    let first =
+        measured_accounting_test_record(Some("codex-yolo-openai-gpt-test"), 1000, 200, 4200);
+    let mut second =
+        measured_accounting_test_record(Some("codex-yolo-openai-gpt-test"), 3000, 400, 5800);
+    second.invocation_id = "1::verify::codex::visit-1".to_string();
+    let inspection = CostInspection {
+        summary: summarize_records([&first, &second]),
+        invocations: vec![
+            (PathBuf::from("first.json"), first),
+            (PathBuf::from("second.json"), second),
+        ],
+        errors: Vec::new(),
+    };
+
+    let lines = format_final_run_accounting_lines(&inspection);
+
+    assert_eq!(
+        lines,
+        vec![
+            "\nAccounting: $0.01 | In 4.0k | Out 600 | Coverage Complete | Invocations 2",
+            "By target:",
+            "  codex-yolo-openai-gpt-test: $0.01 | in=4.0k | out=600 | invocations=2 | coverage=Complete",
+        ]
+    );
 }
 
 #[test]

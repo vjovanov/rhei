@@ -118,16 +118,17 @@ impl EventSink for JournalSink {
                 let line = format!("{ts}  {task}  {move_str}  {log}  {meta}\n");
                 self.write_line(&line);
             }
-            RunEvent::UsageReported { task, invocation_id, usage, .. } => {
+            RunEvent::UsageReported { task, state, invocation_id, usage, .. } => {
                 let cost = usage
                     .cost_micro
                     .or(usage.priced_cost_micro)
                     .map(format_cost_micro)
                     .unwrap_or_else(|| "unpriced".to_string());
                 let line = format!(
-                    "{}  {}  usage  invocation={} agent={} cost={} coverage={:?}\n",
+                    "{}  {}  usage  state={} invocation={} agent={} cost={} coverage={:?}\n",
                     format_rfc3339(SystemTime::now()),
                     task,
+                    state,
                     invocation_id,
                     usage.agent,
                     cost,

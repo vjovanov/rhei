@@ -2062,6 +2062,11 @@ fn run_agent_mode(
             Err(_) => None,
         }
     };
+    if !opts.dry_run() {
+        for line in final_run_accounting_lines(&workspace_root) {
+            run_info!("{line}");
+        }
+    }
 
     sink.emit(RunEvent::RunFinished {
         summary: RunSummary {

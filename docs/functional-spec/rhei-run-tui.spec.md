@@ -181,6 +181,7 @@ pub enum RunEvent {
     UsageReported {
         slot: Option<Slot>,
         task: String,
+        state: String,
         invocation_id: String,
         usage: UsageSummary,
     },
@@ -200,13 +201,14 @@ pub trait EventSink: Send + Sync {
 `AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
 
 `UsageReported` is emitted after a `runtime/accounting/invocations/` record is
-durably written. It may arrive after `SlotReleased`; renderers update the
-matching task, slot history, and run totals without assuming the slot is still
-active. §FS-rhei-cost-accounting
+durably written. `state` identifies the invocation state even when the task has
+already advanced. It may arrive after `SlotReleased`; renderers update the
+matching task, task/state rollup, slot history, and run totals without assuming
+the slot is still active. §FS-rhei-cost-accounting
 
 `TasksDeferred` is emitted when tasks were ready in the current pass but not scheduled because another task in the same non-`concurrent` state consumed the available same-state slot. Deferred tasks remain eligible for later passes.
 
-`Message` carries human-oriented engine diagnostics with `info`, `warn`, or `error` severity. `RunLink` carries URLs or file links produced by the run process, such as dashboard links or callback-emitted artifacts. Frontends may render both in a journal pane; they do not represent task state changes.
+`Message` carries human-oriented engine diagnostics with `info`, `warn`, or `error` severity. `RunLink` carries URLs or file links produced by the run process, such as dashboard links or callback-emitted artifacts. Frontends may render both in a journal pane; they do not represent task state changes. The TUI promotes a `RunLink` labeled `Dashboard` into a persistent header/status link so the browser dashboard URL remains visible even after journal activity scrolls.
 
 `RunFinished` is emitted once with aggregate counts for spawned agents, spawned programs, terminal tasks, total tasks, and accounting totals when available.
 

@@ -29,6 +29,7 @@ pub(super) struct UiState {
     pub(super) total_tasks: usize,
     pub(super) slots: Vec<SlotState>,
     pub(super) journal: VecDeque<String>,
+    pub(super) dashboard_url: Option<String>,
     pub(super) finished: bool,
 }
 
@@ -40,6 +41,7 @@ impl UiState {
             total_tasks,
             slots: vec![SlotState::default(); parallel as usize],
             journal: VecDeque::with_capacity(JOURNAL_BUFFER),
+            dashboard_url: None,
             finished: false,
         }
     }
@@ -57,6 +59,7 @@ impl UiState {
                 self.parallel = (*parallel).max(1);
                 self.total_tasks = *total_tasks;
                 self.slots = vec![SlotState::default(); self.parallel as usize];
+                self.dashboard_url = None;
                 self.push_journal(format!(
                     "run started — parallel={} total={}",
                     self.parallel, self.total_tasks
@@ -152,16 +155,20 @@ impl UiState {
                 self.push_journal(format!("{prefix} {text}"));
             }
             RunEvent::RunLink { label, url } => {
+                // §FS-rhei-run-tui.1.1: Keep the dashboard URL visible outside the scrolling journal.
+                if label == "Dashboard" {
+                    self.dashboard_url = Some(url.clone());
+                }
                 self.push_journal(format!("{label}: {url}"));
             }
-            RunEvent::UsageReported { task, usage, .. } => {
+            RunEvent::UsageReported { task, state, usage, .. } => {
                 let cost = usage
                     .cost_micro
                     .or(usage.priced_cost_micro)
                     .map(format_cost_micro)
                     .unwrap_or_else(|| "unpriced".to_string());
                 self.push_journal(format!(
-                    "usage task {task}: {} {cost} {:?}",
+                    "usage task {task} state {state}: {} {cost} {:?}",
                     usage.agent, usage.coverage
                 ));
             }
@@ -180,6 +187,7 @@ pub(super) struct UiStateSnapshot {
     pub(super) total_tasks: usize,
     pub(super) slots: Vec<SlotState>,
     pub(super) journal: Vec<String>,
+    pub(super) dashboard_url: Option<String>,
     pub(super) finished: bool,
 }
 
@@ -190,6 +198,7 @@ impl UiState {
             total_tasks: self.total_tasks,
             slots: self.slots.clone(),
             journal: self.journal.iter().cloned().collect(),
+            dashboard_url: self.dashboard_url.clone(),
             finished: self.finished,
         }
     }

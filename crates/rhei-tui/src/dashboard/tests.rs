@@ -1,3 +1,4 @@
+use super::state::DashboardUsageRecord;
 use super::*;
 use crate::event::{
     DimensionStatus, DimensionSummary, PricingStatus, RunSummary, TaskOutcome, UsageCoverage,
@@ -202,6 +203,7 @@ fn snapshot_payload_exposes_plan_state() {
         plan_title: Some("Demo".to_string()),
         plan_state: Some("active".to_string()),
         tasks: Vec::new(),
+        accounting_by_state: Vec::new(),
         auto_links: Vec::new(),
     };
 
@@ -386,6 +388,7 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
     state.apply(&RunEvent::UsageReported {
         slot: None,
         task: "1".to_string(),
+        state: "review".to_string(),
         invocation_id: "priced".to_string(),
         usage: dashboard_usage(
             "priced",
@@ -398,6 +401,7 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
     state.apply(&RunEvent::UsageReported {
         slot: None,
         task: "2".to_string(),
+        state: "fix".to_string(),
         invocation_id: "unpriced".to_string(),
         usage: dashboard_usage(
             "unpriced",
@@ -413,6 +417,62 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
     assert_eq!(accounting.pricing_status, PricingStatus::PartialPrice);
     assert_eq!(accounting.cost_micro, None);
     assert_eq!(accounting.priced_cost_micro, Some(100));
+}
+
+#[test]
+fn dashboard_groups_accounting_by_task_and_state() {
+    let invocations = vec![
+        DashboardUsageRecord {
+            slot: Some(0),
+            task: "1".to_string(),
+            state: "review".to_string(),
+            invocation_id: "review-1".to_string(),
+            usage: dashboard_usage(
+                "review-1",
+                UsageCoverage::Complete,
+                PricingStatus::Priced,
+                Some(100),
+                Some(100),
+            ),
+        },
+        DashboardUsageRecord {
+            slot: Some(0),
+            task: "1".to_string(),
+            state: "review".to_string(),
+            invocation_id: "review-2".to_string(),
+            usage: dashboard_usage(
+                "review-2",
+                UsageCoverage::Complete,
+                PricingStatus::Priced,
+                Some(200),
+                Some(200),
+            ),
+        },
+        DashboardUsageRecord {
+            slot: Some(0),
+            task: "1".to_string(),
+            state: "fix".to_string(),
+            invocation_id: "fix-1".to_string(),
+            usage: dashboard_usage(
+                "fix-1",
+                UsageCoverage::Complete,
+                PricingStatus::Priced,
+                Some(300),
+                Some(300),
+            ),
+        },
+    ];
+
+    let rows = task_state_accounting_rows(&invocations);
+
+    assert_eq!(rows.len(), 2);
+    let fix = rows.iter().find(|row| row.state == "fix").expect("fix row");
+    assert_eq!(fix.task, "1");
+    assert_eq!(fix.summary.invocation_count, 1);
+    assert_eq!(fix.summary.cost_micro, Some(300));
+    let review = rows.iter().find(|row| row.state == "review").expect("review row");
+    assert_eq!(review.summary.invocation_count, 2);
+    assert_eq!(review.summary.cost_micro, Some(300));
 }
 
 /// Dashboard-enabled runs leave an inspectable static artifact behind after

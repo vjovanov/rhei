@@ -19,8 +19,8 @@ use html::DASHBOARD_HTML;
 #[cfg(test)]
 use state::derive_plan_state;
 use state::{
-    derive_plan_state_with_active_roots, task_accounting_for_tasks, DashboardLink, DashboardState,
-    SnapshotPayload, TaskRow,
+    derive_plan_state_with_active_roots, task_accounting_for_tasks, task_state_accounting_rows,
+    DashboardLink, DashboardState, SnapshotPayload, TaskRow,
 };
 
 const RECENT_LIMIT: usize = 200;
@@ -271,6 +271,7 @@ fn handle_client(
                 plan_title,
                 plan_state,
                 tasks,
+                accounting_by_state: task_state_accounting_rows(&snapshot_state.invocations),
                 auto_links,
             };
             match serde_json::to_vec(&payload) {

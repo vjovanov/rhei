@@ -1,0 +1,19 @@
+{
+  "defaults": {
+    "agent": "codex",
+    "agent_mode": "yolo",
+    "agent_timeout": "2m"
+  },
+  "agents": {
+    "codex": {
+      "command": [
+        "bash",
+        "scripts/accounting-smoke-agent.sh"
+      ],
+      "stdin_prompt": true,
+      "modes": {
+        "yolo": []
+      }
+    }
+  }
+}

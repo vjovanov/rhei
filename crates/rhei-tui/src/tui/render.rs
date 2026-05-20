@@ -45,19 +45,37 @@ pub(super) fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Ar
 }
 
 fn render_header(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {
-    let active = snapshot.slots.iter().filter(|s| s.task.is_some()).count();
-    let line = Line::from(vec![
-        Span::styled("rhei run", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(format!(
-            "  parallel={} active={} total_tasks={}{}",
-            snapshot.parallel,
-            active,
-            snapshot.total_tasks,
-            if snapshot.finished { "  [finished]" } else { "" },
-        )),
-    ]);
+    let line = header_line(snapshot, area.width);
     let block = Block::default().borders(Borders::BOTTOM);
     f.render_widget(Paragraph::new(line).block(block), area);
+}
+
+pub(super) fn header_line(snapshot: &UiStateSnapshot, width: u16) -> Line<'static> {
+    let active = snapshot.slots.iter().filter(|s| s.task.is_some()).count();
+    let status = format!(
+        "  parallel={} active={} total_tasks={}{}",
+        snapshot.parallel,
+        active,
+        snapshot.total_tasks,
+        if snapshot.finished { "  [finished]" } else { "" },
+    );
+    let mut spans = vec![
+        Span::styled("rhei run", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(status),
+    ];
+    if let Some(url) = snapshot.dashboard_url.as_deref() {
+        let fixed_len =
+            spans.iter().map(|span| span.content.chars().count()).sum::<usize>() + "  web: ".len();
+        let available = (width as usize).saturating_sub(fixed_len);
+        if available > 0 {
+            spans.push(Span::raw("  web: "));
+            spans.push(Span::styled(
+                truncate_chars(url, available),
+                Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
+            ));
+        }
+    }
+    Line::from(spans)
 }
 
 fn render_slots(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {

@@ -1,0 +1,83 @@
+# Cost Accounting Smoke state machine
+#
+#   collect (initial)
+#      |
+#      v
+#   verify
+#      |
+#      v
+#   completed (final)
+#
+#   cancelled is a final escape from any state.
+#
+# Per-task paths:
+# - smoke task: collect -> verify -> completed
+#
+# The template-local settings override `codex` with a shell script. The states
+# still use a codex target with the Anthropic price-book model so Rhei records
+# usage through the built-in codex accounting path and can compute a cost.
+name: cost-accounting-smoke
+version: 1.0.0
+
+states:
+  collect:
+    description: Emit the first structured accounting record.
+    target: codex[yolo]:anthropic:claude-sonnet-4-6
+    instructions: |
+      Run the local accounting smoke agent for Task {task_id}: {task_title}.
+
+      The script reads RHEI_STATE and writes the structured usage record for
+      this state. Exit successfully after the usage event is written.
+  verify:
+    description: Emit the second structured accounting record.
+    target: codex[yolo]:anthropic:claude-sonnet-4-6
+    instructions: |
+      Run the local accounting smoke agent for Task {task_id}: {task_title}.
+
+      The script reads RHEI_STATE and writes the structured usage record for
+      this state. Exit successfully after the usage event is written.
+
+  completed:
+    description: Accounting smoke test complete.
+    instructions: |
+      No further action is required.
+    final: true
+
+  cancelled:
+    description: Accounting smoke test cancelled.
+    instructions: |
+      Stop without modifying existing runtime artifacts.
+    final: true
+
+transitions:
+  - from: collect
+    to: verify
+    description: First accounting record emitted.
+
+  - from: verify
+    to: completed
+    description: Second accounting record emitted.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the smoke workflow.
+
+profiles:
+  workspace:
+    initial: completed
+    allowed:
+      - completed
+
+  smoke-task:
+    initial: collect
+    allowed:
+      - collect
+      - verify
+      - completed
+      - cancelled
+
+node_policy:
+  root: workspace
+  default: smoke-task
+  by_type:
+    task: smoke-task
