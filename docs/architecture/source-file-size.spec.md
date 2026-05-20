@@ -63,6 +63,7 @@ be split without making the design harder to understand.
 | `crates/rhei-cli/src/cli/system_transition_execution.rs` | System-transition execution carries the failure/timeout routing pipeline as one ordered procedure. | Split per outcome class once routing policies diverge. |
 | `crates/rhei-cli/src/cli/tests_agent_resolution.rs` | Agent resolution tests share execution-target fixtures. | Split by resolution surface (target, all_targets, legacy) when new surfaces are added. |
 | `crates/rhei-cli/src/cli/agent_command.rs` | `rhei agent` subcommand dispatch holds list/show/resolve/spawn next to each other for one help surface. | Split subcommand handlers from dispatch when a fifth subcommand is added. |
+| `crates/rhei-cli/src/cli/lsp.rs` | The v1 LSP protocol loop and feature handlers share one in-memory document state. | Split protocol framing, diagnostics, and feature providers when workspace-wide LSP features are added. |
 
 ## 3. Split Shape
 
@@ -101,6 +102,7 @@ under `crates/rhei-cli/src/cli/`:
 - `next_command`, `complete_reset_commands`, `complete_reset_rewrites`,
   `render_install_commands`, `install_skill_agents`, and `diagnostics` contain
   the remaining command families and shared diagnostics.
+- `lsp` contains the stdio language-server loop and editor authoring features.
 - `tests_cli_render`, `tests_complete_reset_tooling`, `tests_agent_resolution`,
   `tests_agent_execution_validation`, `tests_settings_tooling`,
   `tests_snapshots_gc`, and `tests_snapshot_runtime` contain CLI unit tests

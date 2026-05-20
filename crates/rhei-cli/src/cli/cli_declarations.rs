@@ -51,6 +51,7 @@ Usage: {usage}
 
 Inspection:
   validate    Validate a markdown plan against the configured states
+  lsp         Start the Rhei language server over stdio
   render      Render a markdown plan into a selected output format
   states      Print the states and allowed transitions for the configured state machine
   list        List tasks in a plan with optional filters
@@ -109,6 +110,8 @@ enum Commands {
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
     },
+    /// Start the Rhei language server over stdio
+    Lsp,
     /// Render a markdown plan into a selected output format
     Render {
         /// Path to the markdown plan file (.rhei.md)

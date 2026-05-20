@@ -12,6 +12,7 @@ mod templates {
 }
 
 include!("cli/states_render.rs");
+include!("cli/lsp.rs");
 include!("cli/metadata_conditions.rs");
 include!("cli/metadata_rewrite.rs");
 include!("cli/transition_context.rs");
@@ -57,4 +58,5 @@ mod tests {
     include!("cli/tests_settings_tooling.rs");
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_runtime.rs");
+    include!("cli/tests_lsp.rs");
 }

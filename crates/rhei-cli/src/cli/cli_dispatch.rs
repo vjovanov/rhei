@@ -215,6 +215,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Validate { watch, input } => {
             validate_command(&input, cli.state_machine.as_deref(), watch)
         }
+        Commands::Lsp => lsp_command(cli.state_machine.as_deref()),
         Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
             render_command(&input, format, pretty, no_color, no_metadata, no_content)
         }
