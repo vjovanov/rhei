@@ -428,6 +428,12 @@ fn print_snapshot_list(
             println!(
                 "task\tsnapshot\temitting_state\tvisit\ttarget\tgeneration\tcreated_at\ttranscript_bytes\tcompletion\tproduced_by"
             );
+            if rows.is_empty() {
+                println!(
+                    "No snapshots found. Run `rhei run` first or adjust filters such as `--produced-by all`."
+                );
+                return Ok(());
+            }
             for (record, _) in rows {
                 println!(
                     "{}\t{}\t{}\t{}\t{}\tg{}\t{}\t{}\t{}\t{}",

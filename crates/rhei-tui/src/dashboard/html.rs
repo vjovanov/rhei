@@ -212,7 +212,16 @@ const STATE_COLOR = {
   "cancelled":        "#475569",
   "archived":         "#334155",
 };
-function stateColor(s) { return STATE_COLOR[s] || "#475569"; }
+const FALLBACK_STATE_COLORS = [
+  "#06b6d4", "#84cc16", "#eab308", "#f97316", "#ec4899",
+  "#8b5cf6", "#14b8a6", "#f43f5e", "#0ea5e9", "#a3e635",
+];
+function fallbackStateColor(s) {
+  let hash = 0;
+  for (const ch of String(s || "")) hash = ((hash * 31) + ch.charCodeAt(0)) >>> 0;
+  return FALLBACK_STATE_COLORS[hash % FALLBACK_STATE_COLORS.length];
+}
+function stateColor(s) { return STATE_COLOR[s] || fallbackStateColor(s); }
 function stateIndex(s) {
   const i = STATE_ORDER.indexOf(s);
   return i >= 0 ? i : STATE_ORDER.length;
@@ -263,8 +272,9 @@ function renderHeader(data) {
   const slots = data.slots || [];
   const running = slots.filter(s => s.active).length;
   const deferred = (data.deferred || []).length;
-  const total = data.total_tasks || (data.tasks || []).length;
-  const done = (data.tasks || []).filter(t => isTerminal(t.state)).length;
+  const rootTasks = (data.tasks || []).filter(isRunnableTask);
+  const total = data.total_tasks || rootTasks.length || (data.tasks || []).length;
+  const done = rootTasks.filter(t => isTerminal(t.state)).length;
   const elapsedMs = data.started_at_ms ? (data.updated_at_ms - data.started_at_ms) : 0;
   const segs = [
     `<span class="seg">Pass ${data.pass || 0}</span>`,
@@ -297,11 +307,12 @@ function renderLegend(data) {
 }
 
 function setCounts(data) {
+  const rowCount = (data.tasks || []).length;
   const childCount = (data.tasks || []).filter(t => isChildTask(t)).length;
-  document.getElementById("count-gantt").textContent = data.plan_state || "";
+  document.getElementById("count-gantt").textContent = rowCount ? rowCount + 1 : "";
   document.getElementById("count-cube").textContent = childCount || "";
   document.getElementById("count-sankey").textContent = childCount || "";
-  document.getElementById("count-tasks").textContent = (data.tasks || []).length || "";
+  document.getElementById("count-tasks").textContent = rowCount || "";
   const running = (data.slots || []).filter(s => s.active).length;
   document.getElementById("count-slots").textContent = running ? `${running}/${(data.slots || []).length}` : "";
   document.getElementById("count-journal").textContent = (data.recent || []).length || "";
@@ -329,6 +340,10 @@ function isRootTask(t) {
 
 function isChildTask(t) {
   return !!t.parent && t.depth > 1;
+}
+
+function isRunnableTask(t) {
+  return isRootTask(t);
 }
 
 function childrenByParent(tasks) {
@@ -590,15 +605,17 @@ function renderSankey(data) {
 
 function renderTaskFilters(data) {
   const tasks = data.tasks || [];
+  const runnable = tasks.filter(isRunnableTask);
+  const runnableIds = new Set(runnable.map(t => t.id));
   const buckets = {
     all: tasks.length,
-    running: tasks.filter(t => t.in_slot != null).length,
-    ready: (data.ready || []).filter(id => !(data.deferred || []).includes(id)).length,
-    deferred: (data.deferred || []).length,
-    blocked: tasks.filter(t => !isTerminal(t.state) && t.in_slot == null
+    running: runnable.filter(t => t.in_slot != null).length,
+    ready: (data.ready || []).filter(id => runnableIds.has(id) && !(data.deferred || []).includes(id)).length,
+    deferred: (data.deferred || []).filter(id => runnableIds.has(id)).length,
+    blocked: runnable.filter(t => !isTerminal(t.state) && t.in_slot == null
       && !(data.ready || []).includes(t.id)
       && !(data.deferred || []).includes(t.id)).length,
-    done: tasks.filter(t => isTerminal(t.state)).length,
+    done: runnable.filter(t => isTerminal(t.state)).length,
   };
   const box = document.getElementById("task-filters");
   box.innerHTML = ["all","running","ready","deferred","blocked","done"].map(k => {
@@ -622,6 +639,9 @@ function blockedReasonForTask(t, taskById) {
 }
 
 function nowKindForTask(t, data, taskById) {
+  if (!isRunnableTask(t)) {
+    return { cls: isTerminal(t.state) ? "muted" : "outline", text: `child state · ${t.state}` };
+  }
   if (t.in_slot != null) return { cls: "busy", text: `slot ${t.in_slot} · running` };
   if ((data.deferred || []).includes(t.id)) return { cls: "warn", text: "deferred · next pass" };
   if ((data.ready || []).includes(t.id)) return { cls: "outline", text: "ready" };
@@ -641,13 +661,13 @@ function renderTasks(data) {
   const taskById = new Map(tasks.map(t => [t.id, t]));
   const filtered = tasks.filter(t => {
     switch (UI.taskFilter) {
-      case "running":  return t.in_slot != null;
-      case "ready":    return (data.ready || []).includes(t.id) && !(data.deferred || []).includes(t.id);
-      case "deferred": return (data.deferred || []).includes(t.id);
-      case "blocked":  return !isTerminal(t.state) && t.in_slot == null
+      case "running":  return isRunnableTask(t) && t.in_slot != null;
+      case "ready":    return isRunnableTask(t) && (data.ready || []).includes(t.id) && !(data.deferred || []).includes(t.id);
+      case "deferred": return isRunnableTask(t) && (data.deferred || []).includes(t.id);
+      case "blocked":  return isRunnableTask(t) && !isTerminal(t.state) && t.in_slot == null
                                 && !(data.ready || []).includes(t.id)
                                 && !(data.deferred || []).includes(t.id);
-      case "done":     return isTerminal(t.state);
+      case "done":     return isRunnableTask(t) && isTerminal(t.state);
       default:         return true;
     }
   });

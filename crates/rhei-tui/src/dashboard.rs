@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -15,7 +16,11 @@ mod html;
 mod state;
 
 use html::DASHBOARD_HTML;
-use state::{derive_plan_state, DashboardLink, DashboardState, SnapshotPayload, TaskRow};
+#[cfg(test)]
+use state::derive_plan_state;
+use state::{
+    derive_plan_state_with_active_roots, DashboardLink, DashboardState, SnapshotPayload, TaskRow,
+};
 
 const RECENT_LIMIT: usize = 200;
 const SLOT_TRAFFIC_LIMIT: usize = 60;
@@ -100,6 +105,22 @@ impl DashboardSink {
         &self.url
     }
 
+    pub fn write_frozen_dashboard(&self) -> io::Result<PathBuf> {
+        let snapshot = self.fetch_snapshot_body()?;
+        let snapshot = String::from_utf8(snapshot).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("dashboard snapshot was not valid UTF-8: {err}"),
+            )
+        })?;
+        let path = self.frozen_dashboard_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, frozen_dashboard_html(&snapshot))?;
+        Ok(path)
+    }
+
     pub fn finish(&self) {
         self.stop.store(true, Ordering::SeqCst);
         let mut guard = match self.join.lock() {
@@ -109,6 +130,34 @@ impl DashboardSink {
         if let Some(handle) = guard.take() {
             let _ = handle.join();
         }
+    }
+
+    fn frozen_dashboard_path(&self) -> PathBuf {
+        let workspace = match self.state.lock() {
+            Ok(s) => s.workspace.clone(),
+            Err(p) => p.into_inner().workspace.clone(),
+        };
+        PathBuf::from(workspace).join("runtime/dashboard.html")
+    }
+
+    fn fetch_snapshot_body(&self) -> io::Result<Vec<u8>> {
+        let addr = self.url.strip_prefix("http://").unwrap_or(self.url.as_str());
+        let mut stream = TcpStream::connect(addr)?;
+        stream
+            .write_all(b"GET /snapshot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?;
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response)?;
+        let split = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed HTTP response"))?;
+        if !response.starts_with(b"HTTP/1.1 200 OK\r\n") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "dashboard snapshot request failed",
+            ));
+        }
+        Ok(response[split + 4..].to_vec())
     }
 }
 
@@ -183,9 +232,13 @@ fn handle_client(
             let auto_links = derive_auto_links(&snapshot_state.workspace);
             let (plan_title, plan_state, tasks) = match plan_snapshot {
                 Some(p) => {
-                    let plan_state = derive_plan_state(&p.tasks);
-                    let active_tasks: HashSet<&str> =
-                        snapshot_state.slots.iter().filter_map(|s| s.task.as_deref()).collect();
+                    let active_tasks: HashSet<&str> = snapshot_state
+                        .slots
+                        .iter()
+                        .filter(|slot| slot.active)
+                        .filter_map(|slot| slot.task.as_deref())
+                        .collect();
+                    let plan_state = derive_plan_state_with_active_roots(&p.tasks, &active_tasks);
                     let deferred_set: HashSet<&str> =
                         snapshot_state.deferred.iter().map(|s| s.as_str()).collect();
                     let rows = p
@@ -194,10 +247,10 @@ fn handle_client(
                         .map(|task| {
                             let in_slot =
                                 snapshot_state.slots.iter().enumerate().find_map(|(i, slot)| {
-                                    slot.task
-                                        .as_deref()
-                                        .filter(|t| *t == task.id && active_tasks.contains(t))
-                                        .map(|_| i as u16)
+                                    if !slot.active {
+                                        return None;
+                                    }
+                                    slot.task.as_deref().filter(|t| *t == task.id).map(|_| i as u16)
                                 });
                             let deferred_this_pass = deferred_set.contains(task.id.as_str());
                             TaskRow { task, in_slot, deferred_this_pass }
@@ -307,6 +360,21 @@ fn write_not_found(stream: &mut TcpStream) {
         body.len()
     );
     let _ = stream.write_all(body);
+}
+
+fn frozen_dashboard_html(snapshot_json: &str) -> String {
+    let safe_json = snapshot_json
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    DASHBOARD_HTML.replace(
+        "tick();\nsetInterval(tick, 1000);",
+        &format!(
+            "const FINAL_SNAPSHOT = {safe_json};\nrender(FINAL_SNAPSHOT);\nsetBanner(\"done\", \"Run finished. Snapshot is frozen at the final state.\");"
+        ),
+    )
 }
 
 fn now_ms() -> u128 {

@@ -8,9 +8,9 @@ The `implement` state writes a named `implementation` snapshot, and the
 can also be opened by an operator with `rhei snapshot continue` for analysis
 without changing task state or advancing the `current` pointer.
 
-The `analysis-agent` profile is illustrative. Replace its command and flags
-with a real agent that supports the same session contract before running the
-example outside validation.
+The bundled `scripts/fake-analysis-agent.sh` implements the minimum native
+session contract needed to run the example locally. Replace that command and
+flags with a real agent profile when adapting the workflow to production.
 
 ## Commands
 
@@ -20,7 +20,7 @@ Validate the example:
 cargo xtask examples validate snapshot-continuation
 ```
 
-Run the workflow with a real `analysis-agent` on PATH:
+Run the workflow:
 
 ```bash
 cargo run -p rhei-cli -- \

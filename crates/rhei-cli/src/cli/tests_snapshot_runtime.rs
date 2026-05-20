@@ -1444,6 +1444,47 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
     }
 
     #[test]
+    fn snapshot_continue_rejects_layout_incompatible_source_snapshot() {
+        let _home = TempHome::new();
+        let dir = snapshot_workspace();
+        let mut settings = snapshot_preload_settings();
+        if let Some(profile) = settings.agents.get_mut("claude-code") {
+            profile.session = Some(serde_json::json!({
+                "resume": {"flag": "--resume"},
+                "interactive": {"args": []},
+                "layout": {"kind": "FlatById", "ext": "txt"}
+            }));
+        }
+        let ctx = SnapshotCommandContext {
+            workspace_root: dir.path().to_path_buf(),
+            plan_path: dir.path().join("index.rhei.md"),
+            cache_root: snapshot_cache_dir(&settings, dir.path()),
+            loaded: load_plan(dir.path()).expect("load plan"),
+            machine: rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+                .expect("state machine"),
+            settings,
+        };
+        write_snapshot_generation(
+            &ctx.cache_root,
+            "1",
+            "impl",
+            "pending",
+            1,
+            "claude-code-anthropic-model",
+            1,
+            "orchestrator",
+        );
+
+        let err = snapshot_continue_command(&ctx, "1:impl:pending/g1", None, None, true)
+            .expect_err("layout-incompatible snapshot should not continue");
+
+        assert!(err.to_string().contains("incompatible-snapshot"));
+        assert!(err.to_string().contains("not native-compatible"));
+        assert!(err.to_string().contains("stored layout FlatById/jsonl"));
+        assert!(err.to_string().contains("current profile expects FlatById/txt"));
+    }
+
+    #[test]
     fn snapshot_continue_run_lock_is_nonblocking_and_held_until_drop() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let held = try_acquire_run_lock(dir.path()).expect("lock").expect("available");

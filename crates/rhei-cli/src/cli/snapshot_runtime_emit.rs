@@ -199,6 +199,13 @@ fn emit_snapshots_after_agent_exit(
 }
 
 fn snapshot_record_native_compatible(record: &SnapshotRecord, resolved: &ResolvedAgent) -> bool {
+    snapshot_record_native_incompatibility(record, resolved).is_none()
+}
+
+fn snapshot_record_native_incompatibility(
+    record: &SnapshotRecord,
+    resolved: &ResolvedAgent,
+) -> Option<String> {
     let manifest_agent = record
         .manifest
         .get("target")
@@ -206,18 +213,40 @@ fn snapshot_record_native_compatible(record: &SnapshotRecord, resolved: &Resolve
         .and_then(|resolved| resolved.get("agent"))
         .and_then(serde_json::Value::as_str);
     if manifest_agent != Some(resolved.agent.id()) {
-        return false;
+        return Some(format!(
+            "stored agent {}; current agent {}",
+            manifest_agent.unwrap_or("<missing>"),
+            resolved.agent.id()
+        ));
     }
     let Some(session) = snapshot_session(resolved) else {
-        return false;
+        return Some("current agent has no snapshot session profile".to_string());
     };
     let Some(inheritor_layout) = snapshot_layout_manifest(session) else {
-        return false;
+        return Some("current agent has no supported session layout".to_string());
     };
-    snapshot_layout_matches(
-        record.manifest.get("session_layout").unwrap_or(&serde_json::Value::Null),
-        &inheritor_layout,
-    )
+    let snapshot_layout = record.manifest.get("session_layout").unwrap_or(&serde_json::Value::Null);
+    if !snapshot_layout_matches(snapshot_layout, &inheritor_layout) {
+        return Some(format!(
+            "stored layout {}; current profile expects {}",
+            snapshot_layout_label(snapshot_layout),
+            snapshot_layout_label(&inheritor_layout)
+        ));
+    }
+    None
+}
+
+fn snapshot_layout_label(layout: &serde_json::Value) -> String {
+    let kind = snapshot_layout_kind(layout).unwrap_or_else(|| "unknown".to_string());
+    let ext = snapshot_layout_ext(layout).unwrap_or_else(|| "unknown".to_string());
+    let mut label = format!("{kind}/{ext}");
+    if let Some(root_template) = layout.get("root_template").and_then(serde_json::Value::as_str) {
+        label.push_str(&format!(" root_template={root_template}"));
+    }
+    if let Some(project_hash) = layout.get("project_hash").and_then(serde_json::Value::as_str) {
+        label.push_str(&format!(" project_hash={project_hash}"));
+    };
+    label
 }
 
 fn snapshot_layout_matches(

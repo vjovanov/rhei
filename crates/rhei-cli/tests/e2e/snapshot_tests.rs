@@ -150,11 +150,28 @@ transitions:
 "#,
     );
 
+    let plan_arg = plan_path.to_string_lossy().to_string();
+    let empty_list =
+        run_snapshot_command(&plan_path, &machine_path, &["list", "--plan", &plan_arg]);
+    assert_success(&empty_list);
+    assert!(
+        empty_list.stdout.contains("No snapshots found")
+            && empty_list.stdout.contains("--produced-by all"),
+        "expected empty snapshot list to guide the operator; got:\n{}",
+        empty_list.stdout
+    );
+    let empty_json = run_snapshot_command(
+        &plan_path,
+        &machine_path,
+        &["list", "--plan", &plan_arg, "--format", "json"],
+    );
+    assert_success(&empty_json);
+    assert_eq!(empty_json.stdout.trim(), "[]");
+
     let result = run_cli("run", &plan_path, &machine_path, &["--no-tui"]);
     assert_success(&result);
     assert_task_state(&plan_path, &machine_path, "1", "completed");
 
-    let plan_arg = plan_path.to_string_lossy().to_string();
     let list = run_snapshot_command(
         &plan_path,
         &machine_path,
@@ -229,7 +246,8 @@ transitions:
     );
     assert_success(&continued);
     assert!(
-        continued.stdout.contains("captured 1:impl:source@1:fake-acme-model-a/g2"),
+        continued.stdout.contains("captured 1:impl:source@1:fake-acme-model-a/g2")
+            && continued.stdout.contains("--produced-by operator"),
         "expected snapshot continue to capture an operator generation; got:\n{}",
         continued.stdout
     );
@@ -283,6 +301,11 @@ transitions:
         &["continue", snapshot_ref, "--plan", &plan_arg, "--no-capture"],
     );
     assert_success(&no_capture);
+    assert!(
+        no_capture.stdout.contains("without capture; no snapshot written"),
+        "expected --no-capture to confirm no generation was written; got:\n{}",
+        no_capture.stdout
+    );
     let after_no_capture = run_snapshot_command(
         &plan_path,
         &machine_path,
