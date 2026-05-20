@@ -306,6 +306,316 @@ transitions:
 }
 
 #[test]
+fn next_writes_codex_assignee_and_complete_removes_it() {
+    let plan = r#"# Rhei: Codex Claim
+
+## Tasks
+
+### Task 1: Implement claim
+**State:** draft
+"#;
+    let machine = r#"name: codex-claim
+version: 1
+states:
+  draft:
+    initial: true
+    description: Planned
+  pending:
+    description: Ready
+    agent: codex
+    instructions: Implement the task.
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: pending
+  - from: pending
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-codex-assignee");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
+    assert_success(&result);
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
+    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["agent"], "codex");
+
+    let claimed = fs::read_to_string(&plan_path).expect("read claimed plan");
+    assert!(
+        claimed.contains("**State:** pending\n**Assignee:** codex"),
+        "expected codex assignee after state; got:\n{claimed}"
+    );
+
+    let duplicate = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(!duplicate.status.success(), "assigned task should not be claimable again");
+    assert!(
+        duplicate.stderr.contains("currently in progress")
+            && duplicate.stderr.contains("Task 1")
+            && duplicate.stderr.contains("pending, assignee codex"),
+        "expected in-progress assigned diagnostic; got:\n{}",
+        duplicate.stderr
+    );
+
+    let complete = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--task", "1", "--result", "done", "--no-callbacks"],
+    );
+    assert_success(&complete);
+    let completed = fs::read_to_string(&plan_path).expect("read completed plan");
+    assert!(
+        !completed.contains("**Assignee:**"),
+        "complete should remove assignee; got:\n{completed}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_task_rejects_already_assigned_task() {
+    let plan = r#"# Rhei: Assigned Target
+
+## Tasks
+
+### Task 1: Claimed
+**State:** draft
+**Assignee:** codex
+"#;
+
+    let (dir, plan_path, machine_path) = setup_single_file("next-assigned-target", plan);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
+    assert!(!result.status.success(), "assigned task should be rejected");
+    assert!(
+        result.stderr.contains("Task 1 is already assigned to codex"),
+        "expected assigned-task error; got:\n{}",
+        result.stderr
+    );
+    let unchanged = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(unchanged.contains("**State:** draft\n**Assignee:** codex"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_peek_does_not_write_assignee() {
+    let plan = r#"# Rhei: Peek Claim
+
+## Tasks
+
+### Task 1: Inspect
+**State:** draft
+"#;
+    let machine = r#"name: peek-claim
+version: 1
+states:
+  draft:
+    initial: true
+    description: Runnable
+    agent: codex
+    instructions: Inspect only.
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-peek-assignee");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
+    assert_success(&result);
+    let content = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(!content.contains("**Assignee:**"), "peek must not write assignee; got:\n{content}");
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_workspace_writes_assignee_to_task_file() {
+    let index = "# Rhei: Workspace Codex Claim\n";
+    let machine = r#"name: workspace-codex-claim
+version: 1
+states:
+  draft:
+    initial: true
+    description: Planned
+  pending:
+    description: Ready
+    agent: codex
+    instructions: Implement the task.
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: pending
+  - from: pending
+    to: completed
+"#;
+    let dir = unique_temp_dir("next-ws-codex-assignee");
+    let ws = dir.join("workspace");
+    let tasks_dir = ws.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(ws.join("index.rhei.md"), index).expect("write index");
+    let task_file = tasks_dir.join("one.md");
+    fs::write(&task_file, "### Task 1: Claim me\n**State:** draft\n").expect("write task");
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &ws, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+
+    let task_content = fs::read_to_string(&task_file).expect("read task file");
+    assert!(
+        task_content.contains("**State:** pending\n**Assignee:** codex"),
+        "expected assignee in task file; got:\n{task_content}"
+    );
+    let index_content = fs::read_to_string(ws.join("index.rhei.md")).expect("read index");
+    assert!(
+        !index_content.contains("**Assignee:**"),
+        "workspace index must not receive task assignee; got:\n{index_content}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn complete_custom_node_removes_assignee_and_links_result() {
+    let plan = r#"# Rhei: Custom Completion
+---
+structure:
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+
+### Bug cache-key: Fix cache
+**State:** pending
+**Assignee:** codex
+"#;
+    let machine = r#"name: custom-completion
+version: 1
+states:
+  pending:
+    description: Ready
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: pending
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("complete-custom-node");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let complete = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--task", "cache-key", "--result", "done", "--no-callbacks"],
+    );
+    assert_success(&complete);
+    let content = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(
+        content.contains("### Bug cache-key: Fix cache\n**State:** completed"),
+        "custom node should complete; got:\n{content}"
+    );
+    assert!(
+        !content.contains("**Assignee:**"),
+        "custom node assignee should be removed; got:\n{content}"
+    );
+    assert!(
+        content.contains("> **Result:** [cache-key](runtime/results/cache-key.md)"),
+        "custom node result link should be inserted; got:\n{content}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn next_task_can_claim_child_task_with_assignee() {
+    let plan = r#"# Rhei: Child Codex Claim
+
+## Tasks
+
+### Task 1: Parent
+**State:** draft
+
+#### Task 1.1: Child
+**State:** draft
+"#;
+    let machine = r#"name: child-codex-claim
+version: 1
+states:
+  draft:
+    initial: true
+    description: Planned
+  pending:
+    description: Ready
+    agent: codex
+    instructions: Implement the child task.
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: pending
+  - from: pending
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-child-codex-assignee");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1.1"]);
+    assert_success(&result);
+    let content = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(
+        content.contains("### Task 1: Parent\n**State:** draft"),
+        "parent state should be unchanged; got:\n{content}"
+    );
+    assert!(
+        content.contains("#### Task 1.1: Child\n**State:** pending\n**Assignee:** codex"),
+        "child task should be claimed; got:\n{content}"
+    );
+
+    let complete = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--no-callbacks", "--task", "1.1", "--result", "done"],
+    );
+    assert_success(&complete);
+    let content = fs::read_to_string(&plan_path).expect("read completed plan");
+    assert!(
+        content.contains("#### Task 1.1: Child\n**State:** completed"),
+        "child task should complete; got:\n{content}"
+    );
+    assert!(
+        !content.contains("**Assignee:** codex"),
+        "child assignee should be removed; got:\n{content}"
+    );
+    assert!(
+        content.contains("> **Result:** [1.1](runtime/results/1.1.md)"),
+        "child result link should be inserted; got:\n{content}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn next_respects_dependency_order() {
     let (dir, plan_path, machine_path) = setup_single_file("next-deps", LINEAR_PLAN);
 

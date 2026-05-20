@@ -28,9 +28,11 @@ transitions:
 
 ### Task 1: Alpha
 **State:** completed
+**Assignee:** codex
 
 #### Task 1.1: Detail
 **State:** in-progress
+**Assignee:** claude-code
 
 ### Task 2: Beta
 **State:** pending
@@ -61,6 +63,10 @@ transitions:
     assert_eq!(rhei.tasks[0].state.as_str(), "draft");
     assert_eq!(rhei.tasks[0].children[0].state.as_str(), "draft");
     assert_eq!(rhei.tasks[1].state.as_str(), "draft");
+    assert_eq!(rhei.tasks[0].assignee, None);
+    assert_eq!(rhei.tasks[0].children[0].assignee, None);
+    assert_eq!(rhei.tasks[1].assignee, None);
+    assert!(!updated.contains("**Assignee:**"));
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

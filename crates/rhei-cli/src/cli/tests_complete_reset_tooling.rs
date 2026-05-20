@@ -382,6 +382,64 @@ Body text.
     }
 
     #[test]
+    fn rewrite_task_completion_matches_custom_node_kind() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = dir.path().join("plan.md");
+        fs::write(
+            &path,
+            r#"### Bug cache-key: Fix cache
+**State:** completed
+**Assignee:** codex
+
+Body text.
+"#,
+        )
+        .expect("write");
+
+        rewrite_task_completion(&path, "cache-key", "cache-key", "runtime/results/cache-key.md", true)
+            .expect("rewrite");
+
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(!content.contains("**Assignee:**"), "assignee should be removed");
+        assert!(content.contains("> **Result:** [cache-key](runtime/results/cache-key.md)"));
+    }
+
+    #[test]
+    fn reset_rewrite_strips_assignees() {
+        let raw = r#"# Rhei: Reset
+
+## Tasks
+
+### Task 1: Alpha
+**State:** completed
+**Assignee:** codex
+
+#### Task 1.1: Detail
+**State:** completed
+**Assignee:** claude-code
+"#;
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: reset-assignee
+version: 1
+states:
+  draft:
+    description: Ready
+    initial: true
+  completed:
+    description: Done
+    final: true
+"#,
+        )
+        .expect("load reset machine");
+        let rewritten = rewrite_all_states_to_initial(raw, &machine).expect("rewrite states");
+        let rewritten = strip_assignee_lines(&rewritten);
+
+        assert_eq!(rewritten.matches("**State:** draft").count(), 2);
+        assert!(!rewritten.contains("**Assignee:**"));
+    }
+
+    #[test]
     fn clap_command_factory_builds() {
         Cli::command().debug_assert();
     }

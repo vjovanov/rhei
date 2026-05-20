@@ -114,8 +114,7 @@ fn find_runnable_tasks<'a>(
 ///
 /// A task is claimable when it is in the state machine's initial state, its
 /// prerequisites are satisfied, and it has no `**Assignee:**` field (which
-/// indicates it is already claimed by another agent). Already-claimed work
-/// can still be inspected explicitly with `rhei next --task <id>`.
+/// indicates it is already claimed by another agent).
 fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
@@ -187,6 +186,39 @@ fn diagnose_no_claimable(
             state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
         })
     };
+
+    let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal
+        .iter()
+        .copied()
+        .filter(|t| {
+            let s = normalized_state_name(t.state.as_str(), machine);
+            let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
+            !gating && t.assignee.is_some() && priors_satisfied(t)
+        })
+        .collect();
+
+    if !assigned_ready.is_empty() {
+        let items: Vec<String> = assigned_ready
+            .iter()
+            .take(3)
+            .map(|task| {
+                let state = normalized_state_name(task.state.as_str(), machine);
+                let assignee = task.assignee.as_deref().unwrap_or("unknown");
+                format!("Task {} ({}, assignee {})", task.id, state, assignee)
+            })
+            .collect();
+        let suffix = if assigned_ready.len() > 3 {
+            format!(" (+{} more)", assigned_ready.len() - 3)
+        } else {
+            String::new()
+        };
+        return format!(
+            "No tasks available to claim. {} task(s) are currently in progress: {}{}.",
+            assigned_ready.len(),
+            items.join(", "),
+            suffix
+        );
+    }
 
     let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal
         .iter()

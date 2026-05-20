@@ -19,6 +19,7 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
         .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
     let new_raw = rewrite_all_states_to_initial(&raw, machine)?;
     let new_raw = strip_result_links(&new_raw);
+    let new_raw = strip_assignee_lines(&new_raw);
     let new_raw = match rhei_core::parse(&new_raw) {
         Ok(rhei) => {
             if let Some(metadata) = clear_runtime_state_visits(rhei.metadata.as_ref()) {
@@ -91,6 +92,25 @@ fn strip_result_links(raw: &str) -> String {
             if matches!(result.last(), Some(last) if last.trim().is_empty()) {
                 result.pop();
             }
+            continue;
+        }
+        result.push((*line).to_string());
+    }
+
+    let mut output = result.join("\n");
+    if raw.ends_with('\n') {
+        output.push('\n');
+    }
+    output
+}
+
+/// Remove all runtime-owned `**Assignee:** …` lines during reset.
+fn strip_assignee_lines(raw: &str) -> String {
+    let lines: Vec<&str> = raw.lines().collect();
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+
+    for line in &lines {
+        if line.starts_with("**Assignee:**") {
             continue;
         }
         result.push((*line).to_string());
@@ -279,9 +299,17 @@ fn append_result_entry(
 /// Write `**Assignee:** <value>` into the given task's metadata block on disk.
 ///
 /// The rewrite is atomic (temp file + rename) and holds an exclusive lock on
-/// the file for the duration of the operation. No-op if the task already has
-/// an assignee line.
-fn write_task_assignee(task_file: &Path, task_id: &str, assignee: &str) -> MietteResult<()> {
+/// the file for the duration of the operation. While locked, it re-checks the
+/// task state and existing assignee so a stale claim cannot overwrite another
+/// worker's claim.
+// §FS-rhei-next.3.1: Re-check claimability under the file lock before claiming.
+fn write_task_assignee(
+    task_file: &Path,
+    task_id: &str,
+    expected_state: &str,
+    machine: &rhei_validator::StateMachine,
+    assignee: &str,
+) -> MietteResult<()> {
     let handle = fs::File::open(task_file)
         .map_err(|err| file_io_report(task_file, "failed to open plan file", err))?;
     handle
@@ -290,6 +318,23 @@ fn write_task_assignee(task_file: &Path, task_id: &str, assignee: &str) -> Miett
 
     let raw = fs::read_to_string(task_file)
         .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
+    let target = parse_task_id(task_id);
+    let task = parse_claim_task_from_raw(&raw, task_file, &target, task_id)?;
+    let current_state = normalized_state_name(task.state.as_str(), machine);
+    if current_state != expected_state {
+        let _ = handle.unlock();
+        return Err(miette!(
+            "conflict: Task {} is in state '{}', expected '{}'",
+            task_id,
+            task.state,
+            expected_state
+        ));
+    }
+    if let Some(existing) = task.assignee.as_deref() {
+        let _ = handle.unlock();
+        return Err(miette!("Task {} is already assigned to {}", task_id, existing));
+    }
+
     let rewritten = insert_task_assignee(&raw, task_id, assignee)?;
 
     let parent = task_file.parent().unwrap_or(Path::new("."));
@@ -301,6 +346,27 @@ fn write_task_assignee(task_file: &Path, task_id: &str, assignee: &str) -> Miett
 
     let _ = handle.unlock();
     Ok(())
+}
+
+fn parse_claim_task_from_raw(
+    raw: &str,
+    task_file: &Path,
+    target: &TaskId,
+    task_id: &str,
+) -> MietteResult<rhei_core::ast::Task> {
+    if let Ok(rhei) = rhei_core::parse(raw) {
+        if let Some(task) = find_task_by_id(&rhei.tasks, target) {
+            return Ok(task.clone());
+        }
+    }
+
+    if let Ok(tasks) = rhei_core::parser::parse_workspace_tasks(raw) {
+        if let Some(task) = find_task_by_id(&tasks, target) {
+            return Ok(task.clone());
+        }
+    }
+
+    Err(miette!("task '{}' not found in {}", task_id, task_file.display()))
 }
 
 /// Rewrite a task's markdown after completion: remove `**Assignee:**` and,
@@ -321,29 +387,23 @@ fn rewrite_task_completion(
 
     let lines: Vec<&str> = raw.lines().collect();
     let mut result_lines: Vec<String> = Vec::with_capacity(lines.len() + 2);
-    let task_prefix = format!("### Task {}:", task_id);
 
     let mut in_target_task = false;
+    let mut target_found = false;
     let mut link_inserted = !insert_link; // skip insertion when not requested
     let result_line = format!("> **Result:** [{}]({})", link_text, link_path);
 
-    // Any H4..=H6 heading marks a child/descendant node under the current
-    // root task, regardless of node kind. Insert the result link just before
-    // the first descendant heading we encounter while still inside the target.
-    let descendant_heading_re = regex::Regex::new(r#"^#{4,6}\s+"#).expect("regex");
-
     for line in &lines {
-        let is_new_task = line.starts_with("### Task ") && !line.starts_with(&task_prefix);
-        let is_descendant = descendant_heading_re.is_match(line);
-
-        if in_target_task && !link_inserted && (is_new_task || is_descendant) {
+        let heading = node_heading(line);
+        if in_target_task && !link_inserted && heading.is_some() {
             result_lines.push(String::new());
             result_lines.push(result_line.clone());
             link_inserted = true;
         }
 
-        if line.starts_with("### Task ") {
-            in_target_task = line.starts_with(&task_prefix);
+        if let Some((_, id)) = heading {
+            in_target_task = id == task_id;
+            target_found |= in_target_task;
         }
 
         // Strip the assignee line from the target task.
@@ -358,6 +418,9 @@ fn rewrite_task_completion(
     if in_target_task && !link_inserted {
         result_lines.push(String::new());
         result_lines.push(result_line);
+    }
+    if !target_found {
+        return Err(miette!("task '{}' not found in {}", task_id, task_file.display()));
     }
 
     let mut output = result_lines.join("\n");
