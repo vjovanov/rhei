@@ -24,25 +24,23 @@ fn parse_task_id(s: &str) -> TaskId {
 
 /// Insert a `**Assignee:** <value>` metadata line for a specific task.
 ///
-/// Locates the `### Task <id>:` header, walks through its metadata block
+/// Locates the task node header, walks through its metadata block
 /// (`**State:**`, optional `**Prior:**`), and inserts the Assignee line at
 /// the end of that block, matching the task grammar order. A duplicate
-/// insertion is a no-op if the task
-/// already has an assignee line; the caller is responsible for ensuring the
-/// field is absent first (use claim-time eligibility checks).
+/// insertion is treated as a claim conflict.
 // §FS-rhei-plan-language.2: Task metadata grammar order.
 fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResult<String> {
     let lines: Vec<&str> = raw.lines().collect();
     let mut result: Vec<String> = Vec::with_capacity(lines.len() + 1);
 
-    let task_prefix = format!("### Task {}:", task_id);
     let mut in_target_task = false;
     let mut last_metadata_idx: Option<usize> = None;
     let mut already_present = false;
     let mut inserted = false;
+    let mut in_code_block = false;
 
     for line in lines.iter() {
-        if line.starts_with("### Task ") {
+        if let Some(id) = node_heading_id_outside_code(line, &mut in_code_block) {
             if let Some(meta_idx) = last_metadata_idx.take() {
                 // Leaving previous target without finding a home for the
                 // assignee line — insert immediately after its last metadata
@@ -50,13 +48,16 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
                 insert_after(&mut result, meta_idx, &format_assignee(assignee));
                 inserted = true;
             }
-            in_target_task = line.starts_with(&task_prefix);
+            in_target_task = id == task_id;
         }
 
-        if in_target_task && line.starts_with("**Assignee:**") {
+        if !in_code_block && in_target_task && line.starts_with("**Assignee:**") {
             already_present = true;
         }
-        if in_target_task && (line.starts_with("**State:**") || line.starts_with("**Prior:**")) {
+        if !in_code_block
+            && in_target_task
+            && (line.starts_with("**State:**") || line.starts_with("**Prior:**"))
+        {
             last_metadata_idx = Some(result.len());
         }
 
@@ -64,8 +65,7 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     }
 
     if already_present {
-        // Nothing to do — preserve input verbatim to keep trailing newline.
-        return Ok(raw.to_string());
+        return Err(miette!("Task {} already has an **Assignee:** line", task_id));
     }
     if inserted {
         let mut output = result.join("\n");
@@ -90,6 +90,39 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     Ok(output)
 }
 
+fn node_heading_id_outside_code<'a>(
+    line: &'a str,
+    in_code_block: &mut bool,
+) -> Option<&'a str> {
+    node_heading_outside_code(line, in_code_block).map(|(_, id)| id)
+}
+
+fn node_heading_outside_code<'a>(
+    line: &'a str,
+    in_code_block: &mut bool,
+) -> Option<(usize, &'a str)> {
+    if line.trim_start().starts_with("```") {
+        *in_code_block = !*in_code_block;
+        return None;
+    }
+    if *in_code_block {
+        return None;
+    }
+    node_heading(line)
+}
+
+fn node_heading(line: &str) -> Option<(usize, &str)> {
+    let hashes = line.as_bytes().iter().take_while(|byte| **byte == b'#').count();
+    if !(3..=6).contains(&hashes) || !line.as_bytes().get(hashes).is_some_and(|b| *b == b' ') {
+        return None;
+    }
+
+    let body = &line[hashes + 1..];
+    let (prefix, _) = body.split_once(':')?;
+    let (_, id) = prefix.rsplit_once(' ')?;
+    if id.is_empty() { None } else { Some((hashes, id)) }
+}
+
 fn format_assignee(value: &str) -> String {
     format!("**Assignee:** {}", value)
 }
@@ -103,26 +136,92 @@ fn insert_after(lines: &mut Vec<String>, idx: usize, value: &str) {
     }
 }
 
+#[cfg(test)]
+mod next_assignee_rewrite_tests {
+    use super::*;
+
+    #[test]
+    fn insert_assignee_after_state_when_no_prior() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\nBody\n";
+        let rewritten = insert_task_assignee(raw, "1", "codex").expect("rewrite");
+        assert!(rewritten.contains("**State:** pending\n**Assignee:** codex\nBody"));
+    }
+
+    #[test]
+    fn insert_assignee_after_prior_when_present() {
+        let raw =
+            "# Rhei: Test\n\n## Tasks\n\n### Task 2: Work\n**State:** pending\n**Prior:** Task 1\nBody\n";
+        let rewritten = insert_task_assignee(raw, "2", "codex").expect("rewrite");
+        assert!(rewritten.contains("**Prior:** Task 1\n**Assignee:** codex\nBody"));
+    }
+
+    #[test]
+    fn insert_assignee_supports_child_task_heading() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Parent\n**State:** pending\n\n#### Task 1.1: Child\n**State:** pending\nBody\n";
+        let rewritten = insert_task_assignee(raw, "1.1", "codex").expect("rewrite");
+        assert!(rewritten.contains("#### Task 1.1: Child\n**State:** pending\n**Assignee:** codex\nBody"));
+        assert!(!rewritten.contains("### Task 1: Parent\n**State:** pending\n**Assignee:**"));
+    }
+
+    #[test]
+    fn insert_assignee_supports_custom_node_kind() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Bug cache-key: Fix cache\n**State:** pending\nBody\n";
+        let rewritten = insert_task_assignee(raw, "cache-key", "codex").expect("rewrite");
+        assert!(rewritten.contains("### Bug cache-key: Fix cache\n**State:** pending\n**Assignee:** codex\nBody"));
+    }
+
+    #[test]
+    fn insert_assignee_rejects_existing_assignee() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n**Assignee:** alice\nBody\n";
+        let err = insert_task_assignee(raw, "1", "codex").expect_err("existing assignee");
+        assert!(err.to_string().contains("already has an **Assignee:** line"));
+    }
+
+    #[test]
+    fn rewrite_state_supports_child_task_heading() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Parent\n**State:** draft\n\n#### Task 1.1: Child\n**State:** draft\nBody\n";
+        let rewritten = rewrite_task_state(raw, "1.1", "pending").expect("rewrite");
+        assert!(rewritten.contains("### Task 1: Parent\n**State:** draft"));
+        assert!(rewritten.contains("#### Task 1.1: Child\n**State:** pending\nBody"));
+    }
+
+    #[test]
+    fn insert_assignee_ignores_task_shaped_heading_inside_code_fence() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Parent\n**State:** pending\n```markdown\n#### Task 1.1: Example\n**State:** draft\n```\n\n#### Task 1.1: Real child\n**State:** pending\nBody\n";
+        let rewritten = insert_task_assignee(raw, "1.1", "codex").expect("rewrite");
+        assert!(rewritten.contains("#### Task 1.1: Example\n**State:** draft\n```"));
+        assert!(rewritten.contains("#### Task 1.1: Real child\n**State:** pending\n**Assignee:** codex\nBody"));
+    }
+
+    #[test]
+    fn rewrite_state_ignores_task_shaped_heading_inside_code_fence() {
+        let raw = "# Rhei: Test\n\n## Tasks\n\n### Task 1: Parent\n**State:** draft\n```markdown\n#### Task 1.1: Example\n**State:** draft\n```\n\n#### Task 1.1: Real child\n**State:** draft\nBody\n";
+        let rewritten = rewrite_task_state(raw, "1.1", "pending").expect("rewrite");
+        assert!(rewritten.contains("#### Task 1.1: Example\n**State:** draft\n```"));
+        assert!(rewritten.contains("#### Task 1.1: Real child\n**State:** pending\nBody"));
+    }
+}
+
 /// Rewrite the `**State:**` line for a specific task in the raw markdown.
 ///
-/// Locates the `### Task <id>:` header and replaces the immediately following
+/// Locates the task node header and replaces the immediately following
 /// `**State:**` line with the new state value.
 fn rewrite_task_state(raw: &str, task_id: &str, new_state: &str) -> MietteResult<String> {
     let lines: Vec<&str> = raw.lines().collect();
     let mut result = Vec::with_capacity(lines.len());
 
-    // Build the task header prefix to match.
-    let task_prefix = format!("### Task {}:", task_id);
-
     let mut in_target_task = false;
     let mut state_replaced = false;
+    let mut in_code_block = false;
 
     for line in &lines {
-        if !state_replaced && line.starts_with("### Task ") {
-            in_target_task = line.starts_with(&task_prefix);
+        if !state_replaced {
+            if let Some(id) = node_heading_id_outside_code(line, &mut in_code_block) {
+                in_target_task = id == task_id;
+            }
         }
 
-        if in_target_task && !state_replaced && line.starts_with("**State:**") {
+        if !in_code_block && in_target_task && !state_replaced && line.starts_with("**State:**") {
             let formatted = format!("**State:** {}", format_state_metadata_value(new_state));
             result.push(formatted);
             state_replaced = true;
@@ -171,12 +270,11 @@ fn next_command(
     // Find the target task to claim.
     let (task_id_str, current_state_raw, current_state) = if let Some(tid) = task_id_filter {
         let target_id = parse_task_id(tid);
-        let task = loaded
-            .rhei
-            .tasks
-            .iter()
-            .find(|t| t.id == target_id)
+        let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
+        if let Some(assignee) = task.assignee.as_deref() {
+            return Err(miette!("Task {} is already assigned to {}", tid, assignee));
+        }
         let state_name = normalized_state_name(task.state.as_str(), &machine);
         let is_initial = task_is_in_initial_state(task, &state_name, &machine);
         if is_initial {
@@ -249,11 +347,7 @@ fn next_command(
     // Determine whether we need a state transition.
     // Tasks in an initial state (e.g. draft) are transitioned forward.
     let target_id = parse_task_id(&task_id_str);
-    let selected_task = loaded
-        .rhei
-        .tasks
-        .iter()
-        .find(|task| task.id == target_id)
+    let selected_task = find_task_by_id(&loaded.rhei.tasks, &target_id)
         .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
     let is_initial = task_is_in_initial_state(selected_task, &current_state, &machine);
     let current_state_def = machine
@@ -273,11 +367,7 @@ fn next_command(
     let final_state = if auto_transition_initial && !peek {
         // Advance from the initial state (e.g. draft → pending).
         let target_id = parse_task_id(&task_id_str);
-        let task = loaded
-            .rhei
-            .tasks
-            .iter()
-            .find(|task| task.id == target_id)
+        let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
         let to_state = find_next_transition(task, &loaded.rhei, &machine)?.ok_or_else(|| {
             miette!("no forward transition available from state '{}'", current_state_raw)
@@ -299,11 +389,7 @@ fn next_command(
     // Re-load to get the updated task for output.
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&task_id_str);
-    let task = loaded
-        .rhei
-        .tasks
-        .iter()
-        .find(|t| t.id == target_id)
+    let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
         .ok_or_else(|| miette!("task '{}' not found after transition", task_id_str))?;
 
     // Resolve agent/model for display. `next` should still print the next
@@ -331,7 +417,23 @@ fn next_command(
     // when the task already has an assignee set.
     if !peek && task.assignee.is_none() {
         if let Some(agent) = agent_id_str.as_deref() {
-            write_task_assignee(&task_file, &task_id_str, agent)?;
+            let final_state_def = machine
+                .states
+                .get(&final_state)
+                .ok_or_else(|| miette!("state '{}' missing from loaded machine", final_state))?;
+            write_task_assignee(
+                &task_file,
+                &task_id_str,
+                &final_state,
+                &machine,
+                TaskAssigneeClaimContext {
+                    workspace_root: &workspace_root,
+                    metadata: loaded.rhei.metadata.as_ref(),
+                    state_def: final_state_def,
+                    settings: &settings,
+                },
+                agent,
+            )?;
         }
     }
     let tooling = resolve_tooling(&machine, &final_state, &settings);

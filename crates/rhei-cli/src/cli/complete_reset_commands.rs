@@ -28,11 +28,7 @@ fn complete_command(
 
     // Find the task and its current state.
     let target_id = parse_task_id(task_id_str);
-    let task = loaded
-        .rhei
-        .tasks
-        .iter()
-        .find(|t| t.id == target_id)
+    let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
         .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
     let current_state_raw = task.state.as_str();
     let current_state = normalized_state_name(current_state_raw, &machine);

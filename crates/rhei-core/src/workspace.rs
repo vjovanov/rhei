@@ -89,19 +89,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
             })?;
 
             for task in &tasks {
-                let id_str = task.id.to_string();
-                if let Some(existing) = task_sources.get(&id_str) {
-                    return Err(ParseError::new(
-                        format!(
-                            "duplicate task ID '{}': defined in both {} and {}",
-                            id_str,
-                            existing.display(),
-                            path.display()
-                        ),
-                        None,
-                    ));
-                }
-                task_sources.insert(id_str, path.clone());
+                collect_task_sources(task, &path, &mut task_sources)?;
             }
 
             all_tasks.extend(tasks);
@@ -126,4 +114,30 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
         },
         task_sources,
     })
+}
+
+fn collect_task_sources(
+    task: &Task,
+    path: &Path,
+    task_sources: &mut HashMap<String, PathBuf>,
+) -> parser::Result<()> {
+    let id_str = task.id.to_string();
+    if let Some(existing) = task_sources.get(&id_str) {
+        return Err(ParseError::new(
+            format!(
+                "duplicate task ID '{}': defined in both {} and {}",
+                id_str,
+                existing.display(),
+                path.display()
+            ),
+            None,
+        ));
+    }
+    task_sources.insert(id_str, path.to_path_buf());
+
+    for child in &task.children {
+        collect_task_sources(child, path, task_sources)?;
+    }
+
+    Ok(())
 }
