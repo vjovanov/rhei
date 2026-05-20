@@ -1,4 +1,7 @@
 use super::*;
+use crate::event::{RunSummary, TaskOutcome};
+use std::collections::HashSet;
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -168,6 +171,27 @@ fn plan_state_derivation_ignores_child_task_states() {
 }
 
 #[test]
+fn plan_state_derivation_treats_running_root_as_active() {
+    let tasks = vec![
+        dashboard_task("1", "work", None, 1),
+        dashboard_task("1.1", "review", Some("1"), 2),
+        dashboard_task("2", "pending", None, 1),
+    ];
+    let active = HashSet::from(["1"]);
+
+    assert_eq!(derive_plan_state_with_active_roots(&tasks, &active), "active");
+}
+
+#[test]
+fn plan_state_derivation_ignores_running_child_for_plan_state() {
+    let tasks =
+        vec![dashboard_task("1", "draft", None, 1), dashboard_task("1.1", "review", Some("1"), 2)];
+    let active = HashSet::from(["1.1"]);
+
+    assert_eq!(derive_plan_state_with_active_roots(&tasks, &active), "draft");
+}
+
+#[test]
 fn snapshot_payload_exposes_plan_state() {
     let state = empty_state();
     let payload = SnapshotPayload {
@@ -242,6 +266,116 @@ fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
     assert_eq!(deferred["deferred_this_pass"], true);
 }
 
+#[test]
+fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
+    let loader: PlanLoader = Arc::new(|| {
+        Some(PlanSnapshot {
+            title: "Demo Plan".to_string(),
+            tasks: vec![
+                dashboard_task_with_details("1", "Root", "work", None, 1),
+                dashboard_task_with_details("1.1", "Child", "review", Some("1"), 2),
+                dashboard_task_with_details("2", "Deferred", "pending", None, 1),
+            ],
+        })
+    });
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 2, Some(loader))
+        .expect("start dashboard");
+
+    dashboard.emit(RunEvent::SlotAssigned {
+        slot: 0,
+        task: "1".to_string(),
+        from: "work".to_string(),
+        to: "work".to_string(),
+        agent: None,
+        log_path: PathBuf::from("/tmp/ws/runtime/logs/1.log"),
+        started_at: Instant::now(),
+        wall_clock: SystemTime::now(),
+    });
+
+    let snapshot = fetch_snapshot_json(&dashboard);
+    assert_eq!(snapshot["plan_state"], "active");
+}
+
+#[test]
+fn dashboard_snapshot_endpoint_does_not_mark_released_slot_active() {
+    let loader: PlanLoader = Arc::new(|| {
+        Some(PlanSnapshot {
+            title: "Demo Plan".to_string(),
+            tasks: vec![
+                dashboard_task_with_details("1", "Root", "completed", None, 1),
+                dashboard_task_with_details("2", "Next", "pending", None, 1),
+            ],
+        })
+    });
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 2, Some(loader))
+        .expect("start dashboard");
+
+    dashboard.emit(RunEvent::SlotAssigned {
+        slot: 0,
+        task: "1".to_string(),
+        from: "work".to_string(),
+        to: "work".to_string(),
+        agent: None,
+        log_path: PathBuf::from("/tmp/ws/runtime/logs/1.log"),
+        started_at: Instant::now(),
+        wall_clock: SystemTime::now(),
+    });
+    dashboard.emit(RunEvent::SlotReleased {
+        slot: 0,
+        task: "1".to_string(),
+        from: "work".to_string(),
+        to: "completed".to_string(),
+        log_path: PathBuf::from("/tmp/ws/runtime/logs/1.log"),
+        outcome: TaskOutcome::Completed,
+        finished_at: Instant::now(),
+        wall_clock: SystemTime::now(),
+        exit_code: Some(0),
+        duration_ms: 10,
+    });
+
+    let snapshot = fetch_snapshot_json(&dashboard);
+    assert_eq!(snapshot["plan_state"], "pending");
+    let task = snapshot["tasks"]
+        .as_array()
+        .expect("tasks")
+        .iter()
+        .find(|task| task["id"] == "1")
+        .expect("task 1");
+    assert!(task["in_slot"].is_null());
+}
+
+/// Dashboard-enabled runs leave an inspectable static artifact behind after
+/// the loopback server exits. §FS-rhei-viz.1
+#[test]
+fn frozen_dashboard_writes_self_contained_final_artifact() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let loader: PlanLoader = Arc::new(|| {
+        Some(PlanSnapshot {
+            title: "Frozen Plan".to_string(),
+            tasks: vec![dashboard_task("1", "completed", None, 1)],
+        })
+    });
+    let dashboard = DashboardSink::start_with_plan(temp.path().to_path_buf(), 1, 1, Some(loader))
+        .expect("start dashboard");
+    dashboard.emit(RunEvent::RunFinished {
+        summary: RunSummary {
+            agents_spawned: 0,
+            programs_spawned: 1,
+            terminal_tasks: 1,
+            total_tasks: 1,
+        },
+    });
+
+    let path = dashboard.write_frozen_dashboard().expect("write frozen dashboard");
+    assert_eq!(path, temp.path().join("runtime/dashboard.html"));
+    let html = fs::read_to_string(path).expect("frozen html");
+    assert!(html.contains("const FINAL_SNAPSHOT = "));
+    assert!(html.contains("\"plan_title\":\"Frozen Plan\""));
+    assert!(html.contains("render(FINAL_SNAPSHOT);"));
+    assert!(html.contains("Snapshot is frozen at the final state"));
+    assert!(!html.contains("setInterval(tick, 1000);"));
+}
+
 /// Temporary plan reload failures keep serving the last good plan snapshot.
 /// §FS-rhei-viz.1
 #[test]
@@ -292,6 +426,10 @@ fn dashboard_html_includes_visualization_tabs_and_stays_self_contained() {
     assert!(DASHBOARD_HTML.contains(r#"<button class="tab active" data-view="gantt">"#));
     assert!(DASHBOARD_HTML.contains("function descendantsByRoot"));
     assert!(DASHBOARD_HTML.contains("function cubeColumnSlots"));
+    assert!(DASHBOARD_HTML.contains("function isRunnableTask"));
+    assert!(DASHBOARD_HTML.contains("child state ·"));
+    assert!(DASHBOARD_HTML.contains("FALLBACK_STATE_COLORS"));
+    assert!(DASHBOARD_HTML.contains("rowCount ? rowCount + 1"));
     assert!(DASHBOARD_HTML.contains("Dense task-by-descendant-state heatmap"));
     assert!(DASHBOARD_HTML.contains("Descendant-state flow by top-level task"));
     assert!(DASHBOARD_HTML.contains("overflow-x: auto"));

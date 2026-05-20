@@ -42,6 +42,11 @@ Tab switching is local to the browser. All views share the same `/snapshot`
 payload and must tolerate temporary plan reload failures by rendering the last
 good snapshot already cached by the dashboard.
 
+When a run finishes, the loopback server may exit with the CLI process, but the
+operator must still have an inspectable final view. Dashboard-enabled runs write
+a frozen self-contained HTML artifact under `runtime/` and print its path after
+capturing the final `/snapshot` payload.
+
 ### 1.1. Swimlane Gantt
 
 Each row is one item: a plan row, one row per top-level task, and one row per
@@ -99,6 +104,7 @@ derives `plan_state` from top-level tasks only:
 | All top-level tasks are `draft` | `draft` |
 | All top-level tasks are `completed` | `completed` |
 | All top-level tasks are terminal and at least one is not `completed` | `archived` |
+| Any top-level task is currently assigned to a running slot | `active` |
 | Any top-level task is active-like | `active` |
 | Otherwise | `pending` |
 
@@ -106,6 +112,11 @@ The dashboard treats `completed`, `cancelled`, `archived`, and `failed` as
 terminal for this derivation. Active-like states are `in_progress`,
 `in-progress`, `needs-review`, `review`, `prove`, `consolidate`, and
 `agent-review`, and `agent-review-fix`.
+
+Custom non-terminal states that are not in the built-in color map use stable
+fallback colors derived from the state name rather than the muted terminal color,
+so a project-specific active state is visually distinguishable from archived or
+cancelled work.
 
 ## 4. Dashboard Data
 
@@ -123,6 +134,12 @@ type Snapshot = {
 Visualization views use the existing flattened task fields: `id`, `title`,
 `parent`, `depth`, `state`, and `prior`. Root tasks are `depth == 1` or have no
 `parent`; child tasks are rows with a parent.
+
+Header progress is based on root task execution progress, not every flattened
+child row. The Tasks tab may show all flattened rows, but scheduling labels and
+filters such as running, ready, deferred, and blocked apply to runnable root
+tasks; child rows are labeled as plan-shape child state. Tab badges use counts,
+while derived state appears in the header, legend, or visualization body.
 
 ## Future Work
 

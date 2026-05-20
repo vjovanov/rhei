@@ -182,6 +182,22 @@ impl ActiveRunFrontend {
             });
         }
     }
+
+    fn write_frozen_dashboard(&self) {
+        let Some(dashboard) = &self.dashboard else {
+            return;
+        };
+        match dashboard.write_frozen_dashboard() {
+            Ok(path) => self.sink.emit(rhei_tui::RunEvent::Message {
+                level: rhei_tui::MessageLevel::Info,
+                text: format!("Final dashboard: {}", path.display()),
+            }),
+            Err(err) => self.sink.emit(rhei_tui::RunEvent::Message {
+                level: rhei_tui::MessageLevel::Warn,
+                text: format!("warning: could not write final dashboard: {err}"),
+            }),
+        }
+    }
 }
 
 fn start_run_frontend(
