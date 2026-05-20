@@ -290,6 +290,7 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
             session: Some(serde_json::json!({
                 "resume": {"flag": "--continue"},
                 "fork": {"flag": "--fork"},
+                "interactive": {},
                 "session_dir_flag": "--session-dir",
                 "no_session_flag": "--no-session",
                 "layout": {"kind": "FlatById", "ext": "jsonl"}

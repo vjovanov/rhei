@@ -1392,6 +1392,44 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
     }
 
     #[test]
+    fn built_in_pi_profile_supports_snapshot_continue() {
+        let agents = built_in_agents();
+        let pi = agents.get("pi").expect("pi built-in profile");
+        let session = pi.session.as_ref().expect("pi snapshot session");
+
+        assert!(profile_supports_interactive_continue(&pi.session));
+        assert!(session
+            .get("interactive")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(serde_json::Map::is_empty));
+        assert_eq!(snapshot_strategy_flag(session, "fork").as_deref(), Some("--fork"));
+        assert_eq!(
+            snapshot_session_string(session, "session_dir_flag").as_deref(),
+            Some("--session-dir")
+        );
+        assert_eq!(
+            snapshot_layout_kind(snapshot_session_layout(session).expect("layout")).as_deref(),
+            Some("FlatById")
+        );
+        assert_eq!(
+            snapshot_layout_ext(snapshot_session_layout(session).expect("layout")).as_deref(),
+            Some("jsonl")
+        );
+    }
+
+    #[test]
+    fn unproven_built_in_profiles_do_not_support_snapshot_continue() {
+        let agents = built_in_agents();
+        for id in ["claude-code", "codex", "cursor", "gemini", "kilocode"] {
+            let profile = agents.get(id).expect("built-in profile");
+            assert!(
+                !profile_supports_interactive_continue(&profile.session),
+                "{id} should remain unsupported for built-in snapshot continue"
+            );
+        }
+    }
+
+    #[test]
     fn snapshot_continue_does_not_capture_unchanged_staged_resume_source() {
         let _home = TempHome::new();
         let dir = snapshot_workspace();

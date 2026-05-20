@@ -696,17 +696,19 @@ rather than a hunt across the user's home directory.
 
 | Agent | `resume` | `fork` | `interactive` | `assign_id_flag` | `session_dir_flag` | `no_session_flag` | `layout` |
 |-------|----------|--------|---------------|------------------|--------------------|--------------------|----------|
-| claude-code | unresolved; no active built-in session block until the adapter spike | unresolved | unresolved | unresolved | unresolved | none | unresolved |
-| codex | unresolved; no active built-in session block until the adapter spike | unresolved | unresolved | unresolved | unresolved | none | unresolved |
+| claude-code | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
+| codex | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
 | cursor | unsupported in v1 | unsupported | unsupported | none | none | none | none |
-| gemini *(provisional)* | unsupported in v1 until the phase spike resolves resume semantics | unsupported in v1 | unsupported in v1 | unresolved | none | none | unresolved `PerProjectJson` candidate |
+| gemini | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
 | kilocode | unsupported in v1 | unsupported | unsupported | none | none | none | none |
-| pi | `Native { flag: --continue }` | `Native { flag: --fork }` | unresolved until a TTY continuation profile is proven | none | `--session-dir` | `--no-session` | `FlatById { dir: <session_dir>/, ext: jsonl }` |
+| pi | `Native { flag: --continue }` | `Native { flag: --fork }` | base `pi` TTY command with no extra args | none | `--session-dir` | `--no-session` | `FlatById { dir: <session_dir>/, ext: jsonl }` |
 
-The unresolved fields are deliberately blank in this spec. Locking them
-requires the per-agent prove-out described in
-[Snapshot Operations Specification — Phased Rollout](rhei-snapshot-operations.spec.md#3-phased-rollout). The profile shape supports any of the
-plausible answers without further schema changes.
+The v1 built-in support boundary is intentionally conservative. Pi has a
+complete native surface for Rhei-managed snapshot sessions: an interactive TTY
+mode, `--fork <path>`, `--session-dir <dir>`, and a flat JSONL transcript
+layout. Other built-in agents remain usable through custom session-capable
+profiles, but their built-in profiles do not declare snapshot sessions until a
+Rhei-readable transcript layout and safe continuation transport are proven.
 
 Emit and preload have independent profile requirements:
 
@@ -725,10 +727,11 @@ preload follows the same rule as a missing or incompatible snapshot:
 before spawn. Unsupported emit fails the spawn with
 `unsupported-snapshot-session`.
 
-Cursor and Kilocode have no built-in snapshot session profile in v1. Auto-emit
-is skipped for their built-in profiles, and explicit `snapshot.emit:` or
-required preload fails with `unsupported-snapshot-session` unless the user
-replaces the built-in profile with a custom snapshot-capable session block.
+Claude Code, Codex, Gemini, Cursor, and Kilocode have no built-in snapshot
+session profile in v1. Auto-emit is skipped for their built-in profiles, and
+explicit `snapshot.emit:`, required preload, or `rhei snapshot continue` fails
+with `unsupported-snapshot-session` unless the user replaces the built-in
+profile with a custom snapshot-capable session block.
 
 ### 9.3. Per-Agent Runtime Behavior
 
@@ -754,14 +757,21 @@ unparsable, the snapshot is still written with `observed_*` set equal to
 `declared_*` and a warning is logged; downstream inheritors that require
 `cache_beneficial` will see the same advisory.
 
+Interactive continuation uses the same built-in session profile but spawns the
+base `pi` command without the headless `-p` prompt flag. Rhei appends the model
+flag, `--session-dir <runtime snapshot session dir>`, and `--fork <source
+transcript>` so the operator enters a TTY session seeded from the selected
+snapshot. Captured continuations read the newest JSONL written to that session
+directory and store it as an operator generation. §FS-rhei-snapshot-operations.1.5
+
 #### 9.3.2. Gemini
 
-Gemini snapshot support is provisional and unsupported for v1 runtime preload
-or `rhei snapshot continue`. The phase spike must prove the resume surface and
-the per-project path layout before any built-in Gemini session profile becomes
-active. Until then, the built-in Gemini profile has no supported
-`SessionLayout` or `ResumeStrategy`; auto-emit is skipped, and explicit
-snapshot operations fail with `unsupported-snapshot-session`.
+Gemini snapshot support is unsupported for the v1 built-in profile. The CLI
+has resume/session concepts, but the Rhei adapter does not yet have a stable
+session directory hook and per-project transcript layout. The built-in Gemini
+profile therefore has no supported `SessionLayout` or `ResumeStrategy`;
+auto-emit is skipped, and explicit snapshot operations fail with
+`unsupported-snapshot-session`.
 
 The candidate design remains a copy-and-rewrite flow using Gemini's project
 hash and JSON session files, but those details are non-normative until the
@@ -771,17 +781,14 @@ flag analogous to pi's.
 
 #### 9.3.3. Claude Code
 
-The adapter spike must determine:
-
-- Whether `--session-id <uuid>` is exposed for assignment or whether the agent
-  picks its own id.
-- Whether `--resume <id>` accepts the previously-assigned id deterministically.
-- The on-disk session path convention as a function of the workspace.
-
-Until the spike completes, the built-in claude-code profile leaves the
+Claude Code snapshot support is unsupported for the v1 built-in profile. The
+CLI exposes interactive mode, `--resume`, and `--session-id`, but Rhei does not
+have a built-in `session_dir_flag` or a stable transcript layout for capturing
+the new native transcript. The built-in claude-code profile leaves the
 `session` block unset. Snapshot inheritance for that agent therefore runs cold
 unless the inheriting state sets `required: true`, in which case the run fails
-before spawn with `unsupported-snapshot-session`.
+before spawn with `unsupported-snapshot-session`; `rhei snapshot continue`
+fails with the same diagnostic.
 
 #### 9.3.4. Codex
 
@@ -798,12 +805,11 @@ Emit and inherit have independent dependencies for codex:
 - *Inherit* requires a working `ResumeStrategy`, which is the unknown the
   spike is investigating.
 
-Until the spike resolves, the built-in codex profile leaves the `session`
-block unset, which makes both emit and inherit unsupported (per the rules in
-[Built-in Profiles](#92-built-in-profiles)). The narrower outcome — emit
-supported, inherit unsupported — is the most likely state after the spike
-and is encoded by populating `layout` while leaving `resume:
-ResumeStrategy::None`.
+The built-in codex profile leaves the `session` block unset in v1, which makes
+emit, inherit, and `rhei snapshot continue` unsupported (per the rules in
+[Built-in Profiles](#92-built-in-profiles)). Codex exposes interactive
+`resume` and `fork` subcommands, but the built-in Rhei adapter does not yet
+have a stable transcript capture layout or `session_dir_flag` equivalent.
 
 ## 10. Runtime Behavior
 
