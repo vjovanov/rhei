@@ -60,3 +60,27 @@ Context
     );
     assert_eq!(err.line, Some(1));
 }
+
+#[test]
+fn workspace_task_collect_reports_multiple_recoverable_errors_with_task_file_lines() {
+    let input = r#"### Task 1: Missing state
+
+### Task 2: Prior typo
+**Prior** Task 1
+**State:** pending
+
+### Task 3: State typo
+**State** pending
+"#;
+
+    let (tasks, errors) = parse_workspace_tasks_collect(input);
+
+    assert!(tasks.is_some(), "recoverable errors should still produce remaining tasks");
+    assert_eq!(errors.len(), 3);
+    assert!(errors[0].message.contains("missing mandatory **State:**"));
+    assert_eq!(errors[0].line, Some(1));
+    assert!(errors[1].message.contains("Malformed metadata field"));
+    assert_eq!(errors[1].line, Some(4));
+    assert!(errors[2].message.contains("Malformed metadata field"));
+    assert_eq!(errors[2].line, Some(8));
+}

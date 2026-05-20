@@ -1,7 +1,7 @@
 use crate::ast::{ContentSection, Metadata, Structure, Task};
 use regex::Regex;
 
-use super::{parse, parse_frontmatter, parse_structure, ParseError, Result};
+use super::{parse, parse_collect, parse_frontmatter, parse_structure, ParseError, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceIndex {
@@ -168,13 +168,33 @@ pub fn parse_workspace_tasks(input: &str) -> Result<Vec<Task>> {
     match parse(&synthetic) {
         Ok(rhei) => Ok(rhei.tasks),
         Err(mut e) => {
-            if let Some(ref mut line) = e.line {
-                *line = line.saturating_sub(prefix_line_count);
-                if *line == 0 {
-                    *line = 1;
-                }
-            }
+            adjust_workspace_task_error_line(&mut e, prefix_line_count);
             Err(e)
+        }
+    }
+}
+
+/// Parse a workspace task file and collect recoverable task-local parse errors.
+///
+/// This mirrors [`parse_workspace_tasks`] but preserves `parse_collect`'s
+/// multi-error behavior for validation diagnostics. Reported line numbers are
+/// adjusted back from the synthetic single-file wrapper to the task file.
+pub fn parse_workspace_tasks_collect(input: &str) -> (Option<Vec<Task>>, Vec<ParseError>) {
+    let prefix = "# Rhei: _workspace_\n\n## Tasks\n\n";
+    let prefix_line_count = 4;
+    let synthetic = format!("{}{}", prefix, input);
+    let (maybe_rhei, mut errors) = parse_collect(&synthetic);
+    for error in &mut errors {
+        adjust_workspace_task_error_line(error, prefix_line_count);
+    }
+    (maybe_rhei.map(|rhei| rhei.tasks), errors)
+}
+
+fn adjust_workspace_task_error_line(error: &mut ParseError, prefix_line_count: usize) {
+    if let Some(ref mut line) = error.line {
+        *line = line.saturating_sub(prefix_line_count);
+        if *line == 0 {
+            *line = 1;
         }
     }
 }

@@ -244,6 +244,115 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
     }
 }
 
+/// Load a plan for `rhei validate`, collecting recoverable parse errors where
+/// validation promises batch diagnostics.
+fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
+    if let Some(ws_dir) = workspace::workspace_dir(path) {
+        return load_workspace_for_validation(&ws_dir);
+    }
+
+    let raw = read_input_file(path)?;
+    let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
+    match (maybe_rhei, errs.is_empty()) {
+        (Some(rhei), true) => Ok(LoadedPlan { rhei, task_sources: HashMap::new() }),
+        (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
+    }
+}
+
+fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
+    let index_path = ws_dir.join("index.rhei.md");
+    let index_raw = read_input_file(&index_path)?;
+    let index = rhei_core::parser::parse_workspace_index(&index_raw)
+        .map_err(|err| parse_report(&index_path, &index_raw, &err))?;
+
+    let tasks_dir = ws_dir.join("tasks");
+    let mut all_tasks = Vec::new();
+    let mut task_sources = HashMap::new();
+    let mut parse_error_groups = Vec::new();
+    let mut duplicate_task_error: Option<String> = None;
+
+    if tasks_dir.is_dir() {
+        let mut entries: Vec<_> = fs::read_dir(&tasks_dir)
+            .map_err(|err| file_io_report(&tasks_dir, "failed to read tasks directory", err))?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "md"))
+            .collect();
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            let path = entry.path();
+            let raw = read_input_file(&path)?;
+            let (maybe_tasks, errors) = rhei_core::parser::parse_workspace_tasks_collect(&raw);
+            if !errors.is_empty() {
+                parse_error_groups.push(ParseErrorGroup { path, input: raw, errors });
+                continue;
+            }
+            let Some(tasks) = maybe_tasks else {
+                continue;
+            };
+            for task in &tasks {
+                if duplicate_task_error.is_none() {
+                    if let Err(err) =
+                        collect_workspace_task_sources(task, &path, &mut task_sources)
+                    {
+                        duplicate_task_error = Some(err.message);
+                    }
+                }
+            }
+            all_tasks.extend(tasks);
+        }
+    }
+
+    if !parse_error_groups.is_empty() {
+        return Err(workspace_parse_errors_report(&parse_error_groups));
+    }
+    if let Some(error) = duplicate_task_error {
+        return Err(miette!("{error}"));
+    }
+
+    if all_tasks.is_empty() {
+        return Err(miette!("workspace contains no tasks (tasks/ directory is empty or missing)"));
+    }
+
+    Ok(LoadedPlan {
+        rhei: rhei_core::ast::Rhei {
+            title: index.title,
+            states: index.states,
+            structure: index.structure,
+            metadata: index.metadata,
+            content_sections: index.content_sections,
+            tasks: all_tasks,
+        },
+        task_sources,
+    })
+}
+
+fn collect_workspace_task_sources(
+    task: &rhei_core::ast::Task,
+    path: &Path,
+    task_sources: &mut HashMap<String, PathBuf>,
+) -> rhei_core::parser::Result<()> {
+    let id = task.id.to_string();
+    if let Some(existing) = task_sources.get(&id) {
+        return Err(rhei_core::parser::ParseError::new(
+            format!(
+                "duplicate task ID '{}': defined in both {} and {}",
+                id,
+                existing.display(),
+                path.display()
+            ),
+            None,
+        ));
+    }
+    task_sources.insert(id, path.to_path_buf());
+
+    for child in &task.children {
+        collect_workspace_task_sources(child, path, task_sources)?;
+    }
+
+    Ok(())
+}
+
 /// Read and parse a markdown plan file into a [`rhei_core::ast::Rhei`].
 fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Rhei> {
     Ok(load_plan(path)?.rhei)
@@ -260,22 +369,7 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
-    // For single-file plans, use the multi-error parser so the user sees
-    // every recoverable parse problem in one run instead of fix-and-retry.
-    // Workspace loads still go through the single-error path today; that's
-    // a scoped follow-up when per-task files need the same treatment.
-    let loaded = if workspace::workspace_dir(input).is_some() {
-        load_plan(input)?
-    } else {
-        let raw = read_input_file(input)?;
-        let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
-        match (maybe_rhei, errs.is_empty()) {
-            (Some(rhei), true) => LoadedPlan { rhei, task_sources: HashMap::new() },
-            (_, false) | (None, _) => {
-                return Err(parse_errors_report(input, &raw, &errs));
-            }
-        }
-    };
+    let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
     let base_path = input.parent().unwrap_or(Path::new("."));
