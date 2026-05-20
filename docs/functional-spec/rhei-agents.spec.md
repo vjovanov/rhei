@@ -3,6 +3,7 @@
 This document specifies how Rhei integrates with coding agents — the CLI tools that execute work on tasks. It covers agent configuration, resolution order, invocation profiles, prompt composition, parallel execution, timeout handling, and log capture.
 
 For the state machine format see [States Specification](rhei-states.spec.md). For transition callbacks see [Transitions Specification](rhei-transitions.spec.md).
+For token and cost accounting see [Cost Accounting Specification](rhei-cost-accounting.spec.md).
 
 ## Overview
 
@@ -931,6 +932,11 @@ The callback receives a `TransitionContext` with `triggeredBy: 'system'` and the
 ## 8. Log Capture
 
 All agent stdout and stderr are captured to log files in the `runtime/logs/` directory relative to the workspace or plan root.
+
+Token and cost accounting is captured separately under `runtime/accounting/`.
+Agent logs remain human-readable transcripts; accounting extractors must use
+structured usage sources where the agent provides them and must not depend on
+parsing the log body for billing facts. §FS-rhei-cost-accounting
 
 ### 8.1. Log File Naming
 

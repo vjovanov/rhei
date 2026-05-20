@@ -19,7 +19,8 @@ use html::DASHBOARD_HTML;
 #[cfg(test)]
 use state::derive_plan_state;
 use state::{
-    derive_plan_state_with_active_roots, DashboardLink, DashboardState, SnapshotPayload, TaskRow,
+    derive_plan_state_with_active_roots, task_accounting_for_tasks, DashboardLink, DashboardState,
+    SnapshotPayload, TaskRow,
 };
 
 const RECENT_LIMIT: usize = 200;
@@ -241,6 +242,9 @@ fn handle_client(
                     let plan_state = derive_plan_state_with_active_roots(&p.tasks, &active_tasks);
                     let deferred_set: HashSet<&str> =
                         snapshot_state.deferred.iter().map(|s| s.as_str()).collect();
+                    // §FS-rhei-cost-accounting.10: `/snapshot` carries compact rollups.
+                    let accounting_by_task =
+                        task_accounting_for_tasks(&p.tasks, &snapshot_state.invocations);
                     let rows = p
                         .tasks
                         .into_iter()
@@ -253,7 +257,8 @@ fn handle_client(
                                     slot.task.as_deref().filter(|t| *t == task.id).map(|_| i as u16)
                                 });
                             let deferred_this_pass = deferred_set.contains(task.id.as_str());
-                            TaskRow { task, in_slot, deferred_this_pass }
+                            let accounting = accounting_by_task.get(&task.id).cloned();
+                            TaskRow { task, in_slot, deferred_this_pass, accounting }
                         })
                         .collect();
                     (Some(p.title), Some(plan_state), rows)
@@ -269,6 +274,21 @@ fn handle_client(
                 auto_links,
             };
             match serde_json::to_vec(&payload) {
+                Ok(body) => write_response(&mut stream, "application/json", &body),
+                Err(err) => write_response(
+                    &mut stream,
+                    "application/json",
+                    format!(r#"{{"error":"{}"}}"#, escape_json_string(&err.to_string())).as_bytes(),
+                ),
+            }
+        }
+        "/accounting/invocations" => {
+            // §FS-rhei-cost-accounting.10: Invocation details use a separate endpoint.
+            let snapshot_state = match state.lock() {
+                Ok(s) => s.clone(),
+                Err(p) => p.into_inner().clone(),
+            };
+            match serde_json::to_vec(&snapshot_state.invocations) {
                 Ok(body) => write_response(&mut stream, "application/json", &body),
                 Err(err) => write_response(
                     &mut stream,

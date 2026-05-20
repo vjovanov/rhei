@@ -47,8 +47,7 @@ pass `--state-machine`.
    fail-fast because later task-file diagnostics may depend on index structure.
 2. Resolve the state machine and validate plan semantics, including state
    values, task ids, dependencies, node policy, terminal and gating states,
-   counted-loop syntax, and artifact contracts. §FS-rhei-plan-language
-   §FS-rhei-states
+   counted-loop syntax, and artifact contracts. §FS-rhei-plan-language §FS-rhei-states
 3. Load merged global and project settings, then validate referenced agents,
    models, MCP servers, skills, and snapshot settings used by the state
    machine. §FS-rhei-agents §FS-rhei-snapshots

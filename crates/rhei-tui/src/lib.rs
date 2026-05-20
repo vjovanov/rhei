@@ -11,7 +11,9 @@ mod tui;
 
 pub use dashboard::{DashboardSink, DashboardTask, PlanLoader, PlanSnapshot};
 pub use event::{
-    AgentStream, EventSink, MessageLevel, NullSink, RunEvent, RunSummary, Slot, TaskOutcome, Tee,
+    AccountingRunSummary, AgentStream, DimensionStatus, DimensionSummary, EventSink, MessageLevel,
+    NullSink, PricingStatus, RunEvent, RunSummary, Slot, TaskOutcome, Tee, UsageCoverage,
+    UsageStatus, UsageSummary,
 };
 pub use frontend::{select_frontend, Frontend, FrontendKind};
 pub use journal::JournalSink;

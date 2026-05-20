@@ -1,6 +1,9 @@
 # FS-rhei-states: Rhei States Specification
 
-This document defines the default states configuration for tasks in the Rhei plan compiler. The authoritative machine-readable form lives in [states.yaml](states.yaml); the writer-skill mirror is [default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
+This document defines the default states configuration for tasks in the Rhei
+agent runtime. The authoritative machine-readable form lives in
+[states.yaml](states.yaml); the writer-skill mirror is
+[default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
 
 The state-machine schema also permits these optional fields for richer workflows:
 

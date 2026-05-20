@@ -1,9 +1,10 @@
-//! Core parsing types and entry points for the Rhei markdown plan compiler.
+//! Core plan model and primitives for the Rhei agent runtime.
 //!
-//! This crate owns the syntax-facing pieces of the compiler:
+//! This crate owns the shared pieces that runtime drivers build on:
 //! - token definitions and a tokenizer in [`crate::tokens`] and [`crate::lexer`]
 //! - AST types in [`crate::ast`]
 //! - the markdown plan parser in [`parse`]
+//! - callback context and workspace helpers used by execution commands
 //!
 //! Most consumers only need [`parse`] plus the public AST types
 //! from [`crate::ast`].
@@ -30,6 +31,6 @@ pub fn version() -> String {
 /// The main command-line experience lives in the [`rhei-cli`](../../rhei-cli/src/main.rs)
 /// binary crate.
 pub fn help_text() -> String {
-    "Rhei - Markdown plan compiler scaffold\n\nUsage:\n  rhei [OPTIONS]\n\nFor now, use --help and --version."
+    "Rhei - agent runtime for governed Markdown workflows\n\nUsage:\n  rhei [OPTIONS]\n\nFor now, use --help and --version."
         .to_string()
 }

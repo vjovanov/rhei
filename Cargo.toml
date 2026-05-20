@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/rhei-core",
+    "crates/rhei-agent-core",
     "crates/rhei-cli",
     "crates/rhei-napi",
     "crates/rhei-tui",

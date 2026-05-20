@@ -27,6 +27,7 @@ pub struct RunSummary {
     pub programs_spawned: u32,
     pub terminal_tasks: usize,
     pub total_tasks: usize,
+    pub accounting: Option<AccountingRunSummary>,
 }
 
 /// Severity of an engine log message.
@@ -42,6 +43,96 @@ pub enum MessageLevel {
 pub enum AgentStream {
     Stdout,
     Stderr,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DimensionStatus {
+    Measured,
+    Partial,
+    Unsupported,
+    Omitted,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DimensionSummary {
+    pub value: Option<u64>,
+    pub status: DimensionStatus,
+    pub missing_count: u64,
+    pub measured_count: u64,
+}
+
+impl Default for DimensionSummary {
+    fn default() -> Self {
+        Self { value: None, status: DimensionStatus::Unknown, missing_count: 0, measured_count: 0 }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UsageCoverage {
+    Complete,
+    Partial,
+    Unpriced,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UsageStatus {
+    Measured,
+    UnsupportedAgent,
+    ExtractorUnavailable,
+    ExtractorFailed,
+    NoUsageEmitted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PricingStatus {
+    Priced,
+    PartialPrice,
+    Unpriced,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UsageSummary {
+    pub invocation_id: String,
+    pub agent: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub input_total: DimensionSummary,
+    pub input_cached_read: DimensionSummary,
+    pub input_cache_write: DimensionSummary,
+    pub output_total: DimensionSummary,
+    pub output_cached_read: DimensionSummary,
+    pub output_cache_write: DimensionSummary,
+    pub cost_micro: Option<u64>,
+    pub priced_cost_micro: Option<u64>,
+    pub currency: Option<String>,
+    pub coverage: UsageCoverage,
+    pub status: UsageStatus,
+    pub pricing_status: PricingStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AccountingRunSummary {
+    pub input_total: DimensionSummary,
+    pub input_cached_read: DimensionSummary,
+    pub input_cache_write: DimensionSummary,
+    pub output_total: DimensionSummary,
+    pub output_cached_read: DimensionSummary,
+    pub output_cache_write: DimensionSummary,
+    pub cost_micro: Option<u64>,
+    pub priced_cost_micro: Option<u64>,
+    pub currency: Option<String>,
+    pub coverage: UsageCoverage,
+    pub pricing_status: PricingStatus,
+    pub invocation_count: u64,
+    pub measured_invocation_count: u64,
+    pub missing_invocation_count: u64,
 }
 
 /// Events emitted by the execution engine.
@@ -124,6 +215,14 @@ pub enum RunEvent {
         stream: AgentStream,
         line: String,
         wall_clock: SystemTime,
+    },
+    /// Accounting event emitted after the durable invocation record is written.
+    /// §FS-rhei-cost-accounting.7
+    UsageReported {
+        slot: Option<Slot>,
+        task: String,
+        invocation_id: String,
+        usage: UsageSummary,
     },
 }
 

@@ -2,6 +2,8 @@
 
 These goals follow from §GND-rhei-purpose.
 
+- Provide an embeddable agent runtime that can also be driven directly from the
+  CLI.
 - Make task plans readable, reviewable, and directly editable by humans and
   agents.
 - Preserve useful memory across sessions, branches, agents, and handoffs.

@@ -5,8 +5,7 @@ This document defines the operational surfaces around session snapshots: the
 settings, redaction, and rollout sequencing. It depends on the lineage,
 storage, manifest, compatibility, and runtime emit/preload model in
 §FS-rhei-snapshots; the run lifecycle in §FS-rhei-run; and agent session
-profiles and settings precedence in §FS-rhei-agents.
-§GOAL-rhei-outcomes
+profiles and settings precedence in §FS-rhei-agents. §GOAL-rhei-outcomes
 
 ## 1. CLI Surface
 

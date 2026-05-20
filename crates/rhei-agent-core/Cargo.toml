@@ -1,0 +1,17 @@
+[package]
+name = "rhei-agent-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+description = "Embeddable agent runtime primitives for Rhei workflows."
+
+[lib]
+name = "rhei_agent_core"
+path = "src/lib.rs"
+
+[dependencies]
+rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }

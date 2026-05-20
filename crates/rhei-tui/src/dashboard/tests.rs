@@ -1,5 +1,8 @@
 use super::*;
-use crate::event::{RunSummary, TaskOutcome};
+use crate::event::{
+    DimensionStatus, DimensionSummary, PricingStatus, RunSummary, TaskOutcome, UsageCoverage,
+    UsageStatus, UsageSummary,
+};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
@@ -344,6 +347,74 @@ fn dashboard_snapshot_endpoint_does_not_mark_released_slot_active() {
     assert!(task["in_slot"].is_null());
 }
 
+fn dashboard_usage(
+    invocation_id: &str,
+    coverage: UsageCoverage,
+    pricing_status: PricingStatus,
+    cost_micro: Option<u64>,
+    priced_cost_micro: Option<u64>,
+) -> UsageSummary {
+    let measured = DimensionSummary {
+        value: Some(1),
+        status: DimensionStatus::Measured,
+        missing_count: 0,
+        measured_count: 1,
+    };
+    UsageSummary {
+        invocation_id: invocation_id.to_string(),
+        agent: "codex".to_string(),
+        provider: Some("openai".to_string()),
+        model: Some("gpt-test".to_string()),
+        input_total: measured.clone(),
+        input_cached_read: measured.clone(),
+        input_cache_write: measured.clone(),
+        output_total: measured.clone(),
+        output_cached_read: measured.clone(),
+        output_cache_write: measured,
+        cost_micro,
+        priced_cost_micro,
+        currency: Some("USD".to_string()),
+        coverage,
+        status: UsageStatus::Measured,
+        pricing_status,
+    }
+}
+
+#[test]
+fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
+    let mut state = empty_state();
+    state.apply(&RunEvent::UsageReported {
+        slot: None,
+        task: "1".to_string(),
+        invocation_id: "priced".to_string(),
+        usage: dashboard_usage(
+            "priced",
+            UsageCoverage::Complete,
+            PricingStatus::Priced,
+            Some(100),
+            Some(100),
+        ),
+    });
+    state.apply(&RunEvent::UsageReported {
+        slot: None,
+        task: "2".to_string(),
+        invocation_id: "unpriced".to_string(),
+        usage: dashboard_usage(
+            "unpriced",
+            UsageCoverage::Unpriced,
+            PricingStatus::Unpriced,
+            None,
+            None,
+        ),
+    });
+
+    let accounting = state.accounting.expect("accounting");
+    assert_eq!(accounting.coverage, UsageCoverage::Partial);
+    assert_eq!(accounting.pricing_status, PricingStatus::PartialPrice);
+    assert_eq!(accounting.cost_micro, None);
+    assert_eq!(accounting.priced_cost_micro, Some(100));
+}
+
 /// Dashboard-enabled runs leave an inspectable static artifact behind after
 /// the loopback server exits. §FS-rhei-viz.1
 #[test]
@@ -363,6 +434,7 @@ fn frozen_dashboard_writes_self_contained_final_artifact() {
             programs_spawned: 1,
             terminal_tasks: 1,
             total_tasks: 1,
+            accounting: None,
         },
     });
 

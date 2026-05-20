@@ -985,9 +985,36 @@ fn run_agent_mode(
                 exit_code,
                 duration_ms,
             });
+            // §FS-rhei-cost-accounting.4: Extraction happens after agent exit.
+            match record_agent_accounting_invocation(AgentAccountingInvocation {
+                workspace_root: &workspace_root,
+                task,
+                state: current_state,
+                resolved,
+                visit: visit_count,
+                started_at: started_wall,
+                ended_at: finished_wall,
+                slot: Some(0),
+                usage_capture_path: spawn_result
+                    .as_ref()
+                    .ok()
+                    .and_then(|outcome| outcome.usage_capture_path.as_deref()),
+                sink: &sink,
+            }) {
+                Ok(Some(_)) => {
+                    if let Err(err) = regenerate_accounting_indexes(&workspace_root, &loaded.rhei)
+                    {
+                        run_warn!("  warning: failed to update accounting rollups: {}", err);
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    run_warn!("  warning: failed to record accounting: {}", err);
+                }
+            }
 
             match spawn_result {
-                Ok(AgentSpawnOutcome { status, timed_out, timeout_secs }) => {
+                Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
                     agents_spawned += 1;
                     let state_def = machine.states.get(current_state).ok_or_else(|| {
                         miette!("state '{}' missing from loaded machine", current_state)
@@ -1464,6 +1491,8 @@ fn run_agent_mode(
                 let snapshot_preload_for_result = snapshot_preload.clone();
                 let visit_for_result = visit_count;
                 let resolved_for_result = resolved.clone();
+                let workspace_root_for_thread = workspace_root.clone();
+                let task_for_accounting = task.clone();
 
                 let handle = std::thread::spawn(move || {
                     let resolved = resolved_for_thread;
@@ -1500,6 +1529,7 @@ fn run_agent_mode(
                         }
                         Err(err) => (TaskOutcome::Failed(err.to_string()), None),
                     };
+                    let finished_wall = SystemTime::now();
                     sink_for_thread.emit(RunEvent::SlotReleased {
                         slot,
                         task: tid_for_event,
@@ -1508,10 +1538,31 @@ fn run_agent_mode(
                         log_path: log_for_thread,
                         outcome,
                         finished_at: TuiInstant::now(),
-                        wall_clock: SystemTime::now(),
+                        wall_clock: finished_wall,
                         exit_code,
                         duration_ms,
                     });
+                    // §FS-rhei-cost-accounting.4: Usage extraction is after spawn drain.
+                    let usage_capture_path =
+                        result.as_ref().ok().and_then(|outcome| outcome.usage_capture_path.as_ref());
+                    let accounting_result =
+                        record_agent_accounting_invocation(AgentAccountingInvocation {
+                            workspace_root: &workspace_root_for_thread,
+                            task: &task_for_accounting,
+                            state: &sname,
+                            resolved: &resolved,
+                            visit: visit_count,
+                            started_at: started_wall,
+                            ended_at: finished_wall,
+                            slot: Some(slot),
+                            usage_capture_path: usage_capture_path.map(PathBuf::as_path),
+                            sink: &sink_for_thread,
+                        });
+                    let (accounting_recorded, accounting_warning) = match accounting_result {
+                        Ok(Some(_)) => (true, None),
+                        Ok(None) => (false, None),
+                        Err(err) => (false, Some(err.to_string())),
+                    };
                     (
                         tid,
                         sname,
@@ -1520,6 +1571,8 @@ fn run_agent_mode(
                         snapshot_preload_for_result,
                         visit_for_result,
                         result,
+                        accounting_recorded,
+                        accounting_warning,
                     )
                 });
                 handles.push(handle);
@@ -1527,7 +1580,17 @@ fn run_agent_mode(
 
             // Collect results.
             for handle in handles {
-                let (task_id_str, state_name, resolved, log, snapshot_preload, visit_count, result) =
+                let (
+                    task_id_str,
+                    state_name,
+                    resolved,
+                    log,
+                    snapshot_preload,
+                    visit_count,
+                    result,
+                    accounting_recorded,
+                    accounting_warning,
+                ) =
                     match handle.join() {
                         Ok(value) => value,
                         Err(_) => {
@@ -1539,11 +1602,25 @@ fn run_agent_mode(
                             continue;
                         }
                     };
+                // §FS-rhei-cost-accounting.11: Parallel accounting failures still warn.
+                if let Some(warning) = accounting_warning {
+                    run_warn!("  warning: failed to record accounting: {}", warning);
+                }
                 match result {
-                    Ok(AgentSpawnOutcome { status, timed_out, timeout_secs }) => {
+                    Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
                         agents_spawned += 1;
                         let target_id = parse_task_id(&task_id_str);
                         let reloaded = load_plan(input)?;
+                        if accounting_recorded {
+                            if let Err(err) =
+                                regenerate_accounting_indexes(&workspace_root, &reloaded.rhei)
+                            {
+                                run_warn!(
+                                    "  warning: failed to update accounting rollups: {}",
+                                    err
+                                );
+                            }
+                        }
                         let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
                         let mut missing_required_outputs = Vec::new();
                         let mut snapshot_completion_for_emit = None;
@@ -1889,6 +1966,17 @@ fn run_agent_mode(
                         }
                     }
                     Err(err) => {
+                        if accounting_recorded {
+                            let reloaded = load_plan(input)?;
+                            if let Err(rollup_err) =
+                                regenerate_accounting_indexes(&workspace_root, &reloaded.rhei)
+                            {
+                                run_warn!(
+                                    "  warning: failed to update accounting rollups: {}",
+                                    rollup_err
+                                );
+                            }
+                        }
                         run_error!("  error for task {}: {}", task_id_str, err);
                         if !opts.continue_on_error() {
                             return Err(err);
@@ -1959,12 +2047,29 @@ fn run_agent_mode(
         (terminal_count, loaded.rhei.tasks.len())
     };
 
+    let accounting = if opts.dry_run() {
+        None
+    } else {
+        // §FS-rhei-cost-accounting.7: RunFinished carries available run totals.
+        match load_plan(input) {
+            Ok(loaded) => match regenerate_accounting_indexes(&workspace_root, &loaded.rhei) {
+                Ok(summary) => summary,
+                Err(err) => {
+                    run_warn!("  warning: failed to finalize accounting rollups: {}", err);
+                    None
+                }
+            },
+            Err(_) => None,
+        }
+    };
+
     sink.emit(RunEvent::RunFinished {
         summary: RunSummary {
             agents_spawned,
             programs_spawned,
             terminal_tasks: terminal_count,
             total_tasks,
+            accounting,
         },
     });
     frontend.write_frozen_dashboard();

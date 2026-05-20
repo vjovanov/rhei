@@ -35,8 +35,9 @@ The dashboard exposes visualization tabs before the operational tabs:
 3. **Sankey**.
 4. **Tasks**.
 5. **Slots**.
-6. **Journal**.
-7. **Links**.
+6. **Cost**.
+7. **Journal**.
+8. **Links**.
 
 Tab switching is local to the browser. All views share the same `/snapshot`
 payload and must tolerate temporary plan reload failures by rendering the last
@@ -75,6 +76,19 @@ descendant count in that state. The derived plan state appears as a band above
 the flow.
 
 Plans without descendants render a useful empty state instead of a blank chart.
+
+### 1.4. Cost View
+
+The Cost tab renders accounting data produced by `rhei run`. It shows run
+totals and coverage, grouped totals by agent/provider/model/state, highest-cost
+task nodes by subtree cost, and invocation-level details with token dimensions
+and pricing status. §FS-rhei-cost-accounting
+
+The Tasks tab includes direct cost, subtree cost, input tokens, output tokens,
+cached input tokens, cached output tokens, and accounting coverage columns when
+accounting data is present. The Cube view can switch from state coloring to a
+subtree-cost heatmap. The Sankey view can use cost as ribbon width for
+task-to-state and task-to-agent/model summaries.
 
 ## 2. Level-Grouped Axis Rules
 
@@ -126,6 +140,7 @@ cancelled work.
 type Snapshot = {
   plan_title?: string;
   plan_state?: string;
+  accounting?: AccountingRunSummary;
   tasks: TaskRow[];
   // plus existing run, slot, journal, ready/deferred, and link fields
 };
@@ -134,6 +149,10 @@ type Snapshot = {
 Visualization views use the existing flattened task fields: `id`, `title`,
 `parent`, `depth`, `state`, and `prior`. Root tasks are `depth == 1` or have no
 `parent`; child tasks are rows with a parent.
+
+When accounting data exists, each task row may also carry compact direct and
+subtree accounting rollups. Invocation-level details are loaded from a separate
+dashboard endpoint rather than the frequently polled `/snapshot` payload. §FS-rhei-cost-accounting
 
 Header progress is based on root task execution progress, not every flattened
 child row. The Tasks tab may show all flattened rows, but scheduling labels and

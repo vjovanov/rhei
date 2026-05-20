@@ -129,13 +129,19 @@ impl UiState {
             }
             RunEvent::RunFinished { summary } => {
                 self.finished = true;
-                self.push_journal(format!(
+                let mut line = format!(
                     "run finished — agents={} programs={} terminal={}/{}",
                     summary.agents_spawned,
                     summary.programs_spawned,
                     summary.terminal_tasks,
                     summary.total_tasks
-                ));
+                );
+                if let Some(accounting) = summary.accounting.as_ref() {
+                    if let Some(cost) = accounting.cost_micro.or(accounting.priced_cost_micro) {
+                        line.push_str(&format!(" cost={}", format_cost_micro(cost)));
+                    }
+                }
+                self.push_journal(line);
             }
             RunEvent::Message { level, text } => {
                 let prefix = match level {
@@ -148,8 +154,25 @@ impl UiState {
             RunEvent::RunLink { label, url } => {
                 self.push_journal(format!("{label}: {url}"));
             }
+            RunEvent::UsageReported { task, usage, .. } => {
+                let cost = usage
+                    .cost_micro
+                    .or(usage.priced_cost_micro)
+                    .map(format_cost_micro)
+                    .unwrap_or_else(|| "unpriced".to_string());
+                self.push_journal(format!(
+                    "usage task {task}: {} {cost} {:?}",
+                    usage.agent, usage.coverage
+                ));
+            }
         }
     }
+}
+
+fn format_cost_micro(value: u64) -> String {
+    let units = value / 1_000_000;
+    let cents = (value % 1_000_000) / 10_000;
+    format!("${units}.{cents:02}")
 }
 
 pub(super) struct UiStateSnapshot {
