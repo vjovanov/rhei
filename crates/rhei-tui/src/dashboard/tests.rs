@@ -9,7 +9,7 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 fn empty_state() -> DashboardState {
     DashboardState::new(PathBuf::from("/tmp/ws"), 1, 1)
@@ -63,15 +63,38 @@ fn dashboard_task_with_details(
 }
 
 fn fetch_snapshot_json(dashboard: &DashboardSink) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match fetch_snapshot_json_once(dashboard) {
+            Ok(snapshot) => return snapshot,
+            Err(message) if message.contains("invalid JSON") => panic!("{message}"),
+            Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            Err(message) => panic!("{message}"),
+        }
+    }
+}
+
+fn fetch_snapshot_json_once(dashboard: &DashboardSink) -> Result<serde_json::Value, String> {
     let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
-    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let mut stream =
+        TcpStream::connect(addr).map_err(|err| format!("connect to dashboard: {err}"))?;
     stream
         .write_all(b"GET /snapshot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .expect("write request");
-    let response = read_http_response(&mut stream).expect("read response");
-    let response = String::from_utf8(response).expect("utf8 response");
-    let body = response.split("\r\n\r\n").nth(1).expect("response body");
-    serde_json::from_str(body).expect("snapshot json")
+        .map_err(|err| format!("write request: {err}"))?;
+    let response =
+        read_http_response(&mut stream).map_err(|err| format!("read response: {err}"))?;
+    let split = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "response missing HTTP body separator".to_string())?;
+    if !response.starts_with(b"HTTP/1.1 200 OK\r\n") {
+        return Err("dashboard snapshot request did not return HTTP 200".to_string());
+    }
+    let body = &response[split + 4..];
+    if body.is_empty() {
+        return Err("dashboard snapshot response body was empty".to_string());
+    }
+    serde_json::from_slice(body).map_err(|err| format!("invalid JSON snapshot: {err}"))
 }
 
 fn dashboard_http_test_guard() -> MutexGuard<'static, ()> {
