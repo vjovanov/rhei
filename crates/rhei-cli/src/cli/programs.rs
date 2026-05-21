@@ -176,8 +176,7 @@ fn spawn_and_wait_program(
                 Ok(None) => {
                     if start.elapsed() > timeout {
                         timed_out = true;
-                        let pid = Pid::from_raw(child.id() as i32);
-                        let _ = signal::kill(pid, Signal::SIGTERM);
+                        terminate_child_gracefully(&mut child);
                         std::thread::sleep(PROGRAM_TERMINATE_GRACE);
                         match child.try_wait() {
                             Ok(Some(status)) => break Ok(status),

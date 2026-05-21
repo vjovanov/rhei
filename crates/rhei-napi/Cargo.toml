@@ -9,6 +9,9 @@ homepage.workspace = true
 keywords.workspace = true
 description = "N-API bindings for Rhei markdown plan parsing."
 
+[build-dependencies]
+napi-build = "=2.2.3"
+
 [lib]
 name = "rhei_napi"
 crate-type = ["cdylib"]

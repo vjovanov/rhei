@@ -5,9 +5,10 @@ use crate::event::{
 };
 use std::collections::HashSet;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Instant, SystemTime};
 
 fn empty_state() -> DashboardState {
@@ -67,10 +68,15 @@ fn fetch_snapshot_json(dashboard: &DashboardSink) -> serde_json::Value {
     stream
         .write_all(b"GET /snapshot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
         .expect("write request");
-    let mut response = String::new();
-    stream.read_to_string(&mut response).expect("read response");
+    let response = read_http_response(&mut stream).expect("read response");
+    let response = String::from_utf8(response).expect("utf8 response");
     let body = response.split("\r\n\r\n").nth(1).expect("response body");
     serde_json::from_str(body).expect("snapshot json")
+}
+
+fn dashboard_http_test_guard() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Per `RunEvent::SlotAssigned`'s contract, `from == to` means the
@@ -213,6 +219,7 @@ fn snapshot_payload_exposes_plan_state() {
 /// by all dashboard visualization and operational tabs. §FS-rhei-viz.4
 #[test]
 fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
+    let _guard = dashboard_http_test_guard();
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
             title: "Demo Plan".to_string(),
@@ -271,6 +278,7 @@ fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
 
 #[test]
 fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
+    let _guard = dashboard_http_test_guard();
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
             title: "Demo Plan".to_string(),
@@ -301,6 +309,7 @@ fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
 
 #[test]
 fn dashboard_snapshot_endpoint_does_not_mark_released_slot_active() {
+    let _guard = dashboard_http_test_guard();
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
             title: "Demo Plan".to_string(),
@@ -419,6 +428,7 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
 /// the loopback server exits. §FS-rhei-viz.1
 #[test]
 fn frozen_dashboard_writes_self_contained_final_artifact() {
+    let _guard = dashboard_http_test_guard();
     let temp = tempfile::tempdir().expect("tempdir");
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
@@ -452,6 +462,7 @@ fn frozen_dashboard_writes_self_contained_final_artifact() {
 /// §FS-rhei-viz.1
 #[test]
 fn dashboard_snapshot_endpoint_keeps_last_good_plan_snapshot() {
+    let _guard = dashboard_http_test_guard();
     let calls = Arc::new(AtomicUsize::new(0));
     let loader_calls = Arc::clone(&calls);
     let loader: PlanLoader = Arc::new(move || {

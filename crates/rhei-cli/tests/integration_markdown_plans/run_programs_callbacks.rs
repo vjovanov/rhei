@@ -99,13 +99,15 @@ exit 75
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
     let script_path = write_fixture_file(&dir, "poll.sh", script);
-    let mut perms = fs::metadata(&script_path).expect("stat poll").permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path).expect("stat poll").permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&script_path, perms).expect("chmod poll");
     }
+    #[cfg(not(unix))]
+    let _ = &script_path;
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -468,13 +470,15 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
     let plan_path = write_fixture_file(&workspace_dir, "release-automation.rhei.md", plan);
     write_fixture_file(&machine_dir, "team-states.yaml", machine);
     let script_path = write_fixture_file(&machine_dir, "workflow.sh", script);
-    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&script_path, perms).expect("chmod workflow");
     }
+    #[cfg(not(unix))]
+    let _ = &script_path;
 
     let result = run_run_command_in_dir(
         &workspace_dir,
@@ -547,13 +551,15 @@ printf '# Findings for %s\n' "$RHEI_MODEL" > "$runtime_dir/$RHEI_MODEL-findings.
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
     let script_path = write_fixture_file(&dir, "workflow.sh", script);
-    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&script_path, perms).expect("chmod workflow");
     }
+    #[cfg(not(unix))]
+    let _ = &script_path;
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-agent"]);
 

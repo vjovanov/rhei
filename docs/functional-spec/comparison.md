@@ -76,7 +76,7 @@ markdown to get there.
 - [hmans/beans](https://github.com/hmans/beans) — markdown-native alternative to
   beads
 - [opencode `todo.ts`](https://github.com/sst/opencode/blob/dev/packages/opencode/src/tool/todo.ts),
-  [opencode Modes](https://opencode.ai/docs/modes/)
+  [opencode Modes](https://open-code.ai/en/docs/modes)
 - [Claude Code Todo Tracking](https://code.claude.com/docs/en/agent-sdk/todo-tracking)
 - [Cline Deep Planning](https://docs.cline.bot/features/slash-commands/deep-planning)
 - [Cursor Plan Mode](https://cursor.com/docs/agent/plan-mode)

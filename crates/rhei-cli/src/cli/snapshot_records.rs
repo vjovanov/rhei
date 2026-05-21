@@ -468,8 +468,7 @@ fn apply_snapshot_redactor(
             Ok(None) => {
                 if start.elapsed() >= SNAPSHOT_REDACTOR_TIMEOUT {
                     timed_out = true;
-                    let pid = Pid::from_raw(child.id() as i32);
-                    let _ = signal::kill(pid, Signal::SIGTERM);
+                    terminate_child_gracefully(&mut child);
                     std::thread::sleep(SNAPSHOT_REDACTOR_TERMINATE_GRACE);
                     match child.try_wait() {
                         Ok(Some(status)) => break status,

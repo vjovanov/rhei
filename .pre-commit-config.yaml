@@ -1,3 +1,4 @@
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
 repos:
   - repo: local
     hooks:
@@ -7,9 +8,67 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
       - id: grund-check
         name: grund check
         entry: grund check .
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
+      - id: cargo-fmt-check
+        name: cargo fmt --check
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace --all-targets --locked -- -D warnings -W clippy::all
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: cargo-build
+        name: cargo build
+        entry: cargo build --workspace --all-targets --locked
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace --all-targets --locked --no-fail-fast
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, pre-push]
+      - id: changelog-pr-entry
+        name: changelog PR entry
+        entry: python scripts/check_changelog_pr_entry.py --local-pr
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: lychee
+        name: lychee
+        entry: lychee --no-progress --include-fragments README.md docs examples packages
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: no-ai-attribution
+        name: no generated attribution boilerplate (staged files)
+        entry: scripts/check-no-claude-attribution.sh
+        language: system
+        pass_filenames: true
+        exclude: ^scripts/check-no-claude-attribution\.sh$
+        stages: [pre-commit]
+      - id: no-ai-attribution-commit-msg
+        name: no generated attribution boilerplate (commit message)
+        entry: scripts/check-no-claude-attribution.sh
+        language: system
+        pass_filenames: true
+        always_run: true
+        stages: [commit-msg]

@@ -146,8 +146,7 @@ impl DashboardSink {
         let mut stream = TcpStream::connect(addr)?;
         stream
             .write_all(b"GET /snapshot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?;
-        let mut response = Vec::new();
-        stream.read_to_end(&mut response)?;
+        let response = read_http_response(&mut stream)?;
         let split = response
             .windows(4)
             .position(|window| window == b"\r\n\r\n")
@@ -202,11 +201,9 @@ fn handle_client(
     plan: Option<&PlanLoader>,
     last_plan: &Arc<Mutex<Option<PlanSnapshot>>>,
 ) {
-    let mut buf = [0u8; 2048];
-    let Ok(n) = stream.read(&mut buf) else {
+    let Ok(request) = read_http_request(&mut stream) else {
         return;
     };
-    let request = String::from_utf8_lossy(&buf[..n]);
     let path =
         request.lines().next().and_then(|line| line.split_whitespace().nth(1)).unwrap_or("/");
 
@@ -301,6 +298,37 @@ fn handle_client(
     }
 }
 
+fn read_http_request(stream: &mut TcpStream) -> io::Result<String> {
+    let mut request = Vec::new();
+    let mut buf = [0u8; 1024];
+    loop {
+        let n = stream.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        request.extend_from_slice(&buf[..n]);
+        if request.windows(4).any(|window| window == b"\r\n\r\n") || request.len() > 8192 {
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&request).into_owned())
+}
+
+fn read_http_response(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
+    let mut response = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => return Ok(response),
+            Ok(n) => response.extend_from_slice(&buf[..n]),
+            Err(err) if err.kind() == io::ErrorKind::ConnectionReset && !response.is_empty() => {
+                return Ok(response);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
 fn derive_auto_links(workspace: &str) -> Vec<DashboardLink> {
     let mut out = Vec::new();
     let encoded_root = encode_url_path(workspace);
@@ -370,6 +398,7 @@ fn write_response(stream: &mut TcpStream, content_type: &str, body: &[u8]) {
         body.len()
     );
     let _ = stream.write_all(body);
+    let _ = stream.flush();
 }
 
 fn write_not_found(stream: &mut TcpStream) {
@@ -380,6 +409,7 @@ fn write_not_found(stream: &mut TcpStream) {
         body.len()
     );
     let _ = stream.write_all(body);
+    let _ = stream.flush();
 }
 
 fn frozen_dashboard_html(snapshot_json: &str) -> String {

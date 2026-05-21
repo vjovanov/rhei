@@ -403,13 +403,16 @@ fn link_skill(src: &Path, dest: &Path, dry_run: bool) -> MietteResult<()> {
     }
 
     #[cfg(unix)]
-    std::os::unix::fs::symlink(src, dest).map_err(|e| {
-        miette!("failed to symlink '{}' → '{}': {e}", dest.display(), src.display())
-    })?;
+    {
+        std::os::unix::fs::symlink(src, dest).map_err(|e| {
+            miette!("failed to symlink '{}' → '{}': {e}", dest.display(), src.display())
+        })?;
+        println!("  ✓ {} → {}", dest.display(), src.display());
+        Ok(())
+    }
 
     #[cfg(not(unix))]
-    return Err(miette!("symlinks are only supported on Unix platforms"));
-
-    println!("  ✓ {} → {}", dest.display(), src.display());
-    Ok(())
+    {
+        Err(miette!("symlinks are only supported on Unix platforms"))
+    }
 }

@@ -2,20 +2,22 @@
 
 This roadmap is sequenced against the project outcomes. §GOAL-rhei-outcomes
 
-## Release Checklist for 0.1.0
+## Release Checklist
 
-This checklist is for the `0.1.0` release line.
+The release process is automated through GitHub Actions. The workflow verifies
+the requested version, builds multi-platform PGO binaries, publishes crates.io
+packages in dependency order when requested, and creates or updates the GitHub
+release from `docs/changelog.md`. §FS-rhei-distribution §AR-ci-release
 
 ### Preflight
 
-Run from the repository root:
+Run from the repository root before preparing a release:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings -W clippy::all
-cargo build --workspace --all-targets
-cargo test --workspace --all-targets --no-fail-fast
-cargo doc --workspace --no-deps
+cargo build --workspace --all-targets --locked
+cargo test --workspace --all-targets --locked --no-fail-fast
 ```
 
 Confirm the CLI reports the intended release version:
@@ -24,111 +26,45 @@ Confirm the CLI reports the intended release version:
 cargo run -p rhei-cli -- version
 ```
 
-### Source Release
-
-1. Ensure the working tree contains only intentional release changes.
-2. Confirm `CHANGELOG.md` has an entry for the release.
-3. Commit the release preparation.
-4. Tag the commit:
+Run the manual pre-release workflow to check registry names and build a Linux
+PGO release binary:
 
 ```bash
-git tag -a v0.1.0 -m "Rhei 0.1.0"
-git push origin v0.1.0
+gh workflow run pre-release-checks.yml
 ```
 
-5. Create a GitHub release using the `CHANGELOG.md` entry as release notes.
+### Version Preparation
 
-### Crates.io Dry Runs
+Use `scripts/set-release-version.py <version>` to keep the workspace version,
+internal crate dependency requirements, npm package versions, and PyPI package
+versions aligned. `scripts/prepare_changelog_release.py prepare <version>`
+promotes `docs/changelog.md` `Unreleased` into the release section.
 
-Before publishing anything, dry-run the crates that do not depend on other
-unpublished Rhei crates:
+Patch and minor release helpers perform those steps automatically after a green
+`CI` run on `main`, dry-run the release workflow from a candidate branch, then
+fast-forward `main` and dispatch publishing.
+
+### Publishing
+
+Manual publishing is done from the `Release` workflow:
 
 ```bash
-cargo publish --dry-run -p rhei-plan-core
-cargo publish --dry-run -p rhei-cli-tui
+gh workflow run release.yml \
+  -f version=0.1.0 \
+  -f publish_crates=true \
+  -f create_github_release=true
 ```
 
-After `rhei-plan-core` is published, dry-run and publish the direct dependents:
+The workflow creates or reuses `vX.Y.Z`, builds release artifacts for Linux
+GNU x86_64/aarch64, macOS x86_64/aarch64, and Windows x86_64/aarch64, publishes
+the Rust crates, and uploads checksummed binaries to the GitHub release.
 
-```bash
-cargo publish --dry-run -p rhei-agent-core
-cargo publish --dry-run -p rhei-cli-output
-cargo publish --dry-run -p rhei-cli-validator
-cargo publish --dry-run -p rhei-api-napi
-```
+### Package Wrappers
 
-After `rhei-cli-output`, `rhei-cli-validator`, and `rhei-cli-tui` are
-published, dry-run the CLI:
-
-```bash
-cargo publish --dry-run -p rhei-cli
-```
-
-### Crates.io Publish Order
-
-Publish in the same dependency order:
-
-```bash
-cargo publish -p rhei-plan-core
-cargo publish -p rhei-cli-tui
-
-cargo publish -p rhei-agent-core
-cargo publish -p rhei-cli-output
-cargo publish -p rhei-cli-validator
-cargo publish -p rhei-api-napi
-
-cargo publish -p rhei-cli
-```
-
-The crates.io package names are conflict-free. The Rust import names remain
-`rhei_core`, `rhei_agent_core`, `rhei_validator`, `rhei_output`, and
-`rhei_tui`.
-
-### npm Packages
-
-The npm release packages live under `packages/npm/`:
-
-```bash
-cd packages/npm/rhei-cli
-npm pack --dry-run
-npm publish --access public
-
-cd ../rhei-api
-npm pack --dry-run
-npm publish --access public
-```
-
-Publish the CLI package first. It is stored in `packages/npm/rhei-cli`, but its
-npm package name is `rhei`. The `rhei-api` package depends on the matching
-`rhei` npm version.
-
-The npm packages are source-built wrappers: installing them requires Rust
-and Cargo, then runs `cargo install rhei-cli --version 0.1.0`.
-
-### PyPI Packages
-
-The PyPI release packages live under `packages/python/`.
-
-```bash
-cd packages/python/rhei-cli
-python3 -m build
-python3 -m twine check dist/*
-python3 -m twine upload dist/*
-
-cd ../rhei-api
-python3 -m build
-python3 -m twine check dist/*
-python3 -m twine upload dist/*
-```
-
-Publish `rhei-cli` first. The `rhei-api` package depends on
-`rhei-cli==0.1.0`.
-
-### Homebrew and GHCR
-
-Do not block the alpha on Homebrew or GHCR. After a tagged GitHub release has
-Linux/macOS artifacts, add a tap formula named `rhei` under a project-owned tap.
-Add GHCR images only when there is a CI/service entrypoint worth containerizing.
+The npm and PyPI package wrappers remain source-built wrappers around the
+matching `rhei-cli` crate version. Their checked-in version metadata is kept in
+sync by `scripts/set-release-version.py`; publishing those wrapper packages
+should happen only after the matching `rhei-cli` crate version is available.
 
 ## Completed: CLI Next No-Claim Diagnostics
 

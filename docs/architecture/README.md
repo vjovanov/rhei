@@ -7,6 +7,7 @@ stable `AR-<slug>` declarations.
 |---|---|
 | §AR-agent-orchestrator-workflow | Agent/orchestrator component workflow |
 | §AR-source-file-size | Source file size limits and exception register |
+| §AR-ci-release | CI, local hooks, release, and PGO automation |
 
 Supporting architecture and process documents:
 

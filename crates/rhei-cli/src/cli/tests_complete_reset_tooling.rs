@@ -10,6 +10,21 @@
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn paths_equivalent_canonicalizes_both_existing_paths() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let real = dir.path().join("real");
+        let alias = dir.path().join("alias");
+        fs::create_dir_all(&real).expect("real dir");
+        fs::write(real.join("plan.rhei.md"), "# Rhei: Test\n").expect("plan");
+        symlink(&real, &alias).expect("symlink");
+
+        assert!(paths_equivalent(&alias.join("plan.rhei.md"), &real.join("plan.rhei.md")));
+    }
+
     #[test]
     fn should_revalidate_filters_irrelevant_events() {
         let watched = canonical_watched_paths(
