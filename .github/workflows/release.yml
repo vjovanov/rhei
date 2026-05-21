@@ -393,7 +393,6 @@ jobs:
           agent_published="$(check_published rhei-agent-core)"
           output_published="$(check_published rhei-cli-output)"
           validator_published="$(check_published rhei-cli-validator)"
-          napi_published="$(check_published rhei-api-napi)"
           cli_published="$(check_published rhei-cli)"
 
           echo "core_published=$core_published" >> "$GITHUB_OUTPUT"
@@ -401,7 +400,6 @@ jobs:
           echo "agent_published=$agent_published" >> "$GITHUB_OUTPUT"
           echo "output_published=$output_published" >> "$GITHUB_OUTPUT"
           echo "validator_published=$validator_published" >> "$GITHUB_OUTPUT"
-          echo "napi_published=$napi_published" >> "$GITHUB_OUTPUT"
           echo "cli_published=$cli_published" >> "$GITHUB_OUTPUT"
 
       - name: Publish rhei-plan-core
@@ -413,7 +411,7 @@ jobs:
         run: cargo publish -p rhei-cli-tui --locked
 
       - name: Wait for core dependency resolution
-        if: steps.state.outputs.agent_published == 'false' || steps.state.outputs.output_published == 'false' || steps.state.outputs.validator_published == 'false' || steps.state.outputs.napi_published == 'false'
+        if: steps.state.outputs.agent_published == 'false' || steps.state.outputs.output_published == 'false' || steps.state.outputs.validator_published == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -421,7 +419,7 @@ jobs:
           sleep_seconds=20
           for attempt in $(seq 1 "$max_attempts"); do
             ready=true
-            for package in rhei-agent-core rhei-cli-output rhei-cli-validator rhei-api-napi; do
+            for package in rhei-agent-core rhei-cli-output rhei-cli-validator; do
               cargo package -p "$package" --locked --allow-dirty --no-verify >/tmp/rhei-package.log 2>&1 || ready=false
             done
             if [ "$ready" = "true" ]; then
@@ -444,10 +442,6 @@ jobs:
       - name: Publish rhei-cli-validator
         if: steps.state.outputs.validator_published == 'false'
         run: cargo publish -p rhei-cli-validator --locked
-
-      - name: Publish rhei-api-napi
-        if: steps.state.outputs.napi_published == 'false'
-        run: cargo publish -p rhei-api-napi --locked
 
       - name: Wait for CLI dependency resolution
         if: steps.state.outputs.cli_published == 'false'

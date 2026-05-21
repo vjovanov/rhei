@@ -851,7 +851,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rhei-api-napi"
+name = "rhei-api"
 version = "0.1.0"
 dependencies = [
  "napi",

@@ -137,10 +137,11 @@ rhei/
 | `rhei-output` | `rhei-cli-output` | Renders AST to JSON, GitHub markdown, terminal progress |
 | `rhei-cli` | `rhei-cli` | Provides the `rhei` command |
 | `rhei-tui` | `rhei-cli-tui` | Terminal UI event surface and frontend |
-| `rhei-napi` | `rhei-api-napi` | Exposes Rust functionality to JavaScript via N-API |
+| `rhei-napi` | internal (`rhei-api`) | Native implementation backing JavaScript API packages via N-API |
 
-The published package names avoid crates.io conflicts. Rust import names remain
-`rhei_core`, `rhei_validator`, `rhei_output`, and `rhei_tui`.
+Rust import names remain `rhei_core`, `rhei_validator`, `rhei_output`, and
+`rhei_tui`. Public language bindings use the package name `rhei-api`; the
+N-API implementation crate is not published as a standalone crates.io package.
 
 ### Processing Pipeline
 

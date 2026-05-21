@@ -16,11 +16,12 @@ enabled:
 - `rhei-agent-core`
 - `rhei-cli-output`
 - `rhei-cli-validator`
-- `rhei-api-napi`
 - `rhei-cli`
 
 The installed CLI binary is named `rhei`. GitHub release artifacts package that
-binary with `README.md` and a SHA-256 checksum.
+binary with `README.md` and a SHA-256 checksum. Public language API packages
+use the package name `rhei-api`; native N-API support is an implementation
+detail and is not a crates.io release target.
 
 ## 2. Version Source
 
