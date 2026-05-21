@@ -187,6 +187,58 @@ See [missing](nowhere.md) for context.
     }
 
     #[test]
+    fn result_block_on_non_terminal_task_is_invalid_even_when_file_exists() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let results_dir = dir.path().join("runtime/results");
+        fs::create_dir_all(&results_dir).expect("mkdir results");
+        fs::write(results_dir.join("1.md"), "## pending → completed\n").expect("write result");
+
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+
+> **Result:** [1](runtime/results/1.md)
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate_with_base(&rhei, Some(dir.path()));
+
+        assert!(report.has_errors(), "expected result block lifecycle error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("non-terminal state") && joined.contains("result block"),
+            "expected non-terminal result block error; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn result_block_must_match_enclosing_task() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** completed
+
+> **Result:** [2](runtime/results/2.md)
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = Validator::new(sm).validate(&rhei);
+
+        assert!(report.has_errors(), "expected result block identity errors");
+        let joined = report.errors.join("\n");
+        assert!(joined.contains("link text must be '1'"), "got:\n{}", joined);
+        assert!(
+            joined.contains("target must be 'runtime/results/1.md'"),
+            "got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
     fn rejects_program_on_gating_state() {
         let yaml = r#"name: demo
 version: 1

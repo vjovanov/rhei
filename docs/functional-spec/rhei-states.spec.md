@@ -266,9 +266,11 @@ Runtime semantics:
   state. If any required (`optional: false`, the default) input file is missing,
   the transition is rejected. Optional inputs (`optional: true`) are not checked;
   entry proceeds regardless of whether the file exists.
-- `outputs` are checked after callbacks complete and before the transition out
-  of the state is committed. If any required output file is missing, the
-  transition is rejected.
+- `outputs` are checked after `on_leave` callbacks complete and before the
+  transition out of the state is committed. If any required output file is
+  missing, the transition or successful-work completion is rejected according
+  to the command-specific ordering defined in
+  [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts).
 - For every declared input — required or optional — the engine resolves the path
   and checks whether the file exists. The result is exposed as:
   - `{input.<name>.exists}` template variable: `true` or `false`.

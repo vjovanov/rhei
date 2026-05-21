@@ -60,6 +60,76 @@ fn validate_markdown_links(rhei: &Rhei, base_path: &Path, report: &mut Validatio
     }
 }
 
+fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
+    let re = Regex::new(r"^> \*\*Result:\*\* \[([^\]]*)\]\(([^)]+)\)\s*$")
+        .expect("valid result block regex");
+
+    for_each_node(rhei, |task| {
+        let mut in_code_block = false;
+        let mut valid_blocks = Vec::new();
+        let label = format!("{} {}", title_case_kind(&task.kind), task.id);
+
+        for line in task.content.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_code_block = !in_code_block;
+                continue;
+            }
+            if in_code_block || !trimmed.starts_with("> **Result:**") {
+                continue;
+            }
+
+            let Some(caps) = re.captures(trimmed) else {
+                report.errors.push(format!(
+                    "{} has malformed result block; expected '> **Result:** [{}](runtime/results/{}.md)'",
+                    label, task.id, task.id
+                ));
+                continue;
+            };
+            valid_blocks.push((caps[1].to_string(), caps[2].to_string()));
+        }
+
+        if valid_blocks.len() > 1 {
+            report.errors.push(format!(
+                "{} has {} result blocks; at most one is allowed",
+                label,
+                valid_blocks.len()
+            ));
+        }
+
+        if valid_blocks.is_empty() {
+            return;
+        }
+
+        let parsed = parse_task_state(&task.state, machine);
+        let is_terminal =
+            machine.states.get(&parsed.state).map(|state| state.terminal).unwrap_or(false);
+        if !is_terminal {
+            report.errors.push(format!(
+                "{} is in non-terminal state '{}' but contains a result block",
+                label, task.state
+            ));
+        }
+
+        let expected_text = task.id.to_string();
+        let expected_target = format!("runtime/results/{}.md", task.id);
+        for (display, target) in valid_blocks {
+            if display != expected_text {
+                report.errors.push(format!(
+                    "{} result block link text must be '{}', got '{}'",
+                    label, expected_text, display
+                ));
+            }
+            if target != expected_target {
+                report.errors.push(format!(
+                    "{} result block target must be '{}', got '{}'",
+                    label, expected_target, target
+                ));
+            }
+        }
+    });
+}
+
 /// Detect cycles using Kahn's algorithm; report a generic cycle set on failure.
 fn validate_circular_dependencies(
     _rhei: &Rhei,

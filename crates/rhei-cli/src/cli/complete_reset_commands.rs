@@ -75,7 +75,7 @@ fn complete_command(
     } else {
         task_file.clone()
     };
-    execute_transition(
+    let effective_to = execute_transition(
         TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
         &callback_paths,
         &machine,
@@ -84,25 +84,25 @@ fn complete_command(
         &to_state,
         no_callbacks,
     )?;
+    if !is_successful_completion_state(&effective_to, &machine) {
+        return Err(miette!(
+            "Task {} was redirected to '{}', which is not a successful completion state; completion artifacts were not written",
+            task_id_str,
+            effective_to
+        ));
+    }
 
     // Append the completion entry to the result file.
     let root = result_workspace_root(input, &task_file);
     let result_link = format!("runtime/results/{}.md", task_id_str);
-    let result_file_existed = root.join(&result_link).exists();
-    append_result_entry(&root, task_id_str, current_state_raw, &to_state, Some(result_msg))?;
+    append_result_entry(&root, task_id_str, current_state_raw, &effective_to, Some(result_msg))?;
 
     // Post-transition: remove assignee and link the result file (first time only).
-    rewrite_task_completion(
-        &task_file,
-        task_id_str,
-        task_id_str,
-        &result_link,
-        !result_file_existed,
-    )?;
+    rewrite_task_completion(&task_file, task_id_str, task_id_str, &result_link, true)?;
 
     println!(
         "Task {} completed: '{}' → '{}' ({})",
-        task_id_str, current_state_raw, to_state, result_link
+        task_id_str, current_state_raw, effective_to, result_link
     );
 
     Ok(())

@@ -30,7 +30,11 @@ fn create_workspace(
     fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
     fs::write(ws.join("index.rhei.md"), index).expect("write index");
     for (name, content) in task_files {
-        fs::write(tasks_dir.join(name), content).expect("write task file");
+        let path = tasks_dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create task parent dir");
+        }
+        fs::write(path, content).expect("write task file");
     }
     let machine_path = write_fixture_file(&dir, "states.yaml", state_machine);
     (ws, machine_path)
@@ -184,6 +188,31 @@ fn validate_and_list_accept_workspace_index_file_path() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Task 1: Alpha"));
+
+    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
+}
+
+#[test]
+fn workspace_discovers_task_files_recursively_and_skips_hidden_paths() {
+    let (ws, _machine_path) = create_workspace(
+        "ws-recursive",
+        "# Rhei: Workspace Recursive\n\n## Context\nSome context here.\n",
+        &[
+            ("alpha.md", "### Task 1: Alpha\n**State:** pending\n"),
+            ("group/beta.md", "### Task 2: Beta\n**State:** pending\n"),
+            (".ignored.md", "### Task bad: Hidden\n**State:** not-a-state\n"),
+            ("group/.ignored/gamma.md", "### Task bad2: Hidden dir\n**State:** pending\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_workspace(&ws).expect("load workspace");
+    assert_eq!(loaded.rhei.tasks.len(), 2);
+    assert_eq!(loaded.rhei.tasks[0].id.to_string(), "1");
+    assert_eq!(loaded.rhei.tasks[1].id.to_string(), "2");
+    assert!(loaded.task_sources["2"].ends_with("group/beta.md"));
+    assert!(!loaded.task_sources.contains_key("bad"));
+    assert!(!loaded.task_sources.contains_key("bad2"));
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }

@@ -272,15 +272,10 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
     let mut duplicate_task_error: Option<String> = None;
 
     if tasks_dir.is_dir() {
-        let mut entries: Vec<_> = fs::read_dir(&tasks_dir)
-            .map_err(|err| file_io_report(&tasks_dir, "failed to read tasks directory", err))?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "md"))
-            .collect();
-        entries.sort_by_key(|entry| entry.file_name());
+        let task_files = workspace::discover_task_files(&tasks_dir)
+            .map_err(|err| miette!("{}", err.message))?;
 
-        for entry in entries {
-            let path = entry.path();
+        for path in task_files {
             let raw = read_input_file(&path)?;
             let (maybe_tasks, errors) = rhei_core::parser::parse_workspace_tasks_collect(&raw);
             if !errors.is_empty() {
@@ -318,6 +313,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         rhei: rhei_core::ast::Rhei {
             title: index.title,
             states: index.states,
+            states_declared: index.states_declared,
             structure: index.structure,
             metadata: index.metadata,
             content_sections: index.content_sections,

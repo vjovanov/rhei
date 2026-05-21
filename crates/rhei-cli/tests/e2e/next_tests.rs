@@ -62,6 +62,49 @@ transitions:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+#[test]
+fn next_omitted_states_uses_builtin_even_with_sibling_states_yaml() {
+    let plan = r#"# Rhei: Builtin Default
+
+## Tasks
+
+### Task 1: Use builtin machine
+**State:** draft
+"#;
+    let sibling_machine = r#"name: rhei
+version: 1
+states:
+  draft:
+    initial: true
+    description: Planned
+  review:
+    description: Custom review
+    instructions: This sibling machine should be ignored.
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: review
+  - from: review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("next-omitted-states-built-in");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    write_fixture_file(&dir, "states.yaml", sibling_machine);
+
+    let result = run_cli_without_machine("next", &plan_path, &["--no-callbacks", "--json"]);
+    assert_success(&result);
+
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
+    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["state"], "pending");
+    assert_eq!(json["from_state"], "draft");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// Drive a plan to completion using `next` (to claim from initial state)
 /// followed by `complete` (to finish the task). This simulates the agent
 /// workflow: orchestrator calls `next`, agent does work, agent calls `complete`.
@@ -929,19 +972,19 @@ fn next_with_task_flag_targets_specific() {
 }
 
 #[test]
-fn next_json_includes_children() {
+fn next_auto_claims_leaf_child_not_parent_rollup() {
     let (dir, plan_path, machine_path) = setup_single_file("next-children", SUBTASK_PLAN);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
+    assert_eq!(json["task_id"], "1.1");
     let children = json["children"].as_array().expect("children should be array");
-    assert_eq!(children.len(), 2, "should have 2 child tasks");
-    assert_eq!(children[0]["id"], "1.1");
-    assert_eq!(children[0]["title"], "First subtask");
-    assert_eq!(children[1]["id"], "1.2");
-    assert_eq!(children[1]["title"], "Second subtask");
+    assert!(children.is_empty(), "claimed leaf task should not expose child tasks");
+    let content = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(content.contains("### Task 1: Parent task\n**State:** draft"));
+    assert!(content.contains("#### Task 1.1: First subtask\n**State:** pending"));
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

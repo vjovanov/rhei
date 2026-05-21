@@ -287,6 +287,34 @@ Task description closes metadata window.
 }
 
 #[test]
+fn tracks_whether_states_was_declared() {
+    let explicit = parse(
+        r#"# Rhei: Example
+**States:** custom
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#,
+    )
+    .expect("explicit states parses");
+    assert_eq!(explicit.states, "custom");
+    assert!(explicit.states_declared);
+
+    let omitted = parse(
+        r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+"#,
+    )
+    .expect("omitted states parses");
+    assert_eq!(omitted.states, "rhei");
+    assert!(!omitted.states_declared);
+}
+
+#[test]
 fn prior_before_state_is_parse_error() {
     let input = r#"# Rhei: Example
 ## Tasks
@@ -340,6 +368,52 @@ fn errors_on_child_id_that_does_not_extend_parent() {
 "#;
     let err = parse(input).unwrap_err();
     assert!(err.message.contains("must extend parent id"));
+}
+
+#[test]
+fn rejects_numeric_task_id_segments_with_leading_zeroes() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 01: Alpha
+**State:** pending
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("Malformed node heading"));
+    assert_eq!(err.line, Some(4));
+}
+
+#[test]
+fn rejects_prior_id_segments_with_leading_zeroes_instead_of_partial_match() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 0: Zero
+**State:** pending
+
+### Task 1: Alpha
+**State:** pending
+**Prior:** Task 01
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("Malformed metadata field"));
+    assert_eq!(err.line, Some(9));
+}
+
+#[test]
+fn rejects_numeric_task_id_segments_outside_u32_range() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 4294967296: Alpha
+**State:** pending
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("malformed task id"));
+    assert_eq!(err.line, Some(4));
 }
 
 #[test]

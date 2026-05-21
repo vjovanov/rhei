@@ -50,6 +50,51 @@ pub fn workspace_dir(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Discover workspace task files recursively in deterministic plan order.
+pub fn discover_task_files(tasks_dir: &Path) -> parser::Result<Vec<PathBuf>> {
+    fn is_hidden(path: &Path) -> bool {
+        path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('.'))
+    }
+
+    fn visit(dir: &Path, out: &mut Vec<PathBuf>) -> parser::Result<()> {
+        let entries = std::fs::read_dir(dir)
+            .map_err(|e| ParseError::new(format!("failed to read {}: {e}", dir.display()), None))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                ParseError::new(format!("failed to read {}: {e}", dir.display()), None)
+            })?;
+            let path = entry.path();
+            if is_hidden(&path) {
+                continue;
+            }
+            let file_type = entry.file_type().map_err(|e| {
+                ParseError::new(format!("failed to inspect {}: {e}", path.display()), None)
+            })?;
+            if file_type.is_dir() {
+                visit(&path, out)?;
+            } else if file_type.is_file()
+                && path.extension().and_then(|ext| ext.to_str()) == Some("md")
+            {
+                out.push(path);
+            }
+        }
+
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    if tasks_dir.is_dir() {
+        visit(tasks_dir, &mut files)?;
+    }
+    files.sort_by(|a, b| {
+        let a_key = a.strip_prefix(tasks_dir).unwrap_or(a).to_string_lossy().replace('\\', "/");
+        let b_key = b.strip_prefix(tasks_dir).unwrap_or(b).to_string_lossy().replace('\\', "/");
+        a_key.cmp(&b_key)
+    });
+    Ok(files)
+}
+
 /// Load a directory workspace, merging all task files into a single plan.
 ///
 /// Reads `index.rhei.md` for plan metadata, then discovers and parses every
@@ -69,17 +114,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
     let mut task_sources: HashMap<String, PathBuf> = HashMap::new();
 
     if tasks_dir.is_dir() {
-        let mut entries: Vec<_> = std::fs::read_dir(&tasks_dir)
-            .map_err(|e| ParseError::new(format!("failed to read tasks/ directory: {e}"), None))?
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "md"))
-            .collect();
-
-        // Sort by filename for deterministic ordering.
-        entries.sort_by_key(|e| e.file_name());
-
-        for entry in entries {
-            let path = entry.path();
+        for path in discover_task_files(&tasks_dir)? {
             let content = std::fs::read_to_string(&path).map_err(|e| {
                 ParseError::new(format!("failed to read {}: {e}", path.display()), None)
             })?;
@@ -107,6 +142,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
         rhei: Rhei {
             title: index.title,
             states: index.states,
+            states_declared: index.states_declared,
             structure: index.structure,
             metadata: index.metadata,
             content_sections: index.content_sections,

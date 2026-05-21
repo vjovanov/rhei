@@ -272,6 +272,12 @@ fn next_command(
         let target_id = parse_task_id(tid);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
+        if !task.children.is_empty() {
+            return Err(miette!(
+                "Task {} is a rollup with child tasks and cannot be claimed directly; claim one of its leaf tasks instead",
+                tid
+            ));
+        }
         if let Some(assignee) = task.assignee.as_deref() {
             return Err(miette!("Task {} is already assigned to {}", tid, assignee));
         }
@@ -387,8 +393,7 @@ fn next_command(
             &current_state,
             &to_state,
             no_callbacks,
-        )?;
-        to_state
+        )?
     } else {
         current_state.clone()
     };

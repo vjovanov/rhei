@@ -217,6 +217,8 @@ pub struct Rhei {
     pub title: String,
     /// Name of the state machine to use. Defaults to "rhei".
     pub states: String,
+    /// Whether the `**States:**` line was authored explicitly.
+    pub states_declared: bool,
     /// Plan-level structural configuration (max depth, allowed node kinds).
     pub structure: Structure,
     /// Optional YAML frontmatter metadata associated with the plan.

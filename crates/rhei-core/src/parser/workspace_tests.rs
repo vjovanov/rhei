@@ -39,6 +39,19 @@ Context
 }
 
 #[test]
+fn workspace_index_tracks_whether_states_was_declared() {
+    let explicit = parse_workspace_index("# Rhei: Workspace\n**States:** custom\n")
+        .expect("explicit states parses");
+    assert_eq!(explicit.states, "custom");
+    assert!(explicit.states_declared);
+
+    let omitted = parse_workspace_index("# Rhei: Workspace\n\n## Overview\nContext\n")
+        .expect("omitted states parses");
+    assert_eq!(omitted.states, "rhei");
+    assert!(!omitted.states_declared);
+}
+
+#[test]
 fn errors_when_workspace_index_frontmatter_appears_before_header() {
     let input = r#"---
 metadata:

@@ -26,14 +26,11 @@ Workspace root. When a workspace root is passed, validation loads
 
 ## 3. State Machine Resolution
 
-Validation resolves the state machine in this order:
-
-1. Use `--state-machine <PATH>` when supplied.
-2. Use a sibling `states.yaml` for a single-file plan, or
-   `<workspace>/states.yaml` for a Directory Workspace, when that file exists
-   and its `name` matches the plan's `**States:**` declaration.
-3. Fall back to the built-in default state machine when the plan declares the
-   built-in machine name.
+Validation uses the state-machine resolution order defined in the
+[Plan Language Specification](rhei-plan-language.spec.md#13-state-machine-resolution):
+explicit `--state-machine <PATH>` first, omitted `**States:**` as the built-in
+`rhei` machine, declared `**States:** rhei` with built-in fallback, and declared
+custom names only when a matching auto-discovered file is available.
 
 If a plan declares a non-default state machine name and no matching
 auto-discovered file is available, validation fails and directs the caller to

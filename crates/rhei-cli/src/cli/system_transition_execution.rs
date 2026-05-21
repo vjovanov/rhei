@@ -48,7 +48,7 @@ fn execute_transition_with_origin(
     to: &str,
     no_callbacks: bool,
     origin: TransitionOrigin,
-) -> MietteResult<()> {
+) -> MietteResult<String> {
     let task_file = files.task_file;
     let metadata_file = files.metadata_file;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
@@ -478,7 +478,7 @@ fn execute_transition_with_origin(
         let _ = task_handle.unlock();
     }
     let _ = metadata_handle.unlock();
-    Ok(())
+    Ok(to.to_string())
 }
 
 /// Extract the current state and node-policy inputs for a task from raw

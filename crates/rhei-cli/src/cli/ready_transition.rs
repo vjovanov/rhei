@@ -43,19 +43,32 @@ fn find_ready_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     workspace_root: &Path,
+    leaf_only: bool,
 ) -> Vec<&'a rhei_core::ast::Task> {
     use std::collections::HashMap;
 
+    let mut all_tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all_tasks);
+
     // Build a map of task id → current state for dependency lookups.
-    let state_map: HashMap<&TaskId, String> = rhei
-        .tasks
+    let state_map: HashMap<&TaskId, String> = all_tasks
         .iter()
         .map(|t| (&t.id, normalized_state_name(t.state.as_str(), machine)))
         .collect();
 
     let mut ready = Vec::new();
 
-    for task in &rhei.tasks {
+    let scan_tasks: Vec<&rhei_core::ast::Task> = if leaf_only {
+        all_tasks
+    } else {
+        rhei.tasks.iter().collect()
+    };
+
+    for task in scan_tasks {
+        if leaf_only && !task.children.is_empty() {
+            continue;
+        }
+
         let current_state = task.state.as_str();
 
         // Skip tasks already in a terminal or gating state.
@@ -104,7 +117,7 @@ fn find_runnable_tasks<'a>(
     machine: &rhei_validator::StateMachine,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root)
+    find_ready_tasks(rhei, machine, workspace_root, false)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -120,7 +133,7 @@ fn find_claimable_tasks<'a>(
     machine: &rhei_validator::StateMachine,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root)
+    find_ready_tasks(rhei, machine, workspace_root, true)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
@@ -274,6 +287,44 @@ fn diagnose_no_claimable(
         );
     }
 
+    let leaf_tasks: Vec<&rhei_core::ast::Task> =
+        all.iter().copied().filter(|task| task.children.is_empty()).collect();
+    let non_terminal_rollups: Vec<&rhei_core::ast::Task> = all
+        .iter()
+        .copied()
+        .filter(|task| !task.children.is_empty() && !is_terminal_state(task.state.as_str(), machine))
+        .collect();
+    if !leaf_tasks.is_empty()
+        && leaf_tasks.iter().all(|task| is_terminal_state(task.state.as_str(), machine))
+        && !non_terminal_rollups.is_empty()
+    {
+        let items: Vec<String> = non_terminal_rollups
+            .iter()
+            .take(3)
+            .map(|task| {
+                let state = normalized_state_name(task.state.as_str(), machine);
+                format!("Task {} ({})", task.id, state)
+            })
+            .collect();
+        let suffix = if non_terminal_rollups.len() > 3 {
+            format!(" (+{} more)", non_terminal_rollups.len() - 3)
+        } else {
+            String::new()
+        };
+        return format!(
+            "Leaf work complete. {} rollup task(s) can be completed after descendants are terminal: {}{}.",
+            non_terminal_rollups.len(),
+            items.join(", "),
+            suffix
+        );
+    }
+
+    let non_terminal_leaf_tasks: Vec<&rhei_core::ast::Task> = non_terminal
+        .iter()
+        .copied()
+        .filter(|task| task.children.is_empty())
+        .collect();
+
     let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
         task.prior.iter().all(|dep_id| {
             state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
@@ -283,6 +334,7 @@ fn diagnose_no_claimable(
     let gating_ready: Vec<&rhei_core::ast::Task> = non_terminal
         .iter()
         .copied()
+        .filter(|task| task.children.is_empty())
         .filter(|task| {
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).map(|def| def.gating).unwrap_or(false)
@@ -312,7 +364,7 @@ fn diagnose_no_claimable(
         );
     }
 
-    let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal
+    let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal_leaf_tasks
         .iter()
         .copied()
         .filter(|t| {
@@ -345,7 +397,7 @@ fn diagnose_no_claimable(
         );
     }
 
-    let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal
+    let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal_leaf_tasks
         .iter()
         .copied()
         .filter(|t| {
@@ -387,7 +439,7 @@ fn diagnose_no_claimable(
     }
 
     let blocked: Vec<&rhei_core::ast::Task> =
-        non_terminal.iter().copied().filter(|t| !priors_satisfied(t)).collect();
+        non_terminal_leaf_tasks.iter().copied().filter(|t| !priors_satisfied(t)).collect();
     if !blocked.is_empty() {
         let ids: Vec<String> = blocked
             .iter()
@@ -570,7 +622,7 @@ fn try_auto_advance_task(
         task_file.clone()
     };
 
-    execute_transition(
+    let effective_to = execute_transition(
         TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
         callback_paths,
         machine,
@@ -580,5 +632,5 @@ fn try_auto_advance_task(
         no_callbacks,
     )?;
 
-    Ok(Some(to_state))
+    Ok(Some(effective_to))
 }
