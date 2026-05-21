@@ -1,4 +1,4 @@
-use crate::ast::{ContentSection, Metadata, Rhei, Structure, Task, TaskId, MAX_ALLOWED_LEVELS};
+use crate::ast::{ContentSection, Metadata, Rhei, Structure, Task, MAX_ALLOWED_LEVELS};
 use crate::text::parse_task_id;
 use regex::Regex;
 
@@ -19,7 +19,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
     let re_prior_ref =
-        Regex::new(&format!(r#"([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})"#)).unwrap();
+        Regex::new(&format!(r#"^([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})$"#)).unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
     let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
     let re_assignee_like = Regex::new(r#"^\*\*Assignee\b.*$"#).unwrap();
@@ -365,11 +365,24 @@ pub fn parse(input: &str) -> Result<Rhei> {
                     Some(line_number),
                 ));
             }
-            let ids: Vec<TaskId> = re_prior_ref
-                .captures_iter(line)
-                .filter_map(|c| c.get(2))
-                .filter_map(|m| parse_task_id(m.as_str()))
-                .collect();
+            let prior_value = line.strip_prefix("**Prior:**").unwrap_or_default();
+            let mut ids = Vec::new();
+            for item in prior_value.split(',') {
+                let item = item.trim();
+                let Some(caps) = re_prior_ref.captures(item) else {
+                    return Err(ParseError::new(
+                        "Malformed metadata field: expected '**Prior:** Task <id>'",
+                        Some(line_number),
+                    ));
+                };
+                let Some(id) = caps.get(2).and_then(|m| parse_task_id(m.as_str())) else {
+                    return Err(ParseError::new(
+                        "Malformed metadata field: expected '**Prior:** Task <id>'",
+                        Some(line_number),
+                    ));
+                };
+                ids.push(id);
+            }
             if ids.is_empty() {
                 return Err(ParseError::new(
                     "Malformed metadata field: expected '**Prior:** Task <id>'",

@@ -435,6 +435,9 @@ fn rewrite_task_completion(
         if !in_code_block && in_target_task && line.starts_with("**Assignee:**") {
             continue;
         }
+        if !in_code_block && in_target_task && line.starts_with("> **Result:**") {
+            link_inserted = true;
+        }
 
         result_lines.push(line.to_string());
     }

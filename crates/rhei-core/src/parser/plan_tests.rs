@@ -385,6 +385,24 @@ fn rejects_numeric_task_id_segments_with_leading_zeroes() {
 }
 
 #[test]
+fn rejects_prior_id_segments_with_leading_zeroes_instead_of_partial_match() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 0: Zero
+**State:** pending
+
+### Task 1: Alpha
+**State:** pending
+**Prior:** Task 01
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("Malformed metadata field"));
+    assert_eq!(err.line, Some(9));
+}
+
+#[test]
 fn rejects_numeric_task_id_segments_outside_u32_range() {
     let input = r#"# Rhei: Example
 ## Tasks

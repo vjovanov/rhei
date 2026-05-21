@@ -131,7 +131,7 @@ fn transition_command(
         task_file.clone()
     };
 
-    execute_transition(
+    let effective_to = execute_transition(
         TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
         &callback_paths,
         &machine,
@@ -142,9 +142,9 @@ fn transition_command(
     )?;
 
     let root = result_workspace_root(input, &task_file);
-    append_result_entry(&root, task_id_str, from, to, None)?;
+    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
 
-    println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, to);
+    println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);
     Ok(())
 }
 
@@ -167,7 +167,7 @@ fn execute_transition(
     from: &str,
     to: &str,
     no_callbacks: bool,
-) -> MietteResult<()> {
+) -> MietteResult<String> {
     execute_transition_with_origin(
         files,
         callback_paths,

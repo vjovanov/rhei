@@ -43,7 +43,7 @@ impl<'a> Tokenizer<'a> {
 
         // For "**Prior:** Task 1, Bug 1.2, Task api.cache" — captures kind + id pairs.
         let re_prior_ref =
-            Regex::new(&format!(r#"([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})"#)).unwrap();
+            Regex::new(&format!(r#"^([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})$"#)).unwrap();
 
         // For "**States:** name" (must be checked before re_state)
         let re_states = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
@@ -149,11 +149,12 @@ impl<'a> Iterator for Tokenizer<'a> {
 
             // Metadata: Prior
             if line.starts_with("**Prior:**") {
-                let ids = self
-                    .re_prior_ref
-                    .captures_iter(line)
-                    .filter_map(|c| c.get(2))
-                    .filter_map(|m| parse_task_id(m.as_str()))
+                let ids = line
+                    .strip_prefix("**Prior:**")
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter_map(|item| self.re_prior_ref.captures(item.trim()))
+                    .filter_map(|c| c.get(2).and_then(|m| parse_task_id(m.as_str())))
                     .collect::<Vec<TaskId>>();
                 return Some(Token::MetadataPrior { task_ids: ids });
             }

@@ -48,6 +48,7 @@ fn execute_system_timeout_transition(
             skip_source_outputs: true,
         },
     )
+    .map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -84,6 +85,7 @@ fn execute_system_tooling_transition(
             skip_source_outputs: true,
         },
     )
+    .map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -113,4 +115,5 @@ fn execute_system_program_exit_transition(
             skip_source_outputs: exit_code != 0,
         },
     )
+    .map(|_| ())
 }

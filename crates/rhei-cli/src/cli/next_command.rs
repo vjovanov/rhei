@@ -393,8 +393,7 @@ fn next_command(
             &current_state,
             &to_state,
             no_callbacks,
-        )?;
-        to_state
+        )?
     } else {
         current_state.clone()
     };

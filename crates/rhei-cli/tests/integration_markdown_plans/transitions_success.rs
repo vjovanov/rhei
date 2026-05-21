@@ -178,6 +178,19 @@ fn transition_succeeds_and_updates_file() {
         fs::read_to_string(dir.join("runtime/results/1.md")).expect("read transition result log");
     assert!(result_log.contains("## pending \u{2192} in-progress"));
 
+    let completed = run_complete(&plan_path, &machine_path, "1", "done");
+    assert!(
+        completed.status.success(),
+        "complete should succeed after explicit transition\nstdout:\n{}\nstderr:\n{}",
+        completed.stdout,
+        completed.stderr
+    );
+    let updated = fs::read_to_string(&plan_path).expect("read completed plan");
+    assert!(
+        updated.contains("> **Result:** [1](runtime/results/1.md)"),
+        "completion should link result even when transition created the audit file first:\n{updated}"
+    );
+
     fs::remove_dir_all(dir).expect("cleanup");
 }
 

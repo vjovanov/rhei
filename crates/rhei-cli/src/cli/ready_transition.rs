@@ -622,7 +622,7 @@ fn try_auto_advance_task(
         task_file.clone()
     };
 
-    execute_transition(
+    let effective_to = execute_transition(
         TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
         callback_paths,
         machine,
@@ -632,5 +632,5 @@ fn try_auto_advance_task(
         no_callbacks,
     )?;
 
-    Ok(Some(to_state))
+    Ok(Some(effective_to))
 }
