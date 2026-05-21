@@ -173,8 +173,17 @@ fn resolve_state_machine_for_loaded_plan(
     state_machine_path: Option<&Path>,
 ) -> MietteResult<ResolvedStateMachine> {
     if let Some(path) = state_machine_path {
+        let machine = load_state_machine(Some(path))?;
+        if loaded.rhei.states_declared && machine.name != loaded.rhei.states.trim() {
+            return Err(miette!(
+                "plan declares state machine '{}', but --state-machine '{}' declares '{}'",
+                loaded.rhei.states.trim(),
+                path.display(),
+                machine.name
+            ));
+        }
         return Ok(ResolvedStateMachine {
-            machine: load_state_machine(Some(path))?,
+            machine,
             path: Some(path.to_path_buf()),
         });
     }
@@ -182,6 +191,10 @@ fn resolve_state_machine_for_loaded_plan(
     let builtin = rhei_validator::StateMachine::builtin_default();
     let declared_name = loaded.rhei.states.trim();
     let candidate = auto_state_machine_path(input);
+
+    if !loaded.rhei.states_declared {
+        return Ok(ResolvedStateMachine { machine: builtin, path: None });
+    }
 
     if candidate.is_file() {
         let machine = load_state_machine(Some(&candidate))?;

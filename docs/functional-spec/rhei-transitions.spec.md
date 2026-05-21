@@ -760,12 +760,16 @@ transitions:
 
 State artifact contracts (see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the schema) are enforced around transitions:
 
-1. Before entering a target state, the runtime resolves `target.inputs` and
-   rejects the transition if any required input file does not exist.
-2. After `on_leave` / `on_enter` callbacks complete, but before the state write
-   is committed, the runtime resolves `source.outputs` and rejects the
-   transition if any required output file does not exist.
-3. `rhei complete` is subject to the same output checks as `rhei transition`.
+1. After `on_leave` callbacks complete, but before the state write is
+   committed, the runtime resolves `source.outputs` and rejects the transition
+   if any required output file does not exist.
+2. Before writing the target state and invoking `on_enter`, the runtime resolves
+   `target.inputs` and rejects the transition if any required input file does
+   not exist. Optional inputs are resolved but do not block entry.
+3. `rhei complete` applies the same transition artifact order as
+   `rhei transition`. `rhei run` uses source outputs as the successful-work
+   completion condition and applies the command-specific success and failure
+   ordering defined in the main plan-language spec.
 4. In v1, enforcement is file-existence only. Content validation is out of
    scope.
 

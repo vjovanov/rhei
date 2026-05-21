@@ -26,12 +26,13 @@ State values passed to `--from` and `--to` follow the state-value rendering rule
 3. Acquire a file lock on the plan file (single-file plan) or on the task file that contains the task (directory workspace).
 4. Re-read the task's current state under the lock. If it does not equal `--from`, fail with a compare-and-swap conflict error and print the actual current state.
 5. Validate that a declared transition exists from `--from` to `--to` in the active state machine. Reject if the edge is unlisted.
-6. Verify that every required `outputs:` artifact declared on the source state exists (see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts)). Missing outputs abort the transition.
-7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
-8. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
-9. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
-10. Append a `## <from> → <to>` entry (with no message body) to `runtime/results/<task-id>.md`, creating the directory if needed. This keeps the transition audit trail consistent with entries written by `rhei complete`.
-11. Write the task file atomically (temp file + rename) and release the lock.
+6. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
+7. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
+8. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
+9. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
+10. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
+11. Append a `## <from> → <to>` entry (with no message body) to `runtime/results/<task-id>.md`, creating the directory if needed. This keeps the transition audit trail consistent with entries written by `rhei complete`.
+12. Write the task file atomically (temp file + rename) and release the lock.
 
 `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment and unassignment are owned by `rhei next` and `rhei complete` respectively.
 

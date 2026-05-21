@@ -46,9 +46,9 @@ parsed as task structure.
 
 ### 3.1. Numeric vs named tasks
 
-Numeric task ids (`### Task 1:`) are ordered and may contain child tasks.
-Named task ids (`### Task setup:`) are useful for conceptual anchors that
-other tasks depend on — they must not declare child tasks.
+Numeric task ids (`### Task 1:`) and named task ids (`### Task setup:`) may
+both contain child tasks. Use numeric segments when sibling order matters, and
+use named segments for durable conceptual anchors that other tasks depend on.
 
 ```markdown
 ### Task infra: Provision cloud resources
@@ -66,11 +66,11 @@ level (`####`, H4), their children at `#####` (H5), and so on. A child task
 is a full task node — it carries its own `**State:**` line and may declare
 `**Prior:**` dependencies just like a root task.
 
-Child ids extend the parent id by exactly one segment, joined with a dot.
-So children of `Task 2` are `Task 2.1`, `Task 2.2`, …; a child of
-`Task api.cache` is `Task api.cache.fix`. Numeric segments are ordered;
-named segments are arbitrary labels. Duplicate sibling ids under one parent
-are rejected.
+Child ids extend the parent id by exactly one segment, joined with a dot. Any
+segment may be numeric or named. So children of `Task 2` are `Task 2.1`,
+`Task 2.2`, …; a child of `Task api.cache` is `Task api.cache.fix`. Numeric
+segments are ordered; named segments are arbitrary labels. Duplicate sibling
+ids under one parent are rejected.
 
 ```markdown
 ### Task 2: Implement login flow
@@ -181,8 +181,8 @@ See the [States Specification](rhei-states.spec.md) for the states file format.
   `**State:**` line.
 - **Metadata out of order** — `**Prior:**` must come after `**State:**`,
   not before.
-- **Child task under a named task** — only numeric task ids may own
-  child tasks.
+- **Child id does not extend parent id** — a child under `Task api` must use an
+  id such as `api.cache`, not `cache` or `1.cache`.
 - **Cross-plan references** — `**Prior:**` only resolves within one
   document; to model cross-plan dependencies, keep those tasks in the
   same file.

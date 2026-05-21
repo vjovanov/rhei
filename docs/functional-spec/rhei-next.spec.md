@@ -22,15 +22,21 @@ Initial states are not all treated the same: an initial state that declares runn
 
 A task is *claimable* when:
 
-1. All tasks listed in its `**Prior:**` field are in terminal states (`completed` or `cancelled`).
-2. The task has no `**Assignee:**` field (not already claimed by another agent).
-3. Its current state is not terminal (`final: true`) and not gating (`gating: true`).
-4. All required `inputs` declared on the task's current state exist.
+1. It is a leaf task node with no child task nodes.
+2. All tasks listed in its `**Prior:**` field are in successful terminal
+   states (`final: true` and not the normalized `cancelled` state).
+3. The task has no `**Assignee:**` field (not already claimed by another agent).
+4. Its current state is not terminal (`final: true`) and not gating (`gating: true`).
+5. All required `inputs` declared on the task's current state exist.
+
+Non-leaf task nodes are structural rollups and result anchors. `rhei next`
+must exclude them from claim selection even when their dependencies and state
+would otherwise make them ready.
 
 ### 3.1. Behavior
 
 1. Load the state machine and plan. Validate.
-2. Scan all tasks in plan order. For each task that satisfies dependency,
+2. Scan leaf tasks in plan order. For each task that satisfies dependency,
    assignee, and state eligibility, resolve the current state's required
    `inputs`.
 3. If any required input file for the first otherwise-claimable task is
@@ -106,6 +112,7 @@ action is:
 | Condition | Message |
 |-----------|---------|
 | All tasks in terminal states | `Plan complete. All <N> task(s) are in terminal states.` |
+| All leaf tasks are terminal but one or more non-leaf rollups remain non-terminal | `Leaf work complete. <N> rollup task(s) can be completed after descendants are terminal: Task <ID> (<state>), ...` |
 | One or more otherwise-ready tasks are in a gating state | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...` |
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |

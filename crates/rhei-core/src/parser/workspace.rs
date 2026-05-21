@@ -7,6 +7,7 @@ use super::{parse, parse_collect, parse_frontmatter, parse_structure, ParseError
 pub struct WorkspaceIndex {
     pub title: String,
     pub states: String,
+    pub states_declared: bool,
     pub structure: Structure,
     pub metadata: Option<Metadata>,
     pub content_sections: Vec<ContentSection>,
@@ -151,9 +152,11 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
 
     let title = title.ok_or_else(|| ParseError::new("Missing '# Rhei: <title>' header", None))?;
 
+    let states_declared = states.is_some();
     Ok(WorkspaceIndex {
         title,
         states: states.unwrap_or_else(|| "rhei".to_string()),
+        states_declared,
         structure,
         metadata,
         content_sections: content,

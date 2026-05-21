@@ -39,7 +39,10 @@ Create a POST /api/users/:id/avatar endpoint that accepts an image, stores it in
 Render the avatar in the profile header and comment list. Fall back to initials when no avatar is set.
 ```
 
-`**Prior:**` declares dependencies — Task 2 cannot be claimed until Task 1 is in a terminal state as defined by the active state machine (`final: true`; in the built-in `rhei` machine, `completed` and `cancelled`). Tasks without `**Prior:**` are immediately dependency-ready.
+`**Prior:**` declares dependencies — Task 2 cannot be claimed until Task 1 is
+in a terminal state as defined by the active state machine (`final: true`; in
+the built-in `rhei` machine, `completed` and `cancelled`). Tasks without
+`**Prior:**` are immediately dependency-ready.
 
 Tasks may also be decomposed hierarchically when the plan's optional
 `structure.maxLevels` setting allows more than one level:
@@ -86,7 +89,15 @@ Tell an agent with the `rhei-plan-worker` skill to work the plan:
 /rhei-plan-worker plan.rhei.md
 ```
 
-The worker reads the plan, loads the state machine, and enters a loop: claim the next eligible task with `rhei next`, work in that task's current state, use `rhei transition` when the workflow requires an explicit state change (for example `draft` to `pending`), finish with `rhei complete` when the task reaches a terminal outcome, and repeat. This manual worker flow is distinct from `rhei run` agent mode, where spawned agents do the work of the current state and the `rhei run` orchestrator performs the transition after the subprocess exits. The worker stops when no eligible tasks remain or a gating state such as `human-review` requires a human decision.
+The worker reads the plan, loads the state machine, and enters a loop: claim
+the next eligible leaf task with `rhei next`, work in that task's current state,
+use `rhei transition` when the workflow requires an explicit state change (for
+example `draft` to `pending`), finish with `rhei complete` when the task reaches
+a terminal outcome, and repeat. This manual worker flow is distinct from
+`rhei run` agent mode, where spawned agents do the work of the current state and
+the `rhei run` orchestrator performs the transition after the subprocess exits.
+The worker stops when no eligible leaf tasks remain or a gating state such as
+`human-review` requires a human decision.
 
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
 
@@ -111,7 +122,11 @@ The single-file format is a hierarchical structure:
 | Root Node | H3 (`###`) | `### <kind> <id>: <title>` | Yes (at least one) |
 | Child Node | H4-H6 (`####`-`######`) | `<heading> <kind> <id>: <title>` | No |
 
-When present, the `**States:**` field must be the first non-empty line after the `# Rhei:` title. Its value is the `name` of the state machine defined in the associated states configuration (see [States Specification](rhei-states.spec.md)). For a single-file plan, the CLI resolves that configuration from a sibling `states.yaml`. For a directory workspace, it resolves from `<workspace>/states.yaml`. The resolved YAML file's `name` must match the declared `**States:**` value. `--state-machine <path>` overrides this automatic lookup. When the field is omitted, the plan uses the built-in `rhei` state machine.
+When present, the `**States:**` field must be the first non-empty line after
+the `# Rhei:` title. Its value is the `name` of the state machine defined in the
+associated states configuration (see [States Specification](rhei-states.spec.md)).
+State-machine resolution is defined in
+[State Machine Resolution](#13-state-machine-resolution).
 
 When frontmatter omits a `structure` block, the default structure is:
 
@@ -133,12 +148,24 @@ To prevent Git merge conflicts when multiple agents or humans work in parallel a
 A Directory Workspace consists of:
 
 1. **`index.rhei.md`**: The root configuration. Contains the `Rhei Title`, `States Declaration`, and any `Content Sections`. It does **not** contain a `## Tasks` section.
-2. **`tasks/` directory**: A folder containing arbitrary `.md` files.
+2. **`tasks/` directory**: A folder containing workspace task `.md` files.
 3. **Workspace Task Files**: Files within `tasks/` that contain one or more
    node definitions (starting directly with `### <kind> <id>:`). They do not
    require the `# Rhei:` header.
 
-In a Directory Workspace, all tasks are parsed and merged into a single global task graph at runtime. Dependency validation (`**Prior:**`) resolves globally across all files in the `tasks/` directory.
+Task-file discovery is recursive and deterministic. Implementations must load
+non-hidden files matching `tasks/**/*.md`, where neither the file name nor any
+directory segment under `tasks/` starts with `.`. Paths are ordered by their
+normalized workspace-relative path using `/` separators and case-sensitive
+lexicographic comparison. A discovered task file must parse as
+`workspace_task_file` and contain at least one root task node; empty Markdown
+files and prose-only Markdown files under `tasks/` are invalid task files.
+
+In a Directory Workspace, all tasks are parsed and merged into a single global
+task graph at runtime. Dependency validation (`**Prior:**`) resolves globally
+across all discovered task files under `tasks/`. The merged plan order is the
+discovered file order, then each file's authored preorder task order. Commands
+that scan "in plan order" use this merged order for scheduling and rendering.
 
 To prevent creation collisions in highly distributed swarms, letter-prefixed
 `IDENTIFIER` values rather than sequential `NUMBER` task ids are strongly
@@ -146,7 +173,28 @@ recommended for Directory Workspaces. Because the grammar requires an
 `IDENTIFIER` to start with a letter, distributed ids should use forms such as
 `task-550e8400-e29b-41d4-a716-446655440000` rather than a bare UUID or hash.
 
-### 1.3. Directory Workspace Metadata
+### 1.3. State Machine Resolution
+
+State-machine resolution is normative for all commands:
+
+1. `--state-machine <path>` loads the specified YAML file and overrides
+   automatic lookup. If the plan declares `**States:**`, the loaded file's
+   `name` must match that value; if the field is omitted, the loaded file's
+   `name` becomes the active state-machine name for this invocation.
+2. When `**States:**` is omitted and no override is supplied, the plan uses the
+   built-in `rhei` state machine. Sibling or workspace `states.yaml` files are
+   ignored in this case.
+3. When `**States:** rhei` is declared and no override is supplied, a matching
+   auto-discovered `states.yaml` named `rhei` may be used; otherwise the plan
+   falls back to the built-in `rhei` state machine.
+4. When a non-`rhei` `**States:** <name>` is declared and no override is
+   supplied, the CLI resolves the file from a sibling `states.yaml` for a
+   single-file plan or from `<workspace>/states.yaml` for a Directory Workspace.
+   That file must exist and its `name` must match `<name>`.
+5. A declared non-`rhei` state machine without a matching auto-discovered file
+   is a validation error; it never falls back to the built-in machine.
+
+### 1.4. Directory Workspace Metadata
 
 YAML frontmatter for a Directory Workspace belongs in `index.rhei.md`. Workspace
 task files start directly with task definitions and must not introduce
@@ -271,9 +319,9 @@ metadata        = state_field, [ prior_field ], [ assignee_field ] ;
 
 assignee_field  = "**Assignee:** ", title, NEWLINE ;
 
-(* Result block links to the outcome of a completed task. It is inserted
-   by the `complete` command after task content and before child tasks.
-   The link text is the task id itself, and the target is always
+(* Result block links a terminal task to its runtime result/audit file.
+   It is inserted by the `complete` command after task content and before child
+   tasks. The link text is the task id itself, and the target is always
    runtime/results/<task-id>.md. *)
 result_block    = "> **Result:** ", "[", task_id, "](", result_path, ")", NEWLINE ;
 
@@ -345,9 +393,11 @@ non_structural_line = ? any line that does not match a header
 
 blank_line      = NEWLINE ;
 
-NUMBER          = DIGIT, { DIGIT } ;
+NUMBER          = "0" | NONZERO_DIGIT, { DIGIT } ;
 
 DIGIT           = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+
+NONZERO_DIGIT   = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
 
 IDENTIFIER      = LETTER, { LETTER | DIGIT | "-" | "_" } ;
 
@@ -380,11 +430,21 @@ Throughout this specification, a *terminal state* means any state marked
 `final: true` in the active state machine. In the built-in `rhei` machine, the
 terminal states are `completed` and `cancelled`.
 
-Dependency readiness is defined by that terminal-state rule alone: a task is
-ready with respect to `**Prior:**` only when every referenced dependency is in
-a terminal state. State-machine `instructions` text is descriptive guidance for
-agents and must not narrow or override this readiness rule unless the machine
-introduces a separate normative field for that purpose.
+Throughout this specification, a *leaf task node* means a task node with no
+child task nodes. Only leaf task nodes are claimable by `rhei next`. Non-leaf
+task nodes are structural rollups and result anchors for their descendants; they
+must be excluded from manual claim selection so a parent and child are never
+claimed at the same time. `rhei run` may still execute a non-leaf root task when
+the active state machine models the parent as the workflow owner for its child
+nodes. Non-leaf nodes may be moved to a terminal state only after all
+descendants are terminal.
+
+Dependency readiness requires successful terminal dependencies: a task is ready
+with respect to `**Prior:**` only when every referenced dependency is in a
+terminal state whose normalized state name is not `cancelled`. State-machine
+`instructions` text is descriptive guidance for agents and must not narrow or
+override this readiness rule unless the machine introduces a separate normative
+field for that purpose.
 
 When frontmatter defines a `structure` map, the following keys are meaningful
 to this specification:
@@ -401,6 +461,18 @@ always the kind of the single root node at level 0. `rhei` must not appear
 in `structure.nodeKinds`, and it must not appear as a key under
 `node_policy.by_type` in the active state machine. A non-root node must
 never use the `rhei` kind.
+
+### Plan Root Model
+
+The level-0 `rhei` root node is virtual. It is not authored in markdown, has no
+`**State:**`, `**Prior:**`, `**Assignee:**`, or `> **Result:**` line, and is not
+persisted as a task node in a plan file or workspace task file. Runtime commands
+must not claim, transition, complete, cancel, or reset the virtual root.
+
+`node_policy.root` validates and names the state-machine profile for tools that
+model the plan root internally, but it does not create a persisted or executable
+node. UI-level plan status, including any `plan_state` shown by visualization
+tools, is derived from authored task nodes rather than from a root state field.
 
 The heading keyword is the node kind. By convention, authored headings render
 that keyword in Title Case (`task` -> `Task`, `bug` -> `Bug`), but semantic
@@ -461,7 +533,9 @@ Invalid child dependency example:
 
 ### 3.2. State Validity
 
-All state values must be defined in the associated states configuration. By default, that configuration is loaded from the plan's auto-discovered `states.yaml` when `**States:**` is declared, or from the built-in `rhei` state machine when it is omitted. `--state-machine <path>` may override the auto-discovered file.
+All state values must be defined in the associated states configuration resolved
+by the state-machine resolution rules in
+[State Machine Resolution](#13-state-machine-resolution).
 
 In addition, each authored `**State:**` must be a member of the node's
 resolved profile's `allowed` set, as determined by the active state
@@ -575,6 +649,14 @@ extends the parent id by one segment:
 **State:** pending
 ```
 
+Task id segments are canonical. A numeric segment must be `0` or a decimal
+integer with no leading zeroes, and it must fit in the unsigned 32-bit range
+`0..=4294967295`. `Task 1` and `Task 01` are not two distinct ids:
+`Task 01` is invalid syntax because of the leading zero. `Task 4294967296` is
+semantically invalid because the numeric segment is out of range. Result paths,
+dependency references, rendered ids, and uniqueness checks all use the canonical
+task id written in the plan.
+
 Task depth must not exceed `structure.maxLevels`.
 
 ### 3.5. Identifier Uniqueness
@@ -663,6 +745,19 @@ enclosing task itself:
 - The target path must be exactly `runtime/results/<task-id>.md` using that
   same id.
 
+A result block is optional syntax, but it has a lifecycle invariant:
+
+- A non-terminal task must not contain a result block.
+- A terminal task may contain one valid result block. Validation does not
+  require every terminal task to have one, because terminal states can be
+  reached by commands other than `rhei complete` and by imported plans.
+- `rhei complete` must create or preserve exactly one valid result block for a
+  successful non-cancelled terminal completion.
+- `rhei transition` may append audit entries to the result file, but it never
+  adds a result block to the task body.
+- `rhei reset` removes result blocks along with other runtime completion
+  artifacts.
+
 Example:
 
 ```markdown
@@ -718,9 +813,23 @@ is enforced by execution commands such as `rhei transition`, `rhei complete`,
 `rhei run`, and `rhei next`, rather than by pure syntax validation of markdown
 alone. When a transition also declares `on_leave` or `on_enter` callbacks,
 those callbacks are optional per edge: an omitted callback is treated as
-implicit success. See [Transitions Specification](rhei-transitions.spec.md)
-for the full callback contract, including the ordering between artifact checks
-and callback invocation.
+implicit success.
+
+This section is canonical for artifact enforcement order across commands:
+
+| Command | Enforced artifacts | Ordering |
+|---------|--------------------|----------|
+| `rhei next` | Current-state `inputs` only | Before a task is claimable, resolve the current state's inputs. Required inputs must exist; optional inputs are resolved and exposed but missing optional inputs do not block. Claim mode re-checks under the file lock immediately before writing `**Assignee:**`. `next --peek` does not check outputs, run callbacks, write state, or write result files; claim mode may auto-advance non-runnable initial states as defined in the next-command spec. |
+| `rhei transition` | Source-state `outputs`; target-state `inputs` | After the compare-and-swap guard and edge validation, execute `on_leave` unless skipped. Then check required source outputs, resolve target inputs for the final target state, and reject before the state write if any required artifact is missing. Optional target inputs are skipped for blocking but still resolved. Write the target state, execute `on_enter` unless skipped, append the transition audit entry to the result file, then atomically persist the task file. |
+| `rhei complete` | Source-state `outputs`; completion-target `inputs` | Select the non-cancelled terminal completion target first. Then use the same transition artifact order as `rhei transition`: `on_leave`, source outputs, target inputs, state write, `on_enter`. After the transition succeeds, append the result-file entry, remove `**Assignee:**`, add or preserve the result block, and atomically persist the task file. |
+| `rhei run` | Current-state `inputs`; source-state `outputs` for successful work; target-state `inputs` | Before spawning work, the ready-set scan checks current-state required inputs and skips missing optional inputs for blocking. After a subprocess exits `0`, required source outputs are part of the completion condition; if any are missing, no transition fires and the task stays in its current state. Non-zero, timeout, and tooling-failure routes select error transitions as specified by `rhei run` and do not require normal source outputs. For any selected target transition, required target inputs are checked before the state write and optional target inputs do not block. A successful-work transition also re-checks source outputs after `on_leave` and before the state write. Result-file writes, if any, happen only after the transition succeeds. |
+
+For every declared input, required or optional, implementations resolve the path
+and expose the path and existence flag to templates, agents, and programs.
+`optional: true` is valid only on inputs. Outputs are always required when
+declared, and a missing output blocks the transition out of the source state
+except for the `rhei run` failure, timeout, and tooling-unavailable routes
+described above.
 
 Examples:
 
@@ -795,6 +904,7 @@ struct TaskId {
 }
 
 enum TaskIdSegment {
+    // Numeric segments are canonical: no leading zeros and within u32 range.
     Number(u32),
     Named(String),
 }

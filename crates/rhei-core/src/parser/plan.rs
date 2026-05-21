@@ -8,18 +8,18 @@ use super::{parse_frontmatter, parse_structure, unescape_state, ParseError, Resu
 pub fn parse(input: &str) -> Result<Rhei> {
     let re_rhei = Regex::new(r#"^#\s+Rhei:\s+(.*)$"#).unwrap();
     let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
-    let re_node_header = Regex::new(
-        r#"^(#{3,6})\s+([A-Za-z][A-Za-z0-9_-]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+))*):\s+(.*)$"#,
-    )
+    let task_id_segment = r#"(?:[A-Za-z][A-Za-z0-9_-]*|0|[1-9][0-9]*)"#;
+    let task_id_pattern = format!(r#"{task_id_segment}(?:\.{task_id_segment})*"#);
+    let re_node_header = Regex::new(&format!(
+        r#"^(#{{3,6}})\s+([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern}):\s+(.*)$"#
+    ))
     .unwrap();
     let re_any_h3_to_h6 = Regex::new(r#"^#{3,6}\s+\S.*$"#).unwrap();
     let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
-    let re_prior_ref = Regex::new(
-        r#"([A-Za-z][A-Za-z0-9_-]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+))*)"#,
-    )
-    .unwrap();
+    let re_prior_ref =
+        Regex::new(&format!(r#"([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})"#)).unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
     let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
     let re_assignee_like = Regex::new(r#"^\*\*Assignee\b.*$"#).unwrap();
@@ -370,6 +370,12 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 .filter_map(|c| c.get(2))
                 .filter_map(|m| parse_task_id(m.as_str()))
                 .collect();
+            if ids.is_empty() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Prior:** Task <id>'",
+                    Some(line_number),
+                ));
+            }
             top.prior.extend(ids);
             continue;
         }
@@ -485,9 +491,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
         ));
     }
 
+    let states_declared = rhei_states.is_some();
     Ok(Rhei {
         title,
         states: rhei_states.unwrap_or_else(|| "rhei".to_string()),
+        states_declared,
         structure,
         metadata: rhei_metadata,
         content_sections: rhei_content,

@@ -174,6 +174,10 @@ fn transition_succeeds_and_updates_file() {
     let task2 = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("Task 2 exists");
     assert_eq!(task2.state.as_str(), "in-progress");
 
+    let result_log =
+        fs::read_to_string(dir.join("runtime/results/1.md")).expect("read transition result log");
+    assert!(result_log.contains("## pending \u{2192} in-progress"));
+
     fs::remove_dir_all(dir).expect("cleanup");
 }
 

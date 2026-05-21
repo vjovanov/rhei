@@ -34,16 +34,16 @@ impl<'a> Tokenizer<'a> {
         // Captures: 1=hashes, 2=kind, 3=id (dotted path of NUMBER|IDENTIFIER
         // segments), 4=title. Each id segment is either all digits or starts
         // with a letter, matching the grammar.
-        let re_node_header = Regex::new(
-            r#"^(#{3,6})\s+([A-Za-z][A-Za-z0-9_-]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+))*):\s+(.*)$"#,
-        )
+        let task_id_segment = r#"(?:[A-Za-z][A-Za-z0-9_-]*|0|[1-9][0-9]*)"#;
+        let task_id_pattern = format!(r#"{task_id_segment}(?:\.{task_id_segment})*"#);
+        let re_node_header = Regex::new(&format!(
+            r#"^(#{{3,6}})\s+([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern}):\s+(.*)$"#
+        ))
         .unwrap();
 
         // For "**Prior:** Task 1, Bug 1.2, Task api.cache" — captures kind + id pairs.
-        let re_prior_ref = Regex::new(
-            r#"([A-Za-z][A-Za-z0-9_-]*)\s+((?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|[0-9]+))*)"#,
-        )
-        .unwrap();
+        let re_prior_ref =
+            Regex::new(&format!(r#"([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})"#)).unwrap();
 
         // For "**States:** name" (must be checked before re_state)
         let re_states = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();

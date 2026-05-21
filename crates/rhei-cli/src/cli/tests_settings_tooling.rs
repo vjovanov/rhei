@@ -353,7 +353,7 @@
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let dir = tempfile::tempdir().expect("tmpdir");
-        let ready = find_ready_tasks(&rhei, &machine, dir.path());
+        let ready = find_ready_tasks(&rhei, &machine, dir.path(), false);
         assert_eq!(ready.len(), 2);
         let runnable = find_runnable_tasks(&rhei, &machine, dir.path());
         assert_eq!(

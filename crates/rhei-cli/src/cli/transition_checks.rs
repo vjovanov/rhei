@@ -141,6 +141,9 @@ fn transition_command(
         no_callbacks,
     )?;
 
+    let root = result_workspace_root(input, &task_file);
+    append_result_entry(&root, task_id_str, from, to, None)?;
+
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, to);
     Ok(())
 }
