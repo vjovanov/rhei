@@ -212,6 +212,11 @@ fn find_completion_state(
     None
 }
 
+fn is_successful_completion_state(state: &str, machine: &rhei_validator::StateMachine) -> bool {
+    let normalized = normalized_state_name(state, machine);
+    normalized != "cancelled" && is_terminal_state(&normalized, machine)
+}
+
 fn non_terminal_descendants(
     task: &rhei_core::ast::Task,
     machine: &rhei_validator::StateMachine,

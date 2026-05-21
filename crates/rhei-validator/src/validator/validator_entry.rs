@@ -65,6 +65,7 @@ impl Validator {
         validate_terminal_tree_coherence(rhei, &self.machine, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
         validate_assignee_nonempty(rhei, &mut report);
+        validate_result_blocks(rhei, &self.machine, &mut report);
 
         if let Some(base) = base_path {
             validate_markdown_links(rhei, base, &mut report);

@@ -307,4 +307,85 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+#[test]
+fn complete_redirected_to_non_terminal_state_does_not_write_completion_artifacts() {
+    let machine_yaml = r#"name: complete-redirect
+version: 1
+states:
+  pending:
+    description: Ready
+  in-progress:
+    description: Still open
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: completed
+    on_leave: 'cli:printf ''{"success": true, "nextState": "in-progress"}'''
+  - from: pending
+    to: in-progress
+"#;
+    let plan = r#"# Rhei: Completion Redirect
+
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Assignee:** codex
+"#;
+
+    let dir = unique_temp_dir("complete-redirect-non-terminal");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(&machine_path)
+        .arg("complete")
+        .arg(&plan_path)
+        .arg("--task")
+        .arg("1")
+        .arg("--result")
+        .arg("done")
+        .output()
+        .expect("complete command should run");
+    let result = CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    };
+
+    assert!(!result.status.success(), "redirected complete should fail");
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("not a successful")
+            && normalized.contains("completion state")
+            && normalized.contains("completion artifacts were not written"),
+        "stderr should explain non-completion redirect; got:\n{}",
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
+    assert_eq!(task.state.as_str(), "in-progress");
+    assert!(
+        updated.contains("**Assignee:** codex"),
+        "assignee should remain when complete does not finalize:\n{}",
+        updated
+    );
+    assert!(
+        !updated.contains("> **Result:**"),
+        "result block should not be written after non-completion redirect:\n{}",
+        updated
+    );
+    assert!(
+        !dir.join("runtime/results/1.md").exists(),
+        "completion result file should not be written"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 // --- Callback execution integration tests ---

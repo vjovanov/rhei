@@ -84,6 +84,13 @@ fn complete_command(
         &to_state,
         no_callbacks,
     )?;
+    if !is_successful_completion_state(&effective_to, &machine) {
+        return Err(miette!(
+            "Task {} was redirected to '{}', which is not a successful completion state; completion artifacts were not written",
+            task_id_str,
+            effective_to
+        ));
+    }
 
     // Append the completion entry to the result file.
     let root = result_workspace_root(input, &task_file);
