@@ -258,7 +258,7 @@ Programs take precedence because they are declared explicitly on the state and r
 
 ### 6.2. Sequential Mode
 
-Within the sequential execution loop (see [Agents Specification](rhei-agents.spec.md#521-sequential-mode-default-parallel-1)):
+Within the sequential execution loop (see [Agents Specification](rhei-agents.spec.md#521-sequential-mode-default---parallel-1)):
 
 1. Find the next claimable task.
 2. Check the task's current state.

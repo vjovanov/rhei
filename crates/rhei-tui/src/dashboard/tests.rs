@@ -5,10 +5,11 @@ use crate::event::{
 };
 use std::collections::HashSet;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Instant, SystemTime};
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant, SystemTime};
 
 fn empty_state() -> DashboardState {
     DashboardState::new(PathBuf::from("/tmp/ws"), 1, 1)
@@ -62,15 +63,43 @@ fn dashboard_task_with_details(
 }
 
 fn fetch_snapshot_json(dashboard: &DashboardSink) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match fetch_snapshot_json_once(dashboard) {
+            Ok(snapshot) => return snapshot,
+            Err(message) if message.contains("invalid JSON") => panic!("{message}"),
+            Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            Err(message) => panic!("{message}"),
+        }
+    }
+}
+
+fn fetch_snapshot_json_once(dashboard: &DashboardSink) -> Result<serde_json::Value, String> {
     let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
-    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let mut stream =
+        TcpStream::connect(addr).map_err(|err| format!("connect to dashboard: {err}"))?;
     stream
         .write_all(b"GET /snapshot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .expect("write request");
-    let mut response = String::new();
-    stream.read_to_string(&mut response).expect("read response");
-    let body = response.split("\r\n\r\n").nth(1).expect("response body");
-    serde_json::from_str(body).expect("snapshot json")
+        .map_err(|err| format!("write request: {err}"))?;
+    let response =
+        read_http_response(&mut stream).map_err(|err| format!("read response: {err}"))?;
+    let split = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "response missing HTTP body separator".to_string())?;
+    if !response.starts_with(b"HTTP/1.1 200 OK\r\n") {
+        return Err("dashboard snapshot request did not return HTTP 200".to_string());
+    }
+    let body = &response[split + 4..];
+    if body.is_empty() {
+        return Err("dashboard snapshot response body was empty".to_string());
+    }
+    serde_json::from_slice(body).map_err(|err| format!("invalid JSON snapshot: {err}"))
+}
+
+fn dashboard_http_test_guard() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Per `RunEvent::SlotAssigned`'s contract, `from == to` means the
@@ -213,6 +242,7 @@ fn snapshot_payload_exposes_plan_state() {
 /// by all dashboard visualization and operational tabs. §FS-rhei-viz.4
 #[test]
 fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
+    let _guard = dashboard_http_test_guard();
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
             title: "Demo Plan".to_string(),
@@ -271,6 +301,7 @@ fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
 
 #[test]
 fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
+    let _guard = dashboard_http_test_guard();
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
             title: "Demo Plan".to_string(),
@@ -301,6 +332,7 @@ fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
 
 #[test]
 fn dashboard_snapshot_endpoint_does_not_mark_released_slot_active() {
+    let _guard = dashboard_http_test_guard();
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
             title: "Demo Plan".to_string(),
@@ -419,6 +451,7 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
 /// the loopback server exits. §FS-rhei-viz.1
 #[test]
 fn frozen_dashboard_writes_self_contained_final_artifact() {
+    let _guard = dashboard_http_test_guard();
     let temp = tempfile::tempdir().expect("tempdir");
     let loader: PlanLoader = Arc::new(|| {
         Some(PlanSnapshot {
@@ -452,6 +485,7 @@ fn frozen_dashboard_writes_self_contained_final_artifact() {
 /// §FS-rhei-viz.1
 #[test]
 fn dashboard_snapshot_endpoint_keeps_last_good_plan_snapshot() {
+    let _guard = dashboard_http_test_guard();
     let calls = Arc::new(AtomicUsize::new(0));
     let loader_calls = Arc::clone(&calls);
     let loader: PlanLoader = Arc::new(move || {

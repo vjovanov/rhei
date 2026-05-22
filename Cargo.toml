@@ -23,3 +23,10 @@ keywords = ["markdown", "planning", "agents", "workflow"]
 
 [workspace.dependencies]
 pretty_assertions = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+# Distributed GitHub release binaries are additionally profile-guided-optimized
+# by `scripts/pgo-build.sh`. PGO needs an instrument/build/train/rebuild
+# pipeline and cannot live in Cargo's single-pass release profile. §FS-rhei-distribution.4

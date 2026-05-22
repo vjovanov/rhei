@@ -12,7 +12,9 @@ use fs2::FileExt;
 use indexmap::IndexMap;
 use miette::{miette, Report, Result as MietteResult};
 use minijinja::{Environment as MiniJinjaEnvironment, UndefinedBehavior};
+#[cfg(unix)]
 use nix::sys::signal::{self, Signal};
+#[cfg(unix)]
 use nix::unistd::Pid;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use regex::Regex;
@@ -34,6 +36,17 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+fn terminate_child_gracefully(child: &mut std::process::Child) {
+    let pid = Pid::from_raw(child.id() as i32);
+    let _ = signal::kill(pid, Signal::SIGTERM);
+}
+
+#[cfg(not(unix))]
+fn terminate_child_gracefully(child: &mut std::process::Child) {
+    let _ = child.kill();
+}
 
 /// Command-line driver for the Rhei agent runtime.
 #[derive(Parser, Debug)]

@@ -2,7 +2,7 @@
 
 ## Status
 
-proposed | accepted | deprecated | superseded by [NNNN](NNNN-title.md)
+proposed | accepted | deprecated | superseded by NNNN
 
 ## Context
 

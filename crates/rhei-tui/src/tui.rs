@@ -9,6 +9,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::ExecutableCommand;
+#[cfg(unix)]
 use nix::sys::signal::{raise, Signal};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -181,8 +182,14 @@ fn handle_key_event(state: &mut UiState, code: KeyCode, modifiers: KeyModifiers)
     InputAction::Continue
 }
 
+#[cfg(unix)]
 fn forward_sigint_to_self() -> nix::Result<()> {
     raise(Signal::SIGINT)
+}
+
+#[cfg(not(unix))]
+fn forward_sigint_to_self() -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "SIGINT forwarding is Unix-only"))
 }
 
 #[cfg(test)]

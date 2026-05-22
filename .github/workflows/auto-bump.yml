@@ -1,0 +1,185 @@
+name: Auto bump
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  patch-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Resolve current and next versions
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)"
+          if [ -z "$tag" ]; then
+            echo "error: no v*.*.* tag exists; bootstrap the first release manually" >&2
+            exit 1
+          fi
+          current="${tag#v}"
+          IFS=. read -r major minor patch <<< "$current"
+          next="${major}.${minor}.$((patch + 1))"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "current_tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Gate - commits since last tag
+        id: gate_commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(git rev-list --count "${{ steps.versions.outputs.current_tag }}"..HEAD)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ]; then
+            echo "::notice::No commits since ${{ steps.versions.outputs.current_tag }}; skipping."
+          fi
+
+      - name: Gate - non-doc/CI changes since last tag
+        id: gate_substantive
+        if: steps.gate_commits.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.versions.outputs.current_tag }}"
+          substantive="$(git diff --name-only "$tag"..HEAD \
+            | grep -Ev '^(docs/|\.github/)' \
+            | grep -Ev '\.md$' \
+            | grep -Ev '^(LICENSE|lychee\.toml|AGENTS\.md|CLAUDE\.md)$' \
+            || true)"
+          if [ -z "$substantive" ]; then
+            echo "::notice::Only docs/CI changes since $tag; skipping."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gate - CI on current main tip is green
+        if: steps.gate_substantive.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          run="$(gh run list --workflow=CI --branch=main --limit=20 \
+            --json status,conclusion,headSha,databaseId \
+            | jq -c ".[] | select(.headSha == \"$sha\")" | head -n1)"
+          if [ -z "$run" ]; then
+            echo "error: no CI run found for HEAD ($sha)" >&2
+            exit 1
+          fi
+          status="$(echo "$run" | jq -r '.status')"
+          conclusion="$(echo "$run" | jq -r '.conclusion')"
+          if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
+            echo "error: CI on $sha is $status/$conclusion (need completed/success)" >&2
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        if: steps.gate_substantive.outputs.ok == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.82.0
+
+      - name: Bump package versions and refresh lockfile
+        if: steps.gate_substantive.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          next="${{ steps.versions.outputs.next }}"
+          python3 scripts/set-release-version.py "$next"
+          cargo update --workspace
+          python3 scripts/prepare_changelog_release.py prepare "$next"
+
+      - name: Commit and push release candidate
+        id: candidate
+        if: steps.gate_substantive.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          next="${{ steps.versions.outputs.next }}"
+          branch="release-candidate/v${next}-${GITHUB_RUN_ID}"
+          base_sha="$(git rev-parse HEAD)"
+
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml crates/*/Cargo.toml Cargo.lock packages docs/changelog.md docs/changelog
+          git commit -m "Release v${next}"
+          git push -u origin "$branch"
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Dry-run release workflow
+        if: steps.gate_substantive.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          next="${{ steps.versions.outputs.next }}"
+          branch="${{ steps.candidate.outputs.branch }}"
+          sha="${{ steps.candidate.outputs.sha }}"
+
+          gh workflow run release.yml \
+            --ref "$branch" \
+            -f version="$next" \
+            -f publish_crates=false \
+            -f create_github_release=false
+
+          run_id=""
+          for _ in $(seq 1 60); do
+            run_id="$(gh run list --workflow=release.yml --branch="$branch" --event=workflow_dispatch --limit=20 \
+              --json databaseId,headSha \
+              | jq -r ".[] | select(.headSha == \"$sha\") | .databaseId" \
+              | head -n1)"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$run_id" ]; then
+            echo "error: dispatched release dry run for $branch but could not find the run" >&2
+            exit 1
+          fi
+          gh run watch "$run_id" --exit-status --interval 30
+
+      - name: Publish release commit and dispatch release
+        if: steps.gate_substantive.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          next="${{ steps.versions.outputs.next }}"
+          branch="${{ steps.candidate.outputs.branch }}"
+          base_sha="${{ steps.candidate.outputs.base_sha }}"
+          sha="${{ steps.candidate.outputs.sha }}"
+
+          git fetch origin main
+          current_main="$(git rev-parse refs/remotes/origin/main)"
+          if [ "$current_main" != "$base_sha" ]; then
+            echo "error: main moved from $base_sha to $current_main while release dry run was running" >&2
+            exit 1
+          fi
+
+          git push origin "${sha}:refs/heads/main"
+          gh workflow run release.yml \
+            --ref main \
+            -f version="$next" \
+            -f publish_crates=true \
+            -f create_github_release=true
+          git push origin --delete "$branch" || true

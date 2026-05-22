@@ -20,7 +20,7 @@ The simplest callback pattern: approve or reject a transition based on a conditi
 ### 1.1. TypeScript
 
 ```typescript
-import { Rhei, TransitionContext, TransitionResult } from 'rhei-napi';
+import { Rhei, TransitionContext, TransitionResult } from 'rhei-api';
 
 const rhei = new Rhei({ rheiPath: './workflow.rhei.md' });
 

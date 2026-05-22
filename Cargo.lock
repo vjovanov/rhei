@@ -625,6 +625,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "napi-build"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcae8ad5609d14afb3a3b91dee88c757016261b151e9dcecabf1b2a31a6cab14"
+
+[[package]]
 name = "napi-derive"
 version = "2.16.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -845,10 +851,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "rhei-api-napi"
+name = "rhei-api"
 version = "0.1.0"
 dependencies = [
  "napi",
+ "napi-build",
  "napi-derive",
  "rhei-plan-core",
 ]

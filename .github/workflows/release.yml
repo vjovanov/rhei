@@ -1,0 +1,515 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v"
+        required: true
+      publish_crates:
+        description: "Publish Rhei crates to crates.io"
+        type: boolean
+        default: true
+      create_github_release:
+        description: "Create or update the GitHub release and upload artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.82.0"
+
+jobs:
+  verify:
+    name: verify release inputs
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish_crates: ${{ steps.mode.outputs.publish_crates }}
+      create_github_release: ${{ steps.mode.outputs.create_github_release }}
+      create_tag: ${{ steps.mode.outputs.create_tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+            requested="${{ inputs.version }}"
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "$requested" ] && [ "$requested" != "$version" ]; then
+              echo "error: workflow ref ${tag} does not match requested v${requested}" >&2
+              exit 1
+            fi
+          else
+            version="${{ inputs.version }}"
+            tag="v${version}"
+          fi
+
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "error: version must look like 0.1.0, got '$version'" >&2; exit 1 ;;
+          esac
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Verify checked-in package versions
+        run: python3 scripts/verify-release-version.py "${{ steps.version.outputs.version }}"
+
+      - name: Resolve release mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            publish_crates="true"
+            create_github_release="true"
+            create_tag="false"
+          else
+            publish_crates="${{ inputs.publish_crates }}"
+            create_github_release="${{ inputs.create_github_release }}"
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              if [ "${GITHUB_REF_NAME}" != "${{ steps.version.outputs.tag }}" ]; then
+                echo "error: workflow ref ${GITHUB_REF_NAME} does not match requested ${{ steps.version.outputs.tag }}" >&2
+                exit 1
+              fi
+              create_tag="false"
+            elif [ "$publish_crates" = "true" ] || [ "$create_github_release" = "true" ]; then
+              create_tag="true"
+            else
+              create_tag="false"
+            fi
+          fi
+
+          echo "publish_crates=$publish_crates" >> "$GITHUB_OUTPUT"
+          echo "create_github_release=$create_github_release" >> "$GITHUB_OUTPUT"
+          echo "create_tag=$create_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight crates.io token
+        if: steps.mode.outputs.publish_crates == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "error: publish_crates=true but CARGO_REGISTRY_TOKEN is not set" >&2
+            exit 1
+          fi
+
+      - name: Check registry names
+        run: bash scripts/check-registry-names.sh
+
+  prepare-release-ref:
+    name: prepare release tag
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      release_ref: ${{ steps.ref.outputs.release_ref }}
+      release_sha: ${{ steps.ref.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create or resolve release tag
+        id: ref
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ needs.verify.outputs.tag }}"
+          version="${{ needs.verify.outputs.version }}"
+
+          emit_release_ref() {
+            local ref="$1"
+            local sha
+            git checkout --force "$ref"
+            python3 scripts/verify-release-version.py "$version"
+            sha="$(git rev-list -n 1 HEAD)"
+            echo "release_ref=$ref" >> "$GITHUB_OUTPUT"
+            echo "release_sha=$sha" >> "$GITHUB_OUTPUT"
+            echo "release source: $ref ($sha)"
+          }
+
+          if [ "${{ needs.verify.outputs.create_tag }}" != "true" ]; then
+            emit_release_ref "$GITHUB_SHA"
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+            emit_release_ref "$tag"
+            exit 0
+          fi
+
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "refs/tags/${tag}"
+          emit_release_ref "$tag"
+
+  build-linux-gnu-pgo:
+    name: PGO binary (${{ matrix.triple }})
+    needs:
+      - verify
+      - prepare-release-ref
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            image: "quay.io/pypa/manylinux2014_x86_64@sha256:8149fab622c82b6f5feb63df797b6d762551c5780d3a6c188893609700775fc7"
+          - triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            image: "quay.io/pypa/manylinux2014_aarch64@sha256:abd9b0ca7c11710ac3c5ab22ac699e50a0b579a9cbdfb3e84cb9d2709d33b5da"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-release-ref.outputs.release_ref }}
+
+      - name: Build PGO release binary in manylinux2014
+        env:
+          IMAGE: ${{ matrix.image }}
+          RUST_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          docker run --rm \
+            -e RUST_TOOLCHAIN \
+            -v "$PWD:/work" \
+            -w /work \
+            "$IMAGE" \
+            bash -lc '
+              set -euo pipefail
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+              source "$HOME/.cargo/env"
+              rustup component add llvm-tools-preview
+              bash scripts/pgo-build.sh
+            '
+
+      - name: Restore ownership of build outputs
+        run: sudo chown -R "$(id -u):$(id -g)" target
+
+      - name: Self-check PGO release binary
+        run: |
+          set -euo pipefail
+          ./target/release/rhei version
+          ./target/release/rhei validate examples/spec-implementation-example/index.rhei.md
+
+      - name: Package binary
+        id: package
+        run: |
+          set -euo pipefail
+
+          version="${{ needs.verify.outputs.version }}"
+          base="rhei-${version}-${{ matrix.triple }}"
+          dir="dist/${base}"
+          mkdir -p "$dir"
+
+          cp ./target/release/rhei "$dir/"
+          cp README.md "$dir/"
+
+          archive="${base}.tar.gz"
+          tar -czf "$archive" -C dist "$base"
+          sha256sum "$archive" > "${archive}.sha256"
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.package.outputs.archive }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          if-no-files-found: error
+
+  build-native-pgo:
+    name: PGO binary (${{ matrix.os }})
+    needs:
+      - verify
+      - prepare-release-ref
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            pgo_required: true
+          - os: macos-15
+            pgo_required: true
+          - os: windows-latest
+            pgo_required: true
+          - os: windows-11-arm
+            pgo_required: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-release-ref.outputs.release_ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-pgo-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-release-pgo-${{ env.RUST_TOOLCHAIN }}-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-release-pgo-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: Build PGO release binary
+        id: pgo
+        continue-on-error: ${{ ! matrix.pgo_required }}
+        shell: bash
+        run: bash scripts/pgo-build.sh
+
+      - name: Build LTO release binary fallback
+        if: ${{ ! matrix.pgo_required && steps.pgo.outcome == 'failure' }}
+        shell: bash
+        run: cargo build --release --locked -p rhei-cli
+
+      - name: Self-check release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="./target/release/rhei"
+          if [[ "$(rustc -vV | awk '/^host:/ { print $2 }')" == *windows* ]]; then
+            bin="${bin}.exe"
+          fi
+          "$bin" version
+          "$bin" validate examples/spec-implementation-example/index.rhei.md
+
+      - name: Package binary
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          host="$(rustc -vV | awk '/^host:/ { print $2 }')"
+          version="${{ needs.verify.outputs.version }}"
+          base="rhei-${version}-${host}"
+          dir="dist/${base}"
+          mkdir -p "$dir"
+
+          bin="./target/release/rhei"
+          if [[ "$host" == *windows* ]]; then
+            bin="${bin}.exe"
+          fi
+
+          cp "$bin" "$dir/"
+          cp README.md "$dir/"
+
+          if [[ "$host" == *windows* ]]; then
+            archive="${base}.zip"
+            powershell -NoProfile -Command \
+              "Compress-Archive -Path 'dist/${base}' -DestinationPath '${archive}' -Force"
+          else
+            archive="${base}.tar.gz"
+            tar -czf "$archive" -C dist "$base"
+          fi
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" > "${archive}.sha256"
+          else
+            shasum -a 256 "$archive" > "${archive}.sha256"
+          fi
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.package.outputs.archive }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          if-no-files-found: error
+
+  publish-crates:
+    name: publish crates.io packages
+    needs:
+      - verify
+      - prepare-release-ref
+      - build-linux-gnu-pgo
+      - build-native-pgo
+    if: needs.verify.outputs.publish_crates == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-release-ref.outputs.release_ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Check crates.io publication state
+        id: state
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.verify.outputs.version }}"
+
+          check_published() {
+            local crate="$1"
+            local code
+            code="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -A 'rhei-release/0.1' \
+              "https://crates.io/api/v1/crates/${crate}/${version}")"
+            case "$code" in
+              200) echo "true" ;;
+              404) echo "false" ;;
+              *) echo "error: unexpected HTTP $code querying crates.io for ${crate} ${version}" >&2; exit 1 ;;
+            esac
+          }
+
+          core_published="$(check_published rhei-plan-core)"
+          tui_published="$(check_published rhei-cli-tui)"
+          agent_published="$(check_published rhei-agent-core)"
+          output_published="$(check_published rhei-cli-output)"
+          validator_published="$(check_published rhei-cli-validator)"
+          cli_published="$(check_published rhei-cli)"
+
+          echo "core_published=$core_published" >> "$GITHUB_OUTPUT"
+          echo "tui_published=$tui_published" >> "$GITHUB_OUTPUT"
+          echo "agent_published=$agent_published" >> "$GITHUB_OUTPUT"
+          echo "output_published=$output_published" >> "$GITHUB_OUTPUT"
+          echo "validator_published=$validator_published" >> "$GITHUB_OUTPUT"
+          echo "cli_published=$cli_published" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rhei-plan-core
+        if: steps.state.outputs.core_published == 'false'
+        run: cargo publish -p rhei-plan-core --locked
+
+      - name: Publish rhei-cli-tui
+        if: steps.state.outputs.tui_published == 'false'
+        run: cargo publish -p rhei-cli-tui --locked
+
+      - name: Wait for core dependency resolution
+        if: steps.state.outputs.agent_published == 'false' || steps.state.outputs.output_published == 'false' || steps.state.outputs.validator_published == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=90
+          sleep_seconds=20
+          for attempt in $(seq 1 "$max_attempts"); do
+            ready=true
+            for package in rhei-agent-core rhei-cli-output rhei-cli-validator; do
+              cargo package -p "$package" --locked --allow-dirty --no-verify >/tmp/rhei-package.log 2>&1 || ready=false
+            done
+            if [ "$ready" = "true" ]; then
+              exit 0
+            fi
+            echo "crates.io index not ready yet (${attempt}/${max_attempts})"
+            sleep "$sleep_seconds"
+          done
+          cat /tmp/rhei-package.log >&2
+          exit 1
+
+      - name: Publish rhei-agent-core
+        if: steps.state.outputs.agent_published == 'false'
+        run: cargo publish -p rhei-agent-core --locked
+
+      - name: Publish rhei-cli-output
+        if: steps.state.outputs.output_published == 'false'
+        run: cargo publish -p rhei-cli-output --locked
+
+      - name: Publish rhei-cli-validator
+        if: steps.state.outputs.validator_published == 'false'
+        run: cargo publish -p rhei-cli-validator --locked
+
+      - name: Wait for CLI dependency resolution
+        if: steps.state.outputs.cli_published == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=90
+          sleep_seconds=20
+          for attempt in $(seq 1 "$max_attempts"); do
+            if cargo package -p rhei-cli --locked --allow-dirty --no-verify >/tmp/rhei-cli-package.log 2>&1; then
+              exit 0
+            fi
+            echo "CLI dependencies not resolvable yet (${attempt}/${max_attempts})"
+            sleep "$sleep_seconds"
+          done
+          cat /tmp/rhei-cli-package.log >&2
+          exit 1
+
+      - name: Publish rhei-cli
+        if: steps.state.outputs.cli_published == 'false'
+        run: cargo publish -p rhei-cli --locked
+
+  github-release:
+    name: publish GitHub release
+    needs:
+      - verify
+      - prepare-release-ref
+      - build-linux-gnu-pgo
+      - build-native-pgo
+      - publish-crates
+    if: always() && needs.verify.outputs.create_github_release == 'true' && needs.build-linux-gnu-pgo.result == 'success' && needs.build-native-pgo.result == 'success' && (needs.publish-crates.result == 'success' || needs.publish-crates.result == 'skipped')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-release-ref.outputs.release_ref }}
+
+      - name: Checkout release tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Extract release notes
+        run: python3 release-tools/scripts/prepare_changelog_release.py notes "${{ needs.verify.outputs.version }}" --output release-notes.md
+
+      - name: Create or update release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ needs.verify.outputs.tag }}"
+          version="${{ needs.verify.outputs.version }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --notes-file release-notes.md
+            gh release upload "$tag" release-artifacts/* --clobber
+          else
+            gh release create "$tag" release-artifacts/* \
+              --verify-tag \
+              --title "Rhei ${version}" \
+              --notes-file release-notes.md
+          fi

@@ -111,7 +111,7 @@ No file lock is acquired, no markdown is rewritten, and no runtime artifacts are
 With `--parallel N`, up to `N` subprocesses run concurrently. The orchestrator:
 
 - Assigns each spawn a slot index.
-- Writes one line to `runtime/transitions.log` per `SlotAssigned` and one per `SlotReleased`; see [Run TUI Specification — Transition Journal](rhei-run-tui.spec.md#16-journal-format).
+- Writes one line to `runtime/transitions.log` per `SlotAssigned` and one per `SlotReleased`; see [Run TUI Specification — Transition Journal](rhei-run-tui.spec.md#17-journal-format).
 - Serializes every state write through its own file lock, so two agents completing at once cannot corrupt the plan.
 
 Tasks whose transitions would race on the same task node are never scheduled in parallel: scheduling is driven by the ready set, which excludes tasks already in flight.

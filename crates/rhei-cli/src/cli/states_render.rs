@@ -492,8 +492,12 @@ fn path_matches(path: &Path, targets: &[WatchTarget]) -> bool {
 }
 
 fn paths_equivalent(candidate: &Path, watched: &Path) -> bool {
-    if let Some(normalized_candidate) = normalize_path(candidate) {
-        return normalized_candidate == watched;
+    match (normalize_path(candidate), normalize_path(watched)) {
+        (Some(candidate), Some(watched)) => return candidate == watched,
+        (Some(candidate), None) if candidate == watched => return true,
+        (None, Some(watched)) if candidate == watched => return true,
+        (None, None) => {}
+        _ => {}
     }
 
     let candidate_file_name = candidate.file_name();

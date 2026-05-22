@@ -1105,7 +1105,7 @@ transitions:
 
 **workflow.ts:**
 ```typescript
-import { Rhei, TransitionContext, TransitionResult } from 'rhei-napi';
+import { Rhei, TransitionContext, TransitionResult } from 'rhei-api';
 
 // Initialize Rhei with state machine
 const rhei = new Rhei({

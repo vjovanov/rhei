@@ -274,9 +274,7 @@ fn spawn_and_wait_agent(
                 Ok(None) => {
                     if start.elapsed() > timeout {
                         timed_out = true;
-                        // Send SIGTERM.
-                        let pid = Pid::from_raw(child.id() as i32);
-                        let _ = signal::kill(pid, Signal::SIGTERM);
+                        terminate_child_gracefully(&mut child);
                         // Grace period.
                         std::thread::sleep(AGENT_TERMINATE_GRACE);
                         match child.try_wait() {

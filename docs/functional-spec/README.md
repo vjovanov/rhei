@@ -33,6 +33,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-completions | Shell completion UX |
 | §FS-rhei-install-skills | `rhei install-skills` command behavior |
 | §FS-rhei-version | `rhei version` command behavior |
+| §FS-rhei-distribution | Distribution targets and release process |
 | §FS-rhei-state-machine-writer | State machine writer guidance |
 
 This index is navigational. Normative citations should target the specific

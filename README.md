@@ -50,7 +50,8 @@ Current workspace crates:
 - `rhei-cli-output` (`rhei_output`): JSON, GitHub-style markdown, and progress-report rendering
 - `rhei-cli`: `rhei` command-line driver for validation, execution, monitoring,
   snapshots, templating, and rendering
-- `rhei-api-napi`: Node.js bindings
+- `rhei-api`: language API package surface; the N-API implementation lives in
+  `crates/rhei-napi`
 
 ## Agent runtime
 

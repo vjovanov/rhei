@@ -1,0 +1,47 @@
+name: Pre-release checks
+
+on:
+  workflow_dispatch:
+
+jobs:
+  registry-names:
+    name: verify package-name availability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check package names
+        run: bash scripts/check-registry-names.sh
+
+  pgo-release-binary:
+    name: build and self-check PGO release binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.82.0
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-prerelease-pgo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-prerelease-pgo-
+            ${{ runner.os }}-cargo-
+
+      - name: Build PGO release binary
+        run: bash scripts/pgo-build.sh
+
+      - name: Self-check PGO release binary
+        run: |
+          set -euo pipefail
+          ./target/release/rhei version
+          ./target/release/rhei validate examples/spec-implementation-example/index.rhei.md

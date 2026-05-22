@@ -5,13 +5,15 @@ fn write_run_agent_settings(dir: &Path, settings: &str) {
 }
 
 fn make_run_agent_script_executable(path: &Path) {
-    let mut perms = fs::metadata(path).expect("stat agent script").permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path).expect("stat agent script").permissions();
         perms.set_mode(0o755);
         fs::set_permissions(path, perms).expect("chmod agent script");
     }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 fn collect_run_agent_snapshot_manifests(dir: &Path) -> Vec<serde_json::Value> {
