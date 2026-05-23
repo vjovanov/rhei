@@ -86,6 +86,14 @@ The surface is keyboard-first and mouse-optional, per §FS-rhei-viz-ux §7:
 inspector and the machine-detail panel together. All content is selectable and
 copy-friendly.
 
+The selected node is reflected in the URL hash, so a page can be **deep-linked**
+to a specific node: opening the surface with `#<node-id>` selects that node and
+opens its surroundings instead of the default live-leading view, and the
+inspector head offers a "copy link" affordance that yields such a URL. This makes
+the static artifact addressable for async review ("see task 3.1 here"). Hash
+updates use history replacement so keyboard navigation does not flood browser
+history; editing the hash or using back/forward reselects.
+
 ### 1.1. State Category and Glyph
 
 Every state is reduced to one of seven **categories**, derived from the resolved
@@ -200,9 +208,16 @@ running agent keeps an interactive stdin open and is therefore reachable — the
 per-agent `intervene_stdin` opt-in, surfaced per slot in the snapshot as
 `task_runtime[id].intervene` (§8). When a live agent is *not* reachable — a
 one-shot or EOF-driven transport, which is every built-in agent today — the block
-states plainly that the agent can't be messaged live, rather than inviting input
-that would fail after the operator types. Intervene messages a running agent; it
-never transitions or edits the plan §AR-rhei-viz-flow.7.
+states plainly that the agent can't be messaged live and names the remedy (set
+`intervene_stdin` on the agent's profile and rerun), rather than dead-ending the
+operator or inviting input that would fail after they type. Intervene messages a
+running agent; it never transitions or edits the plan §AR-rhei-viz-flow.7.
+
+The same channel is reachable from the terminal, for operators who run without a
+browser open: `rhei intervene --task <id> [--slot <N>] -m "<message>"` discovers
+the live run's loopback address and delivers the message through the identical
+`/intervene` boundary and capability gate as the composer. It is the headless
+sibling of the composer, not a second code path §AR-rhei-viz-flow.7.
 
 In the static surface (§7.2) the terminal shows a representative transcript so the
 layout has realistic shape, and the composer is shown disabled — its messages are
@@ -267,6 +282,12 @@ materialize under `runtime/` only during a live run. The agent terminal shows a
 representative transcript and the intervene composer is inert (§5). This is what
 `cargo xtask examples viz <name>` produces today and what the frozen run-end
 artifact (§7.1) reuses; it is also what the `rhei viz` command renders.
+
+`rhei viz` defaults its output to the workspace's `runtime/` directory —
+`runtime/<input>.html` for a plan file, `runtime/rhei-viz.html` for a workspace
+directory — the same location the run-end freeze (§7.1) writes to, so generating
+a view never drops an HTML file beside a checked-in plan. `--output <FILE>`
+overrides the location.
 
 ## 8. Data Contract
 

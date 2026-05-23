@@ -270,6 +270,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             (standalone, agent, program, snapshot).into(),
         ),
         Commands::Cost { input, task, json, by } => cost_command(&input, task.as_deref(), json, by),
+        Commands::Intervene { plan, task, slot, message } => {
+            intervene_command(&plan, &task, slot, &message)
+        }
         Commands::Viz { input, output, open } => {
             viz_command(&input, cli.state_machine.as_deref(), output.as_deref(), open)
         }

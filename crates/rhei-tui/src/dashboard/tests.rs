@@ -487,6 +487,25 @@ fn intervene_without_sink_reports_unavailable() {
     assert_eq!(res["ok"], false);
 }
 
+// AR §7: the dashboard publishes its loopback URL to runtime/dashboard.json so a
+// separate `rhei intervene` process can discover and message the live run, and
+// removes the file when the run ends.
+#[test]
+fn dashboard_publishes_and_cleans_up_discovery_file() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let addr_file = temp.path().join("runtime/dashboard.json");
+    let dashboard = DashboardSink::start_with_plan(temp.path().to_path_buf(), 1, 1, None)
+        .expect("start dashboard");
+
+    let raw = fs::read_to_string(&addr_file).expect("discovery file written");
+    let value: serde_json::Value = serde_json::from_str(&raw).expect("valid json");
+    assert_eq!(value["url"], dashboard.url());
+    assert!(value["pid"].as_u64().is_some());
+
+    dashboard.finish();
+    assert!(!addr_file.exists(), "discovery file removed on shutdown");
+}
+
 // §FS-rhei-viz §5: the snapshot surfaces per-slot intervene capability so the
 // Flow composer is gated on what the agent can actually take. A slot whose agent
 // holds stdin open reports `intervene: true`; a one-shot agent reports `false`.

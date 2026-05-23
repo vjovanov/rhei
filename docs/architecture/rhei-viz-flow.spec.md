@@ -204,6 +204,16 @@ POST /intervene { slot | task_id, message }
   ✗ no transition, no plan write, no metadata mutation
 ```
 
+**Two clients, one boundary.** The Flow composer is one client of `POST
+/intervene`; the `rhei intervene` CLI is the other, for operators without a
+browser. To let a separate process find the ephemeral loopback port, the
+dashboard publishes its URL on startup to `runtime/dashboard.json` (`{ url, pid }`)
+and removes the file when the run ends. `rhei intervene` resolves the run's
+workspace from its `--plan`/`.` argument, reads that file, and POSTs to the same
+route — so the CLI inherits the identical capability gate, audit log, and
+read-only-with-one-hole boundary; it adds no new mutation path. A failure to
+publish the file costs only headless intervention, never the run.
+
 **New plumbing this requires.** Delivery is **agent-capability-dependent**. Most
 stdin-prompt transports are EOF-driven: `agent_spawn.rs` writes the prompt and
 closes stdin so the agent starts. Those agents, and agents invoked with a

@@ -97,6 +97,10 @@ pub struct DashboardSink {
     state: Arc<Mutex<DashboardState>>,
     stop: Arc<AtomicBool>,
     join: Mutex<Option<JoinHandle<()>>>,
+    /// The discovery file (`runtime/dashboard.json`) this run published its
+    /// loopback URL into, so `rhei intervene` can reach the live server. Removed
+    /// when the dashboard finishes. §AR-rhei-viz-flow.7
+    addr_file: Option<PathBuf>,
 }
 
 impl DashboardSink {
@@ -142,11 +146,21 @@ impl DashboardSink {
 
         let thread_state = Arc::clone(&state);
         let thread_stop = Arc::clone(&stop);
+        // Publish the loopback URL so a separate `rhei intervene` process can
+        // reach this run's server. Best-effort: a failure to write only costs
+        // headless intervention, not the run. §AR-rhei-viz-flow.7
+        let addr_file = {
+            let workspace = match state.lock() {
+                Ok(s) => s.workspace.clone(),
+                Err(p) => p.into_inner().workspace.clone(),
+            };
+            publish_dashboard_addr(&workspace, &url)
+        };
         let handle = thread::spawn(move || {
             serve(listener, thread_state, plan, last_plan, thread_stop, intervene)
         });
 
-        Ok(Self { url, state, stop, join: Mutex::new(Some(handle)) })
+        Ok(Self { url, state, stop, join: Mutex::new(Some(handle)), addr_file })
     }
 
     pub fn url(&self) -> &str {
@@ -177,6 +191,11 @@ impl DashboardSink {
 
     pub fn finish(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        // Drop the discovery file first so a late `rhei intervene` sees the run
+        // is gone rather than dialing a closing socket.
+        if let Some(path) = &self.addr_file {
+            let _ = fs::remove_file(path);
+        }
         let mut guard = match self.join.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -375,6 +394,22 @@ fn handle_client(
     }
 }
 
+/// Publish the live dashboard's loopback URL to `runtime/dashboard.json` so a
+/// separate `rhei intervene` process can discover and message this run; returns
+/// the written path (removed on shutdown), or `None` on write failure. §AR-rhei-viz-flow.7
+fn publish_dashboard_addr(workspace: &str, url: &str) -> Option<PathBuf> {
+    let dir = Path::new(workspace).join("runtime");
+    if fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    let path = dir.join("dashboard.json");
+    let body = serde_json::json!({ "url": url, "pid": std::process::id() });
+    match fs::write(&path, body.to_string()) {
+        Ok(()) => Some(path),
+        Err(_) => None,
+    }
+}
+
 fn derive_auto_links(workspace: &str) -> Vec<DashboardLink> {
     let mut out = Vec::new();
     let encoded_root = encode_url_path(workspace);
@@ -391,6 +426,11 @@ fn derive_auto_links(workspace: &str) -> Vec<DashboardLink> {
     push(&mut out, "Workspace", "");
     push(&mut out, "Runtime logs", "runtime/logs");
     push(&mut out, "Runtime results", "runtime/results");
+    // Surface the intervention audit trail once it exists, so the one mutation
+    // boundary is reachable from the dashboard. §AR-rhei-viz-flow.7
+    if Path::new(workspace).join("runtime/interventions.log").is_file() {
+        push(&mut out, "Interventions", "runtime/interventions.log");
+    }
     out
 }
 

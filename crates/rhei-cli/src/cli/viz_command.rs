@@ -23,6 +23,10 @@ fn viz_command(
 
     let html = rhei_viz_model::render_static(&plans);
     let out = output.map(Path::to_path_buf).unwrap_or_else(|| default_viz_output(input));
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| miette!("failed to create {}: {err}", parent.display()))?;
+    }
     std::fs::write(&out, html).map_err(|err| miette!("failed to write {}: {err}", out.display()))?;
     println!("Wrote flow visualization to {}", out.display());
 
@@ -32,13 +36,16 @@ fn viz_command(
     Ok(())
 }
 
-/// Default output: `rhei-viz.html` inside a workspace directory, otherwise the
-/// plan file with its extension swapped to `.html`.
+/// Default output under the workspace's `runtime/` directory (the run-end freeze
+/// location), so a generated view never lands next to a checked-in plan:
+/// `runtime/rhei-viz.html` for a directory, `runtime/<stem>.html` for a file. §FS-rhei-viz.7.2
 fn default_viz_output(input: &Path) -> PathBuf {
     if input.is_dir() {
-        input.join("rhei-viz.html")
+        input.join("runtime").join("rhei-viz.html")
     } else {
-        input.with_extension("html")
+        let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("rhei-viz");
+        let dir = input.parent().unwrap_or(Path::new("."));
+        dir.join("runtime").join(format!("{stem}.html"))
     }
 }
 

@@ -173,6 +173,37 @@ preloaded as the default agents registry. A user entry with the same id in
 global or project settings replaces the built-in entry wholesale — `command`,
 flags, and `modes` are taken from the user entry without field-level merging.
 
+**Enabling live intervention.** No built-in agent enables `intervene_stdin`: the
+known coding agents read their prompt and then run autonomously without consuming
+more stdin, so the Flow composer (§FS-rhei-viz §5) and `rhei intervene` are hidden
+for them. To make a live agent messageable, register an agent whose transport
+keeps reading stdin after it starts, and set both `stdin_prompt` and
+`intervene_stdin`:
+
+```json
+// .rhei/settings.json — an agent reachable for live intervention
+{
+  "agents": {
+    "my-interactive-agent": {
+      "command": ["my-agent", "--stream-stdin"],
+      "model_flag": "--model",
+      "stdin_prompt": true,      // deliver the initial prompt on stdin
+      "intervene_stdin": true    // and keep stdin open for follow-up messages
+    }
+  }
+}
+```
+
+`stdin_prompt` writes the initial prompt to the child's stdin; `intervene_stdin`
+then keeps that pipe open for the process lifetime instead of closing it (the
+EOF most headless agents wait on). Each delivered message is written to stdin as
+one newline-terminated line. Set `intervene_stdin` **only** for an agent that
+begins work without waiting for stdin EOF and continues to read stdin afterwards;
+on an EOF-driven or one-shot agent the pipe stays open but the agent never reads
+it, so messages would be silently buffered. Run with `rhei run <plan> --dashboard
+--agent my-interactive-agent`; the composer then appears on that agent's live
+node, and `rhei intervene --task <id> -m "…"` reaches the same channel.
+
 #### 1.1.3. `models`
 
 `models` is a registry of named model profiles keyed by model id.

@@ -48,6 +48,7 @@ include!("cli/complete_reset_rewrites.rs");
 include!("cli/render_install_commands.rs");
 include!("cli/install_skill_agents.rs");
 include!("cli/viz_command.rs");
+include!("cli/intervene_command.rs");
 include!("cli/diagnostics.rs");
 
 #[cfg(test)]
