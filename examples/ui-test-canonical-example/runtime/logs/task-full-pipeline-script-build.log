@@ -1,0 +1,13 @@
+=== rhei program log v1 ===
+program: bash ./bin/mock-program.sh build
+task: full-pipeline
+state: script-build
+timeout: 30s
+plan: /home/vjovanov/c/rhei/examples/ui-test-canonical-example
+===
+
+
+=== exit ===
+code: 0
+duration: 0s
+===

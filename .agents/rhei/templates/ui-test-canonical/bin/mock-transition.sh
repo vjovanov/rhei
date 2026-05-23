@@ -82,6 +82,11 @@ case "$command_name" in
     log)
         log_transition
         ;;
+    enter)
+        printf '%s task=%s entered %s (from %s) command=%s\n' \
+            "$(timestamp)" "$task_id" "$to_state" "$from_state" "$command_name" \
+            >> "$transition_root/transitions.log"
+        ;;
     aggregate)
         log_transition
         append_generated_followup

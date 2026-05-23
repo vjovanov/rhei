@@ -1,0 +1,13 @@
+=== rhei program log v1 ===
+program: bash ./bin/mock-program.sh poll-exhaust
+task: poll-exhaustion
+state: poll-exhaust
+timeout: 30s
+plan: /home/vjovanov/c/rhei/examples/ui-test-canonical-example
+===
+
+
+=== exit ===
+code: 75
+duration: 0s
+===

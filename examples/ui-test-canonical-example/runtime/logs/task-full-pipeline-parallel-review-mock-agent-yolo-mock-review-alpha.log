@@ -1,0 +1,21 @@
+=== rhei agent log v1 ===
+agent: mock-agent
+mode: yolo
+target: mock-agent[yolo]:mock:review-alpha
+model: review-alpha
+provider: mock
+model_name: review-alpha
+task: full-pipeline
+state: parallel-review
+started: 2026-05-23T10:31:25Z
+timeout: 30s
+plan: /home/vjovanov/c/rhei/examples/ui-test-canonical-example
+===
+
+mock agent completed task=full-pipeline state=parallel-review target=mock-agent-yolo-mock-review-alpha
+
+=== exit ===
+code: 0
+duration: 0s
+ended: 2026-05-23T10:31:25Z
+===

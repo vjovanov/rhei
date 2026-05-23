@@ -5,10 +5,13 @@ A pre-rendered instantiation of the
 template. This example is a smoke test and a convenient fixture for developing
 the Rhei UI against deterministic mock execution.
 
-It intentionally includes runnable work, three-level task nesting, generated
-follow-up work, a seeded human gate, a seeded blocked task, and terminal
-examples. A live run is expected to stop with non-terminal gated work visible
-for inspection.
+Every task is named after the Rhei feature it exercises (see the template's
+task-to-feature coverage matrix). It intentionally includes runnable work,
+four-level task nesting, dependency blocking, generated follow-up work, a seeded
+human gate, and several tasks that reach `blocked` — both seeded and live (poll
+exhaustion, a live program failure, and unavailable skill/MCP tooling). A live
+run is expected to stop with `full-pipeline` parked at the human gate and the
+`blocked` tasks visible for inspection.
 
 ## Inputs used
 
@@ -35,7 +38,7 @@ rhei validate examples/ui-test-canonical-example
 rhei run examples/ui-test-canonical-example --dry-run
 ```
 
-## Live UI Run
+## Live UI run
 
 ```bash
 rhei run examples/ui-test-canonical-example --parallel 4 --dashboard
@@ -43,12 +46,16 @@ rhei run examples/ui-test-canonical-example --parallel 4 --dashboard
 
 ## Regenerate
 
+This example is a pure instantiation of the template plus two checked-in
+overrides: this `README.md` (the template renders its own README in its place)
+and `instantiation-values.yaml`. To regenerate:
+
 ```bash
 rm -rf examples/ui-test-canonical-example
 rhei instantiate .agents/rhei/templates/ui-test-canonical \
   --values .agents/rhei/templates/ui-test-canonical/.example-values.yaml \
   --output examples/ui-test-canonical-example
+cp .agents/rhei/templates/ui-test-canonical/.example-values.yaml \
+  examples/ui-test-canonical-example/instantiation-values.yaml
+git checkout -- examples/ui-test-canonical-example/README.md
 ```
-
-After regenerating, restore this README and the checked-in
-`instantiation-values.yaml` if the generator overwrote them.

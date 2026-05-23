@@ -1,0 +1,44 @@
+2026-05-23T10:31:19Z  full-pipeline.dependency-blocking.three-level-nesting  start@script-check  runtime/logs/task-full-pipeline.dependency-blocking.three-level-nesting-script-check.log
+2026-05-23T10:31:19Z  full-pipeline.dependency-blocking.three-level-nesting  end@script-check  runtime/logs/task-full-pipeline.dependency-blocking.three-level-nesting-script-check.log  exit=0,duration=201ms,outcome=completed
+2026-05-23T10:31:19Z  full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting  start@script-check  runtime/logs/task-full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting-script-check.log
+2026-05-23T10:31:19Z  full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting  end@script-check  runtime/logs/task-full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting-script-check.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:19Z  polling  start@script-poll  runtime/logs/task-polling-script-poll.log
+2026-05-23T10:31:20Z  polling  end@script-poll  runtime/logs/task-polling-script-poll.log  exit=75,duration=200ms,outcome=failed
+2026-05-23T10:31:20Z  poll-exhaustion  start@poll-exhaust  runtime/logs/task-poll-exhaustion-poll-exhaust.log
+2026-05-23T10:31:20Z  poll-exhaustion  end@poll-exhaust  runtime/logs/task-poll-exhaustion-poll-exhaust.log  exit=75,duration=201ms,outcome=failed
+2026-05-23T10:31:20Z  live-failure-blocked  start@script-fail  runtime/logs/task-live-failure-blocked-script-fail.log
+2026-05-23T10:31:20Z  live-failure-blocked  end@script-fail  runtime/logs/task-live-failure-blocked-script-fail.log  exit=42,duration=201ms,outcome=failed
+2026-05-23T10:31:20Z  scenario-dashboard-checkout-flow  start@script-check  runtime/logs/task-scenario-dashboard-checkout-flow-script-check.log
+2026-05-23T10:31:20Z  scenario-dashboard-checkout-flow  end@script-check  runtime/logs/task-scenario-dashboard-checkout-flow-script-check.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:21Z  followup-preview  start@script-check  runtime/logs/task-followup-preview-script-check.log
+2026-05-23T10:31:21Z  followup-preview  end@script-check  runtime/logs/task-followup-preview-script-check.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:21Z  full-pipeline  start@collect-inputs  runtime/logs/task-full-pipeline-collect-inputs-mock-agent-yolo-mock-ui-implementer.log
+2026-05-23T10:31:21Z  full-pipeline.snapshot-inherit-ancestor  start@inherit-ancestor  runtime/logs/task-full-pipeline.snapshot-inherit-ancestor-inherit-ancestor-mock-agent-yolo-mock-ui-implementer.log
+2026-05-23T10:31:21Z  full-pipeline  end@collect-inputs  runtime/logs/task-full-pipeline-collect-inputs-mock-agent-yolo-mock-ui-implementer.log  exit=0,duration=501ms,outcome=completed
+2026-05-23T10:31:22Z  full-pipeline.snapshot-inherit-ancestor  end@inherit-ancestor  runtime/logs/task-full-pipeline.snapshot-inherit-ancestor-inherit-ancestor-mock-agent-yolo-mock-ui-implementer.log  exit=0,duration=501ms,outcome=completed
+2026-05-23T10:31:22Z  full-pipeline  start@script-normalize  runtime/logs/task-full-pipeline-script-normalize.log
+2026-05-23T10:31:22Z  full-pipeline  end@script-normalize  runtime/logs/task-full-pipeline-script-normalize.log  exit=0,duration=201ms,outcome=completed
+2026-05-23T10:31:22Z  polling  start@script-poll  runtime/logs/task-polling-script-poll.log
+2026-05-23T10:31:22Z  polling  end@script-poll  runtime/logs/task-polling-script-poll.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:23Z  poll-exhaustion  start@poll-exhaust  runtime/logs/task-poll-exhaustion-poll-exhaust.log
+2026-05-23T10:31:23Z  poll-exhaustion  end@poll-exhaust  runtime/logs/task-poll-exhaustion-poll-exhaust.log  exit=75,duration=200ms,outcome=failed
+2026-05-23T10:31:23Z  polling  start@script-check  runtime/logs/task-polling-script-check.log
+2026-05-23T10:31:23Z  polling  end@script-check  runtime/logs/task-polling-script-check.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:23Z  full-pipeline  start@mock-implement  runtime/logs/task-full-pipeline-mock-implement-mock-agent-yolo-mock-ui-implementer.log
+2026-05-23T10:31:24Z  full-pipeline  end@mock-implement  runtime/logs/task-full-pipeline-mock-implement-mock-agent-yolo-mock-ui-implementer.log  exit=0,duration=500ms,outcome=completed
+2026-05-23T10:31:24Z  full-pipeline  start@script-build  runtime/logs/task-full-pipeline-script-build.log
+2026-05-23T10:31:24Z  full-pipeline  end@script-build  runtime/logs/task-full-pipeline-script-build.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:24Z  full-pipeline.dependency-blocking  start@script-check  runtime/logs/task-full-pipeline.dependency-blocking-script-check.log
+2026-05-23T10:31:25Z  full-pipeline.dependency-blocking  end@script-check  runtime/logs/task-full-pipeline.dependency-blocking-script-check.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:25Z  full-pipeline  start@parallel-review  runtime/logs/task-full-pipeline-parallel-review-mock-agent-yolo-mock-review-alpha.log
+2026-05-23T10:31:25Z  full-pipeline  start@parallel-review  runtime/logs/task-full-pipeline-parallel-review-mock-agent-slow-mock-review-beta.log
+2026-05-23T10:31:25Z  full-pipeline  end@parallel-review  runtime/logs/task-full-pipeline-parallel-review-mock-agent-yolo-mock-review-alpha.log  exit=0,duration=501ms,outcome=completed
+2026-05-23T10:31:25Z  full-pipeline  end@parallel-review  runtime/logs/task-full-pipeline-parallel-review-mock-agent-slow-mock-review-beta.log  exit=0,duration=501ms,outcome=completed
+2026-05-23T10:31:26Z  full-pipeline  start@aggregate  runtime/logs/task-full-pipeline-aggregate.log
+2026-05-23T10:31:26Z  full-pipeline  end@aggregate  runtime/logs/task-full-pipeline-aggregate.log  exit=0,duration=201ms,outcome=completed
+2026-05-23T10:31:26Z  generated-followup-full-pipeline  start@script-check  runtime/logs/task-generated-followup-full-pipeline-script-check.log
+2026-05-23T10:31:26Z  generated-followup-full-pipeline  end@script-check  runtime/logs/task-generated-followup-full-pipeline-script-check.log  exit=0,duration=200ms,outcome=completed
+2026-05-23T10:31:26Z  full-pipeline  start@fix-loop  runtime/logs/task-full-pipeline-fix-loop-mock-agent-yolo-mock-ui-implementer.log
+2026-05-23T10:31:27Z  full-pipeline  end@fix-loop  runtime/logs/task-full-pipeline-fix-loop-mock-agent-yolo-mock-ui-implementer.log  exit=0,duration=500ms,outcome=completed
+2026-05-23T10:31:27Z  full-pipeline  fix-loop-2→fix-loop  runtime/logs/task-full-pipeline-fix-loop-mock-agent-yolo-mock-ui-implementer-2.log
+2026-05-23T10:31:28Z  full-pipeline  fix-loop-2→fix-loop  runtime/logs/task-full-pipeline-fix-loop-mock-agent-yolo-mock-ui-implementer-2.log  exit=0,duration=500ms,outcome=completed

@@ -56,5 +56,13 @@
       "path": "./skills/ui-fixture",
       "description": "Mock skill used by the canonical UI fixture."
     }
+  },
+  "mcp_servers": {
+    "mock-mcp": {
+      "command": [
+        "false"
+      ],
+      "startup_timeout": "3s"
+    }
   }
 }

@@ -1,0 +1,35 @@
+{
+  "completion": "success",
+  "created_at": "2026-05-23T10:31:25Z",
+  "declared_model": "review-alpha",
+  "declared_provider": "mock",
+  "emitting_state": "parallel-review",
+  "generation": 1,
+  "observed_model": "review-alpha",
+  "observed_provider": "mock",
+  "parent_ref": null,
+  "produced_by": "orchestrator",
+  "rhei_version": "0.1.0",
+  "session_id": "mock-session",
+  "session_layout": {
+    "ext": "jsonl",
+    "kind": "FlatById"
+  },
+  "snapshot_name": "_state",
+  "target": {
+    "resolved": {
+      "agent": "mock-agent",
+      "mode": "yolo",
+      "model": "review-alpha",
+      "provider": "mock"
+    },
+    "selector": "mock-agent[yolo]:mock:review-alpha",
+    "slug": "mock-agent-yolo-mock-review-alpha"
+  },
+  "task_id": "full-pipeline",
+  "transcript_bytes": 275,
+  "transcript_path": "transcript.jsonl",
+  "transcript_sha256": "f615ed07b81dbc1972d05e354823d516dd0121567a3ca8a22a76ac623e21868e",
+  "version": 1,
+  "visit": 1
+}

@@ -91,6 +91,21 @@ Mock external system still running for ${task_id}."
 - scenario: ${MOCK_SCENARIO:-unknown}
 - status: passed"
         ;;
+    fail)
+        write_file "$workspace_root/runtime/failures/${task_id}.md" "# Failure ${task_id}
+
+- state: ${state}
+- scenario: ${MOCK_SCENARIO:-unknown}
+- status: failed (deterministic mock failure for UI testing)"
+        append_log "failed exit=42"
+        exit 42
+        ;;
+    poll-exhaust)
+        mkdir -p "$workspace_root/runtime/poll"
+        write_file "$workspace_root/runtime/poll/${task_id}-pending.json" "{\"task\":\"${task_id}\",\"ready\":false,\"attempt\":${visit_count}}"
+        append_log "poll never ready"
+        exit 75
+        ;;
     *)
         echo "unknown mock program command: $command_name" >&2
         exit 1

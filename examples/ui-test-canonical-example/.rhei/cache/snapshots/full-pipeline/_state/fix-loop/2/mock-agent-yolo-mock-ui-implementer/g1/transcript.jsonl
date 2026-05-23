@@ -1,0 +1,3 @@
+{"session_id":"mock-full-pipeline-fix-loop-mock-agent-yolo-mock-ui-implementer","provider":"mock","model":"ui-implementer"}
+{"role":"user","content":"fix-loop prompt for full-pipeline"}
+{"role":"assistant","content":"mock fix-loop output for full-pipeline"}

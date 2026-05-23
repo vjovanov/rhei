@@ -1,0 +1,29 @@
+2026-05-23T12:31:19+02:00 task=full-pipeline.dependency-blocking.three-level-nesting script-check -> completed command=log
+2026-05-23T12:31:19+02:00 task=full-pipeline.dependency-blocking.three-level-nesting entered completed (from script-check) command=enter
+2026-05-23T12:31:19+02:00 task=full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting script-check -> completed command=log
+2026-05-23T12:31:19+02:00 task=full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting entered completed (from script-check) command=enter
+2026-05-23T12:31:20+02:00 task=live-failure-blocked script-fail -> blocked command=log
+2026-05-23T12:31:21+02:00 task=scenario-dashboard-checkout-flow script-check -> completed command=log
+2026-05-23T12:31:21+02:00 task=scenario-dashboard-checkout-flow entered completed (from script-check) command=enter
+2026-05-23T12:31:21+02:00 task=followup-preview script-check -> completed command=log
+2026-05-23T12:31:21+02:00 task=followup-preview entered completed (from script-check) command=enter
+2026-05-23T12:31:21+02:00 task=skill-unavailable-blocked agent-missing-skill -> blocked command=log
+2026-05-23T12:31:21+02:00 task=mcp-unavailable-blocked agent-missing-mcp -> blocked command=log
+2026-05-23T12:31:22+02:00 task=full-pipeline collect-inputs -> script-normalize command=log
+2026-05-23T12:31:22+02:00 task=full-pipeline.snapshot-inherit-ancestor inherit-ancestor -> completed command=log
+2026-05-23T12:31:22+02:00 task=full-pipeline script-normalize -> mock-implement command=log
+2026-05-23T12:31:23+02:00 task=polling script-poll -> script-check command=log
+2026-05-23T12:31:23+02:00 task=poll-exhaustion poll-exhaust -> blocked command=log
+2026-05-23T12:31:23+02:00 task=polling script-check -> completed command=log
+2026-05-23T12:31:23+02:00 task=polling entered completed (from script-check) command=enter
+2026-05-23T12:31:24+02:00 task=full-pipeline mock-implement -> script-build command=log
+2026-05-23T12:31:24+02:00 task=full-pipeline script-build -> parallel-review command=log
+2026-05-23T12:31:25+02:00 task=full-pipeline.dependency-blocking script-check -> completed command=log
+2026-05-23T12:31:25+02:00 task=full-pipeline.dependency-blocking entered completed (from script-check) command=enter
+2026-05-23T12:31:25+02:00 task=full-pipeline parallel-review -> aggregate command=log
+2026-05-23T12:31:25+02:00 task=full-pipeline parallel-review -> aggregate command=log
+2026-05-23T12:31:26+02:00 task=full-pipeline aggregate -> fix-loop command=aggregate
+2026-05-23T12:31:26+02:00 task=generated-followup-full-pipeline script-check -> completed command=log
+2026-05-23T12:31:26+02:00 task=generated-followup-full-pipeline entered completed (from script-check) command=enter
+2026-05-23T12:31:27+02:00 task=full-pipeline fix-loop -> fix-loop command=log
+2026-05-23T12:31:28+02:00 task=full-pipeline fix-loop -> human-gate command=log

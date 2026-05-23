@@ -5,23 +5,36 @@
 # Final states: completed, cancelled
 # Gating states: human-gate, blocked
 #
-# Main task / normal subtask path:
-#   collect-inputs
+# Main pipeline path (Task full-pipeline):
+#   collect-inputs                (personality + target: primary_target)
 #       -> script-normalize
-#       -> mock-implement        (target: primary_target, emits snapshot `implementation`)
+#       -> mock-implement        (emits snapshot `implementation` on: success)
 #       -> script-build
 #       -> parallel-review       (all_targets fan-out: review_targets)
 #       -> aggregate             (callback appends generated follow-up task)
-#       -> fix-loop              (inherits snapshot `implementation`, visits: loop_passes)
+#       -> fix-loop              (inherits `implementation` from self, visits: loop_passes)
 #       -> human-gate            (manual stop)
 #
-# Polling task path:
+# Polling path (Task polling):
 #   script-poll -> script-poll   (poll self-loop while exit 75)
-#       -> script-check
-#       -> completed
+#       -> script-check -> completed
+#
+# Poll-exhaustion path (Task poll-exhaustion):
+#   poll-exhaust -> poll-exhaust (never ready) -> blocked (pollAttempts >= pollMaxAttempts)
+#
+# Live-failure path (Task live-failure-blocked):
+#   script-fail -> blocked       (exit_code: [1, 2, 42] array match)
+#
+# Tooling-unavailable paths (Tasks skill/mcp-unavailable-blocked):
+#   agent-missing-skill -> blocked   (skill_unavailable: [absent-lens])
+#   agent-missing-mcp   -> blocked   (mcp_unavailable: [mock-mcp])
+#
+# Ancestor-snapshot path (Task full-pipeline.snapshot-inherit-ancestor):
+#   inherit-ancestor -> completed    (inherit `implementation` from: ancestor,
+#                                     emit `ancestor-verify` on: always)
 #
 # Smoke-check / generated follow-up path:
-#   script-check -> completed
+#   script-check -> completed        (concurrent; on_enter + on_leave callbacks)
 #
 # Escape paths:
 #   any non-final state -> cancelled
@@ -31,7 +44,8 @@
 #   parallel-review uses all_targets and writes one output per `{target.slug}`.
 #
 # Callback points:
-#   most transitions call `bin/mock-transition.sh log`;
+#   most transitions call `bin/mock-transition.sh log` on_leave;
+#   script-check -> completed also calls `... enter` on_enter;
 #   aggregate -> fix-loop calls `bin/mock-transition.sh aggregate` and can
 #   append one generated follow-up task to the plan file.
 
@@ -44,6 +58,9 @@ states:
     initial: true
     target: "{{ primary_target }}"
     agent_timeout: 30s
+    personality: |
+      You are a deterministic intake agent for the canonical UI fixture. Keep
+      every artifact stable across runs so the UI renders identically each time.
     instructions: |
       Create raw UI-test inputs for Task {task_id}: {task_title}.
 
@@ -116,6 +133,7 @@ states:
       - name: io-map
         path: runtime/artifacts/{task_id}/io-map.md
         format: markdown
+        optional: true
     outputs:
       - name: implementation
         path: runtime/implementation/{task_id}.md
@@ -221,6 +239,7 @@ states:
 
   script-check:
     description: Mock script writes a small smoke-check artifact and completes.
+    concurrent: true
     program:
       command: ["bash", "./bin/mock-program.sh", "check"]
       env:
@@ -229,6 +248,88 @@ states:
     outputs:
       - name: check-report
         path: runtime/checks/{task_id}.md
+        format: markdown
+
+  script-fail:
+    description: Mock program that always fails so a live failure routes to blocked.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "fail"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    outputs:
+      - name: failure-report
+        path: runtime/failures/{task_id}.md
+        format: markdown
+
+  poll-exhaust:
+    description: Mock poll that never becomes ready, so it exhausts its attempts.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "poll-exhaust"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    poll:
+      interval: {{ poll_interval }}
+      max_attempts: {{ poll_attempts }}
+    outputs:
+      - name: poll-pending
+        path: runtime/poll/{task_id}-pending.json
+        format: json
+
+  inherit-ancestor:
+    description: Mock agent that inherits an ancestor's implementation snapshot.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    snapshot:
+      inherit:
+        name: implementation
+        from: ancestor
+        required: false
+        select:
+          state: mock-implement
+          target: same
+      emit:
+        name: ancestor-verify
+        on: always
+    instructions: |
+      Verify ancestor snapshot inheritance for Task {task_id}: {task_title}.
+
+      If a compatible implementation snapshot exists on an ancestor task, the
+      runtime has already preloaded it. Write a short confirmation to
+      `{output.inherit-report.path}`.
+    outputs:
+      - name: inherit-report
+        path: runtime/inherit/{task_id}.md
+        format: markdown
+
+  agent-missing-skill:
+    description: Mock agent state that requires an absent skill, routing to blocked.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    skills:
+      - id: absent-lens
+        path: ./skills/absent-lens
+    instructions: |
+      This state requires the `absent-lens` skill, which does not exist, so the
+      runtime should route to blocked via skill_unavailable before running.
+    outputs:
+      - name: skill-report
+        path: runtime/skills/{task_id}.md
+        format: markdown
+
+  agent-missing-mcp:
+    description: Mock agent state that requires an unavailable MCP server, routing to blocked.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    mcp_servers:
+      - id: mock-mcp
+    instructions: |
+      This state requires the `mock-mcp` server, which fails to start, so the
+      runtime should route to blocked via mcp_unavailable before running.
+    outputs:
+      - name: mcp-report
+        path: runtime/mcp/{task_id}.md
         format: markdown
 
   human-gate:
@@ -334,10 +435,58 @@ transitions:
     description: Smoke check passed.
     exit_code: 0
     on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_enter: "cli:bash ./bin/mock-transition.sh enter"
   - from: script-check
     to: blocked
     description: Smoke check failed.
     exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-fail
+    to: completed
+    description: Mock failure program unexpectedly succeeded.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-fail
+    to: blocked
+    description: Mock program failed; route the live failure to blocked.
+    exit_code: [1, 2, 42]
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: poll-exhaust
+    to: poll-exhaust
+    description: Mock external system is still running.
+    exit_code: 75
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: poll-exhaust
+    to: blocked
+    description: Poll attempts exhausted without becoming ready.
+    condition: pollAttempts >= pollMaxAttempts
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: inherit-ancestor
+    to: completed
+    description: Ancestor snapshot inheritance verified.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: agent-missing-skill
+    to: blocked
+    description: Required skill is unavailable; route to blocked.
+    skill_unavailable: [absent-lens]
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: agent-missing-skill
+    to: completed
+    description: Skill unexpectedly resolved.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: agent-missing-mcp
+    to: blocked
+    description: Required MCP server is unavailable; route to blocked.
+    mcp_unavailable: [mock-mcp]
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: agent-missing-mcp
+    to: completed
+    description: MCP server unexpectedly available.
     on_leave: "cli:bash ./bin/mock-transition.sh log"
 
   - from: human-gate

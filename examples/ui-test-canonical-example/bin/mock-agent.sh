@@ -72,10 +72,6 @@ timestamp() {
     date -Iseconds
 }
 
-safe_task_id() {
-    printf '%s' "$task_id" | tr '/ ' '--'
-}
-
 write_file() {
     local path="$1"
     local content="$2"
@@ -135,13 +131,29 @@ case "$state" in
 - recommendation: continue to aggregate."
         ;;
     fix-loop)
-        visit="${RHEI_VISIT_COUNT:?RHEI_VISIT_COUNT is required for counted fix-loop states}"
+        # Prefer the runtime-provided visit counter. When the runtime does not
+        # expose it to agents, fall back to counting the fix artifacts already
+        # on disk so the file we write matches the declared `{visit_count}`
+        # output path (otherwise the counted loop never satisfies its contract).
+        visit="${RHEI_VISIT_COUNT:-}"
+        if [[ -z "$visit" ]]; then
+            mkdir -p "$workspace_root/runtime/fixes"
+            existing_count="$(find "$workspace_root/runtime/fixes" -maxdepth 1 -type f -name "${task_id}-visit-*.md" 2>/dev/null | wc -l)"
+            visit=$((existing_count + 1))
+        fi
         write_file "$workspace_root/runtime/fixes/${task_id}-visit-${visit}.md" "# Fix Loop ${task_id} Visit ${visit}
 
 - target: ${target_slug}
 - inherited snapshot parent: ${RHEI_SNAPSHOT_PARENT_REF:-none}
 - aggregate consumed: yes
 - action: deterministic fix note for UI testing."
+        ;;
+    inherit-ancestor)
+        write_file "$workspace_root/runtime/inherit/${task_id}.md" "# Ancestor Inheritance ${task_id}
+
+- target: ${target_slug}
+- inherited snapshot parent: ${RHEI_SNAPSHOT_PARENT_REF:-none}
+- result: ancestor implementation snapshot ${RHEI_SNAPSHOT_PARENT_REF:+preloaded}${RHEI_SNAPSHOT_PARENT_REF:-absent (continuing without it)}"
         ;;
     *)
         write_file "$workspace_root/runtime/artifacts/${task_id}/${state}-agent.md" "# Mock Agent Output

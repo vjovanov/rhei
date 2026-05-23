@@ -1,0 +1,13 @@
+=== rhei program log v1 ===
+program: bash ./bin/mock-program.sh fail
+task: live-failure-blocked
+state: script-fail
+timeout: 30s
+plan: /home/vjovanov/c/rhei/examples/ui-test-canonical-example
+===
+
+
+=== exit ===
+code: 42
+duration: 0s
+===

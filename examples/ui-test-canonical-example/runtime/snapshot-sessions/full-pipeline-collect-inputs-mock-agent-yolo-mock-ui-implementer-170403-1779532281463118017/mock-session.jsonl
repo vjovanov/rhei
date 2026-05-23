@@ -1,0 +1,3 @@
+{"session_id":"mock-full-pipeline-collect-inputs-mock-agent-yolo-mock-ui-implementer","provider":"mock","model":"ui-implementer"}
+{"role":"user","content":"collect-inputs prompt for full-pipeline"}
+{"role":"assistant","content":"mock collect-inputs output for full-pipeline"}
