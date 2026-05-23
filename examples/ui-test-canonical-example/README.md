@@ -30,6 +30,8 @@ include_generated_followup: true
 ```
 
 The same values are checked in at `instantiation-values.yaml`.
+For an already-rendered workspace, override the per-node delay at run time with
+`MOCK_NODE_DELAY_SECONDS`.
 
 ## Validate
 
@@ -41,7 +43,7 @@ rhei run examples/ui-test-canonical-example --dry-run
 ## Live UI run
 
 ```bash
-rhei run examples/ui-test-canonical-example --parallel 4 --dashboard
+MOCK_NODE_DELAY_SECONDS=0.5 rhei run examples/ui-test-canonical-example --parallel 4 --dashboard
 ```
 
 ## Regenerate

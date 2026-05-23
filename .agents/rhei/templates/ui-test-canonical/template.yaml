@@ -44,7 +44,7 @@ inputs:
     default: 2
 
   - name: step_delay_seconds
-    description: Small sleep used by mock agents and scripts so live UI slots visibly change.
+    description: Default per-node sleep for mock agents and scripts; override at run time with MOCK_NODE_DELAY_SECONDS.
     type: number
     default: 0.1
 

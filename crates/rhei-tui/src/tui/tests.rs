@@ -1,5 +1,5 @@
 use super::handle_key_event;
-use super::render::slot_lines;
+use super::render::{header_lines, slot_lines};
 use super::state::UiState;
 use super::text::{sanitize_terminal_text, truncate_chars};
 use super::{InputAction, SLOT_TRAFFIC_BUFFER};
@@ -77,6 +77,36 @@ fn unknown_slot_output_does_not_panic() {
 
     assert!(state.slots[0].traffic.is_empty());
     assert_eq!(state.journal.back().map(String::as_str), Some("· [slot 9 stdout] orphan"));
+}
+
+#[test]
+fn dashboard_link_is_kept_in_header_state() {
+    let mut state = UiState::new(1, 1);
+    state.apply(&RunEvent::RunLink {
+        label: "Dashboard".to_string(),
+        url: "http://127.0.0.1:54321".to_string(),
+    });
+
+    assert_eq!(state.dashboard_url.as_deref(), Some("http://127.0.0.1:54321"));
+    assert_eq!(state.journal.back().map(String::as_str), Some("Dashboard: http://127.0.0.1:54321"));
+}
+
+#[test]
+fn header_lines_include_dashboard_url_when_present() {
+    let mut state = UiState::new(1, 1);
+    state.apply(&RunEvent::RunLink {
+        label: "Dashboard".to_string(),
+        url: "http://127.0.0.1:54321".to_string(),
+    });
+
+    let snapshot = state.clone_snapshot();
+    let rendered = header_lines(&snapshot)
+        .iter()
+        .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<String>())
+        .collect::<Vec<_>>();
+
+    assert_eq!(rendered.len(), 2);
+    assert_eq!(rendered[1], "Dashboard: http://127.0.0.1:54321");
 }
 
 #[test]

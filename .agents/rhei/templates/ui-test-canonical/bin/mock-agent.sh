@@ -63,7 +63,7 @@ fi
 task_id="${RHEI_TASK_ID:-unknown}"
 state="${RHEI_STATE:-unknown}"
 target_slug="${RHEI_TARGET_SLUG:-${RHEI_AGENT:-mock-agent}-${model}}"
-step_delay="{{ step_delay_seconds }}"
+step_delay="${MOCK_NODE_DELAY_SECONDS:-{{ step_delay_seconds }}}"
 
 mkdir -p "$workspace_root/runtime/logs"
 log_path="$workspace_root/runtime/logs/mock-agent.log"

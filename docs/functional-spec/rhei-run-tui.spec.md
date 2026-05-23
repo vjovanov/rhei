@@ -284,6 +284,10 @@ dashboard outside TUI mode, while `--no-dashboard` disables it. The dashboard is
 a power-user view for both live execution monitoring and static plan-shape
 inspection. §FS-rhei-viz
 
+When the live dashboard is available, the TUI header keeps the dashboard URL
+visible at the top of the screen so users do not have to find it in the
+scrolling journal.
+
 The dashboard's primary surface is the **Flow view**: a single page that leads
 with the work running now, presents plan shape as a navigable list or dependency
 graph, opens any node's surroundings (dependencies, transitions, prompt,

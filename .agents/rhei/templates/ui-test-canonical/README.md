@@ -19,7 +19,7 @@ terminal states — without requiring real AI services.
 | `loop_passes` | number | `2` | Counted fix-loop visits before the human gate. |
 | `poll_interval` | string | `1s` | Delay between mock poll attempts (validated `^[0-9]+[smh]$`). |
 | `poll_attempts` | number | `2` | Poll attempts before readiness / exhaustion. |
-| `step_delay_seconds` | number | `0.1` | Sleep inserted into mock agents and scripts for visible live slots. |
+| `step_delay_seconds` | number | `0.1` | Default per-node sleep inserted into mock agents and scripts for visible live slots; override at run time with `MOCK_NODE_DELAY_SECONDS`. |
 | `include_generated_followup` | boolean | `true` | Gates both the runtime callback follow-up and the instantiation-time `followup-preview` task. |
 
 ## Task-to-feature coverage matrix
@@ -76,9 +76,10 @@ smoke example lives at `examples/ui-test-canonical-example/`.
 ```bash
 rhei instantiate ui-test-canonical \
   --set scenario_name="dashboard checkout flow" \
+  --set step_delay_seconds=0.5 \
   --output .agents/scratchpad/ui-test-canonical
 
-rhei run .agents/scratchpad/ui-test-canonical --parallel 4 --dashboard
+MOCK_NODE_DELAY_SECONDS=0.5 rhei run .agents/scratchpad/ui-test-canonical --parallel 4 --dashboard
 ```
 
 The run intentionally stops with tasks in `human-gate` and `blocked` so the UI
