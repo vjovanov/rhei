@@ -1,0 +1,146 @@
+# State machine diagram
+# ---------------------
+#
+# Legend: [initial] [final]
+#
+#   prepare-worktree [initial]  --> work --> integrate --> completed [final]
+#         |                                                      ^
+#         | creates an isolated git worktree at                 |
+#         | {{worktree_root}}/{task_id} on branch               |
+#         | {{branch_prefix}}/{task_id}                         |
+#
+#   any non-final state --> cancelled [final]
+#
+# Per-task paths (every target task is identical and independent):
+#   <target.id>:  prepare-worktree -> work -> integrate -> completed
+#
+# Parallelism: TWO things must both be true.
+#   1. The tasks file fans out one top-level task per target with NO
+#      `**Prior:**` between them, so every task is ready at once.
+#   2. Every working state is marked `concurrent: true`. Without it (the
+#      default is false) `rhei run` schedules at most one task per state per
+#      pass and the fan-out serializes regardless of --parallel.
+# Then `rhei run --parallel N` (directory workspaces only — it is ignored on
+# single-file plans) advances up to N tasks concurrently. Each task works in
+# its own worktree + branch keyed by {task_id}, so concurrent agents never
+# edit the same checkout.
+#
+# Worktree creation is an *instruction* pattern, not a Rhei primitive: the
+# agent runs `git worktree add` per the prompt. (It could instead be a
+# `program:` state running git directly — see the README.)
+
+name: parallel-worktrees
+version: 1.0.0
+
+states:
+  prepare-worktree:
+    description: Create an isolated git worktree for this target before any edits.
+    # concurrent: true is what makes --parallel actually schedule these tasks
+    # together. Without it (the default), rhei runs at most one task per state
+    # per pass and the fan-out serializes regardless of --parallel.
+    concurrent: true
+    target: {{agent}}
+    instructions: |
+      Set up the isolated worktree for Task {task_id}: {task_title}.
+
+      The target path and the work to perform are in this task's Task Content
+      below. Treat this Rhei workspace as a scratchpad: resolve the repository
+      root with `git rev-parse --show-toplevel` and use that checkout as the
+      source for the worktree. Runtime artifacts (every `{output.*.path}`) are
+      written back here in the scratchpad, never inside the worktree.
+
+      Create the worktree (do not start the work yet):
+
+        git worktree add {{worktree_root}}/{task_id} -b {{branch_prefix}}/{task_id}
+
+      Then record where it landed to `{output.worktree-ref.path}`:
+
+        task_id: {task_id}
+        path: <absolute path to {{worktree_root}}/{task_id}>
+        branch: {{branch_prefix}}/{task_id}
+        target_path: <the target path from the Task Content>
+
+      Transition to `work` once the worktree exists.
+    initial: true
+    outputs:
+      - name: worktree-ref
+        path: runtime/worktree-refs/{task_id}.yaml
+        description: Location and branch of this task's isolated worktree
+
+  work:
+    description: Perform the shared task inside this target's worktree.
+    concurrent: true
+    target: {{agent}}
+    instructions: |
+      Do the work for Task {task_id}: {task_title}.
+
+      Read `{input.worktree-ref.path}` and `cd` into its `path` — all edits for
+      this target happen inside that worktree, scoped to `target_path`. The
+      instruction to apply is in the Task Content below.
+
+      When the edits are complete, write a summary of what changed to
+      `{output.change-summary.path}` (back in the scratchpad, not the
+      worktree). Do not commit yet. Transition to `integrate`.
+    inputs:
+      - name: worktree-ref
+        path: runtime/worktree-refs/{task_id}.yaml
+    outputs:
+      - name: change-summary
+        path: runtime/summaries/{task_id}-work.md
+        description: What this target's work changed
+
+  integrate:
+    description: Commit the worktree branch and report the result.
+    concurrent: true
+    target: {{agent}}
+    instructions: |
+      Integrate the work for Task {task_id}: {task_title}.
+
+      Read `{input.worktree-ref.path}` and `{input.change-summary.path}`. In the
+      worktree, stage and commit the changes on branch `{{branch_prefix}}/{task_id}`
+      with a clear message. Do NOT merge into the base branch — leave the branch
+      for human review.
+
+      Write the final result (branch name, commit SHA, one-line status, and
+      whether the worktree was left in place or removed) to
+      `{output.result.path}`. Transition to `completed`.
+    inputs:
+      - name: worktree-ref
+        path: runtime/worktree-refs/{task_id}.yaml
+      - name: change-summary
+        path: runtime/summaries/{task_id}-work.md
+    outputs:
+      - name: result
+        path: runtime/summaries/{task_id}-result.md
+        description: Branch, commit, and status for this target
+
+  completed:
+    description: This target is done; its branch is ready for review.
+    instructions: |
+      Task {task_id} is complete. The work lives on branch
+      `{{branch_prefix}}/{task_id}` for human review.
+    final: true
+
+  cancelled:
+    description: This target was cancelled before completion.
+    instructions: |
+      Task {task_id} cancelled. Leave any worktree and branch in place for
+      inspection; do not delete generated runtime files.
+    final: true
+
+transitions:
+  - from: prepare-worktree
+    to: work
+    description: Worktree is ready; begin the edits.
+
+  - from: work
+    to: integrate
+    description: Edits done; commit and report.
+
+  - from: integrate
+    to: completed
+    description: Branch committed and result recorded.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel this target from any non-final state.

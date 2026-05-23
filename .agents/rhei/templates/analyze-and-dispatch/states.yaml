@@ -1,0 +1,162 @@
+# State machine diagram
+# ---------------------
+#
+# Legend: [initial] [final]  •  (dynamic) = created at run time by the coordinator
+#
+#   analyze [initial] --(agent writes N task files, + 1 report task)--> completed [final]
+#         |
+#         +--> (dynamic) address task  x N   --> completed [final]   (concurrent)
+#         +--> (dynamic) report task          --> completed [final]
+#                 Prior = every address task
+#
+#   any non-final state --> cancelled [final]
+#
+# Per-task paths:
+#   coordinator (shipped):  analyze -> completed
+#   work item   (dynamic):  address -> completed
+#   report      (dynamic):  report  -> completed
+#
+# How tasks are created: the `analyze` agent writes new `tasks/NN-<slug>.md`
+# files into THIS directory workspace. `rhei run` re-parses `tasks/` on every
+# pass, so the new files become claimable work — there is no separate "add task"
+# command; a conforming task file IS the API. The count and shape are decided at
+# run time by the agent (the "neural analysis"), not fixed at instantiation. Each
+# spawned task carries `**Prior:** Task <coordinator-id>`, so it waits for the
+# coordinator to finish before becoming ready.
+
+name: analyze-and-dispatch
+version: 1.0.0
+
+states:
+  analyze:
+    description: Analyze the subject and create one follow-up task per work item found.
+    target: {{coordinator_agent}}
+    personality: |
+      You are a dispatch coordinator. Decompose the subject into independent,
+      well-scoped work items, then create one task per item. Be conservative:
+      fewer, sharper tasks beat many vague ones.
+    instructions: |
+      Analyze Task {task_id}: {task_title}, then create the follow-up tasks.
+
+      Treat this workspace as a scratchpad. If the subject lives in a
+      repository, resolve its root with `git rev-parse --show-toplevel` and read
+      from there. Everything you create — `runtime/...` artifacts and `tasks/...`
+      task files — is written under THIS workspace.
+
+      ## Step 1 — Analyze
+      Subject: `{{subject}}`. Your analysis brief — what to look for and what
+      counts as one work item — is in your task body below.
+
+      Inspect the subject and decide on a set of independent work items. Create
+      at most {{max_tasks}}; if you find more, record the overflow in the
+      findings file and keep the {{max_tasks}} highest-value ones. Write your
+      chosen items to `{output.findings.path}`:
+
+          # Findings
+          - id: <slug>      # filesystem-safe, unique, [a-z][a-z0-9-]*
+            title: <one line>
+            detail: <what the worker must do for this item>
+
+      ## Step 2 — Create one task file per work item (this is how Rhei adds tasks)
+      Rhei discovers new tasks by re-reading the `tasks/` directory on every run
+      pass. To add a task, write a new markdown file under `tasks/` — there is no
+      separate "add task" command, the file itself is the API.
+
+      For each work item, pick the next free `NN` (the workspace ships
+      `01-analyze.md`, so start at `02`) and write `tasks/NN-<slug>.md`:
+
+          ### Task <slug>: <title>
+          **State:** address
+          **Prior:** Task {task_id}
+
+          <detail — exactly what this work item requires>
+
+      Rules:
+        - `{task_id}` above is YOUR id; the runtime already substituted it before
+          you read this. Copy it through verbatim so every new task waits for you.
+        - `<slug>` is the new task's id — it must match the findings file and be
+          unique across the workspace.
+        - Do NOT put a `**Prior:**` between the work-item tasks; they are
+          independent and run in parallel.
+
+      ## Step 3 — Create a report task that waits for all of them
+      Write one more file `tasks/NN-report.md`:
+
+          ### Task report: Summarize the dispatched work
+          **State:** report
+          **Prior:** Task <slug-1>, Task <slug-2>, ...
+
+          Read each work item's result under `runtime/work/` and summarize.
+
+      List every work-item `<slug>` you created on the `**Prior:**` line so the
+      report runs only after all of them complete.
+
+      ## Step 4 — Finish
+      Transition to `completed`. The new tasks become ready on the next pass.
+    initial: true
+    outputs:
+      - name: findings
+        path: runtime/analysis/{task_id}-findings.md
+        description: The work items the coordinator chose to dispatch
+
+  address:
+    description: Handle one dispatched work item.
+    target: {{worker_agent}}
+    # concurrent: true lets `rhei run --parallel N` work several dispatched
+    # items at once once the coordinator has created them.
+    concurrent: true
+    instructions: |
+      Handle work item Task {task_id}: {task_title}.
+
+      Your task body (below) describes exactly what to do — it was written by the
+      coordinator for this specific item. Do the work, then write a short result
+      (what you changed or found) to `{output.result.path}`. Transition to
+      `completed`.
+    outputs:
+      - name: result
+        path: runtime/work/{task_id}.md
+        description: Result of this dispatched work item
+
+  report:
+    description: Summarize every dispatched work item once they are all complete.
+    target: {{worker_agent}}
+    instructions: |
+      Summarize Task {task_id}: {task_title}.
+
+      Your task body lists the work-item tasks this depends on. Read each one's
+      result under `runtime/work/` and write a single consolidated summary to
+      `{output.summary.path}`. Transition to `completed`.
+    outputs:
+      - name: summary
+        path: runtime/report.md
+        description: Consolidated summary of all dispatched work
+
+  completed:
+    description: The coordinator, its dispatched work items, and the report are done.
+    instructions: |
+      Task {task_id} is complete. No further action required.
+    final: true
+
+  cancelled:
+    description: Stopped before completion.
+    instructions: |
+      Task {task_id} cancelled. Keep generated runtime files and task files for
+      inspection.
+    final: true
+
+transitions:
+  - from: analyze
+    to: completed
+    description: Analysis done and follow-up tasks written.
+
+  - from: address
+    to: completed
+    description: Work item handled.
+
+  - from: report
+    to: completed
+    description: Summary written.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel any task from any non-final state.

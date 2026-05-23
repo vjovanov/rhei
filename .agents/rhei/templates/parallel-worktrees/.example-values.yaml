@@ -1,0 +1,15 @@
+batch_title: Parallel Worktree Batch Example
+task: |
+  Add a crate-level module doc comment (a `//!` block at the top of the crate
+  root) summarizing the crate's public responsibility in two or three
+  sentences. Do not change any other code or behavior.
+targets:
+  - id: cli
+    path: crates/rhei-cli
+  - id: core
+    path: crates/rhei-core
+  - id: validator
+    path: crates/rhei-validator
+agent: claude-code[yolo]:anthropic:claude-opus-4-7
+branch_prefix: docs-pass
+worktree_root: runtime/worktrees
