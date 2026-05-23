@@ -72,6 +72,17 @@ This directory contains example inputs for the current markdown plan compiler im
   - a template-shipped `.rhei/settings.json`
   - a routed hourly GitHub sweep with human gates for GraalVM fixes
 
+- `ui-test-canonical-example/`
+  Canonical **runnable fixture** for the live UI. Valid example using:
+  - a directory workspace instantiated from `.agents/rhei/templates/ui-test-canonical/`
+  - three-level nested task nodes (`###` / `####` / `#####`) inherited from the
+    workspace index `structure.maxLevels`
+  - mock agent and mock program execution only
+  - artifact `inputs:` / `outputs:`, target fan-out, counted loops, polling,
+    callbacks, generated follow-up task files, snapshots, seeded gates, and
+    terminal examples
+  - Run the mock workflow with `cargo xtask examples run ui-test-canonical --viz`.
+
 - `states-with-spaces.yaml`
   Companion states file for `escaped-state-values.rhei.md`.
 

@@ -11,7 +11,7 @@ fn run_callback_mode(
 
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let initial = load_plan(input)?;
-    let initial_total_tasks = initial.rhei.tasks.len();
+    let initial_total_tasks = total_task_count(&initial.rhei);
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
@@ -50,17 +50,12 @@ fn run_callback_mode(
         };
     }
 
-    let initial_terminal_count = initial
-        .rhei
-        .tasks
-        .iter()
-        .filter(|task| is_terminal_state(task.state.as_str(), machine))
-        .count();
+    let initial_terminal_count = terminal_task_count(&initial.rhei, machine);
     run_info!(
         "Running {} '{}' with {} task(s) ({} terminal at start).",
         if workspace::is_workspace(input) { "workspace" } else { "plan" },
         initial.rhei.title,
-        initial.rhei.tasks.len(),
+        initial_total_tasks,
         initial_terminal_count
     );
     run_info!("Initial states: {}", format_state_counts(&initial.rhei));
@@ -88,12 +83,7 @@ fn run_callback_mode(
         }
 
         pass += 1;
-        let terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|task| is_terminal_state(task.state.as_str(), machine))
-            .count();
+        let terminal_count = terminal_task_count(&loaded.rhei, machine);
         sink.emit(RunEvent::PassStarted {
             pass,
             ready: ready.iter().map(|task| task.id.to_string()).collect(),
@@ -103,7 +93,7 @@ fn run_callback_mode(
             pass,
             ready.len(),
             terminal_count,
-            loaded.rhei.tasks.len()
+            total_task_count(&loaded.rhei)
         );
         run_info!("Ready: {}", format_ready_tasks(&ready));
 
@@ -229,23 +219,21 @@ fn run_callback_mode(
         (0usize, 0usize)
     } else {
         let loaded = load_plan(input)?;
-        let terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|t| is_terminal_state(t.state.as_str(), machine))
-            .count();
+        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        let total_tasks = total_task_count(&loaded.rhei);
         run_info!(
             "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
             transitions_made,
             terminal_count,
-            loaded.rhei.tasks.len()
+            total_tasks
         );
         run_info!("Final states: {}", format_state_counts(&loaded.rhei));
-        for task in &loaded.rhei.tasks {
+        let mut tasks = Vec::new();
+        collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
+        for task in tasks {
             run_info!("  - {} [{}]", format_task_label(task), task.state);
         }
-        (terminal_count, loaded.rhei.tasks.len())
+        (terminal_count, total_tasks)
     };
 
     sink.emit(RunEvent::RunFinished {
@@ -263,13 +251,8 @@ fn run_callback_mode(
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
-        let terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|task| is_terminal_state(task.state.as_str(), machine))
-            .count();
-        if terminal_count < loaded.rhei.tasks.len()
+        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        if terminal_count < total_task_count(&loaded.rhei)
             && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine)
         {
             return Err(miette!(

@@ -165,8 +165,23 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
 
 /// Parse a workspace task file (a file inside the `tasks/` directory).
 pub fn parse_workspace_tasks(input: &str) -> Result<Vec<Task>> {
-    let prefix = "# Rhei: _workspace_\n\n## Tasks\n\n";
-    let prefix_line_count = 4;
+    parse_workspace_tasks_with_optional_structure(input, None)
+}
+
+/// Parse a workspace task file using the structure declared by its workspace index. §FS-rhei-authoring.3.3
+pub fn parse_workspace_tasks_with_structure(
+    input: &str,
+    structure: &Structure,
+) -> Result<Vec<Task>> {
+    parse_workspace_tasks_with_optional_structure(input, Some(structure))
+}
+
+fn parse_workspace_tasks_with_optional_structure(
+    input: &str,
+    structure: Option<&Structure>,
+) -> Result<Vec<Task>> {
+    let prefix = workspace_task_synthetic_prefix(structure);
+    let prefix_line_count = prefix.matches('\n').count();
     let synthetic = format!("{}{}", prefix, input);
     match parse(&synthetic) {
         Ok(rhei) => Ok(rhei.tasks),
@@ -183,14 +198,49 @@ pub fn parse_workspace_tasks(input: &str) -> Result<Vec<Task>> {
 /// multi-error behavior for validation diagnostics. Reported line numbers are
 /// adjusted back from the synthetic single-file wrapper to the task file.
 pub fn parse_workspace_tasks_collect(input: &str) -> (Option<Vec<Task>>, Vec<ParseError>) {
-    let prefix = "# Rhei: _workspace_\n\n## Tasks\n\n";
-    let prefix_line_count = 4;
+    parse_workspace_tasks_collect_with_optional_structure(input, None)
+}
+
+/// Parse a workspace task file using the workspace index structure, collecting
+/// recoverable task-local parse errors with task-file line numbers.
+/// §FS-rhei-authoring.3.3
+pub fn parse_workspace_tasks_collect_with_structure(
+    input: &str,
+    structure: &Structure,
+) -> (Option<Vec<Task>>, Vec<ParseError>) {
+    parse_workspace_tasks_collect_with_optional_structure(input, Some(structure))
+}
+
+fn parse_workspace_tasks_collect_with_optional_structure(
+    input: &str,
+    structure: Option<&Structure>,
+) -> (Option<Vec<Task>>, Vec<ParseError>) {
+    let prefix = workspace_task_synthetic_prefix(structure);
+    let prefix_line_count = prefix.matches('\n').count();
     let synthetic = format!("{}{}", prefix, input);
     let (maybe_rhei, mut errors) = parse_collect(&synthetic);
     for error in &mut errors {
         adjust_workspace_task_error_line(error, prefix_line_count);
     }
     (maybe_rhei.map(|rhei| rhei.tasks), errors)
+}
+
+fn workspace_task_synthetic_prefix(structure: Option<&Structure>) -> String {
+    let Some(structure) = structure else {
+        return "# Rhei: _workspace_\n\n## Tasks\n\n".to_string();
+    };
+
+    let mut prefix = format!(
+        "# Rhei: _workspace_\n\n---\nstructure:\n  maxLevels: {}\n  nodeKinds:\n",
+        structure.max_levels
+    );
+    for kind in &structure.node_kinds {
+        prefix.push_str("    - ");
+        prefix.push_str(kind);
+        prefix.push('\n');
+    }
+    prefix.push_str("---\n\n## Tasks\n\n");
+    prefix
 }
 
 fn adjust_workspace_task_error_line(error: &mut ParseError, prefix_line_count: usize) {

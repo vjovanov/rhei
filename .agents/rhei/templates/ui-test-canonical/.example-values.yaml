@@ -1,0 +1,11 @@
+plan_title: Rhei UI Canonical Test
+scenario_name: dashboard checkout flow
+primary_target: mock-agent[yolo]:mock:ui-implementer
+review_targets:
+  - mock-agent[yolo]:mock:review-alpha
+  - mock-agent[slow]:mock:review-beta
+loop_passes: 2
+poll_interval: 1s
+poll_attempts: 2
+step_delay_seconds: 0.1
+include_generated_followup: true

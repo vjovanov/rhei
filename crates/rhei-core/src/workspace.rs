@@ -119,9 +119,10 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
                 ParseError::new(format!("failed to read {}: {e}", path.display()), None)
             })?;
 
-            let tasks = parser::parse_workspace_tasks(&content).map_err(|e| {
-                ParseError::new(format!("{}: {}", path.display(), e.message), e.line)
-            })?;
+            let tasks = parser::parse_workspace_tasks_with_structure(&content, &index.structure)
+                .map_err(|e| {
+                    ParseError::new(format!("{}: {}", path.display(), e.message), e.line)
+                })?;
 
             for task in &tasks {
                 collect_task_sources(task, &path, &mut task_sources)?;

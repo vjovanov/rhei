@@ -103,6 +103,11 @@ that exceed the declared depth or use a heading kind not listed in
 `nodeKinds`. When `structure` is omitted, the defaults are
 `maxLevels: 2, nodeKinds: [task]`.
 
+In a directory workspace, the `structure` block is declared once in
+`index.rhei.md` and applies to every markdown task file under `tasks/`.
+Task files do not redeclare structure locally; loaders and validators parse
+them using the workspace index structure.
+
 ## 4. Metadata
 
 `**State:**` is mandatory and must be the first line after the task header.

@@ -1,0 +1,60 @@
+{
+  "defaults": {
+    "agent": "mock-agent",
+    "agent_mode": "yolo",
+    "model": "mock-fast",
+    "agent_timeout": "30s",
+    "program_timeout": "30s"
+  },
+  "agents": {
+    "mock-agent": {
+      "command": [
+        "bash",
+        "./bin/mock-agent.sh"
+      ],
+      "prompt_flag": "--prompt",
+      "model_flag": "--model",
+      "skill_flag": "--skill",
+      "stdin_prompt": false,
+      "timeout": "30s",
+      "modes": {
+        "yolo": [
+          "--mode",
+          "yolo"
+        ],
+        "slow": [
+          "--mode",
+          "slow"
+        ]
+      },
+      "session": {
+        "resume": {
+          "flag": "--resume"
+        },
+        "fork": {
+          "flag": "--fork"
+        },
+        "interactive": {},
+        "session_dir_flag": "--session-dir",
+        "no_session_flag": "--no-session",
+        "layout": {
+          "kind": "FlatById",
+          "ext": "jsonl"
+        }
+      }
+    }
+  },
+  "models": {
+    "mock-fast": {
+      "provider": "mock",
+      "model": "mock-fast",
+      "default_agent": "mock-agent"
+    }
+  },
+  "skills": {
+    "ui-fixture": {
+      "path": "./skills/ui-fixture",
+      "description": "Mock skill used by the canonical UI fixture."
+    }
+  }
+}

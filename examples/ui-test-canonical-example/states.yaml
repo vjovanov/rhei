@@ -1,0 +1,355 @@
+# UI Test Canonical State Machine
+# ===============================
+#
+# Initial state: collect-inputs
+# Final states: completed, cancelled
+# Gating states: human-gate, blocked
+#
+# Main task / normal subtask path:
+#   collect-inputs
+#       -> script-normalize
+#       -> mock-implement        (target: primary_target, emits snapshot `implementation`)
+#       -> script-build
+#       -> parallel-review       (all_targets fan-out: review_targets)
+#       -> aggregate             (callback appends generated follow-up task)
+#       -> fix-loop              (inherits snapshot `implementation`, visits: loop_passes)
+#       -> human-gate            (manual stop)
+#
+# Polling task path:
+#   script-poll -> script-poll   (poll self-loop while exit 75)
+#       -> script-check
+#       -> completed
+#
+# Smoke-check / generated follow-up path:
+#   script-check -> completed
+#
+# Escape paths:
+#   any non-final state -> cancelled
+#   program/agent failure -> blocked
+#
+# Fan-out points:
+#   parallel-review uses all_targets and writes one output per `{target.slug}`.
+#
+# Callback points:
+#   most transitions call `bin/mock-transition.sh log`;
+#   aggregate -> fix-loop calls `bin/mock-transition.sh aggregate` and can
+#   append one generated follow-up task to the plan file.
+
+name: ui-test-canonical
+version: 1.0.0
+
+states:
+  collect-inputs:
+    description: Mock agent creates raw inputs and notes for the task.
+    initial: true
+    target: "mock-agent[yolo]:mock:ui-implementer"
+    agent_timeout: 30s
+    instructions: |
+      Create raw UI-test inputs for Task {task_id}: {task_title}.
+
+      Write the scenario brief to `{output.raw-inputs.path}` and structured
+      notes to `{output.raw-notes.path}`. Keep the content deterministic.
+    outputs:
+      - name: raw-inputs
+        path: runtime/artifacts/{task_id}/inputs.md
+        format: markdown
+        description: Raw scenario input brief for the task.
+      - name: raw-notes
+        path: runtime/artifacts/{task_id}/notes.json
+        format: json
+        description: Structured mock notes.
+
+  script-normalize:
+    description: Mock script normalizes raw inputs into deterministic JSON.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "normalize"]
+      env:
+        MOCK_SCENARIO: "dashboard checkout flow"
+    program_timeout: 30s
+    inputs:
+      - name: raw-inputs
+        path: runtime/artifacts/{task_id}/inputs.md
+        format: markdown
+      - name: raw-notes
+        path: runtime/artifacts/{task_id}/notes.json
+        format: json
+    outputs:
+      - name: normalized-inputs
+        path: runtime/artifacts/{task_id}/normalized.json
+        format: json
+      - name: io-map
+        path: runtime/artifacts/{task_id}/io-map.md
+        format: markdown
+
+  mock-implement:
+    description: Mock agent writes an implementation artifact and emits a snapshot.
+    target: "mock-agent[yolo]:mock:ui-implementer"
+    agent_timeout: 30s
+    skills:
+      - id: ui-fixture
+        optional: true
+      - id: absent-lens
+        path: ./skills/absent-lens
+        optional: true
+    snapshot:
+      emit:
+        name: implementation
+        on: success
+    instructions: |
+      Implement the deterministic UI fixture for Task {task_id}: {task_title}.
+
+      Read `{input.normalized-inputs.path}` and `{input.io-map.path}`.
+      Write the implementation summary to `{output.implementation.path}`.
+
+      {if skill.ui-fixture.available}
+      The `ui-fixture` skill is available; mention it in the implementation.
+      {endif}
+      {if skill.absent-lens.available}
+      The optional absent-lens skill unexpectedly resolved.
+      {else}
+      The optional absent-lens skill is absent; continue with the mock fallback.
+      {endif}
+    inputs:
+      - name: normalized-inputs
+        path: runtime/artifacts/{task_id}/normalized.json
+        format: json
+      - name: io-map
+        path: runtime/artifacts/{task_id}/io-map.md
+        format: markdown
+    outputs:
+      - name: implementation
+        path: runtime/implementation/{task_id}.md
+        format: markdown
+
+  script-build:
+    description: Mock script consumes implementation output and writes build artifacts.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "build"]
+      env:
+        MOCK_SCENARIO: "dashboard checkout flow"
+    program_timeout: 30s
+    inputs:
+      - name: implementation
+        path: runtime/implementation/{task_id}.md
+        format: markdown
+    outputs:
+      - name: build-report
+        path: runtime/build/{task_id}-report.md
+        format: markdown
+      - name: bundle
+        path: runtime/build/{task_id}-bundle.txt
+
+  parallel-review:
+    description: Mock reviewers fan out across all configured review targets.
+    all_targets:
+
+      - "mock-agent[yolo]:mock:review-alpha"
+
+      - "mock-agent[slow]:mock:review-beta"
+
+    agent_timeout: 30s
+    instructions: |
+      Review Task {task_id}: {task_title} as target `{target}`.
+
+      Read `{input.build-report.path}` and write this target's findings to
+      `{output.review-findings.path}`. Keep the output unique to
+      `{target.slug}`.
+    inputs:
+      - name: build-report
+        path: runtime/build/{task_id}-report.md
+        format: markdown
+    outputs:
+      - name: review-findings
+        path: runtime/reviews/{task_id}-{target.slug}.md
+        format: markdown
+
+  aggregate:
+    description: Mock script aggregates per-target review outputs.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "aggregate"]
+      env:
+        MOCK_SCENARIO: "dashboard checkout flow"
+    program_timeout: 30s
+    outputs:
+      - name: aggregate-report
+        path: runtime/aggregate/{task_id}.md
+        format: markdown
+      - name: aggregate-data
+        path: runtime/aggregate/{task_id}.json
+        format: json
+
+  fix-loop:
+    description: Mock agent runs a counted fix loop before the human gate.
+    target: "mock-agent[yolo]:mock:ui-implementer"
+    agent_timeout: 30s
+    visits: 2
+    snapshot:
+      inherit:
+        name: implementation
+        from: self
+        required: false
+        select:
+          state: mock-implement
+          target: same
+    instructions: |
+      Fix loop visit {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Read `{input.aggregate-report.path}`. If a compatible implementation
+      snapshot exists, it has already been preloaded by the runtime.
+      Write this visit's fix notes to `{output.fix-notes.path}`.
+    inputs:
+      - name: aggregate-report
+        path: runtime/aggregate/{task_id}.md
+        format: markdown
+    outputs:
+      - name: fix-notes
+        path: runtime/fixes/{task_id}-visit-{visit_count}.md
+        format: markdown
+
+  script-poll:
+    description: Mock polling program returns 75 until the final ready attempt.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "poll"]
+      env:
+        MOCK_SCENARIO: "dashboard checkout flow"
+    program_timeout: 30s
+    poll:
+      interval: 1s
+      max_attempts: 2
+    outputs:
+      - name: poll-ready
+        path: runtime/poll/{task_id}-ready.json
+        format: json
+
+  script-check:
+    description: Mock script writes a small smoke-check artifact and completes.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "check"]
+      env:
+        MOCK_SCENARIO: "dashboard checkout flow"
+    program_timeout: 30s
+    outputs:
+      - name: check-report
+        path: runtime/checks/{task_id}.md
+        format: markdown
+
+  human-gate:
+    description: Human approval stop for UI testing.
+    gating: true
+    instructions: |
+      Stop here so the live UI can render a human gate. A human may transition
+      this task to `completed` or `cancelled`.
+
+  blocked:
+    description: Mock failure or exhausted poll gate for UI testing.
+    gating: true
+    instructions: |
+      Stop here for operator inspection. This state intentionally remains
+      non-terminal so blocked work is visible in the UI.
+
+  completed:
+    description: Task finished successfully.
+    final: true
+
+  cancelled:
+    description: Task was cancelled.
+    final: true
+
+transitions:
+  - from: collect-inputs
+    to: script-normalize
+    description: Raw inputs are ready for normalization.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-normalize
+    to: mock-implement
+    description: Normalization succeeded.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-normalize
+    to: blocked
+    description: Normalization failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: mock-implement
+    to: script-build
+    description: Implementation artifact is ready for the build script.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-build
+    to: parallel-review
+    description: Build succeeded and reviewers can fan out.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-build
+    to: blocked
+    description: Build failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: parallel-review
+    to: aggregate
+    description: All review target outputs exist.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: aggregate
+    to: fix-loop
+    description: Aggregate report written; optional generated follow-up is appended.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh aggregate"
+  - from: aggregate
+    to: blocked
+    description: Aggregate failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: fix-loop
+    to: fix-loop
+    description: Continue counted fix loop.
+    condition: visitCount < visits
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: fix-loop
+    to: human-gate
+    description: Counted fix loop finished; wait for human inspection.
+    condition: visitCount >= visits
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-poll
+    to: script-poll
+    description: Mock external system is still running.
+    exit_code: 75
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-poll
+    to: script-check
+    description: Mock external system is ready.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-poll
+    to: blocked
+    description: Poll attempts exhausted.
+    condition: pollAttempts >= pollMaxAttempts
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-check
+    to: completed
+    description: Smoke check passed.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-check
+    to: blocked
+    description: Smoke check failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: human-gate
+    to: completed
+    description: Human approved the fixture output.
+  - from: human-gate
+    to: cancelled
+    description: Human rejected or abandoned the fixture output.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel any non-final task.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"

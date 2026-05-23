@@ -191,7 +191,11 @@ pub trait EventSink: Send + Sync {
 }
 ```
 
-`RunStarted` is emitted once per run with the workspace root, resolved parallelism, and total task count. `PassStarted` and `PassEnded` bracket each scheduler pass; `PassStarted.ready` is the current ready set in source-order task ids.
+`RunStarted` is emitted once per run with the workspace root, resolved
+parallelism, and total task count. The total task count includes child and
+grandchild task nodes, not only root tasks. `PassStarted` and `PassEnded`
+bracket each scheduler pass; `PassStarted.ready` is the current ready set in
+source-order task ids.
 
 `SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right tile without reconciliation. Both events also carry `from` and `to`: when `from == to`, the worker started or ended in the same autonomous state and renderers must not present that as a real self-transition.
 

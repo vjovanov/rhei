@@ -97,3 +97,38 @@ fn workspace_task_collect_reports_multiple_recoverable_errors_with_task_file_lin
     assert!(errors[2].message.contains("Malformed metadata field"));
     assert_eq!(errors[2].line, Some(8));
 }
+
+#[test]
+fn workspace_task_parser_uses_index_structure_for_nested_tasks() {
+    let index = parse_workspace_index(
+        r#"# Rhei: Workspace
+
+---
+structure:
+  maxLevels: 3
+  nodeKinds: [task]
+---
+
+## Overview
+Context
+"#,
+    )
+    .expect("index parses");
+    let input = r#"### Task feature: Feature
+**State:** pending
+
+#### Task feature.api: API
+**State:** pending
+
+##### Task feature.api.contract: Contract
+**State:** pending
+"#;
+
+    let tasks = parse_workspace_tasks_with_structure(input, &index.structure)
+        .expect("workspace task file should inherit index structure");
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].children.len(), 1);
+    assert_eq!(tasks[0].children[0].children.len(), 1);
+    assert_eq!(tasks[0].children[0].children[0].id.to_string(), "feature.api.contract");
+}

@@ -146,7 +146,7 @@ fn run_bash_agent_team_fixture_to_completion() {
 
     assert_all_tasks_in_state(&workspace_path, &machine_path, "completed");
     assert!(
-        result.stdout.contains("3/3 tasks in terminal state"),
+        result.stdout.contains("6/6 tasks in terminal state"),
         "expected all tasks terminal; got:\n{}",
         result.stdout
     );
