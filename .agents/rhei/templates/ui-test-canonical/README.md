@@ -47,7 +47,7 @@ rhei instantiate ui-test-canonical \
 Run it with the live UI:
 
 ```bash
-rhei run .agents/scratchpad/ui-test-canonical --parallel 4 --viz
+rhei run .agents/scratchpad/ui-test-canonical --parallel 4 --dashboard
 ```
 
 The run intentionally stops with tasks in `human-gate` and `blocked` so the UI has live gates to render.

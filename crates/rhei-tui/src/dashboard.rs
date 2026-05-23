@@ -478,13 +478,25 @@ fn encode_url_path(path: &str) -> String {
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Option<HttpRequest> {
-    let mut buf = [0u8; 8192];
-    let n = stream.read(&mut buf).ok()?;
-    if n == 0 {
-        return None;
-    }
-    let raw = &buf[..n];
-    let header_end = raw.windows(4).position(|w| w == b"\r\n\r\n")?;
+    const MAX_HEADER_BYTES: usize = 64 * 1024;
+
+    let mut raw = Vec::new();
+    let header_end = loop {
+        if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos;
+        }
+        if raw.len() >= MAX_HEADER_BYTES {
+            return None;
+        }
+
+        let mut buf = [0u8; 8192];
+        let n = stream.read(&mut buf).ok()?;
+        if n == 0 {
+            return None;
+        }
+        raw.extend_from_slice(&buf[..n]);
+    };
+
     let headers = String::from_utf8_lossy(&raw[..header_end]);
     let mut request_line = headers.lines().next().unwrap_or_default().split_whitespace();
     let method = request_line.next().unwrap_or_default();

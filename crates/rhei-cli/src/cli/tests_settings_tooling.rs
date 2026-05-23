@@ -32,6 +32,7 @@
             None,
             "task-7",
             "pending",
+            1,
             &tooling,
             runtime_dir.path(),
         );
@@ -69,6 +70,7 @@
             None,
             "t",
             "pending",
+            1,
             &tooling,
             runtime_dir.path(),
         );
@@ -550,6 +552,7 @@ states:
             None,
             "1",
             "pending",
+            1,
             &gate.tooling,
             runtime_dir.path(),
         );
@@ -589,6 +592,7 @@ states:
             None,
             "1",
             "pending",
+            1,
             &gate.tooling,
             &log_path,
             runtime_dir.path(),

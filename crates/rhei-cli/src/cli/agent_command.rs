@@ -22,6 +22,7 @@ fn build_agent_command(
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
+    visit_count: u64,
     tooling: &ResolvedTooling,
     runtime_dir: &Path,
 ) -> std::process::Command {
@@ -104,6 +105,7 @@ fn build_agent_command(
     cmd.env("RHEI_PLAN_PATH", plan_path)
         .env("RHEI_TASK_ID", task_id)
         .env("RHEI_STATE", state_name)
+        .env("RHEI_VISIT_COUNT", visit_count.to_string())
         .env("RHEI_AGENT", id);
     if let Some(path) = state_machine_path {
         cmd.env("RHEI_STATE_MACHINE_PATH", path);

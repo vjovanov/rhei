@@ -85,6 +85,19 @@ fn fetch_body(dashboard: &DashboardSink, target: &str) -> String {
     response.split("\r\n\r\n").nth(1).unwrap_or_default().to_string()
 }
 
+fn fetch_body_split_headers(dashboard: &DashboardSink, target: &str) -> String {
+    let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
+    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let head = format!("GET {target} HTTP/1.1\r\nHost: local");
+    stream.write_all(head.as_bytes()).expect("write first header chunk");
+    stream.flush().expect("flush first header chunk");
+    std::thread::sleep(Duration::from_millis(25));
+    stream.write_all(b"host\r\nConnection: close\r\n\r\n").expect("write second header chunk");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    response.split("\r\n\r\n").nth(1).unwrap_or_default().to_string()
+}
+
 fn post_json(dashboard: &DashboardSink, target: &str, body: &str) -> serde_json::Value {
     let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
     let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
@@ -185,6 +198,16 @@ fn root_serves_the_self_contained_flow_asset() {
     assert!(html.contains("/*__BOOT__*/null"), "live asset leaves BOOT null so its JS polls");
     assert!(!html.contains("<script src="));
     assert!(!html.contains("<link rel=\"stylesheet\""));
+}
+
+#[test]
+fn request_parser_accepts_split_headers() {
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 1, None)
+        .expect("start dashboard");
+    let html = fetch_body_split_headers(&dashboard, "/");
+
+    assert!(html.contains("Rhei · Flow"));
+    assert!(html.contains("/*__BOOT__*/null"));
 }
 
 /// Per `RunEvent::SlotAssigned`'s contract, `from == to` means the engine

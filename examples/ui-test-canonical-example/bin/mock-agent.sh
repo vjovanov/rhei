@@ -135,10 +135,7 @@ case "$state" in
 - recommendation: continue to aggregate."
         ;;
     fix-loop)
-        safe_id="$(safe_task_id)"
-        mkdir -p "$workspace_root/runtime/fixes"
-        existing_count="$(find "$workspace_root/runtime/fixes" -maxdepth 1 -type f -name "${safe_id}-visit-*.md" 2>/dev/null | wc -l)"
-        visit=$((existing_count + 1))
+        visit="${RHEI_VISIT_COUNT:?RHEI_VISIT_COUNT is required for counted fix-loop states}"
         write_file "$workspace_root/runtime/fixes/${task_id}-visit-${visit}.md" "# Fix Loop ${task_id} Visit ${visit}
 
 - target: ${target_slug}

@@ -38,7 +38,7 @@ rhei run examples/ui-test-canonical-example --dry-run
 ## Live UI Run
 
 ```bash
-rhei run examples/ui-test-canonical-example --parallel 4 --viz
+rhei run examples/ui-test-canonical-example --parallel 4 --dashboard
 ```
 
 ## Regenerate

@@ -148,6 +148,7 @@
             None,
             "task-timeout",
             "pending",
+            1,
             &tooling,
             &log_path,
             dir.path(),

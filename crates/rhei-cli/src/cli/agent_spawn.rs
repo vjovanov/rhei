@@ -125,6 +125,7 @@ fn spawn_and_wait_agent(
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
+    visit_count: u64,
     tooling: &ResolvedTooling,
     log_path: &Path,
     runtime_dir: &Path,
@@ -213,6 +214,7 @@ fn spawn_and_wait_agent(
         state_machine_path,
         task_id,
         state_name,
+        visit_count,
         tooling,
         runtime_dir,
     );
