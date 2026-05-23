@@ -106,6 +106,9 @@ both stilled to a static dot under `prefers-reduced-motion`, per §FS-rhei-viz-u
 During a dynamic run, `task_runtime[id].in_slot` is an overlay on top of the
 state-derived category: any task assigned to a live slot is shown as `live`, even
 if its persisted implementation state is otherwise `idle` such as `pending`.
+For an active agent slot, `task_runtime[id].template_context` carries the
+invocation's concrete target/model/agent values so prompt and artifact previews
+match the running process.
 
 ### 1.2. Summary and Legend
 
@@ -262,7 +265,7 @@ type Snapshot = {
   plan_state?: string;          // derived, §9
   about?: string;               // plan overview prose, shown above the machine
   accounting?: AccountingRunSummary;
-  tasks: TaskRow[];             // id, title, parent, depth, state, prior
+  tasks: TaskRow[];             // id, title, parent, depth, state, visit_count?, prior
   machine: Machine;             // the resolved state machine, flattened (below)
   // plus existing run, slot, journal, ready/deferred, and link fields
 };
@@ -283,8 +286,19 @@ type MachineState = {
   transitions: Transition[];    // explicit edges first, then applicable wildcards
   inputs: Artifact[];
   outputs: Artifact[];
+  template_context?: TemplateContext;
+  template_contexts?: TemplateContext[]; // authored fanout variants for static previews
 };
 
+type TemplateContext = {
+  target?: string;
+  target_slug?: string;
+  model?: string;
+  model_provider?: string;
+  model_name?: string;
+  agent?: string;
+  agent_mode?: string;
+};
 type Transition = { to: string; condition?: string; wildcard: boolean };
 type Artifact = { name: string; path: string; description?: string; optional: boolean };
 ```
@@ -307,9 +321,11 @@ Rules:
   `{visits}`, `{model}` and similar scalars, and `{input/output.<name>.path}`
   artifact references, are resolved against the selected node when rendering its
   prompt (§4) and artifact links. A live render substitutes the running task's
-  real values, including the `-N` visit suffix on counted states; a static render
-  collapses counted states to their base pill, since the visit suffix surfaces
-  only during a run.
+  real values, including the concrete target/model/agent from its slot. A static
+  render resolves authored single-target/model states directly, preserves any
+  `-N` visit suffix from the plan row as `visit_count`, and renders multi-target
+  or multi-model fanout states once per authored context so artifact paths and
+  prompt previews do not point at guessed values.
 - **Compact rollups in `/snapshot`, detail elsewhere.** Each task row may carry
   compact direct and subtree accounting rollups; invocation-level detail is served
   from a separate loopback endpoint so polling stays light. §FS-rhei-cost-accounting

@@ -101,6 +101,7 @@ fn slot_lines_reserve_rows_for_later_slots() {
             from: "fetch".to_string(),
             to: "fetch".to_string(),
             agent: Some("codex".to_string()),
+            template_context: None,
             log_path: PathBuf::from(format!("task-{slot}.log")),
             started_at: Instant::now(),
             wall_clock: SystemTime::now(),

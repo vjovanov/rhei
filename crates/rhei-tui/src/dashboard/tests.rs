@@ -3,7 +3,7 @@ use crate::event::{
     DimensionStatus, DimensionSummary, PricingStatus, RunSummary, TaskOutcome, UsageCoverage,
     UsageStatus, UsageSummary,
 };
-use rhei_viz_model::{Machine, TaskRow, VizModel};
+use rhei_viz_model::{Machine, TaskRow, TemplateContext, VizModel};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -21,6 +21,7 @@ fn assigned(from: &str, to: &str) -> RunEvent {
         from: from.to_string(),
         to: to.to_string(),
         agent: None,
+        template_context: None,
         log_path: PathBuf::from("/tmp/ws/runtime/logs/1.log"),
         started_at: Instant::now(),
         wall_clock: SystemTime::now(),
@@ -34,6 +35,7 @@ fn task_row(id: &str, title: &str, state: &str, parent: Option<&str>, depth: u8)
         parent: parent.map(str::to_string),
         depth,
         state: state.to_string(),
+        visit_count: None,
         prior: Vec::new(),
     }
 }
@@ -121,11 +123,19 @@ struct StubIntervene {
     fail_reason: Option<String>,
 }
 impl InterveneSink for StubIntervene {
-    fn deliver(&self, task_id: &str, message: &str) -> Result<(), String> {
+    fn deliver(
+        &self,
+        task_id: Option<&str>,
+        _slot: Option<crate::event::Slot>,
+        message: &str,
+    ) -> Result<(), String> {
         if let Some(reason) = &self.fail_reason {
             return Err(reason.clone());
         }
-        self.delivered.lock().unwrap().push((task_id.to_string(), message.to_string()));
+        self.delivered
+            .lock()
+            .unwrap()
+            .push((task_id.unwrap_or("").to_string(), message.to_string()));
         Ok(())
     }
 }
@@ -250,6 +260,11 @@ fn snapshot_endpoint_exposes_base_model_and_runtime_overlay() {
         from: "agent-review".to_string(),
         to: "agent-review".to_string(),
         agent: Some("codex".to_string()),
+        template_context: Some(TemplateContext {
+            target_slug: Some("codex-openai-gpt-5".to_string()),
+            model: Some("gpt-5".to_string()),
+            ..TemplateContext::default()
+        }),
         log_path: PathBuf::from("/tmp/ws/runtime/logs/1.1.log"),
         started_at: Instant::now(),
         wall_clock: SystemTime::now(),
@@ -275,6 +290,11 @@ fn snapshot_endpoint_exposes_base_model_and_runtime_overlay() {
     // Runtime overlay is keyed separately so the base `tasks` stay identical in
     // shape to a static render.
     assert_eq!(snapshot["task_runtime"]["1.1"]["in_slot"], 1);
+    assert_eq!(
+        snapshot["task_runtime"]["1.1"]["template_context"]["target_slug"],
+        "codex-openai-gpt-5"
+    );
+    assert_eq!(snapshot["task_runtime"]["1.1"]["template_context"]["model"], "gpt-5");
     assert_eq!(snapshot["task_runtime"]["2"]["deferred_this_pass"], true);
 }
 
@@ -295,6 +315,7 @@ fn snapshot_marks_running_root_active() {
         from: "work".to_string(),
         to: "work".to_string(),
         agent: None,
+        template_context: None,
         log_path: PathBuf::from("/tmp/ws/runtime/logs/1.log"),
         started_at: Instant::now(),
         wall_clock: SystemTime::now(),
@@ -323,6 +344,7 @@ fn snapshot_does_not_mark_released_slot_active() {
         from: "work".to_string(),
         to: "work".to_string(),
         agent: None,
+        template_context: None,
         log_path: PathBuf::from("/tmp/ws/runtime/logs/1.log"),
         started_at: Instant::now(),
         wall_clock: SystemTime::now(),
@@ -362,6 +384,7 @@ fn log_endpoint_tails_running_task_log_from_offset() {
         from: "in-progress".to_string(),
         to: "in-progress".to_string(),
         agent: Some("codex".to_string()),
+        template_context: None,
         log_path: log_path.clone(),
         started_at: Instant::now(),
         wall_clock: SystemTime::now(),

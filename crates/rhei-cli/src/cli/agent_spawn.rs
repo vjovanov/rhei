@@ -321,7 +321,7 @@ fn spawn_and_wait_agent(
     // stdin writer thread and closes the pipe.
     if registered_intervene {
         if let Some(registry) = intervene {
-            registry.unregister(task_id);
+            registry.unregister(task_id, slot);
         }
     }
 

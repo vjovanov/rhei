@@ -33,20 +33,30 @@ pub type PlanLoader = Arc<dyn Fn() -> Option<VizModel> + Send + Sync>;
 /// (`rhei-cli`) implements delivery, the agent-capability gate, and the durable
 /// audit trail; the server is a thin pass-through.
 pub trait InterveneSink: Send + Sync {
-    /// Deliver `message` to the agent running `task_id`. `Ok(())` on delivery;
+    /// Deliver `message` to the selected running agent. `slot` disambiguates
+    /// concurrent fanout invocations of the same task; `task_id` remains a
+    /// fallback for single-invocation callers. `Ok(())` on delivery;
     /// `Err(reason)` when the agent is not interactively reachable (one-shot
-    /// agent, closed stdin, or no such running task).
-    fn deliver(&self, task_id: &str, message: &str) -> Result<(), String>;
+    /// agent, closed stdin, or no matching running task).
+    fn deliver(
+        &self,
+        task_id: Option<&str>,
+        slot: Option<crate::event::Slot>,
+        message: &str,
+    ) -> Result<(), String>;
 }
 
 /// Per-task runtime overlay carried alongside the [`VizModel`] base in the live
-/// `/snapshot`: which slot (if any) is running the task, whether it was
-/// deferred this pass, and its compact accounting rollups. Absent on a static
-/// render, so the supplementary surfaces degrade by field-presence. AR §4.
+/// `/snapshot`: which slot (if any) is running the task, the active invocation's
+/// template values, whether it was deferred this pass, and its compact
+/// accounting rollups. Absent on a static render, so the supplementary surfaces
+/// degrade by field-presence. AR §4.
 #[derive(Clone, Serialize)]
 pub struct TaskRuntime {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_slot: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_context: Option<rhei_viz_model::TemplateContext>,
     pub deferred_this_pass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accounting: Option<TaskAccounting>,
@@ -294,16 +304,23 @@ fn handle_client(
                 task_accounting_for_tasks(&base.tasks, &snapshot_state.invocations);
             let mut task_runtime = BTreeMap::new();
             for task in &base.tasks {
-                let in_slot = snapshot_state.slots.iter().enumerate().find_map(|(i, slot)| {
-                    (slot.active && slot.task.as_deref() == Some(task.id.as_str()))
-                        .then_some(i as u16)
+                let active_slot = snapshot_state.slots.iter().enumerate().find(|(_, slot)| {
+                    slot.active && slot.task.as_deref() == Some(task.id.as_str())
                 });
+                let in_slot = active_slot.map(|(i, _)| i as u16);
+                let template_context =
+                    active_slot.and_then(|(_, slot)| slot.template_context.clone());
                 let deferred = deferred_set.contains(task.id.as_str());
                 let accounting = accounting_by_task.get(&task.id).cloned();
                 if in_slot.is_some() || deferred || accounting.is_some() {
                     task_runtime.insert(
                         task.id.clone(),
-                        TaskRuntime { in_slot, deferred_this_pass: deferred, accounting },
+                        TaskRuntime {
+                            in_slot,
+                            template_context,
+                            deferred_this_pass: deferred,
+                            accounting,
+                        },
                     );
                 }
             }
@@ -540,6 +557,8 @@ fn handle_intervene(
         #[serde(default)]
         task_id: String,
         #[serde(default)]
+        slot: Option<crate::event::Slot>,
+        #[serde(default)]
         message: String,
     }
     let Ok(req) = serde_json::from_slice::<Req>(body) else {
@@ -548,13 +567,14 @@ fn handle_intervene(
     if req.message.trim().is_empty() {
         return reply_intervene(stream, false, "empty message");
     }
-    if req.task_id.is_empty() {
+    if req.task_id.is_empty() && req.slot.is_none() {
         return reply_intervene(stream, false, "missing task_id");
     }
     let Some(sink) = intervene else {
         return reply_intervene(stream, false, "intervene is not available on this surface");
     };
-    match sink.deliver(&req.task_id, &req.message) {
+    let task_id = (!req.task_id.is_empty()).then_some(req.task_id.as_str());
+    match sink.deliver(task_id, req.slot, &req.message) {
         Ok(()) => reply_intervene(stream, true, ""),
         Err(reason) => reply_intervene(stream, false, &reason),
     }

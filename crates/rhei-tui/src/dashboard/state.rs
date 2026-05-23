@@ -83,12 +83,21 @@ impl DashboardState {
                 self.push_recent("info", format!("pass {pass}: {} ready", ready.len()));
             }
             RunEvent::SlotAssigned {
-                slot, task, from, to, agent, log_path, wall_clock, ..
+                slot,
+                task,
+                from,
+                to,
+                agent,
+                template_context,
+                log_path,
+                wall_clock,
+                ..
             } => {
                 let slot_state = self.slot_mut(*slot);
                 slot_state.active = true;
                 slot_state.task = Some(task.clone());
                 slot_state.agent = agent.clone();
+                slot_state.template_context = template_context.clone();
                 slot_state.state = Some(to.clone());
                 // Only record a transition when the worker actually moved
                 // states. `from == to` means the engine started a worker in
@@ -255,6 +264,8 @@ pub(super) struct DashboardSlot {
     pub(super) active: bool,
     pub(super) task: Option<String>,
     pub(super) agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) template_context: Option<rhei_viz_model::TemplateContext>,
     pub(super) state: Option<String>,
     pub(super) transition: Option<String>,
     pub(super) log_path: Option<String>,

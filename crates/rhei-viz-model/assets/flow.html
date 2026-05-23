@@ -64,7 +64,8 @@
   .flow.graph .pane-right { flex: 0 0 560px; }
   @media (max-width: 1060px) {
     .flow { flex-direction: column; }
-    .flow .pane-left, .flow .pane-right { flex: 0 0 auto; width: 100%; }
+    .flow.list .pane-left, .flow.list .pane-right,
+    .flow.graph .pane-left, .flow.graph .pane-right { flex: 0 0 auto; width: 100%; }
   }
   .panel { background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px; }
   .panel > h2 { margin: 0; padding: 8px 12px; font-size: 11px; font-weight: 600;
@@ -148,6 +149,7 @@
   .surr .desc { color: var(--dim); margin: 8px 0 4px; }
   .surr h3 { margin: 14px 0 5px; font-size: 11px; font-weight: 600; letter-spacing: .4px;
     text-transform: uppercase; color: var(--dim); }
+  .surr .vlabel { margin: 7px 0 3px; color: var(--faint); font-size: 11px; }
   .deps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .deps h4 { margin: 0 0 4px; font-size: 11px; color: var(--faint); font-weight: 400; }
   .chips { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -167,6 +169,7 @@
   .arts li { margin: 4px 0; }
   .arts .io { color: var(--faint); }
   .arts a { font-size: 11.5px; word-break: break-all; }
+  .arts .unres { color: var(--faint); font-size: 11.5px; word-break: break-all; }
   .arts .adesc { color: var(--faint); font-size: 11px; }
 
   /* ---- intervene (live tasks only) ---- */
@@ -190,6 +193,7 @@
   .term .tline { white-space: pre-wrap; word-break: break-word; }
   .term .me { color: #d4a84e; font-weight: 600; }
   .term .meln { color: #e7c885; }
+  .term .err { color: #ff8f8f; font-weight: 600; }
 
   /* ---- machine graphs (one per disjoint state machine) ---- */
   .machines { margin-top: 14px; padding-bottom: 4px; }
@@ -366,6 +370,7 @@ function indexPlan(plan){
   for(const t of (plan.tasks||[])){
     const depth = (typeof t.depth==="number") ? t.depth : idDepth(t.id);
     add({ id:t.id, title:t.title, state:t.state, prior:t.prior||[],
+          visit_count:t.visit_count,
           kind: depth===0?"task":"sub", depth,
           parent: (t.parent!=null ? t.parent : parentId(t.id)) });
   }
@@ -541,8 +546,12 @@ function renderSurroundings(){
 
   // prompt — the state's instructions, instantiated for THIS task with linked artifacts
   if(ms&&ms.instructions){
+    const variants=templateVariants(n,ms);
     frag.appendChild(el("h3",{text:`prompt · ${n.state}`}));
-    frag.appendChild(instantiatePromptFrag(ms.instructions, n, ms));
+    variants.forEach((ctx,i)=>{
+      if(variants.length>1) frag.appendChild(el("div",{class:"vlabel",text:templateContextLabel(ctx,i)}));
+      frag.appendChild(instantiatePromptFrag(ms.instructions, n, ms, ctx));
+    });
   }
 
   // intervene — running tasks show live agent output (scrollback, ANSI color) + a prompt
@@ -564,7 +573,7 @@ function renderSurroundings(){
     } else {
       for(const raw of sampleTranscript(n)) term.appendChild(termLine(raw));
     }
-    for(const m of (INTERVENTIONS[n.id]||[])) term.appendChild(meLine(n.id,m));
+    for(const m of (INTERVENTIONS[n.id]||[])) term.appendChild(m.error?errLine(m.text):meLine(n.id,m));
     iv.appendChild(term); liveTermEl=term;
     const ta=el("textarea",{rows:"2", placeholder:`Message to the agent on ${n.id}…`});
     iv.appendChild(ta);
@@ -579,7 +588,11 @@ function renderSurroundings(){
       const m={t:new Date(), text:v};
       (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(m);
       term.appendChild(meLine(n.id,m)); term.scrollTop=term.scrollHeight;
-      if(LIVE) sendIntervene(n.id, v);
+      if(LIVE) sendIntervene(n, v).then(res=>{
+        if(!res.ok){ const err={t:new Date(), text:res.error||"intervention was not delivered", error:true};
+          (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(err);
+          term.appendChild(errLine(err.text)); term.scrollTop=term.scrollHeight; }
+      });
       ta.value=""; ta.focus(); };
     btn.addEventListener("click",send);
     ta.addEventListener("keydown",e=>{ if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){ e.preventDefault(); send(); } });
@@ -604,9 +617,13 @@ function renderSurroundings(){
 
   // artifacts (resolved for this node)
   if(ms&&((ms.inputs&&ms.inputs.length)||(ms.outputs&&ms.outputs.length))){
+    const variants=templateVariants(n,ms);
     frag.appendChild(el("h3",{text:"artifacts"}));
-    frag.appendChild(artList(ms.inputs,"in ◂",n.id));
-    frag.appendChild(artList(ms.outputs,"out ▸",n.id));
+    variants.forEach((ctx,i)=>{
+      if(variants.length>1) frag.appendChild(el("div",{class:"vlabel",text:templateContextLabel(ctx,i)}));
+      frag.appendChild(artList(ms.inputs,"in ◂",n,ms,ctx));
+      frag.appendChild(artList(ms.outputs,"out ▸",n,ms,ctx));
+    });
   }
 
   box.innerHTML=""; box.appendChild(frag);
@@ -650,6 +667,12 @@ function meLine(id,m){
   const hh=String(m.t.getHours()).padStart(2,"0"), mm=String(m.t.getMinutes()).padStart(2,"0");
   const a=document.createElement("span"); a.className="me"; a.textContent=`▸ you ${hh}:${mm} `;
   const b=document.createElement("span"); b.className="meln"; b.textContent=m.text;
+  d.appendChild(a); d.appendChild(b); return d;
+}
+function errLine(text){
+  const d=el("div",{class:"tline"});
+  const a=document.createElement("span"); a.className="err"; a.textContent="! not delivered ";
+  const b=document.createElement("span"); b.textContent=text;
   d.appendChild(a); d.appendChild(b); return d;
 }
 // Synthetic agent transcript so the demo terminal has colored history to scroll.
@@ -710,18 +733,46 @@ function sampleTranscript(n){
   return [...head, ...work, ...tail, ...filler];
 }
 function isTerminal(state){ const ms=machineState(IX.plan,state); return ms?ms.terminal:["completed","cancelled","archived","failed"].includes(state); }
-function fillPath(t,id){ return t.replace(/\{task_id\}/g,id).replace(/\{visit_count\}/g,"1").replace(/\{visits\}/g,"2").replace(/\{model\}/g,"claude"); }
+function templateVariants(node, ms){
+  // Static fanout states render each authored target/model context; live slots
+  // use the concrete runtime invocation context. §FS-rhei-viz.8
+  if(((runtimeFor(node.id)||{}).template_context)) return [null];
+  const contexts=(ms&&ms.template_contexts)||[];
+  return contexts.length ? contexts : [null];
+}
+function templateContextLabel(ctx, i){
+  if(!ctx) return "variant "+(i+1);
+  return ctx.target_slug || ctx.target || ctx.model_name || ctx.model || ctx.agent || ("variant "+(i+1));
+}
+function templateScalars(node, ms, overrideCtx){
+  const stateCtx=(ms&&ms.template_context)||{}, runCtx=(runtimeFor(node.id)||{}).template_context||{};
+  const ctx=Object.assign({}, stateCtx, overrideCtx||{}, runCtx);
+  const visit = node.visit_count!=null ? String(node.visit_count) : "1";
+  const vals={
+    "task_id":node.id, "task_title":node.title, "state":ms?ms.name:node.state,
+    "visit_count":visit, "visits": ms&&ms.visits?String(ms.visits):"N",
+  };
+  const map=[
+    ["target","target"],["target.slug","target_slug"],["model","model"],
+    ["model.provider","model_provider"],["model.name","model_name"],
+    ["agent","agent"],["agent.mode","agent_mode"],
+  ];
+  for(const [tok,key] of map) if(ctx[key]!=null && ctx[key]!=="") vals[tok]=String(ctx[key]);
+  return vals;
+}
+function fillPath(t,node,ms,ctx){
+  const vals=templateScalars(node,ms,ctx); let unresolved=false;
+  const path=t.replace(/\{([^}]+)\}/g,(_,raw)=>{ const tok=raw.trim();
+    if(tok in vals) return vals[tok]; unresolved=true; return "{"+tok+"}"; });
+  return {path, unresolved};
+}
 // Render a state's instructions with every {template var} resolved for this
 // task: scalars inline (highlighted), and {input/output.<name>.path} as links.
-function instantiatePromptFrag(text, node, ms){
+function instantiatePromptFrag(text, node, ms, ctx){
   const pre=el("pre",{class:"prompt"});
-  const scalars={
-    "task_id":node.id, "task_title":node.title,
-    "visit_count":"1", "visits": ms&&ms.visits?String(ms.visits):"N",
-    "target":"claude-code", "model":"claude",
-    "model.provider":"anthropic", "model.name":"claude-opus-4-7", "target.slug":"claude-code",
-  };
-  const artPath=(kind,name)=>{ const arr=(ms&&ms[kind])||[]; const a=arr.find(x=>x.name===name); return a?fillPath(a.path,node.id):null; };
+  const scalars=templateScalars(node,ms,ctx);
+  const artPath=(kind,name)=>{ const arr=(ms&&ms[kind])||[]; const a=arr.find(x=>x.name===name);
+    if(!a) return null; const r=fillPath(a.path,node,ms,ctx); return r.unresolved?null:r.path; };
   const re=/\{([^}]+)\}/g; let last=0, m;
   while((m=re.exec(text))){
     if(m.index>last) pre.appendChild(document.createTextNode(text.slice(last,m.index)));
@@ -736,12 +787,14 @@ function instantiatePromptFrag(text, node, ms){
   if(last<text.length) pre.appendChild(document.createTextNode(text.slice(last)));
   return pre;
 }
-function artList(arts,label,id){
+function artList(arts,label,node,ms,ctx){
   const ul=el("ul",{class:"arts"});
   if(!arts||!arts.length){ ul.appendChild(el("li",{},[el("span",{class:"io",text:label+" "}),el("span",{class:"none",text:"—"})])); return ul; }
   for(const a of arts){ const li=el("li");
     li.appendChild(el("span",{class:"io",text:label+" "}));
-    const p=fillPath(a.path,id); li.appendChild(openLink(p, p, a.description||""));
+    const r=fillPath(a.path,node,ms,ctx);
+    if(r.unresolved) li.appendChild(el("span",{class:"unres",text:r.path}));
+    else li.appendChild(openLink(r.path, r.path, a.description||""));
     if(a.optional) li.appendChild(el("span",{class:"adesc",text:" (optional)"}));
     if(a.description){ li.appendChild(document.createElement("br")); li.appendChild(el("span",{class:"adesc",text:a.description})); }
     ul.appendChild(li); }
@@ -1211,9 +1264,15 @@ function appendLog(term, data){
   term._resid=parts.pop();              // hold a partial line until its newline arrives
   for(const line of parts) term.appendChild(termLine(line));
 }
-function sendIntervene(task, message){
-  fetch("intervene",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({task_id:task, message})}).catch(()=>{});
+function sendIntervene(node, message){
+  const rt=runtimeFor(node.id)||{};
+  const body={task_id:node.id, message};
+  if(rt.in_slot!=null) body.slot=rt.in_slot;
+  return fetch("intervene",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():{ok:false,error:"intervene request failed"})
+    .then(j=>j&&j.ok ? {ok:true} : {ok:false,error:(j&&j.error)||"intervention was not delivered"})
+    .catch(err=>({ok:false,error:err&&err.message?err.message:"intervene request failed"}));
 }
 
 // ---- bootstrap --------------------------------------------------------------

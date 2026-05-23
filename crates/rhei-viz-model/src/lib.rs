@@ -48,6 +48,11 @@ pub struct TaskRow {
     /// Id depth: `0` for a top-level task, `1` for its child, and so on.
     pub depth: u8,
     pub state: String,
+    /// Explicit counted-loop visit from the raw markdown state, when present.
+    /// The public `state` remains canonical so categorization and machine lookup
+    /// stay stable while prompts/artifact paths can render the active visit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visit_count: Option<u32>,
     /// Prerequisite task ids (`**Prior:**`).
     #[serde(default)]
     pub prior: Vec<String>,
@@ -84,6 +89,45 @@ pub struct MachineState {
     pub inputs: Vec<Artifact>,
     #[serde(default)]
     pub outputs: Vec<Artifact>,
+    #[serde(default, skip_serializing_if = "TemplateContext::is_empty")]
+    pub template_context: TemplateContext,
+    /// Concrete authored fanout contexts for static prompt/artifact previews.
+    /// Live renders prefer the running slot context because it reflects the
+    /// invocation that actually owns the task. §FS-rhei-viz.8
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub template_contexts: Vec<TemplateContext>,
+}
+
+/// Static template values the renderer may resolve without guessing. Ambiguous
+/// fields stay absent unless represented by `template_contexts`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TemplateContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_slug: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_mode: Option<String>,
+}
+
+impl TemplateContext {
+    fn is_empty(&self) -> bool {
+        self.target.is_none()
+            && self.target_slug.is_none()
+            && self.model.is_none()
+            && self.model_provider.is_none()
+            && self.model_name.is_none()
+            && self.agent.is_none()
+            && self.agent_mode.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -166,6 +210,7 @@ mod tests {
                 parent: None,
                 depth: 0,
                 state: "in-progress".into(),
+                visit_count: None,
                 prior: vec![],
             }],
             machine: Machine { name: "rhei".into(), states: vec![] },

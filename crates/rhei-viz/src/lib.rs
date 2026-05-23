@@ -5,8 +5,10 @@
 use std::collections::HashSet;
 
 use rhei_core::ast::{Rhei, Task as AstTask};
-use rhei_validator::{parse_task_state, StateArtifactDef, StateMachine};
-use rhei_viz_model::{Artifact, Machine, MachineState, TaskRow, Transition, VizModel};
+use rhei_validator::{parse_execution_target, parse_task_state, StateArtifactDef, StateMachine};
+use rhei_viz_model::{
+    Artifact, Machine, MachineState, TaskRow, TemplateContext, Transition, VizModel,
+};
 
 mod collect;
 pub use collect::{collect_plans, Bundle};
@@ -59,12 +61,14 @@ fn collect_task(
     out: &mut Vec<TaskRow>,
 ) {
     let id = task.id.to_string();
+    let parsed = parse_task_state(&task.state, machine);
     out.push(TaskRow {
         id: id.clone(),
         title: task.title.clone(),
         parent,
         depth,
-        state: normalize_state(&task.state, machine),
+        state: parsed.state,
+        visit_count: parsed.visit,
         prior: task.prior.iter().map(ToString::to_string).collect(),
     });
     for child in &task.children {
@@ -150,11 +154,90 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
                 transitions,
                 inputs: to_artifacts(&def.inputs),
                 outputs: to_artifacts(&def.outputs),
+                template_context: template_context(def),
+                template_contexts: fanout_template_contexts(def),
             }
         })
         .collect();
 
     Machine { name: machine.name.clone(), states }
+}
+
+fn target_template_context(target: rhei_validator::ExecutionTarget) -> TemplateContext {
+    TemplateContext {
+        target: Some(target.selector()),
+        target_slug: Some(target.slug()),
+        model_provider: target.provider.clone(),
+        model_name: Some(target.model.clone()),
+        model: Some(target.model),
+        agent: Some(target.agent),
+        agent_mode: target.mode,
+    }
+}
+
+fn model_template_context(def: &rhei_validator::StateDef, model: String) -> TemplateContext {
+    TemplateContext {
+        model: Some(model.clone()),
+        model_name: Some(model),
+        agent: def.agent.as_ref().map(|agent| agent.id().to_string()),
+        agent_mode: def.agent_mode.clone(),
+        ..TemplateContext::default()
+    }
+}
+
+fn explicit_template_context(def: &rhei_validator::StateDef) -> TemplateContext {
+    if let Some(selector) = def.target.as_deref() {
+        if let Ok(target) = parse_execution_target(selector) {
+            return target_template_context(target);
+        }
+    }
+    if let Some(model) = def.model.as_ref().map(|model| model.trim().to_string()) {
+        return model_template_context(def, model);
+    }
+    TemplateContext {
+        agent: def.agent.as_ref().map(|agent| agent.id().to_string()),
+        agent_mode: def.agent_mode.clone(),
+        ..TemplateContext::default()
+    }
+}
+
+// Static prompt/artifact previews resolve only authored concrete values; multi
+// fanout expands into per-target/model variants instead of guessing. §FS-rhei-viz.8
+fn template_context(def: &rhei_validator::StateDef) -> TemplateContext {
+    let contexts = authored_fanout_template_contexts(def);
+    if contexts.len() == 1 {
+        contexts.into_iter().next().unwrap_or_default()
+    } else {
+        explicit_template_context(def)
+    }
+}
+
+fn fanout_template_contexts(def: &rhei_validator::StateDef) -> Vec<TemplateContext> {
+    let contexts = authored_fanout_template_contexts(def);
+    if contexts.len() > 1 {
+        contexts
+    } else {
+        Vec::new()
+    }
+}
+
+fn authored_fanout_template_contexts(def: &rhei_validator::StateDef) -> Vec<TemplateContext> {
+    if !def.all_targets.is_empty() {
+        return def
+            .all_targets
+            .iter()
+            .filter_map(|selector| parse_execution_target(selector).ok())
+            .map(target_template_context)
+            .collect();
+    }
+    if !def.all_models.is_empty() {
+        return def
+            .all_models
+            .iter()
+            .map(|model| model_template_context(def, model.trim().to_string()))
+            .collect();
+    }
+    Vec::new()
 }
 
 /// Classify a state into one of the seven categories: machine flags first, then
@@ -246,6 +329,84 @@ mod tests {
         assert_eq!(model.tasks[1].id, "api.cache");
         assert_eq!(model.tasks[1].depth, 1);
         assert_eq!(model.tasks[1].parent.as_deref(), Some("api"));
+    }
+
+    #[test]
+    fn task_visit_and_unambiguous_template_context_are_exposed() {
+        let machine = StateMachine::from_yaml_str(
+            r#"
+name: custom
+version: 1.0
+states:
+  review:
+    visits: 3
+    target: codex:openai:gpt-5
+    instructions: "Review {task_id} in {state}-{visit_count} using {target.slug}"
+    outputs:
+      - name: notes
+        path: runtime/reviews/{task_id}-{state}-{visit_count}-{target.slug}.md
+  completed:
+    final: true
+"#,
+        )
+        .expect("states load");
+        let rhei = parse(
+            "# Rhei: Visits\n**States:** custom\n\n## Tasks\n\n### Task 1: A\n**State:** review-2\n",
+        )
+        .expect("parse");
+
+        let model = build(&rhei, &machine);
+        assert_eq!(model.tasks[0].state, "review");
+        assert_eq!(model.tasks[0].visit_count, Some(2));
+        let review = model.machine.states.iter().find(|s| s.name == "review").unwrap();
+        assert_eq!(review.template_context.target.as_deref(), Some("codex:openai:gpt-5"));
+        assert_eq!(review.template_context.target_slug.as_deref(), Some("codex-openai-gpt-5"));
+        assert_eq!(review.template_context.model.as_deref(), Some("gpt-5"));
+        assert_eq!(review.template_context.model_provider.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn multi_target_fanout_contexts_are_exposed_without_guessing() {
+        let machine = StateMachine::from_yaml_str(
+            r#"
+name: custom
+version: 1.0
+states:
+  product-run:
+    all_targets:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[xhigh]:openai:gpt-5.5
+    instructions: "Write {output.notes.path} for {target}"
+    outputs:
+      - name: notes
+        path: runtime/{target.slug}/{task_id}.md
+  completed:
+    final: true
+"#,
+        )
+        .expect("states load");
+        let rhei = parse(
+            "# Rhei: Fanout\n**States:** custom\n\n## Tasks\n\n### Task pm: Evaluate\n**State:** product-run\n",
+        )
+        .expect("parse");
+
+        let model = build(&rhei, &machine);
+        let product = model.machine.states.iter().find(|s| s.name == "product-run").unwrap();
+        assert_eq!(product.template_context.target, None);
+        assert_eq!(product.template_context.target_slug, None);
+        assert_eq!(product.template_contexts.len(), 2);
+        assert_eq!(
+            product.template_contexts[0].target.as_deref(),
+            Some("claude-code[yolo]:anthropic:claude-opus-4-7")
+        );
+        assert_eq!(
+            product.template_contexts[0].target_slug.as_deref(),
+            Some("claude-code-yolo-anthropic-claude-opus-4-7")
+        );
+        assert_eq!(
+            product.template_contexts[1].target_slug.as_deref(),
+            Some("codex-xhigh-openai-gpt-5.5")
+        );
     }
 
     #[test]

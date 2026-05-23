@@ -211,7 +211,8 @@ profile that explicitly declares `intervene_stdin` has its child stdin kept
 **piped and held open** for the process lifetime, with the writable handle
 registered in a per-slot registry the `/intervene` route can reach. Unsupported
 agents report not interactively reachable rather than silently dropping the
-message.
+message. Concurrent fanout invocations for the same task are distinct slot
+registrations; releasing one invocation must not remove a still-running sibling.
 
 **Decision (§10.1): every intervention is logged.** Each delivered message is
 appended to a durable audit trail at `runtime/interventions.log` — timestamp,
@@ -238,6 +239,10 @@ and the live dashboard. They are the logic normatively defined in the spec:
   **union over profiles** (true when a state is the entry of at least one
   profile), since initiality is per-profile (§FS-rhei-states), not a single
   machine-wide value.
+- **Template context derivation** — §FS-rhei-viz §8: counted task visits, authored
+  target/model selectors, and multi-target/model fanout variants are flattened
+  into the model so the renderer can instantiate prompts and artifact links
+  without hard-coded demo values.
 
 Today these are duplicated — `xtask` computes its own plan state and the dashboard
 has `derive_plan_state_with_active_roots`. That duplication is precisely what lets
