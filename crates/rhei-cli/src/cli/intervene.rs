@@ -9,12 +9,17 @@
 
 use std::sync::mpsc::{channel, Sender};
 
+struct InterveneWrite {
+    bytes: Vec<u8>,
+    ack: Sender<Result<(), String>>,
+}
+
 /// One registered running invocation: a channel to its stdin writer thread, the
 /// shared handle to its durable agent log (so a mirror line cannot interleave
 /// with the agent's own output), and identifying metadata for the audit trail.
 struct InterveneTarget {
     task_id: String,
-    stdin_tx: Sender<Vec<u8>>,
+    stdin_tx: Sender<InterveneWrite>,
     log_file: Arc<Mutex<fs::File>>,
     slot: rhei_tui::Slot,
     state: String,
@@ -49,14 +54,19 @@ impl RunInterveneSink {
         log_file: Arc<Mutex<fs::File>>,
         child_stdin: std::process::ChildStdin,
     ) {
-        let (tx, rx) = channel::<Vec<u8>>();
+        let (tx, rx) = channel::<InterveneWrite>();
         std::thread::spawn(move || {
             let mut stdin = child_stdin;
-            while let Ok(bytes) = rx.recv() {
-                if stdin.write_all(&bytes).is_err() {
+            while let Ok(write) = rx.recv() {
+                let result = stdin
+                    .write_all(&write.bytes)
+                    .and_then(|()| stdin.flush())
+                    .map_err(|err| err.to_string());
+                let failed = result.is_err();
+                let _ = write.ack.send(result);
+                if failed {
                     break;
                 }
-                let _ = stdin.flush();
             }
             // Sender dropped (task unregistered) or write failed: drop stdin,
             // closing the pipe.
@@ -117,17 +127,17 @@ impl rhei_tui::InterveneSink for RunInterveneSink {
         // then release it before writing so a slow agent cannot block others.
         let targets = {
             let targets = self.targets.lock().map_err(|_| "intervene registry poisoned".to_string())?;
-            let exact = slot.and_then(|slot| {
-                if let Some(task_id) = task_id {
-                    targets.get(&InterveneKey { task_id: task_id.to_string(), slot })
-                } else {
-                    targets.values().find(|target| target.slot == slot)
-                }
-            });
-
             let mut selected = Vec::new();
-            if let Some(target) = exact {
-                selected.push(target);
+            if let Some(slot) = slot {
+                if let Some(task_id) = task_id {
+                    if let Some(target) =
+                        targets.get(&InterveneKey { task_id: task_id.to_string(), slot })
+                    {
+                        selected.push(target);
+                    }
+                } else if let Some(target) = targets.values().find(|target| target.slot == slot) {
+                    selected.push(target);
+                }
             } else if let Some(task_id) = task_id {
                 selected.extend(targets.values().filter(|target| target.task_id == task_id));
             }
@@ -163,10 +173,19 @@ impl rhei_tui::InterveneSink for RunInterveneSink {
         for (task_id, tx, log_file, slot, state) in targets {
             let mut bytes = message.as_bytes().to_vec();
             bytes.push(b'\n');
-            if tx.send(bytes).is_err() {
+            let (ack_tx, ack_rx) = channel();
+            if tx.send(InterveneWrite { bytes, ack: ack_tx }).is_err() {
                 self.audit(&task_id, Some(slot), &state, message, "stdin-closed");
                 failed += 1;
                 continue;
+            }
+            match ack_rx.recv() {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => {
+                    self.audit(&task_id, Some(slot), &state, message, "stdin-closed");
+                    failed += 1;
+                    continue;
+                }
             }
 
             // Mirror into the durable transcript so the message appears inline
@@ -211,80 +230,64 @@ mod intervene_tests {
         ))
     }
 
+    fn fake_target(
+        task_id: &str,
+        slot: rhei_tui::Slot,
+        name: &str,
+    ) -> (InterveneTarget, std::sync::mpsc::Receiver<InterveneWrite>) {
+        let (tx, rx) = channel::<InterveneWrite>();
+        (
+            InterveneTarget {
+                task_id: task_id.to_string(),
+                stdin_tx: tx,
+                log_file: temp_log(name),
+                slot,
+                state: "review".to_string(),
+            },
+            rx,
+        )
+    }
+
     #[test]
     fn unregister_removes_only_the_finished_slot_for_a_task() {
         let sink = RunInterveneSink::new(std::env::temp_dir());
-        let (first_tx, first_rx) = channel::<Vec<u8>>();
-        let (second_tx, second_rx) = channel::<Vec<u8>>();
+        let (first_target, first_rx) = fake_target("1", 0, "first");
+        let (second_target, second_rx) = fake_target("1", 1, "second");
 
         {
             let mut targets = sink.targets.lock().expect("targets lock");
-            targets.insert(
-                InterveneKey { task_id: "1".to_string(), slot: 0 },
-                InterveneTarget {
-                    task_id: "1".to_string(),
-                    stdin_tx: first_tx,
-                    log_file: temp_log("first"),
-                    slot: 0,
-                    state: "review".to_string(),
-                },
-            );
-            targets.insert(
-                InterveneKey { task_id: "1".to_string(), slot: 1 },
-                InterveneTarget {
-                    task_id: "1".to_string(),
-                    stdin_tx: second_tx,
-                    log_file: temp_log("second"),
-                    slot: 1,
-                    state: "review".to_string(),
-                },
-            );
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 0 }, first_target);
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 1 }, second_target);
         }
 
         sink.unregister("1", 0);
+        let writer = std::thread::spawn(move || {
+            let write = second_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("message reaches sibling");
+            assert_eq!(write.bytes, b"still running\n".to_vec());
+            write.ack.send(Ok(())).expect("ack write");
+        });
         rhei_tui::InterveneSink::deliver(&sink, Some("1"), None, "still running")
             .expect("deliver to remaining slot");
+        writer.join().expect("writer thread");
 
         assert!(matches!(
             first_rx.try_recv(),
             Err(std::sync::mpsc::TryRecvError::Empty | std::sync::mpsc::TryRecvError::Disconnected)
         ));
-        assert_eq!(
-            second_rx
-                .recv_timeout(Duration::from_millis(100))
-                .expect("message reaches sibling"),
-            b"still running\n".to_vec()
-        );
     }
 
     #[test]
     fn task_only_delivery_rejects_ambiguous_fanout() {
         let sink = RunInterveneSink::new(std::env::temp_dir());
-        let (first_tx, first_rx) = channel::<Vec<u8>>();
-        let (second_tx, second_rx) = channel::<Vec<u8>>();
+        let (first_target, first_rx) = fake_target("1", 0, "ambiguous-first");
+        let (second_target, second_rx) = fake_target("1", 1, "ambiguous-second");
 
         {
             let mut targets = sink.targets.lock().expect("targets lock");
-            targets.insert(
-                InterveneKey { task_id: "1".to_string(), slot: 0 },
-                InterveneTarget {
-                    task_id: "1".to_string(),
-                    stdin_tx: first_tx,
-                    log_file: temp_log("ambiguous-first"),
-                    slot: 0,
-                    state: "review".to_string(),
-                },
-            );
-            targets.insert(
-                InterveneKey { task_id: "1".to_string(), slot: 1 },
-                InterveneTarget {
-                    task_id: "1".to_string(),
-                    stdin_tx: second_tx,
-                    log_file: temp_log("ambiguous-second"),
-                    slot: 1,
-                    state: "review".to_string(),
-                },
-            );
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 0 }, first_target);
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 1 }, second_target);
         }
 
         let err = rhei_tui::InterveneSink::deliver(&sink, Some("1"), None, "ambiguous")
@@ -293,5 +296,44 @@ mod intervene_tests {
         assert!(err.contains("retry with slot"));
         assert!(first_rx.try_recv().is_err());
         assert!(second_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn slot_and_task_delivery_rejects_stale_exact_match() {
+        let sink = RunInterveneSink::new(std::env::temp_dir());
+        let (target, rx) = fake_target("1", 1, "stale-slot");
+
+        {
+            let mut targets = sink.targets.lock().expect("targets lock");
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 1 }, target);
+        }
+
+        let err = rhei_tui::InterveneSink::deliver(&sink, Some("1"), Some(0), "stale")
+            .expect_err("stale slot should not fall back to task-only delivery");
+
+        assert!(err.contains("not interactively reachable"));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn delivery_waits_for_writer_ack_before_reporting_success() {
+        let sink = RunInterveneSink::new(std::env::temp_dir());
+        let (target, rx) = fake_target("1", 0, "write-failure");
+
+        {
+            let mut targets = sink.targets.lock().expect("targets lock");
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 0 }, target);
+        }
+
+        let writer = std::thread::spawn(move || {
+            let write = rx.recv_timeout(Duration::from_millis(100)).expect("message reaches writer");
+            assert_eq!(write.bytes, b"closed\n".to_vec());
+            write.ack.send(Err("broken pipe".to_string())).expect("ack write failure");
+        });
+        let err = rhei_tui::InterveneSink::deliver(&sink, Some("1"), Some(0), "closed")
+            .expect_err("write failure must be reported");
+        writer.join().expect("writer thread");
+
+        assert!(err.contains("stdin is closed"));
     }
 }

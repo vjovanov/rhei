@@ -307,8 +307,9 @@ Rules:
 
 - **The host supplies the machine.** `rhei run` resolves the state machine and
   passes it to the surface; the static renderer resolves it from the plan's
-  `**States:**` declaration (the built-in default, a sibling `states.yaml`, or an
-  override). The surface never parses plans or state YAML itself. §FS-rhei-states
+  `**States:**` declaration (an override, then a matching sibling `states.yaml`,
+  then the built-in default for `rhei`). The surface never parses plans or state
+  YAML itself. §FS-rhei-states
 - **Transitions are flattened per state.** Each non-terminal state carries its
   explicit outgoing edges plus any `from: "*"` wildcard edges that apply to it,
   each marked `wildcard`, so the inspector shows the real set of legal exits.

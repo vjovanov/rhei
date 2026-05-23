@@ -555,6 +555,7 @@ function renderSurroundings(){
   }
 
   // intervene — running tasks show live agent output (scrollback, ANSI color) + a prompt
+  const hadLiveTerm=!!LOGTERM;
   liveTermEl=null; LOGTERM=null; LOGTASK=null;
   if(nodeCategory(n)==="live"){
     const iv=el("div",{class:"intervene"});
@@ -568,7 +569,7 @@ function renderSurroundings(){
       // Live agent output streams in from /log; the terminal starts empty and
       // appends new lines in place on each poll. §FS-rhei-viz §5, AR §6.
       const key=n.id+"|"+n.state;
-      if(key!==LOGKEY){ LOGKEY=key; LOGOFF=0; }
+      if(key!==LOGKEY || !hadLiveTerm){ LOGKEY=key; LOGOFF=0; }
       term._resid=""; LOGTERM=term; LOGTASK=n.id;
     } else {
       for(const raw of sampleTranscript(n)) term.appendChild(termLine(raw));

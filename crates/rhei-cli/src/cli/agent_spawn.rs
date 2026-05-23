@@ -272,13 +272,13 @@ fn spawn_and_wait_agent(
             }
         }
     } else if resolved.profile.intervene_stdin {
-        if let Some(registry) = intervene {
-            if let Some(stdin) = child.stdin.take() {
-                // Prompt-flag agents normally have no stdin pipe; this branch
-                // only covers future profiles that explicitly arrange one.
-                // §FS-rhei-agents.1.1.2, AR §7.
+        if let Some(stdin) = child.stdin.take() {
+            // Close unused intervention stdin when the live surface is absent. §FS-rhei-agents.1.1.2
+            if let Some(registry) = intervene {
                 registry.register(task_id, slot, state_name, log_file.clone(), stdin);
                 registered_intervene = true;
+            } else {
+                drop(stdin);
             }
         }
     }

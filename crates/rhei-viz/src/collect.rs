@@ -82,8 +82,8 @@ fn load_plan_file(path: &Path, machine_override: Option<&Path>) -> io::Result<Vi
 }
 
 /// Resolve the state machine for a plan: an explicit `--states` override wins,
-/// then `**States:** rhei` selects the built-in default, otherwise a sibling
-/// `states.yaml` next to the plan (or workspace root).
+/// then a matching sibling `states.yaml` next to the plan (or workspace root),
+/// then the built-in default for `**States:** rhei`.
 fn resolve_machine(
     plan_or_dir: &Path,
     machine_override: Option<&Path>,
@@ -92,15 +92,37 @@ fn resolve_machine(
     if let Some(machine_path) = machine_override {
         return load_machine(machine_path);
     }
-    if rhei.states == "rhei" {
-        return Ok(StateMachine::builtin_default());
-    }
     let dir = if plan_or_dir.is_dir() {
         plan_or_dir.to_path_buf()
     } else {
         plan_or_dir.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
     };
-    load_machine(&dir.join("states.yaml"))
+    let candidate = dir.join("states.yaml");
+    if candidate.is_file() {
+        // Static viz mirrors CLI state-machine discovery: a matching local file
+        // overrides the built-in `rhei` machine. §FS-rhei-viz.8
+        let machine = load_machine(&candidate)?;
+        if machine.name == rhei.states {
+            return Ok(machine);
+        }
+        let builtin = StateMachine::builtin_default();
+        if rhei.states != builtin.name {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "plan declares state machine '{}', but auto-discovered states file '{}' declares '{}'",
+                    rhei.states,
+                    candidate.display(),
+                    machine.name
+                ),
+            ));
+        }
+        return Ok(builtin);
+    }
+    if rhei.states == StateMachine::builtin_default().name {
+        return Ok(StateMachine::builtin_default());
+    }
+    load_machine(&candidate)
 }
 
 fn load_machine(machine_path: &Path) -> io::Result<StateMachine> {
@@ -193,5 +215,39 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans["solo"].plan_state.as_deref(), Some("active"));
         assert!(!plans["solo"].machine.states.is_empty());
+    }
+
+    #[test]
+    fn sibling_states_named_rhei_overrides_builtin_default() {
+        let temp = TempDir::new("local-rhei");
+        let plan = temp.path().join("plan.rhei.md");
+        fs::write(
+            &plan,
+            "# Rhei: Local\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** local-work\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("states.yaml"),
+            r#"
+name: rhei
+version: 1.0
+states:
+  local-work:
+    initial: true
+    instructions: "Use the local machine."
+  completed:
+    final: true
+"#,
+        )
+        .unwrap();
+
+        let plans = collect_plans(&plan, "local", None).expect("collect");
+        let local = plans["local"]
+            .machine
+            .states
+            .iter()
+            .find(|state| state.name == "local-work")
+            .expect("local state is rendered");
+        assert_eq!(local.instructions.as_deref(), Some("Use the local machine."));
     }
 }
