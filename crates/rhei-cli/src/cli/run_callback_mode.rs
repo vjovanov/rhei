@@ -164,18 +164,18 @@ fn run_callback_mode(
                 &to_state,
                 opts.no_callbacks(),
             ) {
-                Ok(()) => {
+                Ok(effective_to) => {
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
                         current_state_raw,
-                        to_state
+                        effective_to
                     );
                     run_info!("  {}", format_task_label(task));
-                    if is_terminal_state(&to_state, machine) {
-                        run_info!("  Result: reached terminal state '{}'.", to_state);
+                    if is_terminal_state(&effective_to, machine) {
+                        run_info!("  Result: reached terminal state '{}'.", effective_to);
                     } else {
-                        run_info!("  Result: now in '{}'.", to_state);
+                        run_info!("  Result: now in '{}'.", effective_to);
                     }
                     let reloaded = load_plan(input)?;
                     let discovered = newly_discovered_tasks(&task_ids_before, &reloaded.rhei.tasks);

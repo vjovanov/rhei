@@ -391,12 +391,12 @@ fn run_agent_mode(
                 &to_state,
                 opts.no_callbacks(),
             ) {
-                Ok(()) => {
+                Ok(effective_to) => {
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
                         current_state_raw,
-                        to_state
+                        effective_to
                     );
                     advanced_any = true;
                     callback_transitions_made += 1;
