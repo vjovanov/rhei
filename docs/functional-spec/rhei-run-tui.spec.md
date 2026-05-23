@@ -280,19 +280,25 @@ dashboard outside TUI mode, while `--no-dashboard` disables it. The dashboard is
 a power-user view for both live execution monitoring and static plan-shape
 inspection. §FS-rhei-viz
 
-The dashboard tab order is:
+The dashboard's primary surface is the **Flow view**: a single page that leads
+with the work running now, presents plan shape as a navigable list or dependency
+graph, opens any node's surroundings (dependencies, transitions, prompt,
+artifacts, children), and draws the resolved state machine as one graph per
+disjoint workflow. A live task exposes its streaming agent output and a way to
+intervene. §FS-rhei-viz §FS-rhei-viz.5
 
-1. **Gantt** — default view; renders the derived plan row and all task rows
-   against level-grouped state axes.
-2. **Cube** — renders a dense top-level-task by child-slot heatmap.
-3. **Sankey** — summarizes child states flowing from each top-level task.
-4. **Tasks** — lists all tasks with state, assignee, dependencies, readiness,
-   and current worker slot.
-5. **Slots** — shows worker cards and live captured output.
-6. **Cost** — shows run, task, subtree, invocation, agent, provider, model, and
-   state accounting views. §FS-rhei-cost-accounting
-7. **Journal** — shows recent run events.
-8. **Links** — shows workspace shortcuts and run-emitted links.
+Supplementary surfaces share the same `/snapshot` data and console-first
+language:
+
+- **Gantt / Cube / Sankey** — dense chart overviews for scanning many nodes at
+  once. §FS-rhei-viz.12
+- **Tasks** — all tasks with state, assignee, dependencies, readiness, and
+  current worker slot.
+- **Slots** — worker cards and live captured output.
+- **Cost** — run, task, subtree, invocation, agent, provider, model, and state
+  accounting views. §FS-rhei-cost-accounting
+- **Journal** — recent run events.
+- **Links** — workspace shortcuts and run-emitted links.
 
 The dashboard obtains plan data from the lazily reloaded `/snapshot` payload.
 That payload includes `plan_state`, derived from top-level task states only, and
@@ -377,6 +383,8 @@ All three are pure Rust with no C dependencies. `notify` is already a workspace 
 
 ## Related Specifications
 
+- [Console-First Visualization UX](rhei-viz-ux.spec.md) — the shared look-and-feel
+  this TUI and the browser dashboard both follow. §FS-rhei-viz-ux
 - [Rhei Usage](rhei-usage.spec.md) — `rhei run` execution modes and roles.
 - [Agents Specification](rhei-agents.spec.md) — agent log capture and `runtime/logs/` layout.
 - [Program States Specification](rhei-programs.spec.md) — program execution and exit-code transitions.

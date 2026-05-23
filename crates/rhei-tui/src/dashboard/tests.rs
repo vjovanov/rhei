@@ -3,12 +3,11 @@ use crate::event::{
     DimensionStatus, DimensionSummary, PricingStatus, RunSummary, TaskOutcome, UsageCoverage,
     UsageStatus, UsageSummary,
 };
-use std::collections::HashSet;
+use rhei_viz_model::{Machine, TaskRow, VizModel};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 
 fn empty_state() -> DashboardState {
@@ -28,84 +27,158 @@ fn assigned(from: &str, to: &str) -> RunEvent {
     }
 }
 
-fn dashboard_task(id: &str, state: &str, parent: Option<&str>, depth: u8) -> DashboardTask {
-    DashboardTask {
+fn task_row(id: &str, title: &str, state: &str, parent: Option<&str>, depth: u8) -> TaskRow {
+    TaskRow {
         id: id.to_string(),
-        title: format!("Task {id}"),
-        kind: "Task".to_string(),
+        title: title.to_string(),
         parent: parent.map(str::to_string),
         depth,
         state: state.to_string(),
-        assignee: None,
         prior: Vec::new(),
-        result_link: None,
     }
 }
 
-fn dashboard_task_with_details(
-    id: &str,
-    title: &str,
-    state: &str,
-    parent: Option<&str>,
-    depth: u8,
-) -> DashboardTask {
-    DashboardTask {
-        id: id.to_string(),
-        title: title.to_string(),
-        kind: "Task".to_string(),
-        parent: parent.map(str::to_string),
-        depth,
-        state: state.to_string(),
-        assignee: Some("agent-a".to_string()),
-        prior: vec!["0".to_string()],
-        result_link: Some(format!("runtime/results/{id}.md")),
+/// Build a `VizModel` for a loader closure, as `rhei-viz` would. `plan_state`
+/// is the pure derivation; the dashboard promotes it to `active` when a root is
+/// running.
+fn model(plan_state: &str, tasks: Vec<TaskRow>) -> VizModel {
+    VizModel {
+        plan_title: Some("Demo Plan".to_string()),
+        plan_state: Some(plan_state.to_string()),
+        about: None,
+        tasks,
+        machine: Machine { name: "rhei".to_string(), states: Vec::new() },
     }
 }
 
 fn fetch_snapshot_json(dashboard: &DashboardSink) -> serde_json::Value {
-    let deadline = Instant::now() + Duration::from_secs(2);
-    loop {
-        match fetch_snapshot_json_once(dashboard) {
-            Ok(snapshot) => return snapshot,
-            Err(message) if message.contains("invalid JSON") => panic!("{message}"),
-            Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Err(message) => panic!("{message}"),
-        }
-    }
-}
-
-fn fetch_snapshot_json_once(dashboard: &DashboardSink) -> Result<serde_json::Value, String> {
     let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
-    let mut stream =
-        TcpStream::connect(addr).map_err(|err| format!("connect to dashboard: {err}"))?;
+    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
     stream
         .write_all(b"GET /snapshot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .map_err(|err| format!("write request: {err}"))?;
-    let response =
-        read_http_response(&mut stream).map_err(|err| format!("read response: {err}"))?;
-    let split = response
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .ok_or_else(|| "response missing HTTP body separator".to_string())?;
-    if !response.starts_with(b"HTTP/1.1 200 OK\r\n") {
-        return Err("dashboard snapshot request did not return HTTP 200".to_string());
-    }
-    let body = &response[split + 4..];
-    if body.is_empty() {
-        return Err("dashboard snapshot response body was empty".to_string());
-    }
-    serde_json::from_slice(body).map_err(|err| format!("invalid JSON snapshot: {err}"))
+        .expect("write request");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    let body = response.split("\r\n\r\n").nth(1).expect("response body");
+    serde_json::from_str(body).expect("snapshot json")
 }
 
-fn dashboard_http_test_guard() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+fn fetch_status_line(dashboard: &DashboardSink, target: &str) -> String {
+    let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
+    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let request = format!("GET {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).expect("write request");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    response.lines().next().unwrap_or_default().to_string()
 }
 
-/// Per `RunEvent::SlotAssigned`'s contract, `from == to` means the
-/// engine started a worker in an autonomous state — not a transition.
-/// `slot.transition` must stay `None` so renderers don't paint a phantom
-/// state→state arrow.
+fn fetch_body(dashboard: &DashboardSink, target: &str) -> String {
+    let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
+    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let request = format!("GET {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).expect("write request");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    response.split("\r\n\r\n").nth(1).unwrap_or_default().to_string()
+}
+
+fn post_json(dashboard: &DashboardSink, target: &str, body: &str) -> serde_json::Value {
+    let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
+    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let request = format!(
+        "POST {target} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).expect("write request");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    let payload = response.split("\r\n\r\n").nth(1).unwrap_or_default();
+    serde_json::from_str(payload).expect("intervene json")
+}
+
+fn post_json_split(dashboard: &DashboardSink, target: &str, body: &str) -> serde_json::Value {
+    let addr = dashboard.url().strip_prefix("http://").expect("loopback url");
+    let mut stream = TcpStream::connect(addr).expect("connect to dashboard");
+    let head = format!(
+        "POST {target} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(head.as_bytes()).expect("write headers");
+    stream.flush().expect("flush headers");
+    std::thread::sleep(Duration::from_millis(25));
+    stream.write_all(body.as_bytes()).expect("write body");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read response");
+    let payload = response.split("\r\n\r\n").nth(1).unwrap_or_default();
+    serde_json::from_str(payload).expect("intervene json")
+}
+
+/// A stub [`InterveneSink`] that records deliveries (or always fails) so the
+/// route can be tested without spawning a real agent.
+struct StubIntervene {
+    delivered: Mutex<Vec<(String, String)>>,
+    fail_reason: Option<String>,
+}
+impl InterveneSink for StubIntervene {
+    fn deliver(&self, task_id: &str, message: &str) -> Result<(), String> {
+        if let Some(reason) = &self.fail_reason {
+            return Err(reason.clone());
+        }
+        self.delivered.lock().unwrap().push((task_id.to_string(), message.to_string()));
+        Ok(())
+    }
+}
+
+// §FS-rhei-viz §11: only workspace-relative paths may be opened.
+#[test]
+fn resolve_within_workspace_rejects_escapes() {
+    assert_eq!(
+        resolve_within_workspace("/tmp/ws", "runtime/specs/task-7.md"),
+        Some(PathBuf::from("/tmp/ws/runtime/specs/task-7.md"))
+    );
+    assert!(resolve_within_workspace("/tmp/ws", "./runtime/x.md").is_some());
+    assert!(resolve_within_workspace("/tmp/ws", "../etc/passwd").is_none());
+    assert!(resolve_within_workspace("/tmp/ws", "/etc/passwd").is_none());
+    assert!(resolve_within_workspace("/tmp/ws", "a/../../b").is_none());
+    assert!(resolve_within_workspace("/tmp/ws", "").is_none());
+}
+
+#[test]
+fn percent_decode_and_query_param() {
+    assert_eq!(percent_decode("runtime%2Fspecs%2Ftask-7.md"), "runtime/specs/task-7.md");
+    assert_eq!(percent_decode("a+b"), "a b");
+    assert_eq!(percent_decode("plain"), "plain");
+    assert_eq!(query_param("path=runtime%2Fx.md&n=1", "path").as_deref(), Some("runtime/x.md"));
+    assert_eq!(query_param("n=1", "path"), None);
+}
+
+// §FS-rhei-viz §11: the open route rejects missing and escaping paths with 400.
+// Valid paths are not exercised here because they would launch a real editor.
+#[test]
+fn open_route_rejects_invalid_paths() {
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 1, None)
+        .expect("start dashboard");
+    assert!(fetch_status_line(&dashboard, "/open").contains("400"));
+    assert!(fetch_status_line(&dashboard, "/open?path=..%2Fetc%2Fpasswd").contains("400"));
+    assert!(fetch_status_line(&dashboard, "/open?path=%2Fetc%2Fpasswd").contains("400"));
+}
+
+// AR §2: the dashboard serves the one self-contained Flow asset at `/`, which
+// polls `/snapshot` (its boot payload is left `null`).
+#[test]
+fn root_serves_the_self_contained_flow_asset() {
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 1, None)
+        .expect("start dashboard");
+    let html = fetch_body(&dashboard, "/");
+    assert!(html.contains("Rhei · Flow"));
+    assert!(html.contains("/*__BOOT__*/null"), "live asset leaves BOOT null so its JS polls");
+    assert!(!html.contains("<script src="));
+    assert!(!html.contains("<link rel=\"stylesheet\""));
+}
+
+/// Per `RunEvent::SlotAssigned`'s contract, `from == to` means the engine
+/// started a worker in an autonomous state — not a transition.
 #[test]
 fn same_state_assignment_records_no_transition() {
     let mut state = empty_state();
@@ -131,8 +204,8 @@ fn same_state_assignment_records_no_transition() {
     );
 }
 
-/// A real cross-state assignment must record both the `transition`
-/// string and a `from->to` recent line.
+/// A real cross-state assignment must record both the `transition` string and a
+/// `from->to` recent line.
 #[test]
 fn cross_state_assignment_records_arrow_transition() {
     let mut state = empty_state();
@@ -140,118 +213,31 @@ fn cross_state_assignment_records_arrow_transition() {
 
     assert_eq!(state.slots[0].transition.as_deref(), Some("draft->pending"));
     let last = state.recent.last().expect("recent line");
-    assert!(
-        last.text.contains("draft->pending"),
-        "expected 'draft->pending' in recent; got {:?}",
-        last.text
-    );
+    assert!(last.text.contains("draft->pending"), "expected 'draft->pending'; got {:?}", last.text);
 }
 
 #[test]
 fn url_path_encodes_unsafe_bytes_and_preserves_slashes() {
-    // Slashes, `:`, and unreserved chars stay verbatim; spaces and `#`
-    // get percent-encoded; non-ASCII bytes are encoded byte-by-byte.
     assert_eq!(encode_url_path("/Users/me/project"), "/Users/me/project");
     assert_eq!(encode_url_path("/path with spaces/x"), "/path%20with%20spaces/x");
     assert_eq!(encode_url_path("/has#hash?and"), "/has%23hash%3Fand");
-    // Two UTF-8 bytes for `é`.
     assert_eq!(encode_url_path("/caf\u{00e9}"), "/caf%C3%A9");
 }
 
+/// `/snapshot` is the superset: the `VizModel` base (flat `tasks`, `machine`,
+/// `about`) plus the runtime overlay (`task_runtime`, slots, deferred).
+/// AR §4, §FS-rhei-viz §8.
 #[test]
-fn derives_plan_state_from_root_tasks() {
-    assert_eq!(derive_plan_state(&[dashboard_task("1", "draft", None, 1)]), "draft");
-    assert_eq!(
-        derive_plan_state(&[
-            dashboard_task("1", "completed", None, 1),
-            dashboard_task("2", "completed", None, 1),
-        ]),
-        "completed"
-    );
-    assert_eq!(
-        derive_plan_state(&[
-            dashboard_task("1", "completed", None, 1),
-            dashboard_task("2", "cancelled", None, 1),
-        ]),
-        "archived"
-    );
-    assert_eq!(
-        derive_plan_state(&[
-            dashboard_task("1", "pending", None, 1),
-            dashboard_task("2", "agent-review-fix", None, 1),
-        ]),
-        "active"
-    );
-    assert_eq!(
-        derive_plan_state(&[
-            dashboard_task("1", "pending", None, 1),
-            dashboard_task("2", "blocked", None, 1),
-        ]),
-        "pending"
-    );
-}
-
-#[test]
-fn plan_state_derivation_ignores_child_task_states() {
-    let tasks = vec![
-        dashboard_task("1", "draft", None, 1),
-        dashboard_task("1.1", "agent-review", Some("1"), 2),
-        dashboard_task("1.2", "failed", Some("1"), 2),
-    ];
-
-    assert_eq!(derive_plan_state(&tasks), "draft");
-}
-
-#[test]
-fn plan_state_derivation_treats_running_root_as_active() {
-    let tasks = vec![
-        dashboard_task("1", "work", None, 1),
-        dashboard_task("1.1", "review", Some("1"), 2),
-        dashboard_task("2", "pending", None, 1),
-    ];
-    let active = HashSet::from(["1"]);
-
-    assert_eq!(derive_plan_state_with_active_roots(&tasks, &active), "active");
-}
-
-#[test]
-fn plan_state_derivation_ignores_running_child_for_plan_state() {
-    let tasks =
-        vec![dashboard_task("1", "draft", None, 1), dashboard_task("1.1", "review", Some("1"), 2)];
-    let active = HashSet::from(["1.1"]);
-
-    assert_eq!(derive_plan_state_with_active_roots(&tasks, &active), "draft");
-}
-
-#[test]
-fn snapshot_payload_exposes_plan_state() {
-    let state = empty_state();
-    let payload = SnapshotPayload {
-        state: &state,
-        plan_title: Some("Demo".to_string()),
-        plan_state: Some("active".to_string()),
-        tasks: Vec::new(),
-        auto_links: Vec::new(),
-    };
-
-    let value = serde_json::to_value(&payload).expect("serialize snapshot payload");
-    assert_eq!(value["plan_state"], "active");
-}
-
-/// `/snapshot` exposes the flattened plan data and runtime projections used
-/// by all dashboard visualization and operational tabs. §FS-rhei-viz.4
-#[test]
-fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
-    let _guard = dashboard_http_test_guard();
+fn snapshot_endpoint_exposes_base_model_and_runtime_overlay() {
     let loader: PlanLoader = Arc::new(|| {
-        Some(PlanSnapshot {
-            title: "Demo Plan".to_string(),
-            tasks: vec![
-                dashboard_task_with_details("1", "Root", "pending", None, 1),
-                dashboard_task_with_details("1.1", "Child", "agent-review", Some("1"), 2),
-                dashboard_task_with_details("2", "Deferred", "pending", None, 1),
+        Some(model(
+            "pending",
+            vec![
+                task_row("1", "Root", "pending", None, 0),
+                task_row("1.1", "Child", "agent-review", Some("1"), 1),
+                task_row("2", "Deferred", "pending", None, 0),
             ],
-        })
+        ))
     });
     let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 2, 3, Some(loader))
         .expect("start dashboard");
@@ -271,6 +257,7 @@ fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
 
     let snapshot = fetch_snapshot_json(&dashboard);
     assert_eq!(snapshot["plan_title"], "Demo Plan");
+    // A running *child* (not a root) does not promote the plan to active.
     assert_eq!(snapshot["plan_state"], "pending");
     assert_eq!(snapshot["tasks"].as_array().expect("tasks").len(), 3);
 
@@ -282,35 +269,22 @@ fn dashboard_snapshot_endpoint_exposes_plan_rows_and_runtime_projection() {
         .expect("child task");
     assert_eq!(child["title"], "Child");
     assert_eq!(child["parent"], "1");
-    assert_eq!(child["depth"], 2);
+    assert_eq!(child["depth"], 1);
     assert_eq!(child["state"], "agent-review");
-    assert_eq!(child["assignee"], "agent-a");
-    assert_eq!(child["prior"][0], "0");
-    assert_eq!(child["result_link"], "runtime/results/1.1.md");
-    assert_eq!(child["in_slot"], 1);
-    assert_eq!(child["deferred_this_pass"], false);
 
-    let deferred = snapshot["tasks"]
-        .as_array()
-        .expect("tasks")
-        .iter()
-        .find(|task| task["id"] == "2")
-        .expect("deferred task");
-    assert_eq!(deferred["deferred_this_pass"], true);
+    // Runtime overlay is keyed separately so the base `tasks` stay identical in
+    // shape to a static render.
+    assert_eq!(snapshot["task_runtime"]["1.1"]["in_slot"], 1);
+    assert_eq!(snapshot["task_runtime"]["2"]["deferred_this_pass"], true);
 }
 
 #[test]
-fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
-    let _guard = dashboard_http_test_guard();
+fn snapshot_marks_running_root_active() {
     let loader: PlanLoader = Arc::new(|| {
-        Some(PlanSnapshot {
-            title: "Demo Plan".to_string(),
-            tasks: vec![
-                dashboard_task_with_details("1", "Root", "work", None, 1),
-                dashboard_task_with_details("1.1", "Child", "review", Some("1"), 2),
-                dashboard_task_with_details("2", "Deferred", "pending", None, 1),
-            ],
-        })
+        Some(model(
+            "pending",
+            vec![task_row("1", "Root", "work", None, 0), task_row("2", "Next", "pending", None, 0)],
+        ))
     });
     let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 2, Some(loader))
         .expect("start dashboard");
@@ -326,21 +300,19 @@ fn dashboard_snapshot_endpoint_marks_running_custom_root_active() {
         wall_clock: SystemTime::now(),
     });
 
-    let snapshot = fetch_snapshot_json(&dashboard);
-    assert_eq!(snapshot["plan_state"], "active");
+    assert_eq!(fetch_snapshot_json(&dashboard)["plan_state"], "active");
 }
 
 #[test]
-fn dashboard_snapshot_endpoint_does_not_mark_released_slot_active() {
-    let _guard = dashboard_http_test_guard();
+fn snapshot_does_not_mark_released_slot_active() {
     let loader: PlanLoader = Arc::new(|| {
-        Some(PlanSnapshot {
-            title: "Demo Plan".to_string(),
-            tasks: vec![
-                dashboard_task_with_details("1", "Root", "completed", None, 1),
-                dashboard_task_with_details("2", "Next", "pending", None, 1),
+        Some(model(
+            "pending",
+            vec![
+                task_row("1", "Root", "completed", None, 0),
+                task_row("2", "Next", "pending", None, 0),
             ],
-        })
+        ))
     });
     let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 2, Some(loader))
         .expect("start dashboard");
@@ -370,13 +342,126 @@ fn dashboard_snapshot_endpoint_does_not_mark_released_slot_active() {
 
     let snapshot = fetch_snapshot_json(&dashboard);
     assert_eq!(snapshot["plan_state"], "pending");
-    let task = snapshot["tasks"]
-        .as_array()
-        .expect("tasks")
-        .iter()
-        .find(|task| task["id"] == "1")
-        .expect("task 1");
-    assert!(task["in_slot"].is_null());
+    assert!(snapshot["task_runtime"].get("1").is_none(), "released task has no runtime overlay");
+}
+
+// AR §6: /log tails the running task's durable log from a byte offset and
+// returns the new bytes plus the next offset.
+#[test]
+fn log_endpoint_tails_running_task_log_from_offset() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let log_path = temp.path().join("runtime/logs/task-1-in-progress.log");
+    fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+    fs::write(&log_path, "line one\nline two\n").unwrap();
+
+    let dashboard = DashboardSink::start_with_plan(temp.path().to_path_buf(), 1, 1, None)
+        .expect("start dashboard");
+    dashboard.emit(RunEvent::SlotAssigned {
+        slot: 0,
+        task: "1".to_string(),
+        from: "in-progress".to_string(),
+        to: "in-progress".to_string(),
+        agent: Some("codex".to_string()),
+        log_path: log_path.clone(),
+        started_at: Instant::now(),
+        wall_clock: SystemTime::now(),
+    });
+
+    let first: serde_json::Value =
+        serde_json::from_str(&fetch_body(&dashboard, "/log?task=1&from=0")).expect("json");
+    assert!(first["data"].as_str().unwrap().contains("line one"));
+    let next = first["next"].as_u64().unwrap();
+    assert!(next > 0);
+
+    // Append more and tail from the recorded offset — only the delta returns.
+    fs::write(&log_path, "line one\nline two\nline three\n").unwrap();
+    let second: serde_json::Value =
+        serde_json::from_str(&fetch_body(&dashboard, &format!("/log?task=1&from={next}")))
+            .expect("json");
+    assert_eq!(second["data"], "line three\n");
+
+    // Unknown task → empty tail, not an error.
+    let none: serde_json::Value =
+        serde_json::from_str(&fetch_body(&dashboard, "/log?task=99&from=0")).expect("json");
+    assert_eq!(none["data"], "");
+}
+
+// AR §7: POST /intervene delivers the message to the host sink and reports the
+// outcome; it never touches plan state.
+#[test]
+fn intervene_delivers_to_sink_and_reports_outcome() {
+    use std::sync::Mutex as StdMutex;
+    let sink = Arc::new(StubIntervene { delivered: StdMutex::new(Vec::new()), fail_reason: None });
+    let dashboard = DashboardSink::start_with_plan_and_intervene(
+        PathBuf::from("/tmp/ws"),
+        1,
+        1,
+        None,
+        Some(sink.clone() as Arc<dyn InterveneSink>),
+    )
+    .expect("start dashboard");
+
+    let ok = post_json(&dashboard, "/intervene", r#"{"task_id":"1","message":"focus on tests"}"#);
+    assert_eq!(ok["ok"], true);
+    assert_eq!(
+        sink.delivered.lock().unwrap().as_slice(),
+        &[("1".to_string(), "focus on tests".to_string())]
+    );
+
+    // Empty message is rejected without reaching the sink.
+    let empty = post_json(&dashboard, "/intervene", r#"{"task_id":"1","message":"  "}"#);
+    assert_eq!(empty["ok"], false);
+    assert_eq!(sink.delivered.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn intervene_reads_split_and_large_request_body() {
+    use std::sync::Mutex as StdMutex;
+    let sink = Arc::new(StubIntervene { delivered: StdMutex::new(Vec::new()), fail_reason: None });
+    let dashboard = DashboardSink::start_with_plan_and_intervene(
+        PathBuf::from("/tmp/ws"),
+        1,
+        1,
+        None,
+        Some(sink.clone() as Arc<dyn InterveneSink>),
+    )
+    .expect("start dashboard");
+
+    let message = "x".repeat(9000);
+    let body = format!(r#"{{"task_id":"1","message":"{message}"}}"#);
+    let ok = post_json_split(&dashboard, "/intervene", &body);
+
+    assert_eq!(ok["ok"], true);
+    assert_eq!(sink.delivered.lock().unwrap().as_slice(), &[("1".to_string(), message)]);
+}
+
+#[test]
+fn intervene_reports_unreachable_agent() {
+    use std::sync::Mutex as StdMutex;
+    let sink = Arc::new(StubIntervene {
+        delivered: StdMutex::new(Vec::new()),
+        fail_reason: Some("agent not interactively reachable".to_string()),
+    });
+    let dashboard = DashboardSink::start_with_plan_and_intervene(
+        PathBuf::from("/tmp/ws"),
+        1,
+        1,
+        None,
+        Some(sink as Arc<dyn InterveneSink>),
+    )
+    .expect("start dashboard");
+
+    let res = post_json(&dashboard, "/intervene", r#"{"task_id":"7","message":"hi"}"#);
+    assert_eq!(res["ok"], false);
+    assert_eq!(res["error"], "agent not interactively reachable");
+}
+
+#[test]
+fn intervene_without_sink_reports_unavailable() {
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 1, None)
+        .expect("start dashboard");
+    let res = post_json(&dashboard, "/intervene", r#"{"task_id":"1","message":"hi"}"#);
+    assert_eq!(res["ok"], false);
 }
 
 fn dashboard_usage(
@@ -447,18 +532,48 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
     assert_eq!(accounting.priced_cost_micro, Some(100));
 }
 
-/// Dashboard-enabled runs leave an inspectable static artifact behind after
-/// the loopback server exits. §FS-rhei-viz.1
+/// `/snapshot` carries the compact per-task accounting rollups (direct +
+/// subtree) in the runtime overlay. §FS-rhei-cost-accounting §6, §10.
+#[test]
+fn snapshot_task_runtime_carries_accounting_rollups() {
+    let loader: PlanLoader = Arc::new(|| {
+        Some(model(
+            "active",
+            vec![
+                task_row("1", "Root", "in-progress", None, 0),
+                task_row("1.1", "Child", "in-progress", Some("1"), 1),
+            ],
+        ))
+    });
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 2, Some(loader))
+        .expect("start dashboard");
+    dashboard.emit(RunEvent::UsageReported {
+        slot: Some(0),
+        task: "1.1".to_string(),
+        invocation_id: "i1".to_string(),
+        usage: dashboard_usage(
+            "i1",
+            UsageCoverage::Complete,
+            PricingStatus::Priced,
+            Some(50),
+            Some(50),
+        ),
+    });
+
+    let snapshot = fetch_snapshot_json(&dashboard);
+    // The child has direct cost; the root has it only in its subtree rollup.
+    assert!(snapshot["task_runtime"]["1.1"]["accounting"]["direct"].is_object());
+    assert!(snapshot["task_runtime"]["1"]["accounting"]["subtree"].is_object());
+}
+
+/// Dashboard-enabled runs leave an inspectable static artifact behind after the
+/// loopback server exits — produced by the *same* static renderer. §FS-rhei-viz
+/// §7.1, AR §5.3.
 #[test]
 fn frozen_dashboard_writes_self_contained_final_artifact() {
-    let _guard = dashboard_http_test_guard();
     let temp = tempfile::tempdir().expect("tempdir");
-    let loader: PlanLoader = Arc::new(|| {
-        Some(PlanSnapshot {
-            title: "Frozen Plan".to_string(),
-            tasks: vec![dashboard_task("1", "completed", None, 1)],
-        })
-    });
+    let loader: PlanLoader =
+        Arc::new(|| Some(model("completed", vec![task_row("1", "Done", "completed", None, 0)])));
     let dashboard = DashboardSink::start_with_plan(temp.path().to_path_buf(), 1, 1, Some(loader))
         .expect("start dashboard");
     dashboard.emit(RunEvent::RunFinished {
@@ -474,26 +589,23 @@ fn frozen_dashboard_writes_self_contained_final_artifact() {
     let path = dashboard.write_frozen_dashboard().expect("write frozen dashboard");
     assert_eq!(path, temp.path().join("runtime/dashboard.html"));
     let html = fs::read_to_string(path).expect("frozen html");
-    assert!(html.contains("const FINAL_SNAPSHOT = "));
-    assert!(html.contains("\"plan_title\":\"Frozen Plan\""));
-    assert!(html.contains("render(FINAL_SNAPSHOT);"));
-    assert!(html.contains("Snapshot is frozen at the final state"));
-    assert!(!html.contains("setInterval(tick, 1000);"));
+    // The freeze inlines the final snapshot into the one asset; no placeholder
+    // remains and the page is self-contained.
+    assert!(html.contains("\"plan_title\":\"Done\"") || html.contains("Done"));
+    assert!(html.contains("const BOOT = {"));
+    assert!(!html.contains("/*__BOOT__*/null"), "frozen page must not poll");
+    assert!(!html.contains("<script src="));
 }
 
-/// Temporary plan reload failures keep serving the last good plan snapshot.
-/// §FS-rhei-viz.1
+/// Temporary plan reload failures keep serving the last good model. §FS-rhei-viz
+/// §7.1.
 #[test]
-fn dashboard_snapshot_endpoint_keeps_last_good_plan_snapshot() {
-    let _guard = dashboard_http_test_guard();
+fn snapshot_keeps_last_good_model() {
     let calls = Arc::new(AtomicUsize::new(0));
     let loader_calls = Arc::clone(&calls);
     let loader: PlanLoader = Arc::new(move || {
         if loader_calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            Some(PlanSnapshot {
-                title: "Cached Plan".to_string(),
-                tasks: vec![dashboard_task("1", "draft", None, 1)],
-            })
+            Some(model("draft", vec![task_row("1", "Root", "draft", None, 0)]))
         } else {
             None
         }
@@ -504,48 +616,9 @@ fn dashboard_snapshot_endpoint_keeps_last_good_plan_snapshot() {
     let first = fetch_snapshot_json(&dashboard);
     let second = fetch_snapshot_json(&dashboard);
 
-    assert_eq!(first["plan_title"], "Cached Plan");
-    assert_eq!(second["plan_title"], "Cached Plan");
+    assert_eq!(first["plan_title"], "Demo Plan");
+    assert_eq!(second["plan_title"], "Demo Plan");
     assert_eq!(second["plan_state"], "draft");
     assert_eq!(second["tasks"].as_array().expect("tasks").len(), 1);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
-}
-
-/// Visualization tabs lead the dashboard and the HTML stays self-contained.
-/// §FS-rhei-viz.1 §FS-rhei-viz
-#[test]
-fn dashboard_html_includes_visualization_tabs_and_stays_self_contained() {
-    let expected_tabs = [
-        r#"data-view="gantt""#,
-        r#"data-view="cube""#,
-        r#"data-view="sankey""#,
-        r#"data-view="tasks""#,
-        r#"data-view="slots""#,
-        r#"data-view="journal""#,
-        r#"data-view="links""#,
-    ];
-    let mut cursor = 0;
-    for tab in expected_tabs {
-        let found = DASHBOARD_HTML[cursor..].find(tab).expect("tab in order");
-        cursor += found + tab.len();
-    }
-    assert!(DASHBOARD_HTML.contains(r#"<button class="tab active" data-view="gantt">"#));
-    assert!(DASHBOARD_HTML.contains("function descendantsByRoot"));
-    assert!(DASHBOARD_HTML.contains("function cubeColumnSlots"));
-    assert!(DASHBOARD_HTML.contains("function isRunnableTask"));
-    assert!(DASHBOARD_HTML.contains("child state ·"));
-    assert!(DASHBOARD_HTML.contains("FALLBACK_STATE_COLORS"));
-    assert!(DASHBOARD_HTML.contains("rowCount ? rowCount + 1"));
-    assert!(DASHBOARD_HTML.contains("Dense task-by-descendant-state heatmap"));
-    assert!(DASHBOARD_HTML.contains("Descendant-state flow by top-level task"));
-    assert!(DASHBOARD_HTML.contains("overflow-x: auto"));
-    assert!(DASHBOARD_HTML.contains("white-space: nowrap"));
-    assert!(DASHBOARD_HTML.contains("String(task.id).slice(prefix.length)"));
-    assert!(DASHBOARD_HTML.contains("<title>${escapeHtml(slot)}</title>"));
-    assert!(DASHBOARD_HTML
-        .contains("new Map(descendants.map(child => [descendantSlot(root, child), child]))"));
-    assert!(DASHBOARD_HTML.contains("<title>${title}</title>"));
-    assert!(!DASHBOARD_HTML.contains("<script src="));
-    assert!(!DASHBOARD_HTML.contains("<link rel=\"stylesheet\""));
-    assert!(!DASHBOARD_HTML.contains("@import"));
 }

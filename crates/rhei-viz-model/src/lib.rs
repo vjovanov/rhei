@@ -1,0 +1,198 @@
+//! Pure data model and the single self-contained HTML/CSS/JS renderer for the
+//! Rhei **Flow** visualization — one asset, one model, byte-identical static
+//! and live output, with no `rhei-core`/`rhei-validator` deps. §AR-rhei-viz-flow.2
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+/// The self-contained Flow asset. The static path replaces [`BOOT_PLACEHOLDER`]
+/// with the inlined plan bundle; the live path serves it verbatim (the
+/// placeholder evaluates to `null`, which the JS reads as "poll `/snapshot`").
+pub const FLOW_ASSET: &str = include_str!("../assets/flow.html");
+
+/// The JavaScript literal the renderer replaces with the inlined plan bundle.
+const BOOT_PLACEHOLDER: &str = "/*__BOOT__*/null";
+
+/// The §8 static base model: one plan's title, derived state, overview prose,
+/// the flattened state machine, and the flat task list. The live `/snapshot`
+/// payload is a superset of these fields (it adds the runtime overlay), so the
+/// one asset renders both.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct VizModel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_title: Option<String>,
+    /// Derived plan state (§FS-rhei-viz §9). Carried for the supplementary
+    /// surfaces; the Flow view itself reads per-task state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_state: Option<String>,
+    /// Plan overview prose, rendered above the machine graphs as "what this
+    /// Rhei is doing."
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    /// The flat task list: each top-level task and every descendant, carrying
+    /// its `parent`/`depth` rather than nesting. §FS-rhei-viz §8
+    pub tasks: Vec<TaskRow>,
+    /// The resolved state machine, flattened for the surface. §FS-rhei-viz §8
+    pub machine: Machine,
+}
+
+/// One node in the flat task list: a top-level task or any descendant.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskRow {
+    pub id: String,
+    pub title: String,
+    /// Parent id, or `None` for a top-level task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Id depth: `0` for a top-level task, `1` for its child, and so on.
+    pub depth: u8,
+    pub state: String,
+    /// Prerequisite task ids (`**Prior:**`).
+    #[serde(default)]
+    pub prior: Vec<String>,
+}
+
+/// The resolved state machine, flattened so the surface can show, per state,
+/// the allowed transitions and the input/output artifact contracts.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Machine {
+    pub name: String,
+    pub states: Vec<MachineState>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MachineState {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The agent prompt for this state, with template variables unresolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// Counted-loop budget, when the state declares one (`visits: N`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visits: Option<u32>,
+    /// True when this state is the entry of at least one profile (the union over
+    /// profiles, since initiality is per-profile). §FS-rhei-states
+    pub initial: bool,
+    pub terminal: bool,
+    pub gating: bool,
+    /// Allowed outgoing transitions: explicit edges first, then `from: "*"`
+    /// wildcard edges that apply to this non-terminal state.
+    pub transitions: Vec<Transition>,
+    #[serde(default)]
+    pub inputs: Vec<Artifact>,
+    #[serde(default)]
+    pub outputs: Vec<Artifact>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Transition {
+    pub to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    /// True when this edge comes from a `from: "*"` wildcard rule.
+    pub wildcard: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Artifact {
+    pub name: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub optional: bool,
+}
+
+/// Render a self-contained static page from a bundle of plans keyed by a short
+/// name (the JS shows a selector when there is more than one). Produced by
+/// `rhei viz`, the `xtask` dogfood, and the run-end freeze. §FS-rhei-viz.7.2
+pub fn render_static(plans: &BTreeMap<String, VizModel>) -> String {
+    let data = serde_json::to_string(plans).expect("plan bundle should always serialize");
+    render_inline(&data)
+}
+
+/// Render from an already-serialized boot bundle (plan key -> plan). Used by
+/// [`render_static`] and the run-end freeze, which inlines the final superset
+/// snapshot so the frozen page equals the live one minus polling. §AR-rhei-viz-flow.5.3
+pub fn render_inline(boot_json: &str) -> String {
+    FLOW_ASSET.replace(BOOT_PLACEHOLDER, &escape_json_for_html_script(boot_json))
+}
+
+/// Convenience wrapper to render a single plan under a given key.
+pub fn render_static_one(key: &str, model: &VizModel) -> String {
+    let mut bundle = BTreeMap::new();
+    bundle.insert(key.to_string(), model.clone());
+    render_static(&bundle)
+}
+
+/// The asset string for the **live** surface: served verbatim at `/`, with the
+/// `BOOT` placeholder left as `null` so the JS polls `/snapshot` instead of
+/// reading an inlined bundle. AR §2, §5.2.
+pub fn live_asset() -> &'static str {
+    FLOW_ASSET
+}
+
+/// Escape a JSON string for safe inlining inside an HTML `<script>` element:
+/// neutralizes `</script>` breakouts and the two Unicode line terminators that
+/// are illegal in JS string literals.
+pub fn escape_json_for_html_script(data: &str) -> String {
+    let mut out = String::with_capacity(data.len());
+    for ch in data.chars() {
+        match ch {
+            '<' => out.push_str("\\u003c"),
+            '>' => out.push_str("\\u003e"),
+            '&' => out.push_str("\\u0026"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn demo_model() -> VizModel {
+        VizModel {
+            plan_title: Some("Demo".into()),
+            plan_state: Some("active".into()),
+            about: None,
+            tasks: vec![TaskRow {
+                id: "1".into(),
+                title: "Alpha".into(),
+                parent: None,
+                depth: 0,
+                state: "in-progress".into(),
+                prior: vec![],
+            }],
+            machine: Machine { name: "rhei".into(), states: vec![] },
+        }
+    }
+
+    #[test]
+    fn render_static_inlines_bundle_and_drops_placeholder() {
+        let html = render_static_one("demo", &demo_model());
+        assert!(!html.contains(BOOT_PLACEHOLDER));
+        assert!(html.contains("\"plan_title\":\"Demo\""));
+        assert!(html.contains("\"depth\":0"));
+    }
+
+    #[test]
+    fn render_static_escapes_script_breakouts() {
+        let mut model = demo_model();
+        model.plan_title = Some("</script><script>alert(1)</script>".into());
+        let html = render_static_one("demo", &model);
+        assert!(!html.contains("</script><script>alert(1)</script>"));
+        assert!(
+            html.contains("\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e")
+        );
+    }
+
+    #[test]
+    fn live_asset_leaves_boot_null_so_js_polls() {
+        assert!(live_asset().contains(BOOT_PLACEHOLDER));
+    }
+}

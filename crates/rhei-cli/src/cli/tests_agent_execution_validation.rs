@@ -33,6 +33,7 @@
             None,
             0,
             recorder.clone(),
+            None,
         )
         .expect("fake agent runs");
 
@@ -134,6 +135,56 @@ printf 'stdout:before-background\n'
 
     #[cfg(unix)]
     #[test]
+    fn stdin_prompt_dashboard_mode_closes_stdin_for_eof_driven_agents() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_fake_agent(dir.path());
+        let log_path = dir.path().join("agent.log");
+        let recorder = Arc::new(RecordingSink::default());
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("codex"),
+            profile: CustomAgentProfile {
+                command: vec![script.display().to_string()],
+                stdin_prompt: true,
+                ..CustomAgentProfile::default()
+            },
+            mode: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            timeout_secs: Some(1),
+            autonomous_args: Vec::new(),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+        let intervene = Arc::new(RunInterveneSink::new(dir.path().join("runtime")));
+
+        let start = Instant::now();
+        let status = spawn_and_wait_agent(
+            &resolved,
+            "hello codex",
+            dir.path(),
+            dir.path(),
+            None,
+            "task-live",
+            "pending",
+            &tooling,
+            &log_path,
+            dir.path(),
+            None,
+            0,
+            recorder,
+            Some(&intervene),
+        )
+        .expect("fake stdin agent runs");
+
+        assert!(status.status.success());
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        let log = fs::read_to_string(&log_path).expect("read log");
+        assert!(log.contains("stdin:hello codex"));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn fake_pi_profile_streams_prompt_flag_output() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let script = write_fake_agent(dir.path());
@@ -194,6 +245,7 @@ printf 'stdout:before-background\n'
             None,
             0,
             recorder.clone(),
+            None,
         )
         .expect("timeout returns process status");
 
@@ -255,6 +307,7 @@ printf 'stdout:before-background\n'
             None,
             0,
             recorder,
+            None,
         )
         .expect("agent should complete without waiting for inherited pipe EOF");
 

@@ -159,7 +159,8 @@ agent's `command`, flags, and modes are declared.
 | `command` | string array | Yes | Base command and fixed arguments |
 | `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
 | `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
-| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag. Default: `false`. |
+| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag, then stdin is closed unless `intervene_stdin` is also true. Default: `false`. |
+| `intervene_stdin` | boolean | No | When `true`, `rhei run --dashboard` keeps the child stdin pipe open after the initial stdin prompt so live dashboard interventions can be written to it. Use only for agents that start work without waiting for stdin EOF. Default: `false`. |
 | `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
 | `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
 | `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
@@ -466,7 +467,9 @@ agent, the resolved mode's flags are appended right after the base
 
 (When `stdin_prompt` is `true`, the prompt is written to stdin instead of
 being passed via `prompt_flag`, and `--` is appended after the model flag so
-agents like `codex exec --` get a clean positional-arg separator.)
+agents like `codex exec --` get a clean positional-arg separator. The stdin pipe
+is then closed to provide EOF for non-interactive agents unless `intervene_stdin`
+is set for a genuinely streaming stdin transport.)
 
 Mode names are free-form. `yolo` is a widely-used convention for
 "autonomous, dangerous posture"; `safe`, `review`, `plan`, and `audit` are

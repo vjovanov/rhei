@@ -13,8 +13,14 @@ fn run_callback_mode(
     let initial = load_plan(input)?;
     let initial_total_tasks = initial.rhei.tasks.len();
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
-    let frontend =
-        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
+    let frontend = start_run_frontend(
+        &workspace_root,
+        input,
+        opts,
+        frontend_parallel,
+        initial_total_tasks,
+        machine,
+    );
     let sink = frontend.sink.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
@@ -168,18 +174,18 @@ fn run_callback_mode(
                 &to_state,
                 opts.no_callbacks(),
             ) {
-                Ok(effective_to) => {
+                Ok(()) => {
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
                         current_state_raw,
-                        effective_to
+                        to_state
                     );
                     run_info!("  {}", format_task_label(task));
-                    if is_terminal_state(&effective_to, machine) {
-                        run_info!("  Result: reached terminal state '{}'.", effective_to);
+                    if is_terminal_state(&to_state, machine) {
+                        run_info!("  Result: reached terminal state '{}'.", to_state);
                     } else {
-                        run_info!("  Result: now in '{}'.", effective_to);
+                        run_info!("  Result: now in '{}'.", to_state);
                     }
                     let reloaded = load_plan(input)?;
                     let discovered = newly_discovered_tasks(&task_ids_before, &reloaded.rhei.tasks);

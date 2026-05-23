@@ -170,6 +170,10 @@ impl RunOptions {
 struct ActiveRunFrontend {
     sink: Arc<dyn rhei_tui::EventSink>,
     dashboard: Option<Arc<rhei_tui::DashboardSink>>,
+    /// The intervene registry, present only when the dashboard is live. The run
+    /// loop registers each running agent's stdin here so `/intervene` can reach
+    /// it. AR §7.
+    intervene: Option<Arc<RunInterveneSink>>,
     _frontend: Option<rhei_tui::Frontend>,
 }
 
@@ -206,27 +210,41 @@ fn start_run_frontend(
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
+    machine: &rhei_validator::StateMachine,
 ) -> ActiveRunFrontend {
     if opts.dry_run() {
         return ActiveRunFrontend {
             sink: Arc::new(rhei_tui::StdoutSink::new()),
             dashboard: None,
+            intervene: None,
             _frontend: None,
         };
     }
 
     let frontend =
         rhei_tui::select_frontend(workspace_root, opts.frontend_kind(), parallel, total_tasks);
+    let mut intervene: Option<Arc<RunInterveneSink>> = None;
     let dashboard = if opts.dashboard_enabled(frontend.is_tui) {
         let plan_path = plan_input.to_path_buf();
-        let loader: rhei_tui::PlanLoader = Arc::new(move || load_plan_for_dashboard(&plan_path));
-        match rhei_tui::DashboardSink::start_with_plan(
+        // The loader re-reads the plan and builds the full `VizModel` (flatten
+        // machine, derive state) via `rhei-viz`, so the dashboard never parses
+        // plans or resolves machines itself. AR §3, §5.2.
+        let machine = machine.clone();
+        let loader: rhei_tui::PlanLoader =
+            Arc::new(move || load_plan_for_dashboard(&plan_path, &machine));
+        // AR §7: the intervene registry the run loop registers agents into.
+        let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
+        match rhei_tui::DashboardSink::start_with_plan_and_intervene(
             workspace_root.to_path_buf(),
             parallel,
             total_tasks,
             Some(loader),
+            Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
         ) {
-            Ok(sink) => Some(Arc::new(sink)),
+            Ok(sink) => {
+                intervene = Some(registry);
+                Some(Arc::new(sink))
+            }
             Err(err) => {
                 frontend.sink.emit(rhei_tui::RunEvent::Message {
                     level: rhei_tui::MessageLevel::Warn,
@@ -245,58 +263,19 @@ fn start_run_frontend(
         frontend.sink.clone()
     };
 
-    ActiveRunFrontend { sink, dashboard, _frontend: Some(frontend) }
+    ActiveRunFrontend { sink, dashboard, intervene, _frontend: Some(frontend) }
 }
 
-/// Re-read the plan from disk and project it into the dashboard's
-/// `PlanSnapshot`. Called on every `/snapshot` request, so failures must be
-/// non-fatal — return `None` and let the dashboard fall back to the last
-/// good snapshot.
-fn load_plan_for_dashboard(plan_path: &Path) -> Option<rhei_tui::PlanSnapshot> {
+/// Re-read the plan from disk and build the dashboard's [`VizModel`] via
+/// `rhei-viz` (flatten the resolved machine, derive plan state, classify).
+/// Called on every `/snapshot` request, so failures must be non-fatal — return
+/// `None` and let the dashboard fall back to the last good model. AR §5.2.
+fn load_plan_for_dashboard(
+    plan_path: &Path,
+    machine: &rhei_validator::StateMachine,
+) -> Option<rhei_viz_model::VizModel> {
     let loaded = load_plan(plan_path).ok()?;
-    let mut tasks = Vec::new();
-    fn visit(
-        node: &rhei_core::ast::Task,
-        depth: u8,
-        parent: Option<String>,
-        out: &mut Vec<rhei_tui::DashboardTask>,
-    ) {
-        let id = node.id.to_string();
-        out.push(rhei_tui::DashboardTask {
-            id: id.clone(),
-            title: node.title.clone(),
-            kind: node.kind.clone(),
-            parent,
-            depth,
-            state: node.state.clone(),
-            assignee: node.assignee.clone(),
-            prior: node.prior.iter().map(|p| p.to_string()).collect(),
-            // Result link extraction is best-effort; we look for the well-
-            // known `> **Result:** [id](path)` line that `rhei complete`
-            // emits. Anything else stays None.
-            result_link: extract_result_link(&node.content),
-        });
-        for child in &node.children {
-            visit(child, depth + 1, Some(id.clone()), out);
-        }
-    }
-    for root in &loaded.rhei.tasks {
-        visit(root, 1, None, &mut tasks);
-    }
-    Some(rhei_tui::PlanSnapshot { title: loaded.rhei.title, tasks })
-}
-
-fn extract_result_link(content: &str) -> Option<String> {
-    for line in content.lines() {
-        if let Some(rest) = line.trim_start().strip_prefix("> **Result:**") {
-            // Match `[<id>](<path>)` and return `<path>`. Use the *last*
-            // parenthesis pair so paths containing `(` or `)` are handled.
-            let rparen = rest.rfind(')')?;
-            let lparen = rest[..rparen].rfind('(')?;
-            return Some(rest[lparen + 1..rparen].to_string());
-        }
-    }
-    None
+    Some(rhei_viz::build(&loaded.rhei, machine))
 }
 
 impl

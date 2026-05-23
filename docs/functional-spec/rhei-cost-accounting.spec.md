@@ -6,7 +6,7 @@ shows those totals in the CLI, TUI, and browser dashboard. §GOAL-rhei-outcomes 
 
 For agent spawning see [Agents Specification](rhei-agents.spec.md). For run
 events and dashboard transport see [Run TUI Specification](rhei-run-tui.spec.md).
-For visual dashboard behavior see [Dashboard Visualization](rhei-viz.spec.md).
+For visual dashboard behavior see [Flow Visualization](rhei-viz.spec.md).
 
 ## Goals
 
@@ -436,5 +436,5 @@ Invocation details are served from a separate loopback endpoint such as
 - [Agents Specification](rhei-agents.spec.md) - agent configuration and spawn behavior
 - [Run Specification](rhei-run.spec.md) - orchestrator execution loop
 - [Run TUI Specification](rhei-run-tui.spec.md) - event surface and dashboard transport
-- [Dashboard Visualization](rhei-viz.spec.md) - visual plan views
+- [Flow Visualization](rhei-viz.spec.md) - visual plan views
 - [Snapshots Specification](rhei-snapshots.spec.md) - separate session snapshot feature

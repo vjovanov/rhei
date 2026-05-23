@@ -106,9 +106,18 @@ fn run_agent_mode(
         loaded.rhei.tasks.len()
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
-    let frontend =
-        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
+    let frontend = start_run_frontend(
+        &workspace_root,
+        input,
+        opts,
+        frontend_parallel,
+        initial_total_tasks,
+        machine,
+    );
     let sink = frontend.sink.clone();
+    // AR §7: present only when the dashboard is live; each spawned agent's stdin
+    // is registered here so `/intervene` can stream messages to it.
+    let intervene = frontend.intervene.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
         parallel: frontend_parallel,
@@ -380,12 +389,12 @@ fn run_agent_mode(
                 &to_state,
                 opts.no_callbacks(),
             ) {
-                Ok(effective_to) => {
+                Ok(()) => {
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
                         current_state_raw,
-                        effective_to
+                        to_state
                     );
                     advanced_any = true;
                     callback_transitions_made += 1;
@@ -953,6 +962,7 @@ fn run_agent_mode(
                 Some(&snapshot_preload),
                 0,
                 sink.clone(),
+                intervene.as_ref(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let finished_wall = SystemTime::now();
@@ -1481,6 +1491,7 @@ fn run_agent_mode(
                 let resolved_for_thread = resolved.clone();
                 let tooling_for_thread = tooling.clone();
                 let sink_for_thread = sink.clone();
+                let intervene_for_thread = intervene.clone();
                 let log_for_thread = log.clone();
                 let log_for_result = log.clone();
                 let from_for_thread = from_state;
@@ -1510,6 +1521,7 @@ fn run_agent_mode(
                         Some(&snapshot_preload_for_thread),
                         slot,
                         sink_for_thread.clone(),
+                        intervene_for_thread.as_ref(),
                     );
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     let (outcome, exit_code) = match &result {

@@ -54,6 +54,7 @@ list of extra flags appended at spawn time.
       "prompt_flag": "-p",
       "model_flag": "--model",
       "stdin_prompt": false,
+      "intervene_stdin": false,
       "timeout": "30m",
       "mcp_flag": null,
       "mcp_config_flag": "--mcp-config",
@@ -69,7 +70,7 @@ list of extra flags appended at spawn time.
 ```
 
 - The registry key is the agent id. There is no `id:` field inside the value.
-- `command`, `prompt_flag`, `model_flag`, `stdin_prompt`, `mcp_flag`,
+- `command`, `prompt_flag`, `model_flag`, `stdin_prompt`, `intervene_stdin`, `mcp_flag`,
   `mcp_config_flag`, `skill_flag`, and `timeout` keep their current meaning
   (see [rhei-agents.spec.md — Custom Agent Profiles]).
 - `modes` is an optional object mapping mode name → flag list. A well-known
@@ -171,7 +172,8 @@ binaries without explicit configuration.
 ```
 
 Prompt delivery via stdin (`stdin_prompt: true`) suppresses `<prompt_flag>
-<prompt>`, matching today's behavior.
+<prompt>`, matching today's behavior. The pipe is closed after the initial
+prompt unless `intervene_stdin` opts into a held-open streaming transport.
 
 ### 8. Implemented code changes (`crates/rhei-validator`, `crates/rhei-cli`)
 

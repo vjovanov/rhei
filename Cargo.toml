@@ -7,6 +7,8 @@ members = [
     "crates/rhei-tui",
     "crates/rhei-validator",
     "crates/rhei-output",
+    "crates/rhei-viz-model",
+    "crates/rhei-viz",
     "xtask",
 ]
 

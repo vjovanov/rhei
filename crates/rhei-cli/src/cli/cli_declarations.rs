@@ -262,6 +262,18 @@ enum Commands {
         #[arg(long, value_enum, default_value = "node")]
         by: CostGroup,
     },
+    /// Render a self-contained HTML flow visualization of a plan or workspace
+    Viz {
+        /// Path to the markdown plan file (.rhei.md) or a workspace directory
+        #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: PathBuf,
+        /// Write the HTML here (default: <input>.html, or rhei-viz.html for a workspace)
+        #[arg(long, short, value_name = "FILE")]
+        output: Option<PathBuf>,
+        /// Open the rendered file in the default browser
+        #[arg(long)]
+        open: bool,
+    },
     /// Inspect, prune, or continue from session snapshots
     Snapshot {
         #[command(subcommand)]

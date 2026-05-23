@@ -595,6 +595,7 @@ states:
             None,
             0,
             Arc::new(RecordingSink::default()),
+            None,
         )
         .expect("agent runs");
         let log = fs::read_to_string(log_path).expect("read log");

@@ -26,7 +26,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-complete | `rhei complete` command behavior |
 | §FS-rhei-reset | `rhei reset` command behavior |
 | §FS-rhei-list | `rhei list` command behavior |
-| §FS-rhei-viz | Visualization behavior surface; specified, not a current CLI variant |
+| §FS-rhei-viz | Flow visualization: the primary plan/machine visualization surface |
 | §FS-rhei-templates | Rhei template format and instantiation behavior |
 | §FS-rhei-snapshots | Session snapshot/inheritance model, storage, runtime, and per-agent integration |
 | §FS-rhei-snapshot-operations | Snapshot CLI, run override, settings, redaction, and rollout |

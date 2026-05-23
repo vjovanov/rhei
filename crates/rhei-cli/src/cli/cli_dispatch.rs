@@ -270,6 +270,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             (standalone, agent, program, snapshot).into(),
         ),
         Commands::Cost { input, task, json, by } => cost_command(&input, task.as_deref(), json, by),
+        Commands::Viz { input, output, open } => {
+            viz_command(&input, cli.state_machine.as_deref(), output.as_deref(), open)
+        }
         Commands::Snapshot { command } => snapshot_command(command, cli.state_machine.as_deref()),
         Commands::Templates { json, source } => templates::templates_command(json, &source),
         Commands::Instantiate {

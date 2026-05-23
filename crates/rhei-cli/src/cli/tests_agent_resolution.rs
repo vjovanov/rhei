@@ -337,6 +337,7 @@
             None,
             0,
             recorder,
+            None,
         )
         .expect("agent runs");
 
