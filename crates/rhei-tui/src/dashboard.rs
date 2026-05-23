@@ -294,14 +294,17 @@ fn serve(
 ) {
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok((stream, _)) => handle_client(
-                stream,
-                &state,
-                plan.as_ref(),
-                &last_plan,
-                intervene.as_ref(),
-                gate_transition.as_ref(),
-            ),
+            Ok((stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                handle_client(
+                    stream,
+                    &state,
+                    plan.as_ref(),
+                    &last_plan,
+                    intervene.as_ref(),
+                    gate_transition.as_ref(),
+                );
+            }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(50));
             }
