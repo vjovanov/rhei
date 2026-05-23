@@ -327,6 +327,11 @@ transitions: []
         let frontend = start_run_frontend(
             Path::new("."),
             Path::new("missing-plan.rhei.md"),
+            &CallbackPaths {
+                plan_path: PathBuf::from("missing-plan.rhei.md"),
+                state_machine_path: None,
+                working_dir: PathBuf::from("."),
+            },
             &opts,
             1,
             0,

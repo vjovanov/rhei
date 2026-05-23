@@ -53,8 +53,9 @@ fixtures `examples/inflight-dashboard` and `examples/disjoint-tracks`.
 
 ## Non-Goals
 
-- No plan editing, mutation, transitioning, or diff mode from the surface. It is
-  read-only with respect to plan state: open-in-editor spawns the operator's
+- No general plan editing, mutation, transitioning, or diff mode from the
+  surface. It is read-only with respect to plan state except for the narrow live
+  human-gate transition action in §5.1: open-in-editor spawns the operator's
   editor (§11) and intervene messages a running agent (§5), but neither writes or
   advances the plan.
 - No remote deployment. The live surface is loopback-only; the static surface is
@@ -223,6 +224,23 @@ In the static surface (§7.2) the terminal shows a representative transcript so 
 layout has realistic shape, and the composer is shown disabled — its messages are
 illustrative and are not delivered.
 
+### 5.1. Human Gate Transitions
+
+When the selected node's current machine state is `gating: true`, the live
+dashboard may offer a **Human gate** action block. The block lists the state's
+explicit outgoing transitions as human choices and submits the selected task,
+`from` state, and `to` state to the run's loopback server. The server must apply
+the same explicit human-transition semantics as `rhei transition`: compare the
+task's current state to `from`, validate that `to` is a legal outgoing
+transition, honor callbacks and callback redirects, write the plan through the
+normal atomic transition path, and report the effective target state.
+
+This is the only plan-state mutation allowed from the dashboard. It is available
+only while the loopback dashboard is live and only for tasks currently in a
+gating state. The static and frozen surfaces render gate choices as inert
+inspection affordances, not as working controls. Intervene remains separate: it
+messages a running agent and never transitions or edits the plan (§5).
+
 ## 6. State-Machine Graphs
 
 The machine panel draws the resolved state machine as a graph so the workflow is
@@ -302,7 +320,12 @@ type Snapshot = {
   accounting?: AccountingRunSummary;
   tasks: TaskRow[];             // id, title, parent, depth, state, visit_count?, prior
   machine: Machine;             // the resolved state machine, flattened (below)
+  capabilities?: Capabilities;   // live-only mutation affordances
   // plus existing run, slot, journal, ready/deferred, and link fields
+};
+
+type Capabilities = {
+  gate_transition?: boolean;     // true only when POST /transition-gate is wired
 };
 
 type Machine = {

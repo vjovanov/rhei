@@ -53,6 +53,15 @@ pub trait InterveneSink: Send + Sync {
     }
 }
 
+/// Live dashboard transport for explicit human gate transitions. §FS-rhei-viz.5.1
+/// The host (`rhei-cli`) owns validation, callbacks, compare-and-swap writes,
+/// and audit entries; the loopback server only transports the request.
+pub trait GateTransitionSink: Send + Sync {
+    /// Transition `task_id` from `from` to `to`, returning the effective target
+    /// state after callbacks, or a human-readable rejection reason.
+    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String>;
+}
+
 /// Per-task runtime overlay carried alongside the [`VizModel`] base in the live
 /// `/snapshot`: which slot (if any) is running the task, the active invocation's
 /// template values, whether it was deferred this pass, and its compact
@@ -82,8 +91,14 @@ struct SnapshotPayload<'a> {
     base: VizModel,
     #[serde(flatten)]
     state: &'a DashboardState,
+    capabilities: DashboardCapabilities,
     auto_links: Vec<DashboardLink>,
     task_runtime: BTreeMap<String, TaskRuntime>,
+}
+
+#[derive(Serialize)]
+struct DashboardCapabilities {
+    gate_transition: bool,
 }
 
 struct HttpRequest {
@@ -132,6 +147,24 @@ impl DashboardSink {
         plan_loader: Option<PlanLoader>,
         intervene: Option<Arc<dyn InterveneSink>>,
     ) -> io::Result<Self> {
+        Self::start_with_plan_intervene_and_gate(
+            workspace,
+            parallel,
+            total_tasks,
+            plan_loader,
+            intervene,
+            None,
+        )
+    }
+
+    pub fn start_with_plan_intervene_and_gate(
+        workspace: PathBuf,
+        parallel: u16,
+        total_tasks: usize,
+        plan_loader: Option<PlanLoader>,
+        intervene: Option<Arc<dyn InterveneSink>>,
+        gate_transition: Option<Arc<dyn GateTransitionSink>>,
+    ) -> io::Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0))?;
         listener.set_nonblocking(true)?;
         let url = format!("http://{}", listener.local_addr()?);
@@ -157,7 +190,7 @@ impl DashboardSink {
             publish_dashboard_addr(&workspace, &url)
         };
         let handle = thread::spawn(move || {
-            serve(listener, thread_state, plan, last_plan, thread_stop, intervene)
+            serve(listener, thread_state, plan, last_plan, thread_stop, intervene, gate_transition)
         });
 
         Ok(Self { url, state, stop, join: Mutex::new(Some(handle)), addr_file })
@@ -257,12 +290,18 @@ fn serve(
     last_plan: Arc<Mutex<Option<VizModel>>>,
     stop: Arc<AtomicBool>,
     intervene: Option<Arc<dyn InterveneSink>>,
+    gate_transition: Option<Arc<dyn GateTransitionSink>>,
 ) {
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok((stream, _)) => {
-                handle_client(stream, &state, plan.as_ref(), &last_plan, intervene.as_ref())
-            }
+            Ok((stream, _)) => handle_client(
+                stream,
+                &state,
+                plan.as_ref(),
+                &last_plan,
+                intervene.as_ref(),
+                gate_transition.as_ref(),
+            ),
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(50));
             }
@@ -277,6 +316,7 @@ fn handle_client(
     plan: Option<&PlanLoader>,
     last_plan: &Arc<Mutex<Option<VizModel>>>,
     intervene: Option<&Arc<dyn InterveneSink>>,
+    gate_transition: Option<&Arc<dyn GateTransitionSink>>,
 ) {
     let Some(request) = read_http_request(&mut stream) else {
         return;
@@ -295,6 +335,8 @@ fn handle_client(
         "/log" => handle_log(&mut stream, state, &request.query),
         // AR §7: the one mutation boundary — deliver a message to an agent's stdin.
         "/intervene" => handle_intervene(&mut stream, intervene, &request.body),
+        // §FS-rhei-viz.5.1: explicit human transition out of a gating state.
+        "/transition-gate" => handle_gate_transition(&mut stream, gate_transition, &request.body),
         "/snapshot" => {
             let snapshot_state = match state.lock() {
                 Ok(s) => s.clone(),
@@ -364,8 +406,14 @@ fn handle_client(
             }
 
             let auto_links = derive_auto_links(&snapshot_state.workspace);
-            let payload =
-                SnapshotPayload { base, state: &snapshot_state, auto_links, task_runtime };
+            let capabilities = DashboardCapabilities { gate_transition: gate_transition.is_some() };
+            let payload = SnapshotPayload {
+                base,
+                state: &snapshot_state,
+                capabilities,
+                auto_links,
+                task_runtime,
+            };
             match serde_json::to_vec(&payload) {
                 Ok(body) => write_response(&mut stream, "application/json", &body),
                 Err(err) => write_response(
@@ -654,6 +702,61 @@ fn handle_intervene(
 fn reply_intervene(stream: &mut TcpStream, ok: bool, error: &str) {
     let body = if ok {
         serde_json::json!({ "ok": true })
+    } else {
+        serde_json::json!({ "ok": false, "error": error })
+    };
+    match serde_json::to_vec(&body) {
+        Ok(bytes) => write_response(stream, "application/json", &bytes),
+        Err(_) => write_response(stream, "application/json", br#"{"ok":false}"#),
+    }
+}
+
+/// §FS-rhei-viz.5.1: transport one explicit human gate transition to the host.
+/// The host owns validation and plan writes; this route never rewrites the plan
+/// directly.
+fn handle_gate_transition(
+    stream: &mut TcpStream,
+    gate_transition: Option<&Arc<dyn GateTransitionSink>>,
+    body: &[u8],
+) {
+    #[derive(serde::Deserialize)]
+    struct Req {
+        #[serde(default)]
+        task_id: String,
+        #[serde(default)]
+        from: String,
+        #[serde(default)]
+        to: String,
+    }
+    let Ok(req) = serde_json::from_slice::<Req>(body) else {
+        return write_status(stream, "400 Bad Request", b"invalid gate transition body");
+    };
+    if req.task_id.trim().is_empty() {
+        return reply_gate_transition(stream, false, "", "missing task_id");
+    }
+    if req.from.trim().is_empty() {
+        return reply_gate_transition(stream, false, "", "missing from");
+    }
+    if req.to.trim().is_empty() {
+        return reply_gate_transition(stream, false, "", "missing to");
+    }
+    let Some(sink) = gate_transition else {
+        return reply_gate_transition(
+            stream,
+            false,
+            "",
+            "gate transitions are not available on this surface",
+        );
+    };
+    match sink.transition_gate(req.task_id.trim(), req.from.trim(), req.to.trim()) {
+        Ok(effective_to) => reply_gate_transition(stream, true, &effective_to, ""),
+        Err(reason) => reply_gate_transition(stream, false, "", &reason),
+    }
+}
+
+fn reply_gate_transition(stream: &mut TcpStream, ok: bool, to: &str, error: &str) {
+    let body = if ok {
+        serde_json::json!({ "ok": true, "to": to })
     } else {
         serde_json::json!({ "ok": false, "error": error })
     };

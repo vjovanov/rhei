@@ -16,6 +16,7 @@ fn run_callback_mode(
     let frontend = start_run_frontend(
         &workspace_root,
         input,
+        callback_paths,
         opts,
         frontend_parallel,
         initial_total_tasks,

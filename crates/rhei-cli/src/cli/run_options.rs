@@ -177,6 +177,39 @@ struct ActiveRunFrontend {
     _frontend: Option<rhei_tui::Frontend>,
 }
 
+struct RunGateTransitionSink {
+    input: PathBuf,
+    machine: rhei_validator::StateMachine,
+    callback_paths: CallbackPaths,
+    no_callbacks: bool,
+}
+
+impl RunGateTransitionSink {
+    fn new(
+        input: PathBuf,
+        machine: rhei_validator::StateMachine,
+        callback_paths: CallbackPaths,
+        no_callbacks: bool,
+    ) -> Self {
+        Self { input, machine, callback_paths, no_callbacks }
+    }
+}
+
+impl rhei_tui::GateTransitionSink for RunGateTransitionSink {
+    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+        transition_dashboard_gate(
+            &self.input,
+            &self.machine,
+            &self.callback_paths,
+            task_id,
+            from,
+            to,
+            self.no_callbacks,
+        )
+        .map_err(|err| err.to_string())
+    }
+}
+
 impl ActiveRunFrontend {
     fn announce_dashboard(&self) {
         if let Some(dashboard) = &self.dashboard {
@@ -207,6 +240,7 @@ impl ActiveRunFrontend {
 fn start_run_frontend(
     workspace_root: &Path,
     plan_input: &Path,
+    callback_paths: &CallbackPaths,
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
@@ -229,17 +263,25 @@ fn start_run_frontend(
         // The loader re-reads the plan and builds the full `VizModel` (flatten
         // machine, derive state) via `rhei-viz`, so the dashboard never parses
         // plans or resolves machines itself. AR §3, §5.2.
-        let machine = machine.clone();
+        let loader_machine = machine.clone();
+        let gate_machine = machine.clone();
         let loader: rhei_tui::PlanLoader =
-            Arc::new(move || load_plan_for_dashboard(&plan_path, &machine));
+            Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machine));
         // AR §7: the intervene registry the run loop registers agents into.
         let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
-        match rhei_tui::DashboardSink::start_with_plan_and_intervene(
+        let gate = Arc::new(RunGateTransitionSink::new(
+            plan_input.to_path_buf(),
+            gate_machine,
+            callback_paths.clone(),
+            opts.no_callbacks(),
+        ));
+        match rhei_tui::DashboardSink::start_with_plan_intervene_and_gate(
             workspace_root.to_path_buf(),
             parallel,
             total_tasks,
             Some(loader),
             Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
+            Some(gate as Arc<dyn rhei_tui::GateTransitionSink>),
         ) {
             Ok(sink) => {
                 intervene = Some(registry);
@@ -264,6 +306,64 @@ fn start_run_frontend(
     };
 
     ActiveRunFrontend { sink, dashboard, intervene, _frontend: Some(frontend) }
+}
+
+fn transition_dashboard_gate(
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    task_id_str: &str,
+    from: &str,
+    to: &str,
+    no_callbacks: bool,
+) -> MietteResult<String> {
+    let loaded = load_plan(input)?;
+    let task = find_task_by_id_str(&loaded.rhei.tasks, task_id_str)
+        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+    let current_state = normalized_state_name(task.state.as_str(), machine);
+    if current_state != from {
+        return Err(miette!(
+            "conflict: Task {} is in state '{}', expected '{}'",
+            task_id_str,
+            task.state,
+            from
+        ));
+    }
+    if !machine.states.get(&current_state).map(|def| def.gating).unwrap_or(false) {
+        return Err(miette!(
+            "Task {} is in state '{}', which is not a gating state",
+            task_id_str,
+            current_state
+        ));
+    }
+    let explicit_transition =
+        machine.transitions().iter().any(|rule| rule.from.0 == from && rule.to.0 == to);
+    if !explicit_transition {
+        return Err(miette!(
+            "transition from '{}' to '{}' is not an explicit human-gate transition",
+            from,
+            to
+        ));
+    }
+
+    let task_file = loaded.task_file(task_id_str, input);
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
+    let effective_to = execute_transition(
+        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        callback_paths,
+        machine,
+        task_id_str,
+        from,
+        to,
+        no_callbacks,
+    )?;
+    let root = result_workspace_root(input, &task_file);
+    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
+    Ok(effective_to)
 }
 
 /// Re-read the plan from disk and build the dashboard's [`VizModel`] via

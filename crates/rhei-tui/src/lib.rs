@@ -9,7 +9,7 @@ mod journal;
 mod stdout;
 mod tui;
 
-pub use dashboard::{DashboardSink, InterveneSink, PlanLoader};
+pub use dashboard::{DashboardSink, GateTransitionSink, InterveneSink, PlanLoader};
 pub use event::{
     AccountingRunSummary, AgentStream, DimensionStatus, DimensionSummary, EventSink, MessageLevel,
     NullSink, PricingStatus, RunEvent, RunSummary, Slot, TaskOutcome, Tee, UsageCoverage,

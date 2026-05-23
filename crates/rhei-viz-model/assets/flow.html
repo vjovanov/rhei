@@ -177,6 +177,16 @@
   .arts .unres { color: var(--faint); font-size: 11.5px; word-break: break-all; }
   .arts .adesc { color: var(--faint); font-size: 11px; }
 
+  /* ---- human gate transition controls (live dashboard only) ---- */
+  .gatebox { margin-top: 14px; padding: 10px 12px; border-radius: 6px;
+    border: 1px solid color-mix(in srgb, #6cae7c 45%, var(--hairline));
+    background: color-mix(in srgb, #6cae7c 8%, var(--surface)); }
+  .gatebox h3 { margin: 0 0 4px; }
+  .gatebox .gdesc { color: var(--dim); font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
+  .gatebox .grow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .gatebox .gstatus { color: var(--faint); font-size: 11px; }
+  .gatebox .gerr { color: #cf5b5b; }
+
   /* ---- intervene (live tasks only) ---- */
   .intervene { margin-top: 14px; padding: 10px 12px; border-radius: 6px;
     border: 1px solid color-mix(in srgb, #d4a84e 45%, var(--hairline));
@@ -560,6 +570,13 @@ function renderSurroundings(){
   else nc.appendChild(el("span",{class:"none",text: ms&&ms.terminal?"terminal — no exits":"—"}));
   frag.appendChild(nc);
 
+  // Human gate — a live-only, explicit transition action for gating states.
+  // It calls the same transition path as `rhei transition`; static/frozen pages
+  // keep the choices visible but inert. §FS-rhei-viz.5.1
+  if(ms&&ms.gating){
+    frag.appendChild(renderGateTransition(n, ms));
+  }
+
   // prompt — the state's instructions, instantiated for THIS task with linked artifacts
   if(ms&&ms.instructions){
     const variants=templateVariants(n,ms);
@@ -675,6 +692,52 @@ function renderSurroundings(){
 }
 function flatChip(t){ return el("span",{class:"chip flat",text:t}); }
 function dot(c){ const d=document.createElement("span"); d.className="dot"; d.style.background=c; return d; }
+function gateTransitionAvailable(){
+  return LIVE && !!(IX && IX.plan && IX.plan.capabilities && IX.plan.capabilities.gate_transition);
+}
+function renderGateTransition(node, ms){
+  const box=el("div",{class:"gatebox"});
+  box.appendChild(el("h3",{text:"human gate"}));
+  const choices=(ms.transitions||[]).filter(t=>!t.wildcard);
+  const canAct=gateTransitionAvailable();
+  const desc=canAct
+    ? "Pick an explicit outgoing transition. Rhei validates the current state before writing."
+    : LIVE
+      ? "This live dashboard is not wired for gate transitions."
+      : "Static preview — gate transitions are not delivered.";
+  box.appendChild(el("div",{class:"gdesc",text:desc}));
+  const row=el("div",{class:"grow"});
+  const status=el("span",{class:"gstatus"});
+  if(!choices.length){
+    row.appendChild(el("span",{class:"none",text:"No explicit exits from this gate."}));
+  }
+  for(const t of choices){
+    const btn=el("button",{class:"btn",text:t.to,title:t.condition||""});
+    btn.disabled=!canAct;
+    btn.addEventListener("click",()=>{
+      if(btn.disabled) return;
+      const ok=window.confirm(`Transition Task ${node.id} from ${node.state} to ${t.to}?`);
+      if(!ok) return;
+      row.querySelectorAll("button").forEach(b=>b.disabled=true);
+      status.className="gstatus";
+      status.textContent="transitioning…";
+      sendGateTransition(node,t.to).then(res=>{
+        if(res.ok){
+          status.textContent=`transitioned to ${res.to||t.to}`;
+          refreshSnapshotOnce();
+        } else {
+          status.className="gstatus gerr";
+          status.textContent=res.error||"transition failed";
+          row.querySelectorAll("button").forEach(b=>b.disabled=false);
+        }
+      });
+    });
+    row.appendChild(btn);
+  }
+  row.appendChild(status);
+  box.appendChild(row);
+  return box;
+}
 function incomingFor(stateName){
   const out={ explicit:[], wildcard:false };
   const states=(IX.plan.machine&&IX.plan.machine.states)||[];
@@ -1322,11 +1385,14 @@ function refreshListStates(){
   }
 }
 function poll(){
-  fetch("snapshot",{cache:"no-store"})
-    .then(r=>r.ok?r.json():Promise.reject())
-    .then(snap=>{ if(snap && !snap.error) applyLive(snap); })
+  refreshSnapshotOnce()
     .catch(()=>{})                       // tolerate a transient reload failure
     .finally(()=>{ pollLog(); setTimeout(poll, 1000); });
+}
+function refreshSnapshotOnce(){
+  return fetch("snapshot",{cache:"no-store"})
+    .then(r=>r.ok?r.json():Promise.reject())
+    .then(snap=>{ if(snap && !snap.error) applyLive(snap); return snap; });
 }
 // Stream the selected running task's durable log into its terminal, appending
 // only the new bytes since the last offset. Liveness shown in place, no jump
@@ -1357,6 +1423,14 @@ function sendIntervene(node, message){
     .then(r=>r.ok?r.json():{ok:false,error:"intervene request failed"})
     .then(j=>j&&j.ok ? {ok:true} : {ok:false,error:(j&&j.error)||"intervention was not delivered"})
     .catch(err=>({ok:false,error:err&&err.message?err.message:"intervene request failed"}));
+}
+function sendGateTransition(node, to){
+  const body={task_id:node.id, from:node.state, to};
+  return fetch("transition-gate",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():{ok:false,error:"gate transition request failed"})
+    .then(j=>j&&j.ok ? {ok:true,to:j.to} : {ok:false,error:(j&&j.error)||"gate transition failed"})
+    .catch(err=>({ok:false,error:err&&err.message?err.message:"gate transition request failed"}));
 }
 
 // ---- bootstrap --------------------------------------------------------------

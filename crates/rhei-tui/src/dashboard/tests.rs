@@ -153,6 +153,27 @@ impl InterveneSink for StubIntervene {
     }
 }
 
+/// A stub [`GateTransitionSink`] that records transition requests without
+/// touching plan files.
+struct StubGateTransition {
+    requested: Mutex<Vec<(String, String, String)>>,
+    fail_reason: Option<String>,
+}
+
+impl GateTransitionSink for StubGateTransition {
+    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+        if let Some(reason) = &self.fail_reason {
+            return Err(reason.clone());
+        }
+        self.requested.lock().unwrap().push((
+            task_id.to_string(),
+            from.to_string(),
+            to.to_string(),
+        ));
+        Ok(to.to_string())
+    }
+}
+
 // §FS-rhei-viz §11: only workspace-relative paths may be opened.
 #[test]
 fn resolve_within_workspace_rejects_escapes() {
@@ -508,6 +529,54 @@ fn intervene_without_sink_reports_unavailable() {
         .expect("start dashboard");
     let res = post_json(&dashboard, "/intervene", r#"{"task_id":"1","message":"hi"}"#);
     assert_eq!(res["ok"], false);
+}
+
+// §FS-rhei-viz.5.1: POST /transition-gate transports an explicit human gate
+// transition to the host sink and reports the effective target state.
+#[test]
+fn gate_transition_delivers_to_sink_and_reports_outcome() {
+    use std::sync::Mutex as StdMutex;
+    let sink =
+        Arc::new(StubGateTransition { requested: StdMutex::new(Vec::new()), fail_reason: None });
+    let dashboard = DashboardSink::start_with_plan_intervene_and_gate(
+        PathBuf::from("/tmp/ws"),
+        1,
+        1,
+        None,
+        None,
+        Some(sink.clone() as Arc<dyn GateTransitionSink>),
+    )
+    .expect("start dashboard");
+
+    let ok = post_json(
+        &dashboard,
+        "/transition-gate",
+        r#"{"task_id":"1","from":"human-gate","to":"completed"}"#,
+    );
+    assert_eq!(ok["ok"], true);
+    assert_eq!(ok["to"], "completed");
+    assert_eq!(
+        sink.requested.lock().unwrap().as_slice(),
+        &[("1".to_string(), "human-gate".to_string(), "completed".to_string())]
+    );
+
+    let snapshot = fetch_snapshot_json(&dashboard);
+    assert_eq!(snapshot["capabilities"]["gate_transition"], true);
+}
+
+#[test]
+fn gate_transition_reports_unavailable_without_sink() {
+    let dashboard = DashboardSink::start_with_plan(PathBuf::from("/tmp/ws"), 1, 1, None)
+        .expect("start dashboard");
+    let res = post_json(
+        &dashboard,
+        "/transition-gate",
+        r#"{"task_id":"1","from":"human-gate","to":"completed"}"#,
+    );
+    assert_eq!(res["ok"], false);
+
+    let snapshot = fetch_snapshot_json(&dashboard);
+    assert_eq!(snapshot["capabilities"]["gate_transition"], false);
 }
 
 // AR §7: the dashboard publishes its loopback URL to runtime/dashboard.json so a

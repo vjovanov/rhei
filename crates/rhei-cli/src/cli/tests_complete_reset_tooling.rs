@@ -237,6 +237,39 @@ transitions:
     }
 
     #[test]
+    fn dashboard_gate_transition_uses_transition_engine() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let plan = dir.path().join("plan.rhei.md");
+        let states = dir.path().join("states.yaml");
+        fs::write(
+            &plan,
+            "# Rhei: Gate\n\n## Tasks\n\n### Task 1: Review\n**State:** human-review\n\nReview.\n",
+        )
+        .expect("write plan");
+        let yaml = "name: test\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: human-review\n    to: completed\n";
+        fs::write(&states, yaml).expect("write states");
+        let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
+        let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
+
+        let effective = transition_dashboard_gate(
+            &plan,
+            &machine,
+            &callback_paths,
+            "1",
+            "human-review",
+            "completed",
+            true,
+        )
+        .expect("gate transition");
+
+        assert_eq!(effective, "completed");
+        let updated = fs::read_to_string(&plan).expect("read plan");
+        assert!(updated.contains("**State:** completed"));
+        let result = fs::read_to_string(dir.path().join("runtime/results/1.md")).expect("result");
+        assert!(result.contains("## human-review → completed"));
+    }
+
+    #[test]
     fn rewrite_task_completion_removes_assignee_and_appends_result_link() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");
