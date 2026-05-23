@@ -30,7 +30,7 @@
   header { padding: 10px 16px; background: var(--surface-2);
     border-bottom: 1px solid var(--hairline);
     display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .3px; }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0; }
   header .sub { color: var(--dim); font-size: 12px; }
   header #plan-title { color: var(--ink); font-weight: 600; }
   #live-dot { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); }
@@ -69,7 +69,7 @@
   }
   .panel { background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px; }
   .panel > h2 { margin: 0; padding: 8px 12px; font-size: 11px; font-weight: 600;
-    letter-spacing: .5px; text-transform: uppercase; color: var(--dim);
+    letter-spacing: 0; text-transform: uppercase; color: var(--dim);
     border-bottom: 1px solid var(--hairline); }
 
   /* ---- list (outline) ---- */
@@ -94,9 +94,9 @@
   .row[data-cat="live"]    { background: color-mix(in srgb, #d4a84e 18%, transparent); border-left-color: #d4a84e; }
   .row[data-cat="gate"]    { background: color-mix(in srgb, #6cae7c 12%, transparent); border-left-color: #6cae7c; border-left-style: double; border-left-width: 4px; }
   .row[data-cat="retired"] { opacity: .55; }
-  .row[data-cat="done"] .ttl    { color: #9bd3ba; }
-  .row[data-cat="blocked"] .ttl { color: #e79a9a; }
-  .row[data-cat="live"] .ttl    { color: #e7c885; }
+  .row[data-cat="done"] .ttl,
+  .row[data-cat="blocked"] .ttl,
+  .row[data-cat="live"] .ttl    { color: var(--ink); }
 
   /* Spinner — the one live affordance; stilled under reduced motion. */
   .spinner { display: inline-block; width: 11px; height: 11px; box-sizing: border-box;
@@ -130,7 +130,7 @@
   /* ---- running now strip ---- */
   .running { display: none; margin-bottom: 14px; }
   .running.on { display: block; padding: 8px 12px; }
-  .runhead { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
+  .runhead { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0; margin-bottom: 7px; }
   .runhead b { color: var(--ink); }
   .runrow { display: flex; gap: 8px; flex-wrap: wrap; }
   .runchip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 6px;
@@ -147,7 +147,7 @@
   .surr .head .ttl { color: var(--dim); }
   .surr .flags { color: var(--faint); font-size: 11px; }
   .surr .desc { color: var(--dim); margin: 8px 0 4px; }
-  .surr h3 { margin: 14px 0 5px; font-size: 11px; font-weight: 600; letter-spacing: .4px;
+  .surr h3 { margin: 14px 0 5px; font-size: 11px; font-weight: 600; letter-spacing: 0;
     text-transform: uppercase; color: var(--dim); }
   .surr .vlabel { margin: 7px 0 3px; color: var(--faint); font-size: 11px; }
   .deps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -217,7 +217,7 @@
   .mdetail { padding: 9px 12px; border-top: 1px solid var(--hairline); background: var(--surface-2); }
   .mdetail .hint { color: var(--faint); font-size: 12px; }
   .mdhead { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
-  .mdlabel { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin: 7px 0 3px; }
+  .mdlabel { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0; margin: 7px 0 3px; }
   .mlegend { margin-top: 8px; display: grid; grid-template-columns: minmax(110px, max-content) 1fr;
     gap: 1px 12px; }
   .mlegrow { display: contents; cursor: pointer; }
@@ -238,7 +238,7 @@
   /* ---- supplementary scanning views (§FS-rhei-viz §12) ---- */
   .supp { margin-top: 14px; }
   .stabs { display: flex; gap: 2px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--hairline); align-items: center; }
-  .stabs .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-right: 6px; }
+  .stabs .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0; margin-right: 6px; }
   .stab { background: transparent; color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font: inherit; cursor: pointer; }
   .stab:hover { background: var(--surface-2); }
   .stab.on { background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
