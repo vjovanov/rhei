@@ -142,6 +142,11 @@ Clicking a row, or moving the keyboard selection onto it, selects the node and
 populates surroundings. List mode is the default; it is the calmest overview and
 the resting state of the surface.
 
+Outline rows remain contained inside the pane. Long ids and titles truncate
+inside the row rather than pushing state pills, progress counts, or adjacent
+panes out of place, and long task labels are not exposed through native browser
+tooltips that can cover neighboring panes.
+
 ## 3. Graph Mode (Dependency DAG)
 
 The left pane renders the **prerequisite** graph over top-level tasks: nodes are
@@ -181,6 +186,11 @@ the selected task or subtask it shows, top to bottom:
 - **Artifacts** — the state's input (`in ◂`) and output (`out ▸`) contracts as
   links, with `{task_id}` and visit-count templates resolved for this node and
   optional artifacts marked.
+
+The inspector must remain contained inside its pane at every supported
+breakpoint. Long child ids and titles preserve the state column by truncating
+within the row, while artifact paths wrap inside the pane instead of creating
+horizontal overflow.
 
 Every chip in came-from, next-state, and the machine legend is clickable: a
 transition chip highlights the target state across the machine graphs (§6) while
