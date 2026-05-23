@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add live dashboard controls for explicit human-gate transitions. PR #16
 - Add GitHub Actions CI, pre-commit hooks, and PGO release automation modeled on
   Grund's release flow. PR #15
 

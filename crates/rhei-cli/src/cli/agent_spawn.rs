@@ -125,12 +125,14 @@ fn spawn_and_wait_agent(
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
+    visit_count: u64,
     tooling: &ResolvedTooling,
     log_path: &Path,
     runtime_dir: &Path,
     snapshot_preload: Option<&SnapshotPreload>,
     slot: rhei_tui::Slot,
     sink: Arc<dyn rhei_tui::EventSink>,
+    intervene: Option<&Arc<RunInterveneSink>>,
 ) -> MietteResult<AgentSpawnOutcome> {
     // Ensure log directory exists.
     if let Some(parent) = log_path.parent() {
@@ -212,6 +214,7 @@ fn spawn_and_wait_agent(
         state_machine_path,
         task_id,
         state_name,
+        visit_count,
         tooling,
         runtime_dir,
     );
@@ -253,12 +256,32 @@ fn spawn_and_wait_agent(
         )
     });
 
-    // If stdin_prompt, write prompt to stdin.
+    // Write the prompt to stdin. EOF-driven agents (e.g. `codex exec`) must see
+    // EOF before starting, so stdin is closed after the prompt unless the
+    // profile opts into streaming interventions. §FS-rhei-agents.1.1.2
+    let mut registered_intervene = false;
     if resolved.profile.stdin_prompt {
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write as _;
             let _ = stdin.write_all(prompt.as_bytes());
-            drop(stdin);
+            let _ = stdin.flush();
+            match (resolved.profile.intervene_stdin, intervene) {
+                (true, Some(registry)) => {
+                    registry.register(task_id, slot, state_name, log_file.clone(), stdin);
+                    registered_intervene = true;
+                }
+                _ => drop(stdin),
+            }
+        }
+    } else if resolved.profile.intervene_stdin {
+        if let Some(stdin) = child.stdin.take() {
+            // Close unused intervention stdin when the live surface is absent. §FS-rhei-agents.1.1.2
+            if let Some(registry) = intervene {
+                registry.register(task_id, slot, state_name, log_file.clone(), stdin);
+                registered_intervene = true;
+            } else {
+                drop(stdin);
+            }
         }
     }
 
@@ -295,6 +318,14 @@ fn spawn_and_wait_agent(
     } else {
         child.wait().map_err(|e| miette!("failed to wait for agent: {e}"))
     }?;
+
+    // The agent has exited: drop its intervene registration, which ends the
+    // stdin writer thread and closes the pipe.
+    if registered_intervene {
+        if let Some(registry) = intervene {
+            registry.unregister(task_id, slot);
+        }
+    }
 
     if let Some(handle) = stdout_handle {
         drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout)?;

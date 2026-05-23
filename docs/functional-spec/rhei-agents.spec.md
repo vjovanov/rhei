@@ -159,7 +159,8 @@ agent's `command`, flags, and modes are declared.
 | `command` | string array | Yes | Base command and fixed arguments |
 | `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
 | `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
-| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag. Default: `false`. |
+| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag, then stdin is closed unless `intervene_stdin` is also true. Default: `false`. |
+| `intervene_stdin` | boolean | No | When `true`, `rhei run --dashboard` keeps the child stdin pipe open after the initial stdin prompt so live dashboard interventions can be written to it. Use only for agents that start work without waiting for stdin EOF. Default: `false`. |
 | `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
 | `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
 | `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
@@ -171,6 +172,37 @@ Built-in agent ids (see [Known Agent Profiles](#2-known-agent-profiles)) are
 preloaded as the default agents registry. A user entry with the same id in
 global or project settings replaces the built-in entry wholesale — `command`,
 flags, and `modes` are taken from the user entry without field-level merging.
+
+**Enabling live intervention.** No built-in agent enables `intervene_stdin`: the
+known coding agents read their prompt and then run autonomously without consuming
+more stdin, so the Flow composer (§FS-rhei-viz §5) and `rhei intervene` are hidden
+for them. To make a live agent messageable, register an agent whose transport
+keeps reading stdin after it starts, and set both `stdin_prompt` and
+`intervene_stdin`:
+
+```json
+// .rhei/settings.json — an agent reachable for live intervention
+{
+  "agents": {
+    "my-interactive-agent": {
+      "command": ["my-agent", "--stream-stdin"],
+      "model_flag": "--model",
+      "stdin_prompt": true,      // deliver the initial prompt on stdin
+      "intervene_stdin": true    // and keep stdin open for follow-up messages
+    }
+  }
+}
+```
+
+`stdin_prompt` writes the initial prompt to the child's stdin; `intervene_stdin`
+then keeps that pipe open for the process lifetime instead of closing it (the
+EOF most headless agents wait on). Each delivered message is written to stdin as
+one newline-terminated line. Set `intervene_stdin` **only** for an agent that
+begins work without waiting for stdin EOF and continues to read stdin afterwards;
+on an EOF-driven or one-shot agent the pipe stays open but the agent never reads
+it, so messages would be silently buffered. Run with `rhei run <plan> --dashboard
+--agent my-interactive-agent`; the composer then appears on that agent's live
+node, and `rhei intervene --task <id> -m "…"` reaches the same channel.
 
 #### 1.1.3. `models`
 
@@ -466,7 +498,9 @@ agent, the resolved mode's flags are appended right after the base
 
 (When `stdin_prompt` is `true`, the prompt is written to stdin instead of
 being passed via `prompt_flag`, and `--` is appended after the model flag so
-agents like `codex exec --` get a clean positional-arg separator.)
+agents like `codex exec --` get a clean positional-arg separator. The stdin pipe
+is then closed to provide EOF for non-interactive agents unless `intervene_stdin`
+is set for a genuinely streaming stdin transport.)
 
 Mode names are free-form. `yolo` is a widely-used convention for
 "autonomous, dangerous posture"; `safe`, `review`, `plan`, and `audit` are

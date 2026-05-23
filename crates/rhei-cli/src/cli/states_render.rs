@@ -277,7 +277,11 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
 
         for path in task_files {
             let raw = read_input_file(&path)?;
-            let (maybe_tasks, errors) = rhei_core::parser::parse_workspace_tasks_collect(&raw);
+            let (maybe_tasks, errors) =
+                rhei_core::parser::parse_workspace_tasks_collect_with_structure(
+                    &raw,
+                    &index.structure,
+                );
             if !errors.is_empty() {
                 parse_error_groups.push(ParseErrorGroup { path, input: raw, errors });
                 continue;

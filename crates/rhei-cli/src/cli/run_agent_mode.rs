@@ -86,6 +86,18 @@ fn format_dry_run_agent_transition(
     }
 }
 
+fn agent_template_context(resolved: &ResolvedAgent) -> rhei_viz_model::TemplateContext {
+    rhei_viz_model::TemplateContext {
+        target: resolved.target.as_ref().map(ExecutionTarget::selector),
+        target_slug: resolved.target.as_ref().map(ExecutionTarget::slug),
+        model: resolved.model.clone(),
+        model_provider: resolved.model_provider.clone(),
+        model_name: resolved.model_name.clone().or_else(|| resolved.model.clone()),
+        agent: Some(resolved.agent.id().to_string()),
+        agent_mode: resolved.mode.clone(),
+    }
+}
+
 /// Agent-driven execution mode: spawn coding agents for tasks.
 fn run_agent_mode(
     input: &Path,
@@ -103,12 +115,22 @@ fn run_agent_mode(
 
     let initial_total_tasks = {
         let loaded = load_plan(input)?;
-        loaded.rhei.tasks.len()
+        total_task_count(&loaded.rhei)
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
-    let frontend =
-        start_run_frontend(&workspace_root, input, opts, frontend_parallel, initial_total_tasks);
+    let frontend = start_run_frontend(
+        &workspace_root,
+        input,
+        callback_paths,
+        opts,
+        frontend_parallel,
+        initial_total_tasks,
+        machine,
+    );
     let sink = frontend.sink.clone();
+    // AR §7: present only when the dashboard is live; each spawned agent's stdin
+    // is registered here so `/intervene` can stream messages to it.
+    let intervene = frontend.intervene.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
         parallel: frontend_parallel,
@@ -144,17 +166,12 @@ fn run_agent_mode(
     }
 
     let loaded = load_plan(input)?;
-    let initial_terminal_count = loaded
-        .rhei
-        .tasks
-        .iter()
-        .filter(|task| is_terminal_state(task.state.as_str(), machine))
-        .count();
+    let initial_terminal_count = terminal_task_count(&loaded.rhei, machine);
     run_info!(
         "Running {} '{}' with {} task(s) ({} terminal at start).",
         if workspace::is_workspace(input) { "workspace" } else { "plan" },
         loaded.rhei.title,
-        loaded.rhei.tasks.len(),
+        total_task_count(&loaded.rhei),
         initial_terminal_count
     );
     run_info!("Initial states: {}", format_state_counts(&loaded.rhei));
@@ -183,12 +200,7 @@ fn run_agent_mode(
         }
 
         pass += 1;
-        let terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|task| is_terminal_state(task.state.as_str(), machine))
-            .count();
+        let terminal_count = terminal_task_count(&loaded.rhei, machine);
         sink.emit(RunEvent::PassStarted {
             pass,
             ready: ready.iter().map(|t| t.id.to_string()).collect(),
@@ -198,7 +210,7 @@ fn run_agent_mode(
             pass,
             ready.len(),
             terminal_count,
-            loaded.rhei.tasks.len()
+            total_task_count(&loaded.rhei)
         );
         run_info!("Ready: {}", format_ready_tasks(&ready));
 
@@ -330,7 +342,7 @@ fn run_agent_mode(
         for (task_id_str, current_state_raw, current_state) in &callback_tasks {
             let loaded = load_plan(input)?;
             let target_id = parse_task_id(task_id_str);
-            let task = match loaded.rhei.tasks.iter().find(|t| t.id == target_id) {
+            let task = match find_task_by_id(&loaded.rhei.tasks, &target_id) {
                 Some(t) => t,
                 None => continue,
             };
@@ -444,7 +456,7 @@ fn run_agent_mode(
                 for (task_id_str, current_state_raw, current_state, resolved) in &program_tasks {
                     let loaded = load_plan(input)?;
                     let target_id = parse_task_id(task_id_str);
-                    if let Some(task) = loaded.rhei.tasks.iter().find(|t| t.id == target_id) {
+                    if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
                         if let Some(to_state) = find_program_exit_transition(
                             machine,
                             loaded.rhei.metadata.as_ref(),
@@ -471,7 +483,7 @@ fn run_agent_mode(
             for (task_id_str, _current_state_raw, current_state, resolved) in &program_tasks {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
-                let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
+                let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
                 let Some(task) = task else { continue };
                 let render_context = RuntimeTemplateContext {
                     workspace_root: &workspace_root,
@@ -504,6 +516,7 @@ fn run_agent_mode(
                     from: task.state.as_str().to_string(),
                     to: current_state.clone(),
                     agent: None,
+                    template_context: None,
                     log_path: log.clone(),
                     started_at,
                     wall_clock: started_wall,
@@ -546,7 +559,7 @@ fn run_agent_mode(
                     Ok(program_outcome) => {
                         programs_spawned += 1;
                         let mut reloaded = load_plan(input)?;
-                        let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
+                        let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
                         let mut state_after =
                             task_after.map(|t| t.state.as_str()).unwrap_or("unknown").to_string();
 
@@ -776,7 +789,7 @@ fn run_agent_mode(
             for (task_id_str, current_state_raw, current_state, resolved) in &batch {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
-                if let Some(task) = loaded.rhei.tasks.iter().find(|t| t.id == target_id) {
+                if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
                     if let Some(to_state) = find_next_transition(task, &loaded.rhei, machine)? {
                         run_info!(
                             "{}",
@@ -801,7 +814,7 @@ fn run_agent_mode(
             let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
             let loaded = load_plan(input)?;
             let target_id = parse_task_id(task_id_str);
-            let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
+            let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
             let Some(task) = task else { continue };
 
             let tooling = resolve_tooling(machine, current_state, settings);
@@ -934,6 +947,7 @@ fn run_agent_mode(
                 from: task.state.as_str().to_string(),
                 to: current_state.clone(),
                 agent: Some(resolved.agent.id().to_string()),
+                template_context: Some(agent_template_context(resolved)),
                 log_path: log.clone(),
                 started_at,
                 wall_clock: started_wall,
@@ -947,12 +961,14 @@ fn run_agent_mode(
                 callback_paths.state_machine_path.as_deref(),
                 task_id_str,
                 current_state,
+                visit_count,
                 &tooling,
                 &log,
                 &runtime_dir,
                 Some(&snapshot_preload),
                 0,
                 sink.clone(),
+                intervene.as_ref(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let finished_wall = SystemTime::now();
@@ -1083,7 +1099,7 @@ fn run_agent_mode(
                         }
                     }
                     let reloaded = load_plan(input)?;
-                    let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
+                    let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
                     let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
                     let state_before = current_state.as_str();
 
@@ -1336,7 +1352,7 @@ fn run_agent_mode(
             {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
-                let task = loaded.rhei.tasks.iter().find(|t| t.id == target_id);
+                let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
                 let Some(task) = task else { continue };
 
                 let tooling = resolve_tooling(machine, current_state, settings);
@@ -1472,6 +1488,7 @@ fn run_agent_mode(
                     from: from_state.clone(),
                     to: current_state.clone(),
                     agent: Some(resolved.agent.id().to_string()),
+                    template_context: Some(agent_template_context(resolved)),
                     log_path: log.clone(),
                     started_at,
                     wall_clock: started_wall,
@@ -1481,6 +1498,7 @@ fn run_agent_mode(
                 let resolved_for_thread = resolved.clone();
                 let tooling_for_thread = tooling.clone();
                 let sink_for_thread = sink.clone();
+                let intervene_for_thread = intervene.clone();
                 let log_for_thread = log.clone();
                 let log_for_result = log.clone();
                 let from_for_thread = from_state;
@@ -1504,12 +1522,14 @@ fn run_agent_mode(
                         state_machine_path.as_deref(),
                         &tid,
                         &sname,
+                        visit_count,
                         &tooling_for_thread,
                         &log,
                         &runtime_dir_for_thread,
                         Some(&snapshot_preload_for_thread),
                         slot,
                         sink_for_thread.clone(),
+                        intervene_for_thread.as_ref(),
                     );
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     let (outcome, exit_code) = match &result {
@@ -1621,7 +1641,7 @@ fn run_agent_mode(
                                 );
                             }
                         }
-                        let task_after = reloaded.rhei.tasks.iter().find(|t| t.id == target_id);
+                        let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
                         let mut missing_required_outputs = Vec::new();
                         let mut snapshot_completion_for_emit = None;
                         let mut failure_selected_to_state = None;
@@ -1859,7 +1879,7 @@ fn run_agent_mode(
                                 }
                                 Ok(None) => {
                                     if let Some(task) =
-                                        reloaded.rhei.tasks.iter().find(|t| t.id == target_id)
+                                        find_task_by_id(&reloaded.rhei.tasks, &target_id)
                                     {
                                         if let Some(snapshot_completion) =
                                             snapshot_completion_for_emit
@@ -2007,44 +2027,40 @@ fn run_agent_mode(
             (0usize, 0usize)
         } else {
             let loaded = load_plan(input)?;
-            let terminal_count = loaded
-                .rhei
-                .tasks
-                .iter()
-                .filter(|t| is_terminal_state(t.state.as_str(), machine))
-                .count();
+            let terminal_count = terminal_task_count(&loaded.rhei, machine);
+            let total_tasks = total_task_count(&loaded.rhei);
             run_info!(
                 "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
                 callback_transitions_made,
                 terminal_count,
-                loaded.rhei.tasks.len()
+                total_tasks
             );
             run_info!("Final states: {}", format_state_counts(&loaded.rhei));
-            for task in &loaded.rhei.tasks {
+            let mut tasks = Vec::new();
+            collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
+            for task in tasks {
                 run_info!("  - {} [{}]", format_task_label(task), task.state);
             }
-            (terminal_count, loaded.rhei.tasks.len())
+            (terminal_count, total_tasks)
         }
     } else {
         let loaded = load_plan(input)?;
-        let terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|t| is_terminal_state(t.state.as_str(), machine))
-            .count();
+        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        let total_tasks = total_task_count(&loaded.rhei);
         run_info!(
             "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
             agents_spawned,
             programs_spawned,
             terminal_count,
-            loaded.rhei.tasks.len()
+            total_tasks
         );
         run_info!("Final states: {}", format_state_counts(&loaded.rhei));
-        for task in &loaded.rhei.tasks {
+        let mut tasks = Vec::new();
+        collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
+        for task in tasks {
             run_info!("  - {} [{}]", format_task_label(task), task.state);
         }
-        (terminal_count, loaded.rhei.tasks.len())
+        (terminal_count, total_tasks)
     };
 
     let accounting = if opts.dry_run() {
@@ -2078,13 +2094,8 @@ fn run_agent_mode(
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
-        let terminal_count = loaded
-            .rhei
-            .tasks
-            .iter()
-            .filter(|task| is_terminal_state(task.state.as_str(), machine))
-            .count();
-        if terminal_count < loaded.rhei.tasks.len()
+        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        if terminal_count < total_task_count(&loaded.rhei)
             && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine)
         {
             return Err(miette!(

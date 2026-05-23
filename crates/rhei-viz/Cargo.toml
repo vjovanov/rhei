@@ -1,0 +1,22 @@
+[package]
+name = "rhei-cli-viz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+description = "Builds the Rhei flow visualization model from a parsed plan and its resolved state machine."
+
+[lib]
+name = "rhei_viz"
+path = "src/lib.rs"
+
+[dependencies]
+rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }
+rhei-validator = { package = "rhei-cli-validator", path = "../rhei-validator", version = "=0.1.0" }
+rhei-viz-model = { package = "rhei-cli-viz-model", path = "../rhei-viz-model", version = "=0.1.0" }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

@@ -1,0 +1,54 @@
+name: ui-test-canonical
+version: 1.0.0
+description: Canonical runnable Rhei UI fixture with nested tasks, dependencies, mock agents, mock programs, artifact contracts, fan-out, polling, counted loops, callbacks, generated tasks, snapshots, gates, and terminal states.
+
+inputs:
+  - name: plan_title
+    description: Title for the instantiated UI test workspace.
+    type: string
+    default: Rhei UI Canonical Test
+
+  - name: scenario_name
+    description: Human-readable scenario name shown in the workspace overview and mock artifacts.
+    type: string
+    default: dashboard checkout flow
+
+  - name: primary_target
+    description: Mock agent target used for implementation and fix-loop states.
+    type: string
+    default: mock-agent[yolo]:mock:ui-implementer
+
+  - name: review_targets
+    description: Mock targets that run in parallel during the review fan-out state.
+    type: array
+    items:
+      type: string
+    default:
+      - mock-agent[yolo]:mock:review-alpha
+      - mock-agent[slow]:mock:review-beta
+
+  - name: loop_passes
+    description: Number of counted fix-loop visits before the task reaches the human gate.
+    type: number
+    default: 2
+
+  - name: poll_interval
+    description: Delay between mock polling attempts.
+    type: string
+    default: 1s
+    validate: "^[0-9]+[smh]$"
+
+  - name: poll_attempts
+    description: Number of mock poll attempts before the poll task becomes ready.
+    type: number
+    default: 2
+
+  - name: step_delay_seconds
+    description: Default per-node sleep for mock agents and scripts; override at run time with MOCK_NODE_DELAY_SECONDS.
+    type: number
+    default: 0.1
+
+  - name: include_generated_followup
+    description: Whether the aggregate transition callback should append one generated follow-up task.
+    type: boolean
+    default: true

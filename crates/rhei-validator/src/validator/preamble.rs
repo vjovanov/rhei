@@ -160,6 +160,11 @@ pub struct CustomAgentProfile {
     /// When `true`, the prompt is piped to stdin instead of passed via flag.
     #[serde(default)]
     pub stdin_prompt: bool,
+    /// When `true`, stdin is held open after the initial prompt so the live
+    /// dashboard can deliver intervention messages. Only valid for agents that
+    /// start work without waiting for stdin EOF.
+    #[serde(default)]
+    pub intervene_stdin: bool,
     /// Default timeout for this agent (e.g., `"30m"`).
     #[serde(default)]
     pub timeout: Option<String>,

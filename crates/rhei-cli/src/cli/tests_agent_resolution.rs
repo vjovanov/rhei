@@ -192,6 +192,7 @@
             None,
             "task-1",
             "pending",
+            7,
             &tooling,
             runtime_dir.path(),
         );
@@ -213,6 +214,7 @@
         assert_eq!(envs.get("RHEI_MODEL").map(String::as_str), Some("impl-fast"));
         assert_eq!(envs.get("RHEI_MODEL_PROVIDER").map(String::as_str), Some("anthropic"));
         assert_eq!(envs.get("RHEI_MODEL_NAME").map(String::as_str), Some("claude-sonnet-4-6"));
+        assert_eq!(envs.get("RHEI_VISIT_COUNT").map(String::as_str), Some("7"));
     }
 
     #[test]
@@ -241,6 +243,7 @@
             None,
             "task-1",
             "pending",
+            1,
             &tooling,
             runtime_dir.path(),
         );
@@ -331,12 +334,14 @@
             None,
             "task-log",
             "pending",
+            1,
             &tooling,
             &log_path,
             dir.path(),
             None,
             0,
             recorder,
+            None,
         )
         .expect("agent runs");
 
@@ -390,6 +395,7 @@
             None,
             "analysis",
             "analyze",
+            1,
             &tooling,
             runtime_dir.path(),
         );

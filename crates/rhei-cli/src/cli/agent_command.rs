@@ -7,7 +7,8 @@
 /// `-- ` is appended after the model flag when `stdin_prompt` is `true`, to
 /// match `codex exec -- `-style invocations that expect stdin. MCP and skill
 /// flags follow after the `--` so the optional positional stdin separator
-/// stays adjacent to the model flag.
+/// stays adjacent to the model flag. `intervene_stdin` also requests a stdin
+/// pipe, but does not change prompt flag placement by itself.
 ///
 /// `runtime_dir` is used to materialize an MCP config file for agents that
 /// declare `mcp_config_flag` (e.g. `claude-code --mcp-config <path>`). The
@@ -21,6 +22,7 @@ fn build_agent_command(
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
+    visit_count: u64,
     tooling: &ResolvedTooling,
     runtime_dir: &Path,
 ) -> std::process::Command {
@@ -53,9 +55,10 @@ fn build_agent_command(
         cmd.arg(arg);
     }
 
-    if profile.stdin_prompt {
+    if profile.stdin_prompt || profile.intervene_stdin {
         cmd.stdin(std::process::Stdio::piped());
-    } else if let Some(flag) = &profile.prompt_flag {
+    }
+    if let (false, Some(flag)) = (profile.stdin_prompt, &profile.prompt_flag) {
         cmd.arg(flag).arg(prompt);
     }
 
@@ -102,6 +105,7 @@ fn build_agent_command(
     cmd.env("RHEI_PLAN_PATH", plan_path)
         .env("RHEI_TASK_ID", task_id)
         .env("RHEI_STATE", state_name)
+        .env("RHEI_VISIT_COUNT", visit_count.to_string())
         .env("RHEI_AGENT", id);
     if let Some(path) = state_machine_path {
         cmd.env("RHEI_STATE_MACHINE_PATH", path);

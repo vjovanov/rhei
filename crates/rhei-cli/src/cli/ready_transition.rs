@@ -50,7 +50,7 @@ fn find_ready_tasks<'a>(
     let mut all_tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all_tasks);
 
-    // Build a map of task id → current state for dependency lookups.
+    // Build a map of every task node's state for dependency lookups. §FS-rhei-run.3
     let state_map: HashMap<&TaskId, String> = all_tasks
         .iter()
         .map(|t| (&t.id, normalized_state_name(t.state.as_str(), machine)))
@@ -58,17 +58,10 @@ fn find_ready_tasks<'a>(
 
     let mut ready = Vec::new();
 
-    let scan_tasks: Vec<&rhei_core::ast::Task> = if leaf_only {
-        all_tasks
-    } else {
-        rhei.tasks.iter().collect()
-    };
-
-    for task in scan_tasks {
+    for task in all_tasks {
         if leaf_only && !task.children.is_empty() {
             continue;
         }
-
         let current_state = task.state.as_str();
 
         // Skip tasks already in a terminal or gating state.

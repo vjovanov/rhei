@@ -28,6 +28,7 @@ include!("cli/agent_resolution.rs");
 include!("cli/run_helpers.rs");
 include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");
+include!("cli/intervene.rs");
 include!("cli/accounting.rs");
 include!("cli/programs.rs");
 include!("cli/snapshot_records.rs");
@@ -46,6 +47,8 @@ include!("cli/complete_reset_commands.rs");
 include!("cli/complete_reset_rewrites.rs");
 include!("cli/render_install_commands.rs");
 include!("cli/install_skill_agents.rs");
+include!("cli/viz_command.rs");
+include!("cli/intervene_command.rs");
 include!("cli/diagnostics.rs");
 
 #[cfg(test)]

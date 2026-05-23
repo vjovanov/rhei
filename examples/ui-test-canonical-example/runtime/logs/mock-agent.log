@@ -1,0 +1,14 @@
+2026-05-23T12:31:21+02:00 task=full-pipeline state=collect-inputs target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer started
+2026-05-23T12:31:21+02:00 task=full-pipeline state=collect-inputs target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer completed
+2026-05-23T12:31:21+02:00 task=full-pipeline.snapshot-inherit-ancestor state=inherit-ancestor target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer started
+2026-05-23T12:31:21+02:00 task=full-pipeline.snapshot-inherit-ancestor state=inherit-ancestor target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer completed
+2026-05-23T12:31:23+02:00 task=full-pipeline state=mock-implement target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer started
+2026-05-23T12:31:23+02:00 task=full-pipeline state=mock-implement target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer completed
+2026-05-23T12:31:25+02:00 task=full-pipeline state=parallel-review target=mock-agent-yolo-mock-review-alpha mode=yolo model=review-alpha started
+2026-05-23T12:31:25+02:00 task=full-pipeline state=parallel-review target=mock-agent-yolo-mock-review-alpha mode=yolo model=review-alpha completed
+2026-05-23T12:31:25+02:00 task=full-pipeline state=parallel-review target=mock-agent-slow-mock-review-beta mode=slow model=review-beta started
+2026-05-23T12:31:25+02:00 task=full-pipeline state=parallel-review target=mock-agent-slow-mock-review-beta mode=slow model=review-beta completed
+2026-05-23T12:31:26+02:00 task=full-pipeline state=fix-loop target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer started
+2026-05-23T12:31:26+02:00 task=full-pipeline state=fix-loop target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer completed
+2026-05-23T12:31:27+02:00 task=full-pipeline state=fix-loop target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer started
+2026-05-23T12:31:27+02:00 task=full-pipeline state=fix-loop target=mock-agent-yolo-mock-ui-implementer mode=yolo model=ui-implementer completed

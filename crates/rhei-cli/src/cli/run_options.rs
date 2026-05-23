@@ -170,7 +170,44 @@ impl RunOptions {
 struct ActiveRunFrontend {
     sink: Arc<dyn rhei_tui::EventSink>,
     dashboard: Option<Arc<rhei_tui::DashboardSink>>,
+    /// The intervene registry, present only when the dashboard is live. The run
+    /// loop registers each running agent's stdin here so `/intervene` can reach
+    /// it. AR §7.
+    intervene: Option<Arc<RunInterveneSink>>,
     _frontend: Option<rhei_tui::Frontend>,
+}
+
+struct RunGateTransitionSink {
+    input: PathBuf,
+    machine: rhei_validator::StateMachine,
+    callback_paths: CallbackPaths,
+    no_callbacks: bool,
+}
+
+impl RunGateTransitionSink {
+    fn new(
+        input: PathBuf,
+        machine: rhei_validator::StateMachine,
+        callback_paths: CallbackPaths,
+        no_callbacks: bool,
+    ) -> Self {
+        Self { input, machine, callback_paths, no_callbacks }
+    }
+}
+
+impl rhei_tui::GateTransitionSink for RunGateTransitionSink {
+    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+        transition_dashboard_gate(
+            &self.input,
+            &self.machine,
+            &self.callback_paths,
+            task_id,
+            from,
+            to,
+            self.no_callbacks,
+        )
+        .map_err(|err| err.to_string())
+    }
 }
 
 impl ActiveRunFrontend {
@@ -203,30 +240,53 @@ impl ActiveRunFrontend {
 fn start_run_frontend(
     workspace_root: &Path,
     plan_input: &Path,
+    callback_paths: &CallbackPaths,
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
+    machine: &rhei_validator::StateMachine,
 ) -> ActiveRunFrontend {
     if opts.dry_run() {
         return ActiveRunFrontend {
             sink: Arc::new(rhei_tui::StdoutSink::new()),
             dashboard: None,
+            intervene: None,
             _frontend: None,
         };
     }
 
     let frontend =
         rhei_tui::select_frontend(workspace_root, opts.frontend_kind(), parallel, total_tasks);
+    let mut intervene: Option<Arc<RunInterveneSink>> = None;
     let dashboard = if opts.dashboard_enabled(frontend.is_tui) {
         let plan_path = plan_input.to_path_buf();
-        let loader: rhei_tui::PlanLoader = Arc::new(move || load_plan_for_dashboard(&plan_path));
-        match rhei_tui::DashboardSink::start_with_plan(
+        // The loader re-reads the plan and builds the full `VizModel` (flatten
+        // machine, derive state) via `rhei-viz`, so the dashboard never parses
+        // plans or resolves machines itself. AR §3, §5.2.
+        let loader_machine = machine.clone();
+        let gate_machine = machine.clone();
+        let loader: rhei_tui::PlanLoader =
+            Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machine));
+        // AR §7: the intervene registry the run loop registers agents into.
+        let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
+        let gate = Arc::new(RunGateTransitionSink::new(
+            plan_input.to_path_buf(),
+            gate_machine,
+            callback_paths.clone(),
+            opts.no_callbacks(),
+        ));
+        match rhei_tui::DashboardSink::start_with_plan_intervene_and_gate(
             workspace_root.to_path_buf(),
             parallel,
             total_tasks,
             Some(loader),
+            Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
+            Some(gate as Arc<dyn rhei_tui::GateTransitionSink>),
         ) {
-            Ok(sink) => Some(Arc::new(sink)),
+            Ok(sink) => {
+                intervene = Some(registry);
+                Some(Arc::new(sink))
+            }
             Err(err) => {
                 frontend.sink.emit(rhei_tui::RunEvent::Message {
                     level: rhei_tui::MessageLevel::Warn,
@@ -245,58 +305,77 @@ fn start_run_frontend(
         frontend.sink.clone()
     };
 
-    ActiveRunFrontend { sink, dashboard, _frontend: Some(frontend) }
+    ActiveRunFrontend { sink, dashboard, intervene, _frontend: Some(frontend) }
 }
 
-/// Re-read the plan from disk and project it into the dashboard's
-/// `PlanSnapshot`. Called on every `/snapshot` request, so failures must be
-/// non-fatal — return `None` and let the dashboard fall back to the last
-/// good snapshot.
-fn load_plan_for_dashboard(plan_path: &Path) -> Option<rhei_tui::PlanSnapshot> {
+fn transition_dashboard_gate(
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    task_id_str: &str,
+    from: &str,
+    to: &str,
+    no_callbacks: bool,
+) -> MietteResult<String> {
+    let loaded = load_plan(input)?;
+    let task = find_task_by_id_str(&loaded.rhei.tasks, task_id_str)
+        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+    let current_state = normalized_state_name(task.state.as_str(), machine);
+    if current_state != from {
+        return Err(miette!(
+            "conflict: Task {} is in state '{}', expected '{}'",
+            task_id_str,
+            task.state,
+            from
+        ));
+    }
+    if !machine.states.get(&current_state).map(|def| def.gating).unwrap_or(false) {
+        return Err(miette!(
+            "Task {} is in state '{}', which is not a gating state",
+            task_id_str,
+            current_state
+        ));
+    }
+    let explicit_transition =
+        machine.transitions().iter().any(|rule| rule.from.0 == from && rule.to.0 == to);
+    if !explicit_transition {
+        return Err(miette!(
+            "transition from '{}' to '{}' is not an explicit human-gate transition",
+            from,
+            to
+        ));
+    }
+
+    let task_file = loaded.task_file(task_id_str, input);
+    let metadata_file = if workspace::is_workspace(input) {
+        input.join("index.rhei.md")
+    } else {
+        task_file.clone()
+    };
+    let effective_to = execute_transition(
+        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        callback_paths,
+        machine,
+        task_id_str,
+        from,
+        to,
+        no_callbacks,
+    )?;
+    let root = result_workspace_root(input, &task_file);
+    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
+    Ok(effective_to)
+}
+
+/// Re-read the plan from disk and build the dashboard's [`VizModel`] via
+/// `rhei-viz` (flatten the resolved machine, derive plan state, classify).
+/// Called on every `/snapshot` request, so failures must be non-fatal — return
+/// `None` and let the dashboard fall back to the last good model. AR §5.2.
+fn load_plan_for_dashboard(
+    plan_path: &Path,
+    machine: &rhei_validator::StateMachine,
+) -> Option<rhei_viz_model::VizModel> {
     let loaded = load_plan(plan_path).ok()?;
-    let mut tasks = Vec::new();
-    fn visit(
-        node: &rhei_core::ast::Task,
-        depth: u8,
-        parent: Option<String>,
-        out: &mut Vec<rhei_tui::DashboardTask>,
-    ) {
-        let id = node.id.to_string();
-        out.push(rhei_tui::DashboardTask {
-            id: id.clone(),
-            title: node.title.clone(),
-            kind: node.kind.clone(),
-            parent,
-            depth,
-            state: node.state.clone(),
-            assignee: node.assignee.clone(),
-            prior: node.prior.iter().map(|p| p.to_string()).collect(),
-            // Result link extraction is best-effort; we look for the well-
-            // known `> **Result:** [id](path)` line that `rhei complete`
-            // emits. Anything else stays None.
-            result_link: extract_result_link(&node.content),
-        });
-        for child in &node.children {
-            visit(child, depth + 1, Some(id.clone()), out);
-        }
-    }
-    for root in &loaded.rhei.tasks {
-        visit(root, 1, None, &mut tasks);
-    }
-    Some(rhei_tui::PlanSnapshot { title: loaded.rhei.title, tasks })
-}
-
-fn extract_result_link(content: &str) -> Option<String> {
-    for line in content.lines() {
-        if let Some(rest) = line.trim_start().strip_prefix("> **Result:**") {
-            // Match `[<id>](<path>)` and return `<path>`. Use the *last*
-            // parenthesis pair so paths containing `(` or `)` are handled.
-            let rparen = rest.rfind(')')?;
-            let lparen = rest[..rparen].rfind('(')?;
-            return Some(rest[lparen + 1..rparen].to_string());
-        }
-    }
-    None
+    Some(rhei_viz::build(&loaded.rhei, machine))
 }
 
 impl

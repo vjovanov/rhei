@@ -102,6 +102,30 @@
     }
 
     #[test]
+    fn parses_viz_command() {
+        let cli = Cli::try_parse_from(["rhei", "viz", "plan.rhei.md", "-o", "out.html", "--open"])
+            .expect("cli should parse");
+        match cli.command {
+            Commands::Viz { input, output, open } => {
+                assert_eq!(input, PathBuf::from("plan.rhei.md"));
+                assert_eq!(output, Some(PathBuf::from("out.html")));
+                assert!(open);
+            }
+            other => panic!("expected viz command, got {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["rhei", "viz", "workspace"]).expect("cli should parse");
+        match cli.command {
+            Commands::Viz { input, output, open } => {
+                assert_eq!(input, PathBuf::from("workspace"));
+                assert!(output.is_none());
+                assert!(!open);
+            }
+            other => panic!("expected viz command, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parses_states_command() {
         let cli = Cli::try_parse_from(["rhei", "states"]).expect("cli should parse");
         match cli.command {
@@ -300,8 +324,19 @@ transitions: []
         opts.standalone.dry_run = true;
         opts.standalone.dashboard = true;
 
-        let frontend =
-            start_run_frontend(Path::new("."), Path::new("missing-plan.rhei.md"), &opts, 1, 0);
+        let frontend = start_run_frontend(
+            Path::new("."),
+            Path::new("missing-plan.rhei.md"),
+            &CallbackPaths {
+                plan_path: PathBuf::from("missing-plan.rhei.md"),
+                state_machine_path: None,
+                working_dir: PathBuf::from("."),
+            },
+            &opts,
+            1,
+            0,
+            &rhei_validator::StateMachine::builtin_default(),
+        );
 
         assert!(frontend.dashboard.is_none());
     }

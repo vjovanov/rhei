@@ -68,6 +68,7 @@ Inspection:
   render      Render a markdown plan into a selected output format
   states      Print the states and allowed transitions for the configured state machine
   list        List tasks in a plan with optional filters
+  viz         Render a self-contained HTML flow visualization of a plan or workspace
 
 Templates:
   templates   List available templates
@@ -76,6 +77,7 @@ Templates:
 Execution:
   transition  Atomically transition a task from one state to another (compare-and-swap)
   run         Execute a plan by advancing tasks through the state machine in dependency order
+  intervene   Send a message to a running agent's stdin during a live run
   cost        Inspect run token and cost accounting artifacts
   snapshot    Inspect, prune, or continue from session snapshots
   next        Transition the next ready task to the next state
@@ -247,6 +249,26 @@ enum Commands {
         #[command(flatten)]
         snapshot: SnapshotExecutionFlags,
     },
+    /// Send a message to a running agent's stdin during a live run
+    ///
+    /// Headless sibling of the dashboard's intervene composer: it discovers the
+    /// live run's loopback URL from runtime/dashboard.json and delivers the
+    /// message to the agent's stdin. Only reaches agents whose profile keeps
+    /// stdin open (intervene_stdin); it never transitions or edits the plan.
+    Intervene {
+        /// Plan file or workspace root of the live run (locates runtime/dashboard.json)
+        #[arg(long, value_name = "RHEI_PLAN", default_value = ".", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        plan: PathBuf,
+        /// Id of the running task whose agent should receive the message
+        #[arg(long, value_name = "ID", add = ArgValueCompleter::new(complete_task_id))]
+        task: String,
+        /// Worker slot to disambiguate when a task fans out to several agents
+        #[arg(long, value_name = "N")]
+        slot: Option<u16>,
+        /// The message delivered to the agent's stdin
+        #[arg(long, short, value_name = "TEXT")]
+        message: String,
+    },
     /// Inspect run token and cost accounting artifacts
     Cost {
         /// Path to the markdown plan file (.rhei.md) or workspace directory
@@ -261,6 +283,18 @@ enum Commands {
         /// Group run totals in text/JSON output
         #[arg(long, value_enum, default_value = "node")]
         by: CostGroup,
+    },
+    /// Render a self-contained HTML flow visualization of a plan or workspace
+    Viz {
+        /// Path to the markdown plan file (.rhei.md) or a workspace directory
+        #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: PathBuf,
+        /// Write the HTML here (default: runtime/<input>.html, or runtime/rhei-viz.html for a workspace)
+        #[arg(long, short, value_name = "FILE")]
+        output: Option<PathBuf>,
+        /// Open the rendered file in the default browser
+        #[arg(long)]
+        open: bool,
     },
     /// Inspect, prune, or continue from session snapshots
     Snapshot {

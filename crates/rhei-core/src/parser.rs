@@ -17,7 +17,9 @@ mod workspace;
 pub use plan::parse;
 pub use recovery::parse_collect;
 pub use workspace::{
-    parse_workspace_index, parse_workspace_tasks, parse_workspace_tasks_collect, WorkspaceIndex,
+    parse_workspace_index, parse_workspace_tasks, parse_workspace_tasks_collect,
+    parse_workspace_tasks_collect_with_structure, parse_workspace_tasks_with_structure,
+    WorkspaceIndex,
 };
 
 use crate::ast::{Metadata, Structure, DEFAULT_MAX_LEVELS, DEFAULT_NODE_KIND, MAX_ALLOWED_LEVELS};

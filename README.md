@@ -67,6 +67,8 @@ The runtime currently supports:
   `runtime/`
 - rendering plans as JSON, GitHub-style markdown, or terminal-oriented progress
   output
+- rendering a self-contained HTML **Flow** visualization of a plan or workspace
+  with `rhei viz` (the same surface `rhei run` serves live)
 
 The primary reference documents are:
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — **start here** for tool usage and specification index
@@ -228,6 +230,37 @@ Render a terminal progress report without ANSI color:
 ```bash
 cargo run -p rhei-cli -- render examples/release-automation.rhei.md --format progress --no-color
 ```
+
+Render a self-contained HTML Flow visualization and open it in the browser:
+
+```bash
+cargo run -p rhei-cli -- viz examples/release-automation.rhei.md --open
+```
+
+`rhei viz <plan|workspace>` writes a single offline HTML page — the plan, every
+task and subtask with its state, the resolved state machine, and the surroundings
+inspector — under the workspace's `runtime/` directory (`runtime/<input>.html`,
+or `runtime/rhei-viz.html` for a workspace directory), the same place a live run
+freezes its final dashboard, or to `--output <FILE>`. Writing under `runtime/`
+keeps generated HTML out of the source tree. It is the same Flow surface
+`rhei run` serves live, frozen to a file; the live agent terminal and intervene
+composer are inert in the static page. See
+[`docs/functional-spec/rhei-viz.spec.md`](docs/functional-spec/rhei-viz.spec.md).
+
+Message a running agent during a live run (the headless sibling of the Flow
+dashboard's intervene composer):
+
+```bash
+cargo run -p rhei-cli -- intervene --plan examples/release-automation.rhei.md \
+  --task 3 -m "focus the review on error handling"
+```
+
+`rhei intervene` discovers the live run's dashboard from `runtime/dashboard.json`
+and writes the message to the target agent's stdin — the same `/intervene`
+channel the dashboard composer uses, never a plan transition. It only reaches
+agents whose profile keeps stdin open (`intervene_stdin`); see [Enabling live
+intervention](docs/functional-spec/rhei-agents.spec.md#112-agents). Every
+delivery is recorded to `runtime/interventions.log`.
 
 Claim the next ready task and inspect its instructions:
 

@@ -1,0 +1,21 @@
+=== rhei agent log v1 ===
+agent: mock-agent
+mode: yolo
+target: mock-agent[yolo]:mock:ui-implementer
+model: ui-implementer
+provider: mock
+model_name: ui-implementer
+task: full-pipeline
+state: collect-inputs
+started: 2026-05-23T10:31:21Z
+timeout: 30s
+plan: /home/vjovanov/c/rhei/examples/ui-test-canonical-example
+===
+
+mock agent completed task=full-pipeline state=collect-inputs target=mock-agent-yolo-mock-ui-implementer
+
+=== exit ===
+code: 0
+duration: 0s
+ended: 2026-05-23T10:31:21Z
+===

@@ -1,0 +1,3 @@
+{"session_id":"mock-full-pipeline-parallel-review-mock-agent-slow-mock-review-beta","provider":"mock","model":"review-beta"}
+{"role":"user","content":"parallel-review prompt for full-pipeline"}
+{"role":"assistant","content":"mock parallel-review output for full-pipeline"}

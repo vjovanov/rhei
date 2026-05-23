@@ -255,7 +255,9 @@ fn format_dry_run_transition(task_id: &str, from: &str, to: &str) -> String {
 
 fn format_state_counts(rhei: &rhei_core::ast::Rhei) -> String {
     let mut counts = BTreeMap::<&str, usize>::new();
-    for task in &rhei.tasks {
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    for task in tasks {
         *counts.entry(task.state.as_str()).or_default() += 1;
     }
 
@@ -264,6 +266,24 @@ fn format_state_counts(rhei: &rhei_core::ast::Rhei) -> String {
         .map(|(state, count)| format!("{state}={count}"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn total_task_count(rhei: &rhei_core::ast::Rhei) -> usize {
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    tasks.len()
+}
+
+fn terminal_task_count(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> usize {
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    tasks
+        .into_iter()
+        .filter(|task| is_terminal_state(task.state.as_str(), machine))
+        .count()
 }
 
 fn newly_discovered_tasks(
@@ -313,8 +333,10 @@ fn earliest_pending_poll_deadline(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
 ) -> Option<u64> {
-    rhei.tasks
-        .iter()
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    tasks
+        .into_iter()
         .filter_map(|task| {
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).and_then(|def| def.poll.as_ref())?;
@@ -328,15 +350,16 @@ fn remaining_work_is_only_gating_or_poll_blocked(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
 ) -> bool {
-    let state_map: HashMap<&TaskId, String> = rhei
-        .tasks
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    let state_map: HashMap<&TaskId, String> = tasks
         .iter()
         .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machine)))
         .collect();
 
     fn blocked_by_gate<'a>(
         task: &'a rhei_core::ast::Task,
-        tasks: &'a [rhei_core::ast::Task],
+        tasks: &[&'a rhei_core::ast::Task],
         state_map: &HashMap<&'a TaskId, String>,
         machine: &rhei_validator::StateMachine,
         seen: &mut HashSet<TaskId>,
@@ -362,7 +385,7 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         })
     }
 
-    rhei.tasks.iter().filter(|task| !is_terminal_state(task.state.as_str(), machine)).all(|task| {
+    tasks.iter().copied().filter(|task| !is_terminal_state(task.state.as_str(), machine)).all(|task| {
         let state = normalized_state_name(task.state.as_str(), machine);
         if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
             return true;
@@ -372,6 +395,6 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         {
             return true;
         }
-        blocked_by_gate(task, &rhei.tasks, &state_map, machine, &mut HashSet::new())
+        blocked_by_gate(task, &tasks, &state_map, machine, &mut HashSet::new())
     })
 }

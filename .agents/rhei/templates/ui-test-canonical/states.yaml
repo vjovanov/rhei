@@ -1,0 +1,502 @@
+# UI Test Canonical State Machine
+# ===============================
+#
+# Initial state: collect-inputs
+# Final states: completed, cancelled
+# Gating states: human-gate, blocked
+#
+# Main pipeline path (Task full-pipeline):
+#   collect-inputs                (personality + target: primary_target)
+#       -> script-normalize
+#       -> mock-implement        (emits snapshot `implementation` on: success)
+#       -> script-build
+#       -> parallel-review       (all_targets fan-out: review_targets)
+#       -> aggregate             (callback appends generated follow-up task)
+#       -> fix-loop              (inherits `implementation` from self, visits: loop_passes)
+#       -> human-gate            (manual stop)
+#
+# Polling path (Task polling):
+#   script-poll -> script-poll   (poll self-loop while exit 75)
+#       -> script-check -> completed
+#
+# Poll-exhaustion path (Task poll-exhaustion):
+#   poll-exhaust -> poll-exhaust (never ready) -> blocked (pollAttempts >= pollMaxAttempts)
+#
+# Live-failure path (Task live-failure-blocked):
+#   script-fail -> blocked       (exit_code: [1, 2, 42] array match)
+#
+# Tooling-unavailable paths (Tasks skill/mcp-unavailable-blocked):
+#   agent-missing-skill -> blocked   (skill_unavailable: [absent-lens])
+#   agent-missing-mcp   -> blocked   (mcp_unavailable: [mock-mcp])
+#
+# Ancestor-snapshot path (Task full-pipeline.snapshot-inherit-ancestor):
+#   inherit-ancestor -> completed    (inherit `implementation` from: ancestor,
+#                                     emit `ancestor-verify` on: always)
+#
+# Smoke-check / generated follow-up path:
+#   script-check -> completed        (concurrent; on_enter + on_leave callbacks)
+#
+# Escape paths:
+#   any non-final state -> cancelled
+#   program/agent failure -> blocked
+#
+# Fan-out points:
+#   parallel-review uses all_targets and writes one output per `{target.slug}`.
+#
+# Callback points:
+#   most transitions call `bin/mock-transition.sh log` on_leave;
+#   script-check -> completed also calls `... enter` on_enter;
+#   aggregate -> fix-loop calls `bin/mock-transition.sh aggregate` and can
+#   append one generated follow-up task to the plan file.
+
+name: ui-test-canonical
+version: 1.0.0
+
+states:
+  collect-inputs:
+    description: Mock agent creates raw inputs and notes for the task.
+    initial: true
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    personality: |
+      You are a deterministic intake agent for the canonical UI fixture. Keep
+      every artifact stable across runs so the UI renders identically each time.
+    instructions: |
+      Create raw UI-test inputs for Task {task_id}: {task_title}.
+
+      Write the scenario brief to `{output.raw-inputs.path}` and structured
+      notes to `{output.raw-notes.path}`. Keep the content deterministic.
+    outputs:
+      - name: raw-inputs
+        path: runtime/artifacts/{task_id}/inputs.md
+        format: markdown
+        description: Raw scenario input brief for the task.
+      - name: raw-notes
+        path: runtime/artifacts/{task_id}/notes.json
+        format: json
+        description: Structured mock notes.
+
+  script-normalize:
+    description: Mock script normalizes raw inputs into deterministic JSON.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "normalize"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    inputs:
+      - name: raw-inputs
+        path: runtime/artifacts/{task_id}/inputs.md
+        format: markdown
+      - name: raw-notes
+        path: runtime/artifacts/{task_id}/notes.json
+        format: json
+    outputs:
+      - name: normalized-inputs
+        path: runtime/artifacts/{task_id}/normalized.json
+        format: json
+      - name: io-map
+        path: runtime/artifacts/{task_id}/io-map.md
+        format: markdown
+
+  mock-implement:
+    description: Mock agent writes an implementation artifact and emits a snapshot.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    skills:
+      - id: ui-fixture
+        optional: true
+      - id: absent-lens
+        path: ./skills/absent-lens
+        optional: true
+    snapshot:
+      emit:
+        name: implementation
+        on: success
+    instructions: |
+      Implement the deterministic UI fixture for Task {task_id}: {task_title}.
+
+      Read `{input.normalized-inputs.path}` and `{input.io-map.path}`.
+      Write the implementation summary to `{output.implementation.path}`.
+
+      {if skill.ui-fixture.available}
+      The `ui-fixture` skill is available; mention it in the implementation.
+      {endif}
+      {if skill.absent-lens.available}
+      The optional absent-lens skill unexpectedly resolved.
+      {else}
+      The optional absent-lens skill is absent; continue with the mock fallback.
+      {endif}
+    inputs:
+      - name: normalized-inputs
+        path: runtime/artifacts/{task_id}/normalized.json
+        format: json
+      - name: io-map
+        path: runtime/artifacts/{task_id}/io-map.md
+        format: markdown
+        optional: true
+    outputs:
+      - name: implementation
+        path: runtime/implementation/{task_id}.md
+        format: markdown
+
+  script-build:
+    description: Mock script consumes implementation output and writes build artifacts.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "build"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    inputs:
+      - name: implementation
+        path: runtime/implementation/{task_id}.md
+        format: markdown
+    outputs:
+      - name: build-report
+        path: runtime/build/{task_id}-report.md
+        format: markdown
+      - name: bundle
+        path: runtime/build/{task_id}-bundle.txt
+
+  parallel-review:
+    description: Mock reviewers fan out across all configured review targets.
+    all_targets:
+{% for target in review_targets %}
+      - "{{ target }}"
+{% endfor %}
+    agent_timeout: 30s
+    instructions: |
+      Review Task {task_id}: {task_title} as target `{target}`.
+
+      Read `{input.build-report.path}` and write this target's findings to
+      `{output.review-findings.path}`. Keep the output unique to
+      `{target.slug}`.
+    inputs:
+      - name: build-report
+        path: runtime/build/{task_id}-report.md
+        format: markdown
+    outputs:
+      - name: review-findings
+        path: runtime/reviews/{task_id}-{target.slug}.md
+        format: markdown
+
+  aggregate:
+    description: Mock script aggregates per-target review outputs.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "aggregate"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    outputs:
+      - name: aggregate-report
+        path: runtime/aggregate/{task_id}.md
+        format: markdown
+      - name: aggregate-data
+        path: runtime/aggregate/{task_id}.json
+        format: json
+
+  fix-loop:
+    description: Mock agent runs a counted fix loop before the human gate.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    visits: {{ loop_passes }}
+    snapshot:
+      inherit:
+        name: implementation
+        from: self
+        required: false
+        select:
+          state: mock-implement
+          target: same
+    instructions: |
+      Fix loop visit {visit_count} of {visits} for Task {task_id}: {task_title}.
+
+      Read `{input.aggregate-report.path}`. If a compatible implementation
+      snapshot exists, it has already been preloaded by the runtime.
+      Write this visit's fix notes to `{output.fix-notes.path}`.
+    inputs:
+      - name: aggregate-report
+        path: runtime/aggregate/{task_id}.md
+        format: markdown
+    outputs:
+      - name: fix-notes
+        path: runtime/fixes/{task_id}-visit-{visit_count}.md
+        format: markdown
+
+  script-poll:
+    description: Mock polling program returns 75 until the final ready attempt.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "poll"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    poll:
+      interval: {{ poll_interval }}
+      max_attempts: {{ poll_attempts }}
+    outputs:
+      - name: poll-ready
+        path: runtime/poll/{task_id}-ready.json
+        format: json
+
+  script-check:
+    description: Mock script writes a small smoke-check artifact and completes.
+    concurrent: true
+    program:
+      command: ["bash", "./bin/mock-program.sh", "check"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    outputs:
+      - name: check-report
+        path: runtime/checks/{task_id}.md
+        format: markdown
+
+  script-fail:
+    description: Mock program that always fails so a live failure routes to blocked.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "fail"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    outputs:
+      - name: failure-report
+        path: runtime/failures/{task_id}.md
+        format: markdown
+
+  poll-exhaust:
+    description: Mock poll that never becomes ready, so it exhausts its attempts.
+    program:
+      command: ["bash", "./bin/mock-program.sh", "poll-exhaust"]
+      env:
+        MOCK_SCENARIO: "{{ scenario_name }}"
+    program_timeout: 30s
+    poll:
+      interval: {{ poll_interval }}
+      max_attempts: {{ poll_attempts }}
+    outputs:
+      - name: poll-pending
+        path: runtime/poll/{task_id}-pending.json
+        format: json
+
+  inherit-ancestor:
+    description: Mock agent that inherits an ancestor's implementation snapshot.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    snapshot:
+      inherit:
+        name: implementation
+        from: ancestor
+        required: false
+        select:
+          state: mock-implement
+          target: same
+      emit:
+        name: ancestor-verify
+        on: always
+    instructions: |
+      Verify ancestor snapshot inheritance for Task {task_id}: {task_title}.
+
+      If a compatible implementation snapshot exists on an ancestor task, the
+      runtime has already preloaded it. Write a short confirmation to
+      `{output.inherit-report.path}`.
+    outputs:
+      - name: inherit-report
+        path: runtime/inherit/{task_id}.md
+        format: markdown
+
+  agent-missing-skill:
+    description: Mock agent state that requires an absent skill, routing to blocked.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    skills:
+      - id: absent-lens
+        path: ./skills/absent-lens
+    instructions: |
+      This state requires the `absent-lens` skill, which does not exist, so the
+      runtime should route to blocked via skill_unavailable before running.
+    outputs:
+      - name: skill-report
+        path: runtime/skills/{task_id}.md
+        format: markdown
+
+  agent-missing-mcp:
+    description: Mock agent state that requires an unavailable MCP server, routing to blocked.
+    target: "{{ primary_target }}"
+    agent_timeout: 30s
+    mcp_servers:
+      - id: mock-mcp
+    instructions: |
+      This state requires the `mock-mcp` server, which fails to start, so the
+      runtime should route to blocked via mcp_unavailable before running.
+    outputs:
+      - name: mcp-report
+        path: runtime/mcp/{task_id}.md
+        format: markdown
+
+  human-gate:
+    description: Human approval stop for UI testing.
+    gating: true
+    instructions: |
+      Stop here so the live UI can render a human gate. A human may transition
+      this task to `completed` or `cancelled`.
+
+  blocked:
+    description: Mock failure or exhausted poll gate for UI testing.
+    gating: true
+    instructions: |
+      Stop here for operator inspection. This state intentionally remains
+      non-terminal so blocked work is visible in the UI.
+
+  completed:
+    description: Task finished successfully.
+    final: true
+
+  cancelled:
+    description: Task was cancelled.
+    final: true
+
+transitions:
+  - from: collect-inputs
+    to: script-normalize
+    description: Raw inputs are ready for normalization.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-normalize
+    to: mock-implement
+    description: Normalization succeeded.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-normalize
+    to: blocked
+    description: Normalization failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: mock-implement
+    to: script-build
+    description: Implementation artifact is ready for the build script.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-build
+    to: parallel-review
+    description: Build succeeded and reviewers can fan out.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-build
+    to: blocked
+    description: Build failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: parallel-review
+    to: aggregate
+    description: All review target outputs exist.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: aggregate
+    to: fix-loop
+    description: Aggregate report written; optional generated follow-up is appended.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh aggregate"
+  - from: aggregate
+    to: blocked
+    description: Aggregate failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: fix-loop
+    to: fix-loop
+    description: Continue counted fix loop.
+    condition: visitCount < visits
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: fix-loop
+    to: human-gate
+    description: Counted fix loop finished; wait for human inspection.
+    condition: visitCount >= visits
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-poll
+    to: script-poll
+    description: Mock external system is still running.
+    exit_code: 75
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-poll
+    to: script-check
+    description: Mock external system is ready.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-poll
+    to: blocked
+    description: Poll attempts exhausted.
+    condition: pollAttempts >= pollMaxAttempts
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-check
+    to: completed
+    description: Smoke check passed.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_enter: "cli:bash ./bin/mock-transition.sh enter"
+  - from: script-check
+    to: blocked
+    description: Smoke check failed.
+    exit_code: nonzero
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: script-fail
+    to: completed
+    description: Mock failure program unexpectedly succeeded.
+    exit_code: 0
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: script-fail
+    to: blocked
+    description: Mock program failed; route the live failure to blocked.
+    exit_code: [1, 2, 42]
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: poll-exhaust
+    to: poll-exhaust
+    description: Mock external system is still running.
+    exit_code: 75
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: poll-exhaust
+    to: blocked
+    description: Poll attempts exhausted without becoming ready.
+    condition: pollAttempts >= pollMaxAttempts
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: inherit-ancestor
+    to: completed
+    description: Ancestor snapshot inheritance verified.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: agent-missing-skill
+    to: blocked
+    description: Required skill is unavailable; route to blocked.
+    skill_unavailable: [absent-lens]
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: agent-missing-skill
+    to: completed
+    description: Skill unexpectedly resolved.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: agent-missing-mcp
+    to: blocked
+    description: Required MCP server is unavailable; route to blocked.
+    mcp_unavailable: [mock-mcp]
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+  - from: agent-missing-mcp
+    to: completed
+    description: MCP server unexpectedly available.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"
+
+  - from: human-gate
+    to: completed
+    description: Human approved the fixture output.
+  - from: human-gate
+    to: cancelled
+    description: Human rejected or abandoned the fixture output.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel any non-final task.
+    on_leave: "cli:bash ./bin/mock-transition.sh log"

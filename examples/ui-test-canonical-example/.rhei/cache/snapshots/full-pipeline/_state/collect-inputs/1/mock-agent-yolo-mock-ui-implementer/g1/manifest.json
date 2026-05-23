@@ -1,0 +1,35 @@
+{
+  "completion": "success",
+  "created_at": "2026-05-23T10:31:22Z",
+  "declared_model": "ui-implementer",
+  "declared_provider": "mock",
+  "emitting_state": "collect-inputs",
+  "generation": 1,
+  "observed_model": "ui-implementer",
+  "observed_provider": "mock",
+  "parent_ref": null,
+  "produced_by": "orchestrator",
+  "rhei_version": "0.1.0",
+  "session_id": "mock-session",
+  "session_layout": {
+    "ext": "jsonl",
+    "kind": "FlatById"
+  },
+  "snapshot_name": "_state",
+  "target": {
+    "resolved": {
+      "agent": "mock-agent",
+      "mode": "yolo",
+      "model": "ui-implementer",
+      "provider": "mock"
+    },
+    "selector": "mock-agent[yolo]:mock:ui-implementer",
+    "slug": "mock-agent-yolo-mock-ui-implementer"
+  },
+  "task_id": "full-pipeline",
+  "transcript_bytes": 276,
+  "transcript_path": "transcript.jsonl",
+  "transcript_sha256": "ab95adab51868b82ff14d13db9d5eade2277a7d81ef1ce6d37c7e07e11f65533",
+  "version": 1,
+  "visit": 1
+}

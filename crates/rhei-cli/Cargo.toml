@@ -14,6 +14,8 @@ rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1
 rhei-validator = { package = "rhei-cli-validator", path = "../rhei-validator", version = "=0.1.0" }
 rhei-output = { package = "rhei-cli-output", path = "../rhei-output", version = "=0.1.0" }
 rhei-tui = { package = "rhei-cli-tui", path = "../rhei-tui", version = "=0.1.0" }
+rhei-viz = { package = "rhei-cli-viz", path = "../rhei-viz", version = "=0.1.0" }
+rhei-viz-model = { package = "rhei-cli-viz-model", path = "../rhei-viz-model", version = "=0.1.0" }
 clap = { version = "=4.5.60", features = ["derive"] }
 clap_complete = { version = "=4.5.60", features = ["unstable-dynamic"] }
 # `cargo install --path` ignores the workspace lockfile, so pin clap_lex to a

@@ -94,7 +94,20 @@ fn execute_transition_with_origin(
     // Parse to validate structure and find the task.
     // Try full plan parse first; fall back to workspace task-file parse.
     let target_id = parse_task_id(task_id_str);
-    let task_info = find_task_transition_info(&task_raw, task_file, &target_id, task_id_str)?;
+    let workspace_index = if task_file == metadata_file {
+        None
+    } else {
+        Some(rhei_core::parser::parse_workspace_index(&metadata_raw).map_err(|err| {
+            miette!("failed to parse workspace index for transition metadata: {}", err.message)
+        })?)
+    };
+    let task_info = find_task_transition_info(
+        &task_raw,
+        task_file,
+        workspace_index.as_ref().map(|index| &index.structure),
+        &target_id,
+        task_id_str,
+    )?;
     let current_state_raw = task_info.current_state;
     let current_state = normalized_state_name(&current_state_raw, machine);
     let metadata = if task_file == metadata_file {
@@ -104,11 +117,7 @@ fn execute_transition_with_origin(
             })?
             .metadata
     } else {
-        rhei_core::parser::parse_workspace_index(&metadata_raw)
-            .map_err(|err| {
-                miette!("failed to parse workspace index for transition metadata: {}", err.message)
-            })?
-            .metadata
+        workspace_index.and_then(|index| index.metadata)
     };
 
     // Compare-and-swap: verify the task's current state matches `from`.
@@ -488,6 +497,7 @@ fn execute_transition_with_origin(
 fn find_task_transition_info(
     raw: &str,
     file_path: &Path,
+    workspace_structure: Option<&rhei_core::ast::Structure>,
     target_id: &TaskId,
     task_id_str: &str,
 ) -> MietteResult<TransitionTaskInfo> {
@@ -503,7 +513,11 @@ fn find_task_transition_info(
     }
 
     // Try workspace task-file parse.
-    if let Ok(tasks) = rhei_core::parser::parse_workspace_tasks(raw) {
+    let workspace_tasks = match workspace_structure {
+        Some(structure) => rhei_core::parser::parse_workspace_tasks_with_structure(raw, structure),
+        None => rhei_core::parser::parse_workspace_tasks(raw),
+    };
+    if let Ok(tasks) = workspace_tasks {
         if let Some(task) = find_task_by_id(&tasks, target_id) {
             return Ok(TransitionTaskInfo {
                 current_state: task.state.as_str().to_string(),

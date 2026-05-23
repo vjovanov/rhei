@@ -9,7 +9,7 @@ use crate::event::{
     UsageSummary,
 };
 
-use super::{now_ms, system_time_ms, DashboardTask, RECENT_LIMIT, SLOT_TRAFFIC_LIMIT};
+use super::{now_ms, system_time_ms, RECENT_LIMIT, SLOT_TRAFFIC_LIMIT};
 
 #[derive(Clone, Serialize)]
 pub(super) struct DashboardState {
@@ -83,12 +83,21 @@ impl DashboardState {
                 self.push_recent("info", format!("pass {pass}: {} ready", ready.len()));
             }
             RunEvent::SlotAssigned {
-                slot, task, from, to, agent, log_path, wall_clock, ..
+                slot,
+                task,
+                from,
+                to,
+                agent,
+                template_context,
+                log_path,
+                wall_clock,
+                ..
             } => {
                 let slot_state = self.slot_mut(*slot);
                 slot_state.active = true;
                 slot_state.task = Some(task.clone());
                 slot_state.agent = agent.clone();
+                slot_state.template_context = template_context.clone();
                 slot_state.state = Some(to.clone());
                 // Only record a transition when the worker actually moved
                 // states. `from == to` means the engine started a worker in
@@ -255,6 +264,8 @@ pub(super) struct DashboardSlot {
     pub(super) active: bool,
     pub(super) task: Option<String>,
     pub(super) agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) template_context: Option<rhei_viz_model::TemplateContext>,
     pub(super) state: Option<String>,
     pub(super) transition: Option<String>,
     pub(super) log_path: Option<String>,
@@ -315,35 +326,10 @@ impl From<&RunSummary> for DashboardSummary {
     }
 }
 
-/// Composite snapshot served at `/snapshot`. Built per request from the
-/// event-driven `DashboardState` plus the lazily-loaded plan view.
-#[derive(Serialize)]
-pub(super) struct SnapshotPayload<'a> {
-    #[serde(flatten)]
-    pub(super) state: &'a DashboardState,
-    pub(super) plan_title: Option<String>,
-    /// Derived from top-level task state for the dashboard visualization tabs.
-    /// §FS-rhei-viz.3
-    pub(super) plan_state: Option<String>,
-    pub(super) tasks: Vec<TaskRow>,
-    pub(super) auto_links: Vec<DashboardLink>,
-}
-
-#[derive(Serialize)]
-pub(super) struct TaskRow {
-    #[serde(flatten)]
-    pub(super) task: DashboardTask,
-    /// `Some(slot_index)` if a worker is currently running this task.
-    pub(super) in_slot: Option<u16>,
-    /// `true` if this task was ready this pass but was held back by
-    /// non-`concurrent` scheduling. Cleared at `PassStarted`.
-    pub(super) deferred_this_pass: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) accounting: Option<TaskAccounting>,
-}
-
+/// Compact per-task accounting rollups carried in the snapshot's `task_runtime`
+/// overlay. §FS-rhei-cost-accounting §6, §10.
 #[derive(Clone, Serialize)]
-pub(super) struct TaskAccounting {
+pub(crate) struct TaskAccounting {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) direct: Option<AccountingRunSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,7 +337,7 @@ pub(super) struct TaskAccounting {
 }
 
 pub(super) fn task_accounting_for_tasks(
-    tasks: &[DashboardTask],
+    tasks: &[rhei_viz_model::TaskRow],
     invocations: &[DashboardUsageRecord],
 ) -> std::collections::BTreeMap<String, TaskAccounting> {
     // §FS-rhei-cost-accounting.6: Dashboard derives direct and subtree totals.
@@ -538,56 +524,4 @@ fn summarize_coverage(
     } else {
         UsageCoverage::None
     }
-}
-
-#[cfg(test)]
-pub(super) fn derive_plan_state(tasks: &[DashboardTask]) -> String {
-    derive_plan_state_with_active_roots(tasks, &HashSet::new())
-}
-
-pub(super) fn derive_plan_state_with_active_roots(
-    tasks: &[DashboardTask],
-    active_task_ids: &HashSet<&str>,
-) -> String {
-    let root_tasks: Vec<&DashboardTask> =
-        tasks.iter().filter(|task| task.parent.is_none() || task.depth == 1).collect();
-    let root_states: Vec<&str> = root_tasks.iter().map(|task| task.state.as_str()).collect();
-
-    if root_states.is_empty() {
-        return "pending".to_string();
-    }
-    if root_tasks.iter().any(|task| active_task_ids.contains(task.id.as_str())) {
-        return "active".to_string();
-    }
-    if root_states.iter().all(|state| *state == "draft") {
-        return "draft".to_string();
-    }
-    if root_states.iter().all(|state| *state == "completed") {
-        return "completed".to_string();
-    }
-    if root_states.iter().all(|state| is_dashboard_terminal(state)) {
-        return "archived".to_string();
-    }
-    if root_states.iter().any(|state| is_dashboard_active_like(state)) {
-        return "active".to_string();
-    }
-    "pending".to_string()
-}
-
-fn is_dashboard_terminal(state: &str) -> bool {
-    matches!(state, "completed" | "cancelled" | "archived" | "failed")
-}
-
-fn is_dashboard_active_like(state: &str) -> bool {
-    matches!(
-        state,
-        "in_progress"
-            | "in-progress"
-            | "needs-review"
-            | "review"
-            | "prove"
-            | "consolidate"
-            | "agent-review"
-            | "agent-review-fix"
-    )
 }

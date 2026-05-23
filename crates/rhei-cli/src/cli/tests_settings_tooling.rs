@@ -32,6 +32,7 @@
             None,
             "task-7",
             "pending",
+            1,
             &tooling,
             runtime_dir.path(),
         );
@@ -69,6 +70,7 @@
             None,
             "t",
             "pending",
+            1,
             &tooling,
             runtime_dir.path(),
         );
@@ -550,6 +552,7 @@ states:
             None,
             "1",
             "pending",
+            1,
             &gate.tooling,
             runtime_dir.path(),
         );
@@ -589,12 +592,14 @@ states:
             None,
             "1",
             "pending",
+            1,
             &gate.tooling,
             &log_path,
             runtime_dir.path(),
             None,
             0,
             Arc::new(RecordingSink::default()),
+            None,
         )
         .expect("agent runs");
         let log = fs::read_to_string(log_path).expect("read log");

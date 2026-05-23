@@ -1,0 +1,3 @@
+{"session_id":"mock-full-pipeline.snapshot-inherit-ancestor-inherit-ancestor-mock-agent-yolo-mock-ui-implementer","provider":"mock","model":"ui-implementer"}
+{"role":"user","content":"inherit-ancestor prompt for full-pipeline.snapshot-inherit-ancestor"}
+{"role":"assistant","content":"mock inherit-ancestor output for full-pipeline.snapshot-inherit-ancestor"}

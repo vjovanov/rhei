@@ -1,0 +1,35 @@
+{
+  "completion": "success",
+  "created_at": "2026-05-23T10:31:22Z",
+  "declared_model": "ui-implementer",
+  "declared_provider": "mock",
+  "emitting_state": "inherit-ancestor",
+  "generation": 1,
+  "observed_model": "ui-implementer",
+  "observed_provider": "mock",
+  "parent_ref": null,
+  "produced_by": "orchestrator",
+  "rhei_version": "0.1.0",
+  "session_id": "mock-session",
+  "session_layout": {
+    "ext": "jsonl",
+    "kind": "FlatById"
+  },
+  "snapshot_name": "_state",
+  "target": {
+    "resolved": {
+      "agent": "mock-agent",
+      "mode": "yolo",
+      "model": "ui-implementer",
+      "provider": "mock"
+    },
+    "selector": "mock-agent[yolo]:mock:ui-implementer",
+    "slug": "mock-agent-yolo-mock-ui-implementer"
+  },
+  "task_id": "full-pipeline.snapshot-inherit-ancestor",
+  "transcript_bytes": 360,
+  "transcript_path": "transcript.jsonl",
+  "transcript_sha256": "c73a719436ce9422c949deee2f66d3ef8c25865c7f30e3bb5ab2725fd9bb312c",
+  "version": 1,
+  "visit": 1
+}

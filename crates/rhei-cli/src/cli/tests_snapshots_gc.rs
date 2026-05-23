@@ -148,12 +148,14 @@
             None,
             "task-timeout",
             "pending",
+            1,
             &tooling,
             &log_path,
             dir.path(),
             None,
             0,
             recorder,
+            None,
         )
         .expect("timeout returns process status");
 

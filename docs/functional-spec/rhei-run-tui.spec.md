@@ -191,7 +191,11 @@ pub trait EventSink: Send + Sync {
 }
 ```
 
-`RunStarted` is emitted once per run with the workspace root, resolved parallelism, and total task count. `PassStarted` and `PassEnded` bracket each scheduler pass; `PassStarted.ready` is the current ready set in source-order task ids.
+`RunStarted` is emitted once per run with the workspace root, resolved
+parallelism, and total task count. The total task count includes child and
+grandchild task nodes, not only root tasks. `PassStarted` and `PassEnded`
+bracket each scheduler pass; `PassStarted.ready` is the current ready set in
+source-order task ids.
 
 `SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right tile without reconciliation. Both events also carry `from` and `to`: when `from == to`, the worker started or ended in the same autonomous state and renderers must not present that as a real self-transition.
 
@@ -280,19 +284,29 @@ dashboard outside TUI mode, while `--no-dashboard` disables it. The dashboard is
 a power-user view for both live execution monitoring and static plan-shape
 inspection. §FS-rhei-viz
 
-The dashboard tab order is:
+When the live dashboard is available, the TUI header keeps the dashboard URL
+visible at the top of the screen so users do not have to find it in the
+scrolling journal.
 
-1. **Gantt** — default view; renders the derived plan row and all task rows
-   against level-grouped state axes.
-2. **Cube** — renders a dense top-level-task by child-slot heatmap.
-3. **Sankey** — summarizes child states flowing from each top-level task.
-4. **Tasks** — lists all tasks with state, assignee, dependencies, readiness,
-   and current worker slot.
-5. **Slots** — shows worker cards and live captured output.
-6. **Cost** — shows run, task, subtree, invocation, agent, provider, model, and
-   state accounting views. §FS-rhei-cost-accounting
-7. **Journal** — shows recent run events.
-8. **Links** — shows workspace shortcuts and run-emitted links.
+The dashboard's primary surface is the **Flow view**: a single page that leads
+with the work running now, presents plan shape as a navigable list or dependency
+graph, opens any node's surroundings (dependencies, transitions, prompt,
+artifacts, children), and draws the resolved state machine as one graph per
+disjoint workflow. A live task exposes its streaming agent output and a way to
+intervene. §FS-rhei-viz §FS-rhei-viz.5
+
+Supplementary surfaces share the same `/snapshot` data and console-first
+language:
+
+- **Gantt / Cube / Sankey** — dense chart overviews for scanning many nodes at
+  once. §FS-rhei-viz.12
+- **Tasks** — all tasks with state, assignee, dependencies, readiness, and
+  current worker slot.
+- **Slots** — worker cards and live captured output.
+- **Cost** — run, task, subtree, invocation, agent, provider, model, and state
+  accounting views. §FS-rhei-cost-accounting
+- **Journal** — recent run events.
+- **Links** — workspace shortcuts and run-emitted links.
 
 The dashboard obtains plan data from the lazily reloaded `/snapshot` payload.
 That payload includes `plan_state`, derived from top-level task states only, and
@@ -377,6 +391,8 @@ All three are pure Rust with no C dependencies. `notify` is already a workspace 
 
 ## Related Specifications
 
+- [Console-First Visualization UX](rhei-viz-ux.spec.md) — the shared look-and-feel
+  this TUI and the browser dashboard both follow. §FS-rhei-viz-ux
 - [Rhei Usage](rhei-usage.spec.md) — `rhei run` execution modes and roles.
 - [Agents Specification](rhei-agents.spec.md) — agent log capture and `runtime/logs/` layout.
 - [Program States Specification](rhei-programs.spec.md) — program execution and exit-code transitions.

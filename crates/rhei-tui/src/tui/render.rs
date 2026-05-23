@@ -29,10 +29,11 @@ pub(super) fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Ar
             return;
         }
 
+        let header_height = if snapshot.dashboard_url.is_some() { 4 } else { 3 };
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // header
+                Constraint::Length(header_height), // header
                 Constraint::Min(snapshot.parallel.max(1) + 2),
                 Constraint::Min(5), // journal pane
             ])
@@ -45,8 +46,13 @@ pub(super) fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Ar
 }
 
 fn render_header(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {
+    let block = Block::default().borders(Borders::BOTTOM);
+    f.render_widget(Paragraph::new(header_lines(snapshot)).block(block), area);
+}
+
+pub(super) fn header_lines(snapshot: &UiStateSnapshot) -> Vec<Line<'static>> {
     let active = snapshot.slots.iter().filter(|s| s.task.is_some()).count();
-    let line = Line::from(vec![
+    let mut lines = vec![Line::from(vec![
         Span::styled("rhei run", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(format!(
             "  parallel={} active={} total_tasks={}{}",
@@ -55,9 +61,15 @@ fn render_header(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot)
             snapshot.total_tasks,
             if snapshot.finished { "  [finished]" } else { "" },
         )),
-    ]);
-    let block = Block::default().borders(Borders::BOTTOM);
-    f.render_widget(Paragraph::new(line).block(block), area);
+    ])];
+    if let Some(url) = &snapshot.dashboard_url {
+        // §FS-rhei-run-tui.1.6: surface the live dashboard URL at the top of the TUI.
+        lines.push(Line::from(vec![
+            Span::styled("Dashboard: ", Style::default().fg(Color::Cyan)),
+            Span::raw(url.clone()),
+        ]));
+    }
+    lines
 }
 
 fn render_slots(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {
