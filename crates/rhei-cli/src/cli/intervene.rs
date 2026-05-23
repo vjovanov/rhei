@@ -117,6 +117,21 @@ impl RunInterveneSink {
 }
 
 impl rhei_tui::InterveneSink for RunInterveneSink {
+    /// Reachable while the writer thread still holds the child's stdin open (i.e.
+    /// registered). Shares the registry `deliver` consults, so the composer gate
+    /// and delivery never disagree. §FS-rhei-viz.5
+    fn reachable(&self, task_id: &str, slot: Option<rhei_tui::Slot>) -> bool {
+        let Ok(targets) = self.targets.lock() else {
+            return false;
+        };
+        match slot {
+            Some(slot) => {
+                targets.contains_key(&InterveneKey { task_id: task_id.to_string(), slot })
+            }
+            None => targets.values().any(|target| target.task_id == task_id),
+        }
+    }
+
     fn deliver(
         &self,
         task_id: Option<&str>,

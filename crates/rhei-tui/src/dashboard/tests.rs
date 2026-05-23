@@ -487,6 +487,64 @@ fn intervene_without_sink_reports_unavailable() {
     assert_eq!(res["ok"], false);
 }
 
+// §FS-rhei-viz §5: the snapshot surfaces per-slot intervene capability so the
+// Flow composer is gated on what the agent can actually take. A slot whose agent
+// holds stdin open reports `intervene: true`; a one-shot agent reports `false`.
+#[test]
+fn snapshot_marks_intervene_capability_per_slot() {
+    struct CapabilityStub;
+    impl InterveneSink for CapabilityStub {
+        fn deliver(
+            &self,
+            _task_id: Option<&str>,
+            _slot: Option<crate::event::Slot>,
+            _message: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn reachable(&self, task_id: &str, _slot: Option<crate::event::Slot>) -> bool {
+            task_id == "1"
+        }
+    }
+
+    let loader: PlanLoader = Arc::new(|| {
+        Some(model(
+            "active",
+            vec![
+                task_row("1", "Streaming", "work", None, 0),
+                task_row("2", "OneShot", "work", None, 0),
+            ],
+        ))
+    });
+    let dashboard = DashboardSink::start_with_plan_and_intervene(
+        PathBuf::from("/tmp/ws"),
+        2,
+        2,
+        Some(loader),
+        Some(Arc::new(CapabilityStub) as Arc<dyn InterveneSink>),
+    )
+    .expect("start dashboard");
+
+    for (slot, task) in [(0u16, "1"), (1u16, "2")] {
+        dashboard.emit(RunEvent::SlotAssigned {
+            slot,
+            task: task.to_string(),
+            from: "work".to_string(),
+            to: "work".to_string(),
+            agent: Some("custom".to_string()),
+            template_context: None,
+            log_path: PathBuf::from(format!("/tmp/ws/runtime/logs/{task}.log")),
+            started_at: Instant::now(),
+            wall_clock: SystemTime::now(),
+        });
+    }
+
+    let snapshot = fetch_snapshot_json(&dashboard);
+    // The agent holding stdin open is messageable; the one-shot agent is not.
+    assert_eq!(snapshot["task_runtime"]["1"]["intervene"], true);
+    assert_eq!(snapshot["task_runtime"]["2"]["intervene"], false);
+}
+
 fn dashboard_usage(
     invocation_id: &str,
     coverage: UsageCoverage,

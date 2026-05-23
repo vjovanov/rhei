@@ -44,6 +44,13 @@ pub trait InterveneSink: Send + Sync {
         slot: Option<crate::event::Slot>,
         message: &str,
     ) -> Result<(), String>;
+
+    /// Whether the named running task — optionally a specific fanout `slot` — has
+    /// a writable agent stdin registered, so a `/intervene` message can be
+    /// delivered now. Gates the live composer; defaults to `false`. §FS-rhei-viz.5
+    fn reachable(&self, _task_id: &str, _slot: Option<crate::event::Slot>) -> bool {
+        false
+    }
 }
 
 /// Per-task runtime overlay carried alongside the [`VizModel`] base in the live
@@ -57,6 +64,10 @@ pub struct TaskRuntime {
     pub in_slot: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_context: Option<rhei_viz_model::TemplateContext>,
+    /// Whether this slot's agent can take a live `/intervene` message now (stdin
+    /// held open via `intervene_stdin`). The Flow composer renders only when
+    /// `true`, so an unreachable agent is flagged up front. §FS-rhei-viz.5
+    pub intervene: bool,
     pub deferred_this_pass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accounting: Option<TaskAccounting>,
@@ -310,6 +321,13 @@ fn handle_client(
                 let in_slot = active_slot.map(|(i, _)| i as u16);
                 let template_context =
                     active_slot.and_then(|(_, slot)| slot.template_context.clone());
+                // Capability gate: the composer is offered only when the running
+                // slot's agent holds a writable stdin the sink can reach, so the
+                // gate and delivery share one registry. §FS-rhei-viz.5
+                let intervene_reachable = match (in_slot, intervene) {
+                    (Some(slot), Some(sink)) => sink.reachable(&task.id, Some(slot)),
+                    _ => false,
+                };
                 let deferred = deferred_set.contains(task.id.as_str());
                 let accounting = accounting_by_task.get(&task.id).cloned();
                 if in_slot.is_some() || deferred || accounting.is_some() {
@@ -318,6 +336,7 @@ fn handle_client(
                         TaskRuntime {
                             in_slot,
                             template_context,
+                            intervene: intervene_reachable,
                             deferred_this_pass: deferred,
                             accounting,
                         },

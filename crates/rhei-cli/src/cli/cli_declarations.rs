@@ -68,6 +68,7 @@ Inspection:
   render      Render a markdown plan into a selected output format
   states      Print the states and allowed transitions for the configured state machine
   list        List tasks in a plan with optional filters
+  viz         Render a self-contained HTML flow visualization of a plan or workspace
 
 Templates:
   templates   List available templates

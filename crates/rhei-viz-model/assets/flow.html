@@ -185,7 +185,12 @@
   .btn { background: var(--surface-2); color: var(--ink); border: 1px solid var(--hairline);
     border-radius: 5px; padding: 5px 14px; font: inherit; font-weight: 600; cursor: pointer; }
   .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: var(--hairline); }
+  .intervene textarea:disabled { opacity: 0.55; cursor: not-allowed; }
   .intervene .hint { color: var(--faint); font-size: 11px; }
+  /* Calm "can't be messaged" line for a live agent without an interactive stdin. */
+  .intervene .noiv { color: var(--faint); font-size: 12px; margin-top: 8px; }
   /* Live agent output — a real terminal: dark in any theme, scrollback, ANSI color. */
   .term { margin: 8px 0; height: 340px; overflow-y: auto; background: #0b0e13; color: #cdd3de;
     border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 10px;
@@ -554,12 +559,19 @@ function renderSurroundings(){
     });
   }
 
-  // intervene — running tasks show live agent output (scrollback, ANSI color) + a prompt
+  // intervene — a live task always shows its agent output (scrollback, ANSI
+  // color); the message composer appears only when the agent can actually take
+  // a live message. §FS-rhei-viz §5.
   const hadLiveTerm=!!LOGTERM;
   liveTermEl=null; LOGTERM=null; LOGTASK=null;
   if(nodeCategory(n)==="live"){
+    const rt=runtimeFor(n.id)||{};
+    // Capability gate: only a live agent whose slot holds a streaming stdin open
+    // (profile `intervene_stdin`, surfaced as task_runtime[id].intervene) can be
+    // messaged. The static page never delivers. §FS-rhei-viz §5, §7.2.
+    const canMessage = LIVE && rt.intervene===true;
     const iv=el("div",{class:"intervene"});
-    iv.appendChild(el("h3",{text:"live output · intervene"}));
+    iv.appendChild(el("h3",{text: canMessage ? "live output · intervene" : "live output"}));
     const now=el("div",{class:"now"});
     now.appendChild(el("span",{class:"spinner"}));
     now.appendChild(document.createTextNode(`running in ${n.state} — agent on ${n.id} · scroll up for history`));
@@ -576,27 +588,42 @@ function renderSurroundings(){
     }
     for(const m of (INTERVENTIONS[n.id]||[])) term.appendChild(m.error?errLine(m.text):meLine(n.id,m));
     iv.appendChild(term); liveTermEl=term;
-    const ta=el("textarea",{rows:"2", placeholder:`Message to the agent on ${n.id}…`});
-    iv.appendChild(ta);
-    const irow=el("div",{class:"irow"});
-    const btn=el("button",{class:"btn",text:"Send"});
-    irow.appendChild(btn);
-    const hint = LIVE ? "⌘/Ctrl+Enter · sends to the agent's stdin"
-                      : "⌘/Ctrl+Enter · static page: queued locally, not delivered";
-    irow.appendChild(el("span",{class:"hint",text:hint}));
-    iv.appendChild(irow);
-    const send=()=>{ const v=ta.value.trim(); if(!v) return;
-      const m={t:new Date(), text:v};
-      (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(m);
-      term.appendChild(meLine(n.id,m)); term.scrollTop=term.scrollHeight;
-      if(LIVE) sendIntervene(n, v).then(res=>{
-        if(!res.ok){ const err={t:new Date(), text:res.error||"intervention was not delivered", error:true};
-          (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(err);
-          term.appendChild(errLine(err.text)); term.scrollTop=term.scrollHeight; }
-      });
-      ta.value=""; ta.focus(); };
-    btn.addEventListener("click",send);
-    ta.addEventListener("keydown",e=>{ if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){ e.preventDefault(); send(); } });
+    if(LIVE && !canMessage){
+      // Reachable to watch, but this agent can't take a live message — say so up
+      // front rather than inviting input that fails after the user types. §FS-rhei-viz §5.
+      iv.appendChild(el("div",{class:"noiv",
+        text:"This agent can't be messaged live — it doesn't keep an interactive stdin open."}));
+    } else {
+      // Interactive on a reachable live agent; rendered disabled on the static
+      // page, where messages are illustrative only. §FS-rhei-viz §7.2.
+      const ta=el("textarea",{rows:"2", placeholder: canMessage
+        ? `Message to the agent on ${n.id}…`
+        : "Static preview — messages aren't delivered"});
+      if(!canMessage) ta.disabled=true;
+      iv.appendChild(ta);
+      const irow=el("div",{class:"irow"});
+      const btn=el("button",{class:"btn",text:"Send"});
+      if(!canMessage) btn.disabled=true;
+      irow.appendChild(btn);
+      const hint = canMessage ? "⌘/Ctrl+Enter · sends to the agent's stdin"
+                              : "static preview · messages are illustrative, not delivered";
+      irow.appendChild(el("span",{class:"hint",text:hint}));
+      iv.appendChild(irow);
+      if(canMessage){
+        const send=()=>{ const v=ta.value.trim(); if(!v) return;
+          const m={t:new Date(), text:v};
+          (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(m);
+          term.appendChild(meLine(n.id,m)); term.scrollTop=term.scrollHeight;
+          sendIntervene(n, v).then(res=>{
+            if(!res.ok){ const err={t:new Date(), text:res.error||"intervention was not delivered", error:true};
+              (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(err);
+              term.appendChild(errLine(err.text)); term.scrollTop=term.scrollHeight; }
+          });
+          ta.value=""; ta.focus(); };
+        btn.addEventListener("click",send);
+        ta.addEventListener("keydown",e=>{ if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){ e.preventDefault(); send(); } });
+      }
+    }
     frag.appendChild(iv);
   }
 
@@ -855,12 +882,12 @@ function layeredLayout(orderedStates, edges){
   for(const e of edges) if(set.has(e.from)&&set.has(e.to)) adj[e.from].push(e.to);
   const color={}, back=new Set(), finish=[];
   const dfs=u=>{ color[u]=1;
-    for(const v of adj[u]){ if(color[v]===1) back.add(u+" "+v); else if(!color[v]) dfs(v); }
+    for(const v of adj[u]){ if(color[v]===1) back.add(u+"\u0000"+v); else if(!color[v]) dfs(v); }
     color[u]=2; finish.push(u); };
   for(const r of orderedStates) if(!color[r]) dfs(r);
   const layer={}; orderedStates.forEach(s=>layer[s]=0);
   for(const u of finish.slice().reverse())
-    for(const v of adj[u]) if(!back.has(u+" "+v)) layer[v]=Math.max(layer[v],layer[u]+1);
+    for(const v of adj[u]) if(!back.has(u+"\u0000"+v)) layer[v]=Math.max(layer[v],layer[u]+1);
   return { layer };
 }
 function mkMarker(id, cls){

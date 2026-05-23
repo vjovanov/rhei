@@ -20,7 +20,7 @@ collapse them onto one model and one renderer.
 | UI | Flow design (List/Graph + surroundings + machine graphs) | Tab strip: Running / Tasks / Accounting / Links / Logs |
 | Runs | offline, from a plan file | live, on the loopback server during `rhei run` |
 
-`xtask/src/viz.rs` states the intent in its own header: it *dogfoods the future
+`xtask/src/viz.rs` states the intent in its own header: it *dogfoods the
 `rhei viz` command and keeps the data shape and derivation rules consistent with
 the spec so the implementation migrates cleanly.* The static side is therefore
 the **canonical source** of the Flow design; the live dashboard is the surface to
@@ -69,8 +69,9 @@ The architecture rests on three "exactly once" invariants:
 - **One asset.** A single self-contained HTML/CSS/JS string is the *only* renderer.
   The static path inlines the model into it and writes a file; the live path
   serves the same string at `/` and lets its JS re-render from `/snapshot`.
-  Byte-identical output (§FS-rhei-viz §7) is guaranteed by construction, not by
-  keeping two templates in sync. The current `dashboard/html.rs` is retired.
+  A byte-identical *asset* (§FS-rhei-viz §7) is guaranteed by construction, not by
+  keeping two templates in sync; rendered output then differs only by the runtime
+  overlay (§4). The current `dashboard/html.rs` is retired.
 - **One model.** Both surfaces consume the §8 `VizModel`; the live payload is a
   superset (§4).
 - **One derivation.** Category classification, plan-state derivation, and machine
@@ -118,8 +119,8 @@ the migration:
 **Graceful degradation by field-presence** is what lets one renderer serve both
 modes. The JS keys behavior off whether a field is present, never off a mode flag:
 when the runtime overlay is absent (static), the running-now panel hides (§5), the
-intervene composer is inert, the agent terminal shows a representative transcript,
-and cost overlays are empty. This is exactly §FS-rhei-viz §7.2.
+intervene composer is shown disabled, the agent terminal shows a representative
+transcript, and cost overlays are empty. This is exactly §FS-rhei-viz §7.2.
 
 ## 5. Data flow
 
@@ -213,6 +214,15 @@ registered in a per-slot registry the `/intervene` route can reach. Unsupported
 agents report not interactively reachable rather than silently dropping the
 message. Concurrent fanout invocations for the same task are distinct slot
 registrations; releasing one invocation must not remove a still-running sibling.
+
+**The surface gates the composer on this capability up front.** The registry
+answers `reachable(task, slot)` from the same per-slot map `deliver` consults, and
+the dashboard carries that answer in the snapshot as `task_runtime[id].intervene`.
+The Flow composer renders only when it is true, so an operator learns an agent
+can't be messaged *before* typing rather than after a failed send (§FS-rhei-viz
+§5). Because the gate and delivery share one registry, they cannot disagree: no
+built-in agent enables `intervene_stdin` today, so the composer stays hidden until
+a profile opts in.
 
 **Decision (§10.1): every intervention is logged.** Each delivered message is
 appended to a durable audit trail at `runtime/interventions.log` — timestamp,

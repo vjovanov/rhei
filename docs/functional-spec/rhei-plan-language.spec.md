@@ -937,16 +937,15 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
-| **Inspection** | `validate`, `render`, `states`, `list` | Read-only commands that examine or render a plan without modifying it |
+| **Inspection** | `validate`, `render`, `states`, `list`, `viz` | Read-only commands that examine or render a plan without modifying it |
 | **Templates** | `templates`, `instantiate` | Discover and instantiate reusable plan and workspace templates |
 | **Execution** | `transition`, `run`, `snapshot`, `next`, `complete`, `reset` | Commands that mutate the plan file or workspace state, or operate on execution runtime artifacts |
 | **Setup** | `install-skills`, `completions` | Install packaged Rhei skills and generate shell completion scripts |
 | **Info** | `version`, `help` | Meta commands about the tool itself |
 
-`rhei viz` remains specified as a visualization behavior surface (§FS-rhei-viz),
-but it is not currently declared as a CLI variant or listed in the generated
-help. Until the command is reintroduced, current CLI command groups must exclude
-`viz` and treat the visualization spec as non-current implementation guidance.
+`rhei viz` is the read-only **Inspection** command that renders the visualization
+behavior surface (§FS-rhei-viz) as a self-contained HTML page from a plan or
+workspace; it appears in the generated help under that group.
 
 ## Related Specifications
 

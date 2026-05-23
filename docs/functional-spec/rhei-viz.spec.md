@@ -7,9 +7,13 @@ with a surroundings inspector for any node and the resolved state machine the
 plan runs under, and it leads with whatever is working right now.
 
 The same renderer serves two modes from one model: a **dynamic** surface that
-updates live during `rhei run`, and a byte-identical **static** artifact that can
-be frozen at the end of a run or generated offline from a plan. A saved page is
-indistinguishable from the live one except that it stops updating.
+updates live during `rhei run`, and a **static** artifact that can be frozen at
+the end of a run or generated offline from a plan. Both use the same asset and
+renderer, so they look and behave identically; their output differs only by the
+runtime overlay (§8). A page frozen at the end of a run inlines the final live
+snapshot, so it equals the live page except that it stops updating; a page
+generated offline from a plan has no runtime overlay, so it omits live-only
+content (running slots, accounting, the real agent transcript).
 
 The visual language — monospace typography, calm desaturated color, near-zero
 motion, the console-first feel shared with the terminal — is governed by
@@ -17,10 +21,9 @@ motion, the console-first feel shared with the terminal — is governed by
 For the plan grammar see the [Plan Language Specification](rhei-plan-language.spec.md);
 for the state machine see the [States Specification](rhei-states.spec.md).
 
-The current reference implementation is the `xtask` static renderer
-(`cargo xtask examples viz <name>`), which dogfoods this surface ahead of the
-shipped command; the canonical design fixtures are `examples/inflight-dashboard`
-and `examples/disjoint-tracks`.
+The surface ships as the `rhei viz` command (§7.2). The `xtask` static renderer
+(`cargo xtask examples viz <name>`) dogfoods it against the canonical design
+fixtures `examples/inflight-dashboard` and `examples/disjoint-tracks`.
 
 ## Goals
 
@@ -36,10 +39,14 @@ and `examples/disjoint-tracks`.
 3. **Show the machine, not just the plan.** The resolved state machine is drawn as
    a graph — one per disjoint workflow — so the shape of the process is legible
    alongside the shape of the work.
-4. **Lead with live work.** The view surfaces tasks that are running now, and a
-   live task exposes its streaming agent output and a way to intervene.
-5. **Dynamic and static parity.** The live surface and a frozen page render from
-   one model with one layout and one behavior; the only difference is liveness.
+4. **Lead with live work.** The view surfaces tasks that are running now and
+   exposes each live task's streaming agent output. A live task whose agent keeps
+   an interactive stdin open also offers a way to intervene (§5); intervention is
+   opt-in per agent, so the composer appears only where messaging can succeed.
+5. **Dynamic and static parity.** The live surface and a static page render from
+   one model with one asset, one layout, and one behavior; their output differs
+   only by the runtime overlay — liveness, running slots, accounting, and the
+   real agent transcript (§8).
 6. **Self-contained and calm.** The page carries its CSS and JavaScript inline,
    with no external scripts, stylesheets, fonts, or network assets, and it obeys
    the console-first language of §FS-rhei-viz-ux.
@@ -184,15 +191,22 @@ a chip selects its node.
 When the selected node is `live`, the surroundings inspector adds an **intervene**
 block: the agent's live output rendered as a real terminal — dark in any theme,
 scrollback, ANSI color — that appends new lines in place from the run's
-`AgentOutput` stream §FS-rhei-run-tui.1.2, plus a composer to send a message to
-the agent working that task. The block also surfaces the slot's latest invocation
-cost, input/output and cached token counts, accounting coverage, and elapsed time
-§FS-rhei-cost-accounting.
+`AgentOutput` stream §FS-rhei-run-tui.1.2. The block also surfaces the slot's
+latest invocation cost, input/output and cached token counts, accounting
+coverage, and elapsed time §FS-rhei-cost-accounting.
+
+**Messaging is capability-gated.** The message composer is shown only when the
+running agent keeps an interactive stdin open and is therefore reachable — the
+per-agent `intervene_stdin` opt-in, surfaced per slot in the snapshot as
+`task_runtime[id].intervene` (§8). When a live agent is *not* reachable — a
+one-shot or EOF-driven transport, which is every built-in agent today — the block
+states plainly that the agent can't be messaged live, rather than inviting input
+that would fail after the operator types. Intervene messages a running agent; it
+never transitions or edits the plan §AR-rhei-viz-flow.7.
 
 In the static surface (§7.2) the terminal shows a representative transcript so the
-layout has realistic shape, and the composer is inert (messages queue locally and
-are not delivered). Intervene messages a running agent; it never transitions or
-edits the plan.
+layout has realistic shape, and the composer is shown disabled — its messages are
+illustrative and are not delivered.
 
 ## 6. State-Machine Graphs
 
@@ -252,7 +266,7 @@ live polling. Artifact and log links are **illustrative**: the files they point 
 materialize under `runtime/` only during a live run. The agent terminal shows a
 representative transcript and the intervene composer is inert (§5). This is what
 `cargo xtask examples viz <name>` produces today and what the frozen run-end
-artifact (§7.1) reuses; it is also the surface a future `rhei viz` command renders.
+artifact (§7.1) reuses; it is also what the `rhei viz` command renders.
 
 ## 8. Data Contract
 
@@ -330,6 +344,12 @@ Rules:
 - **Compact rollups in `/snapshot`, detail elsewhere.** Each task row may carry
   compact direct and subtree accounting rollups; invocation-level detail is served
   from a separate loopback endpoint so polling stays light. §FS-rhei-cost-accounting
+- **Intervene capability is per slot.** For a task assigned to a live slot,
+  `task_runtime[id].intervene` is `true` only when that slot's agent keeps a
+  writable stdin held open so a `/intervene` message can be delivered now (the
+  agent's `intervene_stdin` opt-in). The surface gates the message composer on
+  this flag (§5); it is absent on a static render, so the composer is never
+  offered as deliverable offline.
 
 ## 9. Plan-State Derivation
 
