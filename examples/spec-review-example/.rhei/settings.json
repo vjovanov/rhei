@@ -1,5 +1,5 @@
 {
   "defaults": {
-    "agent_timeout": "20m"
+    "agent_timeout": "1h"
   }
 }

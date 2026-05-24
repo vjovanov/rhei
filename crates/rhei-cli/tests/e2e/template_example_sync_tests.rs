@@ -47,7 +47,8 @@ fn collect_files(root: &Path, dir: &Path, skip: &[&str], out: &mut Vec<String>) 
             collect_files(root, &path, skip, out);
             continue;
         }
-        let rel = path.strip_prefix(root).expect("strip root prefix").to_string_lossy().into_owned();
+        let rel =
+            path.strip_prefix(root).expect("strip root prefix").to_string_lossy().into_owned();
         if !skip.contains(&rel.as_str()) {
             out.push(rel);
         }
