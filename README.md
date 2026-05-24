@@ -73,6 +73,7 @@ The runtime currently supports:
 The primary reference documents are:
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — **start here** for tool usage and specification index
 - [`docs/architecture/agent-orchestrator-workflow.spec.md`](docs/architecture/agent-orchestrator-workflow.spec.md) — orchestrator/worker interaction model
+- [`docs/functional-spec/rhei-language-reference.spec.md`](docs/functional-spec/rhei-language-reference.spec.md) — canonical entry point for the authored Rhei language surface
 - [`docs/functional-spec/rhei-plan-language.spec.md`](docs/functional-spec/rhei-plan-language.spec.md) — plan language specification
 - [`docs/functional-spec/rhei-states.spec.md`](docs/functional-spec/rhei-states.spec.md) — states specification
 - [`docs/functional-spec/states.yaml`](docs/functional-spec/states.yaml) — default validation states definition

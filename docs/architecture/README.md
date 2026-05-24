@@ -7,6 +7,7 @@ stable `AR-<slug>` declarations.
 |---|---|
 | §AR-agent-orchestrator-workflow | Agent/orchestrator component workflow |
 | §AR-rhei-viz-flow | Flow visualization: model, renderer, and intervene boundary |
+| §AR-rhei-language-reference | Canonical language-reference entry point |
 | §AR-source-file-size | Source file size limits and exception register |
 | §AR-ci-release | CI, local hooks, release, and PGO automation |
 

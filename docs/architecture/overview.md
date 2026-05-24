@@ -85,11 +85,13 @@ Tasks progress through defined **states** (for example `draft` → `pending` →
 
 | Document | Description |
 |----------|-------------|
+| [Rhei Language Reference](../functional-spec/rhei-language-reference.spec.md) | Canonical entry point for the complete user-authored Rhei language surface |
 | [Plan Language Specification](../functional-spec/rhei-plan-language.spec.md) | Formal EBNF grammar, token types, and semantic constraints for Rhei plan documents |
 | [States Specification](../functional-spec/rhei-states.spec.md) | State machine format and default states |
 | [Transitions Specification](../functional-spec/rhei-transitions.spec.md) | State transition system, callbacks, and YAML schema |
 | [Run Specification](../functional-spec/rhei-run.spec.md) | Orchestrated execution loop |
 | [Agent-Orchestrator Workflow Architecture](agent-orchestrator-workflow.spec.md) | Component workflow for plan creation, validation, and execution |
+| [Canonical Language Reference Architecture](language-reference.spec.md) | Architectural rule that the language reference must exist as the entry point |
 | [Source File Size Architecture](source-file-size.spec.md) | Source file size limits and exception register |
 
 ### Reference Files

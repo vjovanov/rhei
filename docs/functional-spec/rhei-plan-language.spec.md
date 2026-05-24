@@ -949,6 +949,7 @@ workspace; it appears in the generated help under that group.
 
 ## Related Specifications
 
+- [Rhei Language Reference](rhei-language-reference.spec.md) - Entry point for the complete user-authored language surface
 - [How Rhei Is Used](rhei-usage.spec.md) - Roles, coordination patterns, and agent workflows
 - [Plan Language Usage Guide](rhei-authoring.spec.md) - Practical authoring patterns and walkthroughs
 - [States Specification](rhei-states.spec.md) - Defines the states configuration format
