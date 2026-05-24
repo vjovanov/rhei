@@ -1,0 +1,46 @@
+name: parallel-worktrees
+version: 1.0.0
+description: Apply one shared task across many independent targets at once. Each target becomes its own task in its own git worktree, so `rhei run --parallel N` advances them concurrently without several agents clobbering a single checkout.
+
+inputs:
+  - name: batch_title
+    description: Title of the instantiated workspace (shows in the index heading).
+    type: string
+    default: Parallel Worktree Batch
+
+  - name: task
+    description: The instruction applied to every target. Each target runs this same task independently inside its own git worktree.
+    type: string
+    required: true
+
+  - name: targets
+    description: The independent units of work to fan out over — one task per entry, each runnable in parallel. `id` must be a filesystem- and branch-safe slug (it names the worktree and branch); `path` is the directory the target work is scoped to.
+    type: array
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+          validate: "[a-z][a-z0-9-]*"
+        path:
+          type: string
+    default:
+      - id: module-a
+        path: path/to/module-a
+      - id: module-b
+        path: path/to/module-b
+
+  - name: agent
+    description: Agent target that creates each worktree and does the work inside it.
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: branch_prefix
+    description: Branch-name prefix for each per-target worktree. The final branch is `<branch_prefix>/<task_id>`.
+    type: string
+    default: batch
+
+  - name: worktree_root
+    description: Directory (relative to the workspace) under which each task creates its git worktree.
+    type: string
+    default: runtime/worktrees

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add product workflow templates and examples for agent discussion,
+  analyze-and-dispatch, parallel worktrees, multi-model analysis, and spec
+  review. PR #17
 - Add live dashboard controls for explicit human-gate transitions. PR #16
 - Add GitHub Actions CI, pre-commit hooks, and PGO release automation modeled on
   Grund's release flow. PR #15

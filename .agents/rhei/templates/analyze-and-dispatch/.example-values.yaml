@@ -1,0 +1,10 @@
+plan_title: Analyze & Dispatch Example
+subject: docs/functional-spec
+analysis_brief: |
+  Read each *.spec.md file under the subject directory. For every spec that does
+  NOT already reference a runnable example or fixture, create one work item to
+  add or link an example for it. One task per spec; skip specs that already link
+  an example. Use the spec's base filename as the task slug.
+coordinator_agent: claude-code[yolo]:anthropic:claude-opus-4-7
+worker_agent: claude-code[yolo]:anthropic:claude-opus-4-7
+max_tasks: 6

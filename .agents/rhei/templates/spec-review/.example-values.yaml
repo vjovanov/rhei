@@ -1,0 +1,2 @@
+spec: specs/template-review-fixture.spec.md
+criteria: thread safety, backward compatibility

@@ -374,31 +374,68 @@
                 empty_template_value(&input.schema)
             };
 
-            if let Some(pattern) = input.schema.validate.as_deref() {
-                let regex = compile_full_match_regex(pattern).map_err(|err| {
-                    miette!(
-                        "template '{}' input '{}' has invalid validate regex: {err}",
-                        manifest.name,
-                        input.name
-                    )
-                })?;
-                let rendered = scalar_template_value_as_string(&value).ok_or_else(|| {
-                    miette!(
-                        "input '{}' uses validate but did not resolve to a scalar string value",
-                        input.name
-                    )
-                })?;
-                if !regex.is_match(&rendered) {
-                    return Err(miette!(
-                        "input '{}' does not match validation pattern '{}'",
-                        input.name,
-                        pattern
-                    ));
-                }
-            }
+            validate_resolved_value(&input.name, &input.schema, &value)?;
 
             resolved.insert(input.name.clone(), value);
         }
 
         Ok(resolved)
+    }
+
+    /// Enforce each scalar `validate` pattern in `schema` against the matching
+    /// scalar in the already-coerced `value`, recursing through array items and
+    /// object properties. This is what makes `validate` declared on a nested
+    /// `properties.<x>` or array `items` scalar take effect — not only on
+    /// top-level inputs. Patterns are guaranteed valid here because
+    /// `validate_template_value_schema` compiled them at manifest-load time.
+    fn validate_resolved_value(
+        label: &str,
+        schema: &TemplateValueSchema,
+        value: &serde_json::Value,
+    ) -> MietteResult<()> {
+        if let Some(pattern) = schema.validate.as_deref() {
+            let regex = compile_full_match_regex(pattern)
+                .map_err(|err| miette!("input '{}' has invalid validate regex: {err}", label))?;
+            let rendered = scalar_template_value_as_string(value).ok_or_else(|| {
+                miette!(
+                    "input '{}' uses validate but did not resolve to a scalar string value",
+                    label
+                )
+            })?;
+            if !regex.is_match(&rendered) {
+                return Err(miette!(
+                    "input '{}' does not match validation pattern '{}'",
+                    label,
+                    pattern
+                ));
+            }
+        }
+
+        match schema.value_type {
+            TemplateInputType::Array => {
+                if let (Some(items), serde_json::Value::Array(elements)) =
+                    (schema.items.as_deref(), value)
+                {
+                    for (idx, element) in elements.iter().enumerate() {
+                        validate_resolved_value(&format!("{label}[{idx}]"), items, element)?;
+                    }
+                }
+            }
+            TemplateInputType::Object => {
+                if let serde_json::Value::Object(map) = value {
+                    for (property, property_schema) in &schema.properties {
+                        if let Some(element) = map.get(property) {
+                            validate_resolved_value(
+                                &format!("{label}.{property}"),
+                                property_schema,
+                                element,
+                            )?;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
     }

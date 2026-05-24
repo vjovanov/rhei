@@ -293,6 +293,48 @@ transitions:
 }
 
 #[test]
+fn run_counted_self_loop_terminates_at_visit_budget() {
+    // Regression: under `rhei run`, a counted state that loops to ITSELF
+    // (`tick -> tick`) used to spin forever. The orchestrator compared the
+    // reloaded raw state (`tick-2`) against the normalized current state
+    // (`tick`) and mistook the visit suffix for forward progress, skipping the
+    // real transition logic — so `visitCount` never advanced past 2 and the
+    // `visitCount >= visits` exit could never fire.
+    let plan = r#"# Rhei: Counted Self Loop
+
+## Tasks
+
+### Task 1: Tick
+**State:** tick
+"#;
+    let machine = r#"name: counted-self-loop
+version: 1
+states:
+  tick:
+    initial: true
+    description: Counted program self-loop
+    program: "true"
+    visits: 3
+  done:
+    description: Done
+    final: true
+transitions:
+  - { from: tick, to: tick, condition: visitCount < visits }
+  - { from: tick, to: done, condition: visitCount >= visits }
+"#;
+
+    let dir = unique_temp_dir("run-counted-self-loop");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "done");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_callback_mode_stops_at_human_review() {
     let plan = r#"# Rhei: Human Review Gate
 

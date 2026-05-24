@@ -1,0 +1,129 @@
+//! Drift gate: every committed example under `examples/<name>-example/` must be
+//! exactly what `rhei instantiate <template> --values .example-values.yaml`
+//! produces. Editing a template without regenerating its example fails here.
+//!
+//! The example owns two files that are NOT part of the rendered template output
+//! and are therefore excluded from the comparison:
+//!   * `README.md` — a hand-written, example-specific doc (the template ships its
+//!     own different README, which instantiation emits and the example overrides).
+//!   * `instantiation-values.yaml` — the checked-in copy of the input values. The
+//!     test asserts it is byte-identical to the template's `.example-values.yaml`
+//!     so the documented regenerate command actually reproduces the example.
+//!
+//! To fix a failure here, regenerate the example (see its README's "Regenerate"
+//! section) and commit the result.
+
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+use super::*;
+
+/// (template dir under `.agents/rhei/templates`, example dir under `examples/`).
+const TEMPLATE_EXAMPLES: &[(&str, &str)] = &[
+    ("analyze-and-dispatch", "analyze-and-dispatch-example"),
+    ("parallel-worktrees", "parallel-worktrees-example"),
+    ("multi-model-analysis", "multi-model-analysis-example"),
+    ("spec-review", "spec-review-example"),
+];
+
+/// Example-owned files that the rendered template output does not include.
+const EXAMPLE_ONLY_FILES: &[&str] = &["README.md", "instantiation-values.yaml"];
+
+/// Sorted, root-relative paths of every file under `root`, skipping any whose
+/// relative path appears in `skip`.
+fn relative_files(root: &Path, skip: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_files(root, root, skip, &mut out);
+    out.sort();
+    out
+}
+
+fn collect_files(root: &Path, dir: &Path, skip: &[&str], out: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).expect("read directory") {
+        let entry = entry.expect("directory entry");
+        let path = entry.path();
+        if entry.file_type().expect("file type").is_dir() {
+            collect_files(root, &path, skip, out);
+            continue;
+        }
+        let rel =
+            path.strip_prefix(root).expect("strip root prefix").to_string_lossy().into_owned();
+        if !skip.contains(&rel.as_str()) {
+            out.push(rel);
+        }
+    }
+}
+
+#[test]
+fn committed_examples_match_template_instantiation() {
+    let templates_root = repo_root().join(".agents/rhei/templates");
+    let examples_root = repo_root().join("examples");
+
+    for (template_name, example_name) in TEMPLATE_EXAMPLES {
+        let template_dir = templates_root.join(template_name);
+        let example_dir = examples_root.join(example_name);
+        let values = template_dir.join(".example-values.yaml");
+
+        // The example's checked-in values must match the template's, so the
+        // documented `rhei instantiate ... --values .example-values.yaml`
+        // regeneration reproduces the committed example.
+        let template_values =
+            fs::read_to_string(&values).expect("read template .example-values.yaml");
+        let example_values = fs::read_to_string(example_dir.join("instantiation-values.yaml"))
+            .expect("read example instantiation-values.yaml");
+        assert_eq!(
+            template_values, example_values,
+            "{example_name}/instantiation-values.yaml must equal \
+             {template_name}/.example-values.yaml so the example can be regenerated"
+        );
+
+        // Instantiate the template into a throwaway workspace with a clean HOME
+        // so global settings cannot leak into the rendered output.
+        let scratch = unique_scratchpad_dir(&format!("tmpl-sync-{template_name}"));
+        let out = scratch.join("out");
+        let home = scratch.join(".home");
+        fs::create_dir_all(&home).expect("create isolated home");
+        let result = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .env("HOME", &home)
+            .args([
+                "instantiate",
+                template_dir.to_str().expect("template path is utf8"),
+                "--values",
+                values.to_str().expect("values path is utf8"),
+                "--output",
+                out.to_str().expect("output path is utf8"),
+            ])
+            .output()
+            .expect("rhei instantiate should run");
+        assert!(
+            result.status.success(),
+            "instantiate {template_name} failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        // Same set of rendered files (the template README is excluded; the
+        // example overrides it and ships its own instantiation-values.yaml).
+        let generated = relative_files(&out, &["README.md"]);
+        let committed = relative_files(&example_dir, EXAMPLE_ONLY_FILES);
+        assert_eq!(
+            generated, committed,
+            "rendered file set for {example_name} drifted from template \
+             {template_name}; regenerate the example (see its README)"
+        );
+
+        // Byte-for-byte equality on every rendered file.
+        for rel in &generated {
+            let generated_bytes = fs::read(out.join(rel)).expect("read generated file");
+            let committed_bytes = fs::read(example_dir.join(rel)).expect("read committed file");
+            assert!(
+                generated_bytes == committed_bytes,
+                "{example_name}/{rel} differs from the template instantiation; \
+                 regenerate the example (see its README)"
+            );
+        }
+
+        fs::remove_dir_all(&scratch).ok();
+    }
+}

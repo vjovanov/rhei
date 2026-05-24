@@ -1,0 +1,18 @@
+{
+  "defaults": {
+    "agent": "mock",
+    "agent_timeout": "5m"
+  },
+  "agents": {
+    "mock": {
+      "command": ["cat"],
+      "stdin_prompt": true
+    }
+  },
+  "models": {
+    "claude": { "provider": "anthropic", "model": "mock-claude", "default_agent": "mock" },
+    "codex":  { "provider": "openai",    "model": "mock-codex",  "default_agent": "mock" },
+    "gemini": { "provider": "google",    "model": "mock-gemini", "default_agent": "mock" },
+    "cursor": { "provider": "anthropic", "model": "mock-cursor", "default_agent": "mock" }
+  }
+}

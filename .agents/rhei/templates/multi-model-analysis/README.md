@@ -80,13 +80,35 @@ the fields you need. See [Agents
 Specification](../../../../docs/functional-spec/rhei-agents.spec.md) for the
 full schema and mode-resolution order.
 
+## Inputs
+
+| Input | Type | Default | What it does |
+|---|---|---|---|
+| `plan_title` | string | *(required)* | Title of the instantiated plan (index heading). |
+| `task_title` | string | *(required)* | Title of the shared analysis task. |
+| `task_description` | string | *(required)* | Instructions given to every analysis pass. Use `--set-file` for long briefs. |
+| `analysis_output_dir` | string | `runtime/analyses` | Where per-target notes are written. |
+| `agents` | object[] | 3 targets (claude/gemini/codex) | The fan-out set. Each entry is `{ id, label, selector }`; one analysis pass runs per entry. `id` is slugified into artifact paths. |
+| `summary_agent` | string | `claude-code[yolo]:…opus-4-7` | Agent that writes the final synthesis. |
+| `final_document_path` | string | `runtime/final-analysis.md` | Where the synthesis lands. |
+
+Per-task path: a single `analysis` task runs `analyze` (fan-out across
+`agents`, one pass per target) → `summarize` (one synthesis pass). Run it with
+`rhei run --parallel <n>` to execute the per-target passes concurrently.
+
 ## Note
 
-This template now mirrors the new `target` / `all_targets` spec shape: a
-single task, one fanout analysis state, and one synthesis state. The manifest
-uses MiniJinja-compatible structured inputs, so `agents` is a real array of
-objects rather than a bundle of hardcoded scalar parameters.
+This template mirrors the `target` / `all_targets` spec shape: a single task,
+one fan-out analysis state, and one synthesis state. The manifest uses
+MiniJinja-compatible structured inputs, so `agents` is a real array of objects
+rather than a bundle of hardcoded scalar parameters.
 
 It uses the directory-workspace layout rather than a single-file plan so
 `rhei run --parallel <n>` can execute the fanout without being forced back to
 sequential mode.
+
+## Example
+
+A pre-rendered example lives at
+[`examples/multi-model-analysis-example/`](../../../../examples/multi-model-analysis-example/)
+and passes `rhei validate` as shipped.
