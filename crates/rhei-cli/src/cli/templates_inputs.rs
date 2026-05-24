@@ -471,6 +471,11 @@
         let preprocessed = raw.replace(r"\{{", literal_open);
         let mut env = MiniJinjaEnvironment::new();
         env.set_undefined_behavior(UndefinedBehavior::Strict);
+        // MiniJinja strips a single trailing newline by default, which drops the
+        // final newline from every instantiated file (states.yaml, settings.json,
+        // task files, ...). Preserve it so rendered files keep the POSIX trailing
+        // newline of their template source.
+        env.set_keep_trailing_newline(true);
         env.add_filter("slug", |value: String| slugify_target_value(&value));
 
         let template = env

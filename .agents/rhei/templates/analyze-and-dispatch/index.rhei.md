@@ -11,7 +11,7 @@ task waits for all of them.
 
 ## Analysis brief
 
-{{analysis_brief}}
+{{ analysis_brief | trim }}
 
 ## Agents
 

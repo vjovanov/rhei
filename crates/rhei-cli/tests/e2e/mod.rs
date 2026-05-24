@@ -4,6 +4,7 @@ mod install_skills_tests;
 mod next_tests;
 mod run_tests;
 mod snapshot_tests;
+mod template_example_sync_tests;
 mod templates_tests;
 mod transition_tests;
 mod validate_retry_cache_tests;

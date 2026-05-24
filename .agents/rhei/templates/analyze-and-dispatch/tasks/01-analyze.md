@@ -8,4 +8,4 @@ are added by writing `tasks/NN-<slug>.md` files into this workspace.
 
 **Analysis brief:**
 
-{{analysis_brief}}
+{{ analysis_brief | trim }}

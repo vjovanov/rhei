@@ -16,7 +16,6 @@ NOT already reference a runnable example or fixture, create one work item to
 add or link an example for it. One task per spec; skip specs that already link
 an example. Use the spec's base filename as the task slug.
 
-
 ## Agents
 
 | Role | Agent |

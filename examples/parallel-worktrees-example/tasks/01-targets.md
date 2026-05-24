@@ -10,8 +10,6 @@ The task to apply to `crates/rhei-cli`:
 Add a crate-level module doc comment (a `//!` block at the top of the crate
 root) summarizing the crate's public responsibility in two or three
 sentences. Do not change any other code or behavior.
-
-
 ### Task core: Apply the batch task in crates/rhei-core
 **State:** prepare-worktree
 
@@ -38,5 +36,3 @@ The task to apply to `crates/rhei-validator`:
 Add a crate-level module doc comment (a `//!` block at the top of the crate
 root) summarizing the crate's public responsibility in two or three
 sentences. Do not change any other code or behavior.
-
-
