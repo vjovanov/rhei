@@ -183,8 +183,9 @@ the selected task or subtask it shows, top to bottom:
   `{visits}`, `{model}`, …) resolved inline and highlighted, and
   `{input/output.<name>.path}` rendered as artifact links. Shown only when the
   state declares instructions.
-- **Intervene** — for `live` nodes only, the streaming agent terminal and message
-  composer (§5).
+- **Intervene / output** — for nodes assigned to a runtime slot, the streaming
+  agent terminal and capability-gated message composer; for offline active-state
+  previews, a representative transcript with delivery disabled (§5).
 - **Children** — descendants with their glyphs, ids, titles, and states, and a
   `done/total ✓` header; shown only for nodes with children.
 - **Artifacts** — the state's input (`in ◂`) and output (`out ▸`) contracts as

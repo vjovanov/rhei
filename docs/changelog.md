@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix stale template-author guidance, Flow inspector wording, and local Claude
+  registration ignore handling after the settings-path and runtime-slot
+  changes. PR #26
 - Fix Flow running-now and running summary counts to use active runtime slots
   instead of persisted active-like task states. PR #23
 - Fix Claude Code live intervention transport by using stream-json stdin with

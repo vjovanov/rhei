@@ -53,7 +53,7 @@ Rules:
 - The directory name is the template identifier and must match `manifest.name` exactly.
 - Exactly one plan entry point: `plan.rhei.md` **or** `index.rhei.md`. Having both is an error.
 - `template.yaml` is parsed before rendering, is never templated itself, and is excluded from the output. Hidden files/directories (names beginning with `.`) are also excluded.
-- A root-level `settings.json` is moved to `.rhei/settings.json` in the output — do not write the `.rhei/` path in the template source.
+- A root-level `settings.json` is moved to `.agents/rhei/settings.json` in the output — do not write the `.agents/rhei/` path in the template source.
 - Binary files (null bytes in the first 8 KiB) are copied verbatim. Text files are rendered through the instantiation environment and must decode as UTF-8.
 
 When a custom state machine is needed, `states.yaml` is a required generated artifact (not design notes): produce the complete YAML in the template directory, and keep the rendered plan's `**States:** <name>` aligned with `states.yaml:name`. See *Required Accompaniments* for its diagram and *Response Discipline* for how to present it.
@@ -169,7 +169,7 @@ The renderer is strict: referencing an undefined variable or missing object prop
 1. **Only bundle `settings.json` when the template references MCP servers, skills, or agent profiles** not guaranteed in the user's global config.
 2. **Use `{{...}}` for workspace-specific values** (workspace ids, hostnames, paths), and the settings file's standard `${VAR}` expansion for secrets — `${VAR}` resolves at `rhei run` time on the user's machine, not at instantiation.
 3. **Every MCP / skill / agent id referenced by the bundled `states.yaml` must be declared here or in the user's global settings** — `rhei validate` (post-instantiation) surfaces dangling references.
-4. **Write `settings.json` at the template root**; `rhei instantiate` moves it to `.rhei/settings.json`.
+4. **Write `settings.json` at the template root**; `rhei instantiate` moves it to `.agents/rhei/settings.json`.
 
 ### Additional files
 
