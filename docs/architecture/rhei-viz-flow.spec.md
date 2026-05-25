@@ -217,13 +217,15 @@ publish the file costs only headless intervention, never the run.
 **New plumbing this requires.** Delivery is **agent-capability-dependent**. Most
 stdin-prompt transports are EOF-driven: `agent_spawn.rs` writes the prompt and
 closes stdin so the agent starts. Those agents, and agents invoked with a
-one-shot `-p <prompt>` (e.g. `claude-code`), are not interactively reachable. A
-profile that explicitly declares `intervene_stdin` has its child stdin kept
-**piped and held open** for the process lifetime, with the writable handle
-registered in a per-slot registry the `/intervene` route can reach. Unsupported
-agents report not interactively reachable rather than silently dropping the
-message. Concurrent fanout invocations for the same task are distinct slot
-registrations; releasing one invocation must not remove a still-running sibling.
+one-shot prompt argument, are not interactively reachable. A profile that
+explicitly declares `intervene_stdin` has its child stdin kept **piped and held
+open** for the process lifetime, with the writable handle registered in a
+per-slot registry the `/intervene` route can reach. `claude-code` is adapted to
+Claude Code's stream-json stdin mode when `intervene_stdin` is set, so its `-p`
+invocation stays live rather than carrying a prompt argument. Unsupported agents
+report not interactively reachable rather than silently dropping the message.
+Concurrent fanout invocations for the same task are distinct slot registrations;
+releasing one invocation must not remove a still-running sibling.
 
 **The surface gates the composer on this capability up front.** The registry
 answers `reachable(task, slot)` from the same per-slot map `deliver` consults, and
@@ -231,8 +233,8 @@ the dashboard carries that answer in the snapshot as `task_runtime[id].intervene
 The Flow composer renders only when it is true, so an operator learns an agent
 can't be messaged *before* typing rather than after a failed send (§FS-rhei-viz
 §5). Because the gate and delivery share one registry, they cannot disagree: no
-built-in agent enables `intervene_stdin` today, so the composer stays hidden until
-a profile opts in.
+built-in profile enables `intervene_stdin` by default, so the composer stays
+hidden until a profile opts in.
 
 **Decision (§10.1): every intervention is logged.** Each delivered message is
 appended to a durable audit trail at `runtime/interventions.log` — timestamp,

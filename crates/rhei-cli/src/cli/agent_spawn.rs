@@ -260,14 +260,42 @@ fn spawn_and_wait_agent(
     // EOF before starting, so stdin is closed after the prompt unless the
     // profile opts into streaming interventions. §FS-rhei-agents.1.1.2
     let mut registered_intervene = false;
-    if resolved.profile.stdin_prompt {
+    let stdin_format = agent_stdin_format(resolved);
+    if stdin_format == AgentStdinFormat::ClaudeCodeStreamJson {
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write as _;
+            let _ = stdin.write_all(&stdin_message_bytes(stdin_format, prompt));
+            let _ = stdin.flush();
+            match (resolved.profile.intervene_stdin, intervene) {
+                (true, Some(registry)) => {
+                    registry.register(
+                        task_id,
+                        slot,
+                        state_name,
+                        log_file.clone(),
+                        stdin,
+                        stdin_format,
+                    );
+                    registered_intervene = true;
+                }
+                _ => drop(stdin),
+            }
+        }
+    } else if resolved.profile.stdin_prompt {
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write as _;
             let _ = stdin.write_all(prompt.as_bytes());
             let _ = stdin.flush();
             match (resolved.profile.intervene_stdin, intervene) {
                 (true, Some(registry)) => {
-                    registry.register(task_id, slot, state_name, log_file.clone(), stdin);
+                    registry.register(
+                        task_id,
+                        slot,
+                        state_name,
+                        log_file.clone(),
+                        stdin,
+                        stdin_format,
+                    );
                     registered_intervene = true;
                 }
                 _ => drop(stdin),
@@ -277,7 +305,7 @@ fn spawn_and_wait_agent(
         if let Some(stdin) = child.stdin.take() {
             // Close unused intervention stdin when the live surface is absent. §FS-rhei-agents.1.1.2
             if let Some(registry) = intervene {
-                registry.register(task_id, slot, state_name, log_file.clone(), stdin);
+                registry.register(task_id, slot, state_name, log_file.clone(), stdin, stdin_format);
                 registered_intervene = true;
             } else {
                 drop(stdin);

@@ -225,11 +225,11 @@ transcript, but it is not counted as running.
 running agent keeps an interactive stdin open and is therefore reachable — the
 per-agent `intervene_stdin` opt-in, surfaced per slot in the snapshot as
 `task_runtime[id].intervene` (§8). When a live agent is *not* reachable — a
-one-shot or EOF-driven transport, which is every built-in agent today — the block
-states plainly that the agent can't be messaged live and names the remedy (set
-`intervene_stdin` on the agent's profile and rerun), rather than dead-ending the
-operator or inviting input that would fail after they type. Intervene messages a
-running agent; it never transitions or edits the plan §AR-rhei-viz-flow.7.
+one-shot or EOF-driven transport — the block states plainly that the agent can't
+be messaged live and names the remedy (set `intervene_stdin` on the agent's
+profile and rerun), rather than dead-ending the operator or inviting input that
+would fail after they type. Intervene messages a running agent; it never
+transitions or edits the plan §AR-rhei-viz-flow.7.
 
 The same channel is reachable from the terminal, for operators who run without a
 browser open: `rhei intervene --task <id> [--slot <N>] -m "<message>"` discovers

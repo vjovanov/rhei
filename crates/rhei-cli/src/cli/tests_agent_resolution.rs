@@ -218,6 +218,51 @@
     }
 
     #[test]
+    fn claude_code_intervention_uses_stream_json_stdin_command() {
+        let mut profile = built_in_agents().remove("claude-code").expect("claude-code");
+        profile.intervene_stdin = true;
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("claude-code"),
+            profile,
+            mode: None,
+            target: None,
+            model: Some("impl-fast".to_string()),
+            model_provider: Some("anthropic".to_string()),
+            model_name: Some("claude-sonnet-4-6".to_string()),
+            timeout_secs: Some(60),
+            autonomous_args: Vec::new(),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+        let runtime_dir = tempfile::tempdir().expect("tmpdir");
+        let command = build_agent_command(
+            &resolved,
+            "do work",
+            Path::new("/tmp/workspace"),
+            Path::new("/tmp/workspace"),
+            None,
+            "task-1",
+            "pending",
+            1,
+            &tooling,
+            runtime_dir.path(),
+        );
+        let args: Vec<String> =
+            command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+
+        assert!(args.iter().any(|arg| arg == "-p"), "claude print mode required: {args:?}");
+        assert!(!args.iter().any(|arg| arg == "do work"), "prompt must move to stdin: {args:?}");
+        let input_idx =
+            args.iter().position(|arg| arg == "--input-format").expect("--input-format");
+        assert_eq!(args.get(input_idx + 1).map(String::as_str), Some("stream-json"));
+        let output_idx =
+            args.iter().position(|arg| arg == "--output-format").expect("--output-format");
+        assert_eq!(args.get(output_idx + 1).map(String::as_str), Some("stream-json"));
+        assert!(args.iter().any(|arg| arg == "--verbose"), "stream-json output requires verbose");
+        let model_idx = args.iter().position(|arg| arg == "--model").expect("--model");
+        assert_eq!(args.get(model_idx + 1).map(String::as_str), Some("claude-sonnet-4-6"));
+    }
+
+    #[test]
     fn build_agent_command_falls_back_to_model_id_when_registry_missing() {
         // Backward-compatible behavior: an unregistered model id is passed
         // through as the concrete model name.

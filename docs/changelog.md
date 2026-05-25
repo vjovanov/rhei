@@ -4,6 +4,8 @@
 
 - Fix Flow running-now and running summary counts to use active runtime slots
   instead of persisted active-like task states. PR #23
+- Fix Claude Code live intervention transport by using stream-json stdin with
+  verbose print output when `intervene_stdin` is enabled. PR #25
 - Move project settings from `.rhei/settings.json` to
   `.agents/rhei/settings.json`, including template instantiation output. PR #22
 - Tighten `rhei-template-writer` skill guidance for editing existing templates
