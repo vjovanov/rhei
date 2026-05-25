@@ -240,4 +240,11 @@ mod tests {
     fn live_asset_leaves_boot_null_so_js_polls() {
         assert!(live_asset().contains(BOOT_PLACEHOLDER));
     }
+
+    #[test]
+    fn flow_asset_running_now_uses_runtime_slots() {
+        assert!(FLOW_ASSET.contains("function isRunningNow(n)"));
+        assert!(FLOW_ASSET.contains("filter(isRunningNow)"));
+        assert!(FLOW_ASSET.contains("const runningPart = hasRuntimeOverlay()"));
+    }
 }

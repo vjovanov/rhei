@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Flow running-now and running summary counts to use active runtime slots
+  instead of persisted active-like task states. PR #23
 - Move project settings from `.rhei/settings.json` to
   `.agents/rhei/settings.json`, including template instantiation output. PR #22
 - Tighten `rhei-template-writer` skill guidance for editing existing templates

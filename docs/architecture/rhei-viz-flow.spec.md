@@ -250,7 +250,8 @@ modes, so they live once in `rhei-viz` and are called by both the static builder
 and the live dashboard. They are the logic normatively defined in the spec:
 
 - **State→category classification** — §FS-rhei-viz §1.1, evaluated top-to-bottom,
-  first match wins, with `live` as the catch-all.
+  first match wins, with `active` as the persisted-state catch-all; `live` is
+  reserved for the runtime slot overlay.
 - **Plan-state derivation** — §FS-rhei-viz §9, with active-like tied to the `idle`
   category so a plan of `pending` tasks derives `pending`, not `active`, under any
   profile.
