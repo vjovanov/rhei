@@ -391,17 +391,15 @@
                 continue;
             }
 
-            // A root-level `settings.json` in the template is relocated to
-            // `.rhei/settings.json` in the output, where `rhei run` and
-            // `rhei validate` pick it up as project-scoped settings. Any
-            // non-root `settings.json` is left where it is.
+            // §FS-rhei-templates.6.1.2: root settings become project settings
+            // in the agent config tree; non-root `settings.json` stays put.
             let at_template_root = src_dir == template_root;
             let dest_path = if at_template_root && name_str == "settings.json" {
-                let rhei_dir = dest_dir.join(".rhei");
-                fs::create_dir_all(&rhei_dir).map_err(|err| {
-                    file_io_report(&rhei_dir, "failed to create .rhei directory", err)
+                let settings_dir = dest_dir.join(".agents").join("rhei");
+                fs::create_dir_all(&settings_dir).map_err(|err| {
+                    file_io_report(&settings_dir, "failed to create .agents/rhei directory", err)
                 })?;
-                rhei_dir.join("settings.json")
+                settings_dir.join("settings.json")
             } else {
                 dest_dir.join(&name)
             };

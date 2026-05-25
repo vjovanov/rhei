@@ -1,5 +1,5 @@
 
-/// Rhei settings loaded from `~/.config/rhei/settings.json` or `.rhei/settings.json`.
+/// Rhei settings loaded from `~/.config/rhei/settings.json` or `.agents/rhei/settings.json`.
 #[derive(Debug, Default, Deserialize, Clone)]
 struct RheiSettings {
     #[serde(default)]

@@ -9,7 +9,7 @@ fn resolve_target_agent(
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
         miette!(
             "agent '{}' is not defined. Add an entry to agents.<id> in \
-             .rhei/settings.json or ~/.config/rhei/settings.json, or \
+             .agents/rhei/settings.json or ~/.config/rhei/settings.json, or \
              reference one of the built-in ids ({}).",
             agent.id(),
             built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
@@ -89,7 +89,7 @@ fn resolve_legacy_agent_with_model(
         Some(id) => Some(settings.models.get(id).ok_or_else(|| {
             miette!(
                 "model '{}' is not defined in settings.models. Add a models.{} entry \
-                 to .rhei/settings.json or ~/.config/rhei/settings.json, or remove \
+                 to .agents/rhei/settings.json or ~/.config/rhei/settings.json, or remove \
                  the model selection.",
                 id,
                 id
@@ -119,7 +119,7 @@ fn resolve_legacy_agent_with_model(
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
         miette!(
             "agent '{}' is not defined. Add an entry to agents.<id> in \
-             .rhei/settings.json or ~/.config/rhei/settings.json, or \
+             .agents/rhei/settings.json or ~/.config/rhei/settings.json, or \
              reference one of the built-in ids ({}).",
             agent.id(),
             built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")

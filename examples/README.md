@@ -28,7 +28,7 @@ This directory contains example inputs for the current markdown plan compiler im
 - `product-management-example/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`
-  - a template-shipped `.rhei/settings.json`
+  - a template-shipped `.agents/rhei/settings.json`
   - two configurable PM targets feeding a smart aggregation/validation state
   - a two-pass aggregate and cheaper implementation loop
 
@@ -61,7 +61,7 @@ This directory contains example inputs for the current markdown plan compiler im
 - `snapshot-continuation/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`
-  - a project-scoped `.rhei/settings.json` with a snapshot-capable agent profile
+  - a project-scoped `.agents/rhei/settings.json` with a snapshot-capable agent profile
   - a named `snapshot.emit:` followed by required same-agent `snapshot.inherit:`
   - documented `snapshot list`, `snapshot continue`, `snapshot show`, and
     `run --from-snapshot` commands
@@ -69,7 +69,7 @@ This directory contains example inputs for the current markdown plan compiler im
 - `hourly-human-intervention-example/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`
-  - a template-shipped `.rhei/settings.json`
+  - a template-shipped `.agents/rhei/settings.json`
   - a routed hourly GitHub sweep with human gates for GraalVM fixes
 
 - `ui-test-canonical-example/`

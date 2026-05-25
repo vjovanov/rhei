@@ -43,7 +43,7 @@ cargo run -p rhei-cli -- instantiate changeset-review \
   --output examples/changeset-review-example
 ```
 
-The example ships `.rhei/settings.json`, which provides the default
+The example ships `.agents/rhei/settings.json`, which provides the default
 `agent_timeout` and adds Codex `high` / `xhigh` modes. The `xhigh` mode passes
 `model_reasoning_effort="xhigh"` to Codex. Claude Code remains included as a
 second default reviewer, but Rhei does not currently expose a Claude

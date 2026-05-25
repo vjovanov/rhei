@@ -39,6 +39,12 @@ fn load_merged_settings_for_completion(plan_root: &Path) -> RheiSettings {
         .unwrap_or_else(|_| RheiSettings { agents: built_in_agents(), ..Default::default() })
 }
 
+const PROJECT_SETTINGS_RELATIVE_PATH: &str = ".agents/rhei/settings.json";
+
+fn project_settings_path(plan_root: &Path) -> PathBuf {
+    plan_root.join(PROJECT_SETTINGS_RELATIVE_PATH)
+}
+
 /// Load merged settings: built-ins, then global, then project-level overrides.
 fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
     let global = match home_dir() {
@@ -46,7 +52,8 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
         Err(_) => empty_settings_document(),
     };
 
-    let project = load_settings_document(&plan_root.join(".rhei/settings.json"))?;
+    // §FS-rhei-agents.1.1: project settings live under the agent config tree.
+    let project = load_settings_document(&project_settings_path(plan_root))?;
     let project_raw = &project.raw;
     let global = global.typed;
     let project = project.typed;
