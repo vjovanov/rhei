@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Tighten `rhei-template-writer` skill guidance for editing existing templates
+  and validating rendered `**Prior:**` metadata. PR #21
 - Improve `rhei instantiate` template discovery help by listing templates when
   no template is provided and suggesting close matches for missing named
   templates. PR #20
