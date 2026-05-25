@@ -179,20 +179,6 @@ names from `.agents/rhei/templates/` and `~/.agents/rhei/templates/`.
 See [Tab Completions](docs/functional-spec/tab-completions.md) for shell-specific setup notes,
 default install paths, and system-wide installation.
 
-### Language Server
-
-Start the editor language server over stdio:
-
-```bash
-rhei lsp
-rhei --state-machine path/to/states.yaml lsp
-```
-
-Editors and LSP clients should launch the installed `rhei` binary with the
-`lsp` subcommand. The server currently provides diagnostics, state and task-id
-completion, document symbols, state hover, and same-document task definition
-lookup for `.rhei.md` plans.
-
 ## CLI usage
 
 Validate a plan with the built-in default states definition:
