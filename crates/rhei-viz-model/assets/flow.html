@@ -649,7 +649,7 @@ function renderSurroundings(){
       noiv.appendChild(document.createTextNode(
         "This agent can't be messaged live — it doesn't keep an interactive stdin open. To enable intervention, set "));
       noiv.appendChild(el("code",{text:'"intervene_stdin": true'}));
-      noiv.appendChild(document.createTextNode(" on this agent's profile (agents.<id> in .rhei/settings.json) and rerun; only agents that keep reading stdin mid-run can receive messages."));
+      noiv.appendChild(document.createTextNode(" on this agent's profile (agents.<id> in .agents/rhei/settings.json) and rerun; only agents that keep reading stdin mid-run can receive messages."));
       iv.appendChild(noiv);
     } else {
       // Interactive on a reachable live agent; rendered disabled on the static

@@ -79,10 +79,10 @@ fi
 fn snapshot_cli_lists_shows_and_run_preloads_from_snapshot() {
     let dir = unique_temp_dir("snapshot-cli-smoke");
     let fake_agent = write_fake_snapshot_agent(&dir);
-    let rhei_dir = dir.join(".rhei");
-    fs::create_dir_all(&rhei_dir).expect("create .rhei");
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
     fs::write(
-        rhei_dir.join("settings.json"),
+        settings_dir.join("settings.json"),
         format!(
             r#"{{
   "agents": {{

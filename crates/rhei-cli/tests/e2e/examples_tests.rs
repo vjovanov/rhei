@@ -118,8 +118,8 @@ esac
 }
 
 fn write_mock_agent_settings(workspace: &Path, agent_script: &str) {
-    let rhei_dir = workspace.join(".rhei");
-    fs::create_dir_all(&rhei_dir).expect("create .rhei");
+    let settings_dir = workspace.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
     let profile = format!(
         r#"{{
       "command": ["sh", {}],
@@ -131,7 +131,7 @@ fn write_mock_agent_settings(workspace: &Path, agent_script: &str) {
         serde_json::to_string(agent_script).expect("json string")
     );
     fs::write(
-        rhei_dir.join("settings.json"),
+        settings_dir.join("settings.json"),
         format!(
             r#"{{
   "defaults": {{

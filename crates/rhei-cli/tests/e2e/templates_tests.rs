@@ -331,7 +331,7 @@ fn instantiate_project_hourly_human_intervention_template_prints_summary() {
     assert!(
         result.stdout.contains("=== Instantiation Summary ===")
             && result.stdout.contains("Files:")
-            && result.stdout.contains(".rhei/")
+            && result.stdout.contains(".agents/")
             && result.stdout.contains("Task tree:")
             && result.stdout.contains(
                 "Task fetch-issues: Fetch and classify human-intervention issues [fetch]"
@@ -508,7 +508,7 @@ inputs:
 }
 
 #[test]
-fn instantiate_relocates_root_settings_json_into_rhei_dir() {
+fn instantiate_relocates_root_settings_json_into_agents_rhei_dir() {
     let dir = unique_temp_dir("templates-settings-bundling");
     let template_dir = dir.join("settings-template");
     fs::create_dir_all(&template_dir).expect("create template dir");
@@ -566,8 +566,12 @@ inputs:
         !output_dir.join("settings.json").exists(),
         "template settings.json should not be written at output root"
     );
-    let rendered_settings = fs::read_to_string(output_dir.join(".rhei/settings.json"))
-        .expect("read .rhei/settings.json");
+    assert!(
+        !output_dir.join(".rhei/settings.json").exists(),
+        "template settings.json should not be written under .rhei"
+    );
+    let rendered_settings = fs::read_to_string(output_dir.join(".agents/rhei/settings.json"))
+        .expect("read .agents/rhei/settings.json");
     let parsed: serde_json::Value =
         serde_json::from_str(&rendered_settings).expect("rendered settings.json is valid JSON");
     assert_eq!(

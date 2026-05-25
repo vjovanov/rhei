@@ -94,10 +94,10 @@ fi
 /// Register the mock agent with a resume-capable session layout so the
 /// orchestrator can preload a prior snapshot and pass `--resume`.
 fn write_agent_settings(dir: &Path, agent_script: &str) {
-    let rhei_dir = dir.join(".rhei");
-    fs::create_dir_all(&rhei_dir).expect("create .rhei");
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
     fs::write(
-        rhei_dir.join("settings.json"),
+        settings_dir.join("settings.json"),
         format!(
             r#"{{
   "agents": {{

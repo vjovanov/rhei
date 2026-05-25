@@ -152,7 +152,7 @@ states:
 
 Agents are referenced by string id only — `agent:` is resolved against the
 merged `agents` registry (built-ins + `~/.config/rhei/settings.json` +
-`<plan-root>/.rhei/settings.json`). To use a CLI that isn't a built-in, add
+`<plan-root>/.agents/rhei/settings.json`). To use a CLI that isn't a built-in, add
 it to the registry instead of inlining it on the state. Run-time overrides
 are available via `--agent <AGENT>`, `--agent-mode <MODE>`, and `--model
 <MODEL>` on `rhei run`.

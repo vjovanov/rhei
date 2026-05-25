@@ -271,8 +271,9 @@ fn run_agent_mode(
                         .or_else(|| settings.model.clone());
                     let model_remediation = match &resolved_model {
                         Some(id) => format!(
-                            "models.{id}.default_agent in {}/.rhei/settings.json",
-                            workspace_root.display()
+                            "models.{id}.default_agent in {}/{}",
+                            workspace_root.display(),
+                            PROJECT_SETTINGS_RELATIVE_PATH
                         ),
                         None => "models.<id>.default_agent (in settings.json)".to_string(),
                     };
@@ -281,8 +282,9 @@ fn run_agent_mode(
                         None => "no agent configured.".to_string(),
                     };
                     return Err(miette!(
-                        "{header}\n\nSet one of:\n  \u{2022} defaults.agent in {}/.rhei/settings.json or ~/.config/rhei/settings.json\n  \u{2022} the state's `agent:` in states.yaml\n  \u{2022} {model_remediation}\n  \u{2022} --agent <AGENT> on the rhei run command line (e.g. rhei run {} --agent claude-code)\n\nBuilt-in agents: claude-code, codex, gemini, cursor, kilocode, pi",
+                        "{header}\n\nSet one of:\n  \u{2022} defaults.agent in {}/{} or ~/.config/rhei/settings.json\n  \u{2022} the state's `agent:` in states.yaml\n  \u{2022} {model_remediation}\n  \u{2022} --agent <AGENT> on the rhei run command line (e.g. rhei run {} --agent claude-code)\n\nBuilt-in agents: claude-code, codex, gemini, cursor, kilocode, pi",
                         workspace_root.display(),
+                        PROJECT_SETTINGS_RELATIVE_PATH,
                         input.display()
                     ));
                 }

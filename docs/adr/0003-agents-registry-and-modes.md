@@ -96,7 +96,7 @@ predictable.
 Two files, same schema:
 
 - Global: `~/.config/rhei/settings.json`
-- Project: `<plan-root>/.rhei/settings.json`
+- Project: `<plan-root>/.agents/rhei/settings.json`
 
 Project wins per agent id. Merging:
 
@@ -123,7 +123,7 @@ states:
 ```
 
 ```json
-// .rhei/settings.json
+// .agents/rhei/settings.json
 {
   "defaults": {
     "agent": "claude-code",
@@ -142,7 +142,7 @@ order (first match wins):
 
 1. CLI override — `--agent-mode <MODE>`
 2. State-level — `agent_mode` on the state definition
-3. Project defaults — `.rhei/settings.json` `defaults.agent_mode`
+3. Project defaults — `.agents/rhei/settings.json` `defaults.agent_mode`
 4. Global defaults — `~/.config/rhei/settings.json` `defaults.agent_mode`
 5. The agent entry's first declared mode, if `modes` is non-empty
 6. Otherwise — no mode (bare command)
@@ -159,7 +159,7 @@ When resolving an agent id from `states.yaml` or defaults:
    project). If found, use that entry.
 2. Otherwise, fail validation:
    `error: agent '<id>' is not defined. Add an entry to agents.<id> in
-   .rhei/settings.json or ~/.config/rhei/settings.json.`
+   .agents/rhei/settings.json or ~/.config/rhei/settings.json.`
 
 The current "treat unknown id as a raw binary name" fallback in
 `main.rs` is removed — it hides typos and couples state machines to host
@@ -213,7 +213,7 @@ prompt unless `intervene_stdin` opts into a held-open streaming transport.
 
 - `.agents/rhei/templates/multi-model-analysis/states.yaml` uses
   `agent: gemini` in the `gemini-analyze` state.
-- The template emits a `.rhei/settings.json` under the instantiated plan
+- The template emits a `.agents/rhei/settings.json` under the instantiated plan
   containing the `agents.gemini` entry.
 - The `gemini_command`, `gemini_command_arg_1`, `gemini_command_arg_2`,
   `gemini_prompt_flag`, `gemini_model_flag` inputs are dropped.

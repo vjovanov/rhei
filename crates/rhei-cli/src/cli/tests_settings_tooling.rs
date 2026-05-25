@@ -179,7 +179,7 @@
     fn merge_deep_merges_models_agents_by_binding_id() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan_root = dir.path().join("plan");
-        let project_dir = plan_root.join(".rhei");
+        let project_dir = plan_root.join(".agents/rhei");
         fs::create_dir_all(&project_dir).expect("mkdir");
         // Global settings define args; project settings define autonomous_args
         // for the same model-agent binding. Deep-merge must keep both.
@@ -235,7 +235,7 @@
 
         let _home = TempHome::new();
         let plan_root = dir.path().join("plan");
-        let project_dir = plan_root.join(".rhei");
+        let project_dir = plan_root.join(".agents/rhei");
         fs::create_dir_all(&project_dir).expect("mkdir");
         let project_settings = project_dir.join("settings.json");
         fs::write(&project_settings, "{ not json").expect("write malformed");
@@ -249,7 +249,7 @@
     fn settings_merge_project_null_clears_inherited_optional_defaults() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan_root = dir.path().join("plan");
-        let project_dir = plan_root.join(".rhei");
+        let project_dir = plan_root.join(".agents/rhei");
         fs::create_dir_all(&project_dir).expect("mkdir");
         let _home = TempHome::new();
         let global_dir = home_dir().expect("home").join(".config/rhei");
@@ -612,8 +612,8 @@ states:
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
         let states = dir.path().join("states.yaml");
-        let rhei_dir = dir.path().join(".rhei");
-        fs::create_dir_all(&rhei_dir).expect("mkdir");
+        let settings_dir = dir.path().join(".agents/rhei");
+        fs::create_dir_all(&settings_dir).expect("mkdir");
         let spawned = dir.path().join("spawned");
         let script = dir.path().join("fake-agent.sh");
         fs::write(&script, format!("#!/bin/sh\ntouch '{}'\n", spawned.display())).expect("script");
@@ -656,7 +656,7 @@ transitions:
         )
         .expect("states");
         fs::write(
-            rhei_dir.join("settings.json"),
+            settings_dir.join("settings.json"),
             format!(
                 r#"{{
                   "agents": {{

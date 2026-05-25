@@ -1229,7 +1229,7 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         assert!(captured.contains(&format!("RHEI_WORKSPACE_ROOT={}", dir.path().display())));
         assert!(captured.contains(&format!(
             "RHEI_PROJECT_SETTINGS_PATH={}",
-            dir.path().join(".rhei/settings.json").display()
+            dir.path().join(".agents/rhei/settings.json").display()
         )));
         assert!(captured.contains("RHEI_GLOBAL_SETTINGS_PATH="));
         assert!(captured.contains("RHEI_REDACTOR_ALLOWED=allowed-value"));

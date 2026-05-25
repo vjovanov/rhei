@@ -8,7 +8,7 @@ This template instantiates a single-task Rhei workspace that:
 3. advances the same task to a `summarize` state after the fanout completes
 4. writes the final document to `runtime/final-analysis.md` by default
 
-The instantiated workspace also ships a default `.rhei/settings.json` with
+The instantiated workspace also ships a default `.agents/rhei/settings.json` with
 `defaults.agent_timeout` so `rhei run` can orchestrate the analysis agents
 without extra manual setup.
 
@@ -57,7 +57,7 @@ Each state references a coding-agent id (`claude-code`, `gemini`, `codex`) that
 Rhei resolves against the merged `agents` registry. The built-in profiles are
 usually enough, but if your local Gemini CLI uses a different binary name or
 different prompt/model flags, override the `gemini` entry in
-`<plan>/.rhei/settings.json`:
+`<plan>/.agents/rhei/settings.json`:
 
 ```json
 {
