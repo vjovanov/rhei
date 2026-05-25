@@ -5,6 +5,7 @@ fn skill_description(name: &str) -> &'static str {
         "rhei-plan-writer" => "create and validate Rhei Plans",
         "rhei-plan-worker" => "execute tasks in a Rhei Plan",
         "rhei-state-machine-writer" => "design custom state machines from project specs and teams",
+        "rhei-template-writer" => "design reusable Rhei templates",
         _ => "rhei skill",
     }
 }

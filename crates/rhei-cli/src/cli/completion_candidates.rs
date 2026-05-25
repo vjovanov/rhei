@@ -242,6 +242,7 @@ fn complete_skill_name(current: &OsStr) -> Vec<CompletionCandidate> {
             ("rhei-plan-writer", "Create and refactor Rhei Plan documents"),
             ("rhei-plan-worker", "Execute tasks in Rhei Plan documents"),
             ("rhei-state-machine-writer", "Design custom Rhei state machines"),
+            ("rhei-template-writer", "Design reusable Rhei templates"),
         ],
     )
 }

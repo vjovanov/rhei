@@ -39,12 +39,95 @@ fn relative_path(from_dir: &Path, to_path: &Path) -> PathBuf {
     result
 }
 
+#[derive(Clone, Copy)]
+struct EmbeddedSkillFile {
+    relative_path: &'static str,
+    contents: &'static str,
+}
+
+const EMBEDDED_RHEI_PLAN_WRITER_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        contents: include_str!("../../assets/skills/rhei-plan-writer/SKILL.md"),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/default-states.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-plan-writer/references/default-states.md"
+        ),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/minimal-plan.rhei.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-plan-writer/references/examples/minimal-plan.rhei.md"
+        ),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/directory-workspace/index.rhei.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-plan-writer/references/examples/directory-workspace/index.rhei.md"
+        ),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/directory-workspace/tasks/api.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-plan-writer/references/examples/directory-workspace/tasks/api.md"
+        ),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/directory-workspace/tasks/ui.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-plan-writer/references/examples/directory-workspace/tasks/ui.md"
+        ),
+    },
+];
+
+const EMBEDDED_RHEI_PLAN_WORKER_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        contents: include_str!("../../assets/skills/rhei-plan-worker/SKILL.md"),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/default-worker-pass.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-plan-worker/references/examples/default-worker-pass.md"
+        ),
+    },
+];
+
+const EMBEDDED_RHEI_STATE_MACHINE_WRITER_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        contents: include_str!("../../assets/skills/rhei-state-machine-writer/SKILL.md"),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/human-review-states.yaml",
+        contents: include_str!(
+            "../../assets/skills/rhei-state-machine-writer/references/examples/human-review-states.yaml"
+        ),
+    },
+];
+
+const EMBEDDED_RHEI_TEMPLATE_WRITER_FILES: &[EmbeddedSkillFile] = &[
+    EmbeddedSkillFile {
+        relative_path: "SKILL.md",
+        contents: include_str!("../../assets/skills/rhei-template-writer/SKILL.md"),
+    },
+    EmbeddedSkillFile {
+        relative_path: "references/examples/minimal-template.md",
+        contents: include_str!(
+            "../../assets/skills/rhei-template-writer/references/examples/minimal-template.md"
+        ),
+    },
+];
+
 /// Locate the source directory for a named skill.
 ///
 /// Search order:
 /// 1. Installed path: `<binary>/../share/rhei/skills/<skill_name>/`
 /// 2. Dev-build fallback: walk up from the binary looking for `Cargo.toml`
 ///    (the repo root), then check `skills/<skill_name>/`.
+/// 3. Embedded binary fallback materialized under the user's cache.
 fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
     // 1. Binary-relative installed path.
     if let Ok(exe) = std::env::current_exe() {
@@ -75,11 +158,57 @@ fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
         }
     }
 
-    Err(miette!(
-        "could not find skill source directory for '{}'. Searched relative to the rhei binary \
-         (../share/rhei/skills/{0}/) and the repo root (skills/{0}/).",
-        skill_name
-    ))
+    // 3. Standalone binaries have no adjacent share tree, so use the embedded bundle. §FS-rhei-install-skills.4.3
+    materialize_embedded_skill_source(skill_name)
+}
+
+fn materialize_embedded_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
+    let files = embedded_skill_files(skill_name).ok_or_else(|| {
+        miette!(
+            "could not find skill source directory for '{}'. Searched relative to the rhei binary \
+             (../share/rhei/skills/{0}/), the repo root (skills/{0}/), and the embedded bundle.",
+            skill_name
+        )
+    })?;
+    let root = home_dir()?
+        .join(".cache/rhei/embedded-skills")
+        .join(env!("CARGO_PKG_VERSION"))
+        .join(skill_name);
+
+    remove_embedded_skill_cache_entry(&root)?;
+
+    for file in files {
+        let path = root.join(file.relative_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| miette!("failed to create '{}': {e}", parent.display()))?;
+        }
+        fs::write(&path, file.contents)
+            .map_err(|e| miette!("failed to write '{}': {e}", path.display()))?;
+    }
+
+    Ok(root)
+}
+
+fn remove_embedded_skill_cache_entry(path: &Path) -> MietteResult<()> {
+    let Ok(metadata) = path.symlink_metadata() else { return Ok(()) };
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path)
+            .map_err(|e| miette!("failed to refresh '{}': {e}", path.display()))?;
+    } else {
+        fs::remove_file(path).map_err(|e| miette!("failed to refresh '{}': {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn embedded_skill_files(skill_name: &str) -> Option<&'static [EmbeddedSkillFile]> {
+    match skill_name {
+        "rhei-plan-writer" => Some(EMBEDDED_RHEI_PLAN_WRITER_FILES),
+        "rhei-plan-worker" => Some(EMBEDDED_RHEI_PLAN_WORKER_FILES),
+        "rhei-state-machine-writer" => Some(EMBEDDED_RHEI_STATE_MACHINE_WRITER_FILES),
+        "rhei-template-writer" => Some(EMBEDDED_RHEI_TEMPLATE_WRITER_FILES),
+        _ => None,
+    }
 }
 
 /// Find the project root by walking up from the current directory.

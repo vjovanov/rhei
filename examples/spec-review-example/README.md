@@ -15,7 +15,7 @@ criteria: thread safety, backward compatibility
 
 The same values are checked in at `instantiation-values.yaml`. The fixture spec
 is bundled under `specs/`, so the example remains portable across checkout
-locations and temporary e2e copies.
+locations and temporary e2e copies. §FS-template-review-fixture
 
 ## Validate
 

@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -6,7 +8,12 @@ use super::{unique_temp_dir, CliRun};
 
 /// Run `rhei install-skills` with a fake HOME and optional extra args.
 fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    run_install_skills_with_bin(Path::new(env!("CARGO_BIN_EXE_rhei")), home, extra_args)
+}
+
+/// Run a specific `rhei` binary with a fake HOME and optional extra args.
+fn run_install_skills_with_bin(binary: &Path, home: &Path, extra_args: &[&str]) -> CliRun {
+    let mut cmd = Command::new(binary);
     cmd.env("HOME", home);
     cmd.arg("install-skills");
     for arg in extra_args {
@@ -53,6 +60,12 @@ fn global_install_copy_claude_code() {
     assert!(home.join(".claude/skills/rhei-plan-writer/SKILL.md").exists());
     assert!(home.join(".claude/skills/rhei-plan-worker/SKILL.md").exists());
     assert!(home.join(".claude/skills/rhei-state-machine-writer/SKILL.md").exists());
+    assert!(home
+        .join(".claude/skills/rhei-plan-writer/references/examples/minimal-plan.rhei.md")
+        .exists());
+    assert!(home
+        .join(".claude/skills/rhei-plan-worker/references/examples/default-worker-pass.md")
+        .exists());
 
     // Verify CLAUDE.md has registration block.
     let claude_md = fs::read_to_string(home.join(".claude/CLAUDE.md")).expect("read CLAUDE.md");
@@ -127,11 +140,51 @@ fn global_install_copy_codex() {
     assert!(home.join(".agents/skills/rhei-plan-writer/SKILL.md").exists());
     assert!(home.join(".agents/skills/rhei-plan-worker/SKILL.md").exists());
     assert!(home.join(".agents/skills/rhei-state-machine-writer/SKILL.md").exists());
+    assert!(home
+        .join(".agents/skills/rhei-plan-writer/references/examples/minimal-plan.rhei.md")
+        .exists());
+    assert!(home
+        .join(
+            ".agents/skills/rhei-state-machine-writer/references/examples/human-review-states.yaml"
+        )
+        .exists());
     assert!(!home.join(".codex/instructions.md").exists());
 
     assert!(result.stdout.contains("codex:"));
     assert!(result.stdout.contains(".agents/skills/rhei-plan-writer"));
     assert!(result.stdout.contains("Installed rhei skills for 1 agent."));
+}
+
+#[test]
+fn standalone_binary_installs_embedded_skill_references() {
+    let home = unique_temp_dir("install-embedded-home");
+    let install = unique_temp_dir("install-embedded-bin");
+    let bin_dir = install.join("bin");
+    fs::create_dir_all(&bin_dir).expect("create bin dir");
+    let copied_binary = bin_dir.join("rhei");
+    fs::copy(env!("CARGO_BIN_EXE_rhei"), &copied_binary).expect("copy rhei binary");
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&copied_binary).expect("binary metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&copied_binary, permissions).expect("set binary executable");
+    }
+
+    let result = run_install_skills_with_bin(&copied_binary, &home, &["--agent", "codex"]);
+    assert!(
+        result.status.success(),
+        "install should succeed from copied standalone binary\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    assert!(home.join(".agents/skills/rhei-plan-writer/SKILL.md").exists());
+    assert!(home
+        .join(".agents/skills/rhei-plan-writer/references/examples/minimal-plan.rhei.md")
+        .exists());
+    assert!(home
+        .join(".agents/skills/rhei-plan-worker/references/examples/default-worker-pass.md")
+        .exists());
 }
 
 #[test]

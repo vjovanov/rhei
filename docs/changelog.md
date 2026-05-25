@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Install bundled skill reference examples by default and embed the built-in
+  skill bundle for standalone binary installs. PR #19
 - Remove the `rhei lsp` language-server product surface. PR #18
 - Add product workflow templates and examples for agent discussion,
   analyze-and-dispatch, parallel worktrees, multi-model analysis, and spec
