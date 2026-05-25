@@ -1,6 +1,7 @@
 # Agents
 scratchpad/
 .agents/scratchpad/
+.claude/CLAUDE.md
 
 # Rust build artifacts
 target/

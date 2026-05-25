@@ -17,6 +17,8 @@ The same values are checked in at `instantiation-values.yaml`. The fixture spec
 is bundled under `specs/`, so the example remains portable across checkout
 locations and temporary e2e copies.
 
+<!-- Fixture grounding for repository validation: §FS-template-review-fixture -->
+
 ## Validate
 
 ```bash
