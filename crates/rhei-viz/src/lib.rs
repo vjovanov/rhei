@@ -13,8 +13,9 @@ use rhei_viz_model::{
 mod collect;
 pub use collect::{collect_plans, Bundle};
 
-/// Coarse status category a state reduces to (§FS-rhei-viz §1.1). The rows are
-/// evaluated top to bottom, first match wins, so `Live` is the catch-all.
+/// Coarse status category a persisted state reduces to (§FS-rhei-viz §1.1). The
+/// rows are evaluated top to bottom, first match wins, so `Active` is the
+/// catch-all. The live dashboard overlays runtime slot assignment separately.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
     Done,
@@ -23,7 +24,7 @@ pub enum Category {
     Gate,
     Retired,
     Idle,
-    Live,
+    Active,
 }
 
 /// Build the static [`VizModel`] from a parsed plan and its resolved machine.
@@ -240,9 +241,9 @@ fn authored_fanout_template_contexts(def: &rhei_validator::StateDef) -> Vec<Temp
     Vec::new()
 }
 
-/// Classify a state into one of the seven categories: machine flags first, then
-/// the state name (so custom vocabularies classify); first match wins, `Live`
-/// the catch-all. Mirrors the asset's `category()`. §FS-rhei-viz.1.1
+/// Classify a persisted state into one of the seven categories: machine flags
+/// first, state name second; `Active` is the catch-all. Mirrors the asset's
+/// `category()`. §FS-rhei-viz.1.1
 pub fn category(machine: &StateMachine, state: &str) -> Category {
     let def = machine.states.get(state);
     if state == "completed" {
@@ -268,7 +269,7 @@ pub fn category(machine: &StateMachine, state: &str) -> Category {
     if state == "draft" || state == "pending" || is_initial {
         return Category::Idle;
     }
-    Category::Live
+    Category::Active
 }
 
 /// Derive the level-0 plan state from top-level task states: the pure derivation
@@ -297,7 +298,7 @@ pub fn derive_plan_state(tasks: &[TaskRow], machine: &StateMachine) -> String {
     }
 
     // active-like = a non-terminal state that is not in the `idle` category.
-    let any_active_like = roots.iter().any(|s| category(machine, s) == Category::Live);
+    let any_active_like = roots.iter().any(|s| category(machine, s) == Category::Active);
     if any_active_like {
         "active".into()
     } else {

@@ -93,11 +93,13 @@
   .row[data-cat="done"]    { background: color-mix(in srgb, #4f9e7e 16%, transparent); border-left-color: #4f9e7e; }
   .row[data-cat="blocked"] { background: color-mix(in srgb, #cf5b5b 18%, transparent); border-left-color: #cf5b5b; }
   .row[data-cat="failed"]  { background: color-mix(in srgb, #cf5b5b 14%, transparent); border-left-color: #cf5b5b; }
+  .row[data-cat="active"]  { background: color-mix(in srgb, #6bb0cf 14%, transparent); border-left-color: #6bb0cf; }
   .row[data-cat="live"]    { background: color-mix(in srgb, #d4a84e 18%, transparent); border-left-color: #d4a84e; }
   .row[data-cat="gate"]    { background: color-mix(in srgb, #6cae7c 12%, transparent); border-left-color: #6cae7c; border-left-style: double; border-left-width: 4px; }
   .row[data-cat="retired"] { opacity: .55; }
   .row[data-cat="done"] .ttl,
   .row[data-cat="blocked"] .ttl,
+  .row[data-cat="active"] .ttl,
   .row[data-cat="live"] .ttl    { color: var(--ink); }
 
   /* Spinner — the one live affordance; stilled under reduced motion. */
@@ -119,6 +121,7 @@
   .gnode.blocked rect { fill: color-mix(in srgb, #cf5b5b 22%, var(--surface-2)); }
   .gnode.failed rect  { fill: color-mix(in srgb, #cf5b5b 16%, var(--surface-2)); }
   .gnode.gate rect    { fill: color-mix(in srgb, #6cae7c 16%, var(--surface-2)); }
+  .gnode.active rect  { fill: color-mix(in srgb, #6bb0cf 18%, var(--surface-2)); }
   .gnode.live rect    { fill: color-mix(in srgb, #d4a84e 20%, var(--surface-2));
     stroke-dasharray: 5 4; animation: ants 1s linear infinite; }
   @keyframes ants { to { stroke-dashoffset: -18; } }
@@ -195,7 +198,7 @@
   .gatebox .gstatus { color: var(--faint); font-size: 11px; }
   .gatebox .gerr { color: #cf5b5b; }
 
-  /* ---- intervene (live tasks only) ---- */
+  /* ---- intervene (running tasks; static active-state preview) ---- */
   .intervene { margin-top: 14px; padding: 10px 12px; border-radius: 6px;
     border: 1px solid color-mix(in srgb, #d4a84e 45%, var(--hairline));
     background: color-mix(in srgb, #d4a84e 9%, var(--surface)); }
@@ -358,7 +361,7 @@ function pillInk(hex){
 }
 
 // ---- glyph + category per state (uses machine flags when known) -------------
-const GLYPH = { done:"✓", live:"●", blocked:"⊘", gate:"⏸",
+const GLYPH = { done:"✓", active:"●", live:"●", blocked:"⊘", gate:"⏸",
   failed:"✗", retired:"⊝", idle:"·" };
 function machineState(plan, name){
   const ss=(plan&&plan.machine&&plan.machine.states)||[];
@@ -374,18 +377,29 @@ function category(plan, state){
   if (ms && ms.terminal) return state==="completed"?"done":"retired";
   if (state==="cancelled"||state==="archived") return "retired";
   if (state==="draft"||state==="pending"||(ms&&ms.initial)) return "idle";
-  return "live";
+  return "active";
 }
 function glyph(plan, state){ return GLYPH[category(plan,state)]; }
 function runtimeFor(id){
   const tr=(IX&&IX.plan&&IX.plan.task_runtime)||{};
   return tr[id]||null;
 }
+function hasRuntimeOverlay(){
+  const p=IX&&IX.plan;
+  return !!(p && (p.slots || p.recent || p.task_runtime || p.accounting || p.finished || p.summary));
+}
+function isRunningNow(n){
+  const rt=runtimeFor(n.id);
+  return !!(rt && rt.in_slot!=null);
+}
+function showsLiveOutput(n){
+  return hasRuntimeOverlay() ? isRunningNow(n) : nodeCategory(n)==="active";
+}
 function nodeCategory(n){
   const rt=runtimeFor(n.id);
   // The live dashboard overlays slot assignment on persisted plan state, so an
   // actively running pending task still exposes logs and intervention. §FS-rhei-viz.1.1
-  return LIVE && rt && rt.in_slot!=null ? "live" : category(IX.plan,n.state);
+  return hasRuntimeOverlay() && rt && rt.in_slot!=null ? "live" : category(IX.plan,n.state);
 }
 function nodeGlyph(n){ return GLYPH[nodeCategory(n)]; }
 
@@ -595,22 +609,25 @@ function renderSurroundings(){
     });
   }
 
-  // intervene — a live task always shows its agent output (scrollback, ANSI
-  // color); the message composer appears only when the agent can actually take
-  // a live message. §FS-rhei-viz §5.
+  // intervene — an actually running task shows live output; static active-state
+  // nodes keep a representative preview. The composer appears only when the
+  // running agent can take a live message. §FS-rhei-viz §5.
   const hadLiveTerm=!!LOGTERM;
   liveTermEl=null; LOGTERM=null; LOGTASK=null;
-  if(nodeCategory(n)==="live"){
+  if(showsLiveOutput(n)){
     const rt=runtimeFor(n.id)||{};
+    const runtime=hasRuntimeOverlay();
     // Capability gate: only a live agent whose slot holds a streaming stdin open
     // (profile `intervene_stdin`, surfaced as task_runtime[id].intervene) can be
     // messaged. The static page never delivers. §FS-rhei-viz §5, §7.2.
     const canMessage = LIVE && rt.intervene===true;
     const iv=el("div",{class:"intervene"});
-    iv.appendChild(el("h3",{text: canMessage ? "live output · intervene" : "live output"}));
+    iv.appendChild(el("h3",{text: runtime ? (canMessage ? "live output · intervene" : "live output") : "sample output"}));
     const now=el("div",{class:"now"});
-    now.appendChild(el("span",{class:"spinner"}));
-    now.appendChild(document.createTextNode(`running in ${n.state} — agent on ${n.id} · scroll up for history`));
+    now.appendChild(runtime ? el("span",{class:"spinner"}) : el("span",{class:"gly",text:GLYPH.active}));
+    now.appendChild(document.createTextNode(runtime
+      ? `running in ${n.state} — agent on ${n.id} · scroll up for history`
+      : `representative transcript for ${n.state} · messages are disabled`));
     iv.appendChild(now);
     const term=el("div",{class:"term"});
     if(LIVE){
@@ -1062,18 +1079,18 @@ function highlightState(state){
   document.querySelectorAll("[data-state]").forEach(c=>c.classList.toggle("cur", c.getAttribute("data-state")===state));
 }
 
-// ---- running now: live work, shown lively ----------------------------------
+// ---- running now: actual runtime slots -------------------------------------
 function renderRunning(){
   const box=document.getElementById("running");
-  // Top-level tasks in an active-like state — the running "work streams".
-  const live=IX.top.map(id=>IX.byId[id]).filter(n=>nodeCategory(n)==="live");
+  // Top-level tasks with an active runtime slot — the actual running work streams.
+  const running=IX.top.map(id=>IX.byId[id]).filter(isRunningNow);
   box.innerHTML="";
-  if(!live.length){ box.className="panel running"; return; }
+  if(!running.length){ box.className="panel running"; return; }
   box.className="panel running on";
-  const head=el("div",{class:"runhead"}); head.innerHTML=`Running now &middot; <b>${live.length}</b>`;
+  const head=el("div",{class:"runhead"}); head.innerHTML=`Running now &middot; <b>${running.length}</b>`;
   box.appendChild(head);
   const row=el("div",{class:"runrow"});
-  for(const n of live){ const c=stateColor(n.state);
+  for(const n of running){ const c=stateColor(n.state);
     const chip=el("div",{class:"runchip", "aria-label":`${n.id} · ${n.title}`});
     chip.appendChild(el("span",{class:"spinner"}));
     chip.appendChild(el("span",{class:"id",text:n.id}));
@@ -1318,14 +1335,16 @@ function renderLeft(){
 }
 function renderLegend(){
   const box=document.getElementById("legend"); box.innerHTML="";
-  const items=[["done","completed"],["live","running"],["blocked","blocked"],["gate","gate"],["failed","failed"],["retired","retired"],["idle","idle"]];
+  const items=[["done","completed"],["live","running"],["active","active"],["blocked","blocked"],["gate","gate"],["failed","failed"],["retired","retired"],["idle","idle"]];
   for(const[k,lbl]of items){ const s=el("span",{}); s.appendChild(el("span",{class:"gly",text:GLYPH[k]})); s.appendChild(document.createTextNode(" "+lbl)); box.appendChild(s); }
 }
 function renderSummary(){
-  const cnt={done:0,live:0,blocked:0,gate:0,failed:0,retired:0,idle:0};
+  const cnt={done:0,active:0,live:0,blocked:0,gate:0,failed:0,retired:0,idle:0};
   for(const id of IX.top) cnt[nodeCategory(IX.byId[id])]++;
+  const running=IX.top.map(id=>IX.byId[id]).filter(isRunningNow).length;
+  const runningPart = hasRuntimeOverlay() ? ` &middot; <b>${running}</b> running` : "";
   const s=document.getElementById("summary");
-  s.innerHTML=`<b>${IX.top.length}</b> tasks &middot; <b>${cnt.live}</b> live &middot; <b>${cnt.blocked}</b> blocked &middot; <b>${cnt.gate}</b> gate &middot; <b>${cnt.done}</b> done &middot; <b>${cnt.failed}</b> failed`;
+  s.innerHTML=`<b>${IX.top.length}</b> tasks${runningPart} &middot; <b>${cnt.active}</b> active &middot; <b>${cnt.blocked}</b> blocked &middot; <b>${cnt.gate}</b> gate &middot; <b>${cnt.done}</b> done &middot; <b>${cnt.failed}</b> failed`;
 }
 function renderMachineLine(){
   const m=IX.plan.machine, line=document.getElementById("machine-line");
@@ -1343,9 +1362,10 @@ function drawAll(plan){
   for(const k in rowEls) delete rowEls[k]; for(const k in nodeEls) delete nodeEls[k];
   renderPlanTitle(); renderMachineLine(); renderSummary(); renderLegend(); renderRunning(); renderLeft(); renderMachines(); renderSupp();
   // A node named in the URL hash wins, so a shared link opens on it; otherwise
-  // the resting view leads with live work. §FS-rhei-viz §1, §5.
-  const firstLive=IX.order.find(id=>nodeCategory(IX.byId[id])==="live");
-  select(nodeFromHash() || firstLive || IX.top[0] || IX.order[0]);
+  // the resting view leads with running work. §FS-rhei-viz §1, §5.
+  const firstRunning=IX.order.find(id=>isRunningNow(IX.byId[id]));
+  const firstActive=IX.order.find(id=>nodeCategory(IX.byId[id])==="active");
+  select(nodeFromHash() || firstRunning || firstActive || IX.top[0] || IX.order[0]);
 }
 
 // ---- live: poll /snapshot and update in place (§FS-rhei-viz §7.1) -----------

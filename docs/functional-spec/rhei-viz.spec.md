@@ -28,7 +28,8 @@ fixtures `examples/inflight-dashboard` and `examples/disjoint-tracks`.
 ## Goals
 
 1. **One page, the whole plan.** The resting view shows the plan, every task, and
-   every subtask, each marked with its current state — done, live, blocked,
+   every subtask, each marked with its current state — done, active, live,
+   blocked,
    gated, failed, retired, or idle — without reading raw markdown and without a
    click.
 2. **"Why," in the fewest clicks.** Any node — not only the running ones — can be
@@ -71,8 +72,8 @@ The page is a single screen with five regions, top to bottom:
 - **Header** — the plan title, a plan/workspace selector when more than one plan
   is present, and a one-line state-machine summary.
 - **Strip** — a List/Graph mode toggle, summary counts, and the glyph legend.
-- **Running-now panel** — chips for tasks in a live state; hidden when none are
-  (§5).
+- **Running-now panel** — chips for tasks currently assigned to a runtime slot;
+  hidden when no top-level task is running (§5).
 - **Flow** — two panes. The left pane is the plan in **List** mode (§2) or
   **Graph** mode (§3); the right pane is the **Surroundings** inspector for the
   selected node (§4). In list mode the outline is a fixed column and surroundings
@@ -97,10 +98,11 @@ history; editing the hash or using back/forward reselects.
 
 ### 1.1. State Category and Glyph
 
-Every state is reduced to one of seven **categories**, derived from the resolved
-machine's flags first and the state name second, so that custom vocabularies
-classify correctly. The rows are evaluated top to bottom and the first match
-wins, so the `live` catch-all only claims a state no earlier row matched:
+Every persisted state is reduced to one of seven **categories**, derived from
+the resolved machine's flags first and the state name second, so that custom
+vocabularies classify correctly. The rows are evaluated top to bottom and the
+first match wins, so the `active` catch-all only claims a state no earlier row
+matched:
 
 | Category | Glyph | Meaning | Derivation |
 | --- | --- | --- | --- |
@@ -110,14 +112,15 @@ wins, so the `live` catch-all only claims a state no earlier row matched:
 | `gate` | `⏸` | awaiting a gate | machine `gating`, or `human-review` |
 | `retired` | `⊝` | terminal, not done | `cancelled`, `archived`, other terminal |
 | `idle` | `·` | not started | `draft`, `pending`, or any profile's `initial` |
-| `live` | `●` | working now | any non-terminal state not matched above |
+| `active` | `●` | active state, not necessarily running | any non-terminal state not matched above |
 
 Category, not raw state, drives the calm whole-line coloring of list rows and the
-fill of graph nodes, so the eye reads status at a glance. `live` is the single
-place motion is allowed: a spinner on list rows and marching-ants on graph nodes,
-both stilled to a static dot under `prefers-reduced-motion`, per §FS-rhei-viz-ux
-§4. State pills always carry the exact state text and its shared calm color from
-§FS-rhei-viz-ux §3.2; color is never the only signal.
+fill of graph nodes, so the eye reads status at a glance. During a dynamic run,
+`live` is a runtime overlay category for tasks assigned to a running slot; it is
+the single place motion is allowed: a spinner on list rows and marching-ants on
+graph nodes, both stilled to a static dot under `prefers-reduced-motion`, per
+§FS-rhei-viz-ux §4. State pills always carry the exact state text and its shared
+calm color from §FS-rhei-viz-ux §3.2; color is never the only signal.
 
 During a dynamic run, `task_runtime[id].in_slot` is an overlay on top of the
 state-derived category: any task assigned to a live slot is shown as `live`, even
@@ -128,9 +131,10 @@ match the running process.
 
 ### 1.2. Summary and Legend
 
-The strip shows live counts — total tasks, and how many are live, blocked, gate,
-done, and failed — computed over top-level tasks, and a legend mapping each glyph
-to its category. Counts and legend update in place on refresh (§7).
+The strip shows total top-level tasks and category counts for active, blocked,
+gate, done, and failed. When a runtime overlay is present, it also shows how many
+top-level tasks are currently assigned to a running slot. Counts and legend
+update in place on refresh (§7).
 
 ## 2. List Mode (Outline)
 
@@ -201,18 +205,21 @@ losing their place. Content swaps obey the single ≤150ms opacity fade of
 
 ## 5. Running Execution View
 
-The view leads with live work. The **running-now panel** shows one chip per
-top-level task in the `live` category — id, short title, state pill, spinner —
-and is hidden entirely when nothing is live. On load the surface auto-selects the
-first live node so the resting view opens on what is working right now. Selecting
-a chip selects its node.
+The view leads with work that is actually running. The **running-now panel**
+shows one chip per top-level task currently assigned to a runtime slot — id,
+short title, state pill, spinner — and is hidden entirely when no top-level task
+has `task_runtime[id].in_slot`. On load the surface auto-selects the first
+running node; if there is no runtime slot, it falls back to the first
+state-derived `active` node. Selecting a chip selects its node.
 
-When the selected node is `live`, the surroundings inspector adds an **intervene**
-block: the agent's live output rendered as a real terminal — dark in any theme,
-scrollback, ANSI color — that appends new lines in place from the run's
-`AgentOutput` stream §FS-rhei-run-tui.1.2. The block also surfaces the slot's
-latest invocation cost, input/output and cached token counts, accounting
-coverage, and elapsed time §FS-rhei-cost-accounting.
+When the selected node is currently assigned to a runtime slot, the surroundings
+inspector adds an **intervene** block: the agent's live output rendered as a real
+terminal — dark in any theme, scrollback, ANSI color — that appends new lines in
+place from the run's `AgentOutput` stream §FS-rhei-run-tui.1.2. The block also
+surfaces the slot's latest invocation cost, input/output and cached token counts,
+accounting coverage, and elapsed time §FS-rhei-cost-accounting. In a static
+offline render, a state-derived `active` node may show a representative
+transcript, but it is not counted as running.
 
 **Messaging is capability-gated.** The message composer is shown only when the
 running agent keeps an interactive stdin open and is therefore reachable — the
@@ -420,10 +427,10 @@ terminal states:
 | Otherwise | `pending` |
 
 Terminal states are those the machine flags terminal (built-ins: `completed`,
-`cancelled`, `archived`, `failed`). Active-like means a non-terminal state that
-is not `idle` (§1.1): not `draft`, not `pending`, and not a profile entry state.
-A plan of `pending` tasks therefore derives `pending`, not `active`, under any
-profile.
+`cancelled`, `archived`, `failed`). Active-like means a non-terminal state in the
+`active` category (§1.1): not `draft`, not `pending`, and not a profile entry
+state. A plan of `pending` tasks therefore derives `pending`, not `active`, under
+any profile.
 
 ## 10. Level-Grouped State Vocabularies
 
