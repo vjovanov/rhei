@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Improve `rhei instantiate` template discovery help by listing templates when
+  no template is provided and suggesting close matches for missing named
+  templates. PR #20
 - Remove the `rhei lsp` language-server product surface. PR #18
 - Add product workflow templates and examples for agent discussion,
   analyze-and-dispatch, parallel worktrees, multi-model analysis, and spec
