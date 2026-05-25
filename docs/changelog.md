@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Flow running-now and running summary counts to use active runtime slots
+  instead of persisted active-like task states. PR #23
 - Tighten `rhei-template-writer` skill guidance for editing existing templates
   and validating rendered `**Prior:**` metadata. PR #21
 - Improve `rhei instantiate` template discovery help by listing templates when
