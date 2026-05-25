@@ -85,6 +85,28 @@ printf 'stdout:before-background\n'
     }
 
     #[cfg(unix)]
+    fn write_stream_json_fake_agent(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("stream-json-agent");
+        fs::write(
+            &script,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+printf 'args:%s\n' "$*"
+while IFS= read -r line || [ -n "$line" ]; do
+  printf 'stdin:%s\n' "$line"
+done
+"#,
+        )
+        .expect("write stream json fake agent");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+        script
+    }
+
+    #[cfg(unix)]
     #[test]
     fn fake_claude_profile_streams_prompt_flag_output() {
         let dir = tempfile::tempdir().expect("tmpdir");
@@ -132,6 +154,35 @@ printf 'stdout:before-background\n'
                 ..
             } if line == "stdin:hello codex"
         )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn claude_code_intervention_profile_writes_initial_stream_json_prompt() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let script = write_stream_json_fake_agent(dir.path());
+        let profile = CustomAgentProfile {
+            command: vec![script.display().to_string()],
+            prompt_flag: Some("-p".to_string()),
+            model_flag: Some("--model".to_string()),
+            stdin_prompt: false,
+            intervene_stdin: true,
+            ..CustomAgentProfile::default()
+        };
+
+        let (log, _events) = run_fake_agent_profile(profile, "claude-code", "hello claude");
+
+        assert!(log.contains(
+            "args:-p --input-format stream-json --output-format stream-json --verbose"
+        ));
+        let stdin_line = log
+            .lines()
+            .find_map(|line| line.strip_prefix("stdin:"))
+            .expect("stream-json prompt on stdin");
+        let json: serde_json::Value = serde_json::from_str(stdin_line).expect("json prompt");
+        assert_eq!(json["type"], "user");
+        assert_eq!(json["message"]["role"], "user");
+        assert_eq!(json["message"]["content"][0]["text"], "hello claude");
     }
 
     #[cfg(unix)]

@@ -23,6 +23,7 @@ struct InterveneTarget {
     log_file: Arc<Mutex<fs::File>>,
     slot: rhei_tui::Slot,
     state: String,
+    stdin_format: AgentStdinFormat,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -53,6 +54,7 @@ impl RunInterveneSink {
         state: &str,
         log_file: Arc<Mutex<fs::File>>,
         child_stdin: std::process::ChildStdin,
+        stdin_format: AgentStdinFormat,
     ) {
         let (tx, rx) = channel::<InterveneWrite>();
         std::thread::spawn(move || {
@@ -81,6 +83,7 @@ impl RunInterveneSink {
                     log_file,
                     slot,
                     state: state.to_string(),
+                    stdin_format,
                 },
             );
         }
@@ -166,6 +169,7 @@ impl rhei_tui::InterveneSink for RunInterveneSink {
                         target.log_file.clone(),
                         target.slot,
                         target.state.clone(),
+                        target.stdin_format,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -185,9 +189,8 @@ impl rhei_tui::InterveneSink for RunInterveneSink {
 
         let mut delivered = 0usize;
         let mut failed = 0usize;
-        for (task_id, tx, log_file, slot, state) in targets {
-            let mut bytes = message.as_bytes().to_vec();
-            bytes.push(b'\n');
+        for (task_id, tx, log_file, slot, state, stdin_format) in targets {
+            let bytes = stdin_message_bytes(stdin_format, message);
             let (ack_tx, ack_rx) = channel();
             if tx.send(InterveneWrite { bytes, ack: ack_tx }).is_err() {
                 self.audit(&task_id, Some(slot), &state, message, "stdin-closed");
@@ -250,6 +253,15 @@ mod intervene_tests {
         slot: rhei_tui::Slot,
         name: &str,
     ) -> (InterveneTarget, std::sync::mpsc::Receiver<InterveneWrite>) {
+        fake_target_with_format(task_id, slot, name, AgentStdinFormat::PlainLine)
+    }
+
+    fn fake_target_with_format(
+        task_id: &str,
+        slot: rhei_tui::Slot,
+        name: &str,
+        stdin_format: AgentStdinFormat,
+    ) -> (InterveneTarget, std::sync::mpsc::Receiver<InterveneWrite>) {
         let (tx, rx) = channel::<InterveneWrite>();
         (
             InterveneTarget {
@@ -258,6 +270,7 @@ mod intervene_tests {
                 log_file: temp_log(name),
                 slot,
                 state: "review".to_string(),
+                stdin_format,
             },
             rx,
         )
@@ -350,5 +363,31 @@ mod intervene_tests {
         writer.join().expect("writer thread");
 
         assert!(err.contains("stdin is closed"));
+    }
+
+    #[test]
+    fn claude_stream_json_targets_receive_json_intervention_messages() {
+        let sink = RunInterveneSink::new(std::env::temp_dir());
+        let (target, rx) =
+            fake_target_with_format("1", 0, "claude-json", AgentStdinFormat::ClaudeCodeStreamJson);
+
+        {
+            let mut targets = sink.targets.lock().expect("targets lock");
+            targets.insert(InterveneKey { task_id: "1".to_string(), slot: 0 }, target);
+        }
+
+        let writer = std::thread::spawn(move || {
+            let write = rx.recv_timeout(Duration::from_millis(100)).expect("message reaches writer");
+            let line = String::from_utf8(write.bytes).expect("utf8 json line");
+            let json: serde_json::Value =
+                serde_json::from_str(line.trim_end()).expect("valid stream-json message");
+            assert_eq!(json["type"], "user");
+            assert_eq!(json["message"]["role"], "user");
+            assert_eq!(json["message"]["content"][0]["text"], "hello claude");
+            write.ack.send(Ok(())).expect("ack write");
+        });
+        rhei_tui::InterveneSink::deliver(&sink, Some("1"), Some(0), "hello claude")
+            .expect("deliver stream-json message");
+        writer.join().expect("writer thread");
     }
 }

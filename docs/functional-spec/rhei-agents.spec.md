@@ -160,7 +160,7 @@ agent's `command`, flags, and modes are declared.
 | `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
 | `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
 | `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag, then stdin is closed unless `intervene_stdin` is also true. Default: `false`. |
-| `intervene_stdin` | boolean | No | When `true`, `rhei run --dashboard` keeps the child stdin pipe open after the initial stdin prompt so live dashboard interventions can be written to it. Use only for agents that start work without waiting for stdin EOF. Default: `false`. |
+| `intervene_stdin` | boolean | No | When `true`, `rhei run --dashboard` keeps the child stdin pipe open after the initial prompt so live dashboard interventions can be written to it. Use only for agents that start work without waiting for stdin EOF. Default: `false`. |
 | `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
 | `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
 | `mcp_config_flag` | string | No | Flag used to attach a generated MCP config file. `rhei run` writes the resolved set to a temporary JSON file and passes it with this flag once. Mutually exclusive with `mcp_flag`. |
@@ -196,13 +196,22 @@ keeps reading stdin after it starts, and set both `stdin_prompt` and
 
 `stdin_prompt` writes the initial prompt to the child's stdin; `intervene_stdin`
 then keeps that pipe open for the process lifetime instead of closing it (the
-EOF most headless agents wait on). Each delivered message is written to stdin as
-one newline-terminated line. Set `intervene_stdin` **only** for an agent that
-begins work without waiting for stdin EOF and continues to read stdin afterwards;
-on an EOF-driven or one-shot agent the pipe stays open but the agent never reads
-it, so messages would be silently buffered. Run with `rhei run <plan> --dashboard
---agent my-interactive-agent`; the composer then appears on that agent's live
-node, and `rhei intervene --task <id> -m "…"` reaches the same channel.
+EOF most headless agents wait on). For plain stdin transports, each delivered
+message is written as one newline-terminated line. Set `intervene_stdin`
+**only** for an agent that begins work without waiting for stdin EOF and
+continues to read stdin afterwards; on an EOF-driven or one-shot agent the pipe
+stays open but the agent never reads it, so messages would be silently buffered.
+Run with `rhei run <plan> --dashboard --agent my-interactive-agent`; the
+composer then appears on that agent's live node, and
+`rhei intervene --task <id> -m "…"` reaches the same channel.
+
+`claude-code` is the built-in exception to the plain-line format. When its
+resolved profile has `intervene_stdin: true`, Rhei invokes Claude Code with
+`-p --input-format stream-json --output-format stream-json --verbose`, writes
+the initial prompt as a stream-json user message on stdin, and writes every
+intervention as another stream-json user message on the same held-open pipe. It
+must not pass the prompt as the `-p` argument in this mode, because that is a
+one-shot invocation that does not consume follow-up stdin.
 
 #### 1.1.3. `models`
 
@@ -418,7 +427,7 @@ historically the agent's default.
 
 | Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | `yolo` Mode Flags |
 |----------|--------|-----------------|------------|------------|--------------|-------------------|
-| `claude-code` | `claude` | `-p <prompt>` | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
+| `claude-code` | `claude` | `-p <prompt>`; with `intervene_stdin`, stream-json stdin | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
 | `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check -c approval_policy="never"` |
 | `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode yolo` |
 | `cursor` | `cursor-agent` | `--print <prompt>` | `--model <m>` | unsupported | unsupported | `--force` |

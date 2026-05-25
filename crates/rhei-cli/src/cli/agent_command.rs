@@ -1,4 +1,41 @@
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum AgentStdinFormat {
+    PlainLine,
+    ClaudeCodeStreamJson,
+}
+
+fn agent_stdin_format(resolved: &ResolvedAgent) -> AgentStdinFormat {
+    if resolved.agent.id() == "claude-code" && resolved.profile.intervene_stdin {
+        AgentStdinFormat::ClaudeCodeStreamJson
+    } else {
+        AgentStdinFormat::PlainLine
+    }
+}
+
+fn stdin_message_bytes(format: AgentStdinFormat, message: &str) -> Vec<u8> {
+    match format {
+        AgentStdinFormat::PlainLine => {
+            let mut bytes = message.as_bytes().to_vec();
+            bytes.push(b'\n');
+            bytes
+        }
+        AgentStdinFormat::ClaudeCodeStreamJson => {
+            let mut bytes = serde_json::json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{ "type": "text", "text": message }]
+                }
+            })
+            .to_string()
+            .into_bytes();
+            bytes.push(b'\n');
+            bytes
+        }
+    }
+}
+
 /// Build a `Command` for the resolved agent.
 ///
 /// Flag order:
@@ -8,7 +45,8 @@
 /// match `codex exec -- `-style invocations that expect stdin. MCP and skill
 /// flags follow after the `--` so the optional positional stdin separator
 /// stays adjacent to the model flag. `intervene_stdin` also requests a stdin
-/// pipe, but does not change prompt flag placement by itself.
+/// pipe. For `claude-code`, opting into `intervene_stdin` switches the command
+/// to stream-json stdin so the running process actually consumes interventions.
 ///
 /// `runtime_dir` is used to materialize an MCP config file for agents that
 /// declare `mcp_config_flag` (e.g. `claude-code --mcp-config <path>`). The
@@ -28,6 +66,8 @@ fn build_agent_command(
 ) -> std::process::Command {
     let profile = &resolved.profile;
     let id = resolved.agent.id();
+    let stdin_format = agent_stdin_format(resolved);
+    let claude_stream_json = stdin_format == AgentStdinFormat::ClaudeCodeStreamJson;
 
     let (program, base_args) =
         profile.command.split_first().expect("registry profile has non-empty command");
@@ -58,7 +98,15 @@ fn build_agent_command(
     if profile.stdin_prompt || profile.intervene_stdin {
         cmd.stdin(std::process::Stdio::piped());
     }
-    if let (false, Some(flag)) = (profile.stdin_prompt, &profile.prompt_flag) {
+    if claude_stream_json {
+        // §FS-rhei-agents.1.1.2: Claude Code live intervention uses stream-json stdin.
+        if let Some(flag) = &profile.prompt_flag {
+            cmd.arg(flag);
+        }
+        cmd.arg("--input-format").arg("stream-json");
+        cmd.arg("--output-format").arg("stream-json");
+        cmd.arg("--verbose");
+    } else if let (false, Some(flag)) = (profile.stdin_prompt, &profile.prompt_flag) {
         cmd.arg(flag).arg(prompt);
     }
 
