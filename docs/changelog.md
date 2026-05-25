@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Remove the `rhei lsp` language-server product surface. PR #18
 - Add product workflow templates and examples for agent discussion,
   analyze-and-dispatch, parallel worktrees, multi-model analysis, and spec
   review. PR #17
