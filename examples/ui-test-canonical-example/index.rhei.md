@@ -28,7 +28,7 @@ exercises; see the template README for the task-to-feature coverage matrix.
 
 ## Runtime Shape
 
-- Mock agents are defined by `.rhei/settings.json` and implemented by
+- Mock agents are defined by `.agents/rhei/settings.json` and implemented by
   `bin/mock-agent.sh`.
 - Mock programs and callbacks live in `bin/mock-program.sh` and
   `bin/mock-transition.sh`.

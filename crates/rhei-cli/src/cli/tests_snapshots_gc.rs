@@ -22,8 +22,8 @@
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
         let states = dir.path().join("states.yaml");
-        let rhei_dir = dir.path().join(".rhei");
-        fs::create_dir_all(&rhei_dir).expect("mkdir");
+        let settings_dir = dir.path().join(".agents/rhei");
+        fs::create_dir_all(&settings_dir).expect("mkdir");
         let count_file = dir.path().join("spawn-count");
         let script = write_counting_success_agent(dir.path(), &count_file);
         fs::write(
@@ -51,7 +51,7 @@
         )
         .expect("states");
         fs::write(
-            rhei_dir.join("settings.json"),
+            settings_dir.join("settings.json"),
             format!(
                 r#"{{
                   "agents": {{

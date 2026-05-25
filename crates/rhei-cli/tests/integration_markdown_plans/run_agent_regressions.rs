@@ -1,5 +1,5 @@
 fn write_run_agent_settings(dir: &Path, settings: &str) {
-    let settings_dir = dir.join(".rhei");
+    let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     fs::write(settings_dir.join("settings.json"), settings).expect("write settings");
 }

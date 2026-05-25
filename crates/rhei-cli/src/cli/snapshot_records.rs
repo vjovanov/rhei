@@ -537,7 +537,7 @@ fn snapshot_redactor_default_env(workspace_root: &Path) -> Vec<(&'static str, Pa
         env.push(("RHEI_EXECUTABLE_PATH", executable));
     }
     env.push(("RHEI_WORKSPACE_ROOT", workspace_root.to_path_buf()));
-    env.push(("RHEI_PROJECT_SETTINGS_PATH", workspace_root.join(".rhei/settings.json")));
+    env.push(("RHEI_PROJECT_SETTINGS_PATH", project_settings_path(workspace_root)));
     if let Ok(home) = home_dir() {
         env.push(("RHEI_GLOBAL_SETTINGS_PATH", home.join(".config/rhei/settings.json")));
     }

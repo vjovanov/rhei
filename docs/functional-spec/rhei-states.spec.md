@@ -501,7 +501,7 @@ States can declare which coding agent transport executes work in that state. The
 `agent` field is always a string id. Rhei resolves the id against the merged
 `agents` registry — the built-in agents (`claude-code`, `codex`, `gemini`,
 `kilocode`, `cursor`) plus any entries declared in
-`~/.config/rhei/settings.json` and `<plan-root>/.rhei/settings.json`. Inline
+`~/.config/rhei/settings.json` and `<plan-root>/.agents/rhei/settings.json`. Inline
 object-shaped agent definitions are not accepted on a state; a custom agent
 must be declared in the registry first.
 
