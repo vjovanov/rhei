@@ -1,6 +1,6 @@
 # FS-rhei-install-skills: `rhei install-skills`
 
-Install rhei skills (plan-writer, plan-worker, state-machine-writer) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
+Install rhei skills (plan-writer, plan-worker, state-machine-writer) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation. Installed skill directories include curated examples under `references/examples/` by default, so agents can inspect working patterns without a separate repository checkout.
 
 ## 1. Usage
 
@@ -32,8 +32,8 @@ Each agent has a different configuration layout. The command handles each one. T
 
 | Mode | Skill files | Registration |
 |------|-------------|--------------|
-| Global | `~/.claude/skills/rhei-<skill>/` | `~/.claude/CLAUDE.md` |
-| Local | `.claude/skills/rhei-<skill>/` | `.claude/CLAUDE.md` (project root) |
+| Global | `~/.claude/skills/rhei-<skill>/` including `references/examples/` | `~/.claude/CLAUDE.md` |
+| Local | `.claude/skills/rhei-<skill>/` including `references/examples/` | `.claude/CLAUDE.md` (project root) |
 
 **Registration:** Append a section to the target `CLAUDE.md`:
 
@@ -112,7 +112,7 @@ alwaysApply: false
 | Global | `~/.agents/skills/rhei-<skill>/SKILL.md` | None |
 | Local | `.agents/skills/rhei-<skill>/SKILL.md` (project root) | None |
 
-**Format:** A standard Codex skill directory containing `SKILL.md` and any optional supporting files (`scripts/`, `references/`, `assets/`, `agents/`).
+**Format:** A standard Codex skill directory containing `SKILL.md` and any optional supporting files (`scripts/`, `references/`, `assets/`, `agents/`). Rhei skills ship curated examples in `references/examples/`.
 
 **Note:** Codex discovers skills by scanning `.agents/skills` from the current working directory up to the repository root, plus `$HOME/.agents/skills` for user-level skills. No registration or marker injection file is needed. Custom spawned agents are configured separately under `.codex/agents/*.toml` or `~/.codex/agents/*.toml`; they inherit the parent session's available skills unless `skills.config` is explicitly overridden.
 
@@ -145,11 +145,11 @@ Before writing, remove or replace any existing rhei skill files for the target a
 
 ### 4.3. Resolve skill source
 
-The command finds skill files relative to the `rhei` binary (e.g., `../share/rhei/skills/` for installed binaries, or `skills/` in the repo for dev builds).
+The command finds skill files relative to the `rhei` binary (e.g., `../share/rhei/skills/` for installed binaries, or `skills/` in the repo for dev builds). If neither filesystem source exists, the command falls back to the built-in skill bundle embedded in the binary and materializes it in a user cache before installing. This keeps `rhei install-skills` usable from a standalone Cargo/npm/Python-installed binary.
 
 ### 4.4. Symlink vs copy
 
-The default behavior copies skill files into the target directory. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
+The default behavior copies the complete skill directory into the target directory, including `SKILL.md`, `references/`, `references/examples/`, and any other bundled support files. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
 
 ### 4.5. Registration
 

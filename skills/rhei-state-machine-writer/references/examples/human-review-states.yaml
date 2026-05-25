@@ -1,0 +1,54 @@
+# Example flow:
+# draft (initial) -> pending -> agent-review -> completed (final)
+#                         \-> human-review (gating) -> completed
+name: human-review-example
+version: 1
+
+states:
+  draft:
+    description: Task is still being shaped.
+    instructions: Finalize the task description and acceptance criteria.
+  pending:
+    description: Task is ready for implementation.
+    instructions: Implement the requested change and run focused verification.
+  agent-review:
+    description: Implementation is ready for agent review.
+    instructions: Review the diff, record findings, and route to completion or a human gate.
+  human-review:
+    description: Human approval is required.
+    gating: true
+  completed:
+    description: Task is done.
+    final: true
+  cancelled:
+    description: Task will not be completed.
+    final: true
+
+transitions:
+  - from: draft
+    to: pending
+    description: Task is ready to implement.
+  - from: pending
+    to: agent-review
+    description: Implementation is ready for review.
+  - from: agent-review
+    to: completed
+    description: Review passed.
+  - from: agent-review
+    to: human-review
+    description: Review needs human approval.
+  - from: human-review
+    to: completed
+    description: Human approved the work.
+  - from: "*"
+    to: cancelled
+    description: Cancel the task.
+
+profiles:
+  default:
+    initial: draft
+    allowed: [draft, pending, agent-review, human-review, completed, cancelled]
+
+node_policy:
+  root: default
+  default: default
