@@ -289,7 +289,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             list_inputs,
             input_args,
         } => templates::instantiate_command(
-            &template,
+            template.as_deref(),
             &input_args,
             &instantiate_execute_args_from_env(),
             &set_values,

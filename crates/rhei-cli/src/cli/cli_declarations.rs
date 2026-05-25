@@ -319,7 +319,7 @@ enum Commands {
             value_name = "TEMPLATE",
             add = ArgValueCompleter::new(templates::complete_template_reference)
         )]
-        template: String,
+        template: Option<String>,
         /// Set an input value (repeatable)
         #[arg(
             long = "set",

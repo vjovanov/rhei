@@ -213,10 +213,10 @@ For backward compatibility, `\{{` also emits a literal `{{` and the backslash is
 Create a concrete plan workspace from a template.
 
 ```
-rhei instantiate <template> [input ...] [options]
+rhei instantiate [template] [input ...] [options]
 
 Arguments:
-  <template>                   Template name or path to a template directory
+  [template]                   Template name or path to a template directory
   [input ...]                  Positional input values or key=value assignments
 
 Options:
@@ -299,15 +299,16 @@ Input arguments are parsed as follows:
 
 #### 6.1.2. Behavior
 
-1. **Locate template.** Resolve `<template>` through the discovery chain unless it is already a filesystem path. Direct paths include absolute paths, relative paths containing `/`, and dot-prefixed relative paths such as `./my-template` or `../templates/review`.
-2. **Load manifest.** Parse `template.yaml`, validate schema.
-3. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < positional input values < `KEY=VALUE` input arguments and `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs, unknown input names, ambiguous positional values, or duplicate `positional` declarations. Validate types and `validate` patterns. For `array` / `object` inputs, positional values, `KEY=VALUE`, `--set`, and `--set-file` values are parsed as YAML/JSON snippets before validation.
-4. **Render templates.** Walk all materialized text files in the template directory and render them through the restricted MiniJinja environment. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved instantiation template reference.
-5. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.rhei/settings.json` under the output root; all other files preserve their template-relative paths.
-6. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then output-root `.rhei/settings.json`) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
-7. **Print summary.** After successful validation, print a human-readable instantiation summary with the output path, task/state counts, instantiated output tree, rendered task tree, the last few rendered task definitions in source order, and a stop-point explanation. For normal instantiation without `--execute`, the stop point is the next ready task and the reason is that execution has not started.
-8. **Print invocation.** Print a shell-safe `rhei instantiate ... --output <path>` command that shows how to instantiate the same template and input values again. The printed command uses the resolved output path, so shell expressions such as `$(date ...)` appear as the concrete path value seen by the CLI.
-9. **Execute (optional).** When `--execute` is passed, invoke `rhei run <output>` after successful validation. `rhei run` uses the instantiated output's root `states.yaml` by default when present; otherwise it falls back to the built-in default.
+1. **Show choices when omitted.** If no template is provided, print the same human-readable discovered-template list as `rhei templates` and exit successfully.
+2. **Locate template.** Resolve `<template>` through the discovery chain unless it is already a filesystem path. Direct paths include absolute paths, relative paths containing `/`, and dot-prefixed relative paths such as `./my-template` or `../templates/review`. When a named template is not found and a discovered template name is sufficiently similar, include that closest name as a suggestion in the lookup error.
+3. **Load manifest.** Parse `template.yaml`, validate schema.
+4. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < positional input values < `KEY=VALUE` input arguments and `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs, unknown input names, ambiguous positional values, or duplicate `positional` declarations. Validate types and `validate` patterns. For `array` / `object` inputs, positional values, `KEY=VALUE`, `--set`, and `--set-file` values are parsed as YAML/JSON snippets before validation.
+5. **Render templates.** Walk all materialized text files in the template directory and render them through the restricted MiniJinja environment. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved instantiation template reference.
+6. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.rhei/settings.json` under the output root; all other files preserve their template-relative paths.
+7. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then output-root `.rhei/settings.json`) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
+8. **Print summary.** After successful validation, print a human-readable instantiation summary with the output path, task/state counts, instantiated output tree, rendered task tree, the last few rendered task definitions in source order, and a stop-point explanation. For normal instantiation without `--execute`, the stop point is the next ready task and the reason is that execution has not started.
+9. **Print invocation.** Print a shell-safe `rhei instantiate ... --output <path>` command that shows how to instantiate the same template and input values again. The printed command uses the resolved output path, so shell expressions such as `$(date ...)` appear as the concrete path value seen by the CLI.
+10. **Execute (optional).** When `--execute` is passed, invoke `rhei run <output>` after successful validation. `rhei run` uses the instantiated output's root `states.yaml` by default when present; otherwise it falls back to the built-in default.
 
 #### 6.1.3. Instantiation Summary Output
 

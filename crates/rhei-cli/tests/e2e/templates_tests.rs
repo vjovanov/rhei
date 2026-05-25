@@ -70,6 +70,83 @@ inputs:
 }
 
 #[test]
+fn instantiate_without_template_lists_available_templates() {
+    let dir = unique_temp_dir("templates-instantiate-list");
+    let template_dir = dir.join(".agents/rhei/templates/hello");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: hello
+version: 1.0.0
+description: Simple hello-world template
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Hello
+
+## Tasks
+
+### Task 1: Greet
+**State:** pending
+"#,
+    );
+
+    let result = run_raw(&["instantiate"], &dir);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("Templates:") && result.stdout.contains("hello  1.0.0  project"),
+        "expected instantiate without template to list templates; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn instantiate_unknown_template_suggests_close_match() {
+    let dir = unique_temp_dir("templates-instantiate-suggest");
+    let template_dir = dir.join(".agents/rhei/templates/code-review");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: code-review
+version: 1.0.0
+description: Review code changes
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Code Review
+
+## Tasks
+
+### Task 1: Review
+**State:** pending
+"#,
+    );
+
+    let result = run_raw(&["instantiate", "code-reveiw"], &dir);
+    assert!(
+        !result.status.success(),
+        "command should fail for unknown template\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("Did you mean 'code-review'?"),
+        "expected close template suggestion; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn instantiate_renders_template_variables_and_validates_output() {
     let dir = unique_temp_dir("templates-instantiate");
     let template_dir = dir.join("hello-template");

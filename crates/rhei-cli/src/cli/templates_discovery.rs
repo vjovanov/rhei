@@ -83,12 +83,82 @@
             }
         }
 
+        let suggestion = closest_template_name(reference)?;
+        if let Some(name) = suggestion {
+            // §FS-rhei-templates.6.1.2: named-template lookup reports a close discovered match.
+            return Err(miette!(
+                "template '{}' not found in project or user template directories. Did you mean '{}'?",
+                reference,
+                name
+            ));
+        }
+
         Err(miette!("template '{}' not found in project or user template directories", reference))
     }
 
     fn template_reference_is_path(reference: &str) -> bool {
         let path = Path::new(reference);
         path.is_absolute() || reference.contains('/') || reference.starts_with('.')
+    }
+
+    fn closest_template_name(reference: &str) -> MietteResult<Option<String>> {
+        let reference = reference.trim();
+        if reference.is_empty() {
+            return Ok(None);
+        }
+
+        let closest = discover_templates(TemplateSourceFilter::All)?
+            .into_iter()
+            .map(|template| {
+                let name = template.manifest.name;
+                let distance = template_name_distance(reference, &name);
+                (name, distance)
+            })
+            .min_by(|(left_name, left_distance), (right_name, right_distance)| {
+                left_distance.cmp(right_distance).then_with(|| left_name.cmp(right_name))
+            });
+
+        let Some((name, distance)) = closest else {
+            return Ok(None);
+        };
+
+        let threshold = std::cmp::max(2, reference.chars().count() / 3);
+        Ok((distance <= threshold).then_some(name))
+    }
+
+    fn template_name_distance(left: &str, right: &str) -> usize {
+        let left = left.to_ascii_lowercase();
+        let right = right.to_ascii_lowercase();
+        levenshtein_distance(&left, &right)
+    }
+
+    fn levenshtein_distance(left: &str, right: &str) -> usize {
+        if left == right {
+            return 0;
+        }
+        if left.is_empty() {
+            return right.chars().count();
+        }
+        if right.is_empty() {
+            return left.chars().count();
+        }
+
+        let right_chars = right.chars().collect::<Vec<_>>();
+        let mut previous = (0..=right_chars.len()).collect::<Vec<_>>();
+        let mut current = vec![0; right_chars.len() + 1];
+
+        for (left_index, left_char) in left.chars().enumerate() {
+            current[0] = left_index + 1;
+            for (right_index, right_char) in right_chars.iter().enumerate() {
+                let insertion = current[right_index] + 1;
+                let deletion = previous[right_index + 1] + 1;
+                let substitution = previous[right_index] + usize::from(left_char != *right_char);
+                current[right_index + 1] = insertion.min(deletion).min(substitution);
+            }
+            std::mem::swap(&mut previous, &mut current);
+        }
+
+        previous[right_chars.len()]
     }
 
     fn load_template_manifest(template_dir: &Path) -> MietteResult<TemplateManifest> {

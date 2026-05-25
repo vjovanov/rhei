@@ -1,6 +1,6 @@
     #[allow(clippy::too_many_arguments)]
     pub(super) fn instantiate_command(
-        template: &str,
+        template: Option<&str>,
         input_args: &[String],
         execute_args: &[String],
         set_values: &[String],
@@ -15,6 +15,11 @@
         if execute && dry_run {
             return Err(miette!("--execute cannot be used together with --dry-run"));
         }
+
+        let Some(template) = template else {
+            // §FS-rhei-templates.6.1.2: an omitted template lists available templates.
+            return templates_command(false, "all");
+        };
 
         let template_dir = resolve_template_reference(template)?;
         let manifest = load_template_manifest(&template_dir)?;
