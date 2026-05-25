@@ -1,0 +1,22 @@
+plan_title: Multi-Model Analysis Example
+task_title: Compare error-handling strategies across the runtime
+task_description: |
+  Analyze how the Rhei runtime distinguishes recoverable from unrecoverable
+  failures during `rhei run`: where errors abort the orchestrator, where they
+  are surfaced as warnings, and where work is retried or skipped. Identify the
+  three weakest points in the current approach and, for each, name the file and
+  the concrete failure mode. Stay scoped to the runtime crates; do not propose
+  a redesign.
+analysis_output_dir: runtime/analyses
+agents:
+  - id: claude
+    label: Claude analysis note
+    selector: claude-code[yolo]:anthropic:claude-opus-4-7
+  - id: gemini
+    label: Gemini analysis note
+    selector: gemini[yolo]:google:gemini-3.1-pro-preview
+  - id: codex
+    label: Codex analysis note
+    selector: codex[yolo]:openai:gpt-5-codex
+summary_agent: claude-code[yolo]:anthropic:claude-opus-4-7
+final_document_path: runtime/final-analysis.md

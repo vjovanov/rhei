@@ -58,6 +58,36 @@ const EXAMPLES: &[Example] = &[
         runnable: false,
     },
     Example {
+        name: "agent-discussion",
+        path: "examples/agent-discussion",
+        state_machine: Some("examples/agent-discussion/discussion-states.yaml"),
+        runnable: true,
+    },
+    Example {
+        name: "analyze-and-dispatch",
+        path: "examples/analyze-and-dispatch-example",
+        state_machine: Some("examples/analyze-and-dispatch-example/states.yaml"),
+        runnable: false,
+    },
+    Example {
+        name: "parallel-worktrees",
+        path: "examples/parallel-worktrees-example",
+        state_machine: Some("examples/parallel-worktrees-example/states.yaml"),
+        runnable: false,
+    },
+    Example {
+        name: "multi-model-analysis",
+        path: "examples/multi-model-analysis-example",
+        state_machine: Some("examples/multi-model-analysis-example/states.yaml"),
+        runnable: false,
+    },
+    Example {
+        name: "spec-review",
+        path: "examples/spec-review-example",
+        state_machine: Some("examples/spec-review-example/states.yaml"),
+        runnable: false,
+    },
+    Example {
         name: "snapshot-continuation",
         path: "examples/snapshot-continuation",
         state_machine: Some("examples/snapshot-continuation/states.yaml"),

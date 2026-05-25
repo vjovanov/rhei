@@ -5,7 +5,7 @@ description: Two-pass spec review loop with configurable review criteria
 inputs:
   - name: spec
     description: Path to the specification file to review
-    type: path
+    type: string
 
   - name: criteria
     description: Additional things to look for during review (e.g., "thread safety, backward compatibility")

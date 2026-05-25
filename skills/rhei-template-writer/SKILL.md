@@ -5,48 +5,29 @@ description: Design and generate Rhei Templates — parameterized, reusable bund
 
 # Rhei Template Writer
 
-Produce a Rhei Template directory — a manifest plus a plan skeleton (and, when needed, a state machine and settings) — that `rhei instantiate` can render into a concrete, executable workspace.
+Produce a Rhei Template directory — a manifest plus a plan skeleton (and, when needed, a state machine and settings) that `rhei instantiate` renders into a concrete, executable workspace. The template writer runs before `rhei instantiate`: it packages a proven workflow; `rhei instantiate` materializes it with user-supplied inputs. It does not replace the plan writer or state machine writer — it composes their outputs into something reusable.
 
-The template writer runs before `rhei instantiate`. It packages a proven workflow; `rhei instantiate` materializes it with user-supplied inputs. It does not replace the plan writer or state machine writer — it composes their outputs into something reusable.
+For anything beyond a linear checklist — counted loops, multi-agent fan-out and aggregation, parallel tasks, git-worktree isolation, or a coordinator that creates follow-up tasks at run time — do not design from scratch. Start from the [Pattern Library](#pattern-library--canonical-examples): it maps each pattern to a checked-in, `rhei validate`-passing reference template to read and adapt.
 
 ## When To Use This Skill
 
-Use this skill when a workflow is going to be instantiated more than once with the same shape but different inputs:
+Use this skill when a workflow is instantiated more than once with the same shape but different inputs:
 
 - A code-review loop parameterized by target directory and pass count.
 - A release checklist parameterized by version, release type, and environments.
-- An onboarding workflow parameterized by new hire name and team.
+- An onboarding workflow parameterized by new-hire name and team.
 - A compliance audit parameterized by scope and reviewers.
 - Any "scaffold a workspace" request where plans and state machines would otherwise be copy-pasted.
 
-Do **not** use this skill when:
-
-- The user only needs a single plan — use `rhei-plan-writer` directly.
-- The user only needs a state machine — use `rhei-state-machine-writer` directly.
-- The workflow varies so much that parameterization costs more than it saves.
+Do **not** use it when: the user needs a single plan (use `rhei-plan-writer`); the user needs only a state machine (use `rhei-state-machine-writer`); or the workflow varies so much that parameterization costs more than it saves.
 
 ## Required Inputs
 
-Gather all three before designing the template. If anything is missing, ask and stop.
+Gather all three before designing. If anything is missing, ask and stop.
 
-### 1. Workflow intent
-
-- What workflow is being captured? One sentence.
-- Which parts change per instantiation, and which parts stay constant?
-- Is the workflow single-file (one plan) or multi-file (directory workspace)?
-
-### 2. Parameter surface
-
-- Which values must the user supply?
-- Which values have sensible defaults?
-- What are the types (`string`, `number`, `boolean`, `path`, `array`, `object`)?
-- Any validation regexes (for example, semver strings, ticket-id patterns)?
-
-### 3. State machine scope
-
-- Does the workflow fit the built-in `rhei` state machine? If yes, bundle no `states.yaml`.
-- Does it need a custom machine? If yes, author it via `rhei-state-machine-writer` and bundle it.
-- Does it need MCP servers, skills, or agents declared in `settings.json`? If yes, bundle one.
+1. **Workflow intent** — What workflow is captured (one sentence)? Which parts change per instantiation, which stay constant? Single-file (one plan) or multi-file (directory workspace)?
+2. **Parameter surface** — Which values must the user supply? Which have sensible defaults? What are the types (`string`, `number`, `boolean`, `path`, `array`, `object`)? Any validation regexes (semver strings, ticket-id patterns)?
+3. **State machine scope** — Does the workflow fit the built-in `rhei` machine (bundle no `states.yaml`), need a custom machine (author via `rhei-state-machine-writer` and bundle it), or need MCP servers / skills / agents declared in `settings.json` (bundle one)?
 
 ## Output Contract
 
@@ -66,62 +47,42 @@ A template is a directory. Required layout:
 └── ...                    # Additional files: text rendered, binary copied
 ```
 
-Every template must also ship a pre-rendered example workspace checked in elsewhere (see *Required Accompaniments*).
-
-When a custom state machine is needed, `states.yaml` is a required generated artifact, not background design notes. Produce the complete YAML file in the template directory, include it in any file-by-file response, and keep the rendered plan's `**States:** <name>` declaration aligned with `states.yaml:name`.
-
 Rules:
 
-- The directory name is the template identifier. It must match `manifest.name` exactly.
+- The directory name is the template identifier and must match `manifest.name` exactly.
 - Exactly one plan entry point: `plan.rhei.md` **or** `index.rhei.md`. Having both is an error.
-- `template.yaml` is parsed before rendering and is never templated itself. It is also excluded from the instantiated output.
-- Hidden files / directories (names beginning with `.`) and `template.yaml` are excluded from the output.
+- `template.yaml` is parsed before rendering, is never templated itself, and is excluded from the output. Hidden files/directories (names beginning with `.`) are also excluded.
 - A root-level `settings.json` is moved to `.rhei/settings.json` in the output — do not write the `.rhei/` path in the template source.
-- Binary files (any file with null bytes in the first 8 KiB) are copied verbatim. Text files are rendered through the instantiation template environment and must decode as UTF-8.
+- Binary files (null bytes in the first 8 KiB) are copied verbatim. Text files are rendered through the instantiation environment and must decode as UTF-8.
+
+When a custom state machine is needed, `states.yaml` is a required generated artifact (not design notes): produce the complete YAML in the template directory, and keep the rendered plan's `**States:** <name>` aligned with `states.yaml:name`. See *Required Accompaniments* for its diagram and *Response Discipline* for how to present it.
 
 ## Required Accompaniments
 
-Every template must ship with three pieces of context alongside the skeleton itself. Omit any of them and the template is considered incomplete.
+Every template ships three pieces of context alongside the skeleton. Omit any and the template is incomplete.
 
 ### 1. `README.md` at the template root
 
-One file at `<template>/README.md` describing:
+One file at `<template>/README.md` describing: what the template does (one paragraph); a table of inputs (name, type, default, description); a short per-task-kind summary of how each task walks the state machine (a table is usually enough); the narrative flow in numbered steps (what the coordinator does, what the fan-out looks like, where human gates live); the canonical `rhei instantiate` invocation with representative `--set` arguments; and a link to the checked-in example.
 
-- What the template does (one-paragraph summary).
-- A table of inputs: name, type, default, description.
-- A short per-task-kind summary of how each task walks the state machine (a table is usually enough).
-- The narrative flow in numbered steps (what the coordinator does, what the fan-out looks like, where human gates live).
-- The canonical `rhei instantiate` invocation with representative `--set` arguments.
-- A link to the checked-in example.
+Do not inline the state-machine diagram here — link to `states.yaml`, where the diagram lives (below). The README is rendered through the instantiation environment like any text file; keep `{{...}}` out of it unless you want per-instantiation copies to diverge — generally it documents the template, not the rendered output.
 
-Do not inline the state machine diagram here — it belongs in `states.yaml` comments (see below). Link to `states.yaml` from the README.
+### 2. State-machine diagram as a comment block in `states.yaml`
 
-The README is rendered through the instantiation environment like any other text file. Keep `{{...}}` out of it unless you want per-instantiation copies to diverge; generally the README documents the template itself, not the rendered output.
-
-### 2. State machine diagram as a comment block in `states.yaml`
-
-When the template bundles a `states.yaml`, add an ASCII diagram as a YAML comment block at the very top of the file — before `name:`. The diagram must cover:
-
-- Every non-terminal state and the transitions between them.
-- Which state is `initial`.
-- Which states are `final`.
-- Gating states (where the agent must stop).
-- Any `all_models` / `all_targets` fan-out points, named explicitly.
-- A short list of per-task paths through the machine (`coordinator: split → completed`, etc.), so readers can see how different task kinds traverse the same graph.
-
-This lives in the YAML file, not just the README, so anyone reading the state machine sees the picture without a context switch. If the template has no `states.yaml` (i.e., it uses the built-in `rhei` machine), skip this — the built-in is documented elsewhere.
+When the template bundles a `states.yaml`, add an ASCII diagram as a YAML comment block at the very top of the file, before `name:`. It must cover: every non-terminal state and the transitions between them; which state is `initial`; which states are `final`; gating states; any `all_models` / `all_targets` fan-out points, named explicitly; and a short list of per-task paths through the machine (`coordinator: split → completed`, etc.). This lives in the YAML, not just the README, so anyone reading the state machine sees the picture without a context switch. If the template uses the built-in `rhei` machine (no `states.yaml`), skip this.
 
 ### 3. A pre-rendered example that passes `rhei validate`
 
-For every template, check in one pre-rendered example so reviewers and users can see a working instantiation without running `rhei instantiate` themselves. The example is the template's smoke test.
+Check in one pre-rendered example so reviewers and users see a working instantiation without running `rhei instantiate` themselves — it is the template's smoke test.
 
-- Place it under `examples/<template-name>-example/` at the repo root (project conventions may vary; match what neighbouring templates do).
+- Place it under `examples/<template-name>-example/` at the repo root (match neighbouring templates).
 - Generate it with `rhei instantiate <template> --set ... --output examples/<template-name>-example`.
-- Overwrite the rendered `README.md` with an example-specific one that records the `--set` values used, the validate command, and the regenerate command. This keeps the template's own README as documentation and the example's README as an instantiation log.
-- The example must pass `rhei validate examples/<template-name>-example` as shipped.
-- Re-generate the example any time the template changes state shape, inputs, or the default rendering of the seed files.
+- For any non-scalar (`array` / `object`) input, check a values file into the example directory (`instantiation-values.yaml`) and regenerate with `--values` so the input shape is reproducible — the established convention (`spec-implementation-example`, `product-management-example`, `parallel-worktrees-example` all do it).
+- Overwrite the rendered `README.md` with an example-specific one recording the values used, the validate command, and the regenerate command. The template's README stays documentation; the example's README is an instantiation log.
+- Most examples are validated directly with `rhei validate <path>`; only register one in `xtask`'s `EXAMPLES` list if you also want it in `cargo xtask examples validate --all` / the viz dashboard (most `*-example` directories are not registered).
+- The example must pass `rhei validate examples/<template-name>-example` as shipped, and must be regenerated whenever the template changes state shape, inputs, or default seed-file rendering.
 
-Pick inputs that exercise every non-trivial code path in the template — e.g., if there's a `focus_areas` input and an empty-list branch, set it to a non-empty list in the example so the rendered output demonstrates the branch. If one example can't reasonably cover every branch, pick the most interesting combination and note the trade-off in the example's README.
+Pick inputs that exercise every non-trivial code path — e.g. if there's a `focus_areas` input with an empty-list branch, set it to a non-empty list. If one example can't cover every branch, pick the most interesting combination and note the trade-off in the example's README.
 
 ## Manifest Contract (`template.yaml`)
 
@@ -137,30 +98,25 @@ inputs:
     required: <boolean>        # Default: true (unless `default` is present)
     default: <value>           # Mutually exclusive with required: true
     validate: <regex>          # Rust regex applied to the rendered scalar value
-    items:                     # Required when type: array
-      type: <...>
+    positional: <integer>      # Optional 1-based CLI positional slot
+    items: { type: <...> }     # Required when type: array
     properties:                # Optional when type: object
-      <property-name>:
-        type: <...>
-        required: <boolean>
-        default: <value>
+      <property-name>: { type: <...>, required: <boolean>, default: <value> }
 ```
 
 Rules the writer enforces at author time:
 
-- `name` matches the directory name.
-- `description` is non-empty after trimming.
-- Input names are unique within the manifest.
-- `required: true` and `default:` are mutually exclusive. A `default` implicitly makes the input optional.
-- `validate` is only valid on scalar types (`string`, `number`, `boolean`, `path`).
-- `type: array` entries must declare `items`.
-- `type: object` properties are required by default unless they declare `required: false` or a `default`.
-- Optional inputs with no `default` resolve to type-shaped empty values at instantiation time (`""` for `string`/`path`, `null` for `number`/`boolean`, `[]` for `array`, `{}` for `object`). Author the template to tolerate the empty value, or declare a `default`.
-- `type: path` values are rendered verbatim — do not assume the instantiator rewrites them to absolute paths.
+- `name` matches the directory name; `description` is non-empty after trimming; input names are unique.
+- `required: true` and `default:` are mutually exclusive — a `default` implicitly makes the input optional.
+- `validate` is only valid on scalar types (`string`, `number`, `boolean`, `path`). The pattern is anchored to the **whole** rendered value (`\A(?:…)\z`) and enforced on every matching scalar, including those nested in object `properties` and array `items`; a violation fails instantiation with a path-qualified error (e.g. `input 'targets[0].id' does not match validation pattern '…'`).
+- `positional`, when present, is a unique positive integer contiguous from `1`. It lets the user pass that input as a bare CLI argument (`rhei instantiate <t> <value>`) instead of `name=value`.
+- `type: array` entries must declare `items`. `type: object` properties are required by default unless they declare `required: false` or a `default`.
+- Optional inputs with no `default` resolve to type-shaped empty values (`""` for `string`/`path`, `null` for `number`/`boolean`, `[]` for `array`, `{}` for `object`). Author the template to tolerate the empty value, or declare a `default`.
+- `type: path` values are resolved to an **absolute** path (relative inputs join the instantiating cwd), and a non-default `path` is **checked for existence** — a missing path fails instantiation. A `default` path is used as-is and not existence-checked. Consequence: an absolute path is baked into the rendered output, so a `path` input makes the checked-in example machine-specific — regenerate it locally (as `examples/spec-review-example` and `examples/hourly-human-intervention-example` do). To skip absolutization and the existence check, use `type: string`.
 
 ## Instantiation Template Syntax
 
-The instantiator uses a restricted MiniJinja environment. **Instantiation templates are distinct from Rhei runtime variables.** Both can coexist in the same file:
+The instantiator uses a restricted MiniJinja environment. **Instantiation templates are distinct from Rhei runtime variables** — both can coexist in one file:
 
 | Form | Resolved by | Example | When |
 |---|---|---|---|
@@ -168,118 +124,92 @@ The instantiator uses a restricted MiniJinja environment. **Instantiation templa
 | `{% ... %}` | `rhei instantiate` | `{% for t in targets %}...{% endfor %}` | At instantiation time |
 | `{name}` | `rhei next` / `rhei run` | `{task_id}`, `{visit_count}`, `{output.review-notes.path}` | At runtime |
 
-Supported MiniJinja constructs in v1:
+Supported MiniJinja constructs in v1: `{{ expr }}` interpolation; `{% for item in items %}`; `{% if cond %}` / `{% else %}` / `{% endif %}`; `{% raw %}` / `{% endraw %}` (to emit literal `{{` / `{%`); and the `|slug` filter for filesystem-safe slugs.
 
-- `{{ expr }}` interpolation.
-- `{% for item in items %}` ... `{% endfor %}`.
-- `{% if cond %}` ... `{% else %}` ... `{% endif %}`.
-- `{% raw %}` ... `{% endraw %}` to emit literal `{{` / `{%`.
-- `|slug` filter for filesystem-safe slugs.
-
-The renderer is strict:
-
-- Referencing an undefined variable or missing object property is an error — typos fail instantiation immediately.
-- External includes / imports are not available.
-- Unresolved `{{...}}` in the output is an error.
-- Runtime `{name}` variables **pass through** untouched; they are not errors at instantiation time.
-
-Escaping: prefer `{% raw %}{{task_id}}{% endraw %}` to emit a literal `{{...}}`. The legacy `\{{` escape also works and the backslash is consumed.
+The renderer is strict: referencing an undefined variable or missing object property is an error (typos fail immediately); external includes/imports are unavailable; unresolved `{{...}}` in the output is an error. Runtime `{name}` variables **pass through** untouched — they are not errors at instantiation time. To emit a literal `{{...}}`, prefer `{% raw %}{{task_id}}{% endraw %}` (the legacy `\{{` escape also works, consuming the backslash).
 
 ## Design Rules
 
 ### Manifest
 
 1. **Name inputs for the thing, not the form.** Prefer `target`, `review_passes`, `release_version` over `input_path`, `count`, `string1`.
-2. **Prefer `default:` over required.** If a sensible default exists, declare it — the user can always override with `--set`.
-3. **Use `validate` for format-shaped values.** Semver strings, slug identifiers, date fragments. Don't use it for open-ended free text.
-4. **Keep the input surface small.** Every input is cost for the user; every missing input forces a prompt. If the workflow has five knobs but two are always flipped the same way, fold them.
-5. **Document inputs in `description`.** The description is what the user sees when they forget what the input does. Describe the effect, not the type.
+2. **Prefer `default:` over required** when a sensible default exists — the user can always override with `--set`.
+3. **Use `validate` for format-shaped values** (semver strings, slug identifiers, date fragments), not open-ended free text.
+4. **Keep the input surface small.** Every input is cost; if two knobs are always flipped together, fold them.
+5. **Document the effect in `description`,** not the type.
 
 ### Plan skeleton
 
-1. **Treat the skeleton like a plan authored by `rhei-plan-writer`.** It must pass `rhei validate` after rendering. Follow the plan writer's contract: exactly one H1 `# Rhei: <title>`, optional `**States:**`, `## Tasks` last (for single-file), tasks with `**State:**` first, `**Prior:**` second. A generated child task must never list its parent or any ancestor as `**Prior:**`; generate follow-up work as top-level sibling tasks when it must wait for the parent to complete.
-2. **Never author `**Assignee:**` or `> **Result:**`.** These are runtime-owned.
-3. **Use `{{...}}` only where the plan actually depends on input.** A template that uses `{{target}}` in every task title is noisier than one that only interpolates where the value matters.
-4. **Use `{% for %}` to fan out tasks only when the user-supplied input controls multiplicity.** For example, one task per reviewer or per environment. Keep generated IDs stable and unique.
-5. **Keep runtime variables runtime.** Don't try to resolve `{task_id}` at instantiation time — it must remain `{task_id}` in the output for `rhei next` to resolve per task.
+1. **Treat the skeleton like a plan authored by `rhei-plan-writer`** — it must pass `rhei validate` after rendering, following the plan writer's contract (one H1 `# Rhei: <title>`, optional `**States:**`, `## Tasks` last for single-file, tasks with `**State:**` first and `**Prior:**` second). A generated child task must never list its parent or any ancestor as `**Prior:**`; generate follow-up work as top-level sibling tasks when it must wait for the parent.
+2. **Never author `**Assignee:**` or `> **Result:**`** — these are runtime-owned.
+3. **Use `{{...}}` only where the plan actually depends on input.** Interpolating `{{target}}` into every task title is noisier than interpolating only where the value matters.
+4. **Use `{% for %}` to fan out tasks only when user input controls multiplicity** (one task per reviewer or environment). Keep generated IDs stable and unique.
+5. **Keep runtime variables runtime** — `{task_id}` must remain literal in the output for `rhei next` to resolve per task.
 
 ### State machine (optional)
 
-1. **Omit `states.yaml` when the built-in `rhei` machine fits.** That's the default, and leaving it out makes the template smaller and auto-pickable.
-2. **Bundle a custom `states.yaml` when the template needs non-default states, artifact contracts, visit loops, program states, model fan-out, or team gates.** Follow `rhei-state-machine-writer`; do not stop at a prose summary of the machine.
-3. **If the rendered plan declares `**States:** <name>`, the bundled `states.yaml`'s `name` must match.** Auto-discovery keys off the YAML's `name` field.
-4. **Use `{{...}}` inside `states.yaml` only where the workflow needs parameterized control.** Common patterns: `visits: {{review_passes}}`, `model: {{model}}`.
-5. **Respect the runtime/instantiation boundary.** `{task_id}` stays literal; `{{model}}` resolves at instantiation.
-6. **Do not validate or reason from raw templated `states.yaml` as if it were final YAML when it still contains placeholders.** Instantiate first, then inspect or validate the rendered `states.yaml` in the concrete workspace.
+1. **Omit `states.yaml` when the built-in `rhei` machine fits** — the default, and it keeps the template small and auto-pickable.
+2. **Bundle a custom `states.yaml`** for non-default states, artifact contracts, visit loops, program states, model fan-out, or team gates. Follow `rhei-state-machine-writer` and produce the complete machine (see *Output Contract* and *Required Accompaniments*); do not stop at a prose summary.
+3. **If the rendered plan declares `**States:** <name>`, the bundled `states.yaml`'s `name` must match** — auto-discovery keys off it.
+4. **Use `{{...}}` inside `states.yaml` only where the workflow needs parameterized control** (`visits: {{review_passes}}`, `model: {{model}}`), keeping `{task_id}` literal and `{{model}}` instantiation-time.
+5. **Do not validate or reason from raw templated `states.yaml` as if it were final YAML** while it still contains placeholders — instantiate first, then inspect or validate the rendered `states.yaml`.
+6. **For task-level parallelism, set `concurrent: true` on the working states and ship a directory workspace.** `rhei run --parallel N` runs up to N ready tasks at once, but only schedules multiple tasks in the *same* state together when that state declares `concurrent: true` (default `false`); otherwise it defers them one-per-pass and the fan-out serializes. `--parallel` is also ignored on single-file `plan.rhei.md` plans. Real parallelism needs **both** independent ready tasks (sibling tasks with no shared `**Prior:**`, e.g. one per array entry via `{% for %}` in the `tasks/` file) **and** `concurrent: true` states. This is orthogonal to `all_targets` / `all_models`, which fan a *single* task's state across multiple targets inside one task. See the `parallel-worktrees` template.
 
 ### Authoring verification
 
-1. **Instantiate before validating.** Template source files can contain MiniJinja placeholders; the authoritative thing to validate is the rendered workspace.
-2. **Run `rhei validate` on the instantiated workspace, not only `rhei instantiate --dry-run`.** Dry-run catches rendering errors; validation catches plan, state-machine, settings, artifact, and link errors in the concrete output.
-3. **Run `rhei run <instantiated-workspace> --dry-run` before returning a runnable template.** This checks the orchestrator-facing shape without spawning agents, callbacks, or programs.
-4. **Exercise non-scalar inputs through `--values`.** Arrays and objects must be tested with a YAML or JSON values file; `--set` and positional inputs are scalar strings and are not a sufficient test for typed structures.
-5. **Keep the values file used for the example or document it in the example README.** Reviewers should be able to reproduce the exact non-scalar input shape that was validated.
+1. **Instantiate before validating** — the authoritative artifact is the rendered workspace, not the placeholder-bearing source.
+2. **Run `rhei validate` on the instantiated workspace, not only `--dry-run`.** Dry-run catches rendering errors; validation catches plan, state-machine, settings, artifact, and link errors in the concrete output.
+3. **Run `rhei run <workspace> --dry-run` before returning a runnable template** — it checks the orchestrator-facing shape without spawning agents, callbacks, or programs.
+4. **Exercise non-scalar inputs through `--values`** (a YAML/JSON file). `--set` and positional inputs are scalar strings and do not test typed structures.
+5. **Keep the values file used for the example, or document it in the example README,** so reviewers can reproduce the exact non-scalar input shape.
 
 ### Settings (optional)
 
-1. **Only bundle `settings.json` when the template references MCP servers, skills, or agent profiles that aren't guaranteed to exist in the user's global config.** Otherwise leave it out.
-2. **Use `{{...}}` for workspace-specific values** (workspace ids, hostnames, paths), and the settings-file's standard `${VAR}` expansion for secrets — `${VAR}` is resolved at `rhei run` time on the user's machine, not at instantiation.
-3. **Every MCP or skill id referenced by the bundled `states.yaml` must be declared here or in the user's global settings.** `rhei validate` (invoked post-instantiation) surfaces dangling references.
-4. **Write `settings.json` at the root of the template.** `rhei instantiate` moves it to `.rhei/settings.json` in the output automatically.
+1. **Only bundle `settings.json` when the template references MCP servers, skills, or agent profiles** not guaranteed in the user's global config.
+2. **Use `{{...}}` for workspace-specific values** (workspace ids, hostnames, paths), and the settings file's standard `${VAR}` expansion for secrets — `${VAR}` resolves at `rhei run` time on the user's machine, not at instantiation.
+3. **Every MCP / skill / agent id referenced by the bundled `states.yaml` must be declared here or in the user's global settings** — `rhei validate` (post-instantiation) surfaces dangling references.
+4. **Write `settings.json` at the template root**; `rhei instantiate` moves it to `.rhei/settings.json`.
 
 ### Additional files
 
 1. **Bundle scripts and runbooks the state machine references from callbacks** (`on_leave`, `on_enter`, or `program` states).
-2. **Binary assets are copied verbatim.** Images, fonts, and compiled artifacts pass through without rendering.
-3. **Avoid bundling anything the user can reasonably supply themselves.** Smaller templates are easier to audit.
+2. **Binary assets are copied verbatim** (images, fonts, compiled artifacts pass through without rendering).
+3. **Avoid bundling anything the user can reasonably supply** — smaller templates are easier to audit.
 
 ## Workflow
 
-1. Confirm the workflow, parameters, and state-machine scope with the user.
-2. Pick single-file (`plan.rhei.md`) or directory workspace (`index.rhei.md` + `tasks/`). Prefer single-file unless the workflow produces enough tasks that per-file concurrency matters.
+1. Confirm workflow, parameters, and state-machine scope with the user.
+2. Pick single-file (`plan.rhei.md`) or directory workspace (`index.rhei.md` + `tasks/`). Prefer single-file unless per-file concurrency matters.
 3. Draft `template.yaml` with the minimum required inputs.
-4. Draft the plan skeleton. Interpolate `{{...}}` only where input shapes the output. Keep runtime `{...}` variables where they belong.
-5. Decide whether to bundle `states.yaml`. If yes, apply `rhei-state-machine-writer` to produce the complete machine body, wire in `{{...}}` interpolations where needed, and add the state machine diagram as a comment block at the top of the file.
+4. Draft the plan skeleton — interpolate `{{...}}` only where input shapes the output; keep runtime `{...}` variables where they belong.
+5. Decide whether to bundle `states.yaml`. If yes, apply `rhei-state-machine-writer` for the full machine, wire in `{{...}}` where needed, and add the diagram comment block.
 6. Decide whether to bundle `settings.json`. If yes, declare MCP servers, skills, and `defaults` that match the state machine.
 7. Place the template in a discoverable directory (see *File Placement*).
-8. Smoke-render with `rhei instantiate <template> --dry-run --set ...` and fix rendering errors. For array or object inputs, use `--values <file>` in at least one smoke render.
-9. Write `README.md` at the template root (inputs table, per-task paths through the state machine, flow, instantiate command, link to the example).
-10. Generate the pre-rendered example into `examples/<template-name>-example/` and overwrite its README with an example-specific one.
-11. Validate the instantiated example with `rhei validate examples/<template-name>-example/`.
-12. Run `rhei run examples/<template-name>-example/ --dry-run` and fix any execution-shape errors before returning.
+8. Smoke-render with `rhei instantiate <template> --dry-run --set ...`, using `--values <file>` for array/object inputs; fix rendering errors.
+9. Write `README.md` at the template root.
+10. Generate the pre-rendered example into `examples/<template-name>-example/` and overwrite its README.
+11. Validate the example: `rhei validate examples/<template-name>-example/`.
+12. Run `rhei run examples/<template-name>-example/ --dry-run` and fix execution-shape errors.
 13. Repeat instantiate + validate + run-dry-run for at least two other input combinations to catch branches the example doesn't cover.
 
 ## Response Discipline
 
-When returning a template in chat instead of editing files directly, print a file-by-file artifact list. Include every required file as a fenced block with its path. If a custom state machine is needed, one of those blocks must be `<template>/states.yaml` and must contain the full YAML, including the top comment diagram. If no custom state machine is needed, say explicitly that the template intentionally uses the built-in `rhei` machine and therefore omits `states.yaml`.
-
-Do not describe a custom state machine only in prose, and do not leave `states.yaml` for a later step unless the user explicitly asks for an outline instead of a complete template.
+When returning a template in chat instead of editing files directly, print a file-by-file artifact list — every required file as a fenced block with its path. If a custom state machine is needed, one block must be `<template>/states.yaml` containing the full YAML, including the top diagram comment; do not describe the machine only in prose or defer it to a later step (unless the user explicitly asks for an outline). If no custom machine is needed, say explicitly that the template uses the built-in `rhei` machine and therefore omits `states.yaml`.
 
 ## Validation Checklist
 
 Before returning the template, verify:
 
-- Directory name matches `manifest.name`.
-- `template.yaml` declares `name`, `version`, `description`, and optionally `inputs`.
-- Every input has a unique `name` and a non-empty `description`.
-- No input mixes `required: true` with a `default`.
-- `type: array` inputs declare `items`; `validate` is only present on scalar types.
-- Exactly one plan entry point (`plan.rhei.md` or `index.rhei.md`) exists.
-- The entry point uses the Rhei Plan grammar (`# Rhei: <title>`, `## Tasks` last for single-file, task headings with `**State:**` first).
-- No `**Assignee:**` or `> **Result:**` authored in the plan skeleton.
-- Every `{{...}}` variable is declared in `manifest.inputs` (or is a nested property on an object input).
-- Runtime `{name}` variables that pass through instantiation are valid against the active state machine's variable namespace (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`, `{input.<name>.path}`, `{output.<name>.path}`, `{meta.<key>}`).
-- If `states.yaml` is bundled and the rendered plan declares `**States:** <name>`, the YAML's `name` field matches `<name>`.
-- If the workflow needs a custom state machine, `states.yaml` exists as a concrete artifact in the template output; it is not merely described in README text or the final response.
-- If `states.yaml` contains `{{...}}` placeholders, inspection and CLI validation are performed against the rendered workspace's `states.yaml`, not the raw template source.
-- If `states.yaml` is bundled, it passes the state-machine-writer validation checklist (profiles, node_policy, terminal reachability, etc.).
-- If `settings.json` is bundled, it is valid JSON after rendering and every MCP / skill / agent id referenced by `states.yaml` is declared.
-- `rhei instantiate <template> --dry-run ...` succeeds.
-- Every array or object input has been exercised through `--values <yaml-or-json-file>`, not only through `--set`.
-- The rendered workspace passes `rhei validate <instantiated-workspace>`.
-- The rendered workspace passes `rhei run <instantiated-workspace> --dry-run`.
-- `<template>/README.md` exists and covers: one-paragraph summary, inputs table, per-task paths through the state machine, numbered flow, canonical `rhei instantiate` command, and a link to the pre-rendered example.
-- If `states.yaml` is bundled, it begins with an ASCII state machine diagram as a YAML comment block covering states, transitions, initial / final / gating markers, fan-out points, and per-task paths.
+- Directory name matches `manifest.name`; `template.yaml` declares `name`, `version`, `description`, and optionally `inputs`.
+- Every input has a unique `name` and non-empty `description`; none mixes `required: true` with a `default`.
+- `type: array` inputs declare `items`; `validate` appears only on scalar types.
+- Exactly one plan entry point exists and uses the Rhei Plan grammar (`# Rhei: <title>`, `## Tasks` last for single-file, task headings with `**State:**` first); no `**Assignee:**` or `> **Result:**` is authored.
+- Every `{{...}}` variable is declared in `manifest.inputs` (or is a nested property on an object input); runtime `{name}` variables passing through are valid against the active machine's namespace (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`, `{input.<name>.path}`, `{output.<name>.path}`, `{meta.<key>}`).
+- If `states.yaml` is bundled: the rendered plan's `**States:** <name>` matches its `name`; it begins with the ASCII diagram comment block; it passes the state-machine-writer checklist; placeholder-bearing source is inspected/validated only via the rendered workspace; and every MCP/skill/agent id it references is declared in a bundled or global `settings.json`. If the workflow needs a custom machine, `states.yaml` exists as a concrete artifact, not prose.
+- If the template fans out tasks for parallel execution, `rhei run <workspace> --parallel N --dry-run` schedules multiple tasks in one pass (not "Deferred … to a later pass"). Deferral means missing `concurrent: true` or a shared `**Prior:**`.
+- If `settings.json` is bundled, it is valid JSON after rendering.
+- `rhei instantiate <template> --dry-run ...` succeeds; every array/object input has been exercised through `--values`; the rendered workspace passes both `rhei validate` and `rhei run --dry-run`.
+- `<template>/README.md` exists and covers: summary, inputs table, per-task paths through the state machine, numbered flow, canonical `rhei instantiate` command, and a link to the example.
 - A pre-rendered example under `examples/<template-name>-example/` exists, was generated by `rhei instantiate`, has an example-specific `README.md` (inputs used, validate command, regenerate command), and passes `rhei validate <example-path>` as shipped.
 
 ## File Placement
@@ -291,20 +221,64 @@ Templates are resolved by `rhei instantiate <name>` in this order (first match w
 | 1 | `<project>/.agents/rhei/templates/<name>/` | Project-local |
 | 2 | `~/.agents/rhei/templates/<name>/` | User-global |
 
-Place project-scoped templates under `.agents/rhei/templates/` so the rest of the team picks them up from the checkout. Place personal templates under `~/.agents/rhei/templates/` so they're available across projects. A template can also be instantiated directly from an arbitrary filesystem path (`rhei instantiate ./path/to/template/`) — useful for authoring and review.
+Place project-scoped templates under `.agents/rhei/templates/` so the team picks them up from the checkout; personal templates under `~/.agents/rhei/templates/` so they're available across projects. A template can also be instantiated from an arbitrary path (`rhei instantiate ./path/to/template/`) — useful for authoring and review.
+
+## Instantiation CLI Surface
+
+`rhei instantiate <template> [inputs...] [options]`. Inputs are supplied four ways (precedence low → high): manifest `default` < `--values <file>` (YAML/JSON; repeatable) < bare positional values (for inputs declaring `positional`, or the single-required-input fallback) < `KEY=VALUE` and `--set KEY=VALUE` < `--set-file KEY=<path>` (sets the input to a file's contents — for long prose like a brief).
+
+| Flag | Use |
+|---|---|
+| `--values <file>` | The only sane way to pass `array` / `object` inputs (parsed as YAML/JSON). Always smoke-test structured inputs through this. |
+| `--set-file KEY=<path>` | Inject long text (briefs, descriptions) without shell-quoting hell. |
+| `--dry-run` | Render + validate into a scratch dir, write nothing. Catches rendering and validation errors. |
+| `--output <path>` | Must **not** already exist (except under `--dry-run`); instantiation refuses to merge/overwrite. |
+| `--keep-on-error` | Keep the output dir when post-instantiation validation fails, so you can inspect the broken render. First move when an example won't validate. |
+| `--list-inputs` | Print the resolved input schema and exit — quick way to confirm the manifest parses. |
+| `--execute` | Instantiate then immediately `rhei run` (mutually exclusive with `--dry-run`). |
+
+## Pattern Library — Canonical Examples
+
+When a workflow is more than a linear checklist, start from a proven template. Each entry is a checked-in, `rhei validate`-passing reference — read its `states.yaml` (diagram in the top comment), its `tasks/`, and its `README.md`, then adapt. Paths are repo-relative.
+
+**Counted loops** (`review → fix → review …`)
+- Template `.agents/rhei/templates/spec-review/`; examples `examples/spec-review-example/` and the callback-driven `examples/review-fix-visits/`.
+- Technique: a state pair both declaring `visits: N`, with a transition gated `condition: visitCount < visits` (loop back) vs `visitCount >= visits` (exit). The smallest loop in the repo.
+
+**Multi-agent review + aggregation** (fan out across reviewers, then merge)
+- Template `.agents/rhei/templates/changeset-review/` (the richest: `split → fan-out review → aggregate-reviews → propose-fixes → aggregate-proposals → decide → human gate → fix`); also `.agents/rhei/templates/spec-implementation/`.
+- Technique: `all_targets: <array_input>` fans one state across many agents inside a single task; a following aggregator state run by a single `smart_target` merges the per-agent artifacts. Reviewer multiplicity is an input, never hardcoded.
+
+**Multi-target / multi-model fan-out**
+- Template `.agents/rhei/templates/multi-model-analysis/`; example `examples/multi-model-analysis-example/`.
+- Technique: an `analyze` state with `all_targets` over an `agents` object-array, then one synthesis state. Per-target artifact paths slugify a structured field: `path: …/{{ t.selector|slug }}.md` (the `|slug` filter — the only filter available).
+
+**Multi-round discussion / deliberation** (participants take each other's points into account across rounds, then converge or escalate)
+- Example `examples/agent-discussion/` (callback-driven; no template yet — a candidate to parameterize: participant list, their stances/goals, and the round budget are the natural inputs).
+- Technique: a `collect ↔ judge` loop. `collect` declares `all_models` so the position callback fans out once per participant; every round after the first reads the previous round's judge digest, so positions move instead of repeating. The `judge` callback writes a per-round digest and returns a `nextState` redirect — `converged` (consensus, records `decision.md`), `escalated` (a **gating** human handoff once the round budget is spent), or no redirect to loop back. Participants argue from assigned project goals (distinct stances), so it is a multi-perspective deliberation rather than a one-shot poll, and the converged `decision.md` gates a downstream task via `**Prior:**`. Contrast with *Multi-agent review + aggregation*, which fans out once and merges; this loops and lets participants respond to each other.
+- **Gotcha:** the loop is driven by the judge's `nextState` redirect, **not** by `visits`. Do not put `visits` on the `all_models` `collect` state — the engine runs an `all_models`+`visits` state per-target *per-visit* and spins on a `state → state-2` self-loop. Bound the loop in the judge callback (a `CAP`) instead.
+
+**Dynamic / agent-driven task creation** (a coordinator analyzes, then spawns a run-time-decided number of tasks)
+- Template `.agents/rhei/templates/analyze-and-dispatch/`; example `examples/analyze-and-dispatch-example/`. The same coordinator mechanism also lives inside `spec-implementation/` and `changeset-review/`.
+- Technique: the rhei "API" for adding tasks is **writing a conforming `tasks/NN-<slug>.md` file** into a directory workspace — `rhei run` re-parses `tasks/` every pass, so there is no `rhei add` command. A coordinator state's agent decides how many tasks to create (the count is *not* fixed at instantiation), writes one file per work item with `**Prior:** Task {task_id}` — its own runtime-substituted id, copied verbatim, so spawned tasks wait for the coordinator — and optionally a final aggregate task whose `**Prior:**` lists every spawned id. Use when the number of follow-ups depends on what the agent finds; contrast with *Parallel execution* below, where the count is fixed at instantiation by an array input. (`##` headings are reserved in task files, and a multi-line free-text input must not be interpolated into a `states.yaml` block scalar — keep it in the markdown task body.)
+
+**Parallel execution** (many *independent* tasks advancing at once)
+- Template `.agents/rhei/templates/parallel-worktrees/`; example `examples/parallel-worktrees-example/`.
+- Technique: a directory workspace whose `tasks/` file `{% for %}`-fans out sibling tasks with **no `**Prior:**`** between them, and working states marked `concurrent: true`. Both are required (see State machine rule 6). The example README shows the `--parallel N` dry-run beside the sequential one.
+
+**Per-task git worktrees** (isolate concurrent edits)
+- Template `.agents/rhei/templates/parallel-worktrees/` (clean), and the `prepare-workspace` state of `changeset-review/` (worktree as one branch of a `none|branch|worktree|fork` choice).
+- Technique: worktree creation is an **instruction the agent runs** (`git worktree add <root>/{task_id} -b <prefix>/{task_id}`), not a Rhei primitive. Key each worktree + branch on `{task_id}` so parallel agents never collide; write runtime artifacts back to the scratchpad, not inside the worktree. Mix instantiation-time `{{...}}` and runtime `{task_id}` in one path to get a per-task, per-instantiation location.
+
+**Human gates / branch / fork isolation / counted decision loops**
+- Templates `.agents/rhei/templates/changeset-review/` and `.agents/rhei/templates/hourly-human-intervention/`.
 
 ## Example Skeleton
 
 A minimal one-input template using the built-in `rhei` machine and a single-file plan:
 
-```
-release-notes/
-├── template.yaml
-└── plan.rhei.md
-```
-
 ```yaml
-# template.yaml
+# release-notes/template.yaml
 name: release-notes
 version: 1.0
 description: Draft, review, and publish release notes for a version
@@ -314,14 +288,13 @@ inputs:
     description: Semantic version being released (e.g., 1.4.0)
     type: string
     validate: "^\\d+\\.\\d+\\.\\d+$"
-
   - name: channel
     description: Publication channel
     default: beta
 ```
 
 ```markdown
-# plan.rhei.md
+# release-notes/plan.rhei.md
 # Rhei: Release {{version}} notes
 
 ## Tasks
@@ -345,20 +318,10 @@ Review the draft for accuracy, tone, and completeness.
 Publish the reviewed notes to the `{{channel}}` channel.
 ```
 
-Instantiation:
-
 ```bash
-rhei instantiate release-notes \
-  --set version=1.4.0 \
-  --set channel=stable \
-  --output ./releases/1.4.0/
+rhei instantiate release-notes --set version=1.4.0 --set channel=stable --output ./releases/1.4.0/
 ```
 
 ## Missing Information Handling
 
-If required input is missing:
-
-- Ask the user to supply workflow intent, parameter surface, and state-machine scope.
-- Do not invent parameters to cover uncertain parts of the workflow.
-- If the template would be a thin wrapper over a single plan with no real parameterization, push back: `rhei-plan-writer` is the better tool.
-- If the workflow needs more than roughly ten inputs or more than one state machine, push back: consider splitting into separate templates.
+If required input is missing, ask the user for workflow intent, parameter surface, and state-machine scope; do not invent parameters for uncertain parts. If the template would be a thin wrapper over a single plan with no real parameterization, push back — `rhei-plan-writer` is the better tool. If the workflow needs more than roughly ten inputs or more than one state machine, push back: consider splitting into separate templates.

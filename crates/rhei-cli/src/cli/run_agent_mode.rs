@@ -563,7 +563,9 @@ fn run_agent_mode(
                         let mut state_after =
                             task_after.map(|t| t.state.as_str()).unwrap_or("unknown").to_string();
 
-                        if state_after != *current_state {
+                        if normalized_state_name(&state_after, machine)
+                            != normalized_state_name(current_state, machine)
+                        {
                             run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
                                 task_id_str,
@@ -603,7 +605,9 @@ fn run_agent_mode(
                                 .map(|t| t.state.as_str())
                                 .unwrap_or("unknown")
                                 .to_string();
-                            if state_after != *current_state {
+                            if normalized_state_name(&state_after, machine)
+                                != normalized_state_name(current_state, machine)
+                            {
                                 run_info!(
                                     "  Task {} advanced: '{}' -> '{}'",
                                     task_id_str,
@@ -1103,7 +1107,14 @@ fn run_agent_mode(
                     let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
                     let state_before = current_state.as_str();
 
-                    if state_after != state_before {
+                    // Compare normalized state names: a counted state and its
+                    // visit-suffixed form (e.g. `build` vs `build-2`) are the
+                    // same logical state. Comparing raw vs. normalized would
+                    // mistake a no-op re-entry for forward progress and skip
+                    // the real auto-advance, spinning the loop forever.
+                    if normalized_state_name(state_after, machine)
+                        != normalized_state_name(state_before, machine)
+                    {
                         if status.success() {
                             if let Some(task_for_snapshot) = task_after {
                                 if let Err(err) = emit_snapshots_after_agent_exit(
@@ -1713,7 +1724,9 @@ fn run_agent_mode(
                             snapshot_completion_for_emit = Some(snapshot_completion);
                         }
                         let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
-                        if state_after != state_name {
+                        if normalized_state_name(state_after, machine)
+                            != normalized_state_name(&state_name, machine)
+                        {
                             if status.success() {
                                 if let (Some(task_for_snapshot), Some(snapshot_completion)) =
                                     (task_after, snapshot_completion_for_emit)

@@ -1,0 +1,140 @@
+name: agent-discussion
+version: 1.0
+
+# Four participants discuss one point. Each argues from a different project goal
+# (see `goal_for` in workflow.sh), so the discussion is a multi-perspective
+# deliberation rather than four independent opinions.
+#
+# A real loop: collect <-> judge.
+#   collect  fans the position callback out across all participants (all_models)
+#   judge    digests the round, then redirects via the callback's `nextState`:
+#              - converged  : consensus reached, decision.md recorded
+#              - escalated  : round budget (CAP in workflow.sh) spent, human gate
+#              - no redirect: loop back to `collect` for another round
+# Round 2+ positions read the previous round's digest, so participants take each
+# other's points into account. `visits` is deliberately NOT used: it must not be
+# combined with `all_models` (the engine would run the state per-target per-visit
+# and spin), so the loop is bounded by the judge callback instead.
+models:
+  - claude
+  - codex
+  - gemini
+  - cursor
+
+states:
+  collect:
+    description: >-
+      Each participant writes its position for the current round, arguing from the
+      project goal it champions. From round 2 on it reads the previous round's judge
+      digest and responds to the other participants directly.
+    personality: |
+      You are {model}. You champion one specific project goal (stated in the task).
+      Argue the point strictly from that goal. From round 2 on, read the latest digest
+      under runtime/discussion/digest/ and respond to the other participants by name:
+      concede what they got right and sharpen where you still disagree.
+    all_models: [claude, codex, gemini, cursor]
+    instructions: |
+      Discussion round for Task {task_id}: {task_title}.
+
+      Read any existing digest under runtime/discussion/digest/. Write your position
+      for this round to runtime/discussion/round-<N>/{model}.md, where <N> is the
+      current round. Hand off to the judge once every participant has written.
+    initial: true
+
+  judge:
+    description: >-
+      An impartial judge synthesizes the round into a digest and decides whether the
+      group has converged, needs another round, or must escalate to a human.
+    model: codex
+    personality: |
+      You are an impartial judge. Summarize each participant's position, name the
+      points of agreement and the live disagreements, and decide whether the group
+      has converged on a decision that honors the competing project goals.
+    instructions: |
+      Judge the current discussion round for Task {task_id}.
+
+      Read every participant position for this round and write a digest to
+      runtime/discussion/digest/round-<N>.md. If the group has converged, record the
+      decision in runtime/discussion/decision.md. If positions are still far apart and
+      the round budget remains, send it back for another round. If the budget is
+      exhausted without consensus, escalate to a human.
+
+  apply:
+    description: >-
+      A downstream task that consumes the converged decision. It stays blocked until
+      the discussion reaches a terminal decision — this is how a discussion gates real
+      work.
+    model: codex
+    instructions: |
+      Read runtime/discussion/decision.md and apply the agreed policy for Task
+      {task_id}: {task_title}. Record what was applied to runtime/discussion/applied.md.
+
+  converged:
+    description: The discussion reached a decision, recorded in decision.md.
+    instructions: |
+      The discussion converged. runtime/discussion/decision.md is the consensus that
+      downstream tasks depend on. No more action is required.
+    final: true
+
+  completed:
+    description: The downstream task finished applying the decision.
+    instructions: |
+      Task {task_id} is complete. No more action is required.
+    final: true
+
+  escalated:
+    description: >-
+      The discussion could not converge within the round budget; a human reviews the
+      positions and digests and records the decision.
+    gating: true
+    instructions: |
+      The participants did not converge within the round budget. Do not transition out
+      of this state autonomously. A human reads the positions under
+      runtime/discussion/ and the per-round digests, then resolves the discussion by
+      transitioning to `converged` (after recording a decision) or `cancelled`.
+
+  cancelled:
+    description: The discussion was stopped before reaching a decision.
+    instructions: |
+      Stop all discussion work for this task. Keep the runtime artifacts for inspection.
+    final: true
+
+transitions:
+  - from: collect
+    to: judge
+    description: Every participant has written this round's position; hand off to the judge.
+    on_leave: "cli:bash ./workflow.sh write-position"
+
+  - from: judge
+    to: collect
+    description: >-
+      Default — no consensus yet and rounds remain, so run another round. The judge
+      callback redirects to `converged` (consensus) or `escalated` (budget spent)
+      instead when the round resolves the discussion.
+    on_leave: "cli:bash ./workflow.sh judge-round"
+
+  - from: judge
+    to: converged
+    description: Redirect target — the judge ruled the group converged.
+
+  - from: judge
+    to: escalated
+    description: Redirect target — the round budget was exhausted without consensus.
+
+  - from: apply
+    to: completed
+    description: The converged decision was applied to downstream work.
+    on_leave: "cli:bash ./workflow.sh apply-decision"
+
+  - from: escalated
+    to: converged
+    description: A human recorded a decision and resolved the escalation.
+
+  - from: escalated
+    to: cancelled
+    description: A human abandoned the discussion after escalation.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the discussion from any non-final state.
+    on_leave: "cli:bash ./workflow.sh cancel"

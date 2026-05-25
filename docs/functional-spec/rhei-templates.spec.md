@@ -100,7 +100,7 @@ inputs:
   - `object` → `{}`
 - For `type: array` and `type: object`, positional values, `KEY=VALUE`, `--set KEY=...`, and `--set-file KEY=...` values are parsed as YAML/JSON snippets before validation.
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
-- `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value.
+- `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value. It is enforced on every scalar it is declared on, including scalars nested inside `object` `properties` and `array` `items`; a failing match aborts instantiation with a path-qualified error (for example, `input 'agents[0].id' does not match validation pattern '…'`).
 
 ## 4. Template-Shipped Settings
 

@@ -1,3 +1,27 @@
+# State machine diagram
+# ---------------------
+#
+# Legend: [initial] [final]  •  the review/fix loop runs `visits` (2) times
+#
+#   review [initial] --(write findings, then transition)--> fix
+#        ^                                                    |
+#        |  visitCount < visits  (more passes remain)         |
+#        +----------------------------------------------------+
+#                                                             |
+#                                    visitCount >= visits     |
+#                                                             v
+#                                                       completed [final]
+#
+#   any non-final state --> cancelled [final]
+#
+# Per-task paths:
+#   spec-review:  review -> fix  [-> review -> fix] x(visits-1)  -> completed
+#
+# This is the canonical *counted-loop* shape: a single state pair (review/fix)
+# with `visits: N` on both states and a visitCount-conditioned transition that
+# either loops back or exits. See examples/review-fix-visits for a callback-
+# driven variant that appends to a shared artifact across passes.
+
 name: spec-review
 version: 1.0.0
 

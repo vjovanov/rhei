@@ -583,6 +583,94 @@ inputs:
 }
 
 #[test]
+fn instantiate_enforces_validate_on_nested_array_item_property() {
+    let dir = unique_temp_dir("templates-nested-validate");
+    let template_dir = dir.join("nested-validate-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: nested-validate-template
+version: 1.0.0
+description: Template with a validate on a nested array-item property
+inputs:
+  - name: targets
+    description: Target list
+    type: array
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+          validate: "[a-z][a-z0-9-]*"
+        path:
+          type: string
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Nested validate
+
+## Tasks
+
+### Task review: Review targets
+**State:** pending
+
+{% for target in targets %}
+- {{ target.id }} :: {{ target.path }}
+{% endfor %}
+"#,
+    );
+
+    // An id that violates the nested `validate` pattern must fail
+    // instantiation, with an error that points at the offending nested path.
+    write_fixture_file(&dir, "bad-values.yaml", "targets:\n  - id: Bad_ID\n    path: src\n");
+    let bad = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--values",
+            dir.join("bad-values.yaml").to_str().expect("values path"),
+            "--output",
+            dir.join("bad-output").to_str().expect("output path"),
+        ],
+        &dir,
+    );
+    assert!(
+        !bad.status.success(),
+        "expected instantiation to fail on invalid nested id; stdout:\n{}\nstderr:\n{}",
+        bad.stdout,
+        bad.stderr
+    );
+    let combined = format!("{}{}", bad.stdout, bad.stderr);
+    assert!(
+        combined.contains("targets[0].id")
+            && combined.contains("does not match validation pattern"),
+        "error should point at the nested property; got stdout:\n{}\nstderr:\n{}",
+        bad.stdout,
+        bad.stderr
+    );
+
+    // A valid id renders successfully.
+    write_fixture_file(&dir, "good-values.yaml", "targets:\n  - id: backend\n    path: src\n");
+    let good = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--values",
+            dir.join("good-values.yaml").to_str().expect("values path"),
+            "--output",
+            dir.join("good-output").to_str().expect("output path"),
+        ],
+        &dir,
+    );
+    assert_success(&good);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn instantiate_rejects_template_settings_json_with_malformed_render() {
     let dir = unique_temp_dir("templates-settings-malformed");
     let template_dir = dir.join("bad-template");
