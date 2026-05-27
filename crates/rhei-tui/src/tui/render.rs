@@ -10,7 +10,7 @@ use ratatui::Terminal;
 
 use crate::event::{AgentStream, Slot};
 
-use super::state::{UiState, UiStateSnapshot};
+use super::state::{TaskRow, UiState, UiStateSnapshot};
 use super::text::truncate_chars;
 
 pub(super) fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Arc<Mutex<UiState>>) {
@@ -34,14 +34,16 @@ pub(super) fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &Ar
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(header_height), // header
+                Constraint::Min(5),                // discovered tasks/plans
                 Constraint::Min(snapshot.parallel.max(1) + 2),
                 Constraint::Min(5), // journal pane
             ])
             .split(area);
 
         render_header(f, chunks[0], &snapshot);
-        render_slots(f, chunks[1], &snapshot);
-        render_journal(f, chunks[2], &snapshot);
+        render_tasks(f, chunks[1], &snapshot);
+        render_slots(f, chunks[2], &snapshot);
+        render_journal(f, chunks[3], &snapshot);
     });
 }
 
@@ -70,6 +72,76 @@ pub(super) fn header_lines(snapshot: &UiStateSnapshot) -> Vec<Line<'static>> {
         ]));
     }
     lines
+}
+
+fn render_tasks(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {
+    let block = Block::default().title(" tasks ").borders(Borders::ALL);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if inner.height == 0 {
+        return;
+    }
+
+    let lines = task_lines(snapshot, inner.width, inner.height);
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+pub(super) fn task_lines(
+    snapshot: &UiStateSnapshot,
+    width: u16,
+    height: u16,
+) -> Vec<Line<'static>> {
+    if snapshot.task_rows.is_empty() {
+        return vec![Line::from(Span::styled(
+            "waiting for scheduler pass",
+            Style::default().fg(Color::DarkGray),
+        ))];
+    }
+
+    let max_rows = height as usize;
+    let mut lines = Vec::new();
+    for row in snapshot.task_rows.iter().take(max_rows) {
+        lines.push(task_line(row, width));
+    }
+    if snapshot.task_rows.len() > max_rows && max_rows > 0 {
+        let remaining = snapshot.task_rows.len() - max_rows;
+        if let Some(last) = lines.last_mut() {
+            *last = Line::from(vec![
+                Span::styled("… ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{remaining} more"), Style::default().fg(Color::DarkGray)),
+            ]);
+        }
+    }
+    lines
+}
+
+fn task_line(row: &TaskRow, width: u16) -> Line<'static> {
+    let status_style = match row.status.as_str() {
+        "running" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        "succeeded" => Style::default().fg(Color::Green),
+        "failed" => Style::default().fg(Color::Red),
+        "skipped" | "deferred" => Style::default().fg(Color::Yellow),
+        "timed out" => Style::default().fg(Color::Red),
+        _ => Style::default().fg(Color::DarkGray),
+    };
+    let slot = row.slot.map(|slot| format!("slot {slot}")).unwrap_or_else(|| "-".to_string());
+    let link = row
+        .dashboard_url
+        .as_deref()
+        .map(|url| format!(" dashboard {url}"))
+        .or_else(|| row.log_path.as_ref().map(|path| format!(" log {}", path.display())))
+        .unwrap_or_default();
+    let prefix_width = 10usize;
+    let min_task_width = 16usize;
+    let suffix_budget = (width as usize).saturating_sub(prefix_width + min_task_width);
+    let suffix = truncate_chars(&format!("  {:<7}{}", slot, link), suffix_budget);
+    let task_width = (width as usize).saturating_sub(prefix_width + suffix.chars().count()).max(1);
+    Line::from(vec![
+        Span::styled(format!("{:<9}", row.status), status_style),
+        Span::raw(" "),
+        Span::styled(truncate_chars(&row.task, task_width), Style::default()),
+        Span::raw(suffix),
+    ])
 }
 
 fn render_slots(f: &mut ratatui::Frame, area: Rect, snapshot: &UiStateSnapshot) {

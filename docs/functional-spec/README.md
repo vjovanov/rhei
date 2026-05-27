@@ -19,6 +19,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-render | `rhei render` command behavior |
 | §FS-rhei-states-cmd | `rhei states` command behavior |
 | §FS-rhei-run | `rhei run` command behavior |
+| §FS-rhei-batch-run | `rhei batch-run` command behavior |
 | §FS-rhei-run-tui | `rhei run` TUI and transition journal |
 | §FS-rhei-cost-accounting | Agent token/cost accounting and visualization |
 | §FS-rhei-next | `rhei next` command behavior |

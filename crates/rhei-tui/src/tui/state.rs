@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::event::{AgentStream, MessageLevel, RunEvent, TaskOutcome};
+use crate::event::{AgentStream, MessageLevel, RunEvent, Slot, TaskOutcome};
 
 use super::text::{sanitize_terminal_text, stream_label, truncate_chars};
 use super::{JOURNAL_BUFFER, JOURNAL_TRAFFIC_WIDTH, SLOT_TRAFFIC_BUFFER};
@@ -24,10 +24,20 @@ pub(super) struct TrafficLine {
     pub(super) text: String,
 }
 
+#[derive(Clone)]
+pub(super) struct TaskRow {
+    pub(super) task: String,
+    pub(super) status: String,
+    pub(super) slot: Option<Slot>,
+    pub(super) log_path: Option<PathBuf>,
+    pub(super) dashboard_url: Option<String>,
+}
+
 pub(super) struct UiState {
     pub(super) parallel: u16,
     pub(super) total_tasks: usize,
     pub(super) slots: Vec<SlotState>,
+    pub(super) task_rows: Vec<TaskRow>,
     pub(super) journal: VecDeque<String>,
     pub(super) dashboard_url: Option<String>,
     pub(super) finished: bool,
@@ -40,6 +50,7 @@ impl UiState {
             parallel,
             total_tasks,
             slots: vec![SlotState::default(); parallel as usize],
+            task_rows: Vec::new(),
             journal: VecDeque::with_capacity(JOURNAL_BUFFER),
             dashboard_url: None,
             finished: false,
@@ -59,6 +70,7 @@ impl UiState {
                 self.parallel = (*parallel).max(1);
                 self.total_tasks = *total_tasks;
                 self.slots = vec![SlotState::default(); self.parallel as usize];
+                self.task_rows.clear();
                 self.dashboard_url = None;
                 self.push_journal(format!(
                     "run started — parallel={} total={}",
@@ -66,6 +78,12 @@ impl UiState {
                 ));
             }
             RunEvent::PassStarted { pass, ready } => {
+                for task in ready {
+                    let row = self.upsert_task_row(task);
+                    if row.slot.is_none() && !is_terminal_status(&row.status) {
+                        row.status = "pending".to_string();
+                    }
+                }
                 self.push_journal(format!("pass {}: {} ready", pass, ready.len()));
             }
             RunEvent::SlotAssigned {
@@ -82,6 +100,10 @@ impl UiState {
                     s.log_path = Some(log_path.clone());
                     s.last_event_display = Some(display.clone());
                 }
+                let row = self.upsert_task_row(task);
+                row.status = "running".to_string();
+                row.slot = Some(*slot);
+                row.log_path = Some(log_path.clone());
                 let line = if same_state {
                     format!("▶ slot {slot}: {task} started in {to}")
                 } else {
@@ -99,6 +121,14 @@ impl UiState {
                 if let Some(s) = self.slots.get_mut(*slot as usize) {
                     *s = SlotState::default();
                 }
+                let row = self.upsert_task_row(task);
+                row.status = match outcome {
+                    TaskOutcome::Completed => "succeeded".to_string(),
+                    TaskOutcome::Failed(_) => "failed".to_string(),
+                    TaskOutcome::Cancelled => "skipped".to_string(),
+                    TaskOutcome::TimedOut => "timed out".to_string(),
+                };
+                row.slot = None;
                 self.push_journal(format!("{} slot {}: {} ({}ms)", sym, slot, task, duration_ms));
             }
             RunEvent::AgentOutput { slot, stream, line, .. } => {
@@ -123,6 +153,12 @@ impl UiState {
                 self.push_journal(format!("pass {} ended — progressed={}", pass, progressed));
             }
             RunEvent::TasksDeferred { pass, tasks } => {
+                for task in tasks {
+                    let row = self.upsert_task_row(task);
+                    if row.slot.is_none() && !is_terminal_status(&row.status) {
+                        row.status = "deferred".to_string();
+                    }
+                }
                 self.push_journal(format!(
                     "pass {} deferred {} task(s): {}",
                     pass,
@@ -158,6 +194,11 @@ impl UiState {
                 if label == "Dashboard" {
                     // §FS-rhei-run-tui.1.6: keep the live dashboard URL visible in the TUI header.
                     self.dashboard_url = Some(url.clone());
+                } else if let Some(task) = label.strip_suffix(" dashboard") {
+                    let row = self.upsert_task_row(task);
+                    // §FS-rhei-batch-run.3.2: nested run dashboard URLs are attached to
+                    // their plan row so batch-run remains terminal-first.
+                    row.dashboard_url = Some(url.clone());
                 }
                 self.push_journal(format!("{label}: {url}"));
             }
@@ -174,6 +215,20 @@ impl UiState {
             }
         }
     }
+
+    fn upsert_task_row(&mut self, task: &str) -> &mut TaskRow {
+        if let Some(index) = self.task_rows.iter().position(|row| row.task == task) {
+            return &mut self.task_rows[index];
+        }
+        self.task_rows.push(TaskRow {
+            task: task.to_string(),
+            status: "pending".to_string(),
+            slot: None,
+            log_path: None,
+            dashboard_url: None,
+        });
+        self.task_rows.last_mut().expect("task row was just pushed")
+    }
 }
 
 fn format_cost_micro(value: u64) -> String {
@@ -182,10 +237,15 @@ fn format_cost_micro(value: u64) -> String {
     format!("${units}.{cents:02}")
 }
 
+fn is_terminal_status(status: &str) -> bool {
+    matches!(status, "succeeded" | "failed" | "skipped" | "timed out")
+}
+
 pub(super) struct UiStateSnapshot {
     pub(super) parallel: u16,
     pub(super) total_tasks: usize,
     pub(super) slots: Vec<SlotState>,
+    pub(super) task_rows: Vec<TaskRow>,
     pub(super) journal: Vec<String>,
     pub(super) dashboard_url: Option<String>,
     pub(super) finished: bool,
@@ -197,6 +257,7 @@ impl UiState {
             parallel: self.parallel,
             total_tasks: self.total_tasks,
             slots: self.slots.clone(),
+            task_rows: self.task_rows.clone(),
             journal: self.journal.iter().cloned().collect(),
             dashboard_url: self.dashboard_url.clone(),
             finished: self.finished,

@@ -201,7 +201,7 @@ source-order task ids.
 
 `SlotAssigned.agent` identifies the resolved agent or target label when the invocation is agent-backed; it is `None` for program-backed work. `SlotReleased.exit_code` is the subprocess exit status when one is available, and `duration_ms` is the invocation duration in milliseconds.
 
-`AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
+`AgentOutput` is emitted for live agent and program subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
 
 `UsageReported` is emitted after a `runtime/accounting/invocations/` record is
 durably written. It may arrive after `SlotReleased`; renderers update the

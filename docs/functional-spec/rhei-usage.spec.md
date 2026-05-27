@@ -94,7 +94,7 @@ The commands that coordinate through the state machine:
 
 | Command            | What it does                                                                    |
 |--------------------|---------------------------------------------------------------------------------|
-| `rhei run`         | Drives the full plan forward under orchestrator authority                       |
+| `rhei run`         | Drives the full plan forward by spawning agents/programs and observing state changes |
 | `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only)    |
 | `rhei transition`  | Atomically changes a task's state via compare-and-swap                          |
 | `rhei complete`    | Terminal transition invoked by a manual worker; records result, releases claim  |
