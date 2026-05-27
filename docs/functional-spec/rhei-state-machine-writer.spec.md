@@ -169,7 +169,16 @@ The state machine writer follows these rules when designing a state machine:
 
 1. **Write instructions for the actor in that state.** If the state is for an agent, write what the agent should do. If the state is a human gate, write what the human is expected to decide.
 
-2. **Encode exit conditions structurally, not in instructions.** Under `orchestrator` authority, `rhei run` derives completion from subprocess exit plus the state's required `outputs:`, and it selects the next state from transition `condition` / `exit_code` fields. `instructions` and `personality` therefore describe the domain work only; they must not tell the actor how or when to stop, or when to call transition commands. Gating states (`gating: true`) are the one exception: no subprocess is spawned there, so their instructions address a human reader and should explicitly say "do not transition out of this state autonomously" to mark the hand-off. See [Agents Specification — Completion Authority](rhei-agents.spec.md#31-completion-authority).
+2. **Separate neural and deterministic exits.** For agent states, branch criteria
+   belong in `instructions` / `personality`: the agent must decide which
+   declared transition matches the outcome and call `rhei transition` or
+   `rhei complete`. For program and callback-only states, exits are structural:
+   use `condition`, `exit_code`, timeout, tooling triggers, and artifact
+   contracts. Do not rely on transition declaration order as a branch heuristic.
+   Gating states (`gating: true`) are human hand-offs; no subprocess is spawned
+   there, so their instructions address a human reader and should explicitly say
+   "do not transition out of this state autonomously" to mark the hand-off. See
+   [Agents Specification — Completion Authority](rhei-agents.spec.md#31-completion-authority).
 
 3. **Reference concrete artifacts.** Don't write "review the work." Write "review the implementation against the task description and its child task nodes. Check that tests pass and lint is clean."
 
@@ -206,7 +215,9 @@ The state machine writer follows this process:
    - No orphan states (defined in `states` but not referenced by any profile's `allowed`, transition, or override).
    - State names are lowercase, hyphenated identifiers (matching the `IDENTIFIER` grammar production).
    - Non-terminal states encode their exit conditions structurally — through required `outputs:` artifacts and through transition `condition` / `exit_code` fields — not in prose inside `instructions`. Gating states must instead tell the human reader not to transition autonomously.
-   - Under `orchestrator` authority, every non-gating, non-final state resolves to a finite `agent_timeout` or `program_timeout` at some level of the timeout chain; see [Agents Specification — Timeout Requirement](rhei-agents.spec.md#322-timeout-requirement).
+   - Every autonomous non-gating, non-final state resolves to a finite
+     `agent_timeout` or `program_timeout` at some level of the timeout chain;
+     see [Agents Specification — Timeout Requirement](rhei-agents.spec.md#322-timeout-requirement).
 
 10. **Write the YAML file.** Emit the file conforming to the YAML State Machine Format.
 
@@ -214,13 +225,10 @@ The state machine writer follows this process:
 
 ## Examples
 
-> **Note:** The instructions in these examples include phrasing like "on
-> success, transition to X" for readability. In production state machines
-> run under `orchestrator` authority, encode that routing in transition
-> `condition` / `exit_code` fields and `outputs:` artifacts instead, and
-> keep `instructions` focused on the domain work (see Instructions Design
-> rule #2 above). The examples below are shown in the looser convention for
-> narrative clarity only.
+> **Note:** For agent states, phrasing like "on success, transition to X" is
+> intentional: the agent owns the branch decision and must call the transition
+> command. For program/callback-only states, encode routing structurally with
+> `condition` / `exit_code` fields and `outputs:` artifacts instead.
 
 ### Example 1: Data Pipeline Project
 

@@ -229,6 +229,13 @@ fn resolve_program(
 }
 
 /// Compose the prompt that will be sent to the agent.
+fn transition_command_prefix(render_context: &RuntimeTemplateContext<'_>) -> String {
+    render_context
+        .state_machine_path
+        .map(|path| format!(" --state-machine={}", shell_quote(&path.display().to_string())))
+        .unwrap_or_default()
+}
+
 fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
     let state_def = render_context.machine.states.get(render_context.state_name);
     let instructions = resolve_runtime_template_text(
@@ -240,11 +247,33 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
         .map(str::trim)
         .map(|text| resolve_runtime_template_text(text, render_context));
 
-    // Build available transitions list.
+    // Build available transition commands. Agent states are agent-transitioned; `rhei run`
+    // observes the chosen state after the subprocess exits. §FS-rhei-agents.3.1
     let mut transitions_list = String::new();
+    let command_prefix = transition_command_prefix(render_context);
+    let plan_arg = shell_quote(&render_context.plan_path.display().to_string());
+    let from_arg = shell_quote(render_context.state_name);
+    let task_arg = shell_quote(&render_context.task.id.to_string());
     for rule in &render_context.machine.transitions {
         if rule.from.0 == render_context.state_name || rule.from.0 == "*" {
-            transitions_list.push_str(&format!("- {} -> {}", render_context.state_name, rule.to.0));
+            let to_state = &rule.to.0;
+            let to_arg = shell_quote(to_state);
+            let command = if render_context
+                .machine
+                .states
+                .get(to_state)
+                .map(|state| state.terminal && to_state != "cancelled")
+                .unwrap_or(false)
+            {
+                format!(
+                    "rhei{command_prefix} complete {plan_arg} --task {task_arg} --result '<one-line result>'"
+                )
+            } else {
+                format!(
+                    "rhei{command_prefix} transition {plan_arg} --task {task_arg} --from={from_arg} --to={to_arg}"
+                )
+            };
+            transitions_list.push_str(&format!("- {} -> {}: {}", render_context.state_name, to_state, command));
             if let Some(cond) = &rule.condition {
                 transitions_list.push_str(&format!(" (when {})", cond));
             }
@@ -286,8 +315,9 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
         "\n## Rhei Commands\n\n\
          You are working in a rhei-managed plan at `{plan_path_str}`.\n\
          The active state machine is `{state_machine_label}`.\n\
-         The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.\n\
-         Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.\n\n\
+         You are responsible for advancing this task before you exit.\n\
+         Use exactly one `rhei transition` command for the branch you choose, or `rhei complete` when the task is successfully done.\n\
+         Do not modify `**State:**` lines directly.\n\n\
          Available transitions from `{}`:\n{transitions_list}",
         render_context.state_name
     ));

@@ -289,6 +289,7 @@ fn batch_run_state_machine_command(
         &workspace_dir,
         plans,
         batch_workflow_state_machine_path,
+        nested_state_machine_path,
         tickets_dir.as_deref(),
     )?;
     let generated_state_machine = materialize_batch_state_machine(
@@ -360,7 +361,19 @@ fn print_batch_state_machine_dry_run(
     }
     for plan in plans {
         let task_id = batch_task_id(plan.index, plan);
-        println!("{}. {} -> Task {}", plan.index + 1, plan.normalized_path, task_id);
+        let status =
+            if source_plan_is_terminal(&plan.path, nested_state_machine_path).unwrap_or(false) {
+                " (already terminal; generated task starts completed)"
+            } else {
+                ""
+            };
+        println!(
+            "{}. {} -> Task {}{}",
+            plan.index + 1,
+            plan.normalized_path,
+            task_id,
+            status
+        );
     }
     if state_machine_declares_state(batch_workflow_state_machine_path, "create-pr").unwrap_or(false)
     {
@@ -379,6 +392,7 @@ fn materialize_batch_workspace(
     workspace_dir: &Path,
     plans: &[DiscoveredBatchPlan],
     batch_state_machine_path: &Path,
+    nested_state_machine_path: Option<&Path>,
     tickets_dir: Option<&Path>,
 ) -> MietteResult<()> {
     // §FS-rhei-batch-run.3.1: batch state-machine mode runs a generated
@@ -398,10 +412,18 @@ fn materialize_batch_workspace(
             workspace_dir.join("inputs/tickets").display()
         )
     })?;
+    fs::create_dir_all(workspace_dir.join("inputs/source-plans")).map_err(|err| {
+        miette!(
+            "failed to create batch source-plan input directory '{}': {err}",
+            workspace_dir.join("inputs/source-plans").display()
+        )
+    })?;
     copy_batch_settings(workspace_dir, plans)?;
 
     let initial_state = batch_initial_state(batch_state_machine_path)
         .unwrap_or_else(|| "execute-plan".to_string());
+    let completed_state = batch_successful_terminal_state(batch_state_machine_path)
+        .unwrap_or_else(|| "completed".to_string());
     let has_create_pr = state_machine_declares_state(batch_state_machine_path, "create-pr")?;
     let mut task_ids = Vec::new();
     let mut used_ids = HashSet::new();
@@ -424,6 +446,15 @@ fn materialize_batch_workspace(
                 plan_input.display()
             )
         })?;
+        // §FS-rhei-batch-run.3.1: copied plan runs sync successful terminal state back to source.
+        let source_plan = workspace_dir.join("inputs/source-plans").join(format!("{task_id}.txt"));
+        fs::write(&source_plan, format!("{}\n", absolute_source_plan_path(&plan.path).display()))
+            .map_err(|err| {
+                miette!(
+                    "failed to write source-plan pointer '{}': {err}",
+                    source_plan.display()
+                )
+            })?;
 
         if let Some(ticket) = find_batch_ticket(tickets_dir, &task_id, plan) {
             let ticket_input = workspace_dir.join("inputs/tickets").join(format!("{task_id}.md"));
@@ -439,9 +470,16 @@ fn materialize_batch_workspace(
         let task_file = workspace_dir
             .join("tasks")
             .join(format!("{:02}-{task_id}.md", plan.index + 1));
+        // §FS-rhei-batch-run.3.1: already-terminal source plans start completed in the parent.
+        let state = if source_plan_is_terminal(&plan.path, nested_state_machine_path).unwrap_or(false)
+        {
+            completed_state.as_str()
+        } else {
+            initial_state.as_str()
+        };
         fs::write(
             &task_file,
-            render_batch_plan_task(&task_id, plan, &initial_state),
+            render_batch_plan_task(&task_id, plan, state),
         )
         .map_err(|err| miette!("failed to write '{}': {err}", task_file.display()))?;
     }
@@ -494,6 +532,7 @@ fn materialize_batch_state_machine(
             YamlValue::String("program".to_string()),
             generated_batch_execute_program(nested_state_machine_path, opts)?,
         );
+        ensure_source_plan_input(state);
     }
 
     let target = workspace_dir.join("states.yaml");
@@ -502,6 +541,39 @@ fn materialize_batch_state_machine(
     fs::write(&target, rendered)
         .map_err(|err| miette!("failed to write '{}': {err}", target.display()))?;
     Ok(target)
+}
+
+fn ensure_source_plan_input(state: &mut YamlMapping) {
+    let inputs_key = YamlValue::String("inputs".to_string());
+    let source_name = YamlValue::String("source-plan".to_string());
+    let input = YamlValue::Mapping(YamlMapping::from_iter([
+        (YamlValue::String("name".to_string()), source_name.clone()),
+        (
+            YamlValue::String("path".to_string()),
+            YamlValue::String("inputs/source-plans/{task_id}.txt".to_string()),
+        ),
+        (
+            YamlValue::String("description".to_string()),
+            YamlValue::String("Original discovered plan path to update after success.".to_string()),
+        ),
+    ]));
+
+    let Some(inputs) = state.get_mut(&inputs_key) else {
+        state.insert(inputs_key, YamlValue::Sequence(vec![input]));
+        return;
+    };
+    let Some(inputs) = inputs.as_sequence_mut() else {
+        return;
+    };
+    let already_present = inputs.iter().any(|entry| {
+        entry
+            .as_mapping()
+            .and_then(|mapping| mapping.get(YamlValue::String("name".to_string())))
+            == Some(&source_name)
+    });
+    if !already_present {
+        inputs.push(input);
+    }
 }
 
 fn generated_batch_execute_program(
@@ -590,6 +662,14 @@ fi
 
 ( {run_command}; printf '%s\n' "$?" > "${{status_file}}" ) 2>&1 | tee -a "${{report}}"
 run_code="$(cat "${{status_file}}")"
+
+if [ "${{run_code}}" -eq 0 ] && [ -n "${{RHEI_INPUT_SOURCE_PLAN_PATH:-}}" ] && [ -f "${{RHEI_INPUT_SOURCE_PLAN_PATH}}" ]; then
+  source_plan="$(sed -n '1p' "${{RHEI_INPUT_SOURCE_PLAN_PATH}}")"
+  if [ -n "${{source_plan}}" ]; then
+    cp "${{RHEI_INPUT_IMPLEMENTATION_PLAN_PATH}}" "${{source_plan}}"
+    echo "Synced completed plan back to ${{source_plan}}." | tee -a "${{report}}"
+  fi
+fi
 
 {{
   echo
@@ -755,6 +835,39 @@ fn state_machine_declares_state(path: &Path, state_name: &str) -> MietteResult<b
     Ok(states.contains_key(YamlValue::String(state_name.to_string())))
 }
 
+fn batch_successful_terminal_state(path: &Path) -> Option<String> {
+    let yaml = fs::read_to_string(path).ok()?;
+    let machine = rhei_validator::StateMachine::from_yaml_str(&yaml).ok()?;
+    if machine.states.get("completed").map(|state| state.terminal).unwrap_or(false) {
+        return Some("completed".to_string());
+    }
+    machine
+        .states
+        .iter()
+        .find_map(|(name, state)| (state.terminal && name != "cancelled").then(|| name.clone()))
+}
+
+fn absolute_source_plan_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(path)
+        }
+    })
+}
+
+fn source_plan_is_terminal(plan_path: &Path, state_machine_path: Option<&Path>) -> MietteResult<bool> {
+    let loaded = load_plan_for_validation(plan_path)?;
+    let resolved = resolve_state_machine_for_loaded_plan(plan_path, &loaded, state_machine_path)?;
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
+    Ok(!tasks.is_empty()
+        && tasks
+            .iter()
+            .all(|task| is_terminal_state(task.state.as_str(), &resolved.machine)))
+}
+
 fn parse_batch_sleep_secs(value: &str) -> MietteResult<u64> {
     rhei_validator::parse_duration_secs(value)
         .ok_or_else(|| miette!("invalid --sleep duration '{value}' (expected e.g. 30s, 5m, 1h)"))
@@ -864,7 +977,11 @@ fn print_batch_dry_run(
             opts.model.as_deref(),
         );
         println!("{}. {}", plan.index + 1, plan.normalized_path);
-        println!("   {}", format_nested_command(&command.display_args));
+        if source_plan_is_terminal(&plan.path, state_machine_path).unwrap_or(false) {
+            println!("   already terminal; would skip nested run");
+        } else {
+            println!("   {}", format_nested_command(&command.display_args));
+        }
     }
 }
 
@@ -1141,6 +1258,15 @@ fn execute_batch_plan(
         }
     }
     drop(log);
+
+    // §FS-rhei-batch-run.2: repeated direct batches skip plans already in terminal states.
+    if source_plan_is_terminal(&plan.path, config.state_machine.as_deref()).unwrap_or(false) {
+        record.status = BatchPlanStatus::Skipped;
+        record.status_message = "plan already terminal; skipped nested run".to_string();
+        append_batch_log_footer(&log_path, &record.status_message);
+        record.ended_at = Some(format_iso8601_utc(std::time::SystemTime::now()));
+        return record;
+    }
 
     // §FS-rhei-batch-run.3: execute by invoking existing `rhei run` behavior.
     match invoke_nested_run(&command, &log_path, plan, slot, &config.sink) {

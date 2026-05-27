@@ -516,8 +516,9 @@ transitions:
         assert!(prompt.contains("## Rhei Commands"));
         assert!(prompt.contains("rhei-managed plan at `/tmp/workspace`"));
         assert!(prompt.contains("The active state machine is `/tmp/workspace/states.yaml`."));
+        assert!(prompt.contains("You are responsible for advancing this task before you exit."));
         assert!(prompt.contains(
-            "The `rhei run` process that spawned you is responsible for advancing the task"
+            "rhei --state-machine=/tmp/workspace/states.yaml transition /tmp/workspace --task demo --from=review --to=fix"
         ));
         assert!(prompt.contains("Available transitions from `review`:"));
 

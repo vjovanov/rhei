@@ -1,6 +1,13 @@
 # FS-rhei-run: `rhei run`
 
-Drive a plan end-to-end by repeatedly claiming the next ready task, spawning the state's agent or program, waiting for completion, and performing the resulting transition. `rhei run` operates under `orchestrator` authority: the orchestrator — not the spawned subprocess — owns every state transition. See [Agents Specification — Completion Authority](rhei-agents.spec.md#31-completion-authority) for the full authority contract.
+Drive a plan end-to-end by repeatedly claiming the next ready task, spawning
+the state's agent or program, waiting for completion, and continuing from the
+resulting state. For agent states, the spawned agent owns the branch decision
+and advances the task with `rhei transition` or `rhei complete`; `rhei run`
+re-reads the plan after the agent exits. For program and callback-only states,
+`rhei run` uses deterministic structural transition rules. See
+[Agents Specification — Completion Authority](rhei-agents.spec.md#31-completion-authority)
+for the full authority contract.
 
 This document specifies the command contract and execution loop. The live terminal UI is specified separately in [rhei-run-tui.spec.md](rhei-run-tui.spec.md).
 
@@ -18,7 +25,7 @@ Flags are grouped by concern:
 
 | Flag                     | Default | Description                                                                |
 |--------------------------|---------|----------------------------------------------------------------------------|
-| `--dry-run`              | false   | Print the sequence of transitions that would be made without executing them |
+| `--dry-run`              | false   | Print deterministic transitions and agent invocations that would run without executing them |
 | `--no-callbacks`         | false   | Skip execution of `on_leave` / `on_enter` callbacks                        |
 | `--continue-on-error`    | false   | Continue to the next task when an agent or program exits non-zero          |
 | `--parallel <N>`         | 1       | Maximum number of agents or programs to run concurrently (0 = unlimited)   |
@@ -75,25 +82,28 @@ Mode selection: `rhei run` uses orchestrated subprocess execution whenever any r
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), and timeout.
    - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
-4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk.
-5. Select the outgoing transition without applying it yet. If the condition
-   holds, select the first declared transition whose `condition` / `exit_code`
-   matches. If the condition fails (non-zero exit or missing outputs), route
-   through the state's error or timeout transition per
-   [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
-   When no error transition is declared and `--continue-on-error` is unset,
-   `rhei run` aborts with a non-zero exit code.
-6. For agent invocations, extract measured usage and write the accounting
+4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition).
+5. For agent states, re-read the plan. If the agent advanced the task, accept
+   that state as authoritative and continue. If the agent exited `0` without
+   advancing the task, emit the "did not advance" warning and make no automatic
+   transition. `rhei run` must not infer an agent-state branch from transition
+   declaration order.
+6. For program states and callback-only states, select the outgoing transition
+   from deterministic structural signals (`exit_code`, `condition`, timeout,
+   tooling failure, or callback-only advancement). Automatic selection is valid
+   only when exactly one outgoing transition is applicable; multiple applicable
+   branches are ambiguous and require a worker or agent decision. If no matching
+   error transition is declared and `--continue-on-error` is unset, `rhei run`
+   aborts with a non-zero exit code.
+7. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
    failures affect cost coverage but do not alter transition selection. §FS-rhei-cost-accounting
-7. For agent-bearing states with supported snapshot sessions, write
+8. For agent-bearing states with supported snapshot sessions, write
    auto-emitted `_state` snapshots and any matching named `snapshot.emit:`
-   after transition selection and before the transition is applied. Poll
-   self-loop attempts do not emit because the selected transition is known;
-   terminal poll exits may emit. See
+   after the agent-selected transition is observed, or after a no-advance
+   outcome is recorded. Poll self-loop attempts do not emit because the selected
+   transition is known; terminal poll exits may emit. See
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
-8. Apply the selected transition. The subprocess **must not** call
-   `rhei transition` or `rhei complete`; the orchestrator owns the transition.
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
@@ -108,10 +118,15 @@ then stops autonomous progress at the boundary.
 
 ## 4. Dry Run
 
-With `--dry-run`, `rhei run` performs the same scan and selection logic but prints each planned transition instead of executing subprocesses or callbacks. Output format:
+With `--dry-run`, `rhei run` performs the same scan and selection logic but
+does not execute subprocesses or callbacks. For deterministic program and
+callback-only states it prints each planned transition. For agent states it
+prints the agent invocation because the branch is intentionally chosen by the
+agent at runtime, not by the orchestrator.
 
 ```text
 would transition: Task <ID>  <from> -> <to>
+would spawn agent: Task <ID>  <state> [agent=<agent>]
 ```
 
 No file lock is acquired, no markdown is rewritten, and no runtime artifacts are created.
@@ -153,7 +168,10 @@ The flag does not change state entry/exit semantics or transitions, and it does 
 
 ## Relationship to Other Commands
 
-`rhei run` drives the full plan forward under orchestrator authority. It is mutually exclusive per execution with the manual-worker flow (`next` / `transition` / `complete`) — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives.
+`rhei run` drives the full plan forward by spawning agents/programs and
+observing state changes. Agent subprocesses use the same transition primitives
+as manual workers (`transition` / `complete`) for the task they are currently
+driving; external manual workers must not concurrently drive the same task.
 
 See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface) for the full table comparing all five coordination commands.
 

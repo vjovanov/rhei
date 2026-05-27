@@ -879,9 +879,10 @@ attempts, both auto- and named-emit are suppressed; they fire only on the
 terminal exit transition, matching the rule in
 [Counted Loops, Fanout, and Polling](#103-counted-loops-fanout-and-polling).
 
-The orchestrator owns this step; agents do not invoke snapshot emit
-directly. This matches §FS-rhei-run's invariant that the subprocess never
-calls `rhei transition`.
+The orchestrator owns snapshot emission; agents do not invoke snapshot emit
+directly. Agent states still choose their own task transition with
+`rhei transition` / `rhei complete`; snapshot capture happens after `rhei run`
+observes the agent-selected result.
 
 ### 10.3. Counted Loops, Fanout, and Polling
 

@@ -64,7 +64,8 @@ For terminal completion use `rhei complete`, not `rhei transition` — it picks 
 - `draft` → `pending` — description finalized, ready to implement.
 - `pending` → `agent-review` — implementation complete and self-tested; route to review.
 - `agent-review` → `agent-review-fix` — review found issues; record findings first (see *Agent Review*).
-- `agent-review` → `human-review` — review passed but a human gate is required.
+- `agent-review` → `completed` — review passed and the task is done.
+- `agent-review` → `human-review` — unexpected review situation needs human judgment.
 - `agent-review-fix` → `agent-review` — fixes applied, re-submit.
 - `human-review` → … — the worker does **not** perform these; a human does.
 
@@ -84,7 +85,7 @@ Log implementation progress by appending to each task node's body — do not inv
 
 ## Agent Review
 
-When a task enters `agent-review`, the reviewer is a *different* mental mode, not a different person. The reviewer reads the task description, its child task nodes, and the diff actually produced; checks repository conventions (lint, format, test commands listed in [AGENTS.md](../../AGENTS.md) or the project's equivalent); records concrete findings as a new paragraph in the task body prefixed with `Review:` (one bullet per finding); and chooses the next edge — `agent-review-fix` (rework), `human-review` (needs human), or straight to terminal via `rhei complete` (pass). Never finalize a task whose tests or build fail.
+When a task enters `agent-review`, the reviewer is a *different* mental mode, not a different person. The reviewer reads the task description, its child task nodes, and the diff actually produced; checks repository conventions (lint, format, test commands listed in [AGENTS.md](../../AGENTS.md) or the project's equivalent); records concrete findings as a new paragraph in the task body prefixed with `Review:` (one bullet per finding); and chooses the next edge — `agent-review-fix` (rework), straight to terminal via `rhei complete` (pass), or `human-review` only for an unexpected situation where the reviewer cannot make a safe decision. Never finalize a task whose tests or build fail.
 
 ## Editing Discipline
 

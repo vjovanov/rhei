@@ -885,10 +885,10 @@ not by a per-state flag.
 
 See [states.yaml](states.yaml) for the enforced transition table. Summary:
 
-- `draft` → `pending` | `cancelled`
+- `draft` → `pending` | `human-review` | `cancelled`
 - `pending` → `agent-review` | `human-review` | `completed` | `cancelled`
-- `agent-review` → `human-review` (default pass/gate) | `completed` (pass, ungated) | `agent-review-fix` (explicit/manual fail)
-- `agent-review-fix` → `agent-review` | `cancelled`
+- `agent-review` → `agent-review-fix` (findings) | `completed` (pass) | `human-review` (unexpected)
+- `agent-review-fix` → `agent-review` | `human-review` | `cancelled`
 - `human-review` → `pending` | `completed` | `cancelled`
 
 Any transition not listed in `states.yaml` is forbidden.
@@ -901,15 +901,14 @@ Not every state can be completed directly via `rhei complete`. The command requi
 - From `agent-review-fix`: no direct path to `completed` exists. The agent must transition to `agent-review` first, then complete from there.
 - From `human-review`: completion is blocked because the state is gating (`gating: true`). Only a human-initiated `rhei transition` can exit this state.
 
-### 11.2. Default review auto-run route
+### 11.2. Agent-selected review route
 
-Under `rhei run`, spawned agents do the state work but the orchestrator owns the
-state transition (§FS-rhei-agents.3.1). Because successful agent review exits do
-not provide a machine-readable pass/fail branch in the default machine, the
-first automatic success route from `agent-review` is `human-review`. The
-`agent-review-fix` edge remains legal for explicit/manual review failures where
-the reviewer has recorded concrete findings and a worker chooses that transition
-directly.
+Under `rhei run`, spawned agents do the state work and own the neural branch
+decision (§FS-rhei-agents.3.1). The orchestrator must not infer review pass/fail
+from YAML order. In the default machine, `agent-review` completes the task on a
+pass, transitions to `agent-review-fix` when concrete findings need rework, and
+uses `human-review` only for unexpected situations where the reviewer cannot
+make a safe decision.
 
 ## Related Documentation
 

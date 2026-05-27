@@ -7,7 +7,15 @@ For token and cost accounting see [Cost Accounting Specification](rhei-cost-acco
 
 ## Overview
 
-Rhei can spawn coding agents directly from `rhei run`. Instead of requiring hand-written `workflow.sh` callback scripts, the run command resolves an agent for each task, composes a prompt from the state machine instructions, and spawns the agent as a subprocess. The spawned agent does the work for the current state, writes any required artifacts, and exits. `rhei run` remains the transition authority: after the subprocess exits, the engine evaluates the declared forward transitions and performs the state change itself. Callbacks still fire on transitions — agents and callbacks are complementary.
+Rhei can spawn coding agents directly from `rhei run`. Instead of requiring
+hand-written `workflow.sh` callback scripts, the run command resolves an agent
+for each task, composes a prompt from the state machine instructions, and
+spawns the agent as a subprocess. The spawned agent does the work for the
+current state, chooses the next declared branch, advances the task with
+`rhei transition` or `rhei complete`, and exits. `rhei run` then re-reads the
+plan and continues from the state selected by the agent. Program states remain
+deterministic and use declared exit-code transitions. Callbacks still fire on
+transitions — agents and callbacks are complementary.
 
 ## 1. Agent Configuration
 
@@ -543,20 +551,20 @@ When `rhei run` spawns an agent for a task, it composes a prompt from the state 
 ## Rhei Commands
 
 You are working in a rhei-managed plan at `{plan_path}`.
-The `rhei run` process that spawned you is responsible for advancing the task after you exit successfully.
-Do not run `rhei transition` or `rhei complete` from this spawned agent process unless the workflow explicitly instructs you to launch a nested or delegated execution that manages its own state independently.
+You are responsible for advancing this task before you exit.
+Use exactly one `rhei transition` command for the branch you choose, or
+`rhei complete` when the task is successfully done. Do not edit `**State:**`
+lines directly.
 
 Available transitions from `{state}`:
-{list of declared transitions from current state, with descriptions}
+{list of command lines for declared transitions from current state}
 ```
 
-The prompt carries domain instructions only. It does not contain completion
-prose such as "create every required output artifact and then exit":
-completion is enforced by the state's [Completion Condition](#32-completion-condition),
-not by prompt wording. Required artifact paths are already visible to the agent
-via resolved `{output.<name>.path}` variables in the state's `instructions`,
-and every supported agent exits deterministically after one turn in its native
-headless mode.
+The prompt carries domain instructions plus explicit transition commands. It
+does not ask the agent to edit state lines by hand. Required artifact paths are
+already visible to the agent via resolved `{output.<name>.path}` variables in
+the state's `instructions`, and every supported agent exits deterministically
+after one turn in its native headless mode.
 
 Template variables (`{task_id}`, `{model}`, `{model.provider}`,
 `{model.name}`, `{visit_count}`, etc.) are resolved before the prompt is sent,
@@ -567,13 +575,17 @@ The prompt is delivered to the agent via its configured prompt delivery mechanis
 ### 3.1. Completion Authority
 
 Every state has a **completion authority** — the role that decides when the
-state's work is done and drives the resulting transition. Rhei defines two
-authorities; exactly one applies to any given execution of a state.
+state's work is done and drives the resulting transition. Rhei defines three
+authorities; exactly one applies to any given execution of a state. Agent states
+use neural decision authority: the spawned coding agent decides which declared
+branch matches the work outcome and executes that transition. Program and
+callback-only states use deterministic transition authority.
 
 | Authority | Applies when | Transition driver |
 |-----------|--------------|-------------------|
 | `worker` | The invoking role is a manual worker (human, `rhei-plan-worker` skill session, or direct `rhei next` / `rhei transition` / `rhei complete` caller). | The worker calls `rhei transition` or `rhei complete`. |
-| `orchestrator` | `rhei run` has spawned the agent or program for this state. | `rhei run` evaluates the state's [Completion Condition](#32-completion-condition), then selects and executes the matching forward transition. |
+| `agent` | `rhei run` has spawned a coding agent for this state. | The spawned agent performs the work, chooses one declared branch, and calls `rhei transition` or `rhei complete` before exiting. |
+| `orchestrator` | `rhei run` is driving a program state or callback-only state. | `rhei run` evaluates deterministic conditions (`exit_code`, `condition`, timeout/tooling triggers) and executes the matching transition. |
 
 Completion authority is determined by the execution mode, not declared on the
 state. The same state definition is legal under both authorities. This is what
@@ -584,43 +596,50 @@ Normative rules:
 
 - Under `worker` authority, the worker owns both the work and the transition.
   `rhei run` is not involved.
-- Under `orchestrator` authority, the spawned subprocess owns the work;
-  `rhei run` owns the transition. The subprocess must not call
-  `rhei transition` or `rhei complete`, and must not edit `**State:**` lines
-  directly. The one exception is a nested execution started from within the
-  agent, which manages its own state independently of the outer `rhei run`.
-- `instructions` and `personality` describe domain work only. They must not
-  describe how or when to stop, whether to call transition commands, or how
-  completion is detected. Those are properties of the execution model, not of
-  the state.
+- Under `agent` authority, the spawned subprocess owns both the work and the
+  branch decision. It must use `rhei transition` or `rhei complete`; it must not
+  edit `**State:**` lines directly. `rhei run` observes the resulting state
+  after the process exits and schedules whatever is ready next.
+- Under `orchestrator` authority, no neural branch choice is made. The
+  orchestrator may only take transitions selected by explicit structural
+  signals such as `exit_code`, `condition`, timeout, tooling failure, or
+  callback-only state advancement.
+- `instructions` and `personality` describe domain work and branch criteria.
+  They may tell an agent when to choose each declared transition, but they must
+  not rely on the orchestrator choosing the first outgoing edge.
 - Gating states (`gating: true`) bypass completion authority: no subprocess is
   spawned and no automatic transition fires.
 
-This separation keeps state transitions serialized through one orchestrator
-even when many agents run in parallel.
+This separation prevents branch outcomes from being inferred from YAML order.
+Whenever an agent state has multiple possible outcomes, the neural worker makes
+the decision explicitly and records it with the transition command.
 
 ### 3.2. Completion Condition
 
-When completion authority is `orchestrator`, `rhei run` decides deterministically
-when the state's work is complete. The completion condition is a property of
-the state machine and the execution mode, not of the prompt — so the same
-determinism applies to every execution of that state regardless of which agent
-is resolved.
+When completion authority is `agent`, `rhei run` decides only whether the
+subprocess invocation itself finished cleanly; it does not infer the next state.
+When completion authority is `orchestrator`, `rhei run` decides
+deterministically when the state's work is complete from structural signals.
 
-The condition is normative and universal for agent states:
+The successful invocation condition for agent states is:
 
 1. The subprocess exits with code `0`, **and**
 2. Every required artifact declared in the state's `outputs:` list exists on disk.
 
-Both are evaluated after the process exits. If the state declares no `outputs:`,
-condition (2) is vacuously true and exit alone suffices.
+Both are evaluated after the process exits. If the task state changed while the
+agent was running, that transition is authoritative and its normal artifact
+checks have already run. If the task state did not change, `rhei run` checks the
+agent state's required outputs and then reports that the agent failed to advance
+the task; it does not choose a transition on the agent's behalf. If the state
+declares no `outputs:`, condition (2) is vacuously true and exit alone suffices
+for the invocation, but not for state advancement.
 
 This contract maps 1:1 onto the native headless mode of every supported agent.
 All six built-ins — `claude-code -p`, `codex exec`, `gemini --prompt --yolo`,
 `cursor-agent --print --force`, `kilo --auto --yolo`, and `pi -p` — run one
-turn-loop and exit. Rhei detects completion from process exit plus declared
-output artifacts; no cross-agent stop signal, sentinel file, or "done" RPC is
-defined or needed.
+turn-loop and exit. Rhei detects subprocess completion from process exit plus
+declared output artifacts; state advancement is detected by re-reading the plan
+after the agent has called `rhei transition` or `rhei complete`.
 
 Program states have their own exit-code-driven completion semantics documented
 in [Program States Specification](rhei-programs.spec.md#3-exit-code-transitions);
@@ -629,7 +648,7 @@ state also declares `outputs:`.
 
 #### 3.2.1. Runtime Semantics
 
-Under `orchestrator` authority, `rhei run`:
+Under `agent` authority, `rhei run`:
 
 1. Spawns the subprocess and waits on `(subprocess exit) OR (timeout fires)`.
 2. On timeout, sends `SIGTERM` to the subprocess, 10 s grace, then `SIGKILL`.
@@ -640,12 +659,14 @@ Under `orchestrator` authority, `rhei run`:
    documented in the [Execution Loop](#52-execution-loop). The artifact check is
    skipped.
 4. On exit code `0`:
-   - Verify every required output artifact exists.
-   - If any is missing, the task stays in its current state and the engine
+   - Re-read the plan. If the task state changed, respect that state and
+     continue scheduling from it.
+   - If the state did not change, verify every required output artifact exists.
+   - If any required output is missing, the task stays in its current state and the engine
      logs `warning: agent exited 0 but required outputs are missing for task
      {id} in state '{state}': <name1>, <name2>`. No transition fires.
-   - Otherwise, evaluate forward transitions in normal selection order and
-     execute the first match.
+   - Otherwise, report `warning: agent exited 0 but task {id} did not advance
+     from '{state}'`. No transition fires.
 
 #### 3.2.2. Timeout Requirement
 
@@ -716,23 +737,26 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 7. Spawn the agent CLI as a subprocess with the composed prompt.
 8. Wait for the agent process to exit (subject to timeout — see [Timeout Handling](#7-timeout-handling)).
 9. Re-read the plan. If some external actor changed the task's state while the agent was running, respect that authoritative plan state and continue the loop from there.
-10. Otherwise, if the agent exited `0`, evaluate the current state's declared forward transitions in normal transition-selection order. If one transition matches, `rhei run` executes it and logs the resulting state change.
-11. If the agent exited `0` and no forward transition matches, log a warning: `warning: agent exited 0 but task {id} did not advance from '{state}'`. Continue to the next task.
-12. If the agent exited non-zero:
+10. If the agent exited `0` and the state did not change, log a warning:
+    `warning: agent exited 0 but task {id} did not advance from '{state}'`.
+    `rhei run` does not choose a transition for the agent.
+11. If the agent exited non-zero:
     - Without `--continue-on-error`: log the error and stop.
     - With `--continue-on-error`: log the error, skip this task, continue.
-13. Repeat until no claimable tasks remain or all tasks are terminal.
+12. Repeat until no claimable tasks remain or all tasks are terminal.
 
 #### 5.2.2. Parallel Mode (`--parallel N` where N > 1 or N = 0)
 
 1. Load plan and state machine. Validate.
 2. Find all claimable tasks (same eligibility as `rhei next`, but collect all candidates).
 3. Select up to N tasks that are mutually independent (no dependency edges between them). When N = 0, select all independent claimable tasks.
-4. For each selected task, resolve the model and agent, compose the prompt, and spawn the agent subprocess concurrently. Each agent writes to its own log file and is treated as a worker for the task's current state, not as a transition authority.
+4. For each selected task, resolve the model and agent, compose the prompt, and spawn the agent subprocess concurrently. Each agent writes to its own log file and is treated as the transition authority for that task's current state.
 5. Wait for any agent to exit (timeout or completion).
 6. When an agent exits:
    a. Re-read the plan.
-   b. Process the result using the same rules as sequential mode: if an external actor already changed the task state, respect it; otherwise, on exit `0`, let `rhei run` evaluate and execute the next matching forward transition; on non-zero exit, apply the error path.
+   b. Process the result using the same rules as sequential mode: if the task
+      state changed, respect it; otherwise, on exit `0`, report that the agent
+      did not advance; on non-zero exit, apply the error path.
    c. Scan for newly claimable tasks (dependencies may have been unblocked).
    d. If new tasks are claimable and the pool is below N, spawn agents for them.
 7. Repeat until no claimable tasks remain or all tasks are terminal.
@@ -745,15 +769,17 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 
 Agents and callbacks are complementary, not exclusive:
 
-- **Agent** does the work of the current state (coding, reviewing, fixing, writing artifacts).
-- **`rhei run`** evaluates success or failure and performs the state transition.
+- **Agent** does the work of the current state (coding, reviewing, fixing, writing artifacts) and performs the chosen state transition.
+- **`rhei run`** evaluates subprocess success or failure, observes the state selected by the agent, and schedules the next ready task.
 - **Callbacks** handle side effects of that transition (creating artifacts, spawning tasks, notifying systems).
 
 When `rhei run` is in agent mode:
 1. The agent is spawned for the current state.
-2. The agent performs work and exits.
-3. `rhei run` selects and executes the transition.
-4. `on_leave` / `on_enter` callbacks fire as part of that engine-driven transition.
+2. The agent performs work, chooses a declared branch, calls `rhei transition`
+   or `rhei complete`, and exits.
+3. `rhei run` re-reads the plan and continues from the selected state.
+4. `on_leave` / `on_enter` callbacks fire as part of the CLI transition the
+   agent executed.
 
 `--no-callbacks` suppresses callbacks but not agent or program spawning. `--no-agent` suppresses agent spawning but not program spawning or callbacks. `--no-program` suppresses program spawning but not agent spawning or callbacks. All three can be combined independently.
 

@@ -18,7 +18,13 @@ rhei next <RHEI_PLAN> [--peek]
 
 Without `--peek`, `rhei next` atomically claims the next claimable task: it assigns the task to the current agent and prints the task instructions. The task's state is **not** advanced — the agent works in the current state and uses `rhei transition` or `rhei complete` to advance when ready. This is the standard entry point for agents beginning work.
 
-Initial states are not all treated the same: an initial state that declares runnable autonomous work (`program`, `agent`, `target`, `all_targets`, `model`, or `all_models`) is claimed and presented in place; only non-runnable initial states are auto-advanced to their first forward state before printing instructions.
+Initial states are not all treated the same: an initial state that declares
+runnable autonomous work (`program`, `agent`, `target`, `all_targets`, `model`,
+or `all_models`) is claimed and presented in place. A non-runnable initial state
+may be auto-advanced only when exactly one outgoing transition is currently
+applicable. If multiple outgoing transitions are applicable, `rhei next` stops
+and asks the worker to choose explicitly rather than applying a declaration-order
+heuristic.
 
 A task is *claimable* when:
 

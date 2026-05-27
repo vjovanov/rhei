@@ -44,6 +44,12 @@ glob pattern, then sorts them deterministically by normalized relative path.
 Normalized paths use `/` separators and omit `.` components. This order is the
 dry-run display order and the scheduling order.
 
+Discovered plans whose tasks are already all in terminal states for the
+resolved child state machine are treated as already done. The batch runner keeps
+them in reports as skipped plans with an "already terminal" status, but it does
+not schedule a nested `rhei run` for them. This makes repeated batch runs
+idempotent after a plan has completed.
+
 ## 3. Execution
 
 Before running a plan, the batch runner validates that plan with the same
@@ -90,6 +96,13 @@ the generated workspace also includes a final `create-pr` task whose `Prior:`
 list contains every generated plan task. This lets teams choose a batch workflow
 that performs execution, review, publication, pull-request creation, or any
 other post-batch step encoded in the state machine.
+
+When a discovered source plan is already terminal, the generated parent task for
+that plan starts in the batch machine's successful terminal state instead of the
+execution state. When a copied plan finishes successfully in the generated
+workspace, batch-run syncs the mutated copy back to the original source plan
+path. The next batch invocation then sees the source plan as terminal and does
+not take it again.
 
 For the generated plan-execution state, batch-run writes a concrete program into
 the generated state machine that validates the copied plan and runs it with the

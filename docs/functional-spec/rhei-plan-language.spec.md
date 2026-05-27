@@ -961,7 +961,7 @@ workspace; it appears in the generated help under that group.
 - [Next Command](rhei-next.spec.md) - `rhei next` behavioral contract, including `--peek` mode
 - [Transition Command](rhei-transition-cmd.spec.md) - `rhei transition` compare-and-swap contract
 - [Complete Command](rhei-complete.spec.md) - `rhei complete` behavioral contract
-- [Run Command](rhei-run.spec.md) - `rhei run` execution loop under orchestrator authority
+- [Run Command](rhei-run.spec.md) - `rhei run` execution loop for agent and program states
 - [Reset Command](rhei-reset.spec.md) - `rhei reset` behavior for restoring initial state
 - [Completions Command](rhei-completions.spec.md) - `rhei completions` shell completion generation
 - [Version Command](rhei-version.spec.md) - `rhei version` component version output

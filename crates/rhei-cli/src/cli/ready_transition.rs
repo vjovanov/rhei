@@ -489,7 +489,9 @@ fn find_next_transition(
 ) -> MietteResult<Option<String>> {
     let current_state = normalized_state_name(task.state.as_str(), machine);
 
-    // First, look for an exact from-state match.
+    // First, look for exact from-state matches. Automatic deterministic modes
+    // may advance only when the state has one applicable branch. §FS-rhei-run.3
+    let mut exact_matches = Vec::new();
     for rule in machine.transitions() {
         if rule.from.0 == current_state
             && task_profile_allows_state(
@@ -507,11 +509,24 @@ fn find_next_transition(
                 task.state.as_str(),
             )?
         {
-            return Ok(Some(rule.to.0.clone()));
+            exact_matches.push(rule.to.0.clone());
         }
+    }
+    if exact_matches.len() > 1 {
+        return Err(miette!(
+            "ambiguous automatic transition for Task {} from state '{}': {}. \
+             A worker or agent must choose the transition explicitly.",
+            task.id,
+            current_state,
+            exact_matches.join(", ")
+        ));
+    }
+    if let Some(to_state) = exact_matches.into_iter().next() {
+        return Ok(Some(to_state));
     }
 
     // Fall back to wildcard, but only to non-terminal states (forward progress).
+    let mut wildcard_matches = Vec::new();
     for rule in machine.transitions() {
         if rule.from.0 == "*" {
             let is_terminal =
@@ -532,98 +547,22 @@ fn find_next_transition(
                     task.state.as_str(),
                 )?
             {
-                return Ok(Some(rule.to.0.clone()));
+                wildcard_matches.push(rule.to.0.clone());
             }
         }
     }
-
-    Ok(None)
-}
-
-type BeforeTransitionCallback<'a> =
-    &'a mut dyn FnMut(&rhei_core::ast::Task, &str) -> MietteResult<()>;
-
-fn try_auto_advance_task(
-    input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
-    task_id_str: &str,
-    current_state: &str,
-    no_callbacks: bool,
-    mut before_transition: Option<BeforeTransitionCallback<'_>>,
-) -> MietteResult<Option<String>> {
-    // The spec splits agent exit into:
-    //   (5) select the outgoing transition without applying it,
-    //   (6) emit snapshots after selection / before application,
-    //   (7) apply the selected transition.
-    // Step 6 is delegated to the snapshot module owned by impl-rhei-snapshots;
-    // see `emit_snapshots_after_transition_selection` for the call site.
-
-    // §FS-rhei-run.3: Select, emit, then apply transitions.
-    let loaded = load_plan(input)?;
-    let target_id = parse_task_id(task_id_str);
-    let Some(task) = loaded.rhei.tasks.iter().find(|t| t.id == target_id) else {
-        return Ok(None);
-    };
-
-    // Step 5: select the outgoing transition.
-    let Some(to_state) = find_next_transition(task, &loaded.rhei, machine)? else {
-        if machine.states.get(current_state).and_then(|def| def.poll.as_ref()).is_some()
-            && task_visit_count(loaded.rhei.metadata.as_ref(), &task.id, current_state)
-                >= machine
-                    .states
-                    .get(current_state)
-                    .and_then(|def| def.poll.as_ref())
-                    .map(|poll| u64::from(poll.max_attempts))
-                    .unwrap_or(u64::MAX)
-        {
-            return Err(miette!(
-                "polling exhausted with no matching non-self-loop transition for Task {} in state '{}'",
-                task_id_str,
-                current_state
-            ));
-        }
-        return Ok(None);
-    };
-
-    if record_poll_self_loop_if_needed(
-        input,
-        loaded.rhei.metadata.as_ref(),
-        machine,
-        task,
-        current_state,
-        &to_state,
-    )? {
+    if wildcard_matches.len() > 1 {
+        return Err(miette!(
+            "ambiguous automatic transition for Task {} from state '{}': {}. \
+             A worker or agent must choose the transition explicitly.",
+            task.id,
+            current_state,
+            wildcard_matches.join(", ")
+        ));
+    }
+    if let Some(to_state) = wildcard_matches.into_iter().next() {
         return Ok(Some(to_state));
     }
 
-    // Step 6: emit auto- and named-snapshots for this state exit, before the
-    // transition is applied. This is a no-op until impl-rhei-snapshots wires
-    // the snapshot module in; the call site here pins the spec-mandated
-    // ordering ("after transition selection and before the transition is
-    // applied") so future wiring does not have to relitigate it.
-    if let Some(before_transition) = before_transition.as_mut() {
-        before_transition(task, &to_state)?;
-    }
-    emit_snapshots_after_transition_selection(machine, task, current_state, &to_state);
-
-    // Step 7: apply the selected transition.
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
-
-    let effective_to = execute_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
-        callback_paths,
-        machine,
-        task_id_str,
-        current_state,
-        &to_state,
-        no_callbacks,
-    )?;
-
-    Ok(Some(effective_to))
+    Ok(None)
 }
