@@ -6,10 +6,10 @@ Every task node starts in `draft` (the profile's `initial`). Agents claim a task
 
 Each state carries an instruction for executing agents:
 
-- `draft` — Task requires analysis before execution. Pick up when all `**Prior:**` tasks are in a terminal state. Analyze the project and write a concrete description of what should be done. Transition to `pending` when the description is finalized.
-- `pending` — Ready for implementation. An `**Assignee:**` on a pending task means work is actively in progress. Implement the task and any child task nodes, logging progress per child task. When implementation is complete and self-tested, either call `rhei complete` to finish directly or transition to `agent-review` when a separate review pass is required.
-- `agent-review` — A separate reviewing agent inspects the result against the task description, child task nodes, and repository conventions. On pass, transition to `human-review` (or `completed` if no human gate is required). On fail, transition to `agent-review-fix` with concrete findings.
-- `agent-review-fix` — The implementing agent addresses reviewer findings only — no scope expansion. Transition back to `agent-review` after applying fixes.
+- `draft` — Task requires analysis before execution. Pick up when all `**Prior:**` tasks are in a terminal state. Analyze the project and write a concrete description of what should be done.
+- `pending` — Ready for implementation. An `**Assignee:**` on a pending task means work is actively in progress. Implement the task and any child task nodes, logging progress per child task. When implementation is complete and self-tested, append a concise implementation summary and validation notes to the task body.
+- `agent-review` — A separate reviewing agent inspects the result against the task description, child task nodes, and repository conventions. Append a `Review:` note with either `pass` or concrete findings.
+- `agent-review-fix` — The implementing agent addresses reviewer findings only — no scope expansion. Append an `Agent-review-fix:` note summarizing the fixes and validation.
 - `human-review` (gating) — Stop all agent work on this task. Wait for a human to approve, request changes, or edit the plan. Do not transition out of this state autonomously.
 - `completed` (final) — Treat as immutable. Do not re-open, re-run, or modify unless the user explicitly requests it.
 - `cancelled` (final) — Skip entirely. Do not execute, review, or reference as a prerequisite for new work.
@@ -18,11 +18,15 @@ Each state carries an instruction for executing agents:
 
 - `draft` → `pending`, `cancelled`
 - `pending` → `agent-review`, `human-review`, `completed`, `cancelled`
-- `agent-review` → `agent-review-fix`, `human-review`, `completed`
+- `agent-review` → `human-review`, `completed`, `agent-review-fix`
 - `agent-review-fix` → `agent-review`, `cancelled`
 - `human-review` → `pending`, `completed`, `cancelled`
 
 No other transitions are legal.
+
+For orchestrated `rhei run`, the first automatic success route from
+`agent-review` is `human-review`; `agent-review-fix` is kept as an
+explicit/manual route for concrete review failures.
 
 ## Profiles and node policy
 

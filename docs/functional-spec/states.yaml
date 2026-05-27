@@ -12,30 +12,28 @@ states:
       Pick up when all **Prior:** tasks are `completed`. Analyze the current
       state of the project and determine the most elegant way to accomplish
       the task. Based on that analysis, write a description of what should be
-      done. Transition to `pending` once the description is finalized.
+      done.
 
   pending:
     description: Task is ready for implementation. An **Assignee** on a pending task means work is actively in progress.
     instructions: |
       Pick up when all **Prior:** tasks are `completed`. Implement the task
       and any child task nodes, logging progress per child task. When
-      implementation is complete and self-tested, either run `rhei complete`
-      to finish directly or transition to `agent-review` when a separate
-      review pass is required.
+      implementation is complete and self-tested, append a concise
+      implementation summary and validation notes to the task body.
 
   agent-review:
     description: A separate reviewing agent inspects the result.
     instructions: |
       Review the implementation against the task description, any child task
-      nodes, and repository conventions. On pass, transition to `human-review`
-      (or `completed` if no human gate is required). On fail, transition to
-      `agent-review-fix` with concrete findings.
+      nodes, and repository conventions. Append a `Review:` note with either
+      `pass` or concrete findings that a follow-up worker can act on.
 
   agent-review-fix:
     description: The implementing agent addresses reviewer findings.
     instructions: |
-      Address the reviewer's findings only — no scope expansion. After
-      applying fixes, transition back to `agent-review` for re-review.
+      Address the reviewer's findings only — no scope expansion. Append an
+      `Agent-review-fix:` note summarizing the fixes and validation.
 
   human-review:
     description: Work is paused pending human inspection.
@@ -80,14 +78,14 @@ transitions:
     to: cancelled
     description: Task abandoned during implementation
   - from: agent-review
-    to: agent-review-fix
-    description: Review found issues, implementing agent must apply fixes
-  - from: agent-review
     to: human-review
     description: Review passed but human gate required before completion
   - from: agent-review
     to: completed
     description: Review passed, task finished successfully
+  - from: agent-review
+    to: agent-review-fix
+    description: Explicit/manual review failure route for concrete reviewer findings
   - from: agent-review-fix
     to: agent-review
     description: Fixes applied, re-submit for review

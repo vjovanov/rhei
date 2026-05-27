@@ -871,7 +871,7 @@ uses `simple`.
 |-------|-------------|-------|--------|
 | `draft` | Task is still being shaped; description not ready for execution | No | No |
 | `pending` | Task ready for implementation once prerequisites are `completed` | No | No |
-| `agent-review` | A separate reviewing agent inspects the result | No | No |
+| `agent-review` | A separate reviewing agent inspects the result and records pass/finding notes | No | No |
 | `agent-review-fix` | Implementing agent applies reviewer findings, no scope change | No | No |
 | `human-review` | Work paused pending human inspection; no autonomous exit | No | Yes |
 | `completed` | Task finished successfully; immutable | Yes | No |
@@ -887,7 +887,7 @@ See [states.yaml](states.yaml) for the enforced transition table. Summary:
 
 - `draft` → `pending` | `cancelled`
 - `pending` → `agent-review` | `human-review` | `completed` | `cancelled`
-- `agent-review` → `agent-review-fix` (fail) | `human-review` (pass, gated) | `completed` (pass, ungated)
+- `agent-review` → `human-review` (default pass/gate) | `completed` (pass, ungated) | `agent-review-fix` (explicit/manual fail)
 - `agent-review-fix` → `agent-review` | `cancelled`
 - `human-review` → `pending` | `completed` | `cancelled`
 
@@ -900,6 +900,16 @@ Not every state can be completed directly via `rhei complete`. The command requi
 - From `pending`, `agent-review`: direct completion to `completed` is available.
 - From `agent-review-fix`: no direct path to `completed` exists. The agent must transition to `agent-review` first, then complete from there.
 - From `human-review`: completion is blocked because the state is gating (`gating: true`). Only a human-initiated `rhei transition` can exit this state.
+
+### 11.2. Default review auto-run route
+
+Under `rhei run`, spawned agents do the state work but the orchestrator owns the
+state transition (§FS-rhei-agents.3.1). Because successful agent review exits do
+not provide a machine-readable pass/fail branch in the default machine, the
+first automatic success route from `agent-review` is `human-review`. The
+`agent-review-fix` edge remains legal for explicit/manual review failures where
+the reviewer has recorded concrete findings and a worker chooses that transition
+directly.
 
 ## Related Documentation
 
