@@ -95,7 +95,7 @@ under `crates/rhei-cli/src/cli/`:
   `snapshot_continue_lock`, `snapshot_runtime_emit`, and
   `snapshot_runtime_preload` contain snapshot CLI/cache handling and run-loop
   snapshot emit/preload hooks.
-- `run_command`, `run_agent_mode`, `run_callback_mode`,
+- `run_command`, `batch_run_command`, `run_agent_mode`, `run_callback_mode`,
   `run_failure_transitions`, and `ready_transition` contain orchestration,
   scheduling, failure routing, and automatic transition selection.
 - `next_command`, `complete_reset_commands`, `complete_reset_rewrites`,

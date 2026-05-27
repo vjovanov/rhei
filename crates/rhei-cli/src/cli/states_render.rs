@@ -369,6 +369,13 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
+    let warnings = validate_plan_once(input, state_machine)?;
+    print_validation_report(&warnings);
+    Ok(())
+}
+
+/// Parse a plan, load the selected states, and return non-fatal warnings.
+fn validate_plan_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<Vec<String>> {
     let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
@@ -390,9 +397,7 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
-    print_validation_report(&report.warnings);
-
-    Ok(())
+    Ok(report.warnings)
 }
 
 /// Print success output and any non-fatal validation warnings.

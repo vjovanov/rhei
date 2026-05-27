@@ -524,7 +524,14 @@ fn run_agent_mode(
                     wall_clock: started_wall,
                 });
 
-                let spawn_result = spawn_and_wait_program(resolved, &render_context, &log);
+                let spawn_result = spawn_and_wait_program(
+                    resolved,
+                    &render_context,
+                    &log,
+                    task_id_str,
+                    0,
+                    sink.clone(),
+                );
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
                 let (outcome, exit_code) = match &spawn_result {

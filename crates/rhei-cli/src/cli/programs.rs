@@ -126,6 +126,9 @@ fn spawn_and_wait_program(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
     log_path: &Path,
+    task_id: &str,
+    slot: u16,
+    sink: Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<ProgramSpawnOutcome> {
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
@@ -158,13 +161,34 @@ fn spawn_and_wait_program(
         let _ = writeln!(f, "===\n");
     }
 
-    let log_stdout =
-        log_file.try_clone().map_err(|e| miette!("failed to clone log file handle: {e}"))?;
-    let log_stderr =
-        log_file.try_clone().map_err(|e| miette!("failed to clone log file handle: {e}"))?;
+    let log_file = Arc::new(Mutex::new(log_file));
     let mut cmd = build_program_command(resolved, render_context)?;
-    cmd.stdout(log_stdout).stderr(log_stderr);
+    // §FS-rhei-run-tui.1.1: program traffic is forwarded as live RunEvents while
+    // preserving the durable per-task log.
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| miette!("failed to spawn program: {e}"))?;
+    let mut readers = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        readers.push(spawn_program_output_reader(
+            stdout,
+            Arc::clone(&log_file),
+            Arc::clone(&sink),
+            task_id.to_string(),
+            slot,
+            rhei_tui::AgentStream::Stdout,
+        ));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        readers.push(spawn_program_output_reader(
+            stderr,
+            Arc::clone(&log_file),
+            Arc::clone(&sink),
+            task_id.to_string(),
+            slot,
+            rhei_tui::AgentStream::Stderr,
+        ));
+    }
     let start = Instant::now();
     let mut timed_out = false;
 
@@ -196,6 +220,9 @@ fn spawn_and_wait_program(
     } else {
         child.wait().map_err(|e| miette!("failed to wait for program: {e}"))
     }?;
+    for reader in readers {
+        let _ = reader.join();
+    }
 
     {
         use std::io::Write as _;
@@ -224,6 +251,58 @@ fn spawn_and_wait_program(
     }
 
     Ok(ProgramSpawnOutcome { status, timed_out, timeout_secs: resolved.timeout_secs })
+}
+
+fn spawn_program_output_reader<R>(
+    reader: R,
+    log: Arc<Mutex<fs::File>>,
+    sink: Arc<dyn rhei_tui::EventSink>,
+    task: String,
+    slot: u16,
+    stream: rhei_tui::AgentStream,
+) -> std::thread::JoinHandle<()>
+where
+    R: Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut buffer = Vec::new();
+        loop {
+            buffer.clear();
+            let read = match reader.read_until(b'\n', &mut buffer) {
+                Ok(read) => read,
+                Err(err) => {
+                    sink.emit(rhei_tui::RunEvent::Message {
+                        level: rhei_tui::MessageLevel::Warn,
+                        text: format!("warning: failed reading program output for {task}: {err}"),
+                    });
+                    break;
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            if let Ok(mut log) = log.lock() {
+                let _ = log.write_all(&buffer);
+            }
+            let line = String::from_utf8_lossy(&buffer)
+                .trim_end_matches(['\r', '\n'])
+                .to_string();
+            if let Some(url) = line.strip_prefix("Dashboard: ") {
+                sink.emit(rhei_tui::RunEvent::RunLink {
+                    label: format!("{task} dashboard"),
+                    url: url.to_string(),
+                });
+            }
+            sink.emit(rhei_tui::RunEvent::AgentOutput {
+                slot,
+                task: task.clone(),
+                stream,
+                line,
+                wall_clock: std::time::SystemTime::now(),
+            });
+        }
+    })
 }
 
 fn transition_matches_exit_code(rule: &rhei_core::ast::TransitionRule, exit_code: i32) -> bool {

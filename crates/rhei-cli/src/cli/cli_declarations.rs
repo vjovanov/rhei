@@ -25,11 +25,11 @@ use rhei_validator::{
     parse_execution_target, AgentConfig, CustomAgentProfile, ExecutionTarget, McpServerProfile,
     SkillProfile, StateMcpEntry, StateMcpEntryObject, StateSkillEntry,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::ffi::OsStr;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -76,6 +76,7 @@ Templates:
 Execution:
   transition  Atomically transition a task from one state to another (compare-and-swap)
   run         Execute a plan by advancing tasks through the state machine in dependency order
+  batch-run   Run a directory of generated plans as a batch
   intervene   Send a message to a running agent's stdin during a live run
   cost        Inspect run token and cost accounting artifacts
   snapshot    Inspect, prune, or continue from session snapshots
@@ -245,6 +246,61 @@ enum Commands {
         program: ProgramExecutionFlags,
         #[command(flatten)]
         snapshot: SnapshotExecutionFlags,
+    },
+    // §FS-rhei-batch-run.1: CLI surface for batch-run.
+    /// Run a directory of generated plans as a batch
+    BatchRun {
+        /// Directory containing generated .rhei.md plans
+        #[arg(value_name = "PLANS_DIR", add = ArgValueCompleter::new(complete_any_path))]
+        plans_dir: PathBuf,
+        /// Glob pattern used to match plans under PLANS_DIR
+        #[arg(long, default_value = "*.rhei.md")]
+        glob: String,
+        /// State machine passed to every child plan run in the batch
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        batch_state_machine: Option<PathBuf>,
+        /// State machine for the generated parent batch workflow itself
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        batch_workflow_state_machine: Option<PathBuf>,
+        /// Directory containing ticket markdown files matched by generated batch task id
+        #[arg(long, value_name = "DIR", add = ArgValueCompleter::new(complete_any_path))]
+        tickets_dir: Option<PathBuf>,
+        /// Maximum number of plan runs active at once
+        #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
+        parallelism: usize,
+        /// Value passed to each nested `rhei run --parallel`
+        #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
+        inner_parallelism: usize,
+        /// Wait after a nested run finishes before that worker starts another plan
+        #[arg(long, value_name = "DURATION", add = ArgValueCompleter::new(complete_duration))]
+        sleep: Option<String>,
+        /// Continue scheduling remaining plans after a plan fails
+        #[arg(long)]
+        continue_on_error: bool,
+        /// Print discovered order and nested commands without running plans
+        #[arg(long)]
+        dry_run: bool,
+        /// Enable the optional parent batch dashboard; nested dashboards are on by default
+        #[arg(long, conflicts_with = "no_dashboard")]
+        dashboard: bool,
+        /// Disable nested run dashboards and the optional parent batch dashboard
+        #[arg(long)]
+        no_dashboard: bool,
+        /// Force the parent batch TUI even when stdout is not detected as a TTY
+        #[arg(long, conflicts_with = "no_tui")]
+        tui: bool,
+        /// Force plain stdout for the parent batch UI
+        #[arg(long)]
+        no_tui: bool,
+        /// Override the agent for every nested run
+        #[arg(long, value_name = "AGENT", add = ArgValueCompleter::new(complete_agent_name))]
+        agent: Option<String>,
+        /// Override the agent mode for every nested run
+        #[arg(long, value_name = "MODE", add = ArgValueCompleter::new(complete_agent_mode))]
+        agent_mode: Option<String>,
+        /// Override the model for every nested run
+        #[arg(long, value_name = "MODEL", add = ArgValueCompleter::new(complete_model_name))]
+        model: Option<String>,
     },
     /// Send a message to a running agent's stdin during a live run
     ///
