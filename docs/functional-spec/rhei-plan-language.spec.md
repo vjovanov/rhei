@@ -107,7 +107,12 @@ For programmatic execution with `rhei run`, see [Pattern 6: Programmatic State T
 
 ## 1. Plan Formats
 
-A Rhei plan can be authored as either a **Single-File Plan** or a **Directory Workspace**.
+A rhei can be authored as either a **Single-File Plan** or a **Directory
+Workspace**. Both are *rhei-level* formats: each describes one flow. A project
+groups its rheis under the virtual **Panta** root (§FS-rhei-panta); the project
+container format is defined in [Panta Project](#15-panta-project). A bare rhei
+loaded on its own is treated as the single rhei of an implicit Panta
+(§AR-rhei-panta).
 
 ### 1.1. Single-File Plan (1 Agent, or low concurrency)
 
@@ -227,6 +232,34 @@ frontmatter-backed task metadata still serialize through `index.rhei.md`, so
 metadata-heavy workflows reintroduce a narrow shared-write hotspot until a
 workspace-local metadata format is specified.
 
+### 1.5. Panta Project
+
+A **Panta Project** is the directory that groups a project's rheis under the
+single virtual Panta root (§FS-rhei-panta). It mirrors the Directory Workspace
+shape one level up: where a workspace merges task files, a project merges rheis.
+
+A Panta Project consists of:
+
+1. **`index.panta.md`**: the project manifest — `# Panta: <title>`, an optional
+   `States Declaration`, and any `Content Sections`. It contains no `## Tasks`
+   section and no authored nodes.
+2. **`rheis/` directory**: a folder whose entries are rheis. Each entry is a
+   Single-File Plan (`*.rhei.md`) or a Directory Workspace. Discovery under
+   `rheis/` is recursive and deterministic, using the same non-hidden,
+   `/`-normalized, case-sensitive ordering rules as workspace task-file
+   discovery (§FS-rhei-plan-language.1.2).
+3. **`inbox/` directory** (optional): loose tickets filed directly under Panta,
+   authored as workspace task files.
+
+Each rhei's id is derived from its location under `rheis/`: the filename stem for
+a Single-File Plan (`rheis/auth.rhei.md` -> `auth`) or the directory name for a
+Directory Workspace rhei (`rheis/billing/` -> `billing`). The id must be a valid
+`IDENTIFIER` and must be unique across the project.
+
+At load time all rheis merge into one graph rooted at Panta. Ticket ids are
+namespaced by their rhei id and `**Prior:**` resolves across the whole project;
+see [Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
+
 ## 2. Grammar (EBNF)
 
 ```ebnf
@@ -258,6 +291,26 @@ workspace_index = rhei_header, { blank_line },
                   { content_section } ;
 
 workspace_task_file = [ { blank_line } ], task_level_1, { task_level_1 } ;
+
+
+(* ============================================== *)
+(* PANTA PROJECT STRUCTURE                        *)
+(* ============================================== *)
+
+(* A Panta Project is a directory layout, not a single token stream. The
+   productions below describe its individual files; the project tree itself is
+   defined structurally in section 1.5. `index.panta.md` parses as
+   panta_manifest. Each entry under `rheis/` is a Single-File Plan
+   (rhei_document) or a Directory Workspace (a workspace_index plus
+   workspace_task_file files). Entries under the optional `inbox/` directory
+   parse as workspace_task_file. *)
+
+panta_manifest  = panta_header, { blank_line },
+                  [ states_field, { blank_line } ],
+                  [ frontmatter, { blank_line } ],
+                  { content_section } ;
+
+panta_header    = "# Panta: ", title, NEWLINE ;
 
 
 (* ============================================== *)
@@ -456,22 +509,26 @@ to this specification:
   must be unique `IDENTIFIER`s. Parsing and validation normalize them
   case-insensitively. If omitted, the default is `[task]`.
 
-`rhei` is a reserved node-kind name. It denotes the plan itself and is
-always the kind of the single root node at level 0. `rhei` must not appear
-in `structure.nodeKinds`, and it must not appear as a key under
-`node_policy.by_type` in the active state machine. A non-root node must
-never use the `rhei` kind.
+`panta` and `rhei` are reserved node-kind names. `panta` denotes the project
+itself and is always the kind of the single virtual root at level 0. `rhei`
+denotes a plan (flow) and is the kind of every level-1 node directly under Panta.
+Neither `panta` nor `rhei` may appear in `structure.nodeKinds`. `panta` must
+never be authored; a level-2-or-deeper node must never use the `panta` or `rhei`
+kind.
 
 ### Plan Root Model
 
-The level-0 `rhei` root node is virtual. It is not authored in markdown, has no
-`**State:**`, `**Prior:**`, `**Assignee:**`, or `> **Result:**` line, and is not
-persisted as a task node in a plan file or workspace task file. Runtime commands
-must not claim, transition, complete, cancel, or reset the virtual root.
+The level-0 root node is **Panta**, the project root (§FS-rhei-panta). Panta is
+virtual: it is not authored in markdown, has no `**State:**`, `**Prior:**`,
+`**Assignee:**`, or `> **Result:**` line, and is not persisted as a node in any
+plan file or workspace task file. Runtime commands must not claim, transition,
+complete, cancel, or reset Panta. Its rheis are the level-1 nodes beneath it; a
+ticket (a `task`-kind node) is level 2 or deeper. The exact id-extension and
+load rules for this hierarchy are specified in §AR-rhei-panta.
 
 `node_policy.root` validates and names the state-machine profile for tools that
-model the plan root internally, but it does not create a persisted or executable
-node. UI-level plan status, including any `plan_state` shown by visualization
+model the Panta root internally, but it does not create a persisted or executable
+node. UI-level project status, including any `plan_state` shown by visualization
 tools, is derived from authored task nodes rather than from a root state field.
 
 The heading keyword is the node kind. By convention, authored headings render
@@ -480,9 +537,9 @@ matching is case-insensitive.
 
 Each node's state policy — which state it starts in and which states it may
 ever hold — is resolved from the active state machine's `profiles` and
-`node_policy` blocks. The root (always `rhei`) resolves through
-`node_policy.root`; all other nodes resolve through `node_policy.overrides`,
-then `node_policy.by_type[<kind>]`, then `node_policy.default`. See the
+`node_policy` blocks. The Panta root resolves through `node_policy.root`; all
+other nodes resolve through `node_policy.overrides`, then
+`node_policy.by_type[<kind>]`, then `node_policy.default`. See the
 [States Specification](rhei-states.spec.md#9-node-policy) for the full
 resolution order and validation rules.
 
@@ -665,6 +722,15 @@ Task ids must be unique across the entire plan. In a Single-File Plan, two
 task nodes with the same id are an error. In a Directory Workspace, two task
 nodes with the same id across *any* files within the `tasks/` directory are an
 error.
+
+In a Panta Project, each ticket's project-wide id is its rhei id joined with its
+rhei-local id (rhei-local `1` under rhei `auth` is `auth.1`). Uniqueness is
+checked on these fully-qualified ids across the whole project, and rhei ids must
+themselves be unique under `rheis/`. Because the rhei id prefixes every ticket
+beneath it, authors only need rhei-local uniqueness within each rhei plus unique
+rhei ids. Authored rhei-local ids and heading depth are validated per rhei
+exactly as in a standalone plan (§FS-rhei-plan-language.3.4); the Panta prefix is
+applied at merge and is not authored into task headings.
 
 ### 3.6. Link Integrity
 

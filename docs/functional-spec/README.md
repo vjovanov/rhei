@@ -7,6 +7,7 @@ one `FS-<slug>` ID at its H1.
 | ID | Subject |
 |---|---|
 | §FS-rhei-language-reference | Entry point for the complete user-authored Rhei language surface |
+| §FS-rhei-panta | Panta, the invisible project root above all rheis and tickets |
 | §FS-rhei-plan-language | Rhei plan language grammar and semantics |
 | §FS-rhei-usage | Roles, coordination patterns, and agent workflows |
 | §FS-rhei-authoring | Practical plan authoring guide |

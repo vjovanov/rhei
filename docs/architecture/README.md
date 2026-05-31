@@ -6,6 +6,7 @@ stable `AR-<slug>` declarations.
 | ID | Subject |
 |---|---|
 | §AR-agent-orchestrator-workflow | Agent/orchestrator component workflow |
+| §AR-rhei-panta | Panta root: on-disk layout, load model, id namespacing |
 | §AR-rhei-viz-flow | Flow visualization: model, renderer, and intervene boundary |
 | §AR-rhei-language-reference | Canonical language-reference entry point |
 | §AR-source-file-size | Source file size limits and exception register |
