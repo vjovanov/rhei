@@ -67,6 +67,27 @@ node_policy:
       profile: default-ticket
 "#;
 
+const PANTA_INPUT_STATE_MACHINE: &str = r#"name: panta-input-machine
+version: 1
+states:
+  pending:
+    description: Needs an input from the owning rhei runtime
+    initial: true
+    inputs:
+      - name: brief
+        path: runtime/{task_id}.md
+  in-progress:
+    description: Task currently being worked on
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
+"#;
+
 /// Helper: create a directory workspace with the given index content and
 /// a set of task files. Returns the workspace root directory.
 fn create_workspace(
@@ -174,6 +195,33 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
 }
 
 #[test]
+fn panta_discovery_skips_runtime_artifact_trees() {
+    let project = create_panta_project(
+        "panta-skip-runtime",
+        "# Panta: Runtime Artifacts\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "rheis/auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+            ),
+            (
+                "rheis/runtime/generated.rhei.md",
+                "# Rhei: Generated Artifact\n\n## Tasks\n\n### Task 1: Artifact\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    // Runtime artifact trees under `rheis/` are not rhei discovery inputs. §AR-rhei-panta.1
+    let loaded = workspace::load_panta_project(&project).expect("load panta project");
+    assert_eq!(loaded.rhei_ids, vec!["auth"]);
+    assert!(loaded.task_sources.contains_key("auth.1"));
+    assert!(!loaded.task_sources.contains_key("generated.1"));
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
 fn panta_preserves_ambiguous_local_priors_before_cross_rhei_resolution() {
     let project = create_panta_project(
         "panta-local-prior",
@@ -200,6 +248,44 @@ fn panta_preserves_ambiguous_local_priors_before_cross_rhei_resolution() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_next_peek_resolves_inputs_from_owning_rhei_root() {
+    let project = create_panta_project(
+        "panta-peek-input-root",
+        "# Panta: Peek Inputs\n**States:** panta-input-machine\n",
+        &[
+            ("rheis/auth/index.rhei.md", "# Rhei: Auth\n\n"),
+            (
+                "rheis/auth/tasks/login.md",
+                "### Task 1: Login\n**State:** pending\n",
+            ),
+        ],
+        PANTA_INPUT_STATE_MACHINE,
+    );
+    let runtime_dir = project.join("rheis/auth/runtime");
+    fs::create_dir_all(&runtime_dir).expect("create owning rhei runtime");
+    fs::write(runtime_dir.join("auth.1.md"), "ready").expect("write input artifact");
+
+    // Panta readiness checks required inputs at the owning rhei root, not the project root. §AR-rhei-panta.5
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(&project)
+        .arg("--peek")
+        .arg("--no-callbacks")
+        .output()
+        .expect("next --peek command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "next --peek should resolve inputs from the child rhei root\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("auth.1"), "peek should report the claimable ticket: {stdout}");
 
     fs::remove_dir_all(project).expect("cleanup");
 }
@@ -385,6 +471,52 @@ fn panta_mutating_commands_are_rejected_until_project_rewrites_are_supported() {
     assert!(!output.status.success(), "transition should fail for Panta projects");
     assert!(
         stderr.contains("Panta projects are currently read-only for `rhei transition`"),
+        "unexpected stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_next_peek_is_read_only_and_claim_is_rejected() {
+    let project = create_panta_project(
+        "panta-next-peek",
+        "# Panta: Peek\n**States:** workspace-test-machine\n",
+        &[(
+            "rheis/auth.rhei.md",
+            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    // `--peek` does not mutate child rhei files, so it works project-wide. §FS-rhei-panta.6.1
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(&project)
+        .arg("--peek")
+        .arg("--no-callbacks")
+        .output()
+        .expect("next --peek command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "next --peek should succeed for Panta projects\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("auth.1"), "peek should report the claimable ticket: {stdout}");
+
+    // Claim mode would write `**Assignee:**` into a child rhei file, so it is rejected.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(&project)
+        .arg("--no-callbacks")
+        .output()
+        .expect("next claim command should run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "next claim should fail for Panta projects");
+    assert!(
+        stderr.contains("Panta projects are currently read-only for `rhei next`"),
         "unexpected stderr: {stderr}"
     );
 

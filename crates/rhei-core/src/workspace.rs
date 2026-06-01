@@ -145,6 +145,10 @@ pub fn discover_rhei_entries(rheis_dir: &Path) -> parser::Result<Vec<PathBuf>> {
             .is_some_and(|name| name.ends_with(".rhei.md"))
     }
 
+    fn is_runtime_dir(path: &Path) -> bool {
+        path.file_name().and_then(|name| name.to_str()) == Some("runtime")
+    }
+
     fn visit(dir: &Path, out: &mut Vec<PathBuf>) -> parser::Result<()> {
         let entries = std::fs::read_dir(dir)
             .map_err(|e| ParseError::new(format!("failed to read {}: {e}", dir.display()), None))?;
@@ -161,7 +165,10 @@ pub fn discover_rhei_entries(rheis_dir: &Path) -> parser::Result<Vec<PathBuf>> {
                 ParseError::new(format!("failed to inspect {}: {e}", path.display()), None)
             })?;
             if file_type.is_dir() {
-                if is_workspace(&path) {
+                // §AR-rhei-panta.1 §AR-rhei-panta.5: runtime artifact trees are not rhei entries.
+                if is_runtime_dir(&path) {
+                    continue;
+                } else if is_workspace(&path) {
                     out.push(path);
                 } else {
                     visit(&path, out)?;
@@ -242,6 +249,9 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
     let mut content_sections = manifest.content_sections.clone();
     for (rhei_id, mut rhei, sources, root) in rheis {
         merge_structure(&mut merged_structure, &rhei.structure);
+        // Title-only marker per rhei; the rhei's own content sections are not merged
+        // because they'd need a per-section link base (the rhei root, not the project
+        // root), which the merged content-link validator lacks. §AR-rhei-panta.5
         content_sections.push(ContentSection {
             title: format!("Rhei {rhei_id}: {}", rhei.title),
             content: String::new(),
@@ -249,11 +259,8 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
         let local_ids = collect_task_ids(&rhei.tasks);
         qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids, &local_ids);
         for task in &rhei.tasks {
-            collect_task_sources(
-                task,
-                source_for_task(&sources, task).as_path(),
-                &mut task_sources,
-            )?;
+            let source = source_for_task(&sources, task)?;
+            collect_task_sources(task, source.as_path(), &mut task_sources)?;
             collect_task_roots(task, &root, &mut task_roots)?;
         }
         all_tasks.extend(rhei.tasks);
@@ -450,9 +457,20 @@ fn is_project_qualified(id: &TaskId, rhei_ids: &[String]) -> bool {
     id.segments.len() > 1 && rhei_ids.iter().any(|rhei_id| rhei_id == first)
 }
 
-fn source_for_task(sources: &HashMap<String, PathBuf>, task: &Task) -> PathBuf {
+fn source_for_task(sources: &HashMap<String, PathBuf>, task: &Task) -> parser::Result<PathBuf> {
     let local = TaskId::from_segments(task.id.segments.iter().skip(1).cloned().collect());
-    sources.get(&local.to_string()).cloned().unwrap_or_default()
+    sources.get(&local.to_string()).cloned().ok_or_else(|| {
+        // The rhei loader always records a source for every task it parses, so a
+        // miss here means an internal qualification/source-map inconsistency, not
+        // a user error. Fail loudly instead of pointing rewrites at an empty path.
+        ParseError::new(
+            format!(
+                "internal: no source file recorded for task '{}' (rhei-local id '{}')",
+                task.id, local
+            ),
+            None,
+        )
+    })
 }
 
 fn collect_task_roots(

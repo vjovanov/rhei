@@ -242,6 +242,10 @@ impl LoadedPlan {
         self.task_sources.get(task_id).cloned().unwrap_or_else(|| fallback.to_path_buf())
     }
 
+    fn task_root(&self, task_id: &str, fallback: &Path) -> PathBuf {
+        self.task_roots.get(task_id).cloned().unwrap_or_else(|| fallback.to_path_buf())
+    }
+
     fn is_panta_project(&self) -> bool {
         self.kind == LoadedPlanKind::PantaProject
     }

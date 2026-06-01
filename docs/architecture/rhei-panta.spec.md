@@ -32,8 +32,10 @@ project root; the project `runtime/` holds only cross-rhei rollups (§6).
 for a workspace: project title, default state-machine declaration, and content
 sections; it contains no authored nodes. Rhei discovery under `rheis/` follows
 the same recursive, deterministic, non-hidden, `/`-normalized ordering rules
-that task-file discovery already uses (§FS-rhei-plan-language.1.2). A directory
-is a Panta when it contains `index.panta.md`.
+that task-file discovery already uses (§FS-rhei-plan-language.1.2), except that
+`runtime/` directories are artifact trees and are never discovered as rheis even
+when they contain `.rhei.md` files or `index.rhei.md`. A directory is a Panta
+when it contains `index.panta.md`.
 
 ## 2. Load model
 
@@ -56,9 +58,13 @@ source map records, for each node, the rhei (and file) that defines it, so
 targeted rewrites during transitions still target the owning file — the same
 contract `task_sources` provides for workspace task files.
 
-When a bare rhei is loaded directly (a `.rhei.md` file or a workspace with no
-enclosing `index.panta.md`), the loader synthesizes a Panta containing that one
-rhei, so every load path yields a Panta-rooted graph.
+The target model is that a bare rhei loaded directly (a `.rhei.md` file or a
+workspace with no enclosing `index.panta.md`) is treated as the single rhei of an
+implicit Panta, so every load path yields a Panta-rooted graph. In the current
+staged implementation a bare rhei still loads through the existing single-file or
+Directory Workspace path and is *not* wrapped in a synthetic Panta; only a
+directory containing `index.panta.md` loads as a Panta project. Unifying the bare
+rhei load path under an implicit Panta is deferred (§FS-rhei-panta.6, roadmap).
 
 ## 3. Identity and id namespacing
 

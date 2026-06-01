@@ -256,7 +256,11 @@ fn next_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    reject_panta_mutation(&loaded, "next")?;
+    // Only claim mode mutates child rhei files; `--peek` is read-only and works
+    // project-wide like `list`/`validate`/`viz`. §FS-rhei-panta.6.1
+    if !peek {
+        reject_panta_mutation(&loaded, "next")?;
+    }
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -269,7 +273,7 @@ fn next_command(
     }
 
     // Find the target task to claim.
-    let (task_id_str, current_state_raw, current_state) = if let Some(tid) = task_id_filter {
+    let (task_id_str, current_state_raw, current_state, task_workspace_root) = if let Some(tid) = task_id_filter {
         let target_id = parse_task_id(tid);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
@@ -307,8 +311,9 @@ fn next_command(
             .get(&state_name)
             .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
         let settings = load_merged_settings(&workspace_root)?;
+        let task_workspace_root = loaded.task_root(tid, &workspace_root);
         ensure_state_inputs_exist_for_transition(
-            &workspace_root,
+            &task_workspace_root,
             tid,
             &state_name,
             state_def,
@@ -323,9 +328,9 @@ fn next_command(
             &settings,
             &format!("Task {} cannot be claimed in state {}.", tid, state_name),
         )?;
-        (tid.to_string(), task.state.as_str().to_string(), state_name)
+        (tid.to_string(), task.state.as_str().to_string(), state_name, task_workspace_root)
     } else {
-        let ready = find_claimable_tasks(&loaded.rhei, &machine, &workspace_root);
+        let ready = find_claimable_tasks(&loaded.rhei, &machine, &workspace_root, &loaded.task_roots);
         if ready.is_empty() {
             return Err(miette!(
                 "{}",
@@ -339,8 +344,9 @@ fn next_command(
             .get(&state_name)
             .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
         let settings = load_merged_settings(&workspace_root)?;
+        let task_workspace_root = loaded.task_root(&task.id.to_string(), &workspace_root);
         ensure_state_inputs_exist_for_transition(
-            &workspace_root,
+            &task_workspace_root,
             &task.id.to_string(),
             &state_name,
             state_def,
@@ -355,7 +361,7 @@ fn next_command(
             &settings,
             &format!("Task {} cannot be claimed in state {}.", task.id, state_name),
         )?;
-        (task.id.to_string(), task.state.to_string(), state_name)
+        (task.id.to_string(), task.state.to_string(), state_name, task_workspace_root)
     };
 
     // Determine whether we need a state transition.
@@ -440,7 +446,7 @@ fn next_command(
                 &final_state,
                 &machine,
                 TaskAssigneeClaimContext {
-                    workspace_root: &workspace_root,
+                    workspace_root: &task_workspace_root,
                     metadata: loaded.rhei.metadata.as_ref(),
                     state_def: final_state_def,
                     settings: &settings,
@@ -451,7 +457,7 @@ fn next_command(
     }
     let tooling = resolve_tooling(&machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {
-        workspace_root: &workspace_root,
+        workspace_root: &task_workspace_root,
         plan_path: &callback_paths.plan_path,
         state_machine_path: callback_paths.state_machine_path.as_deref(),
         plan_title: &loaded.rhei.title,
