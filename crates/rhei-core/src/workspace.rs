@@ -10,9 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::ast::{
-    ContentSection, Rhei, Structure, Task, TaskId, TaskIdSegment, DEFAULT_MAX_LEVELS,
-};
+use crate::ast::{ContentSection, Rhei, Structure, Task, TaskId, TaskIdSegment};
 use crate::parser::{self, ParseError};
 
 pub const PANTA_INDEX_FILE: &str = "index.panta.md";
@@ -36,6 +34,8 @@ pub struct PantaProject {
     pub rhei: Rhei,
     /// Maps project-qualified task ID (`auth.1`) → the file path that defines it.
     pub task_sources: HashMap<String, PathBuf>,
+    /// Maps project-qualified task ID (`auth.1`) → the owning rhei execution root. §AR-rhei-panta.5
+    pub task_roots: HashMap<String, PathBuf>,
     /// Rhei ids in presentation order; `basin` is always last when present.
     pub rhei_ids: Vec<String>,
 }
@@ -219,9 +219,10 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
                 None,
             ));
         }
+        let root = rhei_execution_root(&entry);
         let loaded = load_rhei_entry(&entry)?;
         validate_panta_rhei_states(&id, &loaded.rhei, &manifest.states, manifest.states_declared)?;
-        rheis.push((id, loaded.rhei, loaded.task_sources));
+        rheis.push((id, loaded.rhei, loaded.task_sources, root));
     }
 
     let basin_dir = dir.join(BASIN_RHEI_ID);
@@ -230,27 +231,30 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
             return Err(ParseError::new("duplicate synthetic basin rhei id", None));
         }
         let loaded = load_basin_rhei(&basin_dir, &manifest.structure, &manifest.states)?;
-        rheis.push((BASIN_RHEI_ID.to_string(), loaded.rhei, loaded.task_sources));
+        rheis.push((BASIN_RHEI_ID.to_string(), loaded.rhei, loaded.task_sources, basin_dir));
     }
 
-    let rhei_ids: Vec<String> = rheis.iter().map(|(id, _, _)| id.clone()).collect();
+    let rhei_ids: Vec<String> = rheis.iter().map(|(id, _, _, _)| id.clone()).collect();
     let mut all_tasks = Vec::new();
     let mut task_sources = HashMap::new();
+    let mut task_roots = HashMap::new();
     let mut merged_structure = manifest.structure.clone();
     let mut content_sections = manifest.content_sections.clone();
-    for (rhei_id, mut rhei, sources) in rheis {
+    for (rhei_id, mut rhei, sources, root) in rheis {
         merge_structure(&mut merged_structure, &rhei.structure);
         content_sections.push(ContentSection {
             title: format!("Rhei {rhei_id}: {}", rhei.title),
             content: String::new(),
         });
-        qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids);
+        let local_ids = collect_task_ids(&rhei.tasks);
+        qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids, &local_ids);
         for task in &rhei.tasks {
             collect_task_sources(
                 task,
                 source_for_task(&sources, task).as_path(),
                 &mut task_sources,
             )?;
+            collect_task_roots(task, &root, &mut task_roots)?;
         }
         all_tasks.extend(rhei.tasks);
     }
@@ -273,8 +277,14 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
             tasks: all_tasks,
         },
         task_sources,
+        task_roots,
         rhei_ids,
     })
+}
+
+fn rhei_execution_root(path: &Path) -> PathBuf {
+    workspace_dir(path)
+        .unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf())
 }
 
 fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {
@@ -377,7 +387,8 @@ fn validate_rhei_id(id: &str, path: &Path) -> parser::Result<()> {
 }
 
 fn merge_structure(into: &mut Structure, from: &Structure) {
-    into.max_levels = into.max_levels.max(from.max_levels).max(DEFAULT_MAX_LEVELS);
+    // Keep authored max-level constraints while merging per-rhei node kinds. §FS-rhei-states.9.3
+    into.max_levels = into.max_levels.max(from.max_levels);
     for kind in &from.node_kinds {
         if !into.node_kinds.iter().any(|existing| existing.eq_ignore_ascii_case(kind)) {
             into.node_kinds.push(kind.clone());
@@ -385,22 +396,43 @@ fn merge_structure(into: &mut Structure, from: &Structure) {
     }
 }
 
-fn qualify_tasks(tasks: &mut [Task], rhei_id: &str, rhei_ids: &[String]) {
+fn collect_task_ids(tasks: &[Task]) -> HashSet<TaskId> {
+    fn visit(task: &Task, out: &mut HashSet<TaskId>) {
+        out.insert(task.id.clone());
+        for child in &task.children {
+            visit(child, out);
+        }
+    }
+
+    let mut ids = HashSet::new();
     for task in tasks {
-        qualify_task(task, rhei_id, rhei_ids);
+        visit(task, &mut ids);
+    }
+    ids
+}
+
+fn qualify_tasks(
+    tasks: &mut [Task],
+    rhei_id: &str,
+    rhei_ids: &[String],
+    local_ids: &HashSet<TaskId>,
+) {
+    for task in tasks {
+        qualify_task(task, rhei_id, rhei_ids, local_ids);
     }
 }
 
-fn qualify_task(task: &mut Task, rhei_id: &str, rhei_ids: &[String]) {
+fn qualify_task(task: &mut Task, rhei_id: &str, rhei_ids: &[String], local_ids: &HashSet<TaskId>) {
     task.id = qualify_local_id(&task.id, rhei_id);
     task.profile_depth_offset = task.profile_depth_offset.saturating_add(1);
     for prior in &mut task.prior {
-        if !is_project_qualified(prior, rhei_ids) {
+        // Rhei-local prior ids win when they are ambiguous with project-qualified ids. §AR-rhei-panta.3
+        if local_ids.contains(prior) || !is_project_qualified(prior, rhei_ids) {
             *prior = qualify_local_id(prior, rhei_id);
         }
     }
     for child in &mut task.children {
-        qualify_task(child, rhei_id, rhei_ids);
+        qualify_task(child, rhei_id, rhei_ids, local_ids);
     }
 }
 
@@ -421,6 +453,19 @@ fn is_project_qualified(id: &TaskId, rhei_ids: &[String]) -> bool {
 fn source_for_task(sources: &HashMap<String, PathBuf>, task: &Task) -> PathBuf {
     let local = TaskId::from_segments(task.id.segments.iter().skip(1).cloned().collect());
     sources.get(&local.to_string()).cloned().unwrap_or_default()
+}
+
+fn collect_task_roots(
+    task: &Task,
+    root: &Path,
+    task_roots: &mut HashMap<String, PathBuf>,
+) -> parser::Result<()> {
+    let id = task.id.to_string();
+    task_roots.insert(id, root.to_path_buf());
+    for child in &task.children {
+        collect_task_roots(child, root, task_roots)?;
+    }
+    Ok(())
 }
 
 /// Load a directory workspace, merging all task files into a single plan.

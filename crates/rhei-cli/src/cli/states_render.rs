@@ -231,6 +231,8 @@ struct LoadedPlan {
     /// For Panta projects: maps project-qualified task IDs to owning files.
     /// Empty for single-file plans.
     task_sources: HashMap<String, PathBuf>,
+    /// For Panta projects: maps project-qualified task IDs to owning rhei roots.
+    task_roots: HashMap<String, PathBuf>,
 }
 
 impl LoadedPlan {
@@ -264,14 +266,25 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             rhei: project.rhei,
             kind: LoadedPlanKind::PantaProject,
             task_sources: project.task_sources,
+            task_roots: project.task_roots,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
-        Ok(LoadedPlan { rhei: ws.rhei, kind: LoadedPlanKind::Workspace, task_sources: ws.task_sources })
+        Ok(LoadedPlan {
+            rhei: ws.rhei,
+            kind: LoadedPlanKind::Workspace,
+            task_sources: ws.task_sources,
+            task_roots: HashMap::new(),
+        })
     } else {
         let input = read_input_file(path)?;
         let rhei = rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))?;
-        Ok(LoadedPlan { rhei, kind: LoadedPlanKind::SingleFile, task_sources: HashMap::new() })
+        Ok(LoadedPlan {
+            rhei,
+            kind: LoadedPlanKind::SingleFile,
+            task_sources: HashMap::new(),
+            task_roots: HashMap::new(),
+        })
     }
 }
 
@@ -285,6 +298,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             rhei: project.rhei,
             kind: LoadedPlanKind::PantaProject,
             task_sources: project.task_sources,
+            task_roots: project.task_roots,
         });
     }
 
@@ -299,6 +313,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             rhei,
             kind: LoadedPlanKind::SingleFile,
             task_sources: HashMap::new(),
+            task_roots: HashMap::new(),
         }),
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
     }
@@ -370,6 +385,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         },
         kind: LoadedPlanKind::Workspace,
         task_sources,
+        task_roots: HashMap::new(),
     })
 }
 
@@ -424,8 +440,21 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     } else {
         normalized_input.parent().unwrap_or(Path::new("."))
     };
-    let mut report =
-        rhei_validator::validate_with_machine_and_base(&loaded.rhei, &resolved.machine, base_path);
+    let mut report = if loaded.is_panta_project() {
+        // Panta task links validate against each ticket's owning rhei root. §AR-rhei-panta.5
+        rhei_validator::validate_with_machine_and_link_bases(
+            &loaded.rhei,
+            &resolved.machine,
+            base_path,
+            &loaded.task_roots,
+        )
+    } else {
+        rhei_validator::validate_with_machine_and_base(
+            &loaded.rhei,
+            &resolved.machine,
+            base_path,
+        )
+    };
     let workspace_root = execution_workspace_root(input);
     let settings = load_merged_settings(&workspace_root)?;
     report.errors.extend(validate_machine_settings_references(&resolved.machine, &settings));

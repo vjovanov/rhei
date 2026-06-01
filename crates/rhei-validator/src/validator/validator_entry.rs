@@ -90,6 +90,18 @@ pub fn validate_with_machine_and_base(
     Validator::new(machine.clone()).validate_with_base(rhei, Some(base_path))
 }
 
+/// Validate a parsed rhei using per-task markdown link bases. §AR-rhei-panta.5
+pub fn validate_with_machine_and_link_bases(
+    rhei: &Rhei,
+    machine: &StateMachine,
+    default_base: &Path,
+    task_bases: &HashMap<String, PathBuf>,
+) -> ValidationReport {
+    let mut report = Validator::new(machine.clone()).validate_with_base(rhei, None);
+    validate_markdown_links_with_task_bases(rhei, default_base, task_bases, &mut report);
+    report
+}
+
 /// Load a [`StateMachine`] from `machine_path` and validate a parsed rhei.
 pub fn validate_from_machine_file<P: AsRef<Path>>(
     rhei: &Rhei,

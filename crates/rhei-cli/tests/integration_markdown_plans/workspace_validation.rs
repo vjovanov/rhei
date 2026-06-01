@@ -43,6 +43,30 @@ node_policy:
       profile: top-ticket
 "#;
 
+const PANTA_LEVEL_TWO_OVERRIDE_MACHINE: &str = r#"name: panta-level-two-machine
+version: 3.0
+states:
+  pending:
+    description: Task not yet started
+  completed:
+    description: Task finished
+    final: true
+transitions:
+  - from: pending
+    to: completed
+profiles:
+  default-ticket:
+    initial: pending
+    allowed: [pending, completed]
+node_policy:
+  root: default-ticket
+  default: default-ticket
+  overrides:
+    - match:
+        level: 2
+      profile: default-ticket
+"#;
+
 /// Helper: create a directory workspace with the given index content and
 /// a set of task files. Returns the workspace root directory.
 fn create_workspace(
@@ -145,6 +169,94 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
     );
     assert!(stdout.contains("Task auth.1: Login [completed]"));
     assert!(stdout.contains("Task billing.1: Invoice [pending] (prior: auth.1)"));
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_preserves_ambiguous_local_priors_before_cross_rhei_resolution() {
+    let project = create_panta_project(
+        "panta-local-prior",
+        "# Panta: Ambiguous Local Prior\n**States:** workspace-test-machine\n",
+        &[(
+            "rheis/auth.rhei.md",
+            "# Rhei: Auth\n\n## Tasks\n\n### Task auth: Auth root\n**State:** completed\n\n#### Task auth.1: Local setup\n**State:** completed\n\n### Task 2: Depends locally\n**State:** pending\n**Prior:** Task auth.1\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("load panta project");
+    assert_eq!(loaded.rhei.tasks[1].id.to_string(), "auth.2");
+    assert_eq!(loaded.rhei.tasks[1].prior[0].to_string(), "auth.auth.1");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        output.status.success(),
+        "validate should resolve ambiguous local prior\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_validates_task_links_from_owning_rhei_root() {
+    let project = create_panta_project(
+        "panta-link-root",
+        "# Panta: Link Root\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "rheis/auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Read spec\n**State:** pending\n\nSee [spec](docs/spec.md).\n",
+            ),
+            ("rheis/docs/spec.md", "Auth spec\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        output.status.success(),
+        "validate should resolve task links relative to rhei root\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_explicit_max_levels_one_is_not_raised_to_default() {
+    let project = create_panta_project(
+        "panta-max-levels",
+        "# Panta: Max Levels\n**States:** panta-level-two-machine\n\n---\nstructure:\n  maxLevels: 1\n  nodeKinds: [task]\n---\n",
+        &[(
+            "rheis/auth.rhei.md",
+            "# Rhei: Auth\n\n---\nstructure:\n  maxLevels: 1\n  nodeKinds: [task]\n---\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+        )],
+        PANTA_LEVEL_TWO_OVERRIDE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "validate should reject level 2 policy override");
+    assert!(
+        stderr.contains("match.level is 2") && stderr.contains("levels must be in 1..=1"),
+        "unexpected stderr: {stderr}"
+    );
 
     fs::remove_dir_all(project).expect("cleanup");
 }
