@@ -25,7 +25,8 @@ Panta            the project        (virtual, exactly one, kind `panta`)
 │   └── Task auth.2
 ├── Rhei  billing
 │   └── Task billing.1
-└── Task  inbox-3     a loose ticket filed directly under Panta
+└── Rhei  basin  the project basin   (synthetic when `basin/` exists)
+    └── Task basin.3   an unfiled ticket
 ```
 
 A **rhei** is a plan — a self-contained flow with its own tasks. A **ticket** is
@@ -45,9 +46,19 @@ rhei new "Authentication"        # creates a rhei under Panta
 rhei new "Billing" --under auth  # opt out of the default to nest elsewhere
 ```
 
-A ticket created with no owning rhei is allowed to live directly under Panta.
-These loose tickets form an **inbox** of unfiled work, so quick captures do not
-require choosing a rhei first.
+A ticket created with no owning rhei is placed in the project **basin**. The
+basin is loaded as a level-1 rhei with id `basin`, so quick captures do not
+require choosing a domain rhei first while the hierarchy remains Panta -> rhei
+-> ticket. Basin tickets use ordinary rhei-local ids and project-wide ids such
+as `basin.3`.
+
+`basin` is a permanently reserved rhei id, independent of whether any basin
+content currently exists: a discovered domain rhei under `rheis/` with id
+`basin` is a load/validation error. Reserving it unconditionally avoids a
+delayed-migration trap where a domain rhei named `basin` is valid until the
+first unfiled ticket appears. Filing a basin ticket into a domain rhei is a
+reparenting operation that changes its project id from `basin.<local-id>` to
+`<target-rhei>.<local-id>`.
 
 ## 3. One unified view
 
@@ -75,9 +86,9 @@ output never mentions it.
 
 A rhei is addressed by its id (for example `auth`). A ticket is addressed by its
 project-wide path, formed by joining its rhei id with its rhei-local id
-(`auth.1`, `auth.1.2`). This makes ticket identities unique across the whole
-project without authors coordinating ids by hand. The exact id-extension and
-grammar rules are specified in §AR-rhei-panta.
+(`auth.1`, `auth.1.2`, `basin.3`). This makes ticket identities unique across
+the whole project without authors coordinating ids by hand. The exact
+id-extension and grammar rules are specified in §AR-rhei-panta.
 
 ## 6. Project scope and command behavior
 

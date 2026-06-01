@@ -20,7 +20,7 @@ project/                 ← Panta (the project root)
       index.rhei.md
       tasks/
       runtime/           ← this rhei's own per-ticket artifacts
-  inbox/                 ← optional: loose tickets filed directly under Panta
+  basin/                 ← optional: project basin rhei for unfiled tickets
   rheis/runtime/         ← per-ticket artifacts for the single-file rheis here
   runtime/               ← project-level ROLLUPS only (accounting, snapshots, viz)
 ```
@@ -42,9 +42,13 @@ Loading a Panta produces one graph rooted at the virtual `panta` node:
 1. Parse `index.panta.md` for project title, default states, and content.
 2. Discover the rheis under `rheis/` in deterministic order. Each rhei is loaded
    by the existing single-file or Directory Workspace loader.
-3. Synthesize the virtual `panta` root and attach each loaded rhei as a level-1
-   child. Loose tickets under `inbox/` attach directly to the root.
-4. Merge into one task graph and resolve `**Prior:**` across the whole project,
+3. If `basin/` is present, load it as a synthetic Directory Workspace rhei with
+   id `basin`. It has no authored `index.rhei.md`; its files parse as workspace
+   task files, inherit the Panta default state declaration, and use `basin/` as
+   their execution root.
+4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
+   synthetic basin rhei, as a level-1 child.
+5. Merge into one task graph and resolve `**Prior:**` across the whole project,
    exactly as workspace task files merge today.
 
 The virtual root is materialized in memory only; it is never written back. A
@@ -65,9 +69,15 @@ its tickets:
 - A ticket's project-wide id is its rhei id joined with its rhei-local id:
   rhei-local `1` under rhei `auth` is the project id `auth.1`; rhei-local `1.2`
   is `auth.1.2`.
+- A ticket captured without an owning rhei is authored under `basin/`, which is
+  loaded as the `basin` rhei, so rhei-local `3` becomes project id `basin.3`.
 - Project ids must be unique across the whole Panta. Because the rhei id prefixes
   every ticket beneath it, authors only need uniqueness within a rhei, plus
   unique rhei ids across the project.
+- `basin` is a permanently reserved rhei id. A discovered rhei under `rheis/`
+  with id `basin` is a load/validation error whether or not `basin/` content
+  exists, so the synthetic basin rhei can never collide with a domain rhei
+  (§FS-rhei-panta.2).
 
 Within a rhei, tickets are authored and validated exactly as today
 (§FS-rhei-plan-language.3.4): the rhei-local id space is unchanged, including
@@ -77,6 +87,17 @@ is applied at merge time and is not authored into the rhei's task headings.
 within a rhei, rhei-local references continue to resolve locally.
 
 ## 4. State-machine binding
+
+`index.panta.md` supplies a default state-machine declaration for any rhei that
+omits its own `**States:**`. That inherited declaration resolves from the Panta
+project root; a rhei-local declaration still resolves from the rhei's own source
+location (§FS-rhei-plan-language.1.3). Panta inheritance is a default, not a
+merge: an inherited declaration is used only when the rhei omits `**States:**`,
+and a child rhei-local `states.yaml` never shadows the project default unless the
+rhei redeclares `**States:**`. Validation and execution share this one resolver
+and surface the resolved source in diagnostics — CLI override path, rhei-local
+declaration, inherited `index.panta.md` declaration, or built-in `rhei`
+fallback.
 
 The state-machine profile that previously resolved the level-0 `rhei` root now
 resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node
@@ -112,8 +133,15 @@ holds per-ticket artifacts.
 ## 6. Command scope mechanics
 
 `rhei run` resolves and caches one state machine per rhei in scope and applies a
-ticket's machine when transitioning it; cross-rhei dependency readiness only
-consults the `final` flag, so heterogeneous machines interoperate. The ready-set
+ticket's machine when transitioning it; cross-rhei dependency readiness consults
+the prior ticket's own machine and requires a successful terminal state
+(`final: true` and a normalized state name other than `cancelled`). This is the
+same predicate normal in-rhei scheduling uses; implementations may share one
+predicate, resolve the prior directly, or read an exported/cached readiness
+result, but only when that result is behaviorally equivalent and fresh. A
+dependency fails closed — the dependent stays blocked — whenever the prior
+state, the prior's state-machine meaning, or a cached readiness result cannot be
+resolved reliably. The ready-set
 scan, claim selection, and rollup all walk the single merged graph (§2), so
 project-wide is the natural default and `--rhei` is a filter applied to candidate
 nodes after the merge. Mutating commands report the resolved scope and the set of

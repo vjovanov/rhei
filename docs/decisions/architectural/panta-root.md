@@ -63,8 +63,9 @@ that only references independent plans (see Alternatives).
 
 Creating a rhei without naming a parent attaches it under Panta. Panta is the
 implicit default parent — analogous to `/` in a filesystem — so "add a rhei"
-needs no location argument. A loose ticket created with no rhei is likewise
-allowed directly under Panta, giving an inbox for unfiled work.
+needs no location argument. A loose ticket created with no rhei lands in the
+reserved synthetic `basin` rhei rather than directly under Panta, so unfiled
+work has a home while the Panta -> rhei -> ticket hierarchy stays intact.
 
 ## 4. Invisible by construction
 

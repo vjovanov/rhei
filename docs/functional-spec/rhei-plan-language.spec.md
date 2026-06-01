@@ -40,9 +40,9 @@ Render the avatar in the profile header and comment list. Fall back to initials 
 ```
 
 `**Prior:**` declares dependencies — Task 2 cannot be claimed until Task 1 is
-in a terminal state as defined by the active state machine (`final: true`; in
-the built-in `rhei` machine, `completed` and `cancelled`). Tasks without
-`**Prior:**` are immediately dependency-ready.
+in a successful terminal state as defined by the active state machine
+(`final: true` and not normalized `cancelled`; in the built-in `rhei` machine,
+`completed`). Tasks without `**Prior:**` are immediately dependency-ready.
 
 Tasks may also be decomposed hierarchically when the plan's optional
 `structure.maxLevels` setting allows more than one level:
@@ -183,20 +183,29 @@ recommended for Directory Workspaces. Because the grammar requires an
 State-machine resolution is normative for all commands:
 
 1. `--state-machine <path>` loads the specified YAML file and overrides
-   automatic lookup. If the plan declares `**States:**`, the loaded file's
-   `name` must match that value; if the field is omitted, the loaded file's
-   `name` becomes the active state-machine name for this invocation.
-2. When `**States:**` is omitted and no override is supplied, the plan uses the
-   built-in `rhei` state machine. Sibling or workspace `states.yaml` files are
-   ignored in this case.
-3. When `**States:** rhei` is declared and no override is supplied, a matching
-   auto-discovered `states.yaml` named `rhei` may be used; otherwise the plan
-   falls back to the built-in `rhei` state machine.
-4. When a non-`rhei` `**States:** <name>` is declared and no override is
+   automatic lookup. If the target plan or rhei declares `**States:**`, or
+   inherits a Panta default declaration, the loaded file's `name` must match that
+   effective value; if the effective field is omitted, the loaded file's `name`
+   becomes the active state-machine name for this invocation.
+2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
+   resolved per rhei. A declaration in the rhei itself wins. If the rhei omits
+   `**States:**`, it inherits the declaration from `index.panta.md` when that
+   manifest declares one. The inherited declaration is resolved from the Panta
+   project root (`<project>/states.yaml`) unless `--state-machine` supplied an
+   override.
+3. When `**States:**` is omitted after Panta inheritance has been applied, the
+   plan or rhei uses the built-in `rhei` state machine. Sibling, workspace, or
+   project `states.yaml` files are ignored in this case.
+4. When `**States:** rhei` is declared and no override is supplied, a matching
+   auto-discovered `states.yaml` named `rhei` may be used from the same lookup
+   location that would serve a non-`rhei` declaration; otherwise the plan falls
+   back to the built-in `rhei` state machine.
+5. When a non-`rhei` `**States:** <name>` is declared and no override is
    supplied, the CLI resolves the file from a sibling `states.yaml` for a
-   single-file plan or from `<workspace>/states.yaml` for a Directory Workspace.
-   That file must exist and its `name` must match `<name>`.
-5. A declared non-`rhei` state machine without a matching auto-discovered file
+   single-file plan, from `<workspace>/states.yaml` for a Directory Workspace,
+   or from `<project>/states.yaml` when the declaration was inherited from
+   `index.panta.md`. That file must exist and its `name` must match `<name>`.
+6. A declared non-`rhei` state machine without a matching auto-discovered file
    is a validation error; it never falls back to the built-in machine.
 
 ### 1.4. Directory Workspace Metadata
@@ -248,17 +257,23 @@ A Panta Project consists of:
    `rheis/` is recursive and deterministic, using the same non-hidden,
    `/`-normalized, case-sensitive ordering rules as workspace task-file
    discovery (§FS-rhei-plan-language.1.2).
-3. **`inbox/` directory** (optional): loose tickets filed directly under Panta,
-   authored as workspace task files.
+3. **`basin/` directory** (optional): loose tickets captured without a domain
+   rhei. This directory is loaded as a synthetic Directory Workspace rhei with id
+   `basin`; its contents are authored as workspace task files. The synthetic
+   basin has no authored `index.rhei.md`, inherits the Panta default state
+   declaration, and stores per-ticket runtime artifacts relative to `basin/`.
 
 Each rhei's id is derived from its location under `rheis/`: the filename stem for
 a Single-File Plan (`rheis/auth.rhei.md` -> `auth`) or the directory name for a
 Directory Workspace rhei (`rheis/billing/` -> `billing`). The id must be a valid
-`IDENTIFIER` and must be unique across the project.
+`IDENTIFIER` and must be unique across the project. `basin` is permanently
+reserved for the synthetic basin rhei: a rhei under `rheis/` with id `basin` is
+a validation error whether or not the `basin/` directory exists.
 
-At load time all rheis merge into one graph rooted at Panta. Ticket ids are
-namespaced by their rhei id and `**Prior:**` resolves across the whole project;
-see [Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
+At load time all rheis, including the synthetic `basin` rhei when present, merge
+into one graph rooted at Panta. Ticket ids are namespaced by their rhei id and
+`**Prior:**` resolves across the whole project; see
+[Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
 
 ## 2. Grammar (EBNF)
 
@@ -302,8 +317,8 @@ workspace_task_file = [ { blank_line } ], task_level_1, { task_level_1 } ;
    defined structurally in section 1.5. `index.panta.md` parses as
    panta_manifest. Each entry under `rheis/` is a Single-File Plan
    (rhei_document) or a Directory Workspace (a workspace_index plus
-   workspace_task_file files). Entries under the optional `inbox/` directory
-   parse as workspace_task_file. *)
+   workspace_task_file files). Entries under the optional `basin/` directory
+   parse as workspace_task_file and are loaded as the synthetic `basin` rhei. *)
 
 panta_manifest  = panta_header, { blank_line },
                   [ states_field, { blank_line } ],
@@ -724,13 +739,15 @@ nodes with the same id across *any* files within the `tasks/` directory are an
 error.
 
 In a Panta Project, each ticket's project-wide id is its rhei id joined with its
-rhei-local id (rhei-local `1` under rhei `auth` is `auth.1`). Uniqueness is
-checked on these fully-qualified ids across the whole project, and rhei ids must
-themselves be unique under `rheis/`. Because the rhei id prefixes every ticket
-beneath it, authors only need rhei-local uniqueness within each rhei plus unique
-rhei ids. Authored rhei-local ids and heading depth are validated per rhei
-exactly as in a standalone plan (§FS-rhei-plan-language.3.4); the Panta prefix is
-applied at merge and is not authored into task headings.
+rhei-local id (rhei-local `1` under rhei `auth` is `auth.1`; rhei-local `3`
+under the synthetic basin rhei is `basin.3`). Uniqueness is checked on these
+fully-qualified ids across the whole project, and rhei ids must themselves be
+unique across `rheis/` plus the optional synthetic `basin` rhei. Because the rhei
+id prefixes every ticket beneath it, authors only need rhei-local uniqueness
+within each rhei plus unique rhei ids. Authored rhei-local ids and heading depth
+are validated per rhei exactly as in a standalone plan
+(§FS-rhei-plan-language.3.4); the Panta prefix is applied at merge and is not
+authored into task headings.
 
 ### 3.6. Link Integrity
 

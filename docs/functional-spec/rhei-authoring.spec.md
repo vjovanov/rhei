@@ -24,8 +24,9 @@ Save this file with a `.rhei.md` extension, then validate it:
 rhei validate my-plan.rhei.md
 ```
 
-When no `**States:**` field is declared, the plan uses the built-in `rhei`
-state machine.
+When no `**States:**` field is declared, a standalone plan uses the built-in
+`rhei` state machine. Inside a Panta Project, a rhei that omits `**States:**`
+may inherit the project default from `index.panta.md`.
 
 ## 2. Authoring Workflow
 

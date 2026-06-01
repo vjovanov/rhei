@@ -28,9 +28,11 @@ Workspace root. When a workspace root is passed, validation loads
 
 Validation uses the state-machine resolution order defined in the
 [Plan Language Specification](rhei-plan-language.spec.md#13-state-machine-resolution):
-explicit `--state-machine <PATH>` first, omitted `**States:**` as the built-in
-`rhei` machine, declared `**States:** rhei` with built-in fallback, and declared
-custom names only when a matching auto-discovered file is available.
+explicit `--state-machine <PATH>` first, rhei-local `**States:**` declarations,
+Panta default inheritance for rheis that omit `**States:**`, omitted effective
+declarations as the built-in `rhei` machine, declared `**States:** rhei` with
+built-in fallback, and declared custom names only when a matching
+auto-discovered file is available.
 
 If a plan declares a non-default state machine name and no matching
 auto-discovered file is available, validation fails and directs the caller to
