@@ -2,6 +2,22 @@
 
 This directory contains example inputs for the current markdown plan compiler implementation.
 
+## Choose an example
+
+Use this table when you know the job you want to model:
+
+| Goal | Start here | Why |
+|------|------------|-----|
+| First local run with no external agent setup | `agent-discussion/` | Mock agents complete a multi-target discussion workflow in a temporary copy. |
+| Simple manual plan authoring | `release-automation.rhei.md` | A compact single-file plan with sections, dependencies, and named ids. |
+| Human approval gates | `human-review-loop.rhei.md` | Shows the default `human-review` and `agent-review` flow. |
+| Repeatable product or PM work | `product-management-example/` | Fan-out PM entries, aggregate them, and implement a bounded slice. |
+| Agent debate or deliberation | `agent-discussion/` | Two agent targets discuss, aggregate disagreement, and apply a decision. |
+| Multi-model analysis | `multi-model-analysis/` | Runs analysis across several targets before aggregation. |
+| Parallel implementation branches | `parallel-worktrees/` | Demonstrates independent tasks advancing concurrently. |
+| Snapshot continuation | `snapshot-continuation/` | Shows snapshot emit, inherit, list, continue, and run override commands. |
+| Live dashboard regression testing | `ui-test-canonical-example/` | Canonical runnable fixture for Flow and TUI/dashboard behavior. |
+
 ## Files
 
 - `release-automation.rhei.md`
@@ -95,7 +111,7 @@ correct state machine and runtime setup per example:
 cargo xtask examples list                      # show all examples
 cargo xtask examples validate <name>           # validate one example
 cargo xtask examples validate --all            # validate every example
-cargo xtask examples run living-review-loop    # run a runnable example in a tmp copy
+cargo xtask examples run agent-discussion      # run a runnable mock-backed example in a tmp copy
 ```
 
 Direct CLI invocations still work if you need a one-off — for example, rendering

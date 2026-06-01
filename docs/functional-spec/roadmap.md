@@ -86,6 +86,10 @@ Status: planned. This section is the canonical home for useful follow-up work
 from the April 2026 PM review and the product-management pre-release pass. The
 old notes are historical; this roadmap owns the remaining backlog.
 
+- Graduate Panta from read-only project loading to project-wide mutation:
+  route state, assignee, result, runtime, and artifact rewrites to each owning
+  rhei; resolve per-rhei state machines during execution; and replace the
+  current mutating-command rejection with scoped project execution. §FS-rhei-panta §AR-rhei-panta
 - Make failed `rhei complete` attempts from loop states explain the exact
   blocked transition condition and the currently available next transitions. §FS-rhei-complete §FS-rhei-transitions
 - Decide and normalize `rhei transition` result-file behavior: either stop
