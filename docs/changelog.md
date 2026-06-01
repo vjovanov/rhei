@@ -4,7 +4,7 @@
 
 - Clarify the first-run example path, Panta's current read-only project support
   boundary, and runnable example discovery; fix `xtask` example copying for
-  fixtures that contain snapshot symlinks.
+  fixtures that contain snapshot symlinks. PR #28
 - Fix stale template-author guidance, Flow inspector wording, and local Claude
   registration ignore handling after the settings-path and runtime-slot
   changes. PR #26
