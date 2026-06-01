@@ -155,6 +155,12 @@ the top level (§FS-rhei-panta.4). Tooling may expose the root behind an explici
 opt-in. Because the root is virtual and derived, no command may claim,
 transition, complete, cancel, or reset it.
 
+The synthetic `basin` rhei is de-emphasized rather than excluded: the same
+presentation layers order it last and render it in a de-emphasized form, but it
+participates normally in readiness, claim selection, execution, and rollup. The
+de-emphasis is presentational only and never alters scheduling
+(§FS-rhei-panta.4).
+
 ## Related Specifications
 
 - [Panta (functional)](../functional-spec/rhei-panta.spec.md) §FS-rhei-panta

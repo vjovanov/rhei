@@ -82,6 +82,15 @@ Panta — it has no state to move. Tooling may reveal the root only behind an
 explicit opt-in flag (for example `--show-root`) for debugging; the default
 output never mentions it.
 
+The synthetic `basin` rhei is **de-emphasized, not hidden**. Unlike Panta, it is
+a real rhei that participates fully in readiness, scheduling, execution, and
+rollup — `rhei run` and `rhei next` treat its tickets like any other rhei's. But
+because its tickets are unfiled quick-captures rather than planned work, default
+listing and visualization order it last and present it in a de-emphasized form
+(for example dimmed or collapsed) so it never competes with planned rheis. It is
+never placed behind an opt-in flag the way Panta is: unfiled work must stay one
+glance away so it gets triaged rather than silently accumulating unseen.
+
 ## 5. Identity
 
 A rhei is addressed by its id (for example `auth`). A ticket is addressed by its
@@ -148,9 +157,11 @@ up automatically.
   `panta`/`rhei` kinds.
 - `rhei list` is project-wide with rheis as the top level; existing filters
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
-  `--rhei` filters to a rhei.
+  `--rhei` filters to a rhei. The `basin` rhei is ordered last and de-emphasized
+  in default output (§4).
 - `rhei viz` renders Panta as the implicit canvas (never a drawn root box), rheis
-  as top-level groups, with cross-rhei dependency edges drawn between them.
+  as top-level groups, with cross-rhei dependency edges drawn between them. The
+  `basin` group is placed last and de-emphasized (§4).
 
 ## Related Specifications
 
