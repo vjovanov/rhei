@@ -13,9 +13,55 @@ pub struct WorkspaceIndex {
     pub content_sections: Vec<ContentSection>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PantaManifest {
+    pub title: String,
+    pub states: String,
+    pub states_declared: bool,
+    pub structure: Structure,
+    pub metadata: Option<Metadata>,
+    pub content_sections: Vec<ContentSection>,
+}
+
 /// Parse a workspace index file (`index.rhei.md`).
 pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
-    let re_rhei = Regex::new(r#"^#\s+Rhei:\s+(.*)$"#).unwrap();
+    let parsed = parse_manifest(input, "Rhei", "workspace index")?;
+    Ok(WorkspaceIndex {
+        title: parsed.title,
+        states: parsed.states,
+        states_declared: parsed.states_declared,
+        structure: parsed.structure,
+        metadata: parsed.metadata,
+        content_sections: parsed.content_sections,
+    })
+}
+
+/// Parse a Panta project manifest file (`index.panta.md`). §FS-rhei-plan-language.1.5
+pub fn parse_panta_manifest(input: &str) -> Result<PantaManifest> {
+    let parsed = parse_manifest(input, "Panta", "Panta manifest")?;
+    Ok(PantaManifest {
+        title: parsed.title,
+        states: parsed.states,
+        states_declared: parsed.states_declared,
+        structure: parsed.structure,
+        metadata: parsed.metadata,
+        content_sections: parsed.content_sections,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ManifestParts {
+    title: String,
+    states: String,
+    states_declared: bool,
+    structure: Structure,
+    metadata: Option<Metadata>,
+    content_sections: Vec<ContentSection>,
+}
+
+fn parse_manifest(input: &str, header_name: &str, frontmatter_kind: &str) -> Result<ManifestParts> {
+    let re_header =
+        Regex::new(&format!(r#"^#\s+{}:\s+(.*)$"#, regex::escape(header_name))).unwrap();
     let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
     let re_tasks = Regex::new(r#"^##\s+Tasks\s*$"#).unwrap();
     let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
@@ -81,13 +127,15 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
 
         if !header_seen && line == "---" {
             return Err(ParseError::new(
-                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+                format!(
+                    "YAML frontmatter must appear after the `# {header_name}:` header (and any `**States:**` declaration). Move the `---` block below the header."
+                ),
                 Some(line_number),
             ));
         }
 
         if !header_seen {
-            if let Some(cap) = re_rhei.captures(line) {
+            if let Some(cap) = re_header.captures(line) {
                 title = Some(cap.get(1).unwrap().as_str().to_string());
                 header_seen = true;
                 continue;
@@ -95,7 +143,7 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
             let is_h1 = line.starts_with('#') && !line.starts_with("##");
             if is_h1 {
                 return Err(ParseError::new(
-                    "Malformed rhei heading: expected '# Rhei: <title>'",
+                    format!("Malformed heading: expected '# {header_name}: <title>'"),
                     Some(line_number),
                 ));
             }
@@ -124,7 +172,9 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
 
         if re_tasks.is_match(line) {
             return Err(ParseError::new(
-                "Workspace index file must not contain a '## Tasks' section; tasks belong in the tasks/ directory",
+                format!(
+                    "{frontmatter_kind} file must not contain a '## Tasks' section; tasks belong in child task files"
+                ),
                 Some(line_number),
             ));
         }
@@ -150,10 +200,12 @@ pub fn parse_workspace_index(input: &str) -> Result<WorkspaceIndex> {
         ));
     }
 
-    let title = title.ok_or_else(|| ParseError::new("Missing '# Rhei: <title>' header", None))?;
+    let title = title.ok_or_else(|| {
+        ParseError::new(format!("Missing '# {header_name}: <title>' header"), None)
+    })?;
 
     let states_declared = states.is_some();
-    Ok(WorkspaceIndex {
+    Ok(ManifestParts {
         title,
         states: states.unwrap_or_else(|| "rhei".to_string()),
         states_declared,

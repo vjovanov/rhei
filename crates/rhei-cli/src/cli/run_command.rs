@@ -13,6 +13,7 @@ fn run_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
+    reject_panta_mutation(&loaded, "run")?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;

@@ -16,6 +16,33 @@ transitions:
     to: completed
 "#;
 
+const PANTA_PROFILE_STATE_MACHINE: &str = r#"name: panta-profile-machine
+version: 3.0
+states:
+  pending:
+    description: Task not yet started
+  completed:
+    description: Task finished
+    final: true
+transitions:
+  - from: pending
+    to: completed
+profiles:
+  top-ticket:
+    initial: pending
+    allowed: [pending, completed]
+  nested-ticket:
+    initial: completed
+    allowed: [completed]
+node_policy:
+  root: top-ticket
+  default: nested-ticket
+  overrides:
+    - match:
+        level: 1
+      profile: top-ticket
+"#;
+
 /// Helper: create a directory workspace with the given index content and
 /// a set of task files. Returns the workspace root directory.
 fn create_workspace(
@@ -38,6 +65,218 @@ fn create_workspace(
     }
     let machine_path = write_fixture_file(&dir, "states.yaml", state_machine);
     (ws, machine_path)
+}
+
+fn create_panta_project(
+    prefix: &str,
+    manifest: &str,
+    files: &[(&str, &str)],
+    state_machine: &str,
+) -> PathBuf {
+    let dir = unique_temp_dir(prefix);
+    fs::write(dir.join("index.panta.md"), manifest).expect("write panta manifest");
+    for (name, content) in files {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create panta parent dir");
+        }
+        fs::write(path, content).expect("write panta file");
+    }
+    fs::write(dir.join("states.yaml"), state_machine).expect("write panta states");
+    dir
+}
+
+#[test]
+fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
+    let project = create_panta_project(
+        "panta-valid",
+        "# Panta: Product Suite\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "rheis/auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** completed\n",
+            ),
+            (
+                "rheis/billing/index.rhei.md",
+                "# Rhei: Billing\n\n## Notes\nBilling context.\n",
+            ),
+            (
+                "rheis/billing/tasks/invoice.md",
+                "### Task 1: Invoice\n**State:** pending\n**Prior:** Task auth.1\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("load panta project");
+    assert_eq!(loaded.rhei.title, "Product Suite");
+    assert_eq!(loaded.rhei_ids, vec!["auth", "billing"]);
+    assert!(loaded.task_sources.contains_key("auth.1"));
+    assert!(loaded.task_sources.contains_key("billing.1"));
+    assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
+    assert_eq!(loaded.rhei.tasks[1].id.to_string(), "billing.1");
+    assert_eq!(loaded.rhei.tasks[1].prior[0].to_string(), "auth.1");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "validate should succeed for panta project\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Validation succeeded"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(project.join("index.panta.md"))
+        .output()
+        .expect("list command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "list should succeed for panta manifest path\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Task auth.1: Login [completed]"));
+    assert!(stdout.contains("Task billing.1: Invoice [pending] (prior: auth.1)"));
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_basin_loads_as_reserved_last_rhei() {
+    let project = create_panta_project(
+        "panta-basin",
+        "# Panta: Captures\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "rheis/auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+            ),
+            ("basin/loose.md", "### Task 3: Triage later\n**State:** pending\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("load panta project");
+    assert_eq!(loaded.rhei_ids, vec!["auth", "basin"]);
+    assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
+    assert_eq!(loaded.rhei.tasks[1].id.to_string(), "basin.3");
+    assert!(loaded.task_sources["basin.3"].ends_with("basin/loose.md"));
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_rejects_domain_rhei_named_basin() {
+    let project = create_panta_project(
+        "panta-basin-reserved",
+        "# Panta: Captures\n",
+        &[(
+            "rheis/basin.rhei.md",
+            "# Rhei: Basin Domain\n\n## Tasks\n\n### Task 1: Invalid\n**State:** pending\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let err = workspace::load_panta_project(&project).expect_err("reserved basin should fail");
+    assert!(
+        err.message.contains("reserved for the synthetic basin rhei"),
+        "unexpected error: {}",
+        err.message
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_rejects_child_rhei_state_machine_declaration_that_differs_from_project() {
+    let project = create_panta_project(
+        "panta-child-states",
+        "# Panta: Mixed Machines\n**States:** workspace-test-machine\n",
+        &[(
+            "rheis/auth.rhei.md",
+            "# Rhei: Auth\n**States:** child-flow\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let err = workspace::load_panta_project(&project).expect_err("mixed machines should fail");
+    assert!(
+        err.message.contains("declares state machine 'child-flow'")
+            && err.message.contains("project-wide state machine 'workspace-test-machine'"),
+        "unexpected error: {}",
+        err.message
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_profile_resolution_uses_rhei_local_task_depth() {
+    let project = create_panta_project(
+        "panta-profile-depth",
+        "# Panta: Profile Depth\n**States:** panta-profile-machine\n",
+        &[(
+            "rheis/auth.rhei.md",
+            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+        )],
+        PANTA_PROFILE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        output.status.success(),
+        "top-level ticket should resolve as level 1 despite project-qualified id\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_mutating_commands_are_rejected_until_project_rewrites_are_supported() {
+    let project = create_panta_project(
+        "panta-read-only",
+        "# Panta: Read Only\n**States:** workspace-test-machine\n",
+        &[(
+            "rheis/auth.rhei.md",
+            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("transition")
+        .arg(&project)
+        .arg("--task")
+        .arg("auth.1")
+        .arg("--from")
+        .arg("pending")
+        .arg("--to")
+        .arg("in-progress")
+        .arg("--no-callbacks")
+        .output()
+        .expect("transition command should run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "transition should fail for Panta projects");
+    assert!(
+        stderr.contains("Panta projects are currently read-only for `rhei transition`"),
+        "unexpected stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]

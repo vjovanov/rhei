@@ -358,6 +358,7 @@ transitions:
         .expect("current");
         let task = rhei_core::ast::Task {
             id: parse_task_id("1.1.1"),
+            profile_depth_offset: 0,
             kind: "task".to_string(),
             title: "child".to_string(),
             state: "pending".to_string(),

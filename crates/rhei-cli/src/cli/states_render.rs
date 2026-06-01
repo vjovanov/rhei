@@ -217,9 +217,18 @@ fn read_input_file(path: &Path) -> MietteResult<String> {
 }
 
 /// A loaded plan with optional workspace task-to-file mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadedPlanKind {
+    SingleFile,
+    Workspace,
+    PantaProject,
+}
+
 struct LoadedPlan {
     rhei: rhei_core::ast::Rhei,
+    kind: LoadedPlanKind,
     /// For directory workspaces: maps task ID string → source file path.
+    /// For Panta projects: maps project-qualified task IDs to owning files.
     /// Empty for single-file plans.
     task_sources: HashMap<String, PathBuf>,
 }
@@ -230,23 +239,55 @@ impl LoadedPlan {
     fn task_file(&self, task_id: &str, fallback: &Path) -> PathBuf {
         self.task_sources.get(task_id).cloned().unwrap_or_else(|| fallback.to_path_buf())
     }
+
+    fn is_panta_project(&self) -> bool {
+        self.kind == LoadedPlanKind::PantaProject
+    }
+}
+
+fn reject_panta_mutation(loaded: &LoadedPlan, command: &str) -> MietteResult<()> {
+    if loaded.is_panta_project() {
+        return Err(miette!(
+            "Panta projects are currently read-only for `rhei {}`. Use `rhei validate`, `rhei list`, or target an individual rhei until project-wide mutation supports per-rhei rewrites and state machines.",
+            command
+        ));
+    }
+    Ok(())
 }
 
 /// Load a plan from a file or directory workspace.
 fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
-    if let Some(ws_dir) = workspace::workspace_dir(path) {
+    if let Some(project_dir) = workspace::panta_project_dir(path) {
+        let project = workspace::load_panta_project(&project_dir)
+            .map_err(|err| miette!("{}", err.message))?;
+        Ok(LoadedPlan {
+            rhei: project.rhei,
+            kind: LoadedPlanKind::PantaProject,
+            task_sources: project.task_sources,
+        })
+    } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
-        Ok(LoadedPlan { rhei: ws.rhei, task_sources: ws.task_sources })
+        Ok(LoadedPlan { rhei: ws.rhei, kind: LoadedPlanKind::Workspace, task_sources: ws.task_sources })
     } else {
         let input = read_input_file(path)?;
         let rhei = rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))?;
-        Ok(LoadedPlan { rhei, task_sources: HashMap::new() })
+        Ok(LoadedPlan { rhei, kind: LoadedPlanKind::SingleFile, task_sources: HashMap::new() })
     }
 }
 
 /// Load a plan for `rhei validate`, collecting recoverable parse errors where
 /// validation promises batch diagnostics.
 fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
+    if let Some(project_dir) = workspace::panta_project_dir(path) {
+        let project = workspace::load_panta_project(&project_dir)
+            .map_err(|err| miette!("{}", err.message))?;
+        return Ok(LoadedPlan {
+            rhei: project.rhei,
+            kind: LoadedPlanKind::PantaProject,
+            task_sources: project.task_sources,
+        });
+    }
+
     if let Some(ws_dir) = workspace::workspace_dir(path) {
         return load_workspace_for_validation(&ws_dir);
     }
@@ -254,7 +295,11 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
     let raw = read_input_file(path)?;
     let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
     match (maybe_rhei, errs.is_empty()) {
-        (Some(rhei), true) => Ok(LoadedPlan { rhei, task_sources: HashMap::new() }),
+        (Some(rhei), true) => Ok(LoadedPlan {
+            rhei,
+            kind: LoadedPlanKind::SingleFile,
+            task_sources: HashMap::new(),
+        }),
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
     }
 }
@@ -323,6 +368,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
             content_sections: index.content_sections,
             tasks: all_tasks,
         },
+        kind: LoadedPlanKind::Workspace,
         task_sources,
     })
 }
@@ -372,7 +418,12 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
-    let base_path = input.parent().unwrap_or(Path::new("."));
+    let normalized_input = normalize_workspace_input(input);
+    let base_path = if normalized_input.is_dir() {
+        normalized_input.as_path()
+    } else {
+        normalized_input.parent().unwrap_or(Path::new("."))
+    };
     let mut report =
         rhei_validator::validate_with_machine_and_base(&loaded.rhei, &resolved.machine, base_path);
     let workspace_root = execution_workspace_root(input);
@@ -561,6 +612,10 @@ fn validation_watch_plan(input: &Path, state_machine: Option<&Path>) -> Validati
 }
 
 fn plan_watch_targets(input: &Path) -> Vec<WatchTarget> {
+    if let Some(project_root) = workspace::panta_project_dir(input) {
+        return panta_watch_targets(&project_root);
+    }
+
     if let Some(workspace_root) = workspace::workspace_dir(input) {
         return workspace_watch_targets(&workspace_root);
     }
@@ -572,6 +627,14 @@ fn plan_watch_targets(input: &Path) -> Vec<WatchTarget> {
     }
 }
 
+fn panta_watch_targets(project_root: &Path) -> Vec<WatchTarget> {
+    vec![
+        WatchTarget::Exact(canonical_watch_path(&project_root.join(workspace::PANTA_INDEX_FILE))),
+        WatchTarget::Descendant(canonical_watch_path(&project_root.join(workspace::RHEIS_DIR))),
+        WatchTarget::Descendant(canonical_watch_path(&project_root.join(workspace::BASIN_RHEI_ID))),
+    ]
+}
+
 fn workspace_watch_targets(workspace_root: &Path) -> Vec<WatchTarget> {
     vec![
         WatchTarget::Exact(canonical_watch_path(&workspace_root.join("index.rhei.md"))),
@@ -580,7 +643,9 @@ fn workspace_watch_targets(workspace_root: &Path) -> Vec<WatchTarget> {
 }
 
 fn watch_auto_state_machine_path(input: &Path) -> PathBuf {
-    if let Some(workspace_root) = workspace::workspace_dir(input) {
+    if let Some(project_root) = workspace::panta_project_dir(input) {
+        project_root.join("states.yaml")
+    } else if let Some(workspace_root) = workspace::workspace_dir(input) {
         workspace_root.join("states.yaml")
     } else if input.is_dir() {
         input.join("states.yaml")

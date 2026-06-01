@@ -193,6 +193,10 @@ pub struct Task {
     /// Full hierarchical id as declared (number of segments matches the
     /// heading depth).
     pub id: TaskId,
+    /// Number of synthetic project-prefix id segments that should not count
+    /// toward rhei-local node-policy depth. This is zero for authored rheis
+    /// and one for tickets loaded through Panta project qualification.
+    pub profile_depth_offset: u8,
     /// Heading keyword in canonical lowercase form (`task`, `bug`, ...).
     pub kind: String,
     /// Title captured from the node heading.
@@ -209,6 +213,13 @@ pub struct Task {
     pub content: String,
     /// Child nodes nested under this node.
     pub children: Vec<Task>,
+}
+
+impl Task {
+    /// Depth used for state-machine node-policy selectors. §AR-rhei-panta.3
+    pub fn profile_level(&self) -> u8 {
+        (self.id.depth() as u8).saturating_sub(self.profile_depth_offset).max(1)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

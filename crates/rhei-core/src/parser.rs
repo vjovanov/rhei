@@ -17,9 +17,9 @@ mod workspace;
 pub use plan::parse;
 pub use recovery::parse_collect;
 pub use workspace::{
-    parse_workspace_index, parse_workspace_tasks, parse_workspace_tasks_collect,
-    parse_workspace_tasks_collect_with_structure, parse_workspace_tasks_with_structure,
-    WorkspaceIndex,
+    parse_panta_manifest, parse_workspace_index, parse_workspace_tasks,
+    parse_workspace_tasks_collect, parse_workspace_tasks_collect_with_structure,
+    parse_workspace_tasks_with_structure, PantaManifest, WorkspaceIndex,
 };
 
 use crate::ast::{Metadata, Structure, DEFAULT_MAX_LEVELS, DEFAULT_NODE_KIND, MAX_ALLOWED_LEVELS};
@@ -101,9 +101,11 @@ fn parse_structure(metadata: Option<&Metadata>, start_line: usize) -> Result<Str
                     Some(start_line),
                 ));
             }
-            if canonical == "rhei" {
+            if canonical == "panta" || canonical == "rhei" {
                 return Err(ParseError::new(
-                    "`rhei` is a reserved node kind and must not appear in `structure.nodeKinds`",
+                    format!(
+                        "`{canonical}` is a reserved node kind and must not appear in `structure.nodeKinds`"
+                    ),
                     Some(start_line),
                 ));
             }

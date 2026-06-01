@@ -142,7 +142,7 @@ fn task_is_in_initial_state(
     machine: &rhei_validator::StateMachine,
 ) -> bool {
     machine
-        .profile_for_node(task.kind.as_str(), task.id.depth() as u8)
+        .profile_for_node(task.kind.as_str(), task.profile_level())
         .map(|profile| profile.initial == normalized_state)
         .unwrap_or_else(|| machine.states.get(normalized_state).map(|def| def.initial).unwrap_or(false))
 }
@@ -228,7 +228,7 @@ fn transition_command_lines(
             task_profile_allows_state(
                 machine,
                 task.kind.as_str(),
-                task.id.depth() as u8,
+                task.profile_level(),
                 &rule.to.0,
             )
         })
@@ -495,7 +495,7 @@ fn find_next_transition(
             && task_profile_allows_state(
                 machine,
                 task.kind.as_str(),
-                task.id.depth() as u8,
+                task.profile_level(),
                 &rule.to.0,
             )
             && transition_rule_is_applicable(
@@ -520,7 +520,7 @@ fn find_next_transition(
                 && task_profile_allows_state(
                     machine,
                     task.kind.as_str(),
-                    task.id.depth() as u8,
+                    task.profile_level(),
                     &rule.to.0,
                 )
                 && transition_rule_is_applicable(

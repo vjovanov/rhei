@@ -227,7 +227,7 @@ fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut 
             &subject,
             &task.state,
             task.kind.as_str(),
-            task.id.depth() as u8,
+            task.profile_level(),
             machine,
             report,
         );
