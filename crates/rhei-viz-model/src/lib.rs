@@ -247,4 +247,13 @@ mod tests {
         assert!(FLOW_ASSET.contains("filter(isRunningNow)"));
         assert!(FLOW_ASSET.contains("const runningPart = hasRuntimeOverlay()"));
     }
+
+    #[test]
+    fn flow_asset_clears_stale_running_overlay_on_poll_loss() {
+        assert!(FLOW_ASSET.contains("let POLL_FAILS=0, LIVE_STALE=false"));
+        assert!(FLOW_ASSET.contains("function clearRunningOverlay()"));
+        assert!(FLOW_ASSET.contains("if(POLL_FAILS>=2) clearRunningOverlay()"));
+        assert!(FLOW_ASSET.contains("delete rt.in_slot"));
+        assert!(FLOW_ASSET.contains("s.active=false"));
+    }
 }
