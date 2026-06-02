@@ -4,7 +4,7 @@ pub use rhei_core::ast::{CallbackRef, StateName, TransitionRule};
 use rhei_core::ast::{Rhei, Structure, Task, TaskId};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 /// Returns the crate version reported by Cargo metadata.
 pub fn version() -> String {

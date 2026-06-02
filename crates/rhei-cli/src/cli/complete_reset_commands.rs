@@ -16,6 +16,7 @@ fn complete_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
+    reject_panta_mutation(&loaded, "complete")?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -117,6 +118,7 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
+    reject_panta_mutation(&loaded, "reset")?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let reset_summary = reset_initial_summary(&loaded.rhei, &resolved.machine)?;
 
@@ -175,7 +177,7 @@ fn reset_initial_summary(
         machine: &rhei_validator::StateMachine,
         states: &mut BTreeSet<String>,
     ) -> MietteResult<()> {
-        states.insert(initial_state_for_node(machine, &task.kind, task.id.depth() as u8)?);
+        states.insert(initial_state_for_node(machine, &task.kind, task.profile_level())?);
         for child in &task.children {
             collect(child, machine, states)?;
         }

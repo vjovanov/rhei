@@ -1,0 +1,45 @@
+plan_title: Panta Spec Deliberation
+discussion_title: Resolve Panta project spec conflicts
+discussion: |
+  We need resolve the Panta spec discussion around:
+
+  1. How inbox tickets fit the Panta hierarchy.
+     The current Panta specs must not make tickets direct children of Panta if
+     the plan-language hierarchy says level-1 children under Panta are rheis and
+     tickets are level 2 or deeper. The model needs clear ids, levels, and
+     state-policy resolution for inbox work.
+
+  2. How dependency readiness works across rheis.
+     Cross-rhei dependencies must use the same readiness rule as normal
+     scheduling: a prior must be in a successful terminal state, meaning
+     `final: true` and not normalized `cancelled`. A cancelled prerequisite
+     should not unblock dependent work.
+
+  3. How Panta project defaults affect state-machine resolution.
+     If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+     the project default. The state-machine resolution rules need one
+     non-conflicting lookup order for explicit overrides, rhei-local
+     declarations, inherited Panta defaults, and built-in fallback.
+
+  4. How the canonical language reference should expose Panta syntax.
+     `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+     are user-authored language surface and should be discoverable from the
+     canonical language reference.
+
+  The goal is one coherent normative model for validation, execution, ids,
+  state-policy lookup, project defaults, and user-facing documentation.
+
+target_agents:
+  - id: claude
+    label: Claude proposal
+    selector: claude-code[yolo]:anthropic:claude-opus-4-7
+  - id: codex
+    label: Codex proposal
+    selector: codex[yolo]:openai:gpt-5.5
+
+splitter_agent: codex[yolo]:openai:gpt-5.5
+point_aggregator_agent: codex[yolo]:openai:gpt-5.5
+final_aggregator_agent: codex[yolo]:openai:gpt-5.5
+presentation_agent: claude-code[yolo]:anthropic:claude-opus-4-7
+max_points: 4
+output_dir: runtime/deliberation

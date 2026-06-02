@@ -1,0 +1,944 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-state-machine-resolution
+state: propose-solutions
+started: 2026-06-01T08:21:52Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8246-681b-7a12-ae88-3c9b524f6d3b
+--------
+user
+# Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+
+## State: propose-solutions
+
+You are codex[yolo]:openai:gpt-5.5. Propose your own solution for this discussion point.
+Do not imitate the other agents. Be concise, concrete, and explicit about
+tradeoffs.
+
+## Instructions
+
+Propose a solution for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution.
+
+Read the point statement and constraints in the task body. Write your
+proposal to `runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md` with:
+
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: <one concrete solution>
+- Reasons: <why this should be chosen>
+- Tradeoffs: <costs, risks, or limitations>
+- Assumptions: <facts you rely on>
+- Rejection criteria: <when this proposal should not be used>
+
+## Task Content
+
+Resolve how project defaults participate in state-machine lookup for rheis
+inside a Panta project.
+
+Source evidence:
+
+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+> the project default.
+
+> The state-machine resolution rules need one non-conflicting lookup order for
+> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+> built-in fallback.
+
+Question:
+
+What single lookup order should resolve a rhei's state machine when explicit
+overrides, rhei-local declarations, inherited Panta defaults, and built-in
+fallback may all apply?
+
+Constraints:
+
+- Omitted `**States:**` on a rhei may inherit a project default from
+  `index.panta.md`.
+- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+  built-in fallback must each have defined precedence.
+- The lookup order must be non-conflicting and usable by validation and
+  execution.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `propose-solutions`:
+- propose-solutions -> aggregate-disagreements
+- propose-solutions -> cancelled
+
+codex
+I’ll read the point directory to see the local task context and existing structure, then I’ll add only my proposal file without changing task state.
+exec
+/usr/bin/bash -lc 'rg --files runtime/deliberation/points/point-state-machine-resolution' in /home/vjovanov/f/rhei/panta-deliberation
+ exited 2 in 0ms:
+rg: runtime/deliberation/points/point-state-machine-resolution: IO error for operation on runtime/deliberation/points/point-state-machine-resolution: No such file or directory (os error 2)
+
+exec
+/usr/bin/bash -lc 'ls runtime/deliberation/points/point-state-machine-resolution' in /home/vjovanov/f/rhei/panta-deliberation
+ exited 2 in 0ms:
+ls: cannot access 'runtime/deliberation/points/point-state-machine-resolution': No such file or directory
+
+codex
+That point path is not present under the current directory. I’m checking the workspace layout so I can locate the active runtime tree before writing the proposal.
+exec
+/usr/bin/bash -lc pwd in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/panta-deliberation
+
+exec
+/usr/bin/bash -lc "find . -maxdepth 4 -type d -path '*point-state-machine-resolution*'" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+exec
+/usr/bin/bash -lc "find . -maxdepth 3 -type d | sort | sed -n '1,160p'" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+.
+./.agents
+./.agents/rhei
+./.rhei
+./runtime
+./runtime/accounting
+./runtime/accounting/captures
+./runtime/accounting/invocations
+./runtime/accounting/tasks
+./runtime/deliberation
+./runtime/deliberation/points
+./runtime/logs
+./tasks
+
+exec
+/usr/bin/bash -lc 'find runtime/deliberation/points -maxdepth 3 -type d | sort' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+runtime/deliberation/points
+runtime/deliberation/points/point-cross-rhei-readiness
+runtime/deliberation/points/point-cross-rhei-readiness/discussion
+runtime/deliberation/points/point-cross-rhei-readiness/proposals
+runtime/deliberation/points/point-inbox-hierarchy
+runtime/deliberation/points/point-inbox-hierarchy/discussion
+runtime/deliberation/points/point-inbox-hierarchy/proposals
+
+exec
+/usr/bin/bash -lc "find tasks -maxdepth 3 -type f | sort | sed -n '1,200p'" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+tasks/01-split.md
+tasks/02-point-inbox-hierarchy.md
+tasks/03-point-cross-rhei-readiness.md
+tasks/04-point-state-machine-resolution.md
+tasks/05-point-language-reference.md
+tasks/99-final-solution.md
+
+exec
+/usr/bin/bash -lc 'rg -n "state-machine-resolution|Resolve Panta defaults|States:" .' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+./index.rhei.md:2:**States:** multi-agent-deliberation
+./runtime/transitions.log:40:2026-06-01T08:21:52Z  point-state-machine-resolution  start@propose-solutions  runtime/logs/task-point-state-machine-resolution-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log
+./runtime/transitions.log:41:2026-06-01T08:21:52Z  point-state-machine-resolution  start@propose-solutions  runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log
+./runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:24:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+./runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:27:    resolution order itself is point-state-machine-resolution's concern). Inbox
+./runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:43:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:66:  - **Inbox cannot override `**States:**` locally.** Because there is no
+./runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:82:    [[point-state-machine-resolution]], not here).
+./runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:20:  normal workspace-task format. A project-level `**States:**` declaration may be
+./tasks/04-point-state-machine-resolution.md:1:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./tasks/04-point-state-machine-resolution.md:25:- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/deliberation/points/point-inbox-hierarchy/point-decision.md:14:  `**States:**` declaration, then resolve the ticket policy through
+./runtime/deliberation/points/point-inbox-hierarchy/point-decision.md:27:  without conflicting with the separate state-machine-resolution point, because
+./runtime/deliberation/points/point-inbox-hierarchy/point-decision.md:43:- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/deliberation/points/point-inbox-hierarchy/point-decision.md:45:  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log:18:- **Concede D-002** partially: keep ticket-level policy lookup (`overrides → by_type → default`) here, but defer *which* state machine the synthetic inbox rhei inherits to [[point-state-machine-resolution]] — avoids racing with that point.
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md:8:  selection to [[point-state-machine-resolution]], and I hold D-001 as
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md:31:    [[point-state-machine-resolution]]'s job; I should not pre-empt it. My
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md:53:     [[point-state-machine-resolution]] and intentionally not normatively
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md:76:    [[point-state-machine-resolution]]) honors the discussion prompt's
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md:77:    constraint that we not conflict with the state-machine-resolution point,
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md:30:  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md:40:  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:60:    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:63:    separate state-machine-resolution decision.
+./runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:64:  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:92:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:8:task: point-state-machine-resolution
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:28:# Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:38:Propose a solution for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution.
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:41:proposal to `runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md` with:
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:58:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:73:- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:94:/usr/bin/bash -lc 'rg --files runtime/deliberation/points/point-state-machine-resolution' in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:96:rg: runtime/deliberation/points/point-state-machine-resolution: IO error for operation on runtime/deliberation/points/point-state-machine-resolution: No such file or directory (os error 2)
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:99:/usr/bin/bash -lc 'ls runtime/deliberation/points/point-state-machine-resolution' in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:101:ls: cannot access 'runtime/deliberation/points/point-state-machine-resolution': No such file or directory
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:111:/usr/bin/bash -lc "find . -maxdepth 4 -type d -path '*point-state-machine-resolution*'" in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:153:    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:156:    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:157:  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:185:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:233:  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:243:  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:276:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:279:    resolution order itself is point-state-machine-resolution's concern). Inbox
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:295:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:318:  - **Inbox cannot override `**States:**` locally.** Because there is no
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:334:    [[point-state-machine-resolution]], not here).
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:383:  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:401:  selection to [[point-state-machine-resolution]], and I hold D-001 as
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:424:    [[point-state-machine-resolution]]'s job; I should not pre-empt it. My
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:446:     [[point-state-machine-resolution]] and intentionally not normatively
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:469:    [[point-state-machine-resolution]]) honors the discussion prompt's
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:470:    constraint that we not conflict with the state-machine-resolution point,
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:521:+  `**States:**` declaration, then resolve the ticket policy through
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:534:+  without conflicting with the separate state-machine-resolution point, because
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:550:+- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:552:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:582:+  `**States:**` declaration, then resolve the ticket policy through
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:595:+  without conflicting with the separate state-machine-resolution point, because
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:611:+- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:613:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:642:  `**States:**` declaration, then resolve the ticket policy through
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:655:  without conflicting with the separate state-machine-resolution point, because
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:671:- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:673:  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:706:+  `**States:**` declaration, then resolve the ticket policy through
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:719:+  without conflicting with the separate state-machine-resolution point, because
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:735:+- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:737:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:772:+  `**States:**` declaration, then resolve the ticket policy through
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:785:+  without conflicting with the separate state-machine-resolution point, because
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:801:+- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:803:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:839:+  `**States:**` declaration, then resolve the ticket policy through
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:852:+  without conflicting with the separate state-machine-resolution point, because
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:868:+- Remaining uncertainty: The separate state-machine-resolution decision still
+./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:870:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-state-machine-resolution-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log:8:task: point-state-machine-resolution
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log:17:Recommendation in one line: keep the inbox as a **synthetic level-1 rhei with reserved id `inbox`**, materialized from an optional project-root `inbox/` directory; inbox tickets are ordinary level-2+ task nodes with project ids `inbox.<local>`, and they resolve state policy by inheriting the Panta default state machine through the same `node_policy.overrides → by_type → default` path every other rhei uses. This preserves the Panta → rhei → ticket invariant, reuses existing id rules, and avoids any new state-policy tier — at the cost of reserving `inbox` as a rhei id and accepting that the inbox cannot declare its own `**States:**` without being promoted to an authored rhei.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:135:tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:154:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:155:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:157:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:298:**States:** multi-agent-deliberation
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:315:/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:8:Design a custom Rhei state machine only when the built-in `rhei` workflow is too generic. Produce a YAML file matching the project's real phases, actors, gates, retries, and automation hooks, ready to be referenced by a plan's `**States:**` declaration. The state machine writer runs before the plan writer: it defines the workflow the plan later uses.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:317:/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:225:9. Write the YAML to a conventional location (see *File Placement*). For a template, write to `<template>/states.yaml` and ensure the plan skeleton declares the same machine name via `**States:**`.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:318:/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:255:A plan picks up a sibling or workspace-root `states.yaml` automatically when it declares `**States:** <name>`; the YAML's `name` must match. Use `--state-machine <path>` to override the auto-discovered file.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:320:/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:59:When a custom state machine is needed, `states.yaml` is a required generated artifact (not design notes): produce the complete YAML in the template directory, and keep the rendered plan's `**States:** <name>` aligned with `states.yaml:name`. See *Required Accompaniments* for its diagram and *Response Discipline* for how to present it.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:321:/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:144:1. **Treat the skeleton like a plan authored by `rhei-plan-writer`** — it must pass `rhei validate` after rendering, following the plan writer's contract (one H1 `# Rhei: <title>`, optional `**States:**`, `## Tasks` last for single-file, tasks with `**State:**` first and `**Prior:**` second). `**Prior:**` is not free text: each comma-separated element must render as `<Kind> <id>` (normally `Task <id>`), and every referenced id must exist in the same rendered workspace. Do not template partial prior fragments that can leave empty items, missing `Task` prefixes, unresolved placeholders, dangling ids, or dangling commas. A generated child task must never list its parent or any ancestor as `**Prior:**`; generate follow-up work as top-level sibling tasks when it must wait for the parent.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:322:/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:154:3. **If the rendered plan declares `**States:** <name>`, the bundled `states.yaml`'s `name` must match** — auto-discovery keys off it.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:323:/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:213:- If `states.yaml` is bundled: the rendered plan's `**States:** <name>` matches its `name`; it begins with the ASCII diagram comment block; it passes the state-machine-writer checklist; placeholder-bearing source is inspected/validated only via the rendered workspace; and every MCP/skill/agent id it references is declared in a bundled or global `settings.json`. If the workflow needs a custom machine, `states.yaml` exists as a concrete artifact, not prose.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:324:/home/vjovanov/f/rhei/skills/rhei-plan-worker/SKILL.md:26:2. **Load the state machine.** Run `rhei states` against the plan (or `rhei states --state-machine <path>`) to read allowed states, their `instructions`, and the transition graph. The CLI resolves the machine from the plan's `**States:**` field (or a sibling/workspace `states.yaml`); add `--json` for structured data. Fall back to reading the YAML directly, or [default-states.md](../rhei-plan-writer/references/default-states.md), if the CLI is unavailable.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:325:/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:22:- Optionally emit `**States:** <state-machine-name>` as the first non-empty line after the H1 to declare which state machine the plan follows. Omit to use the built-in `rhei` state machine.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:326:/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:23:- Optionally emit a YAML frontmatter block (see *Frontmatter*) after the `**States:**` field, before any H2 section.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:327:/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:28:- Emit `index.rhei.md` at the workspace root: H1, optional `**States:**`, optional frontmatter, optional H2 context sections — **no** `## Tasks` section.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:329:/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:54:Run `rhei states` in the project to discover the allowed state values, their agent instructions, and the declared transitions for the state machine the plan will follow. Use `rhei states --state-machine <path>` to target a specific YAML file (e.g. the one a plan's `**States:**` line references), and `--json` when machine-readable output is preferred. Use only state values reported by that command, follow the printed instructions when describing task work, and respect the declared transitions when choosing initial states.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:330:/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:56:If the `rhei` CLI is unavailable, fall back to reading the state machine YAML directly (typically `docs/states.yaml`, or the file referenced by `**States:**`). If the project defines no state machine, fall back to the default Rhei state set in [default-states.md](references/default-states.md).
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:331:/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:118:- If present, `**States:**` is the first non-empty line after the H1, and any YAML frontmatter sits between it and the first H2.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:332:/home/vjovanov/f/rhei/skills/rhei-plan-writer/references/default-states.md:3:These are the default states used by Rhei plans when no project-specific state machine is declared (i.e., when `**States:**` is omitted, or when the project's `docs/states.yaml` mirrors this set). This mirrors the built-in `rhei` machine (version 3.0).
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:333:/home/vjovanov/f/rhei/examples/review-fix-visits/index.rhei.md:2:**States:** review-fix-visits
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:371:/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:99:Each rhei may declare its own state machine via `**States:**`; the
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:401:/home/vjovanov/f/rhei/examples/changeset-review-example/index.rhei.md:2:**States:** changeset-review
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:402:/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/tests_profiles.rs:234:**States:** profiled
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:403:/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/tests_profiles.rs:274:        let input = "# Rhei: restricted-check\n**States:** restricted\n\n## Tasks\n\n### Task 1: First\n**State:** review\n";
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:408:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:124:| States Declaration | — | `**States:** <state-machine-name>` | No (defaults to `rhei`) |
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:409:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:130:When present, the `**States:**` field must be the first non-empty line after
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:412:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:186:   automatic lookup. If the target plan or rhei declares `**States:**`, or
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:414:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:190:2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:415:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:192:   `**States:**`, it inherits the declaration from `index.panta.md` when that
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:417:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:196:3. When `**States:**` is omitted after Panta inheritance has been applied, the
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:418:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:199:4. When `**States:** rhei` is declared and no override is supplied, a matching
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:419:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:203:5. When a non-`rhei` `**States:** <name>` is declared and no override is
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:434:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:291:states_field    = "**States:** ", state_machine_name, NEWLINE ;
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:460:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:938:| `MetadataStates` | `\*\*States:\*\* .*` | `**States:** rhei` |
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:466:/home/vjovanov/f/rhei/examples/ci-heal/index.rhei.md:2:**States:** ci-watch-and-heal
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:482:/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:312:**States:** living-review-loop
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:485:/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:358:**States:** ci-pipeline
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:492:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:322:            "# Rhei: Deep\n**States:** rhei\n---\nstructure:\n  maxLevels: 4\n  nodeKinds: [task, bug]\n---\n\n## Tasks\n\n### Task api: Build API\n**State:** pending\n\n#### Bug api.cache: Cache issue\n**State:** in-progress\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:493:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:355:            "# Rhei: Visits\n**States:** custom\n\n## Tasks\n\n### Task 1: A\n**State:** review-2\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:494:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:390:            "# Rhei: Fanout\n**States:** custom\n\n## Tasks\n\n### Task pm: Evaluate\n**State:** product-run\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:495:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:416:            "# Rhei: P\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n\n### Task 2: B\n**State:** pending\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:496:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:426:            "# Rhei: A\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** in-progress\n\n### Task 2: B\n**State:** pending\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:497:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:436:            "# Rhei: C\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** completed\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:498:/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:442:            "# Rhei: C\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** completed\n\n### Task 2: B\n**State:** cancelled\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:499:/home/vjovanov/f/rhei/examples/ui-test-canonical-example/index.rhei.md:2:**States:** ui-test-canonical
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:501:/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:28:/// otherwise each plan resolves the built-in default (`**States:** rhei`) or a
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:502:/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:86:/// then the built-in default for `**States:** rhei`.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:503:/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:184:            "# Rhei: Workspace\n**States:** rhei\n\n## Overview\nDemo.\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:504:/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:195:            "# Rhei: Extra\n**States:** rhei\n\n## Tasks\n\n### Task 1: Extra\n**State:** completed\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:505:/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:211:            "# Rhei: Solo\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** in-progress\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:506:/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:226:            "# Rhei: Local\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** local-work\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:507:/home/vjovanov/f/rhei/examples/parallel-worktrees-example/index.rhei.md:2:**States:** parallel-worktrees
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:509:/home/vjovanov/f/rhei/docs/functional-spec/rhei-list.spec.md:40:   (auto-discovery, `**States:**` field, `--state-machine` override).
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:523:/home/vjovanov/f/rhei/examples/hourly-human-intervention-example/index.rhei.md:2:**States:** hourly-human-intervention
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:527:/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:58:The state machine writer produces a single YAML file conforming to the [YAML State Machine Format](rhei-transitions.spec.md#4-yaml-state-machine-format-specification). The file is ready to be referenced by a Rhei plan's `**States:**` declaration.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:529:/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:465:| **Plan Writer** | Uses the state machine produced by this role. References it via `**States:** <name>` in the plan header. |
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:530:/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:494:automatically when they declare `**States:** <name>`. The YAML file's
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:537:/home/vjovanov/f/rhei/examples/spec-review-example/index.rhei.md:2:**States:** spec-review
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:576:/home/vjovanov/f/rhei/crates/rhei-cli/tests/integration_markdown_plans/workspace_validation.rs:228:        "# Rhei: Workspace Auto States\n**States:** workspace-test-machine\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:577:/home/vjovanov/f/rhei/crates/rhei-cli/tests/integration_markdown_plans/workspace_validation.rs:259:        "# Rhei: Auto States Mismatch\n**States:** custom-review\n\n## Tasks\n\n### Task 1: Review docs\n**State:** draft\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:580:/home/vjovanov/f/rhei/examples/escaped-state-values.rhei.md:2:**States:** review-flow-with-spaces
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:582:/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz.spec.md:386:  `**States:**` declaration (an override, then a matching sibling `states.yaml`,
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:585:/home/vjovanov/f/rhei/examples/multi-model-analysis-example/index.rhei.md:2:**States:** multi-model-analysis
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:586:/home/vjovanov/f/rhei/crates/rhei-core/src/tokens.rs:13:    /// States declaration: `**States:** <name>`.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:594:/home/vjovanov/f/rhei/examples/living-review-loop/index.rhei.md:2:**States:** living-review-loop
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:595:/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:326:States: <state=count[, ...]>
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:597:/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:440:**States:** code-review
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:598:/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:538:**States:** code-review
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:599:/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:563:| **State machines** | A template may bundle its own `states.yaml` at the output root. If present, `rhei instantiate`, `rhei validate`, `rhei run`, `rhei next`, and related commands that operate on the instantiated workspace use that sibling/root `states.yaml` by default when `--state-machine` is not supplied; otherwise they fall back to the built-in default. When the rendered plan declares `**States:** <name>`, that declaration participates in lookup: the auto-discovered `states.yaml` is the active configuration and its `name` must match `<name>`. `--state-machine <path>` overrides the auto-discovered file. Templates that rely on non-default state names should therefore bundle `states.yaml`. |
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:603:/home/vjovanov/f/rhei/examples/README.md:44:  - `**States:** claude-code-simple`
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:604:/home/vjovanov/f/rhei/crates/rhei-core/src/lexer.rs:48:        // For "**States:** name" (must be checked before re_state)
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:605:/home/vjovanov/f/rhei/crates/rhei-core/src/lexer.rs:49:        let re_states = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:608:/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:31:explicit `--state-machine <PATH>` first, rhei-local `**States:**` declarations,
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:609:/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:32:Panta default inheritance for rheis that omit `**States:**`, omitted effective
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:610:/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:33:declarations as the built-in `rhei` machine, declared `**States:** rhei` with
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:612:/home/vjovanov/f/rhei/crates/rhei-core/src/ast.rs:220:    /// Whether the `**States:**` line was authored explicitly.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:614:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace.rs:19:    let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:615:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace.rs:84:                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:616:/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:27:When no `**States:**` field is declared, a standalone plan uses the built-in
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:617:/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:28:`rhei` state machine. Inside a Panta Project, a rhei that omits `**States:**`
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:619:/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:169:**States:** content-workflow
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:631:/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:16:  index.panta.md         ← Panta manifest: project title, default **States:**
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:658:/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:89:omits its own `**States:**`. That inherited declaration resolves from the Panta
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:674:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan_tests.rs:293:**States:** custom
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:677:/home/vjovanov/f/rhei/examples/snapshot-continuation/index.rhei.md:2:**States:** snapshot-continuation
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:678:/home/vjovanov/f/rhei/examples/spec-implementation-example/index.rhei.md:2:**States:** spec-implementation
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:685:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan.rs:18:    let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:686:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan.rs:111:                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:687:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan.rs:150:                    "**States:** declaration must be the first non-empty line after the Rhei header",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:689:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace_tests.rs:11:**States:** custom
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:690:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace_tests.rs:43:    let explicit = parse_workspace_index("# Rhei: Workspace\n**States:** custom\n")
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:691:/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace_tests.rs:63:**States:** custom
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:694:/home/vjovanov/f/rhei/examples/product-management-example/index.rhei.md:2:**States:** product-management
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:695:/home/vjovanov/f/rhei/examples/agent-discussion/index.rhei.md:2:**States:** agent-discussion
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:696:/home/vjovanov/f/rhei/examples/multi-agent-deliberation-example/index.rhei.md:2:**States:** multi-agent-deliberation
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:697:/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/next_tests.rs:15:**States:** custom-review
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:700:/home/vjovanov/f/rhei/panta-deliberation/index.rhei.md:2:**States:** multi-agent-deliberation
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:701:/home/vjovanov/f/rhei/examples/claude-code/plan.rhei.md:2:**States:** claude-code-simple
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:703:/home/vjovanov/f/rhei/panta-deliberation/tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:713:/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:766:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:1:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:767:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:6:inside a Panta project.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:768:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:769:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:14:> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:770:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:20:overrides, rhei-local declarations, inherited Panta defaults, and built-in
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:771:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:25:- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:772:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:26:  `index.panta.md`.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:773:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:27:- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:789:/home/vjovanov/f/rhei/examples/spec-implementation-discrepancy-audit-example/tasks/syntax-authoring-validation.md:18:metadata fields, `**States:**` lookup, prior dependency semantics, terminal child
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:795:/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:796:/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:798:/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:803:/home/vjovanov/f/rhei/examples/spec-implementation-discrepancy-audit-example/index.rhei.md:2:**States:** spec-implementation-discrepancy-audit
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:804:/home/vjovanov/f/rhei/examples/analyze-and-dispatch-example/index.rhei.md:2:**States:** analyze-and-dispatch
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:805:/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/fixtures/living-review-loop/index.rhei.md:2:**States:** living-review-loop
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:806:/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/completions_tests.rs:138:**States:** integration-test
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:807:/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/completions_tests.rs:410:**States:** integration-test
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:808:/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/fixtures/bash-agent-team/index.rhei.md:2:**States:** bash-agent-team
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:809:/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/metadata_rewrite.rs:21:    if idx < lines.len() && lines[idx].trim_start().starts_with("**States:**") {
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:810:/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/states_render.rs:28:    out.push_str("\nStates:\n");
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:813:/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/templates_instantiate.rs:191:        println!("States: {}", format_state_counts(&loaded.rhei));
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:817:/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/tests_snapshot_runtime.rs:1702:            "# Rhei: Snapshot Test\n**States:** snapshot-test\n\n## Notes\n",
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:959:Each rhei may declare its own state machine via `**States:**`; the
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1031:  index.panta.md         ← Panta manifest: project title, default **States:**
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1104:omits its own `**States:**`. That inherited declaration resolves from the Panta
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1302:+  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1335:+  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1365:  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1412:+  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1451:+  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:89:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:188:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:238:**States:** multi-agent-deliberation
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:268:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:289:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:290:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:292:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:366:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:370:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:372:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:381:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:396:+- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:442:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:465:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:466:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:468:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:542:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:546:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:548:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:557:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:572:+- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:618:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:640:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:641:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:643:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:653:runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:654:runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:656:tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:667:tasks/04-point-state-machine-resolution.md:2:**State:** propose-solutions
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:668:tasks/04-point-state-machine-resolution.md:3:**Prior:** Task split
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:669:tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:670:tasks/04-point-state-machine-resolution.md:25:- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:672:tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:679:/usr/bin/bash -lc "for f in tasks/02-point-inbox-hierarchy.md tasks/03-point-cross-rhei-readiness.md tasks/04-point-state-machine-resolution.md tasks/05-point-language-reference.md tasks/99-final-solution.md; do sed -n '1,80p' \""'$f"; done' in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:737:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:746:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:761:- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:795:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:818:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:819:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:821:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:895:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:899:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:901:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:910:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:925:+- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:971:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1011:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1012:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1014:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1088:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1092:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1094:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1103:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1118:+- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1164:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1175:- `tasks/04-point-state-machine-resolution.md`
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1198:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1199:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1201:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1275:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1279:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1281:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1290:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1305:+- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1351:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1363:- `tasks/04-point-state-machine-resolution.md`
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:161:    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:164:    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:165:  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:193:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:221:  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:264:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:267:    resolution order itself is point-state-machine-resolution's concern). Inbox
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:283:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:306:  - **Inbox cannot override `**States:**` locally.** Because there is no
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:322:    [[point-state-machine-resolution]], not here).
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:352:/usr/bin/bash -lc "rg -n \"inbox|synthetic inbox|state-machine-resolution|node_policy|States|state policy|state-policy\" docs runtime -g '*.md' -g '*.spec.md'" in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:358:runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:359:runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:360:runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:373:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:24:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:374:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:27:    resolution order itself is point-state-machine-resolution's concern). Inbox
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:380:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:43:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:389:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:66:  - **Inbox cannot override `**States:**` locally.** Because there is no
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:394:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:82:    [[point-state-machine-resolution]], not here).
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:437:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:60:    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:440:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:63:    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:441:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:64:  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:453:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:92:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:464:runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:20:  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:751:omits its own `**States:**`. That inherited declaration resolves from the Panta
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:833:+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:843:+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:885:+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:895:+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:934:  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:944:  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:989:+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:999:+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:1048:+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:1058:+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:1104:+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:1114:+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:153:./runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:92:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:161:./tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:172:./runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:173:./runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:175:./runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:199:./runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:43:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:248:./tasks/04-point-state-machine-resolution.md:1:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:249:./tasks/04-point-state-machine-resolution.md:6:inside a Panta project.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:250:./tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:251:./tasks/04-point-state-machine-resolution.md:14:> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:252:./tasks/04-point-state-machine-resolution.md:20:overrides, rhei-local declarations, inherited Panta defaults, and built-in
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:253:./tasks/04-point-state-machine-resolution.md:26:  `index.panta.md`.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:254:./tasks/04-point-state-machine-resolution.md:27:- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:276:./runtime/deliberation/points/point-inbox-hierarchy/point-decision.md:45:  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:293:./tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:364:./runtime/logs/task-point-inbox-hierarchy-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log:18:- **Concede D-002** partially: keep ticket-level policy lookup (`overrides → by_type → default`) here, but defer *which* state machine the synthetic inbox rhei inherits to [[point-state-machine-resolution]] — avoids racing with that point.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:415:./runtime/logs/task-point-state-machine-resolution-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log:12:plan: /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:431:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:12:plan: /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:432:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:18:workdir: /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:433:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:28:# Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:434:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:38:Propose a solution for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:435:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:54:inside a Panta project.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:436:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:58:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:437:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:62:> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:438:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:68:overrides, rhei-local declarations, inherited Panta defaults, and built-in
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:439:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:74:  `index.panta.md`.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:440:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:75:- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:441:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:82:You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:442:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:83:The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:443:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:94:/usr/bin/bash -lc 'rg --files runtime/deliberation/points/point-state-machine-resolution' in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:444:./runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log:99:/usr/bin/bash -lc 'ls runtime/deliberation/points/point-state-machine-resolution' in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:478:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log:17:Recommendation in one line: keep the inbox as a **synthetic level-1 rhei with reserved id `inbox`**, materialized from an optional project-root `inbox/` directory; inbox tickets are ordinary level-2+ task nodes with project ids `inbox.<local>`, and they resolve state policy by inheriting the Panta default state machine through the same `node_policy.overrides → by_type → default` path every other rhei uses. This preserves the Panta → rhei → ticket invariant, reuses existing id rules, and avoids any new state-policy tier — at the cost of reserving `inbox` as a rhei id and accepting that the inbox cannot declare its own `**States:**` without being promoted to an authored rhei.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:569:./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:192:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:646:./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:362:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:696:./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:463:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:745:./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:563:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:795:./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:664:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:847:./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:769:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:917:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:185:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:966:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:295:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1058:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:552:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1087:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:613:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1115:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:673:  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1145:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:737:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1176:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:803:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1207:./runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log:870:+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1286:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:193:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1326:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:283:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1352:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:352:/usr/bin/bash -lc "rg -n \"inbox|synthetic inbox|state-machine-resolution|node_policy|States|state policy|state-policy\" docs runtime -g '*.md' -g '*.spec.md'" in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1356:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:358:runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1357:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:359:runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1358:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:360:runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1371:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:373:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:24:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1372:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:374:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:27:    resolution order itself is point-state-machine-resolution's concern). Inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1378:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:380:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:43:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1387:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:389:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:66:  - **Inbox cannot override `**States:**` locally.** Because there is no
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1392:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:394:runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:82:    [[point-state-machine-resolution]], not here).
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1435:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:437:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:60:    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1438:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:440:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:63:    separate state-machine-resolution decision.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1439:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:441:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:64:  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1451:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:453:runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:92:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1462:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:464:runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:20:  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1515:./runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log:751:omits its own `**States:**`. That inherited declaration resolves from the Panta
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1677:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:89:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1695:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:188:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1709:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:268:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1719:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:289:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1720:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:290:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1722:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:292:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1741:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:366:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1742:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:370:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1743:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:372:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1745:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:381:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1763:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:442:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1771:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:465:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1772:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:466:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1774:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:468:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1793:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:542:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1794:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:546:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1795:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:548:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1797:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:557:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1815:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:618:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1822:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:640:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1823:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:641:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1825:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:643:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1831:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:653:runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1832:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:654:runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1833:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:656:tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1834:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:669:tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1835:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:672:tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1838:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:679:/usr/bin/bash -lc "for f in tasks/02-point-inbox-hierarchy.md tasks/03-point-cross-rhei-readiness.md tasks/04-point-state-machine-resolution.md tasks/05-point-language-reference.md tasks/99-final-solution.md; do sed -n '1,80p' \""'$f"; done' in /home/vjovanov/f/rhei/panta-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1849:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:737:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1851:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:746:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1865:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:795:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1873:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:818:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1874:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:819:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1876:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:821:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1895:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:895:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1896:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:899:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1897:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:901:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1899:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:910:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1917:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:971:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1930:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1011:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1931:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1012:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1933:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1014:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1952:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1088:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1953:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1092:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1954:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1094:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1956:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1103:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1974:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1164:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1983:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1198:+- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1984:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1199:+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:1986:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1201:+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2005:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1275:diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2006:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1279:+++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2007:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1281:+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2009:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1290:+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2027:./runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log:1351:+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2063:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:154:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2064:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:155:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2066:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:157:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2123:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:371:/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:99:Each rhei may declare its own state machine via `**States:**`; the
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2153:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:414:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:190:2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2154:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:415:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:192:   `**States:**`, it inherits the declaration from `index.panta.md` when that
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2156:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:417:/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:196:3. When `**States:**` is omitted after Panta inheritance has been applied, the
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2201:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:609:/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:32:Panta default inheritance for rheis that omit `**States:**`, omitted effective
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2202:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:617:/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:28:`rhei` state machine. Inside a Panta Project, a rhei that omits `**States:**`
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2212:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:631:/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:16:  index.panta.md         ← Panta manifest: project title, default **States:**
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2239:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:658:/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:89:omits its own `**States:**`. That inherited declaration resolves from the Panta
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2257:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:700:/home/vjovanov/f/rhei/panta-deliberation/index.rhei.md:2:**States:** multi-agent-deliberation
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2259:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:703:/home/vjovanov/f/rhei/panta-deliberation/tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2269:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:713:/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2322:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:766:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:1:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2323:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:767:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:6:inside a Panta project.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2324:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:768:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2325:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:769:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:14:> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2326:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:770:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:20:overrides, rhei-local declarations, inherited Panta defaults, and built-in
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2327:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:771:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:25:- Omitted `**States:**` on a rhei may inherit a project default from
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2328:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:772:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:26:  `index.panta.md`.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2329:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:773:/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:27:- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2349:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:795:/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2350:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:796:/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2352:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:798:/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2423:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1031:  index.panta.md         ← Panta manifest: project title, default **States:**
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2447:./runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log:1104:omits its own `**States:**`. That inherited declaration resolves from the Panta
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2614:2. **Load the state machine.** Run `rhei states` against the plan (or `rhei states --state-machine <path>`) to read allowed states, their `instructions`, and the declared transition graph. The CLI resolves the state machine from the plan's `**States:**` field (or a sibling/workspace `states.yaml`). Add `--json` for structured data. Fall back to reading the YAML directly, or [default-states.md](../rhei-plan-writer/references/default-states.md), if the CLI is unavailable.
+./runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log:2921:../panta-deliberation/tasks/04-point-state-machine-resolution.md
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:141:  normal workspace-task format. A project-level `**States:**` declaration may be
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:173:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:176:    resolution order itself is point-state-machine-resolution's concern). Inbox
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:192:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:215:  - **Inbox cannot override `**States:**` locally.** Because there is no
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:231:    [[point-state-machine-resolution]], not here).
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:330:+    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:333:+    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:334:+  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:362:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:431:+    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:434:+    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:435:+  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:463:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:531:    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:534:    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:535:  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:563:conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:632:+    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:635:+    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:636:+  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:664:+conflicting with the state-machine-resolution point, and decide whether inbox
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:737:+    exact precedence/fallback behavior to the state-machine-resolution point.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:740:+    separate state-machine-resolution decision.
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:741:+  - Evidence needed: The current or accepted state-machine-resolution rule,
+./runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log:769:+conflicting with the state-machine-resolution point, and decide whether inbox
+
+codex
+The runtime point directory has not been materialized yet, but the task and manifest confirm the point. I’m going to create the expected point/proposals directory and write the requested proposal there.
+exec
+/usr/bin/bash -lc "sed -n '1,120p' tasks/04-point-state-machine-resolution.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+**State:** propose-solutions
+**Prior:** Task split
+
+Resolve how project defaults participate in state-machine lookup for rheis
+inside a Panta project.
+
+Source evidence:
+
+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+> the project default.
+
+> The state-machine resolution rules need one non-conflicting lookup order for
+> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+> built-in fallback.
+
+Question:
+
+What single lookup order should resolve a rhei's state machine when explicit
+overrides, rhei-local declarations, inherited Panta defaults, and built-in
+fallback may all apply?
+
+Constraints:
+
+- Omitted `**States:**` on a rhei may inherit a project default from
+  `index.panta.md`.
+- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+  built-in fallback must each have defined precedence.
+- The lookup order must be non-conflicting and usable by validation and
+  execution.
+
+exec
+/usr/bin/bash -lc "sed -n '1,60p' runtime/deliberation/points-manifest.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Points - Resolve Panta project spec conflicts
+
+- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
+  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
+  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
+  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
+
+- point-cross-rhei-readiness: Cross-rhei dependency readiness
+  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
+  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
+  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
+
+- point-state-machine-resolution: Panta defaults in state-machine resolution
+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+
+- point-language-reference: Panta syntax in the canonical language reference
+  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
+  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
+  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+
+exec
+/usr/bin/bash -lc 'git status --short' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+ M ../docs/architecture/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-authoring.spec.md
+ M ../docs/functional-spec/rhei-language-reference.spec.md
+ M ../docs/functional-spec/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-plan-language.spec.md
+ M ../docs/functional-spec/rhei-validate.spec.md
+?? ../.agents/rhei/templates/multi-agent-deliberation/
+?? ../examples/multi-agent-deliberation-example/
+?? ../panta-deliberation-values.yaml
+?? ./
+
+exec
+/usr/bin/bash -lc 'mkdir -p runtime/deliberation/points/point-state-machine-resolution/proposals' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+codex
+I’m writing the proposal as a single precedence rule plus resolver behavior so validation and execution can share the same decision path.
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a32a658ced8959be2415f8a693924cdd4500e24c
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,31 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Resolve a rhei's state machine with this precedence:
++  explicit invocation override, then rhei-local `**States:**`, then inherited
++  `index.panta.md` project default, then the built-in `rhei` fallback. Treat
++  each tier as a complete selection, not a merge. Validation and execution
++  should call the same resolver and record the selected source tier.
++- Reasons: This makes "closest authored declaration wins" the normal rule while
++  still letting operators force a machine for a particular validation or
++  execution run. A Panta default then behaves exactly like a default: it fills
++  only missing rhei-local declarations. The built-in machine remains the final
++  compatibility path for standalone plans and Panta projects that intentionally
++  omit project policy.
++- Tradeoffs: A project default cannot force uniform state policy when a child
++  rhei declares its own `**States:**`; that must be handled by a separate
++  validation policy if needed. Explicit overrides can hide declaration mistakes
++  during an ad hoc run, so diagnostics should include "resolved from override"
++  and normal validation without the override should still check authored
++  declarations. The resolver must carry source metadata, which is slightly more
++  implementation work than returning only a state-machine name.
++- Assumptions: An explicit override means a CLI/API override supplied for the
++  current operation, such as a `--state-machine` argument. A rhei is "inside a
++  Panta project" only when it is discovered through that project's manifest or
++  directory model. `index.panta.md` has at most one project-level `**States:**`
++  declaration; if it has none, the inherited-default tier is skipped.
++- Rejection criteria: Do not use this proposal if project authors need
++  `index.panta.md` to forcibly override child rhei declarations by default, or
++  if execution and validation intentionally need different state-machine
++  precedence. Also reject it if explicit overrides are meant only to locate the
++  YAML file for an already-selected `**States:**` name rather than to select the
++  effective state machine itself.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a32a658ced8959be2415f8a693924cdd4500e24c
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,31 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Resolve a rhei's state machine with this precedence:
++  explicit invocation override, then rhei-local `**States:**`, then inherited
++  `index.panta.md` project default, then the built-in `rhei` fallback. Treat
++  each tier as a complete selection, not a merge. Validation and execution
++  should call the same resolver and record the selected source tier.
++- Reasons: This makes "closest authored declaration wins" the normal rule while
++  still letting operators force a machine for a particular validation or
++  execution run. A Panta default then behaves exactly like a default: it fills
++  only missing rhei-local declarations. The built-in machine remains the final
++  compatibility path for standalone plans and Panta projects that intentionally
++  omit project policy.
++- Tradeoffs: A project default cannot force uniform state policy when a child
++  rhei declares its own `**States:**`; that must be handled by a separate
++  validation policy if needed. Explicit overrides can hide declaration mistakes
++  during an ad hoc run, so diagnostics should include "resolved from override"
++  and normal validation without the override should still check authored
++  declarations. The resolver must carry source metadata, which is slightly more
++  implementation work than returning only a state-machine name.
++- Assumptions: An explicit override means a CLI/API override supplied for the
++  current operation, such as a `--state-machine` argument. A rhei is "inside a
++  Panta project" only when it is discovered through that project's manifest or
++  directory model. `index.panta.md` has at most one project-level `**States:**`
++  declaration; if it has none, the inherited-default tier is skipped.
++- Rejection criteria: Do not use this proposal if project authors need
++  `index.panta.md` to forcibly override child rhei declarations by default, or
++  if execution and validation intentionally need different state-machine
++  precedence. Also reject it if explicit overrides are meant only to locate the
++  YAML file for an already-selected `**States:**` name rather than to select the
++  effective state machine itself.
+
+exec
+/usr/bin/bash -lc "sed -n '1,200p' runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Resolve a rhei's state machine with this precedence:
+  explicit invocation override, then rhei-local `**States:**`, then inherited
+  `index.panta.md` project default, then the built-in `rhei` fallback. Treat
+  each tier as a complete selection, not a merge. Validation and execution
+  should call the same resolver and record the selected source tier.
+- Reasons: This makes "closest authored declaration wins" the normal rule while
+  still letting operators force a machine for a particular validation or
+  execution run. A Panta default then behaves exactly like a default: it fills
+  only missing rhei-local declarations. The built-in machine remains the final
+  compatibility path for standalone plans and Panta projects that intentionally
+  omit project policy.
+- Tradeoffs: A project default cannot force uniform state policy when a child
+  rhei declares its own `**States:**`; that must be handled by a separate
+  validation policy if needed. Explicit overrides can hide declaration mistakes
+  during an ad hoc run, so diagnostics should include "resolved from override"
+  and normal validation without the override should still check authored
+  declarations. The resolver must carry source metadata, which is slightly more
+  implementation work than returning only a state-machine name.
+- Assumptions: An explicit override means a CLI/API override supplied for the
+  current operation, such as a `--state-machine` argument. A rhei is "inside a
+  Panta project" only when it is discovered through that project's manifest or
+  directory model. `index.panta.md` has at most one project-level `**States:**`
+  declaration; if it has none, the inherited-default tier is skipped.
+- Rejection criteria: Do not use this proposal if project authors need
+  `index.panta.md` to forcibly override child rhei declarations by default, or
+  if execution and validation intentionally need different state-machine
+  precedence. Also reject it if explicit overrides are meant only to locate the
+  YAML file for an already-selected `**States:**` name rather than to select the
+  effective state machine itself.
+
+exec
+/usr/bin/bash -lc 'find runtime/deliberation/points/point-state-machine-resolution -maxdepth 3 -type f | sort' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+
+exec
+/usr/bin/bash -lc 'git status --short runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+?? runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a32a658ced8959be2415f8a693924cdd4500e24c
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,31 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Resolve a rhei's state machine with this precedence:
++  explicit invocation override, then rhei-local `**States:**`, then inherited
++  `index.panta.md` project default, then the built-in `rhei` fallback. Treat
++  each tier as a complete selection, not a merge. Validation and execution
++  should call the same resolver and record the selected source tier.
++- Reasons: This makes "closest authored declaration wins" the normal rule while
++  still letting operators force a machine for a particular validation or
++  execution run. A Panta default then behaves exactly like a default: it fills
++  only missing rhei-local declarations. The built-in machine remains the final
++  compatibility path for standalone plans and Panta projects that intentionally
++  omit project policy.
++- Tradeoffs: A project default cannot force uniform state policy when a child
++  rhei declares its own `**States:**`; that must be handled by a separate
++  validation policy if needed. Explicit overrides can hide declaration mistakes
++  during an ad hoc run, so diagnostics should include "resolved from override"
++  and normal validation without the override should still check authored
++  declarations. The resolver must carry source metadata, which is slightly more
++  implementation work than returning only a state-machine name.
++- Assumptions: An explicit override means a CLI/API override supplied for the
++  current operation, such as a `--state-machine` argument. A rhei is "inside a
++  Panta project" only when it is discovered through that project's manifest or
++  directory model. `index.panta.md` has at most one project-level `**States:**`
++  declaration; if it has none, the inherited-default tier is skipped.
++- Rejection criteria: Do not use this proposal if project authors need
++  `index.panta.md` to forcibly override child rhei declarations by default, or
++  if execution and validation intentionally need different state-machine
++  precedence. Also reject it if explicit overrides are meant only to locate the
++  YAML file for an already-selected `**States:**` name rather than to select the
++  effective state machine itself.
+
+codex
+Wrote the proposal to [codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md).
+
+Core recommendation: `explicit override -> rhei-local **States:** -> inherited index.panta.md default -> built-in rhei fallback`, with no merging and shared resolver behavior for validation and execution.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a32a658ced8959be2415f8a693924cdd4500e24c
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,31 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Resolve a rhei's state machine with this precedence:
++  explicit invocation override, then rhei-local `**States:**`, then inherited
++  `index.panta.md` project default, then the built-in `rhei` fallback. Treat
++  each tier as a complete selection, not a merge. Validation and execution
++  should call the same resolver and record the selected source tier.
++- Reasons: This makes "closest authored declaration wins" the normal rule while
++  still letting operators force a machine for a particular validation or
++  execution run. A Panta default then behaves exactly like a default: it fills
++  only missing rhei-local declarations. The built-in machine remains the final
++  compatibility path for standalone plans and Panta projects that intentionally
++  omit project policy.
++- Tradeoffs: A project default cannot force uniform state policy when a child
++  rhei declares its own `**States:**`; that must be handled by a separate
++  validation policy if needed. Explicit overrides can hide declaration mistakes
++  during an ad hoc run, so diagnostics should include "resolved from override"
++  and normal validation without the override should still check authored
++  declarations. The resolver must carry source metadata, which is slightly more
++  implementation work than returning only a state-machine name.
++- Assumptions: An explicit override means a CLI/API override supplied for the
++  current operation, such as a `--state-machine` argument. A rhei is "inside a
++  Panta project" only when it is discovered through that project's manifest or
++  directory model. `index.panta.md` has at most one project-level `**States:**`
++  declaration; if it has none, the inherited-default tier is skipped.
++- Rejection criteria: Do not use this proposal if project authors need
++  `index.panta.md` to forcibly override child rhei declarations by default, or
++  if execution and validation intentionally need different state-machine
++  precedence. Also reject it if explicit overrides are meant only to locate the
++  YAML file for an already-selected `**States:**` name rather than to select the
++  effective state machine itself.
+
+Wrote the proposal to [codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md).
+
+Core recommendation: `explicit override -> rhei-local **States:** -> inherited index.panta.md default -> built-in rhei fallback`, with no merging and shared resolver behavior for validation and execution.
+tokens used
+20,723
+
+=== exit ===
+code: 0
+duration: 42s
+ended: 2026-06-01T08:22:35Z
+===

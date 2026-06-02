@@ -1,5 +1,6 @@
 fn state_inputs_exist_for_ready_set(
     workspace_root: &Path,
+    artifact_root: &Path,
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     task: &rhei_core::ast::Task,
@@ -23,7 +24,7 @@ fn state_inputs_exist_for_ready_set(
         machine,
     ));
     ensure_state_inputs_exist_for_transition(
-        workspace_root,
+        artifact_root,
         &task.id.to_string(),
         state_name,
         state_def,
@@ -43,6 +44,7 @@ fn find_ready_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     workspace_root: &Path,
+    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
     leaf_only: bool,
 ) -> Vec<&'a rhei_core::ast::Task> {
     use std::collections::HashMap;
@@ -84,9 +86,13 @@ fn find_ready_tasks<'a>(
             state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
         });
 
+        let task_id = task.id.to_string();
+        // §AR-rhei-panta.5: input artifacts resolve from the owning rhei execution root.
+        let artifact_root = task_roots.get(&task_id).map_or(workspace_root, |root| root.as_path());
         if all_priors_done
             && state_inputs_exist_for_ready_set(
                 workspace_root,
+                artifact_root,
                 rhei,
                 machine,
                 task,
@@ -110,7 +116,7 @@ fn find_runnable_tasks<'a>(
     machine: &rhei_validator::StateMachine,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, false)
+    find_ready_tasks(rhei, machine, workspace_root, &std::collections::HashMap::new(), false)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -125,8 +131,9 @@ fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     workspace_root: &Path,
+    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, true)
+    find_ready_tasks(rhei, machine, workspace_root, task_roots, true)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
@@ -142,7 +149,7 @@ fn task_is_in_initial_state(
     machine: &rhei_validator::StateMachine,
 ) -> bool {
     machine
-        .profile_for_node(task.kind.as_str(), task.id.depth() as u8)
+        .profile_for_node(task.kind.as_str(), task.profile_level())
         .map(|profile| profile.initial == normalized_state)
         .unwrap_or_else(|| machine.states.get(normalized_state).map(|def| def.initial).unwrap_or(false))
 }
@@ -228,7 +235,7 @@ fn transition_command_lines(
             task_profile_allows_state(
                 machine,
                 task.kind.as_str(),
-                task.id.depth() as u8,
+                task.profile_level(),
                 &rule.to.0,
             )
         })
@@ -495,7 +502,7 @@ fn find_next_transition(
             && task_profile_allows_state(
                 machine,
                 task.kind.as_str(),
-                task.id.depth() as u8,
+                task.profile_level(),
                 &rule.to.0,
             )
             && transition_rule_is_applicable(
@@ -520,7 +527,7 @@ fn find_next_transition(
                 && task_profile_allows_state(
                     machine,
                     task.kind.as_str(),
-                    task.id.depth() as u8,
+                    task.profile_level(),
                     &rule.to.0,
                 )
                 && transition_rule_is_applicable(

@@ -613,3 +613,23 @@ states:
         assert!(path_matches(Path::new("docs/states.yaml"), &watched));
         assert!(!path_matches(Path::new("docs/plan-language-spec.md"), &watched));
     }
+
+    #[test]
+    fn panta_watch_excludes_runtime_at_any_depth() {
+        // Absolute paths so `path_is_under` falls back to a component prefix
+        // check without needing the directories to exist on disk.
+        let targets = panta_watch_targets(Path::new("/proj"));
+
+        // Manifest, single-file rheis, and workspace task files revalidate.
+        assert!(path_matches(Path::new("/proj/index.panta.md"), &targets));
+        assert!(path_matches(Path::new("/proj/auth.rhei.md"), &targets));
+        assert!(path_matches(Path::new("/proj/billing/tasks/invoice.md"), &targets));
+
+        // The project `runtime/` tree (where viz writes dashboard.html) never does...
+        assert!(!path_matches(Path::new("/proj/runtime/dashboard.html"), &targets));
+        // ...nor a per-rhei `runtime/` tree nested under a workspace rhei.
+        assert!(!path_matches(Path::new("/proj/billing/runtime/results/billing.1.md"), &targets));
+
+        // A similarly-named sibling that is not a `runtime` directory still matches.
+        assert!(path_matches(Path::new("/proj/runtime-notes.rhei.md"), &targets));
+    }

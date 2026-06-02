@@ -217,11 +217,24 @@ fn read_input_file(path: &Path) -> MietteResult<String> {
 }
 
 /// A loaded plan with optional workspace task-to-file mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadedPlanKind {
+    SingleFile,
+    Workspace,
+    PantaProject,
+}
+
 struct LoadedPlan {
     rhei: rhei_core::ast::Rhei,
+    kind: LoadedPlanKind,
     /// For directory workspaces: maps task ID string → source file path.
+    /// For Panta projects: maps project-qualified task IDs to owning files.
     /// Empty for single-file plans.
     task_sources: HashMap<String, PathBuf>,
+    /// For Panta projects: maps project-qualified task IDs to owning rhei roots.
+    task_roots: HashMap<String, PathBuf>,
+    /// For Panta projects: link bases for merged content sections, in section order.
+    content_section_roots: Vec<PathBuf>,
 }
 
 impl LoadedPlan {
@@ -230,23 +243,75 @@ impl LoadedPlan {
     fn task_file(&self, task_id: &str, fallback: &Path) -> PathBuf {
         self.task_sources.get(task_id).cloned().unwrap_or_else(|| fallback.to_path_buf())
     }
+
+    fn task_root(&self, task_id: &str, fallback: &Path) -> PathBuf {
+        self.task_roots.get(task_id).cloned().unwrap_or_else(|| fallback.to_path_buf())
+    }
+
+    fn is_panta_project(&self) -> bool {
+        self.kind == LoadedPlanKind::PantaProject
+    }
+}
+
+fn reject_panta_mutation(loaded: &LoadedPlan, command: &str) -> MietteResult<()> {
+    if loaded.is_panta_project() {
+        return Err(miette!(
+            "Panta projects are currently read-only for `rhei {}`. Use `rhei validate`, `rhei list`, or target an individual rhei until project-wide mutation supports per-rhei rewrites and state machines.",
+            command
+        ));
+    }
+    Ok(())
 }
 
 /// Load a plan from a file or directory workspace.
 fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
-    if let Some(ws_dir) = workspace::workspace_dir(path) {
+    if let Some(project_dir) = workspace::panta_project_dir(path) {
+        let project = workspace::load_panta_project(&project_dir)
+            .map_err(|err| miette!("{}", err.message))?;
+        Ok(LoadedPlan {
+            rhei: project.rhei,
+            kind: LoadedPlanKind::PantaProject,
+            task_sources: project.task_sources,
+            task_roots: project.task_roots,
+            content_section_roots: project.content_section_roots,
+        })
+    } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
-        Ok(LoadedPlan { rhei: ws.rhei, task_sources: ws.task_sources })
+        Ok(LoadedPlan {
+            rhei: ws.rhei,
+            kind: LoadedPlanKind::Workspace,
+            task_sources: ws.task_sources,
+            task_roots: HashMap::new(),
+            content_section_roots: Vec::new(),
+        })
     } else {
         let input = read_input_file(path)?;
         let rhei = rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))?;
-        Ok(LoadedPlan { rhei, task_sources: HashMap::new() })
+        Ok(LoadedPlan {
+            rhei,
+            kind: LoadedPlanKind::SingleFile,
+            task_sources: HashMap::new(),
+            task_roots: HashMap::new(),
+            content_section_roots: Vec::new(),
+        })
     }
 }
 
 /// Load a plan for `rhei validate`, collecting recoverable parse errors where
 /// validation promises batch diagnostics.
 fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
+    if let Some(project_dir) = workspace::panta_project_dir(path) {
+        let project = workspace::load_panta_project(&project_dir)
+            .map_err(|err| miette!("{}", err.message))?;
+        return Ok(LoadedPlan {
+            rhei: project.rhei,
+            kind: LoadedPlanKind::PantaProject,
+            task_sources: project.task_sources,
+            task_roots: project.task_roots,
+            content_section_roots: project.content_section_roots,
+        });
+    }
+
     if let Some(ws_dir) = workspace::workspace_dir(path) {
         return load_workspace_for_validation(&ws_dir);
     }
@@ -254,7 +319,13 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
     let raw = read_input_file(path)?;
     let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
     match (maybe_rhei, errs.is_empty()) {
-        (Some(rhei), true) => Ok(LoadedPlan { rhei, task_sources: HashMap::new() }),
+        (Some(rhei), true) => Ok(LoadedPlan {
+            rhei,
+            kind: LoadedPlanKind::SingleFile,
+            task_sources: HashMap::new(),
+            task_roots: HashMap::new(),
+            content_section_roots: Vec::new(),
+        }),
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
     }
 }
@@ -323,7 +394,10 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
             content_sections: index.content_sections,
             tasks: all_tasks,
         },
+        kind: LoadedPlanKind::Workspace,
         task_sources,
+        task_roots: HashMap::new(),
+        content_section_roots: Vec::new(),
     })
 }
 
@@ -372,9 +446,28 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
-    let base_path = input.parent().unwrap_or(Path::new("."));
-    let mut report =
-        rhei_validator::validate_with_machine_and_base(&loaded.rhei, &resolved.machine, base_path);
+    let normalized_input = normalize_workspace_input(input);
+    let base_path = if normalized_input.is_dir() {
+        normalized_input.as_path()
+    } else {
+        normalized_input.parent().unwrap_or(Path::new("."))
+    };
+    let mut report = if loaded.is_panta_project() {
+        // Panta task links validate against each ticket's owning rhei root. §AR-rhei-panta.5
+        rhei_validator::validate_with_machine_and_link_bases(
+            &loaded.rhei,
+            &resolved.machine,
+            base_path,
+            &loaded.task_roots,
+            &loaded.content_section_roots,
+        )
+    } else {
+        rhei_validator::validate_with_machine_and_base(
+            &loaded.rhei,
+            &resolved.machine,
+            base_path,
+        )
+    };
     let workspace_root = execution_workspace_root(input);
     let settings = load_merged_settings(&workspace_root)?;
     report.errors.extend(validate_machine_settings_references(&resolved.machine, &settings));
@@ -489,10 +582,25 @@ fn is_relevant_event_kind(kind: &EventKind) -> bool {
 }
 
 fn path_matches(path: &Path, targets: &[WatchTarget]) -> bool {
+    // Exclusions win: a path inside an excluded artifact tree never revalidates,
+    // even though it sits under a watched descendant root.
+    if targets
+        .iter()
+        .any(|target| matches!(target, WatchTarget::ExcludedDir(name) if path_has_component(path, name)))
+    {
+        return false;
+    }
     targets.iter().any(|target| match target {
         WatchTarget::Exact(watched) => paths_equivalent(path, watched),
         WatchTarget::Descendant(root) => path_is_under(path, root),
+        WatchTarget::ExcludedDir(_) => false,
     })
+}
+
+/// True if any path component is exactly `name` (e.g. a `runtime` directory
+/// anywhere in the path).
+fn path_has_component(path: &Path, name: &str) -> bool {
+    path.components().any(|component| component.as_os_str() == name)
 }
 
 fn paths_equivalent(candidate: &Path, watched: &Path) -> bool {
@@ -530,6 +638,10 @@ struct ValidationWatchPlan {
 enum WatchTarget {
     Exact(PathBuf),
     Descendant(PathBuf),
+    /// Ignore any event whose path passes through a directory with this name,
+    /// at any depth (e.g. a `runtime/` artifact tree the tools write into —
+    /// including the per-rhei `runtime/` trees nested under workspace rheis).
+    ExcludedDir(&'static str),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -561,6 +673,10 @@ fn validation_watch_plan(input: &Path, state_machine: Option<&Path>) -> Validati
 }
 
 fn plan_watch_targets(input: &Path) -> Vec<WatchTarget> {
+    if let Some(project_root) = workspace::panta_project_dir(input) {
+        return panta_watch_targets(&project_root);
+    }
+
     if let Some(workspace_root) = workspace::workspace_dir(input) {
         return workspace_watch_targets(&workspace_root);
     }
@@ -572,6 +688,18 @@ fn plan_watch_targets(input: &Path) -> Vec<WatchTarget> {
     }
 }
 
+fn panta_watch_targets(project_root: &Path) -> Vec<WatchTarget> {
+    vec![
+        // The project directory holds the manifest, every rhei, and the synthetic
+        // basin, so one descendant watch covers them all. §AR-rhei-panta.1
+        WatchTarget::Descendant(canonical_watch_path(project_root)),
+        // Exclude every `runtime/` artifact tree (the project's and the per-rhei
+        // ones nested under workspace rheis) at any depth, so a re-render that
+        // writes there never re-triggers itself. §AR-rhei-panta.5
+        WatchTarget::ExcludedDir("runtime"),
+    ]
+}
+
 fn workspace_watch_targets(workspace_root: &Path) -> Vec<WatchTarget> {
     vec![
         WatchTarget::Exact(canonical_watch_path(&workspace_root.join("index.rhei.md"))),
@@ -580,7 +708,9 @@ fn workspace_watch_targets(workspace_root: &Path) -> Vec<WatchTarget> {
 }
 
 fn watch_auto_state_machine_path(input: &Path) -> PathBuf {
-    if let Some(workspace_root) = workspace::workspace_dir(input) {
+    if let Some(project_root) = workspace::panta_project_dir(input) {
+        project_root.join("states.yaml")
+    } else if let Some(workspace_root) = workspace::workspace_dir(input) {
         workspace_root.join("states.yaml")
     } else if input.is_dir() {
         input.join("states.yaml")
@@ -598,6 +728,8 @@ fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarge
 
 fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
     let (path, mode) = match target {
+        // An exclusion only filters events; it is not itself a watch root.
+        WatchTarget::ExcludedDir(_) => return,
         WatchTarget::Exact(path) => {
             let root = path.parent().unwrap_or_else(|| Path::new("."));
             (canonical_watch_path(root), RecursiveMode::NonRecursive)
@@ -611,6 +743,23 @@ fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
             }
         }
     };
+
+    // A recursive watch already covers everything beneath it, so a non-recursive
+    // root on the same path or a descendant is redundant (e.g. the Panta project
+    // dir watched recursively also covers its `index.panta.md` and `states.yaml`).
+    if mode == RecursiveMode::NonRecursive
+        && roots
+            .iter()
+            .any(|existing| existing.mode == RecursiveMode::Recursive && path.starts_with(&existing.path))
+    {
+        return;
+    }
+    // Conversely, a new recursive root supersedes any non-recursive roots beneath it.
+    if mode == RecursiveMode::Recursive {
+        roots.retain(|existing| {
+            !(existing.mode == RecursiveMode::NonRecursive && existing.path.starts_with(&path))
+        });
+    }
 
     let root = WatchRoot { path, mode };
     if !roots.iter().any(|existing| existing == &root) {

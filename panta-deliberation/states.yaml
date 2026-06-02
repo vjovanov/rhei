@@ -1,0 +1,405 @@
+# State machine diagram
+# ---------------------
+#
+# Legend: [final], [gate]
+#
+#   split-points
+#       --> completed [final]
+#       (creates point-* tasks and one final-solution task)
+#
+#   per-point task:
+#     propose-solutions (all_targets: target_agents)
+#       --> aggregate-disagreements (point_aggregator_agent)
+#       --> discuss-point (all_targets: target_agents)
+#       --> resolve-point (point_aggregator_agent)
+#       --> completed [final]
+#
+#   final task:
+#     final-solution (final_aggregator_agent)
+#       --> present-to-human (presentation_agent)
+#       --> human-review [gate]
+#       --> completed [final]
+#
+#   any non-final state --> cancelled [final]
+#
+# Per-task paths:
+#   splitter: split-points -> completed
+#   point:    propose-solutions -> aggregate-disagreements -> discuss-point
+#             -> resolve-point -> completed
+#   final:    final-solution -> present-to-human -> human-review -> completed
+
+name: multi-agent-deliberation
+version: 1.0.0
+
+
+
+states:
+  split-points:
+    description: Split the input discussion into separate decision-point tasks.
+    target: codex[yolo]:openai:gpt-5.5
+    instructions: |
+      Split Task {task_id}: {task_title}.
+
+      Read the input discussion in the task body. Create at most 4
+      decision-point tasks unless separating more points is necessary to avoid
+      merging unrelated decisions.
+
+      Write a point manifest to `{output.point-manifest.path}` with this shape:
+
+      # Discussion Points - Resolve Panta project spec conflicts
+
+      - point-<slug>: <point title>
+        - Source: <short quote or reference from the input discussion>
+        - Question: <the exact decision to resolve>
+        - Constraints: <facts, requirements, or tradeoffs that proposals must honor>
+
+      For every manifest entry, append one task file under `tasks/` named
+      `NN-point-<slug>.md` with:
+
+      ### Task point-<slug>: Resolve <point title>
+      **State:** propose-solutions
+      **Prior:** Task {task_id}
+
+      Include the neutral point statement, source evidence, and constraints.
+
+      Append `tasks/99-final-solution.md` with a final task:
+
+      ### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+      **State:** final-solution
+      **Prior:** Task point-<slug-1>, Task point-<slug-2>, ...
+
+      Replace the prior list with every concrete point task id. Do not leave
+      placeholders, ellipses, empty prior entries, or duplicate task ids.
+    outputs:
+      - name: point-manifest
+        path: runtime/deliberation/points-manifest.md
+        description: Stable list of generated discussion points
+
+  propose-solutions:
+    description: Configured target agents independently propose a solution for one point.
+    concurrent: true
+    all_targets:
+
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+
+      - codex[yolo]:openai:gpt-5.5
+
+    personality: |
+      You are {target}. Propose your own solution for this discussion point.
+      Do not imitate the other agents. Be concise, concrete, and explicit about
+      tradeoffs.
+    instructions: |
+      Propose a solution for Task {task_id}: {task_title}.
+
+      Read the point statement and constraints in the task body. Write your
+      proposal to `{output.proposal.path}` with:
+
+      # Proposal - {target}
+
+      - Recommendation: <one concrete solution>
+      - Reasons: <why this should be chosen>
+      - Tradeoffs: <costs, risks, or limitations>
+      - Assumptions: <facts you rely on>
+      - Rejection criteria: <when this proposal should not be used>
+    outputs:
+      - name: proposal
+        path: runtime/deliberation/points/{task_id}/proposals/{target.slug}.md
+        description: One target agent's proposal for this discussion point
+
+  aggregate-disagreements:
+    description: Aggregate proposals, tag agreements and disagreements, and frame the discussion.
+    concurrent: true
+    target: codex[yolo]:openai:gpt-5.5
+    inputs:
+
+      - name: claude-proposal
+        path: runtime/deliberation/points/{task_id}/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Proposal from claude
+
+      - name: codex-proposal
+        path: runtime/deliberation/points/{task_id}/proposals/codex-yolo-openai-gpt-5.5.md
+        description: Proposal from codex
+
+    personality: |
+      You are the point aggregator. Preserve disagreement instead of smoothing
+      it away. Tag exactly where proposals differ and what evidence could
+      resolve the difference.
+    instructions: |
+      Aggregate proposals for Task {task_id}: {task_title}.
+
+      Read:
+
+      - `{input.claude-proposal.path}`
+
+      - `{input.codex-proposal.path}`
+
+
+      Write `{output.disagreement-map.path}` with:
+
+      # Disagreement Map - {task_title}
+
+      ## Candidate Solutions
+      - S-001: <solution>
+        - Proposed by: <targets>
+        - Reasons: <shared or strongest reasons>
+
+      ## Agreements
+      - A-001: <what all or most proposals agree on>
+
+      ## Disagreements
+      - D-001: <specific disagreement>
+        - Agents: <who disagrees>
+        - Options: <competing options>
+        - Why it matters: <impact on the final answer>
+        - Evidence needed: <what the discussion should resolve>
+
+      ## Discussion Prompt
+      A short prompt that asks the agents to address only the tagged
+      disagreements and to converge where possible.
+    outputs:
+      - name: disagreement-map
+        path: runtime/deliberation/points/{task_id}/disagreement-map.md
+        description: Aggregated proposals with tagged agreements and disagreements
+
+  discuss-point:
+    description: Configured target agents discuss the tagged disagreements for one point.
+    concurrent: true
+    all_targets:
+
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+
+      - codex[yolo]:openai:gpt-5.5
+
+    inputs:
+      - name: disagreement-map
+        path: runtime/deliberation/points/{task_id}/disagreement-map.md
+        description: Tagged disagreements and discussion prompt for this point
+
+      - name: claude-proposal
+        path: runtime/deliberation/points/{task_id}/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Proposal from claude
+
+      - name: codex-proposal
+        path: runtime/deliberation/points/{task_id}/proposals/codex-yolo-openai-gpt-5.5.md
+        description: Proposal from codex
+
+    personality: |
+      You are {target}. Respond to the disagreement map directly. Keep useful
+      parts of your original proposal, concede weak points, and focus on
+      resolving differences rather than restating your first answer.
+    instructions: |
+      Discuss Task {task_id}: {task_title}.
+
+      Read `{input.disagreement-map.path}` and the proposal files. Write your
+      discussion response to `{output.discussion-note.path}` with:
+
+      # Discussion Response - {target}
+
+      - Changed position: <yes/no and what changed>
+      - Remaining disagreements: <specific disagreement ids>
+      - Concessions: <what other agents got right>
+      - Final recommendation for this point: <the solution you now support>
+      - Reason: <why this recommendation best handles the tagged disagreements>
+    outputs:
+      - name: discussion-note
+        path: runtime/deliberation/points/{task_id}/discussion/{target.slug}.md
+        description: One target agent's response to the disagreement map
+
+  resolve-point:
+    description: Aggregate the discussion and choose the best solution for one point.
+    concurrent: true
+    target: codex[yolo]:openai:gpt-5.5
+    inputs:
+      - name: disagreement-map
+        path: runtime/deliberation/points/{task_id}/disagreement-map.md
+        description: Tagged disagreements for this point
+
+      - name: claude-discussion
+        path: runtime/deliberation/points/{task_id}/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Discussion response from claude
+
+      - name: codex-discussion
+        path: runtime/deliberation/points/{task_id}/discussion/codex-yolo-openai-gpt-5.5.md
+        description: Discussion response from codex
+
+    personality: |
+      You are the point resolver. Choose the solution that best fits the
+      evidence and constraints. Do not vote-count blindly; explain why the
+      chosen solution is stronger.
+    instructions: |
+      Resolve Task {task_id}: {task_title}.
+
+      Read `{input.disagreement-map.path}` and every discussion response.
+      Write `{output.point-decision.path}` with:
+
+      # Point Decision - {task_title}
+
+      - Chosen solution: <one solution>
+      - Why chosen: <short evidence-based reason>
+      - Alternatives considered: <other viable solutions and why not chosen>
+      - Remaining uncertainty: <none, or what a human should know>
+      - Effect on final solution: <how this point constrains the final answer>
+    outputs:
+      - name: point-decision
+        path: runtime/deliberation/points/{task_id}/point-decision.md
+        description: Chosen solution and rationale for this point
+
+  final-solution:
+    description: Synthesize all resolved point decisions into one final solution.
+    target: codex[yolo]:openai:gpt-5.5
+    personality: |
+      You are the final aggregator. Produce one coherent answer from the point
+      decisions. Keep the answer practical and note dependencies between points.
+    instructions: |
+      Produce the final solution for Task {task_id}: {task_title}.
+
+      Read the generated point manifest at `runtime/deliberation/points-manifest.md`
+      and every point decision under `runtime/deliberation/points/*/point-decision.md`.
+
+      Write `{output.final-solution.path}` with:
+
+      # Final Solution - Resolve Panta project spec conflicts
+
+      ## Recommendation
+      <the final proposed solution>
+
+      ## Why This Solution
+      - <reason grounded in the point decisions>
+
+      ## Point Decisions
+      - <point>: <chosen solution and reason>
+
+      ## Alternatives Rejected
+      - <alternative>: <why it was not chosen>
+
+      ## Risks And Open Questions
+      - <risk or uncertainty, or none>
+    outputs:
+      - name: final-solution
+        path: runtime/deliberation/final-solution.md
+        description: Final proposed solution across all discussion points
+
+  present-to-human:
+    description: Write the simplest human-readable presentation of the final solution.
+    target: claude-code[yolo]:anthropic:claude-opus-4-7
+    inputs:
+      - name: final-solution
+        path: runtime/deliberation/final-solution.md
+        description: Final proposed solution and rationale
+    personality: |
+      You are preparing the decision for a human reader. Prefer simple language,
+      direct structure, and short reasons over comprehensive process detail.
+    instructions: |
+      Prepare the human-facing summary for Task {task_id}: {task_title}.
+
+      Read `{input.final-solution.path}`. Write `{output.human-summary.path}` in
+      the simplest useful form:
+
+      # Recommended Solution
+
+      <one paragraph>
+
+      ## Why This Was Chosen
+      - <reason 1>
+      - <reason 2>
+      - <reason 3>
+
+      ## What Was Not Chosen
+      - <alternative and short reason>
+
+      ## Human Check
+      - <anything the human should confirm before accepting>
+    outputs:
+      - name: human-summary
+        path: runtime/deliberation/human-summary.md
+        description: Human-facing presentation of the recommended solution
+
+  human-review:
+    description: Human reviews the final recommendation and reasons.
+    gating: true
+    instructions: |
+      Do not transition out of this state autonomously.
+
+      A human reads `runtime/deliberation/human-summary.md` and decides whether to
+      accept the proposed solution. The human may transition this task to
+      `completed` after accepting it, or to `cancelled` if the deliberation
+      should be abandoned.
+
+  completed:
+    description: The deliberation task is finished.
+    instructions: |
+      No more action is required.
+    final: true
+
+  cancelled:
+    description: The deliberation was cancelled.
+    instructions: |
+      Stop work and leave existing artifacts for inspection.
+    final: true
+
+transitions:
+  - from: split-points
+    to: completed
+    description: The splitter created the point tasks, point manifest, and final aggregation task.
+
+  - from: propose-solutions
+    to: aggregate-disagreements
+    description: All configured target agents wrote proposals for this point.
+
+  - from: aggregate-disagreements
+    to: discuss-point
+    description: The aggregator tagged agreements and disagreements and framed the point discussion.
+
+  - from: discuss-point
+    to: resolve-point
+    description: All configured target agents responded to the disagreement map.
+
+  - from: resolve-point
+    to: completed
+    description: The point aggregator chose a solution and wrote the point decision.
+
+  - from: final-solution
+    to: present-to-human
+    description: The final aggregator synthesized all point decisions into one solution.
+
+  - from: present-to-human
+    to: human-review
+    description: The presentation agent wrote the simple human-facing summary.
+
+  - from: human-review
+    to: completed
+    description: A human accepted the recommended solution.
+
+  - from: human-review
+    to: cancelled
+    description: A human abandoned the recommendation.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the deliberation from any non-final state.
+
+profiles:
+  workspace:
+    initial: completed
+    allowed:
+      - completed
+
+  deliberation-task:
+    initial: split-points
+    allowed:
+      - split-points
+      - propose-solutions
+      - aggregate-disagreements
+      - discuss-point
+      - resolve-point
+      - final-solution
+      - present-to-human
+      - human-review
+      - completed
+      - cancelled
+
+node_policy:
+  root: workspace
+  default: deliberation-task
+  by_type:
+    task: deliberation-task

@@ -1,0 +1,7 @@
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Treat a cross-rhei dependency as ready only when the prior task's resolved state is a successful terminal state: the state definition has `final: true`, and the normalized state name is not `cancelled`.
+- Reasons: This keeps cross-rhei dependency handling identical to normal scheduling readiness, so moving a dependency across a rhei boundary does not change execution semantics. It also preserves the explicit cancellation rule: cancelled work is terminal for closure, but not successful for unblocking dependent work.
+- Tradeoffs: This requires cross-rhei readiness checks to resolve the remote state definition and normalized state consistently with local scheduling. It may leave dependents blocked after cancellation until a human changes the dependency, reroutes the work, or marks a different successful prerequisite.
+- Assumptions: Cross-rhei dependency metadata can identify the referenced prior and its current state. The consumer can access the referenced rhei's state machine or an equivalent normalized readiness result. `cancelled` is the only terminal state excluded by the stated constraint.
+- Rejection criteria: Do not use this proposal if cross-rhei dependencies intentionally need weaker semantics than normal scheduling, if remote state definitions cannot be resolved reliably, or if additional unsuccessful terminal states besides normalized `cancelled` must also be prevented from unblocking dependents.

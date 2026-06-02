@@ -133,11 +133,11 @@ impl StateMachine {
                     "'node_policy.by_type' contains an empty node-kind key".to_string(),
                 ));
             }
-            if trimmed_kind.eq_ignore_ascii_case("rhei") {
+            if trimmed_kind.eq_ignore_ascii_case("panta") || trimmed_kind.eq_ignore_ascii_case("rhei") {
                 return Err(StateMachineLoadError::Invalid(
-                    "'node_policy.by_type' must not declare the reserved kind 'rhei' \
-                     (the root node is bound via 'node_policy.root')"
-                        .to_string(),
+                    format!(
+                        "'node_policy.by_type' must not declare the reserved kind '{trimmed_kind}'"
+                    ),
                 ));
             }
             if !seen_kinds.insert(trimmed_kind.to_ascii_lowercase()) {
@@ -161,9 +161,10 @@ impl StateMachine {
                         "'node_policy.overrides[{idx}].match.type' must be a non-empty node kind"
                     )));
                 }
-                if node_type.eq_ignore_ascii_case("rhei") {
+                if node_type.eq_ignore_ascii_case("panta") || node_type.eq_ignore_ascii_case("rhei") {
                     return Err(StateMachineLoadError::Invalid(format!(
-                        "'node_policy.overrides[{idx}].match.type' must not be 'rhei'; the root node is bound via 'node_policy.root'"
+                        "'node_policy.overrides[{idx}].match.type' must not be '{}'; it is a reserved kind",
+                        node_type
                     )));
                 }
             }

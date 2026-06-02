@@ -151,7 +151,9 @@ struct ResolvedStateMachine {
 }
 
 fn auto_state_machine_path(input: &Path) -> PathBuf {
-    if workspace::is_workspace(input) {
+    if let Some(project_dir) = workspace::panta_project_dir(input) {
+        project_dir.join("states.yaml")
+    } else if workspace::is_workspace(input) {
         input.join("states.yaml")
     } else {
         input.parent().unwrap_or_else(|| Path::new(".")).join("states.yaml")
@@ -164,7 +166,9 @@ fn auto_state_machine_path(input: &Path) -> PathBuf {
 /// `workspace::is_workspace(input)` + `input.join(...)` pattern regardless of
 /// which form the user supplied on the command line.
 fn normalize_workspace_input(input: &Path) -> PathBuf {
-    workspace::workspace_dir(input).unwrap_or_else(|| input.to_path_buf())
+    workspace::panta_project_dir(input)
+        .or_else(|| workspace::workspace_dir(input))
+        .unwrap_or_else(|| input.to_path_buf())
 }
 
 fn resolve_state_machine_for_loaded_plan(

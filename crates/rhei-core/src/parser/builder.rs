@@ -32,6 +32,7 @@ fn finalize_builder(b: NodeBuilder) -> Result<Task> {
     })?;
     Ok(Task {
         id: b.id,
+        profile_depth_offset: 0,
         kind: b.kind,
         title: b.title,
         state,

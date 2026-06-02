@@ -61,7 +61,7 @@ Examples:
 |-------|------|----------|-------------|
 | `models` | string array | No | The complete set of model profile identifiers available to the machine |
 | `profiles` | map of name to `{initial, allowed}` | Yes | Named, reusable state profiles. Each profile declares the `initial` state and the `allowed` state subset for any node assigned to it. Referenced by `node_policy`. |
-| `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` and `default`. Optionally defines `by_type` and `overrides`. See [Node Policy](#9-node-policy). |
+| `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` (the Panta project root) and `default`. Optionally defines `rhei` (the rhei tier), `by_type`, and `overrides`. See [Node Policy](#9-node-policy). |
 
 The `profiles` and `node_policy` blocks replace the earlier per-state
 `initial: true` boolean. A state definition no longer carries its own initial
@@ -793,19 +793,21 @@ explicitly.
 
 ## 9. Node Policy
 
-`node_policy` maps each node in a plan to a profile. It has four keys: the
-required `root` and `default`, and the optional `by_type` and `overrides`.
+`node_policy` maps each node in a plan to a profile. Its keys are the required
+`root` (the Panta project root, §FS-rhei-panta) and `default`, and the optional
+`rhei` (the rhei tier), `by_type`, and `overrides`.
 
 ### 9.1. Shape
 
 ```yaml
 node_policy:
-  root: <profile-name>           # required: profile the (always-rhei) root runs
-  default: <profile-name>        # required: fallback for any non-root kind not listed
-  by_type:                       # optional: per-kind overrides
+  root: <profile-name>           # required: profile the Panta project root runs
+  rhei: <profile-name>           # optional: profile the rhei tier runs
+  default: <profile-name>        # required: fallback for any task kind not listed
+  by_type:                       # optional: per-kind overrides (task kinds)
     <kind>: <profile-name>
   overrides:                     # optional: ordered list for multi-dimensional cases
-    - match: { type: <kind>, level: <n> }
+    - match: { type: <kind>, level: <n> }   # level is rhei-local task depth
       profile: <profile-name>
 ```
 
@@ -813,14 +815,19 @@ node_policy:
 
 For a given node, resolve its profile in this order:
 
-1. If the node is the root (level 0, kind `rhei`), use `node_policy.root`.
-2. Otherwise, walk `node_policy.overrides` in declaration order. Use the
-   profile of the first entry whose `match` matches the node. A `match`
-   block may include `type` and/or `level`; every specified field must
-   match the node.
-3. Otherwise, if `node_policy.by_type[<kind>]` is defined for the node's
-   kind, use it.
-4. Otherwise, use `node_policy.default`.
+1. If the node is the Panta project root (kind `panta`), use
+   `node_policy.root`.
+2. If the node is a rhei (kind `rhei`), use `node_policy.rhei` when defined.
+   When it is omitted, the rhei is a structural rollup with no profile-driven
+   state: its status is derived from its descendants (§FS-rhei-panta.3), and it
+   is never claimed or transitioned.
+3. Otherwise the node is a ticket. Walk `node_policy.overrides` in declaration
+   order; use the profile of the first entry whose `match` matches the node. A
+   `match` block may include `type` and/or `level` (rhei-local task depth);
+   every specified field must match the node.
+4. Otherwise, if `node_policy.by_type[<kind>]` is defined for the node's kind,
+   use it.
+5. Otherwise, use `node_policy.default`.
 
 The resolved profile's `initial` is the node's starting state; its `allowed`
 set is the authoritative list of states that node may ever hold. `rhei reset`
@@ -828,19 +835,23 @@ returns each node to its resolved profile's `initial`.
 
 ### 9.3. Validation
 
-- `node_policy.root` is required; it must reference a profile defined in
-  `profiles`.
+- `node_policy.root` is required; it names the Panta project root profile and
+  must reference a profile defined in `profiles`.
 - `node_policy.default` is required; it must reference a profile defined in
   `profiles`.
+- `node_policy.rhei` is optional; when present it must reference a profile
+  defined in `profiles`.
 - Every key of `node_policy.by_type` must appear in `structure.nodeKinds`.
-  The reserved name `rhei` must not appear as a `by_type` key — the root is
-  configured through `node_policy.root`, not here.
+  The reserved names `panta` and `rhei` must not appear as `by_type` keys or in
+  `structure.nodeKinds` — the project root is configured through
+  `node_policy.root` and the rhei tier through `node_policy.rhei`.
 - Every profile reference in `by_type` and `overrides[].profile` must
   resolve to a profile defined in `profiles`.
 - `overrides[].match` keys are limited to `type` and `level`. `type` values
   must be in `structure.nodeKinds`. `level` values must be integers in
-  `[1, structure.maxLevels]`. The root is not matchable through `overrides`;
-  use `node_policy.root`.
+  `[1, structure.maxLevels]` and refer to rhei-local task depth. The `panta`
+  and `rhei` tiers are not matchable through `overrides`; use `node_policy.root`
+  and `node_policy.rhei`.
 - Each profile referenced by `node_policy` must pass the per-profile
   validation rules above.
 - Any authored `**State:**` on a node must appear in that node's resolved
@@ -850,8 +861,9 @@ returns each node to its resolved profile's `initial`.
 
 ```yaml
 node_policy:
-  root: reviewed        # the root runs through the full review flow
-  default: simple       # nodes without a type-specific mapping use this
+  root: reviewed        # the Panta project root
+  rhei: simple          # the rhei tier (omit to leave rheis as pure rollups)
+  default: simple       # task kinds without a type-specific mapping use this
   by_type:
     task: reviewed
     bug:  light-review
@@ -860,8 +872,9 @@ node_policy:
       profile: simple
 ```
 
-In this configuration, a level-3 `task` uses `simple` (via `overrides`), a
-level-2 `task` uses `reviewed` (via `by_type`), a `bug` at any level uses
+In this configuration the Panta root uses `reviewed`, each rhei uses `simple`,
+and within a rhei a level-3 `task` uses `simple` (via `overrides`), a level-2
+`task` uses `reviewed` (via `by_type`), a `bug` at any level uses
 `light-review`, and a `story` — a declared kind without a `by_type` entry —
 uses `simple`.
 

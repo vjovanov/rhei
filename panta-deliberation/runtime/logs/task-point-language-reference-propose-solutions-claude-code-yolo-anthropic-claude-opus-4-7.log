@@ -1,0 +1,25 @@
+=== rhei agent log v1 ===
+agent: claude-code
+mode: yolo
+target: claude-code[yolo]:anthropic:claude-opus-4-7
+model: claude-opus-4-7
+provider: anthropic
+model_name: claude-opus-4-7
+task: point-language-reference
+state: propose-solutions
+started: 2026-06-01T08:21:52Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Proposal written to `runtime/deliberation/points/point-language-reference/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md`.
+
+**Core recommendation:** Replace the single "Plan and project markdown" prose bullet in `§FS-rhei-language-reference` with a structured file-kind map organized by container scope (Project → Rhei → Bare), one row per authored surface (`index.panta.md`, `rheis/`, `inbox/`, project `states.yaml`, `*.rhei.md`, `index.rhei.md`+`tasks/`), each citing its owning spec section. Reorder the reading path container-to-contained, and extend the ownership rules so any addition or rename of a user-authored file kind requires updating the map in the same change as the owning spec.
+
+The grammar stays in `§FS-rhei-plan-language`; project-root semantics stay in `§FS-rhei-panta`; the language reference remains a discoverability index, not a duplicate normative source.
+
+=== exit ===
+code: 0
+duration: 2m38s
+ended: 2026-06-01T08:24:31Z
+===

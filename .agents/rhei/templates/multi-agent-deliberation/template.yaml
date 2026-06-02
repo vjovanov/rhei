@@ -1,0 +1,74 @@
+name: multi-agent-deliberation
+version: 1.0.0
+description: Split a discussion into points, gather multi-agent proposals and disagreements, discuss each point, and present a final human-readable decision.
+
+inputs:
+  - name: plan_title
+    description: Title of the instantiated deliberation workspace
+    type: string
+    default: Multi-Agent Deliberation
+
+  - name: discussion_title
+    description: Short title for the discussion being resolved
+    type: string
+    required: true
+
+  - name: discussion
+    description: Full discussion, transcript, issue, or decision brief to resolve
+    type: string
+    required: true
+
+  - name: splitter_agent
+    description: Agent target that breaks the input discussion into separate points
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: target_agents
+    description: Agent targets that independently propose and discuss solutions for each point
+    type: array
+    items:
+      type: object
+      properties:
+        id:
+          type: string
+          validate: "[a-z][a-z0-9-]*"
+        label:
+          type: string
+        selector:
+          type: string
+    default:
+      - id: claude
+        label: Claude proposal
+        selector: claude-code[yolo]:anthropic:claude-opus-4-7
+      - id: codex
+        label: Codex proposal
+        selector: codex[yolo]:openai:gpt-5.5
+      - id: gemini
+        label: Gemini proposal
+        selector: gemini[yolo]:google:gemini-3.1-pro-preview
+
+  - name: point_aggregator_agent
+    description: Agent target that aggregates proposals and identifies disagreements for each point
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: final_aggregator_agent
+    description: Agent target that proposes the final cross-point solution
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: presentation_agent
+    description: Agent target that turns the final solution into the simplest human-readable presentation
+    type: string
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: max_points
+    description: Soft maximum number of discussion points the splitter should create
+    type: number
+    validate: "[1-9][0-9]*"
+    default: 8
+
+  - name: output_dir
+    description: Directory for deliberation artifacts inside the workspace
+    type: string
+    default: runtime/deliberation

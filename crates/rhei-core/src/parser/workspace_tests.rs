@@ -52,6 +52,42 @@ fn workspace_index_tracks_whether_states_was_declared() {
 }
 
 #[test]
+fn parses_panta_manifest_header_and_default_states() {
+    let input = r#"# Panta: Product Suite
+**States:** project-flow
+
+---
+structure:
+  maxLevels: 3
+  nodeKinds: [task, bug]
+---
+
+## Context
+Shared project context.
+"#;
+
+    let manifest = parse_panta_manifest(input).expect("panta manifest parses");
+
+    assert_eq!(manifest.title, "Product Suite");
+    assert_eq!(manifest.states, "project-flow");
+    assert!(manifest.states_declared);
+    assert_eq!(manifest.structure.max_levels, 3);
+    assert_eq!(manifest.structure.node_kinds, vec!["task", "bug"]);
+    assert_eq!(manifest.content_sections[0].title, "Context");
+}
+
+#[test]
+fn panta_manifest_rejects_tasks_section() {
+    let err = parse_panta_manifest("# Panta: Project\n\n## Tasks\n").unwrap_err();
+
+    assert!(
+        err.message.contains("Panta manifest file must not contain a '## Tasks' section"),
+        "unexpected message: {}",
+        err.message
+    );
+}
+
+#[test]
 fn errors_when_workspace_index_frontmatter_appears_before_header() {
     let input = r#"---
 metadata:

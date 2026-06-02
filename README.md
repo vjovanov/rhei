@@ -78,6 +78,29 @@ The primary reference documents are:
 - [`docs/functional-spec/rhei-states.spec.md`](docs/functional-spec/rhei-states.spec.md) — states specification
 - [`docs/functional-spec/states.yaml`](docs/functional-spec/states.yaml) — default validation states definition
 
+## First 10 minutes
+
+After installing from Cargo or running from this checkout, start with a
+mock-backed example that does not require external agent credentials:
+
+```bash
+cargo xtask examples validate agent-discussion
+cargo xtask examples run agent-discussion
+```
+
+That validates a real workspace, runs deterministic mock agents in a temporary
+copy, and leaves runtime logs and artifacts in the copied workspace. To inspect
+the larger dashboard fixture without executing subprocesses:
+
+```bash
+cargo run -p rhei-cli -- run examples/ui-test-canonical-example --dry-run
+cargo run -p rhei-cli -- viz examples/ui-test-canonical-example --output /tmp/rhei-ui-test.html
+```
+
+Use [`examples/README.md`](examples/README.md) as the cookbook once the basic
+loop is clear. It maps common jobs such as code review, snapshots, multi-agent
+analysis, and dashboard testing to concrete examples.
+
 ## Install
 
 ### Cargo
@@ -136,6 +159,9 @@ const result = runCaptureSync(["validate", "plan.rhei.md"]);
 
 The npm packages install the Rust CLI through Cargo during installation, so
 Rust and Cargo must be available on `PATH`.
+These alpha packages are thin wrappers around the Rust CLI; they are useful for
+distribution and helper APIs today, not a replacement for the native runtime
+crates.
 
 ### PyPI
 
@@ -161,6 +187,9 @@ result = rhei_api.run(["validate", "plan.rhei.md"], capture_output=True)
 
 The PyPI package name is `rhei-cli` because `rhei` is already taken on PyPI.
 The installed command is still `rhei`.
+These alpha packages are thin wrappers around the Rust CLI; they are useful for
+distribution and helper APIs today, not a replacement for the native runtime
+crates.
 
 ### Completions
 

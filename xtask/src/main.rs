@@ -49,7 +49,7 @@ const EXAMPLES: &[Example] = &[
         name: "living-review-loop",
         path: "examples/living-review-loop",
         state_machine: Some("examples/living-review-loop/team-states.yaml"),
-        runnable: true,
+        runnable: false,
     },
     Example {
         name: "review-fix-visits",
@@ -394,9 +394,31 @@ fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
         let dst_path = dst.join(entry.file_name());
         if file_type.is_dir() {
             copy_dir_all(&entry.path(), &dst_path)?;
+        } else if file_type.is_symlink() {
+            copy_symlink(&entry.path(), &dst_path)?;
         } else {
             fs::copy(entry.path(), &dst_path)?;
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(fs::read_link(src)?, dst)
+}
+
+#[cfg(windows)]
+fn copy_symlink(src: &Path, dst: &Path) -> io::Result<()> {
+    let target = fs::read_link(src)?;
+    let target_path = if target.is_absolute() {
+        target.clone()
+    } else {
+        src.parent().unwrap_or(Path::new(".")).join(&target)
+    };
+    if target_path.is_dir() {
+        std::os::windows::fs::symlink_dir(target, dst)
+    } else {
+        std::os::windows::fs::symlink_file(target, dst)
+    }
 }

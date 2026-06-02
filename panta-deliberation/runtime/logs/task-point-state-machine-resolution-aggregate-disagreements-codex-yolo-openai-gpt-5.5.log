@@ -1,0 +1,542 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-state-machine-resolution
+state: aggregate-disagreements
+started: 2026-06-01T08:24:31Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8248-d384-7db0-9e5c-bc0b977160bb
+--------
+user
+# Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+
+## State: aggregate-disagreements
+
+You are the point aggregator. Preserve disagreement instead of smoothing
+it away. Tag exactly where proposals differ and what evidence could
+resolve the difference.
+
+## Instructions
+
+Aggregate proposals for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution.
+
+Read:
+
+- `runtime/deliberation/points/point-state-machine-resolution/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md`
+
+- `runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md`
+
+Write `runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md` with:
+
+# Disagreement Map - Resolve Panta defaults in state-machine resolution
+
+## Candidate Solutions
+- S-001: <solution>
+  - Proposed by: <targets>
+  - Reasons: <shared or strongest reasons>
+
+## Agreements
+- A-001: <what all or most proposals agree on>
+
+## Disagreements
+- D-001: <specific disagreement>
+  - Agents: <who disagrees>
+  - Options: <competing options>
+  - Why it matters: <impact on the final answer>
+  - Evidence needed: <what the discussion should resolve>
+
+## Discussion Prompt
+A short prompt that asks the agents to address only the tagged
+disagreements and to converge where possible.
+
+## Task Content
+
+Resolve how project defaults participate in state-machine lookup for rheis
+inside a Panta project.
+
+Source evidence:
+
+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+> the project default.
+
+> The state-machine resolution rules need one non-conflicting lookup order for
+> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+> built-in fallback.
+
+Question:
+
+What single lookup order should resolve a rhei's state machine when explicit
+overrides, rhei-local declarations, inherited Panta defaults, and built-in
+fallback may all apply?
+
+Constraints:
+
+- Omitted `**States:**` on a rhei may inherit a project default from
+  `index.panta.md`.
+- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+  built-in fallback must each have defined precedence.
+- The lookup order must be non-conflicting and usable by validation and
+  execution.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `aggregate-disagreements`:
+- aggregate-disagreements -> discuss-point
+- aggregate-disagreements -> cancelled
+
+codex
+I’ll read the two proposals and then write the disagreement map exactly at the requested path. Since this is a Rhei plan artifact, I’ll keep the output focused on preserving differences rather than resolving them.
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Resolve a rhei's state machine with this precedence:
+  explicit invocation override, then rhei-local `**States:**`, then inherited
+  `index.panta.md` project default, then the built-in `rhei` fallback. Treat
+  each tier as a complete selection, not a merge. Validation and execution
+  should call the same resolver and record the selected source tier.
+- Reasons: This makes "closest authored declaration wins" the normal rule while
+  still letting operators force a machine for a particular validation or
+  execution run. A Panta default then behaves exactly like a default: it fills
+  only missing rhei-local declarations. The built-in machine remains the final
+  compatibility path for standalone plans and Panta projects that intentionally
+  omit project policy.
+- Tradeoffs: A project default cannot force uniform state policy when a child
+  rhei declares its own `**States:**`; that must be handled by a separate
+  validation policy if needed. Explicit overrides can hide declaration mistakes
+  during an ad hoc run, so diagnostics should include "resolved from override"
+  and normal validation without the override should still check authored
+  declarations. The resolver must carry source metadata, which is slightly more
+  implementation work than returning only a state-machine name.
+- Assumptions: An explicit override means a CLI/API override supplied for the
+  current operation, such as a `--state-machine` argument. A rhei is "inside a
+  Panta project" only when it is discovered through that project's manifest or
+  directory model. `index.panta.md` has at most one project-level `**States:**`
+  declaration; if it has none, the inherited-default tier is skipped.
+- Rejection criteria: Do not use this proposal if project authors need
+  `index.panta.md` to forcibly override child rhei declarations by default, or
+  if execution and validation intentionally need different state-machine
+  precedence. Also reject it if explicit overrides are meant only to locate the
+  YAML file for an already-selected `**States:**` name rather than to select the
+  effective state machine itself.
+
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-state-machine-resolution/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Recommendation: Resolve in two strictly ordered phases — first the effective **name**, then the **file** keyed by which layer supplied that name.
+
+  Phase A — Effective `**States:**` name (first match wins):
+    1. Rhei-local `**States:**` declaration in the rhei's own header.
+    2. Inherited declaration from `index.panta.md` (Panta default), only when the rhei sits inside a Panta project and omits `**States:**`.
+    3. Built-in fallback name `rhei`.
+
+  Phase B — File resolution, dispatched by Phase A's source:
+    1. If `--state-machine <path>` is supplied, it loads that file unconditionally; the loaded file's `name` must equal the name from Phase A. If Phase A landed on the built-in fallback (step A.3), the loaded file's name becomes the effective name.
+    2. Else if Phase A.1 (rhei-local): load `states.yaml` sibling to the rhei (single-file plan) or `<workspace>/states.yaml` (Directory Workspace).
+    3. Else if Phase A.2 (Panta-inherited): load `<project>/states.yaml`.
+    4. Else (Phase A.3 fallback): use the built-in `rhei` machine; sibling/workspace/project `states.yaml` are ignored.
+
+  Uniform error rules: a non-`rhei` declared name with no matching file is a validation error and never falls back; a `--state-machine` whose `name` disagrees with the Phase-A name is a validation error.
+
+- Reasons: Splitting **name resolution** from **file resolution** removes the only real source of conflict — two layers competing to both *name* and *locate* the machine. With one ordered Phase A, every rhei has exactly one effective name; with one ordered Phase B keyed by *where the name came from*, the file lookup root is determined, never searched. This is implementable as a pure function `(rhei, panta, cli_override) → (name, file_or_builtin)`, which validation and execution can call identically. Treating `--state-machine` as a file-level override that must be name-consistent (rather than as a name-level override) preserves the "rhei declares its own state machine" invariant while still allowing operators to point at an alternate file (e.g. a fork) when the names agree.
+
+- Tradeoffs: The system must track each rhei's *source layer* (own vs. panta-inherited vs. defaulted), not just the resulting name — small bookkeeping cost during plan load, but it must be exposed to validation so error messages can say "inherited from `index.panta.md`". A Panta-inherited declaration looks for `states.yaml` only at the project root, so a rhei cannot shadow the project default with a sibling file without also redeclaring `**States:**` locally — explicit, but slightly more typing. `--state-machine` cannot rename the machine; an operator who wants to switch *names* must edit the declaration or rely on Phase A.3 omission. Default `**States: rhei**` declared by a rhei (Phase A.1, name = `rhei`) does allow an auto-discovered sibling `states.yaml` named `rhei` to override the built-in, mirroring the existing spec point §FS-rhei-plan-language.1.3 — this is a small asymmetry with Phase A.3 but keeps backward compatibility with existing single-file plans.
+
+- Assumptions: `index.panta.md` declares at most one project-wide `**States:**` value (no per-subdirectory Panta defaults). The built-in `rhei` machine is compiled into the CLI and is the only built-in. State-machine `name` is a stable property of the YAML file and matching is exact (no aliases). Every rhei's location is resolvable so "sibling" / "workspace" / "project root" are unambiguous. Validation and execution share a single resolver implementation so the order cannot drift between commands.
+
+- Rejection criteria: Do not use this proposal if Panta-inherited declarations must allow rhei-local file overrides (a rhei-sibling `states.yaml` shadowing `<project>/states.yaml`) without redeclaring `**States:**` — that requires Phase B to search rhei-local *then* project root for inherited names, reintroducing search ambiguity. Do not use if `--state-machine` should be allowed to silently change the effective name (rename rather than validate). Do not use if the design must support multiple Panta default scopes (e.g. subgroup-level defaults under one project), because Phase A.2 assumes a single inherited source. Do not use if Phase A.1 with the literal name `rhei` should *not* trigger sibling-file lookup — the asymmetry with Phase A.3 would need to be removed by forbidding auto-discovery for the name `rhei` entirely.
+
+exec
+/usr/bin/bash -lc 'ls -la runtime/deliberation/points/point-state-machine-resolution && find runtime/deliberation/points/point-state-machine-resolution -maxdepth 2 -type f -print' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+total 12
+drwxrwxr-x 3 vjovanov vjovanov 4096 Jun  1 10:22 .
+drwxrwxr-x 6 vjovanov vjovanov 4096 Jun  1 10:22 ..
+drwxrwxr-x 2 vjovanov vjovanov 4096 Jun  1 10:23 proposals
+runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-state-machine-resolution/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+
+codex
+The proposals agree on the broad fallback chain but differ sharply on what an explicit override means. I’m going to encode that as separate candidate solutions and tag the override/file-lookup disagreements so the next discussion can converge on the actual resolver contract.
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..74f4afe5664cd6916297767d381840290b3cde8b
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+@@ -0,0 +1,61 @@
++# Disagreement Map - Resolve Panta defaults in state-machine resolution
++
++## Candidate Solutions
++
++- S-001: Single-tier precedence where the explicit invocation override is the highest-priority complete state-machine selection, followed by rhei-local `**States:**`, inherited `index.panta.md` project default, and built-in `rhei` fallback.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Makes operator intent highest priority for a specific validation or execution run, keeps the Panta default as a true default that fills only omitted rhei-local declarations, treats each tier as a complete non-merged selection, and lets validation and execution share one resolver with source-tier metadata.
++
++- S-002: Two-phase resolution where the effective state-machine name is selected first from rhei-local `**States:**`, inherited `index.panta.md` default, or built-in fallback; then the file is resolved based on the source of that name, with `--state-machine <path>` acting only as a file override that must match the already-selected name.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Separates name resolution from file location to avoid layers competing to both name and locate the machine, preserves the invariant that authored declarations select the state-machine name, allows validation and execution to share a pure resolver, and gives deterministic file roots for rhei-local, Panta-inherited, and built-in fallback cases.
++
++## Agreements
++
++- A-001: A rhei-local `**States:**` declaration takes precedence over an inherited `index.panta.md` project default.
++
++- A-002: An inherited Panta default applies only when the rhei is inside a Panta project and omits its own `**States:**`.
++
++- A-003: The built-in `rhei` state machine is the final fallback when no higher tier selects a machine.
++
++- A-004: Resolution must be non-merged: each tier should select one complete machine/source, not combine partial choices from multiple tiers.
++
++- A-005: Validation and execution should use the same resolver and should retain source metadata for diagnostics.
++
++- A-006: `index.panta.md` is assumed to provide at most one project-level `**States:**` default unless the broader design introduces scoped defaults.
++
++## Disagreements
++
++- D-001: Whether an explicit override selects the effective state machine or only supplies the file for an already-selected name.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 treats an explicit invocation override such as `--state-machine` as the highest-priority complete selection. S-002 treats `--state-machine <path>` as a file-level override after name resolution, requiring the file `name` to match the rhei-local, Panta-inherited, or fallback-selected name.
++  - Why it matters: This determines whether operators can temporarily change the effective state machine for a run, or can only redirect to another YAML file implementing the already-declared machine name. It also changes which mistakes validation can catch when an override is present.
++  - Evidence needed: The existing or intended CLI/API contract for `--state-machine`: does it mean "use this machine instead of declarations" or "load this file for the declared machine"? Also needed: current implementation behavior and any documented examples for validation/execution overrides.
++
++- D-002: Whether explicit overrides have precedence over authored declarations.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 orders explicit override before rhei-local `**States:**`. S-002 orders name selection from authored declarations first, then allows the explicit path only if it is name-consistent.
++  - Why it matters: This affects operator control, reproducibility, and whether an invocation can mask bad or stale authored declarations.
++  - Evidence needed: Product intent for explicit overrides in CI and local execution: should an override be able to force a different state policy, or should it only help locate a compatible file?
++
++- D-003: File lookup root for a Panta-inherited `**States:**` name.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify file-root behavior.
++  - Options: S-002 resolves an inherited Panta default to `<project>/states.yaml` only, and a child rhei cannot shadow it with a sibling `states.yaml` unless it redeclares `**States:**` locally. S-001 leaves open whether the inherited tier maps to a project-root file, a search path, or some other complete selection mechanism.
++  - Why it matters: Validation and execution need a concrete file path rule. Allowing local shadowing would make inheritance less uniform; forbidding it makes project defaults deterministic but requires local redeclaration for local customization.
++  - Evidence needed: Existing workspace layout conventions and desired Panta policy semantics: does a project default imply a project-root state-machine file, and should child rheis be able to shadow inherited defaults without local `**States:**`?
++
++- D-004: Behavior when a declaration resolves to the literal built-in name `rhei`.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify this edge case.
++  - Options: S-002 distinguishes a locally declared `**States: rhei**` from an omitted fallback: local declaration can resolve a sibling/workspace `states.yaml` named `rhei`, while omission uses the compiled built-in and ignores discovered files. S-001 only states built-in `rhei` is the final fallback and does not define whether an authored `rhei` declaration should auto-discover a file.
++  - Why it matters: This affects backward compatibility for plans that declare `rhei` but provide a local `states.yaml`, and it determines whether omission and explicit declaration of the default name are observably different.
++  - Evidence needed: Existing spec or tests for auto-discovery of `states.yaml` when `**States: rhei**` is declared, plus compatibility expectations for standalone and Directory Workspace plans.
++
++- D-005: Error handling for missing or mismatched state-machine files.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 only implies diagnostics.
++  - Options: S-002 says a non-`rhei` declared name with no matching file is a validation error and never falls back, and a `--state-machine` file whose `name` disagrees with the selected name is a validation error. S-001 needs equivalent error rules if tiers are complete selections, especially for override paths and inherited defaults.
++  - Why it matters: The final lookup order must be usable by validation and execution; without exact failure rules, implementations may silently fall back or diverge between commands.
++  - Evidence needed: Required validation behavior for missing files, mismatched YAML `name`, and whether any tier is allowed to fall through after selecting an invalid machine.
++
++## Discussion Prompt
++
++Address only D-001 through D-005. First decide the contract of an explicit override: complete state-machine selection or file-only redirection for a preselected name. Then define the file lookup roots and error behavior for rhei-local, Panta-inherited, explicit `rhei`, omitted fallback, and mismatched/missing files so validation and execution can share one deterministic resolver.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..74f4afe5664cd6916297767d381840290b3cde8b
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+@@ -0,0 +1,61 @@
++# Disagreement Map - Resolve Panta defaults in state-machine resolution
++
++## Candidate Solutions
++
++- S-001: Single-tier precedence where the explicit invocation override is the highest-priority complete state-machine selection, followed by rhei-local `**States:**`, inherited `index.panta.md` project default, and built-in `rhei` fallback.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Makes operator intent highest priority for a specific validation or execution run, keeps the Panta default as a true default that fills only omitted rhei-local declarations, treats each tier as a complete non-merged selection, and lets validation and execution share one resolver with source-tier metadata.
++
++- S-002: Two-phase resolution where the effective state-machine name is selected first from rhei-local `**States:**`, inherited `index.panta.md` default, or built-in fallback; then the file is resolved based on the source of that name, with `--state-machine <path>` acting only as a file override that must match the already-selected name.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Separates name resolution from file location to avoid layers competing to both name and locate the machine, preserves the invariant that authored declarations select the state-machine name, allows validation and execution to share a pure resolver, and gives deterministic file roots for rhei-local, Panta-inherited, and built-in fallback cases.
++
++## Agreements
++
++- A-001: A rhei-local `**States:**` declaration takes precedence over an inherited `index.panta.md` project default.
++
++- A-002: An inherited Panta default applies only when the rhei is inside a Panta project and omits its own `**States:**`.
++
++- A-003: The built-in `rhei` state machine is the final fallback when no higher tier selects a machine.
++
++- A-004: Resolution must be non-merged: each tier should select one complete machine/source, not combine partial choices from multiple tiers.
++
++- A-005: Validation and execution should use the same resolver and should retain source metadata for diagnostics.
++
++- A-006: `index.panta.md` is assumed to provide at most one project-level `**States:**` default unless the broader design introduces scoped defaults.
++
++## Disagreements
++
++- D-001: Whether an explicit override selects the effective state machine or only supplies the file for an already-selected name.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 treats an explicit invocation override such as `--state-machine` as the highest-priority complete selection. S-002 treats `--state-machine <path>` as a file-level override after name resolution, requiring the file `name` to match the rhei-local, Panta-inherited, or fallback-selected name.
++  - Why it matters: This determines whether operators can temporarily change the effective state machine for a run, or can only redirect to another YAML file implementing the already-declared machine name. It also changes which mistakes validation can catch when an override is present.
++  - Evidence needed: The existing or intended CLI/API contract for `--state-machine`: does it mean "use this machine instead of declarations" or "load this file for the declared machine"? Also needed: current implementation behavior and any documented examples for validation/execution overrides.
++
++- D-002: Whether explicit overrides have precedence over authored declarations.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 orders explicit override before rhei-local `**States:**`. S-002 orders name selection from authored declarations first, then allows the explicit path only if it is name-consistent.
++  - Why it matters: This affects operator control, reproducibility, and whether an invocation can mask bad or stale authored declarations.
++  - Evidence needed: Product intent for explicit overrides in CI and local execution: should an override be able to force a different state policy, or should it only help locate a compatible file?
++
++- D-003: File lookup root for a Panta-inherited `**States:**` name.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify file-root behavior.
++  - Options: S-002 resolves an inherited Panta default to `<project>/states.yaml` only, and a child rhei cannot shadow it with a sibling `states.yaml` unless it redeclares `**States:**` locally. S-001 leaves open whether the inherited tier maps to a project-root file, a search path, or some other complete selection mechanism.
++  - Why it matters: Validation and execution need a concrete file path rule. Allowing local shadowing would make inheritance less uniform; forbidding it makes project defaults deterministic but requires local redeclaration for local customization.
++  - Evidence needed: Existing workspace layout conventions and desired Panta policy semantics: does a project default imply a project-root state-machine file, and should child rheis be able to shadow inherited defaults without local `**States:**`?
++
++- D-004: Behavior when a declaration resolves to the literal built-in name `rhei`.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify this edge case.
++  - Options: S-002 distinguishes a locally declared `**States: rhei**` from an omitted fallback: local declaration can resolve a sibling/workspace `states.yaml` named `rhei`, while omission uses the compiled built-in and ignores discovered files. S-001 only states built-in `rhei` is the final fallback and does not define whether an authored `rhei` declaration should auto-discover a file.
++  - Why it matters: This affects backward compatibility for plans that declare `rhei` but provide a local `states.yaml`, and it determines whether omission and explicit declaration of the default name are observably different.
++  - Evidence needed: Existing spec or tests for auto-discovery of `states.yaml` when `**States: rhei**` is declared, plus compatibility expectations for standalone and Directory Workspace plans.
++
++- D-005: Error handling for missing or mismatched state-machine files.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 only implies diagnostics.
++  - Options: S-002 says a non-`rhei` declared name with no matching file is a validation error and never falls back, and a `--state-machine` file whose `name` disagrees with the selected name is a validation error. S-001 needs equivalent error rules if tiers are complete selections, especially for override paths and inherited defaults.
++  - Why it matters: The final lookup order must be usable by validation and execution; without exact failure rules, implementations may silently fall back or diverge between commands.
++  - Evidence needed: Required validation behavior for missing files, mismatched YAML `name`, and whether any tier is allowed to fall through after selecting an invalid machine.
++
++## Discussion Prompt
++
++Address only D-001 through D-005. First decide the contract of an explicit override: complete state-machine selection or file-only redirection for a preselected name. Then define the file lookup roots and error behavior for rhei-local, Panta-inherited, explicit `rhei`, omitted fallback, and mismatched/missing files so validation and execution can share one deterministic resolver.
+
+codex
+The disagreement map is written. I’m doing one quick readback now to catch formatting or missing-section issues before I wrap up.
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Panta defaults in state-machine resolution
+
+## Candidate Solutions
+
+- S-001: Single-tier precedence where the explicit invocation override is the highest-priority complete state-machine selection, followed by rhei-local `**States:**`, inherited `index.panta.md` project default, and built-in `rhei` fallback.
+  - Proposed by: codex[yolo]:openai:gpt-5.5
+  - Reasons: Makes operator intent highest priority for a specific validation or execution run, keeps the Panta default as a true default that fills only omitted rhei-local declarations, treats each tier as a complete non-merged selection, and lets validation and execution share one resolver with source-tier metadata.
+
+- S-002: Two-phase resolution where the effective state-machine name is selected first from rhei-local `**States:**`, inherited `index.panta.md` default, or built-in fallback; then the file is resolved based on the source of that name, with `--state-machine <path>` acting only as a file override that must match the already-selected name.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
+  - Reasons: Separates name resolution from file location to avoid layers competing to both name and locate the machine, preserves the invariant that authored declarations select the state-machine name, allows validation and execution to share a pure resolver, and gives deterministic file roots for rhei-local, Panta-inherited, and built-in fallback cases.
+
+## Agreements
+
+- A-001: A rhei-local `**States:**` declaration takes precedence over an inherited `index.panta.md` project default.
+
+- A-002: An inherited Panta default applies only when the rhei is inside a Panta project and omits its own `**States:**`.
+
+- A-003: The built-in `rhei` state machine is the final fallback when no higher tier selects a machine.
+
+- A-004: Resolution must be non-merged: each tier should select one complete machine/source, not combine partial choices from multiple tiers.
+
+- A-005: Validation and execution should use the same resolver and should retain source metadata for diagnostics.
+
+- A-006: `index.panta.md` is assumed to provide at most one project-level `**States:**` default unless the broader design introduces scoped defaults.
+
+## Disagreements
+
+- D-001: Whether an explicit override selects the effective state machine or only supplies the file for an already-selected name.
+  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
+  - Options: S-001 treats an explicit invocation override such as `--state-machine` as the highest-priority complete selection. S-002 treats `--state-machine <path>` as a file-level override after name resolution, requiring the file `name` to match the rhei-local, Panta-inherited, or fallback-selected name.
+  - Why it matters: This determines whether operators can temporarily change the effective state machine for a run, or can only redirect to another YAML file implementing the already-declared machine name. It also changes which mistakes validation can catch when an override is present.
+  - Evidence needed: The existing or intended CLI/API contract for `--state-machine`: does it mean "use this machine instead of declarations" or "load this file for the declared machine"? Also needed: current implementation behavior and any documented examples for validation/execution overrides.
+
+- D-002: Whether explicit overrides have precedence over authored declarations.
+  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
+  - Options: S-001 orders explicit override before rhei-local `**States:**`. S-002 orders name selection from authored declarations first, then allows the explicit path only if it is name-consistent.
+  - Why it matters: This affects operator control, reproducibility, and whether an invocation can mask bad or stale authored declarations.
+  - Evidence needed: Product intent for explicit overrides in CI and local execution: should an override be able to force a different state policy, or should it only help locate a compatible file?
+
+- D-003: File lookup root for a Panta-inherited `**States:**` name.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify file-root behavior.
+  - Options: S-002 resolves an inherited Panta default to `<project>/states.yaml` only, and a child rhei cannot shadow it with a sibling `states.yaml` unless it redeclares `**States:**` locally. S-001 leaves open whether the inherited tier maps to a project-root file, a search path, or some other complete selection mechanism.
+  - Why it matters: Validation and execution need a concrete file path rule. Allowing local shadowing would make inheritance less uniform; forbidding it makes project defaults deterministic but requires local redeclaration for local customization.
+  - Evidence needed: Existing workspace layout conventions and desired Panta policy semantics: does a project default imply a project-root state-machine file, and should child rheis be able to shadow inherited defaults without local `**States:**`?
+
+- D-004: Behavior when a declaration resolves to the literal built-in name `rhei`.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify this edge case.
+  - Options: S-002 distinguishes a locally declared `**States: rhei**` from an omitted fallback: local declaration can resolve a sibling/workspace `states.yaml` named `rhei`, while omission uses the compiled built-in and ignores discovered files. S-001 only states built-in `rhei` is the final fallback and does not define whether an authored `rhei` declaration should auto-discover a file.
+  - Why it matters: This affects backward compatibility for plans that declare `rhei` but provide a local `states.yaml`, and it determines whether omission and explicit declaration of the default name are observably different.
+  - Evidence needed: Existing spec or tests for auto-discovery of `states.yaml` when `**States: rhei**` is declared, plus compatibility expectations for standalone and Directory Workspace plans.
+
+- D-005: Error handling for missing or mismatched state-machine files.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 only implies diagnostics.
+  - Options: S-002 says a non-`rhei` declared name with no matching file is a validation error and never falls back, and a `--state-machine` file whose `name` disagrees with the selected name is a validation error. S-001 needs equivalent error rules if tiers are complete selections, especially for override paths and inherited defaults.
+  - Why it matters: The final lookup order must be usable by validation and execution; without exact failure rules, implementations may silently fall back or diverge between commands.
+  - Evidence needed: Required validation behavior for missing files, mismatched YAML `name`, and whether any tier is allowed to fall through after selecting an invalid machine.
+
+## Discussion Prompt
+
+Address only D-001 through D-005. First decide the contract of an explicit override: complete state-machine selection or file-only redirection for a preselected name. Then define the file lookup roots and error behavior for rhei-local, Panta-inherited, explicit `rhei`, omitted fallback, and mismatched/missing files so validation and execution can share one deterministic resolver.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..74f4afe5664cd6916297767d381840290b3cde8b
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+@@ -0,0 +1,61 @@
++# Disagreement Map - Resolve Panta defaults in state-machine resolution
++
++## Candidate Solutions
++
++- S-001: Single-tier precedence where the explicit invocation override is the highest-priority complete state-machine selection, followed by rhei-local `**States:**`, inherited `index.panta.md` project default, and built-in `rhei` fallback.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Makes operator intent highest priority for a specific validation or execution run, keeps the Panta default as a true default that fills only omitted rhei-local declarations, treats each tier as a complete non-merged selection, and lets validation and execution share one resolver with source-tier metadata.
++
++- S-002: Two-phase resolution where the effective state-machine name is selected first from rhei-local `**States:**`, inherited `index.panta.md` default, or built-in fallback; then the file is resolved based on the source of that name, with `--state-machine <path>` acting only as a file override that must match the already-selected name.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Separates name resolution from file location to avoid layers competing to both name and locate the machine, preserves the invariant that authored declarations select the state-machine name, allows validation and execution to share a pure resolver, and gives deterministic file roots for rhei-local, Panta-inherited, and built-in fallback cases.
++
++## Agreements
++
++- A-001: A rhei-local `**States:**` declaration takes precedence over an inherited `index.panta.md` project default.
++
++- A-002: An inherited Panta default applies only when the rhei is inside a Panta project and omits its own `**States:**`.
++
++- A-003: The built-in `rhei` state machine is the final fallback when no higher tier selects a machine.
++
++- A-004: Resolution must be non-merged: each tier should select one complete machine/source, not combine partial choices from multiple tiers.
++
++- A-005: Validation and execution should use the same resolver and should retain source metadata for diagnostics.
++
++- A-006: `index.panta.md` is assumed to provide at most one project-level `**States:**` default unless the broader design introduces scoped defaults.
++
++## Disagreements
++
++- D-001: Whether an explicit override selects the effective state machine or only supplies the file for an already-selected name.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 treats an explicit invocation override such as `--state-machine` as the highest-priority complete selection. S-002 treats `--state-machine <path>` as a file-level override after name resolution, requiring the file `name` to match the rhei-local, Panta-inherited, or fallback-selected name.
++  - Why it matters: This determines whether operators can temporarily change the effective state machine for a run, or can only redirect to another YAML file implementing the already-declared machine name. It also changes which mistakes validation can catch when an override is present.
++  - Evidence needed: The existing or intended CLI/API contract for `--state-machine`: does it mean "use this machine instead of declarations" or "load this file for the declared machine"? Also needed: current implementation behavior and any documented examples for validation/execution overrides.
++
++- D-002: Whether explicit overrides have precedence over authored declarations.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 orders explicit override before rhei-local `**States:**`. S-002 orders name selection from authored declarations first, then allows the explicit path only if it is name-consistent.
++  - Why it matters: This affects operator control, reproducibility, and whether an invocation can mask bad or stale authored declarations.
++  - Evidence needed: Product intent for explicit overrides in CI and local execution: should an override be able to force a different state policy, or should it only help locate a compatible file?
++
++- D-003: File lookup root for a Panta-inherited `**States:**` name.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify file-root behavior.
++  - Options: S-002 resolves an inherited Panta default to `<project>/states.yaml` only, and a child rhei cannot shadow it with a sibling `states.yaml` unless it redeclares `**States:**` locally. S-001 leaves open whether the inherited tier maps to a project-root file, a search path, or some other complete selection mechanism.
++  - Why it matters: Validation and execution need a concrete file path rule. Allowing local shadowing would make inheritance less uniform; forbidding it makes project defaults deterministic but requires local redeclaration for local customization.
++  - Evidence needed: Existing workspace layout conventions and desired Panta policy semantics: does a project default imply a project-root state-machine file, and should child rheis be able to shadow inherited defaults without local `**States:**`?
++
++- D-004: Behavior when a declaration resolves to the literal built-in name `rhei`.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify this edge case.
++  - Options: S-002 distinguishes a locally declared `**States: rhei**` from an omitted fallback: local declaration can resolve a sibling/workspace `states.yaml` named `rhei`, while omission uses the compiled built-in and ignores discovered files. S-001 only states built-in `rhei` is the final fallback and does not define whether an authored `rhei` declaration should auto-discover a file.
++  - Why it matters: This affects backward compatibility for plans that declare `rhei` but provide a local `states.yaml`, and it determines whether omission and explicit declaration of the default name are observably different.
++  - Evidence needed: Existing spec or tests for auto-discovery of `states.yaml` when `**States: rhei**` is declared, plus compatibility expectations for standalone and Directory Workspace plans.
++
++- D-005: Error handling for missing or mismatched state-machine files.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 only implies diagnostics.
++  - Options: S-002 says a non-`rhei` declared name with no matching file is a validation error and never falls back, and a `--state-machine` file whose `name` disagrees with the selected name is a validation error. S-001 needs equivalent error rules if tiers are complete selections, especially for override paths and inherited defaults.
++  - Why it matters: The final lookup order must be usable by validation and execution; without exact failure rules, implementations may silently fall back or diverge between commands.
++  - Evidence needed: Required validation behavior for missing files, mismatched YAML `name`, and whether any tier is allowed to fall through after selecting an invalid machine.
++
++## Discussion Prompt
++
++Address only D-001 through D-005. First decide the contract of an explicit override: complete state-machine selection or file-only redirection for a preselected name. Then define the file lookup roots and error behavior for rhei-local, Panta-inherited, explicit `rhei`, omitted fallback, and mismatched/missing files so validation and execution can share one deterministic resolver.
+
+codex
+Created the disagreement map at [disagreement-map.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md).
+
+It captures two candidate solutions, shared agreements, and five tagged disagreements focused on override semantics, precedence, inherited file lookup, explicit `rhei` behavior, and error handling.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..74f4afe5664cd6916297767d381840290b3cde8b
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+@@ -0,0 +1,61 @@
++# Disagreement Map - Resolve Panta defaults in state-machine resolution
++
++## Candidate Solutions
++
++- S-001: Single-tier precedence where the explicit invocation override is the highest-priority complete state-machine selection, followed by rhei-local `**States:**`, inherited `index.panta.md` project default, and built-in `rhei` fallback.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Makes operator intent highest priority for a specific validation or execution run, keeps the Panta default as a true default that fills only omitted rhei-local declarations, treats each tier as a complete non-merged selection, and lets validation and execution share one resolver with source-tier metadata.
++
++- S-002: Two-phase resolution where the effective state-machine name is selected first from rhei-local `**States:**`, inherited `index.panta.md` default, or built-in fallback; then the file is resolved based on the source of that name, with `--state-machine <path>` acting only as a file override that must match the already-selected name.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Separates name resolution from file location to avoid layers competing to both name and locate the machine, preserves the invariant that authored declarations select the state-machine name, allows validation and execution to share a pure resolver, and gives deterministic file roots for rhei-local, Panta-inherited, and built-in fallback cases.
++
++## Agreements
++
++- A-001: A rhei-local `**States:**` declaration takes precedence over an inherited `index.panta.md` project default.
++
++- A-002: An inherited Panta default applies only when the rhei is inside a Panta project and omits its own `**States:**`.
++
++- A-003: The built-in `rhei` state machine is the final fallback when no higher tier selects a machine.
++
++- A-004: Resolution must be non-merged: each tier should select one complete machine/source, not combine partial choices from multiple tiers.
++
++- A-005: Validation and execution should use the same resolver and should retain source metadata for diagnostics.
++
++- A-006: `index.panta.md` is assumed to provide at most one project-level `**States:**` default unless the broader design introduces scoped defaults.
++
++## Disagreements
++
++- D-001: Whether an explicit override selects the effective state machine or only supplies the file for an already-selected name.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 treats an explicit invocation override such as `--state-machine` as the highest-priority complete selection. S-002 treats `--state-machine <path>` as a file-level override after name resolution, requiring the file `name` to match the rhei-local, Panta-inherited, or fallback-selected name.
++  - Why it matters: This determines whether operators can temporarily change the effective state machine for a run, or can only redirect to another YAML file implementing the already-declared machine name. It also changes which mistakes validation can catch when an override is present.
++  - Evidence needed: The existing or intended CLI/API contract for `--state-machine`: does it mean "use this machine instead of declarations" or "load this file for the declared machine"? Also needed: current implementation behavior and any documented examples for validation/execution overrides.
++
++- D-002: Whether explicit overrides have precedence over authored declarations.
++  - Agents: codex[yolo]:openai:gpt-5.5 vs. claude-code[yolo]:anthropic:claude-opus-4-7
++  - Options: S-001 orders explicit override before rhei-local `**States:**`. S-002 orders name selection from authored declarations first, then allows the explicit path only if it is name-consistent.
++  - Why it matters: This affects operator control, reproducibility, and whether an invocation can mask bad or stale authored declarations.
++  - Evidence needed: Product intent for explicit overrides in CI and local execution: should an override be able to force a different state policy, or should it only help locate a compatible file?
++
++- D-003: File lookup root for a Panta-inherited `**States:**` name.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify file-root behavior.
++  - Options: S-002 resolves an inherited Panta default to `<project>/states.yaml` only, and a child rhei cannot shadow it with a sibling `states.yaml` unless it redeclares `**States:**` locally. S-001 leaves open whether the inherited tier maps to a project-root file, a search path, or some other complete selection mechanism.
++  - Why it matters: Validation and execution need a concrete file path rule. Allowing local shadowing would make inheritance less uniform; forbidding it makes project defaults deterministic but requires local redeclaration for local customization.
++  - Evidence needed: Existing workspace layout conventions and desired Panta policy semantics: does a project default imply a project-root state-machine file, and should child rheis be able to shadow inherited defaults without local `**States:**`?
++
++- D-004: Behavior when a declaration resolves to the literal built-in name `rhei`.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 does not specify this edge case.
++  - Options: S-002 distinguishes a locally declared `**States: rhei**` from an omitted fallback: local declaration can resolve a sibling/workspace `states.yaml` named `rhei`, while omission uses the compiled built-in and ignores discovered files. S-001 only states built-in `rhei` is the final fallback and does not define whether an authored `rhei` declaration should auto-discover a file.
++  - Why it matters: This affects backward compatibility for plans that declare `rhei` but provide a local `states.yaml`, and it determines whether omission and explicit declaration of the default name are observably different.
++  - Evidence needed: Existing spec or tests for auto-discovery of `states.yaml` when `**States: rhei**` is declared, plus compatibility expectations for standalone and Directory Workspace plans.
++
++- D-005: Error handling for missing or mismatched state-machine files.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 is explicit; codex[yolo]:openai:gpt-5.5 only implies diagnostics.
++  - Options: S-002 says a non-`rhei` declared name with no matching file is a validation error and never falls back, and a `--state-machine` file whose `name` disagrees with the selected name is a validation error. S-001 needs equivalent error rules if tiers are complete selections, especially for override paths and inherited defaults.
++  - Why it matters: The final lookup order must be usable by validation and execution; without exact failure rules, implementations may silently fall back or diverge between commands.
++  - Evidence needed: Required validation behavior for missing files, mismatched YAML `name`, and whether any tier is allowed to fall through after selecting an invalid machine.
++
++## Discussion Prompt
++
++Address only D-001 through D-005. First decide the contract of an explicit override: complete state-machine selection or file-only redirection for a preselected name. Then define the file lookup roots and error behavior for rhei-local, Panta-inherited, explicit `rhei`, omitted fallback, and mismatched/missing files so validation and execution can share one deterministic resolver.
+
+tokens used
+10,520
+Created the disagreement map at [disagreement-map.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md).
+
+It captures two candidate solutions, shared agreements, and five tagged disagreements focused on override semantics, precedence, inherited file lookup, explicit `rhei` behavior, and error handling.
+
+=== exit ===
+code: 0
+duration: 35s
+ended: 2026-06-01T08:25:06Z
+===

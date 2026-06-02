@@ -1,0 +1,997 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: final-solution
+state: final-solution
+started: 2026-06-01T08:27:59Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e824c-0271-7971-8987-6f8612137d33
+--------
+user
+# Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+
+## State: final-solution
+
+You are the final aggregator. Produce one coherent answer from the point
+decisions. Keep the answer practical and note dependencies between points.
+
+## Instructions
+
+Produce the final solution for Task final-solution: Produce final solution for Resolve Panta project spec conflicts.
+
+Read the generated point manifest at `runtime/deliberation/points-manifest.md`
+and every point decision under `runtime/deliberation/points/*/point-decision.md`.
+
+Write `runtime/deliberation/final-solution.md` with:
+
+# Final Solution - Resolve Panta project spec conflicts
+
+## Recommendation
+<the final proposed solution>
+
+## Why This Solution
+- <reason grounded in the point decisions>
+
+## Point Decisions
+- <point>: <chosen solution and reason>
+
+## Alternatives Rejected
+- <alternative>: <why it was not chosen>
+
+## Risks And Open Questions
+- <risk or uncertainty, or none>
+
+## Task Content
+
+Synthesize the resolved point decisions into one final solution and prepare the
+human-facing presentation.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `final-solution`:
+- final-solution -> present-to-human
+- final-solution -> cancelled
+
+codex
+I’ll synthesize the deliberation artifacts directly and leave Rhei state advancement to the parent `rhei run`, as requested. First I’m reading the manifest and point decision files to extract the chosen options and dependencies.
+exec
+/usr/bin/bash -lc 'pwd && rg --files runtime/deliberation' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/panta-deliberation
+runtime/deliberation/points-manifest.md
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md
+runtime/deliberation/points/point-state-machine-resolution/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-state-machine-resolution/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-state-machine-resolution/point-decision.md
+runtime/deliberation/points/point-state-machine-resolution/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-state-machine-resolution/discussion/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-state-machine-resolution/disagreement-map.md
+runtime/deliberation/points/point-cross-rhei-readiness/disagreement-map.md
+runtime/deliberation/points/point-cross-rhei-readiness/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-cross-rhei-readiness/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+runtime/deliberation/points/point-cross-rhei-readiness/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-cross-rhei-readiness/discussion/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-language-reference/disagreement-map.md
+runtime/deliberation/points/point-language-reference/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-language-reference/discussion/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-language-reference/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-language-reference/point-decision.md
+runtime/deliberation/points/point-language-reference/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points-manifest.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Points - Resolve Panta project spec conflicts
+
+- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
+  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
+  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
+  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
+
+- point-cross-rhei-readiness: Cross-rhei dependency readiness
+  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
+  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
+  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
+
+- point-state-machine-resolution: Panta defaults in state-machine resolution
+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+
+- point-language-reference: Panta syntax in the canonical language reference
+  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
+  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
+  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+
+codex
+The manifest has four conflict points: inbox hierarchy, cross-rhei readiness, state-machine lookup, and language-reference organization. I’m now reading each decision file and will write one concise final solution that ties them together.
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-inbox-hierarchy/point-decision.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
+
+- Chosen solution: Model the project inbox as a reserved synthetic level-1
+  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
+  nodes under that rhei, with project ids such as `inbox.<local-id>` and
+  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
+  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
+  The synthetic inbox rhei is materialized only when inbox content exists, has
+  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
+  always reserved at the project rhei-id level, so any discovered domain rhei
+  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
+  rhei-ticket state-policy lookup: first bind the effective state machine using
+  the generic state-machine resolution rule for a rhei without its own
+  `**States:**` declaration, then resolve the ticket policy through
+  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
+  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
+  reparenting/id-change operation from `inbox.<local-id>` to
+  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
+  migration guarantees remain outside this point.
+- Why chosen: This is stronger than the alternatives because it preserves the
+  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
+  ticket namespace, and reuses the same id, validation, execution, artifact,
+  and state-policy paths as ordinary rhei work. Unconditionally reserving
+  `inbox` gives validation one stable language-level namespace rule instead of
+  making legality depend on whether quick-capture content currently exists.
+  Stating ticket-level policy lookup here gives inbox work clear behavior
+  without conflicting with the separate state-machine-resolution point, because
+  this decision does not choose the generic precedence between Panta defaults
+  and built-in fallbacks. Making promotion an id-changing reparenting
+  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
+  leaving that unstated would hide an operator-visible effect.
+- Alternatives considered: A conditional reservation rule for `inbox` was
+  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
+  feature appears, creating a delayed migration trap and a conditional
+  validation rule. A direct Panta-child inbox ticket model was rejected because
+  it violates the hierarchy constraint that level-1 Panta children are rheis
+  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
+  was rejected because it duplicates ordinary rhei-ticket machinery and risks
+  conflicting with state-machine resolution. Deferring every promotion/id-change
+  implication was rejected because the canonical inbox id is part of this
+  hierarchy decision, but detailed reference rewrites and alias guarantees are
+  left for a promotion/refactoring decision.
+- Remaining uncertainty: The separate state-machine-resolution decision still
+  owns the generic rule for selecting the effective state machine when a rhei,
+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+  A later promotion/refactoring decision should define whether dependencies,
+  artifacts, logs, and external references are rewritten, aliased, or migrated
+  when an inbox ticket is filed into a domain rhei.
+- Effect on final solution: The final answer must treat inbox as a reserved
+  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
+  ids, parents, levels, validation, and state-policy lookup must follow ordinary
+  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
+  filing workflow must account for the fact that moving work out of `inbox`
+  changes its canonical project id.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Point Decision - Resolve Cross-rhei dependency readiness
+
+- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
+- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
+- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
+- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
+- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-state-machine-resolution/point-decision.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Point Decision - Resolve Panta defaults in state-machine resolution
+
+- Chosen solution: Use the hybrid two-phase resolver: first bind the effective
+  declaration name from rhei-local `**States:**`, then inherited
+  `index.panta.md` default, then no declaration. If `--state-machine <path>` is
+  supplied, it loads that file; when an effective declaration exists, the file's
+  `name` must match it, and when no effective declaration exists, the file's
+  `name` becomes the active name for that invocation. Without an override,
+  rhei-local declarations resolve from the rhei sibling or Directory Workspace
+  `states.yaml`; inherited Panta declarations resolve only from
+  `<project>/states.yaml`; omitted effective declarations use the compiled
+  built-in `rhei` machine and ignore discovered files.
+- Why chosen: This is stronger than pure override-wins because it matches the
+  existing plan-language and CLI behavior, preserves authored rhei/Panta policy
+  as the source of the effective state-machine name, and still lets operators
+  redirect file location or provide a machine for an otherwise omitted
+  declaration. It also incorporates the points both discussions converged on:
+  Panta inheritance is a default, not a merge; inherited defaults are anchored
+  at the project root; validation and execution can share one resolver with
+  source metadata; and invalid selected files fail closed.
+- Alternatives considered: S-001's unconditional override-first order is
+  simpler and gives operators maximum power, but it can silently mask authored
+  or inherited policy and conflicts with current name-matching behavior. S-002's
+  original file-only override for every case was too strict when no effective
+  declaration exists, because then there is no authored name to preserve; in
+  that omitted case, the override file should select the invocation's active
+  name. Allowing child rheis to shadow a Panta default with a local
+  `states.yaml` without redeclaring `**States:**` was rejected because it makes
+  inheritance search-based instead of a deterministic project-root default.
+- Remaining uncertainty: The final implementation should expose clear source
+  metadata in diagnostics: override path, rhei-local declaration,
+  `index.panta.md` inherited declaration, or built-in fallback. If future Panta
+  designs add scoped defaults, this resolver will need an additional inherited
+  source-selection rule before file lookup.
+- Effect on final solution: The final answer must define one deterministic,
+  non-merged resolver usable by validation and execution. A declared or
+  inherited literal `rhei` may use a matching auto-discovered file from its
+  source-specific lookup root, otherwise it falls back to the built-in `rhei`;
+  omitted `**States:**` after Panta inheritance always means built-in fallback.
+  A non-`rhei` declared or inherited name with no matching file is a validation
+  error and never falls through, and an override file that does not match an
+  effective authored or inherited name is also a validation error.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-language-reference/point-decision.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Point Decision - Resolve Panta syntax in the canonical language reference
+
+- Chosen solution: Use S-001 with a compact, structured file-kind map in the
+  canonical language reference. The map should replace the dense
+  plan/project-markdown bullet with scoped rows for the user-authored Panta
+  surface and the adjacent rhei/workspace shapes needed to understand it:
+  `index.panta.md`, Panta `rheis/` entries, `*.rhei.md`,
+  `index.rhei.md` plus workspace `tasks/**/*.md`, optional `inbox/` task files,
+  and bare-rhei loading where relevant. Each row should give only a short role
+  and owner citations. `states.yaml` remains under the separate state-machine
+  language surface, while Panta rows link to the state-resolution/defaulting
+  rules when needed. Use functional specs as the primary user-facing owners
+  (`§FS-rhei-plan-language.1.5`, `§FS-rhei-plan-language.1.1`,
+  `§FS-rhei-plan-language.1.2`, `§FS-rhei-plan-language.1.3`,
+  `§FS-rhei-panta`, and `§FS-rhei-panta.6`) and include `§AR-rhei-panta` as the
+  mechanics destination for load order, id namespacing, execution roots, and
+  state-machine binding.
+- Why chosen: The current `§FS-rhei-language-reference` explicitly exists to
+  answer what files and syntax make up a valid Rhei workflow, but its single
+  plan/project-markdown bullet already compresses too many file kinds into one
+  line. A small file-kind map makes the required Panta files discoverable by
+  name, preserves one canonical entry point, and avoids duplicating the grammar
+  because every row routes to its owning spec. Including adjacent rhei and
+  workspace shapes is stronger than a Panta-only list because `rheis/` entries
+  and `inbox/` files are meaningful only as ordinary rhei/workspace syntax
+  loaded at project scope. Keeping `states.yaml` out of that map preserves the
+  existing separation between plan/project markdown and the state-machine
+  surface.
+- Alternatives considered: A full broad map including root `states.yaml` and
+  every nearby authored file kind was rejected because it blurs the current
+  language-surface boundary and risks making plan/project markdown own
+  state-machine syntax. A lighter prose or per-line Panta-only enumeration was
+  viable and would satisfy the minimum requirement, but it is weaker for
+  discoverability: readers still have to infer what shapes a `rheis/` entry may
+  take and how inbox task files relate to workspace task syntax. A separate
+  Panta language reference was rejected because both proposals agree Panta is an
+  extension of the plan/project markdown surface, not an independent language or
+  second grammar source.
+- Remaining uncertainty: None for this point. The exact markdown rendering may
+  be a table or an equivalent scoped list, but it must behave as a file-kind map
+  with role text and owner citations rather than as copied normative grammar.
+- Effect on final solution: The final answer must update the canonical language
+  reference as the single discoverable entry point for Panta authoring syntax.
+  It must explicitly name `index.panta.md`, Panta `rheis/` entries, and optional
+  `inbox/` task files; show how those entries relate to ordinary rhei and
+  workspace markdown; route grammar and user-facing behavior to functional
+  specs; route load/id/execution-root/state-binding mechanics to
+  `§AR-rhei-panta`; keep `states.yaml` in the state-machine surface; and add an
+  ownership rule that any addition, removal, or rename of a user-authored
+  project/rhei file kind or directory updates the language-reference map in the
+  same change as the owning spec edit, while broader authoring-syntax changes
+  continue to update the canonical reference and owner spec together.
+
+codex
+The decisions are compatible: inbox depends on the state-machine resolver for its synthetic rhei, and cross-rhei readiness depends on each prior rhei’s resolved state semantics. I’m writing the final solution now with those dependencies explicit.
+exec
+/usr/bin/bash -lc 'git status --short' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+ M ../docs/architecture/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-authoring.spec.md
+ M ../docs/functional-spec/rhei-language-reference.spec.md
+ M ../docs/functional-spec/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-plan-language.spec.md
+ M ../docs/functional-spec/rhei-validate.spec.md
+?? ../.agents/rhei/templates/multi-agent-deliberation/
+?? ../examples/multi-agent-deliberation-example/
+?? ../panta-deliberation-values.yaml
+?? ./
+
+exec
+/usr/bin/bash -lc "test -f runtime/deliberation/final-solution.md && sed -n '1,260p' runtime/deliberation/final-solution.md || true" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/final-solution.md
+diff --git a/panta-deliberation/runtime/deliberation/final-solution.md b/panta-deliberation/runtime/deliberation/final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d64784a7329951a8c8563ce762f4a3781ba8af3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/final-solution.md
+@@ -0,0 +1,123 @@
++# Final Solution - Resolve Panta project spec conflicts
++
++## Recommendation
++
++Adopt a single Panta model where a project contains only rheis at level 1,
++including a reserved synthetic `inbox` rhei when inbox content exists. Inbox
++tickets are ordinary ticket nodes under that synthetic rhei, use canonical ids
++such as `inbox.<local-id>`, and resolve state policy through the same
++rhei-ticket machinery as other work.
++
++Use one deterministic state-machine resolver for validation and execution:
++bind the effective declaration name from rhei-local `**States:**`, then an
++inherited `index.panta.md` default, then no declaration. A CLI
++`--state-machine <path>` override may redirect the loaded file, but if an
++authored or inherited declaration exists, the loaded file's `name` must match
++that declaration. Without an override, rhei-local declarations resolve from the
++rhei sibling or Directory Workspace `states.yaml`; inherited Panta defaults
++resolve only from `<project>/states.yaml`; omitted declarations fall back to the
++compiled built-in `rhei` machine and ignore discovered files.
++
++Define cross-rhei readiness with the same successful-terminal predicate used by
++normal scheduling: the prior's resolved state must have `final: true` and its
++normalized state name must not be `cancelled`. Evaluate that predicate using
++the prior rhei's own state-machine semantics. Implementations may use a shared
++predicate, direct resolution, or an exported/cached readiness result only if the
++result is behaviorally equivalent and fresh or auditable.
++
++Update the canonical language reference so Panta authoring syntax is
++discoverable from one entry point. Replace the compressed plan/project-markdown
++description with a compact file-kind map for `index.panta.md`, Panta
++`rheis/` entries, `*.rhei.md`, `index.rhei.md` plus workspace `tasks/**/*.md`,
++optional `inbox/` task files, and bare-rhei loading where relevant. Keep
++`states.yaml` in the separate state-machine language surface, and link Panta
++rows to the state-resolution/defaulting rules and architecture mechanics.
++
++## Why This Solution
++
++- It preserves the required hierarchy: Panta level-1 children are rheis, and
++  tickets are level 2 or deeper.
++- It avoids a special Panta-level ticket namespace by making inbox work use the
++  same ids, validation, execution, artifacts, and state-policy paths as
++  ordinary rhei work.
++- It gives `inbox` one stable namespace rule by reserving the id at the project
++  rhei-id level, instead of making validity depend on whether inbox content
++  currently exists.
++- It treats Panta state-machine inheritance as a default, not a merge, and
++  prevents overrides from silently masking authored or inherited policy.
++- It keeps scheduling semantics identical across local and cross-rhei
++  dependencies while allowing practical implementation choices across process,
++  repository, or API boundaries.
++- It makes Panta syntax findable in the canonical language reference without
++  duplicating the owning functional specs or moving `states.yaml` out of the
++  state-machine surface.
++
++## Point Decisions
++
++- point-inbox-hierarchy: Choose a reserved synthetic level-1 rhei with id
++  `inbox`. Inbox tickets are ordinary level-2-or-deeper tickets under that
++  rhei, with ids like `inbox.<local-id>`. The synthetic rhei appears only when
++  inbox content exists, has no authored `index.rhei.md`, stores no state, and
++  uses the generic state-machine resolver before applying ordinary ticket
++  policy lookup.
++- point-cross-rhei-readiness: Choose the normal successful-terminal readiness
++  rule for cross-rhei dependencies. A prerequisite unblocks dependent work only
++  when its resolved state is final and not normalized `cancelled`; unresolved,
++  stale, non-final, or cancelled prerequisites keep dependents blocked.
++- point-state-machine-resolution: Choose the hybrid two-phase resolver.
++  Effective declaration binding checks rhei-local `**States:**`, then inherited
++  `index.panta.md` default, then no declaration. File loading follows the
++  selected source and requires name matches for authored or inherited
++  declarations; omitted declarations use the built-in `rhei` fallback.
++- point-language-reference: Choose a compact structured file-kind map in the
++  canonical language reference. It explicitly names Panta files and directories,
++  relates them to ordinary rhei/workspace syntax, routes behavior to functional
++  specs, routes mechanics to architecture, and keeps `states.yaml` documented
++  under the state-machine language surface.
++
++## Alternatives Rejected
++
++- Direct Panta-child inbox tickets: Rejected because it violates the required
++  hierarchy where level-1 Panta children are rheis and tickets are level 2 or
++  deeper.
++- Conditional `inbox` reservation: Rejected because it creates a delayed
++  migration trap; a domain rhei named `inbox` could be valid until inbox
++  content later appears.
++- Inbox-specific state-policy tier: Rejected because it duplicates ordinary
++  rhei-ticket policy lookup and risks conflict with the generic state-machine
++  resolver.
++- Deferring all inbox promotion/id-change implications: Rejected because the
++  chosen id scheme necessarily makes filing an inbox ticket into a domain rhei
++  an id-changing reparenting operation.
++- Override-first state-machine resolution: Rejected because it can silently
++  mask authored or inherited state policy and conflicts with name-matching
++  behavior.
++- Letting child rhei-local `states.yaml` shadow inherited Panta defaults
++  without redeclaring `**States:**`: Rejected because it makes inheritance
++  search-based instead of a deterministic project-root default.
++- Any-terminal cross-rhei readiness: Rejected because normalized `cancelled`
++  prerequisites must not unblock dependent work.
++- Requiring one shared in-process readiness predicate everywhere: Rejected
++  because it over-constrains cross-process, cross-repository, and serialized/API
++  implementations, even though sharing the predicate is preferred where
++  practical.
++- A separate Panta language reference: Rejected because Panta is an extension of
++  the plan/project markdown surface, not an independent grammar source.
++- A broad language-reference map that includes root `states.yaml`: Rejected
++  because it blurs the boundary between project/rhei markdown syntax and the
++  state-machine language surface.
++
++## Risks And Open Questions
++
++- Inbox ticket promotion still needs a follow-up promotion/refactoring decision
++  for dependency rewrites, aliases, artifact migration, logs, and external
++  references when ids change from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`.
++- Cached or exported cross-rhei readiness needs a concrete freshness and
++  invalidation contract. If freshness, state-machine version, or the prior
++  state cannot be resolved reliably, the dependency must remain blocked.
++- Diagnostics should expose state-machine resolver source metadata: override
++  path, rhei-local declaration, inherited `index.panta.md` declaration, or
++  built-in fallback.
++- Future scoped Panta defaults would require an additional inherited
++  source-selection rule before file lookup.
+
+diff --git a/panta-deliberation/runtime/deliberation/final-solution.md b/panta-deliberation/runtime/deliberation/final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d64784a7329951a8c8563ce762f4a3781ba8af3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/final-solution.md
+@@ -0,0 +1,123 @@
++# Final Solution - Resolve Panta project spec conflicts
++
++## Recommendation
++
++Adopt a single Panta model where a project contains only rheis at level 1,
++including a reserved synthetic `inbox` rhei when inbox content exists. Inbox
++tickets are ordinary ticket nodes under that synthetic rhei, use canonical ids
++such as `inbox.<local-id>`, and resolve state policy through the same
++rhei-ticket machinery as other work.
++
++Use one deterministic state-machine resolver for validation and execution:
++bind the effective declaration name from rhei-local `**States:**`, then an
++inherited `index.panta.md` default, then no declaration. A CLI
++`--state-machine <path>` override may redirect the loaded file, but if an
++authored or inherited declaration exists, the loaded file's `name` must match
++that declaration. Without an override, rhei-local declarations resolve from the
++rhei sibling or Directory Workspace `states.yaml`; inherited Panta defaults
++resolve only from `<project>/states.yaml`; omitted declarations fall back to the
++compiled built-in `rhei` machine and ignore discovered files.
++
++Define cross-rhei readiness with the same successful-terminal predicate used by
++normal scheduling: the prior's resolved state must have `final: true` and its
++normalized state name must not be `cancelled`. Evaluate that predicate using
++the prior rhei's own state-machine semantics. Implementations may use a shared
++predicate, direct resolution, or an exported/cached readiness result only if the
++result is behaviorally equivalent and fresh or auditable.
++
++Update the canonical language reference so Panta authoring syntax is
++discoverable from one entry point. Replace the compressed plan/project-markdown
++description with a compact file-kind map for `index.panta.md`, Panta
++`rheis/` entries, `*.rhei.md`, `index.rhei.md` plus workspace `tasks/**/*.md`,
++optional `inbox/` task files, and bare-rhei loading where relevant. Keep
++`states.yaml` in the separate state-machine language surface, and link Panta
++rows to the state-resolution/defaulting rules and architecture mechanics.
++
++## Why This Solution
++
++- It preserves the required hierarchy: Panta level-1 children are rheis, and
++  tickets are level 2 or deeper.
++- It avoids a special Panta-level ticket namespace by making inbox work use the
++  same ids, validation, execution, artifacts, and state-policy paths as
++  ordinary rhei work.
++- It gives `inbox` one stable namespace rule by reserving the id at the project
++  rhei-id level, instead of making validity depend on whether inbox content
++  currently exists.
++- It treats Panta state-machine inheritance as a default, not a merge, and
++  prevents overrides from silently masking authored or inherited policy.
++- It keeps scheduling semantics identical across local and cross-rhei
++  dependencies while allowing practical implementation choices across process,
++  repository, or API boundaries.
++- It makes Panta syntax findable in the canonical language reference without
++  duplicating the owning functional specs or moving `states.yaml` out of the
++  state-machine surface.
++
++## Point Decisions
++
++- point-inbox-hierarchy: Choose a reserved synthetic level-1 rhei with id
++  `inbox`. Inbox tickets are ordinary level-2-or-deeper tickets under that
++  rhei, with ids like `inbox.<local-id>`. The synthetic rhei appears only when
++  inbox content exists, has no authored `index.rhei.md`, stores no state, and
++  uses the generic state-machine resolver before applying ordinary ticket
++  policy lookup.
++- point-cross-rhei-readiness: Choose the normal successful-terminal readiness
++  rule for cross-rhei dependencies. A prerequisite unblocks dependent work only
++  when its resolved state is final and not normalized `cancelled`; unresolved,
++  stale, non-final, or cancelled prerequisites keep dependents blocked.
++- point-state-machine-resolution: Choose the hybrid two-phase resolver.
++  Effective declaration binding checks rhei-local `**States:**`, then inherited
++  `index.panta.md` default, then no declaration. File loading follows the
++  selected source and requires name matches for authored or inherited
++  declarations; omitted declarations use the built-in `rhei` fallback.
++- point-language-reference: Choose a compact structured file-kind map in the
++  canonical language reference. It explicitly names Panta files and directories,
++  relates them to ordinary rhei/workspace syntax, routes behavior to functional
++  specs, routes mechanics to architecture, and keeps `states.yaml` documented
++  under the state-machine language surface.
++
++## Alternatives Rejected
++
++- Direct Panta-child inbox tickets: Rejected because it violates the required
++  hierarchy where level-1 Panta children are rheis and tickets are level 2 or
++  deeper.
++- Conditional `inbox` reservation: Rejected because it creates a delayed
++  migration trap; a domain rhei named `inbox` could be valid until inbox
++  content later appears.
++- Inbox-specific state-policy tier: Rejected because it duplicates ordinary
++  rhei-ticket policy lookup and risks conflict with the generic state-machine
++  resolver.
++- Deferring all inbox promotion/id-change implications: Rejected because the
++  chosen id scheme necessarily makes filing an inbox ticket into a domain rhei
++  an id-changing reparenting operation.
++- Override-first state-machine resolution: Rejected because it can silently
++  mask authored or inherited state policy and conflicts with name-matching
++  behavior.
++- Letting child rhei-local `states.yaml` shadow inherited Panta defaults
++  without redeclaring `**States:**`: Rejected because it makes inheritance
++  search-based instead of a deterministic project-root default.
++- Any-terminal cross-rhei readiness: Rejected because normalized `cancelled`
++  prerequisites must not unblock dependent work.
++- Requiring one shared in-process readiness predicate everywhere: Rejected
++  because it over-constrains cross-process, cross-repository, and serialized/API
++  implementations, even though sharing the predicate is preferred where
++  practical.
++- A separate Panta language reference: Rejected because Panta is an extension of
++  the plan/project markdown surface, not an independent grammar source.
++- A broad language-reference map that includes root `states.yaml`: Rejected
++  because it blurs the boundary between project/rhei markdown syntax and the
++  state-machine language surface.
++
++## Risks And Open Questions
++
++- Inbox ticket promotion still needs a follow-up promotion/refactoring decision
++  for dependency rewrites, aliases, artifact migration, logs, and external
++  references when ids change from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`.
++- Cached or exported cross-rhei readiness needs a concrete freshness and
++  invalidation contract. If freshness, state-machine version, or the prior
++  state cannot be resolved reliably, the dependency must remain blocked.
++- Diagnostics should expose state-machine resolver source metadata: override
++  path, rhei-local declaration, inherited `index.panta.md` declaration, or
++  built-in fallback.
++- Future scoped Panta defaults would require an additional inherited
++  source-selection rule before file lookup.
+
+codex
+The final solution file is in place. I’m doing a quick readback to catch formatting or section mismatches before I close out.
+exec
+/usr/bin/bash -lc 'git status --short runtime/deliberation/final-solution.md' in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/final-solution.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+?? runtime/deliberation/final-solution.md
+
+ succeeded in 0ms:
+# Final Solution - Resolve Panta project spec conflicts
+
+## Recommendation
+
+Adopt a single Panta model where a project contains only rheis at level 1,
+including a reserved synthetic `inbox` rhei when inbox content exists. Inbox
+tickets are ordinary ticket nodes under that synthetic rhei, use canonical ids
+such as `inbox.<local-id>`, and resolve state policy through the same
+rhei-ticket machinery as other work.
+
+Use one deterministic state-machine resolver for validation and execution:
+bind the effective declaration name from rhei-local `**States:**`, then an
+inherited `index.panta.md` default, then no declaration. A CLI
+`--state-machine <path>` override may redirect the loaded file, but if an
+authored or inherited declaration exists, the loaded file's `name` must match
+that declaration. Without an override, rhei-local declarations resolve from the
+rhei sibling or Directory Workspace `states.yaml`; inherited Panta defaults
+resolve only from `<project>/states.yaml`; omitted declarations fall back to the
+compiled built-in `rhei` machine and ignore discovered files.
+
+Define cross-rhei readiness with the same successful-terminal predicate used by
+normal scheduling: the prior's resolved state must have `final: true` and its
+normalized state name must not be `cancelled`. Evaluate that predicate using
+the prior rhei's own state-machine semantics. Implementations may use a shared
+predicate, direct resolution, or an exported/cached readiness result only if the
+result is behaviorally equivalent and fresh or auditable.
+
+Update the canonical language reference so Panta authoring syntax is
+discoverable from one entry point. Replace the compressed plan/project-markdown
+description with a compact file-kind map for `index.panta.md`, Panta
+`rheis/` entries, `*.rhei.md`, `index.rhei.md` plus workspace `tasks/**/*.md`,
+optional `inbox/` task files, and bare-rhei loading where relevant. Keep
+`states.yaml` in the separate state-machine language surface, and link Panta
+rows to the state-resolution/defaulting rules and architecture mechanics.
+
+## Why This Solution
+
+- It preserves the required hierarchy: Panta level-1 children are rheis, and
+  tickets are level 2 or deeper.
+- It avoids a special Panta-level ticket namespace by making inbox work use the
+  same ids, validation, execution, artifacts, and state-policy paths as
+  ordinary rhei work.
+- It gives `inbox` one stable namespace rule by reserving the id at the project
+  rhei-id level, instead of making validity depend on whether inbox content
+  currently exists.
+- It treats Panta state-machine inheritance as a default, not a merge, and
+  prevents overrides from silently masking authored or inherited policy.
+- It keeps scheduling semantics identical across local and cross-rhei
+  dependencies while allowing practical implementation choices across process,
+  repository, or API boundaries.
+- It makes Panta syntax findable in the canonical language reference without
+  duplicating the owning functional specs or moving `states.yaml` out of the
+  state-machine surface.
+
+## Point Decisions
+
+- point-inbox-hierarchy: Choose a reserved synthetic level-1 rhei with id
+  `inbox`. Inbox tickets are ordinary level-2-or-deeper tickets under that
+  rhei, with ids like `inbox.<local-id>`. The synthetic rhei appears only when
+  inbox content exists, has no authored `index.rhei.md`, stores no state, and
+  uses the generic state-machine resolver before applying ordinary ticket
+  policy lookup.
+- point-cross-rhei-readiness: Choose the normal successful-terminal readiness
+  rule for cross-rhei dependencies. A prerequisite unblocks dependent work only
+  when its resolved state is final and not normalized `cancelled`; unresolved,
+  stale, non-final, or cancelled prerequisites keep dependents blocked.
+- point-state-machine-resolution: Choose the hybrid two-phase resolver.
+  Effective declaration binding checks rhei-local `**States:**`, then inherited
+  `index.panta.md` default, then no declaration. File loading follows the
+  selected source and requires name matches for authored or inherited
+  declarations; omitted declarations use the built-in `rhei` fallback.
+- point-language-reference: Choose a compact structured file-kind map in the
+  canonical language reference. It explicitly names Panta files and directories,
+  relates them to ordinary rhei/workspace syntax, routes behavior to functional
+  specs, routes mechanics to architecture, and keeps `states.yaml` documented
+  under the state-machine language surface.
+
+## Alternatives Rejected
+
+- Direct Panta-child inbox tickets: Rejected because it violates the required
+  hierarchy where level-1 Panta children are rheis and tickets are level 2 or
+  deeper.
+- Conditional `inbox` reservation: Rejected because it creates a delayed
+  migration trap; a domain rhei named `inbox` could be valid until inbox
+  content later appears.
+- Inbox-specific state-policy tier: Rejected because it duplicates ordinary
+  rhei-ticket policy lookup and risks conflict with the generic state-machine
+  resolver.
+- Deferring all inbox promotion/id-change implications: Rejected because the
+  chosen id scheme necessarily makes filing an inbox ticket into a domain rhei
+  an id-changing reparenting operation.
+- Override-first state-machine resolution: Rejected because it can silently
+  mask authored or inherited state policy and conflicts with name-matching
+  behavior.
+- Letting child rhei-local `states.yaml` shadow inherited Panta defaults
+  without redeclaring `**States:**`: Rejected because it makes inheritance
+  search-based instead of a deterministic project-root default.
+- Any-terminal cross-rhei readiness: Rejected because normalized `cancelled`
+  prerequisites must not unblock dependent work.
+- Requiring one shared in-process readiness predicate everywhere: Rejected
+  because it over-constrains cross-process, cross-repository, and serialized/API
+  implementations, even though sharing the predicate is preferred where
+  practical.
+- A separate Panta language reference: Rejected because Panta is an extension of
+  the plan/project markdown surface, not an independent grammar source.
+- A broad language-reference map that includes root `states.yaml`: Rejected
+  because it blurs the boundary between project/rhei markdown syntax and the
+  state-machine language surface.
+
+## Risks And Open Questions
+
+- Inbox ticket promotion still needs a follow-up promotion/refactoring decision
+  for dependency rewrites, aliases, artifact migration, logs, and external
+  references when ids change from `inbox.<local-id>` to
+  `<target-rhei>.<local-id>`.
+- Cached or exported cross-rhei readiness needs a concrete freshness and
+  invalidation contract. If freshness, state-machine version, or the prior
+  state cannot be resolved reliably, the dependency must remain blocked.
+- Diagnostics should expose state-machine resolver source metadata: override
+  path, rhei-local declaration, inherited `index.panta.md` declaration, or
+  built-in fallback.
+- Future scoped Panta defaults would require an additional inherited
+  source-selection rule before file lookup.
+
+diff --git a/panta-deliberation/runtime/deliberation/final-solution.md b/panta-deliberation/runtime/deliberation/final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d64784a7329951a8c8563ce762f4a3781ba8af3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/final-solution.md
+@@ -0,0 +1,123 @@
++# Final Solution - Resolve Panta project spec conflicts
++
++## Recommendation
++
++Adopt a single Panta model where a project contains only rheis at level 1,
++including a reserved synthetic `inbox` rhei when inbox content exists. Inbox
++tickets are ordinary ticket nodes under that synthetic rhei, use canonical ids
++such as `inbox.<local-id>`, and resolve state policy through the same
++rhei-ticket machinery as other work.
++
++Use one deterministic state-machine resolver for validation and execution:
++bind the effective declaration name from rhei-local `**States:**`, then an
++inherited `index.panta.md` default, then no declaration. A CLI
++`--state-machine <path>` override may redirect the loaded file, but if an
++authored or inherited declaration exists, the loaded file's `name` must match
++that declaration. Without an override, rhei-local declarations resolve from the
++rhei sibling or Directory Workspace `states.yaml`; inherited Panta defaults
++resolve only from `<project>/states.yaml`; omitted declarations fall back to the
++compiled built-in `rhei` machine and ignore discovered files.
++
++Define cross-rhei readiness with the same successful-terminal predicate used by
++normal scheduling: the prior's resolved state must have `final: true` and its
++normalized state name must not be `cancelled`. Evaluate that predicate using
++the prior rhei's own state-machine semantics. Implementations may use a shared
++predicate, direct resolution, or an exported/cached readiness result only if the
++result is behaviorally equivalent and fresh or auditable.
++
++Update the canonical language reference so Panta authoring syntax is
++discoverable from one entry point. Replace the compressed plan/project-markdown
++description with a compact file-kind map for `index.panta.md`, Panta
++`rheis/` entries, `*.rhei.md`, `index.rhei.md` plus workspace `tasks/**/*.md`,
++optional `inbox/` task files, and bare-rhei loading where relevant. Keep
++`states.yaml` in the separate state-machine language surface, and link Panta
++rows to the state-resolution/defaulting rules and architecture mechanics.
++
++## Why This Solution
++
++- It preserves the required hierarchy: Panta level-1 children are rheis, and
++  tickets are level 2 or deeper.
++- It avoids a special Panta-level ticket namespace by making inbox work use the
++  same ids, validation, execution, artifacts, and state-policy paths as
++  ordinary rhei work.
++- It gives `inbox` one stable namespace rule by reserving the id at the project
++  rhei-id level, instead of making validity depend on whether inbox content
++  currently exists.
++- It treats Panta state-machine inheritance as a default, not a merge, and
++  prevents overrides from silently masking authored or inherited policy.
++- It keeps scheduling semantics identical across local and cross-rhei
++  dependencies while allowing practical implementation choices across process,
++  repository, or API boundaries.
++- It makes Panta syntax findable in the canonical language reference without
++  duplicating the owning functional specs or moving `states.yaml` out of the
++  state-machine surface.
++
++## Point Decisions
++
++- point-inbox-hierarchy: Choose a reserved synthetic level-1 rhei with id
++  `inbox`. Inbox tickets are ordinary level-2-or-deeper tickets under that
++  rhei, with ids like `inbox.<local-id>`. The synthetic rhei appears only when
++  inbox content exists, has no authored `index.rhei.md`, stores no state, and
++  uses the generic state-machine resolver before applying ordinary ticket
++  policy lookup.
++- point-cross-rhei-readiness: Choose the normal successful-terminal readiness
++  rule for cross-rhei dependencies. A prerequisite unblocks dependent work only
++  when its resolved state is final and not normalized `cancelled`; unresolved,
++  stale, non-final, or cancelled prerequisites keep dependents blocked.
++- point-state-machine-resolution: Choose the hybrid two-phase resolver.
++  Effective declaration binding checks rhei-local `**States:**`, then inherited
++  `index.panta.md` default, then no declaration. File loading follows the
++  selected source and requires name matches for authored or inherited
++  declarations; omitted declarations use the built-in `rhei` fallback.
++- point-language-reference: Choose a compact structured file-kind map in the
++  canonical language reference. It explicitly names Panta files and directories,
++  relates them to ordinary rhei/workspace syntax, routes behavior to functional
++  specs, routes mechanics to architecture, and keeps `states.yaml` documented
++  under the state-machine language surface.
++
++## Alternatives Rejected
++
++- Direct Panta-child inbox tickets: Rejected because it violates the required
++  hierarchy where level-1 Panta children are rheis and tickets are level 2 or
++  deeper.
++- Conditional `inbox` reservation: Rejected because it creates a delayed
++  migration trap; a domain rhei named `inbox` could be valid until inbox
++  content later appears.
++- Inbox-specific state-policy tier: Rejected because it duplicates ordinary
++  rhei-ticket policy lookup and risks conflict with the generic state-machine
++  resolver.
++- Deferring all inbox promotion/id-change implications: Rejected because the
++  chosen id scheme necessarily makes filing an inbox ticket into a domain rhei
++  an id-changing reparenting operation.
++- Override-first state-machine resolution: Rejected because it can silently
++  mask authored or inherited state policy and conflicts with name-matching
++  behavior.
++- Letting child rhei-local `states.yaml` shadow inherited Panta defaults
++  without redeclaring `**States:**`: Rejected because it makes inheritance
++  search-based instead of a deterministic project-root default.
++- Any-terminal cross-rhei readiness: Rejected because normalized `cancelled`
++  prerequisites must not unblock dependent work.
++- Requiring one shared in-process readiness predicate everywhere: Rejected
++  because it over-constrains cross-process, cross-repository, and serialized/API
++  implementations, even though sharing the predicate is preferred where
++  practical.
++- A separate Panta language reference: Rejected because Panta is an extension of
++  the plan/project markdown surface, not an independent grammar source.
++- A broad language-reference map that includes root `states.yaml`: Rejected
++  because it blurs the boundary between project/rhei markdown syntax and the
++  state-machine language surface.
++
++## Risks And Open Questions
++
++- Inbox ticket promotion still needs a follow-up promotion/refactoring decision
++  for dependency rewrites, aliases, artifact migration, logs, and external
++  references when ids change from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`.
++- Cached or exported cross-rhei readiness needs a concrete freshness and
++  invalidation contract. If freshness, state-machine version, or the prior
++  state cannot be resolved reliably, the dependency must remain blocked.
++- Diagnostics should expose state-machine resolver source metadata: override
++  path, rhei-local declaration, inherited `index.panta.md` declaration, or
++  built-in fallback.
++- Future scoped Panta defaults would require an additional inherited
++  source-selection rule before file lookup.
+
+codex
+Wrote the final synthesized solution to [runtime/deliberation/final-solution.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/final-solution.md).
+
+It consolidates all four point decisions, makes the inbox/state-machine/readiness dependencies explicit, lists rejected alternatives, and records remaining risks. I did not call `rhei transition`, `rhei complete`, or modify any task state lines.
+diff --git a/panta-deliberation/runtime/deliberation/final-solution.md b/panta-deliberation/runtime/deliberation/final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2d64784a7329951a8c8563ce762f4a3781ba8af3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/final-solution.md
+@@ -0,0 +1,123 @@
++# Final Solution - Resolve Panta project spec conflicts
++
++## Recommendation
++
++Adopt a single Panta model where a project contains only rheis at level 1,
++including a reserved synthetic `inbox` rhei when inbox content exists. Inbox
++tickets are ordinary ticket nodes under that synthetic rhei, use canonical ids
++such as `inbox.<local-id>`, and resolve state policy through the same
++rhei-ticket machinery as other work.
++
++Use one deterministic state-machine resolver for validation and execution:
++bind the effective declaration name from rhei-local `**States:**`, then an
++inherited `index.panta.md` default, then no declaration. A CLI
++`--state-machine <path>` override may redirect the loaded file, but if an
++authored or inherited declaration exists, the loaded file's `name` must match
++that declaration. Without an override, rhei-local declarations resolve from the
++rhei sibling or Directory Workspace `states.yaml`; inherited Panta defaults
++resolve only from `<project>/states.yaml`; omitted declarations fall back to the
++compiled built-in `rhei` machine and ignore discovered files.
++
++Define cross-rhei readiness with the same successful-terminal predicate used by
++normal scheduling: the prior's resolved state must have `final: true` and its
++normalized state name must not be `cancelled`. Evaluate that predicate using
++the prior rhei's own state-machine semantics. Implementations may use a shared
++predicate, direct resolution, or an exported/cached readiness result only if the
++result is behaviorally equivalent and fresh or auditable.
++
++Update the canonical language reference so Panta authoring syntax is
++discoverable from one entry point. Replace the compressed plan/project-markdown
++description with a compact file-kind map for `index.panta.md`, Panta
++`rheis/` entries, `*.rhei.md`, `index.rhei.md` plus workspace `tasks/**/*.md`,
++optional `inbox/` task files, and bare-rhei loading where relevant. Keep
++`states.yaml` in the separate state-machine language surface, and link Panta
++rows to the state-resolution/defaulting rules and architecture mechanics.
++
++## Why This Solution
++
++- It preserves the required hierarchy: Panta level-1 children are rheis, and
++  tickets are level 2 or deeper.
++- It avoids a special Panta-level ticket namespace by making inbox work use the
++  same ids, validation, execution, artifacts, and state-policy paths as
++  ordinary rhei work.
++- It gives `inbox` one stable namespace rule by reserving the id at the project
++  rhei-id level, instead of making validity depend on whether inbox content
++  currently exists.
++- It treats Panta state-machine inheritance as a default, not a merge, and
++  prevents overrides from silently masking authored or inherited policy.
++- It keeps scheduling semantics identical across local and cross-rhei
++  dependencies while allowing practical implementation choices across process,
++  repository, or API boundaries.
++- It makes Panta syntax findable in the canonical language reference without
++  duplicating the owning functional specs or moving `states.yaml` out of the
++  state-machine surface.
++
++## Point Decisions
++
++- point-inbox-hierarchy: Choose a reserved synthetic level-1 rhei with id
++  `inbox`. Inbox tickets are ordinary level-2-or-deeper tickets under that
++  rhei, with ids like `inbox.<local-id>`. The synthetic rhei appears only when
++  inbox content exists, has no authored `index.rhei.md`, stores no state, and
++  uses the generic state-machine resolver before applying ordinary ticket
++  policy lookup.
++- point-cross-rhei-readiness: Choose the normal successful-terminal readiness
++  rule for cross-rhei dependencies. A prerequisite unblocks dependent work only
++  when its resolved state is final and not normalized `cancelled`; unresolved,
++  stale, non-final, or cancelled prerequisites keep dependents blocked.
++- point-state-machine-resolution: Choose the hybrid two-phase resolver.
++  Effective declaration binding checks rhei-local `**States:**`, then inherited
++  `index.panta.md` default, then no declaration. File loading follows the
++  selected source and requires name matches for authored or inherited
++  declarations; omitted declarations use the built-in `rhei` fallback.
++- point-language-reference: Choose a compact structured file-kind map in the
++  canonical language reference. It explicitly names Panta files and directories,
++  relates them to ordinary rhei/workspace syntax, routes behavior to functional
++  specs, routes mechanics to architecture, and keeps `states.yaml` documented
++  under the state-machine language surface.
++
++## Alternatives Rejected
++
++- Direct Panta-child inbox tickets: Rejected because it violates the required
++  hierarchy where level-1 Panta children are rheis and tickets are level 2 or
++  deeper.
++- Conditional `inbox` reservation: Rejected because it creates a delayed
++  migration trap; a domain rhei named `inbox` could be valid until inbox
++  content later appears.
++- Inbox-specific state-policy tier: Rejected because it duplicates ordinary
++  rhei-ticket policy lookup and risks conflict with the generic state-machine
++  resolver.
++- Deferring all inbox promotion/id-change implications: Rejected because the
++  chosen id scheme necessarily makes filing an inbox ticket into a domain rhei
++  an id-changing reparenting operation.
++- Override-first state-machine resolution: Rejected because it can silently
++  mask authored or inherited state policy and conflicts with name-matching
++  behavior.
++- Letting child rhei-local `states.yaml` shadow inherited Panta defaults
++  without redeclaring `**States:**`: Rejected because it makes inheritance
++  search-based instead of a deterministic project-root default.
++- Any-terminal cross-rhei readiness: Rejected because normalized `cancelled`
++  prerequisites must not unblock dependent work.
++- Requiring one shared in-process readiness predicate everywhere: Rejected
++  because it over-constrains cross-process, cross-repository, and serialized/API
++  implementations, even though sharing the predicate is preferred where
++  practical.
++- A separate Panta language reference: Rejected because Panta is an extension of
++  the plan/project markdown surface, not an independent grammar source.
++- A broad language-reference map that includes root `states.yaml`: Rejected
++  because it blurs the boundary between project/rhei markdown syntax and the
++  state-machine language surface.
++
++## Risks And Open Questions
++
++- Inbox ticket promotion still needs a follow-up promotion/refactoring decision
++  for dependency rewrites, aliases, artifact migration, logs, and external
++  references when ids change from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`.
++- Cached or exported cross-rhei readiness needs a concrete freshness and
++  invalidation contract. If freshness, state-machine version, or the prior
++  state cannot be resolved reliably, the dependency must remain blocked.
++- Diagnostics should expose state-machine resolver source metadata: override
++  path, rhei-local declaration, inherited `index.panta.md` declaration, or
++  built-in fallback.
++- Future scoped Panta defaults would require an additional inherited
++  source-selection rule before file lookup.
+
+Wrote the final synthesized solution to [runtime/deliberation/final-solution.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/final-solution.md).
+
+It consolidates all four point decisions, makes the inbox/state-machine/readiness dependencies explicit, lists rejected alternatives, and records remaining risks. I did not call `rhei transition`, `rhei complete`, or modify any task state lines.
+tokens used
+15,946
+
+=== exit ===
+code: 0
+duration: 41s
+ended: 2026-06-01T08:28:40Z
+===
