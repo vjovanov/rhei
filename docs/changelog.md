@@ -5,6 +5,9 @@
 - Clear stale Flow dashboard running indicators after the live loopback server
   stops answering, so closed runs do not leave browser tabs spinning forever.
   PR #31
+- Simplify the built-in state machine to the manual `pending` -> `completed`
+  flow, preserve durable manual claims from `rhei next`, and make `rhei run`
+  refuse to auto-complete default manual tasks. PR #30
 - Clarify the first-run example path, Panta's current read-only project support
   boundary, and runnable example discovery; fix `xtask` example copying for
   fixtures that contain snapshot symlinks. PR #28
