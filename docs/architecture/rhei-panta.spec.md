@@ -36,14 +36,15 @@ project-level rollups share the project `runtime/` (§6).
 
 `index.panta.md` is the Panta manifest. It plays the role `index.rhei.md` plays
 for a workspace: project title, default state-machine declaration, and content
-sections; it contains no authored nodes. Rhei discovery within the project
-directory follows the same recursive, deterministic, non-hidden, `/`-normalized
-ordering rules that task-file discovery already uses (§FS-rhei-plan-language.1.2),
-except that `runtime/` directories are artifact trees and are never discovered as
-rheis even when they contain `.rhei.md` files or `index.rhei.md`, and the
-reserved `basin/` directory is loaded as the synthetic basin rhei rather than
-discovered as a domain rhei. A directory is a Panta when it contains
-`index.panta.md`.
+sections; it contains no authored nodes. Rhei discovery scans the project
+directory's **immediate children** in deterministic, `/`-normalized order: each
+non-hidden `*.rhei.md` file is a single-file rhei, and each non-hidden
+subdirectory containing `index.rhei.md` is a Directory Workspace rhei.
+Discovery does not descend into other subdirectories — rheis live directly in
+the project directory, so a `*.rhei.md` buried in a grouping folder is not
+promoted to a rhei. The `runtime/` artifact tree and the reserved `basin/`
+directory are skipped (the latter is loaded as the synthetic basin rhei). A
+directory is a Panta when it contains `index.panta.md`.
 
 ## 2. Load model
 

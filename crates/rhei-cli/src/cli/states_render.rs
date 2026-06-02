@@ -573,18 +573,25 @@ fn is_relevant_event_kind(kind: &EventKind) -> bool {
 }
 
 fn path_matches(path: &Path, targets: &[WatchTarget]) -> bool {
-    // Exclusions win: an artifact tree under a watched root never revalidates.
+    // Exclusions win: a path inside an excluded artifact tree never revalidates,
+    // even though it sits under a watched descendant root.
     if targets
         .iter()
-        .any(|target| matches!(target, WatchTarget::Excluded(root) if path_is_under(path, root)))
+        .any(|target| matches!(target, WatchTarget::ExcludedDir(name) if path_has_component(path, name)))
     {
         return false;
     }
     targets.iter().any(|target| match target {
         WatchTarget::Exact(watched) => paths_equivalent(path, watched),
         WatchTarget::Descendant(root) => path_is_under(path, root),
-        WatchTarget::Excluded(_) => false,
+        WatchTarget::ExcludedDir(_) => false,
     })
+}
+
+/// True if any path component is exactly `name` (e.g. a `runtime` directory
+/// anywhere in the path).
+fn path_has_component(path: &Path, name: &str) -> bool {
+    path.components().any(|component| component.as_os_str() == name)
 }
 
 fn paths_equivalent(candidate: &Path, watched: &Path) -> bool {
@@ -622,9 +629,10 @@ struct ValidationWatchPlan {
 enum WatchTarget {
     Exact(PathBuf),
     Descendant(PathBuf),
-    /// A subtree under a watched root whose changes must NOT trigger
-    /// revalidation (e.g. a `runtime/` artifact tree the tools write into).
-    Excluded(PathBuf),
+    /// Ignore any event whose path passes through a directory with this name,
+    /// at any depth (e.g. a `runtime/` artifact tree the tools write into —
+    /// including the per-rhei `runtime/` trees nested under workspace rheis).
+    ExcludedDir(&'static str),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -676,9 +684,10 @@ fn panta_watch_targets(project_root: &Path) -> Vec<WatchTarget> {
         // The project directory holds the manifest, every rhei, and the synthetic
         // basin, so one descendant watch covers them all. §AR-rhei-panta.1
         WatchTarget::Descendant(canonical_watch_path(project_root)),
-        // `runtime/` is an artifact tree the tools write into; excluding it keeps
-        // a re-render from triggering itself. §AR-rhei-panta.5
-        WatchTarget::Excluded(canonical_watch_path(&project_root.join("runtime"))),
+        // Exclude every `runtime/` artifact tree (the project's and the per-rhei
+        // ones nested under workspace rheis) at any depth, so a re-render that
+        // writes there never re-triggers itself. §AR-rhei-panta.5
+        WatchTarget::ExcludedDir("runtime"),
     ]
 }
 
@@ -711,7 +720,7 @@ fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarge
 fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
     let (path, mode) = match target {
         // An exclusion only filters events; it is not itself a watch root.
-        WatchTarget::Excluded(_) => return,
+        WatchTarget::ExcludedDir(_) => return,
         WatchTarget::Exact(path) => {
             let root = path.parent().unwrap_or_else(|| Path::new("."));
             (canonical_watch_path(root), RecursiveMode::NonRecursive)
@@ -725,6 +734,23 @@ fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
             }
         }
     };
+
+    // A recursive watch already covers everything beneath it, so a non-recursive
+    // root on the same path or a descendant is redundant (e.g. the Panta project
+    // dir watched recursively also covers its `index.panta.md` and `states.yaml`).
+    if mode == RecursiveMode::NonRecursive
+        && roots
+            .iter()
+            .any(|existing| existing.mode == RecursiveMode::Recursive && path.starts_with(&existing.path))
+    {
+        return;
+    }
+    // Conversely, a new recursive root supersedes any non-recursive roots beneath it.
+    if mode == RecursiveMode::Recursive {
+        roots.retain(|existing| {
+            !(existing.mode == RecursiveMode::NonRecursive && existing.path.starts_with(&path))
+        });
+    }
 
     let root = WatchRoot { path, mode };
     if !roots.iter().any(|existing| existing == &root) {

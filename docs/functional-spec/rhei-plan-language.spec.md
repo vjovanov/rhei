@@ -255,11 +255,13 @@ A Panta Project consists of:
    `States Declaration`, and any `Content Sections`. It contains no `## Tasks`
    section and no authored nodes.
 2. **Rhei entries**: the rheis live directly in the project directory, beside the
-   manifest. Each entry is a Single-File Plan (`*.rhei.md`) or a Directory
-   Workspace subdirectory. Discovery is recursive and deterministic, using the
-   same non-hidden, `/`-normalized, case-sensitive ordering rules as workspace
-   task-file discovery (§FS-rhei-plan-language.1.2). The `runtime/` artifact tree
-   is never a rhei entry.
+   manifest. Each entry is a direct-child Single-File Plan (`*.rhei.md`) or a
+   direct-child Directory Workspace subdirectory. Discovery scans only the
+   project directory's immediate children — it does not descend into grouping
+   folders — and is deterministic, using the same non-hidden, `/`-normalized,
+   case-sensitive ordering rules as workspace task-file discovery
+   (§FS-rhei-plan-language.1.2). The `runtime/` artifact tree is never a rhei
+   entry.
 3. **`basin/` directory** (optional): loose tickets captured without a domain
    rhei. This directory is loaded as a synthetic Directory Workspace rhei with id
    `basin`; its contents are authored as workspace task files. The synthetic

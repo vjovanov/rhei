@@ -128,70 +128,53 @@ pub fn discover_task_files(tasks_dir: &Path) -> parser::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Discover rhei entries directly within a Panta project directory.
+/// Discover rhei entries among a Panta project directory's immediate children.
 ///
-/// Entries are single-file rheis (`*.rhei.md`) or Directory Workspace roots.
-/// Non-hidden paths are walked recursively in normalized lexical order; once a
-/// workspace root is found, its own task files are not considered rhei entries.
-/// The reserved `basin/` directory and the `runtime/` artifact tree are loaded
-/// or skipped separately and are never discovered as domain rheis.
+/// A rhei entry is either a direct-child `*.rhei.md` file (a Single-File Plan)
+/// or a direct-child subdirectory that is a Directory Workspace (contains
+/// `index.rhei.md`). Discovery does **not** descend into other subdirectories:
+/// rheis live directly in the project directory, so a stray `*.rhei.md` buried
+/// in, say, `docs/` is not silently promoted to a rhei. The `runtime/` artifact
+/// tree and the reserved `basin/` directory are skipped here and handled
+/// separately. Entries are returned in deterministic, `/`-normalized order.
 pub fn discover_rhei_entries(project_dir: &Path) -> parser::Result<Vec<PathBuf>> {
-    fn is_hidden(path: &Path) -> bool {
-        path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('.'))
+    let mut entries = Vec::new();
+    if !project_dir.is_dir() {
+        return Ok(entries);
     }
 
-    fn is_single_file_rhei(path: &Path) -> bool {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".rhei.md"))
-    }
-
-    fn is_runtime_dir(path: &Path) -> bool {
-        path.file_name().and_then(|name| name.to_str()) == Some("runtime")
-    }
-
-    fn is_basin_root(path: &Path, root: &Path) -> bool {
-        path.parent() == Some(root)
-            && path.file_name().and_then(|name| name.to_str()) == Some(BASIN_RHEI_ID)
-    }
-
-    fn visit(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) -> parser::Result<()> {
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| ParseError::new(format!("failed to read {}: {e}", dir.display()), None))?;
-
-        for entry in entries {
-            let entry = entry.map_err(|e| {
-                ParseError::new(format!("failed to read {}: {e}", dir.display()), None)
-            })?;
-            let path = entry.path();
-            if is_hidden(&path) {
+    let read = std::fs::read_dir(project_dir).map_err(|e| {
+        ParseError::new(format!("failed to read {}: {e}", project_dir.display()), None)
+    })?;
+    for entry in read {
+        let entry = entry.map_err(|e| {
+            ParseError::new(format!("failed to read {}: {e}", project_dir.display()), None)
+        })?;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        let file_type = entry.file_type().map_err(|e| {
+            ParseError::new(format!("failed to inspect {}: {e}", path.display()), None)
+        })?;
+        if file_type.is_dir() {
+            // The `runtime/` artifact tree and the synthetic `basin/` are not
+            // discoverable domain rheis; a non-workspace subdirectory is not a
+            // rhei either, as rheis are not nested in grouping folders. §AR-rhei-panta.1
+            if name == "runtime" || name == BASIN_RHEI_ID {
                 continue;
             }
-            let file_type = entry.file_type().map_err(|e| {
-                ParseError::new(format!("failed to inspect {}: {e}", path.display()), None)
-            })?;
-            if file_type.is_dir() {
-                // §AR-rhei-panta.1 §AR-rhei-panta.5: runtime artifact trees are not rhei
-                // entries, and `panta/basin/` is loaded separately as the synthetic basin.
-                if is_runtime_dir(&path) || is_basin_root(&path, root) {
-                    continue;
-                } else if is_workspace(&path) {
-                    out.push(path);
-                } else {
-                    visit(&path, root, out)?;
-                }
-            } else if file_type.is_file() && is_single_file_rhei(&path) {
-                out.push(path);
+            if is_workspace(&path) {
+                entries.push(path);
             }
+        } else if file_type.is_file() && name.ends_with(".rhei.md") {
+            entries.push(path);
         }
-
-        Ok(())
     }
 
-    let mut entries = Vec::new();
-    if project_dir.is_dir() {
-        visit(project_dir, project_dir, &mut entries)?;
-    }
     entries.sort_by(|a, b| {
         let a_key = a.strip_prefix(project_dir).unwrap_or(a).to_string_lossy().replace('\\', "/");
         let b_key = b.strip_prefix(project_dir).unwrap_or(b).to_string_lossy().replace('\\', "/");
@@ -322,6 +305,11 @@ fn load_basin_rhei(dir: &Path, structure: &Structure, states: &str) -> parser::R
     let mut tasks = Vec::new();
     let mut task_sources = HashMap::new();
     for path in discover_task_files(dir)? {
+        // The basin has no authored manifest; never parse a stray `index.rhei.md`
+        // as a loose task file. §FS-rhei-panta.2
+        if path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
+            continue;
+        }
         let content = std::fs::read_to_string(&path).map_err(|e| {
             ParseError::new(format!("failed to read {}: {e}", path.display()), None)
         })?;
