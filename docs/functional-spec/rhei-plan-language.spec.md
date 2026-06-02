@@ -501,7 +501,7 @@ shallower task node above them.
 
 Throughout this specification, a *terminal state* means any state marked
 `final: true` in the active state machine. In the built-in `rhei` machine, the
-terminal states are `completed` and `cancelled`.
+terminal state is `completed`.
 
 Throughout this specification, a *leaf task node* means a task node with no
 child task nodes. Only leaf task nodes are claimable by `rhei next`. Non-leaf

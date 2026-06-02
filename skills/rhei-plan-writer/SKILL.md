@@ -55,7 +55,7 @@ Run `rhei states` in the project to discover the allowed state values, their age
 
 If the `rhei` CLI is unavailable, fall back to reading the state machine YAML directly (typically `docs/states.yaml`, or the file referenced by `**States:**`). If the project defines no state machine, fall back to the default Rhei state set in [default-states.md](references/default-states.md).
 
-Each node's initial state comes from the machine's `profiles.<name>.initial` via `node_policy` — **not** from a state-level `initial: true` flag. In the built-in `rhei` machine the initial state is `draft`, so every task in a new plan under that machine starts in `draft`.
+Each node's initial state comes from the machine's `profiles.<name>.initial` via `node_policy` — **not** from a state-level `initial: true` flag. In the built-in `rhei` machine the initial state is `pending`, so every task in a new plan under that machine starts in `pending`.
 
 For markdown safety, format state names containing hyphens, spaces, or punctuation with backticks (`` **State:** `agent-review` ``, `` **State:** `human review` ``). Backticks are acceptable for all state values; canonical names matching `IDENTIFIER` exactly (e.g. `draft`, `pending`) may be written bare. For machines that declare a `visits` budget, a counted-visit suffix (`-<n>`, with `n >= 2`) may appear in the rendered state value for later visits — the plan writer normally does not author these; they accumulate at runtime.
 
@@ -105,7 +105,7 @@ structure:
 5. Draft concise context sections only when they improve implementation clarity.
 6. Write each task and child task as concrete implementation instructions.
 7. Set initial states correctly:
-   - New plan: set every task to the active machine's profile `initial` (`draft` for the built-in machine).
+   - New plan: set every task to the active machine's profile `initial` (`pending` for the built-in machine).
    - Existing plan update: preserve truthful terminal states (`completed`, `cancelled`) unless explicitly changed, and preserve any `**Assignee:**` / `> **Result:**` blocks the runtime has written.
 8. Run the validation checklist before returning output.
 9. **Final scan:** re-read every `### Task` / `#### Task` / deeper heading (or other declared kinds) and confirm each is immediately followed by a `**State:**` line. This is the most common defect — always perform this check last.

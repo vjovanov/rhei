@@ -114,6 +114,15 @@ fn run_callback_mode(
                 ));
                 continue;
             }
+            if let Some(to_state) = manual_initial_terminal_transition(task, &loaded.rhei, machine)? {
+                return Err(miette!(
+                    "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
+                     use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
+                    task_id_str,
+                    current_state,
+                    to_state
+                ));
+            }
             let next_to = find_next_transition(task, &loaded.rhei, machine)?;
 
             let Some(to_state) = next_to else {

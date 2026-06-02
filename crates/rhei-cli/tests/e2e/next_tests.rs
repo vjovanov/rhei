@@ -69,7 +69,7 @@ fn next_omitted_states_uses_builtin_even_with_sibling_states_yaml() {
 ## Tasks
 
 ### Task 1: Use builtin machine
-**State:** draft
+**State:** pending
 "#;
     let sibling_machine = r#"name: rhei
 version: 1
@@ -100,7 +100,22 @@ transitions:
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
     assert_eq!(json["task_id"], "1");
     assert_eq!(json["state"], "pending");
-    assert_eq!(json["from_state"], "draft");
+    assert_eq!(json["from_state"], "pending");
+    assert_eq!(json["instructions"], "Do the task.");
+    let content = fs::read_to_string(&plan_path).expect("read claimed plan");
+    assert!(
+        content.contains("**State:** pending\n**Assignee:** manual"),
+        "expected durable manual claim; got:\n{}",
+        content
+    );
+
+    let second = run_cli_without_machine("next", &plan_path, &["--no-callbacks", "--json"]);
+    assert!(!second.status.success(), "second next should not reclaim manually assigned task");
+    assert!(
+        second.stderr.contains("Task 1 (pending, assignee manual)"),
+        "expected assigned task diagnostic; got:\n{}",
+        second.stderr
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -211,11 +226,12 @@ transitions:
 "#;
 
     let dir = unique_temp_dir("next-personality");
-    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let text_plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let json_plan_path = write_fixture_file(&dir, "plan-json.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
 
     let text_result =
-        run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
+        run_cli("next", &text_plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
     assert_success(&text_result);
     assert!(
         text_result.stdout.contains("Personality: You are an MIT professor."),
@@ -228,8 +244,12 @@ transitions:
         text_result.stdout
     );
 
-    let json_result =
-        run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1", "--json"]);
+    let json_result = run_cli(
+        "next",
+        &json_plan_path,
+        &machine_path,
+        &["--no-callbacks", "--task", "1", "--json"],
+    );
     assert_success(&json_result);
     let json: serde_json::Value = serde_json::from_str(&json_result.stdout).expect("parse JSON");
     assert_eq!(json["personality"], "You are an MIT professor.");
@@ -909,7 +929,8 @@ fn next_respects_dependency_order() {
     assert!(!result.status.success(), "no new task should be claimable");
     assert!(
         result.stderr.contains("No tasks can be auto-claimed")
-            || result.stderr.contains("no tasks are ready"),
+            || result.stderr.contains("no tasks are ready")
+            || result.stderr.contains("currently in progress"),
         "expected no-claimable diagnostic; got:\n{}",
         result.stderr
     );

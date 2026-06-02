@@ -233,24 +233,24 @@ description: Template with enough tasks to exercise the summary
 ## Tasks
 
 ### Task 1: Step 1
-**State:** draft
+**State:** pending
 
 ### Task 2: Step 2
-**State:** draft
+**State:** pending
 
 Body for step 2.
 
 ### Task 3: Step 3
-**State:** draft
+**State:** pending
 
 ### Task 4: Step 4
-**State:** draft
+**State:** pending
 
 ### Task 5: Step 5
-**State:** draft
+**State:** pending
 
 ### Task 6: Step 6
-**State:** draft
+**State:** pending
 
 Body for step 6.
 "#,
@@ -279,7 +279,7 @@ Body for step 6.
         result.stdout
     );
     assert!(
-        result.stdout.contains("Task tree:\n  - Task 1: Step 1 [draft]"),
+        result.stdout.contains("Task tree:\n  - Task 1: Step 1 [pending]"),
         "expected task tree in instantiate output; got:\n{}",
         result.stdout
     );
@@ -292,16 +292,16 @@ Body for step 6.
             panic!("expected Recent task definitions section; got:\n{}", result.stdout)
         });
     assert!(
-        last_tasks.contains("--- Task 2: Step 2 [draft] ---")
-            && last_tasks.contains("### Task 2: Step 2\n**State:** draft\n\nBody for step 2.")
-            && last_tasks.contains("--- Task 6: Step 6 [draft] ---")
-            && last_tasks.contains("### Task 6: Step 6\n**State:** draft\n\nBody for step 6.")
-            && !last_tasks.contains("Task 1: Step 1 [draft]"),
+        last_tasks.contains("--- Task 2: Step 2 [pending] ---")
+            && last_tasks.contains("### Task 2: Step 2\n**State:** pending\n\nBody for step 2.")
+            && last_tasks.contains("--- Task 6: Step 6 [pending] ---")
+            && last_tasks.contains("### Task 6: Step 6\n**State:** pending\n\nBody for step 6.")
+            && !last_tasks.contains("Task 1: Step 1 [pending]"),
         "expected the last five rendered task definitions, excluding task 1; got:\n{}",
         last_tasks
     );
     assert!(
-        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task 1: Step 1 [draft]."),
+        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task 1: Step 1 [pending]."),
         "expected stop reason in instantiate output; got:\n{}",
         result.stdout
     );
@@ -419,11 +419,33 @@ description: Template that immediately executes
         &template_dir,
         "plan.rhei.md",
         r#"# Rhei: Execute Template
+**States:** execute-template
 
 ## Tasks
 
 ### Task 1: Step
 **State:** pending
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "states.yaml",
+        r#"name: execute-template
+version: 1
+states:
+  pending:
+    description: Pending
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: pending
+    to: completed
+profiles:
+  default: { initial: pending, allowed: [pending, completed] }
+node_policy:
+  root: default
+  default: default
 "#,
     );
 

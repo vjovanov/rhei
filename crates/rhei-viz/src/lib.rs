@@ -439,20 +439,39 @@ states:
         assert_eq!(build(&completed, &builtin()).plan_state.as_deref(), Some("completed"));
 
         let archived = parse(
-            "# Rhei: C\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** completed\n\n### Task 2: B\n**State:** cancelled\n",
+            "# Rhei: C\n**States:** archival\n\n## Tasks\n\n### Task 1: A\n**State:** completed\n\n### Task 2: B\n**State:** archived\n",
         )
         .expect("parse");
-        assert_eq!(build(&archived, &builtin()).plan_state.as_deref(), Some("archived"));
+        let machine = StateMachine::from_yaml_str(
+            r#"
+name: archival
+version: 1
+states:
+  pending: { description: "ready" }
+  completed: { description: "done", final: true }
+  archived: { description: "retired", final: true }
+transitions:
+  - from: pending
+    to: completed
+profiles:
+  default: { initial: pending, allowed: [pending, completed, archived] }
+node_policy:
+  root: default
+  default: default
+"#,
+        )
+        .expect("machine");
+        assert_eq!(build(&archived, &machine).plan_state.as_deref(), Some("archived"));
     }
 
     #[test]
     fn machine_flattening_marks_wildcard_and_initial() {
         let machine = builtin();
         let flat = flatten_machine(&machine);
-        // The built-in `default-rhei` profile enters at `draft`, so the
-        // profile-initial union must mark `draft` initial.
-        let draft = flat.states.iter().find(|s| s.name == "draft").expect("draft state");
-        assert!(draft.initial, "draft is the built-in profile's initial state");
+        // The built-in `default-rhei` profile enters at `pending`, so the
+        // profile-initial union must mark `pending` initial.
+        let pending = flat.states.iter().find(|s| s.name == "pending").expect("pending state");
+        assert!(pending.initial, "pending is the built-in profile's initial state");
         let completed = flat.states.iter().find(|s| s.name == "completed").expect("completed");
         assert!(completed.terminal);
         assert!(completed.transitions.is_empty(), "terminal states get no wildcard exits");

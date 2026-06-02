@@ -46,11 +46,9 @@ The result file contains one entry per state transition, appended by both `rhei 
 
 `rhei transition` appends an entry with no message body. `rhei complete` appends an entry with the mandatory `--result` message. This gives every task a complete, ordered audit trail of its state transitions.
 
-Example result file after a task goes `draft → pending → completed`:
+Example result file after a task goes `pending → completed`:
 
 ```markdown
-## draft → pending
-
 ## pending → completed
 
 Added avatar_url column and migration 0042

@@ -20,7 +20,7 @@ Use this skill when the project needs any of:
 - Transition callbacks or conditional routing
 - Distinct flows per node kind (e.g. `task` goes through review but `bug` skips it)
 
-Do not use it when the default `rhei` machine is enough: a standard draft → pending → review → completed flow with no specialized phases, gates, or branching.
+Do not use it when the default `rhei` machine is enough: a simple pending → completed flow with no specialized phases, gates, or branching.
 
 ## Required Inputs
 

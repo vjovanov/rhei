@@ -484,6 +484,59 @@ fn state_declares_autonomous_execution(def: &rhei_validator::StateDef) -> bool {
         || !def.all_targets.is_empty()
 }
 
+fn initial_state_has_non_terminal_forward_transition(
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> MietteResult<bool> {
+    let Some(to_state) = find_next_transition(task, rhei, machine)? else {
+        return Ok(false);
+    };
+    Ok(!machine.states.get(&to_state).map(|def| def.terminal).unwrap_or(false))
+}
+
+fn manual_initial_terminal_transition(
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> MietteResult<Option<String>> {
+    // §FS-rhei-run.3: default manual-only tasks must not be callback-completed by `rhei run`.
+    if !is_builtin_simple_manual_machine(machine) {
+        return Ok(None);
+    }
+    let current_state = normalized_state_name(task.state.as_str(), machine);
+    if !task_is_in_initial_state(task, &current_state, machine) {
+        return Ok(None);
+    }
+    let Some(state_def) = machine.states.get(&current_state) else {
+        return Ok(None);
+    };
+    if state_declares_autonomous_execution(state_def) {
+        return Ok(None);
+    }
+    let Some(to_state) = find_next_transition(task, rhei, machine)? else {
+        return Ok(None);
+    };
+    if machine.states.get(&to_state).map(|def| def.terminal).unwrap_or(false) {
+        Ok(Some(to_state))
+    } else {
+        Ok(None)
+    }
+}
+
+fn is_builtin_simple_manual_machine(machine: &rhei_validator::StateMachine) -> bool {
+    machine.name == "rhei"
+        && machine.states.len() == 2
+        && machine.states.contains_key("pending")
+        && machine.states.get("completed").map(|def| def.terminal).unwrap_or(false)
+        && machine
+            .transitions()
+            .iter()
+            .filter(|rule| rule.from.0 == "pending" && rule.to.0 == "completed")
+            .count()
+            == 1
+}
+
 /// Find the next forward transition from a given state.
 ///
 /// Prefers exact `from` matches over wildcard (`*`) rules, and skips

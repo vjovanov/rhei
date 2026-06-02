@@ -5,6 +5,12 @@ agent runtime. The authoritative machine-readable form lives in
 [states.yaml](states.yaml); the writer-skill mirror is
 [default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
 
+The built-in `rhei` machine is intentionally minimal. Every node starts in
+`pending`, where the only instruction is "Do the task." The only built-in
+transition is `pending` -> `completed`, and `completed` is the only terminal
+state. Projects that need drafting, review, cancellation, human gates, retries,
+artifact contracts, or richer routing should declare a custom state machine.
+
 The state-machine schema also permits these optional fields for richer workflows:
 
 - Per-state `personality: <string>` to inject role framing into `rhei next` for that specific state (supports template variables)
@@ -882,13 +888,8 @@ uses `simple`.
 
 | State | Description | Final | Gating |
 |-------|-------------|-------|--------|
-| `draft` | Task is still being shaped; description not ready for execution | No | No |
-| `pending` | Task ready for implementation once prerequisites are `completed` | No | No |
-| `agent-review` | A separate reviewing agent inspects the result | No | No |
-| `agent-review-fix` | Implementing agent applies reviewer findings, no scope change | No | No |
-| `human-review` | Work paused pending human inspection; no autonomous exit | No | Yes |
+| `pending` | Task is ready to execute; do the task | No | No |
 | `completed` | Task finished successfully; immutable | Yes | No |
-| `cancelled` | Task no longer needed; skip entirely | Yes | No |
 
 Whether a state is a node's starting state is determined by the node's
 resolved profile (see [Profiles](#8-profiles) and [Node Policy](#9-node-policy)),
@@ -898,11 +899,7 @@ not by a per-state flag.
 
 See [states.yaml](states.yaml) for the enforced transition table. Summary:
 
-- `draft` → `pending` | `cancelled`
-- `pending` → `agent-review` | `human-review` | `completed` | `cancelled`
-- `agent-review` → `agent-review-fix` (fail) | `human-review` (pass, gated) | `completed` (pass, ungated)
-- `agent-review-fix` → `agent-review` | `cancelled`
-- `human-review` → `pending` | `completed` | `cancelled`
+- `pending` -> `completed`
 
 Any transition not listed in `states.yaml` is forbidden.
 
@@ -910,9 +907,7 @@ Any transition not listed in `states.yaml` is forbidden.
 
 Not every state can be completed directly via `rhei complete`. The command requires a non-cancelled terminal state reachable in one hop:
 
-- From `pending`, `agent-review`: direct completion to `completed` is available.
-- From `agent-review-fix`: no direct path to `completed` exists. The agent must transition to `agent-review` first, then complete from there.
-- From `human-review`: completion is blocked because the state is gating (`gating: true`). Only a human-initiated `rhei transition` can exit this state.
+- From `pending`: direct completion to `completed` is available.
 
 ## Related Documentation
 
