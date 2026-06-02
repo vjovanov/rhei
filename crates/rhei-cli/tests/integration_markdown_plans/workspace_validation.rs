@@ -321,6 +321,41 @@ fn panta_validates_task_links_from_owning_rhei_root() {
 }
 
 #[test]
+fn panta_validates_child_rhei_content_links() {
+    let project = create_panta_project(
+        "panta-child-content-link",
+        "# Panta: Child Content Links\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "auth/index.rhei.md",
+                "# Rhei: Auth\n\n## Overview\nSee [missing](docs/missing.md).\n",
+            ),
+            (
+                "auth/tasks/login.md",
+                "### Task 1: Login\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Project validation checks child rhei content links against the child root. §AR-rhei-panta.5
+    assert!(!output.status.success(), "validate should reject broken child rhei content link");
+    assert!(
+        stderr.contains("section 'Rhei auth / Overview'")
+            && stderr.contains("docs/missing.md"),
+        "unexpected stderr: {stderr}"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
 fn panta_explicit_max_levels_one_is_not_raised_to_default() {
     let project = create_panta_project(
         "panta-max-levels",
@@ -367,6 +402,43 @@ fn panta_basin_loads_as_reserved_last_rhei() {
     assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
     assert_eq!(loaded.rhei.tasks[1].id.to_string(), "basin.3");
     assert!(loaded.task_sources["basin.3"].ends_with("basin/loose.md"));
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_basin_ignores_runtime_markdown_artifacts() {
+    let project = create_panta_project(
+        "panta-basin-runtime",
+        "# Panta: Captures\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+            ),
+            ("basin/loose.md", "### Task 3: Triage later\n**State:** pending\n"),
+            ("basin/runtime/result.md", "# Runtime Result\n\nNot a task file.\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("load panta project");
+    assert_eq!(loaded.rhei_ids, vec!["auth", "basin"]);
+    assert!(loaded.task_sources.contains_key("basin.3"));
+    // Basin runtime artifacts are ignored rather than parsed as basin tasks. §FS-rhei-panta.2
+    assert!(!loaded.task_sources.values().any(|path| path.ends_with("basin/runtime/result.md")));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        output.status.success(),
+        "validate should ignore basin runtime markdown\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     fs::remove_dir_all(project).expect("cleanup");
 }

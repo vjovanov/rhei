@@ -48,12 +48,14 @@ fn validate_markdown_links_with_task_bases(
     rhei: &Rhei,
     default_base: &Path,
     task_bases: &HashMap<String, PathBuf>,
+    section_bases: &[PathBuf],
     report: &mut ValidationReport,
 ) {
-    for section in &rhei.content_sections {
+    for (index, section) in rhei.content_sections.iter().enumerate() {
         for (display, target) in extract_markdown_links(&section.content) {
             let location = format!("section '{}'", section.title);
-            validate_one_markdown_link(&location, &display, &target, default_base, report);
+            let base = section_bases.get(index).map(PathBuf::as_path).unwrap_or(default_base);
+            validate_one_markdown_link(&location, &display, &target, base, report);
         }
     }
 

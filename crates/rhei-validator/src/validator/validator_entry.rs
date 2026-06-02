@@ -96,9 +96,10 @@ pub fn validate_with_machine_and_link_bases(
     machine: &StateMachine,
     default_base: &Path,
     task_bases: &HashMap<String, PathBuf>,
+    section_bases: &[PathBuf],
 ) -> ValidationReport {
     let mut report = Validator::new(machine.clone()).validate_with_base(rhei, None);
-    validate_markdown_links_with_task_bases(rhei, default_base, task_bases, &mut report);
+    validate_markdown_links_with_task_bases(rhei, default_base, task_bases, section_bases, &mut report);
     report
 }
 

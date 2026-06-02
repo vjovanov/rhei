@@ -35,6 +35,9 @@ pub struct PantaProject {
     pub task_sources: HashMap<String, PathBuf>,
     /// Maps project-qualified task ID (`auth.1`) → the owning rhei execution root. §AR-rhei-panta.5
     pub task_roots: HashMap<String, PathBuf>,
+    /// Link-validation base directory for each merged content section, in
+    /// `rhei.content_sections` order. §AR-rhei-panta.5
+    pub content_section_roots: Vec<PathBuf>,
     /// Rhei ids in presentation order; `basin` is always last when present.
     pub rhei_ids: Vec<String>,
 }
@@ -237,15 +240,21 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
     let mut task_roots = HashMap::new();
     let mut merged_structure = manifest.structure.clone();
     let mut content_sections = manifest.content_sections.clone();
+    let mut content_section_roots = vec![dir.to_path_buf(); content_sections.len()];
     for (rhei_id, mut rhei, sources, root) in rheis {
         merge_structure(&mut merged_structure, &rhei.structure);
-        // Title-only marker per rhei; the rhei's own content sections are not merged
-        // because they'd need a per-section link base (the rhei root, not the project
-        // root), which the merged content-link validator lacks. §AR-rhei-panta.5
         content_sections.push(ContentSection {
             title: format!("Rhei {rhei_id}: {}", rhei.title),
             content: String::new(),
         });
+        content_section_roots.push(root.clone());
+        for section in &rhei.content_sections {
+            content_sections.push(ContentSection {
+                title: format!("Rhei {rhei_id} / {}", section.title),
+                content: section.content.clone(),
+            });
+            content_section_roots.push(root.clone());
+        }
         let local_ids = collect_task_ids(&rhei.tasks);
         qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids, &local_ids);
         for task in &rhei.tasks {
@@ -275,6 +284,7 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
         },
         task_sources,
         task_roots,
+        content_section_roots,
         rhei_ids,
     })
 }
@@ -304,7 +314,7 @@ fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {
 fn load_basin_rhei(dir: &Path, structure: &Structure, states: &str) -> parser::Result<Workspace> {
     let mut tasks = Vec::new();
     let mut task_sources = HashMap::new();
-    for path in discover_task_files(dir)? {
+    for path in discover_basin_task_files(dir)? {
         // The basin has no authored manifest; never parse a stray `index.rhei.md`
         // as a loose task file. §FS-rhei-panta.2
         if path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
@@ -332,6 +342,59 @@ fn load_basin_rhei(dir: &Path, structure: &Structure, states: &str) -> parser::R
         },
         task_sources,
     })
+}
+
+fn discover_basin_task_files(dir: &Path) -> parser::Result<Vec<PathBuf>> {
+    fn is_hidden(path: &Path) -> bool {
+        path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('.'))
+    }
+
+    fn visit(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> parser::Result<()> {
+        let entries = std::fs::read_dir(dir)
+            .map_err(|e| ParseError::new(format!("failed to read {}: {e}", dir.display()), None))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                ParseError::new(format!("failed to read {}: {e}", dir.display()), None)
+            })?;
+            let path = entry.path();
+            if is_hidden(&path) {
+                continue;
+            }
+            let file_type = entry.file_type().map_err(|e| {
+                ParseError::new(format!("failed to inspect {}: {e}", path.display()), None)
+            })?;
+            if file_type.is_dir() {
+                // Basin runtime artifacts are not authored basin task files. §FS-rhei-panta.2
+                if path
+                    .strip_prefix(root)
+                    .ok()
+                    .and_then(|relative| relative.components().next())
+                    .is_some_and(|component| component.as_os_str() == "runtime")
+                {
+                    continue;
+                }
+                visit(root, &path, out)?;
+            } else if file_type.is_file()
+                && path.extension().and_then(|ext| ext.to_str()) == Some("md")
+            {
+                out.push(path);
+            }
+        }
+
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    if dir.is_dir() {
+        visit(dir, dir, &mut files)?;
+    }
+    files.sort_by(|a, b| {
+        let a_key = a.strip_prefix(dir).unwrap_or(a).to_string_lossy().replace('\\', "/");
+        let b_key = b.strip_prefix(dir).unwrap_or(b).to_string_lossy().replace('\\', "/");
+        a_key.cmp(&b_key)
+    });
+    Ok(files)
 }
 
 fn validate_panta_rhei_states(

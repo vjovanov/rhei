@@ -233,6 +233,8 @@ struct LoadedPlan {
     task_sources: HashMap<String, PathBuf>,
     /// For Panta projects: maps project-qualified task IDs to owning rhei roots.
     task_roots: HashMap<String, PathBuf>,
+    /// For Panta projects: link bases for merged content sections, in section order.
+    content_section_roots: Vec<PathBuf>,
 }
 
 impl LoadedPlan {
@@ -271,6 +273,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             kind: LoadedPlanKind::PantaProject,
             task_sources: project.task_sources,
             task_roots: project.task_roots,
+            content_section_roots: project.content_section_roots,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
@@ -279,6 +282,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             kind: LoadedPlanKind::Workspace,
             task_sources: ws.task_sources,
             task_roots: HashMap::new(),
+            content_section_roots: Vec::new(),
         })
     } else {
         let input = read_input_file(path)?;
@@ -288,6 +292,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             kind: LoadedPlanKind::SingleFile,
             task_sources: HashMap::new(),
             task_roots: HashMap::new(),
+            content_section_roots: Vec::new(),
         })
     }
 }
@@ -303,6 +308,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             kind: LoadedPlanKind::PantaProject,
             task_sources: project.task_sources,
             task_roots: project.task_roots,
+            content_section_roots: project.content_section_roots,
         });
     }
 
@@ -318,6 +324,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             kind: LoadedPlanKind::SingleFile,
             task_sources: HashMap::new(),
             task_roots: HashMap::new(),
+            content_section_roots: Vec::new(),
         }),
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
     }
@@ -390,6 +397,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         kind: LoadedPlanKind::Workspace,
         task_sources,
         task_roots: HashMap::new(),
+        content_section_roots: Vec::new(),
     })
 }
 
@@ -451,6 +459,7 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
             &resolved.machine,
             base_path,
             &loaded.task_roots,
+            &loaded.content_section_roots,
         )
     } else {
         rhei_validator::validate_with_machine_and_base(

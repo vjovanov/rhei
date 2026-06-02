@@ -178,9 +178,13 @@ up automatically.
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
   `--rhei` filters to a rhei. The `basin` rhei is ordered last and de-emphasized
   in default output (§4).
-- `rhei viz` renders Panta as the implicit canvas (never a drawn root box), rheis
-  as top-level groups, with cross-rhei dependency edges drawn between them. The
-  `basin` group is placed last and de-emphasized (§4).
+- Panta-aware `rhei viz` is planned but not part of the current staged CLI
+  boundary: the existing visualization path is not yet wired to the Panta loader,
+  so Panta project inputs must not be advertised as rendering a merged project
+  graph until that path is implemented. The intended rendering remains Panta as
+  the implicit canvas (never a drawn root box), rheis as top-level groups, and
+  cross-rhei dependency edges between them; the `basin` group is placed last and
+  de-emphasized (§4).
 
 ## Related Specifications
 
