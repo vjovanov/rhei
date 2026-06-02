@@ -573,9 +573,17 @@ fn is_relevant_event_kind(kind: &EventKind) -> bool {
 }
 
 fn path_matches(path: &Path, targets: &[WatchTarget]) -> bool {
+    // Exclusions win: an artifact tree under a watched root never revalidates.
+    if targets
+        .iter()
+        .any(|target| matches!(target, WatchTarget::Excluded(root) if path_is_under(path, root)))
+    {
+        return false;
+    }
     targets.iter().any(|target| match target {
         WatchTarget::Exact(watched) => paths_equivalent(path, watched),
         WatchTarget::Descendant(root) => path_is_under(path, root),
+        WatchTarget::Excluded(_) => false,
     })
 }
 
@@ -614,6 +622,9 @@ struct ValidationWatchPlan {
 enum WatchTarget {
     Exact(PathBuf),
     Descendant(PathBuf),
+    /// A subtree under a watched root whose changes must NOT trigger
+    /// revalidation (e.g. a `runtime/` artifact tree the tools write into).
+    Excluded(PathBuf),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -662,9 +673,12 @@ fn plan_watch_targets(input: &Path) -> Vec<WatchTarget> {
 
 fn panta_watch_targets(project_root: &Path) -> Vec<WatchTarget> {
     vec![
-        WatchTarget::Exact(canonical_watch_path(&project_root.join(workspace::PANTA_INDEX_FILE))),
-        WatchTarget::Descendant(canonical_watch_path(&project_root.join(workspace::RHEIS_DIR))),
-        WatchTarget::Descendant(canonical_watch_path(&project_root.join(workspace::BASIN_RHEI_ID))),
+        // The project directory holds the manifest, every rhei, and the synthetic
+        // basin, so one descendant watch covers them all. §AR-rhei-panta.1
+        WatchTarget::Descendant(canonical_watch_path(project_root)),
+        // `runtime/` is an artifact tree the tools write into; excluding it keeps
+        // a re-render from triggering itself. §AR-rhei-panta.5
+        WatchTarget::Excluded(canonical_watch_path(&project_root.join("runtime"))),
     ]
 }
 
@@ -696,6 +710,8 @@ fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarge
 
 fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
     let (path, mode) = match target {
+        // An exclusion only filters events; it is not itself a watch root.
+        WatchTarget::Excluded(_) => return,
         WatchTarget::Exact(path) => {
             let root = path.parent().unwrap_or_else(|| Path::new("."));
             (canonical_watch_path(root), RecursiveMode::NonRecursive)

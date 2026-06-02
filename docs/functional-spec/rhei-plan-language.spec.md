@@ -245,30 +245,33 @@ workspace-local metadata format is specified.
 
 A **Panta Project** is the directory that groups a project's rheis under the
 single virtual Panta root (§FS-rhei-panta). It mirrors the Directory Workspace
-shape one level up: where a workspace merges task files, a project merges rheis.
+shape one level up: where a workspace is a directory of task files, a Panta is a
+directory of rheis. The directory is conventionally named `panta/`, but any name
+works — a directory is a Panta Project when it contains `index.panta.md`.
 
 A Panta Project consists of:
 
 1. **`index.panta.md`**: the project manifest — `# Panta: <title>`, an optional
    `States Declaration`, and any `Content Sections`. It contains no `## Tasks`
    section and no authored nodes.
-2. **`rheis/` directory**: a folder whose entries are rheis. Each entry is a
-   Single-File Plan (`*.rhei.md`) or a Directory Workspace. Discovery under
-   `rheis/` is recursive and deterministic, using the same non-hidden,
-   `/`-normalized, case-sensitive ordering rules as workspace task-file
-   discovery (§FS-rhei-plan-language.1.2).
+2. **Rhei entries**: the rheis live directly in the project directory, beside the
+   manifest. Each entry is a Single-File Plan (`*.rhei.md`) or a Directory
+   Workspace subdirectory. Discovery is recursive and deterministic, using the
+   same non-hidden, `/`-normalized, case-sensitive ordering rules as workspace
+   task-file discovery (§FS-rhei-plan-language.1.2). The `runtime/` artifact tree
+   is never a rhei entry.
 3. **`basin/` directory** (optional): loose tickets captured without a domain
    rhei. This directory is loaded as a synthetic Directory Workspace rhei with id
    `basin`; its contents are authored as workspace task files. The synthetic
    basin has no authored `index.rhei.md`, inherits the Panta default state
    declaration, and stores per-ticket runtime artifacts relative to `basin/`.
 
-Each rhei's id is derived from its location under `rheis/`: the filename stem for
-a Single-File Plan (`rheis/auth.rhei.md` -> `auth`) or the directory name for a
-Directory Workspace rhei (`rheis/billing/` -> `billing`). The id must be a valid
-`IDENTIFIER` and must be unique across the project. `basin` is permanently
-reserved for the synthetic basin rhei: a rhei under `rheis/` with id `basin` is
-a validation error whether or not the `basin/` directory exists.
+Each rhei's id is derived from its location in the project directory: the
+filename stem for a Single-File Plan (`auth.rhei.md` -> `auth`) or the directory
+name for a Directory Workspace rhei (`billing/` -> `billing`). The id must be a
+valid `IDENTIFIER` and must be unique across the project. `basin` is permanently
+reserved for the synthetic basin rhei: a domain rhei with id `basin` is a
+validation error whether or not the `basin/` directory exists.
 
 At load time all rheis, including the synthetic `basin` rhei when present, merge
 into one graph rooted at Panta. Ticket ids are namespaced by their rhei id and
@@ -315,7 +318,7 @@ workspace_task_file = [ { blank_line } ], task_level_1, { task_level_1 } ;
 (* A Panta Project is a directory layout, not a single token stream. The
    productions below describe its individual files; the project tree itself is
    defined structurally in section 1.5. `index.panta.md` parses as
-   panta_manifest. Each entry under `rheis/` is a Single-File Plan
+   panta_manifest. Each rhei entry in the project directory is a Single-File Plan
    (rhei_document) or a Directory Workspace (a workspace_index plus
    workspace_task_file files). Entries under the optional `basin/` directory
    parse as workspace_task_file and are loaded as the synthetic `basin` rhei. *)
@@ -742,7 +745,8 @@ In a Panta Project, each ticket's project-wide id is its rhei id joined with its
 rhei-local id (rhei-local `1` under rhei `auth` is `auth.1`; rhei-local `3`
 under the synthetic basin rhei is `basin.3`). Uniqueness is checked on these
 fully-qualified ids across the whole project, and rhei ids must themselves be
-unique across `rheis/` plus the optional synthetic `basin` rhei. Because the rhei
+unique across the project directory plus the optional synthetic `basin` rhei.
+Because the rhei
 id prefixes every ticket beneath it, authors only need rhei-local uniqueness
 within each rhei plus unique rhei ids. Authored rhei-local ids and heading depth
 are validated per rhei exactly as in a standalone plan

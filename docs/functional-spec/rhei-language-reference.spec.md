@@ -18,7 +18,7 @@ its role, and the spec that owns its grammar and behavior:
 | File kind | Role | Owner |
 |-----------|------|-------|
 | `index.panta.md` | Panta project manifest: title, optional default `**States:**`, content; no authored nodes | §FS-rhei-panta.1, §FS-rhei-plan-language.1.5 |
-| `rheis/` entry | One rhei per entry — a `*.rhei.md` or a Directory Workspace — discovered at project scope | §FS-rhei-panta.1, §FS-rhei-plan-language.1.5 |
+| rhei entry (in the project dir) | One rhei per entry — a `*.rhei.md` or a Directory Workspace — discovered at project scope | §FS-rhei-panta.1, §FS-rhei-plan-language.1.5 |
 | `*.rhei.md` | Single-File Plan: a rhei with its `## Tasks` inline | §FS-rhei-plan-language.1.1 |
 | `index.rhei.md` + `tasks/**/*.md` | Directory Workspace rhei: manifest plus merged workspace task files | §FS-rhei-plan-language.1.2 |
 | `basin/` task files (optional) | Unfiled tickets loaded as the reserved synthetic `basin` rhei | §FS-rhei-panta.2, §FS-rhei-plan-language.1.5 |

@@ -138,15 +138,15 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
         "# Panta: Product Suite\n**States:** workspace-test-machine\n",
         &[
             (
-                "rheis/auth.rhei.md",
+                "auth.rhei.md",
                 "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** completed\n",
             ),
             (
-                "rheis/billing/index.rhei.md",
+                "billing/index.rhei.md",
                 "# Rhei: Billing\n\n## Notes\nBilling context.\n",
             ),
             (
-                "rheis/billing/tasks/invoice.md",
+                "billing/tasks/invoice.md",
                 "### Task 1: Invoice\n**State:** pending\n**Prior:** Task auth.1\n",
             ),
         ],
@@ -201,18 +201,18 @@ fn panta_discovery_skips_runtime_artifact_trees() {
         "# Panta: Runtime Artifacts\n**States:** workspace-test-machine\n",
         &[
             (
-                "rheis/auth.rhei.md",
+                "auth.rhei.md",
                 "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
             ),
             (
-                "rheis/runtime/generated.rhei.md",
+                "runtime/generated.rhei.md",
                 "# Rhei: Generated Artifact\n\n## Tasks\n\n### Task 1: Artifact\n**State:** pending\n",
             ),
         ],
         WORKSPACE_STATE_MACHINE,
     );
 
-    // Runtime artifact trees under `rheis/` are not rhei discovery inputs. §AR-rhei-panta.1
+    // Runtime artifact trees in the project directory are not rhei discovery inputs. §AR-rhei-panta.1
     let loaded = workspace::load_panta_project(&project).expect("load panta project");
     assert_eq!(loaded.rhei_ids, vec!["auth"]);
     assert!(loaded.task_sources.contains_key("auth.1"));
@@ -227,7 +227,7 @@ fn panta_preserves_ambiguous_local_priors_before_cross_rhei_resolution() {
         "panta-local-prior",
         "# Panta: Ambiguous Local Prior\n**States:** workspace-test-machine\n",
         &[(
-            "rheis/auth.rhei.md",
+            "auth.rhei.md",
             "# Rhei: Auth\n\n## Tasks\n\n### Task auth: Auth root\n**State:** completed\n\n#### Task auth.1: Local setup\n**State:** completed\n\n### Task 2: Depends locally\n**State:** pending\n**Prior:** Task auth.1\n",
         )],
         WORKSPACE_STATE_MACHINE,
@@ -258,15 +258,15 @@ fn panta_next_peek_resolves_inputs_from_owning_rhei_root() {
         "panta-peek-input-root",
         "# Panta: Peek Inputs\n**States:** panta-input-machine\n",
         &[
-            ("rheis/auth/index.rhei.md", "# Rhei: Auth\n\n"),
+            ("auth/index.rhei.md", "# Rhei: Auth\n\n"),
             (
-                "rheis/auth/tasks/login.md",
+                "auth/tasks/login.md",
                 "### Task 1: Login\n**State:** pending\n",
             ),
         ],
         PANTA_INPUT_STATE_MACHINE,
     );
-    let runtime_dir = project.join("rheis/auth/runtime");
+    let runtime_dir = project.join("auth/runtime");
     fs::create_dir_all(&runtime_dir).expect("create owning rhei runtime");
     fs::write(runtime_dir.join("auth.1.md"), "ready").expect("write input artifact");
 
@@ -297,10 +297,10 @@ fn panta_validates_task_links_from_owning_rhei_root() {
         "# Panta: Link Root\n**States:** workspace-test-machine\n",
         &[
             (
-                "rheis/auth.rhei.md",
+                "auth.rhei.md",
                 "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Read spec\n**State:** pending\n\nSee [spec](docs/spec.md).\n",
             ),
-            ("rheis/docs/spec.md", "Auth spec\n"),
+            ("docs/spec.md", "Auth spec\n"),
         ],
         WORKSPACE_STATE_MACHINE,
     );
@@ -326,7 +326,7 @@ fn panta_explicit_max_levels_one_is_not_raised_to_default() {
         "panta-max-levels",
         "# Panta: Max Levels\n**States:** panta-level-two-machine\n\n---\nstructure:\n  maxLevels: 1\n  nodeKinds: [task]\n---\n",
         &[(
-            "rheis/auth.rhei.md",
+            "auth.rhei.md",
             "# Rhei: Auth\n\n---\nstructure:\n  maxLevels: 1\n  nodeKinds: [task]\n---\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
         )],
         PANTA_LEVEL_TWO_OVERRIDE_MACHINE,
@@ -354,7 +354,7 @@ fn panta_basin_loads_as_reserved_last_rhei() {
         "# Panta: Captures\n**States:** workspace-test-machine\n",
         &[
             (
-                "rheis/auth.rhei.md",
+                "auth.rhei.md",
                 "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
             ),
             ("basin/loose.md", "### Task 3: Triage later\n**State:** pending\n"),
@@ -377,7 +377,7 @@ fn panta_rejects_domain_rhei_named_basin() {
         "panta-basin-reserved",
         "# Panta: Captures\n",
         &[(
-            "rheis/basin.rhei.md",
+            "basin.rhei.md",
             "# Rhei: Basin Domain\n\n## Tasks\n\n### Task 1: Invalid\n**State:** pending\n",
         )],
         WORKSPACE_STATE_MACHINE,
@@ -399,7 +399,7 @@ fn panta_rejects_child_rhei_state_machine_declaration_that_differs_from_project(
         "panta-child-states",
         "# Panta: Mixed Machines\n**States:** workspace-test-machine\n",
         &[(
-            "rheis/auth.rhei.md",
+            "auth.rhei.md",
             "# Rhei: Auth\n**States:** child-flow\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
         )],
         WORKSPACE_STATE_MACHINE,
@@ -422,7 +422,7 @@ fn panta_profile_resolution_uses_rhei_local_task_depth() {
         "panta-profile-depth",
         "# Panta: Profile Depth\n**States:** panta-profile-machine\n",
         &[(
-            "rheis/auth.rhei.md",
+            "auth.rhei.md",
             "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
         )],
         PANTA_PROFILE_STATE_MACHINE,
@@ -449,7 +449,7 @@ fn panta_mutating_commands_are_rejected_until_project_rewrites_are_supported() {
         "panta-read-only",
         "# Panta: Read Only\n**States:** workspace-test-machine\n",
         &[(
-            "rheis/auth.rhei.md",
+            "auth.rhei.md",
             "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
         )],
         WORKSPACE_STATE_MACHINE,
@@ -483,7 +483,7 @@ fn panta_next_peek_is_read_only_and_claim_is_rejected() {
         "panta-next-peek",
         "# Panta: Peek\n**States:** workspace-test-machine\n",
         &[(
-            "rheis/auth.rhei.md",
+            "auth.rhei.md",
             "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
         )],
         WORKSPACE_STATE_MACHINE,

@@ -53,8 +53,8 @@ require choosing a domain rhei first while the hierarchy remains Panta -> rhei
 as `basin.3`.
 
 `basin` is a permanently reserved rhei id, independent of whether any basin
-content currently exists: a discovered domain rhei under `rheis/` with id
-`basin` is a load/validation error. Reserving it unconditionally avoids a
+content currently exists: a discovered domain rhei with id `basin` is a
+load/validation error. Reserving it unconditionally avoids a
 delayed-migration trap where a domain rhei named `basin` is valid until the
 first unfiled ticket appears. Filing a basin ticket into a domain rhei is a
 reparenting operation that changes its project id from `basin.<local-id>` to
