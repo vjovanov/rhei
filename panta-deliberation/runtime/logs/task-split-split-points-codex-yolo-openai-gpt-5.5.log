@@ -1,0 +1,1373 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: split
+state: split-points
+started: 2026-06-01T08:16:14Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8241-40d8-7a43-976c-ad47d37ba8d0
+--------
+user
+# Task split: Split discussion into decision points
+
+## State: split-points
+
+## Instructions
+
+Split Task split: Split discussion into decision points.
+
+Read the input discussion in the task body. Create at most 4
+decision-point tasks unless separating more points is necessary to avoid
+merging unrelated decisions.
+
+Write a point manifest to `runtime/deliberation/points-manifest.md` with this shape:
+
+# Discussion Points - Resolve Panta project spec conflicts
+
+- point-<slug>: <point title>
+  - Source: <short quote or reference from the input discussion>
+  - Question: <the exact decision to resolve>
+  - Constraints: <facts, requirements, or tradeoffs that proposals must honor>
+
+For every manifest entry, append one task file under `tasks/` named
+`NN-point-<slug>.md` with:
+
+### Task point-<slug>: Resolve <point title>
+**State:** propose-solutions
+**Prior:** Task split
+
+Include the neutral point statement, source evidence, and constraints.
+
+Append `tasks/99-final-solution.md` with a final task:
+
+### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+**State:** final-solution
+**Prior:** Task point-<slug-1>, Task point-<slug-2>, ...
+
+Replace the prior list with every concrete point task id. Do not leave
+placeholders, ellipses, empty prior entries, or duplicate task ids.
+
+## Task Content
+
+Discussion title: Resolve Panta project spec conflicts
+
+Input discussion:
+
+```text
+We need resolve the Panta spec discussion around:
+
+1. How inbox tickets fit the Panta hierarchy.
+   The current Panta specs must not make tickets direct children of Panta if
+   the plan-language hierarchy says level-1 children under Panta are rheis and
+   tickets are level 2 or deeper. The model needs clear ids, levels, and
+   state-policy resolution for inbox work.
+
+2. How dependency readiness works across rheis.
+   Cross-rhei dependencies must use the same readiness rule as normal
+   scheduling: a prior must be in a successful terminal state, meaning
+   `final: true` and not normalized `cancelled`. A cancelled prerequisite
+   should not unblock dependent work.
+
+3. How Panta project defaults affect state-machine resolution.
+   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+   the project default. The state-machine resolution rules need one
+   non-conflicting lookup order for explicit overrides, rhei-local
+   declarations, inherited Panta defaults, and built-in fallback.
+
+4. How the canonical language reference should expose Panta syntax.
+   `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+   are user-authored language surface and should be discoverable from the
+   canonical language reference.
+
+The goal is one coherent normative model for validation, execution, ids,
+state-policy lookup, project defaults, and user-facing documentation.
+
+```
+
+Break the discussion into separate points that can be resolved independently.
+Prefer fewer, sharper points over many overlapping ones. Use at most
+4 points unless the input contains clearly independent decisions
+that would be unsafe to merge.
+
+For every point, append one task file under `tasks/` named
+`NN-point-<slug>.md`:
+
+```markdown
+### Task point-<slug>: Resolve <point title>
+**State:** propose-solutions
+**Prior:** Task split
+
+<neutral statement of the point, the relevant source text, and constraints>
+```
+
+After all point tasks are created, append one final task file under `tasks/`
+named `99-final-solution.md`:
+
+```markdown
+### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+**State:** final-solution
+**Prior:** Task point-<slug-1>, Task point-<slug-2>
+
+Synthesize the resolved point decisions into one final solution and prepare the
+human-facing presentation.
+```
+
+The final task's `**Prior:**` list must include every concrete point task id you
+created and no placeholders.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `split-points`:
+- split-points -> completed
+- split-points -> cancelled
+
+codex
+I’ll create the point manifest and concrete task files in the existing plan structure, keeping the split to the four independent decisions already present in the discussion.
+exec
+/usr/bin/bash -lc 'pwd && rg --files' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/panta-deliberation
+states.yaml
+README.md
+index.rhei.md
+tasks/01-split.md
+runtime/dashboard.json
+runtime/transitions.log
+runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log
+
+codex
+I found the current workspace has the split task plus runtime files, so I’m checking the existing task style before adding the new point files.
+exec
+/usr/bin/bash -lc "sed -n '1,220p' tasks/01-split.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### Task split: Split discussion into decision points
+**State:** split-points
+
+Discussion title: Resolve Panta project spec conflicts
+
+Input discussion:
+
+```text
+We need resolve the Panta spec discussion around:
+
+1. How inbox tickets fit the Panta hierarchy.
+   The current Panta specs must not make tickets direct children of Panta if
+   the plan-language hierarchy says level-1 children under Panta are rheis and
+   tickets are level 2 or deeper. The model needs clear ids, levels, and
+   state-policy resolution for inbox work.
+
+2. How dependency readiness works across rheis.
+   Cross-rhei dependencies must use the same readiness rule as normal
+   scheduling: a prior must be in a successful terminal state, meaning
+   `final: true` and not normalized `cancelled`. A cancelled prerequisite
+   should not unblock dependent work.
+
+3. How Panta project defaults affect state-machine resolution.
+   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+   the project default. The state-machine resolution rules need one
+   non-conflicting lookup order for explicit overrides, rhei-local
+   declarations, inherited Panta defaults, and built-in fallback.
+
+4. How the canonical language reference should expose Panta syntax.
+   `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+   are user-authored language surface and should be discoverable from the
+   canonical language reference.
+
+The goal is one coherent normative model for validation, execution, ids,
+state-policy lookup, project defaults, and user-facing documentation.
+
+```
+
+Break the discussion into separate points that can be resolved independently.
+Prefer fewer, sharper points over many overlapping ones. Use at most
+4 points unless the input contains clearly independent decisions
+that would be unsafe to merge.
+
+For every point, append one task file under `tasks/` named
+`NN-point-<slug>.md`:
+
+```markdown
+### Task point-<slug>: Resolve <point title>
+**State:** propose-solutions
+**Prior:** Task split
+
+<neutral statement of the point, the relevant source text, and constraints>
+```
+
+After all point tasks are created, append one final task file under `tasks/`
+named `99-final-solution.md`:
+
+```markdown
+### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+**State:** final-solution
+**Prior:** Task point-<slug-1>, Task point-<slug-2>
+
+Synthesize the resolved point decisions into one final solution and prepare the
+human-facing presentation.
+```
+
+The final task's `**Prior:**` list must include every concrete point task id you
+created and no placeholders.
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' index.rhei.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Rhei: Panta Spec Deliberation
+**States:** multi-agent-deliberation
+
+## Overview
+
+This workspace resolves one discussion through a structured multi-agent
+deliberation:
+
+1. split the input into separate decision points
+2. collect independent proposals from configured target agents for each point
+3. aggregate agreements and disagreements
+4. run one multi-agent discussion pass for each point
+5. resolve every point, synthesize the final solution, and present it to a human
+
+exec
+/usr/bin/bash -lc 'find runtime -maxdepth 3 -type f -print' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+runtime/dashboard.json
+runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log
+runtime/transitions.log
+
+codex
+I’m going to add four point tasks: hierarchy/inbox, cross-rhei readiness, state-machine lookup defaults, and canonical syntax documentation. The final task will depend on exactly those four task ids.
+exec
+/usr/bin/bash -lc 'mkdir -p runtime/deliberation' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+/home/vjovanov/f/rhei/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md
+/home/vjovanov/f/rhei/panta-deliberation/tasks/99-final-solution.md
+diff --git a/panta-deliberation/runtime/deliberation/points-manifest.md b/panta-deliberation/runtime/deliberation/points-manifest.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec033e2c31c2e75da19e8eb10ff0a2783d3a2e9f
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points-manifest.md
+@@ -0,0 +1,21 @@
++# Discussion Points - Resolve Panta project spec conflicts
++
++- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
++  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
++  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
++  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
++
++- point-cross-rhei-readiness: Cross-rhei dependency readiness
++  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
++  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
++  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
++
++- point-state-machine-resolution: Panta defaults in state-machine resolution
++  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
++  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
++  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
++
++- point-language-reference: Panta syntax in the canonical language reference
++  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
++  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
++  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+diff --git a/panta-deliberation/tasks/02-point-inbox-hierarchy.md b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6472c0d4ed1146af4a69eaa9dc100736a19e5973
+--- /dev/null
++++ b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+@@ -0,0 +1,28 @@
++### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how inbox tickets fit into the Panta hierarchy without merging this
++with dependency readiness or documentation decisions.
++
++Source evidence:
++
++> The current Panta specs must not make tickets direct children of Panta if
++> the plan-language hierarchy says level-1 children under Panta are rheis and
++> tickets are level 2 or deeper.
++
++> The model needs clear ids, levels, and state-policy resolution for inbox work.
++
++Question:
++
++How should inbox tickets be identified, leveled, parented, and assigned state
++policy within the Panta hierarchy?
++
++Constraints:
++
++- Level-1 children under Panta must remain rheis if that is what the
++  plan-language hierarchy defines.
++- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
++  Panta.
++- The resolution must define clear ids, hierarchy levels, and state-policy
++  lookup behavior for inbox work.
+diff --git a/panta-deliberation/tasks/03-point-cross-rhei-readiness.md b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..06e88fd123bd713ea7b3a5e5b9fc28e668e6952c
+--- /dev/null
++++ b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+@@ -0,0 +1,28 @@
++### Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve the readiness rule for dependencies that cross rhei boundaries without
++changing unrelated hierarchy or state-machine default rules.
++
++Source evidence:
++
++> Cross-rhei dependencies must use the same readiness rule as normal
++> scheduling: a prior must be in a successful terminal state, meaning
++> `final: true` and not normalized `cancelled`.
++
++> A cancelled prerequisite should not unblock dependent work.
++
++Question:
++
++What readiness rule should determine whether a cross-rhei dependency unblocks
++dependent work?
++
++Constraints:
++
++- Cross-rhei dependencies must use the same readiness rule as normal
++  scheduling.
++- A prerequisite must be in a terminal state with `final: true` before it can
++  unblock dependent work.
++- A prerequisite whose normalized state is `cancelled` must not unblock
++  dependent work.
+diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c9fae26a92e6b10728a5ee8ca6262acb372470
+--- /dev/null
++++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+@@ -0,0 +1,30 @@
++### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how project defaults participate in state-machine lookup for rheis
++inside a Panta project.
++
++Source evidence:
++
++> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
++> the project default.
++
++> The state-machine resolution rules need one non-conflicting lookup order for
++> explicit overrides, rhei-local declarations, inherited Panta defaults, and
++> built-in fallback.
++
++Question:
++
++What single lookup order should resolve a rhei's state machine when explicit
++overrides, rhei-local declarations, inherited Panta defaults, and built-in
++fallback may all apply?
++
++Constraints:
++
++- Omitted `**States:**` on a rhei may inherit a project default from
++  `index.panta.md`.
++- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
++  built-in fallback must each have defined precedence.
++- The lookup order must be non-conflicting and usable by validation and
++  execution.
+diff --git a/panta-deliberation/tasks/05-point-language-reference.md b/panta-deliberation/tasks/05-point-language-reference.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..beece96d62b99ecf6d24793995fa6cef75c64ce3
+--- /dev/null
++++ b/panta-deliberation/tasks/05-point-language-reference.md
+@@ -0,0 +1,26 @@
++### Task point-language-reference: Resolve Panta syntax in the canonical language reference
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how Panta-specific authoring syntax is surfaced in canonical user
++documentation.
++
++Source evidence:
++
++> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++> are user-authored language surface and should be discoverable from the
++> canonical language reference.
++
++Question:
++
++How should the canonical language reference expose and organize user-authored
++Panta syntax?
++
++Constraints:
++
++- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++  must be documented as user-authored language surface.
++- The documentation must be discoverable from the canonical language reference.
++- The documentation should support the coherent normative model for validation,
++  execution, ids, state-policy lookup, project defaults, and user-facing
++  behavior.
+diff --git a/panta-deliberation/tasks/99-final-solution.md b/panta-deliberation/tasks/99-final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10f94b87d8f5254a905f82c16e5a83f8309a6c51
+--- /dev/null
++++ b/panta-deliberation/tasks/99-final-solution.md
+@@ -0,0 +1,6 @@
++### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
++**State:** final-solution
++**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
++
++Synthesize the resolved point decisions into one final solution and prepare the
++human-facing presentation.
+
+diff --git a/panta-deliberation/runtime/deliberation/points-manifest.md b/panta-deliberation/runtime/deliberation/points-manifest.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec033e2c31c2e75da19e8eb10ff0a2783d3a2e9f
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points-manifest.md
+@@ -0,0 +1,21 @@
++# Discussion Points - Resolve Panta project spec conflicts
++
++- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
++  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
++  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
++  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
++
++- point-cross-rhei-readiness: Cross-rhei dependency readiness
++  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
++  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
++  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
++
++- point-state-machine-resolution: Panta defaults in state-machine resolution
++  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
++  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
++  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
++
++- point-language-reference: Panta syntax in the canonical language reference
++  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
++  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
++  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+diff --git a/panta-deliberation/tasks/02-point-inbox-hierarchy.md b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6472c0d4ed1146af4a69eaa9dc100736a19e5973
+--- /dev/null
++++ b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+@@ -0,0 +1,28 @@
++### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how inbox tickets fit into the Panta hierarchy without merging this
++with dependency readiness or documentation decisions.
++
++Source evidence:
++
++> The current Panta specs must not make tickets direct children of Panta if
++> the plan-language hierarchy says level-1 children under Panta are rheis and
++> tickets are level 2 or deeper.
++
++> The model needs clear ids, levels, and state-policy resolution for inbox work.
++
++Question:
++
++How should inbox tickets be identified, leveled, parented, and assigned state
++policy within the Panta hierarchy?
++
++Constraints:
++
++- Level-1 children under Panta must remain rheis if that is what the
++  plan-language hierarchy defines.
++- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
++  Panta.
++- The resolution must define clear ids, hierarchy levels, and state-policy
++  lookup behavior for inbox work.
+diff --git a/panta-deliberation/tasks/03-point-cross-rhei-readiness.md b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..06e88fd123bd713ea7b3a5e5b9fc28e668e6952c
+--- /dev/null
++++ b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+@@ -0,0 +1,28 @@
++### Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve the readiness rule for dependencies that cross rhei boundaries without
++changing unrelated hierarchy or state-machine default rules.
++
++Source evidence:
++
++> Cross-rhei dependencies must use the same readiness rule as normal
++> scheduling: a prior must be in a successful terminal state, meaning
++> `final: true` and not normalized `cancelled`.
++
++> A cancelled prerequisite should not unblock dependent work.
++
++Question:
++
++What readiness rule should determine whether a cross-rhei dependency unblocks
++dependent work?
++
++Constraints:
++
++- Cross-rhei dependencies must use the same readiness rule as normal
++  scheduling.
++- A prerequisite must be in a terminal state with `final: true` before it can
++  unblock dependent work.
++- A prerequisite whose normalized state is `cancelled` must not unblock
++  dependent work.
+diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c9fae26a92e6b10728a5ee8ca6262acb372470
+--- /dev/null
++++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+@@ -0,0 +1,30 @@
++### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how project defaults participate in state-machine lookup for rheis
++inside a Panta project.
++
++Source evidence:
++
++> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
++> the project default.
++
++> The state-machine resolution rules need one non-conflicting lookup order for
++> explicit overrides, rhei-local declarations, inherited Panta defaults, and
++> built-in fallback.
++
++Question:
++
++What single lookup order should resolve a rhei's state machine when explicit
++overrides, rhei-local declarations, inherited Panta defaults, and built-in
++fallback may all apply?
++
++Constraints:
++
++- Omitted `**States:**` on a rhei may inherit a project default from
++  `index.panta.md`.
++- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
++  built-in fallback must each have defined precedence.
++- The lookup order must be non-conflicting and usable by validation and
++  execution.
+diff --git a/panta-deliberation/tasks/05-point-language-reference.md b/panta-deliberation/tasks/05-point-language-reference.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..beece96d62b99ecf6d24793995fa6cef75c64ce3
+--- /dev/null
++++ b/panta-deliberation/tasks/05-point-language-reference.md
+@@ -0,0 +1,26 @@
++### Task point-language-reference: Resolve Panta syntax in the canonical language reference
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how Panta-specific authoring syntax is surfaced in canonical user
++documentation.
++
++Source evidence:
++
++> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++> are user-authored language surface and should be discoverable from the
++> canonical language reference.
++
++Question:
++
++How should the canonical language reference expose and organize user-authored
++Panta syntax?
++
++Constraints:
++
++- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++  must be documented as user-authored language surface.
++- The documentation must be discoverable from the canonical language reference.
++- The documentation should support the coherent normative model for validation,
++  execution, ids, state-policy lookup, project defaults, and user-facing
++  behavior.
+diff --git a/panta-deliberation/tasks/99-final-solution.md b/panta-deliberation/tasks/99-final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10f94b87d8f5254a905f82c16e5a83f8309a6c51
+--- /dev/null
++++ b/panta-deliberation/tasks/99-final-solution.md
+@@ -0,0 +1,6 @@
++### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
++**State:** final-solution
++**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
++
++Synthesize the resolved point decisions into one final solution and prepare the
++human-facing presentation.
+
+codex
+The files are in place. I’m doing a quick pass over the generated manifest and task headers to catch malformed state/prior lines before I finish.
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points-manifest.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Points - Resolve Panta project spec conflicts
+
+- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
+  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
+  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
+  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
+
+- point-cross-rhei-readiness: Cross-rhei dependency readiness
+  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
+  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
+  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
+
+- point-state-machine-resolution: Panta defaults in state-machine resolution
+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+
+- point-language-reference: Panta syntax in the canonical language reference
+  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
+  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
+  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+
+exec
+/usr/bin/bash -lc "rg -n \"placeholder|ellipsis|\\.\\.\\.|Task point-<|<slug|Prior|State\" tasks runtime/deliberation/points-manifest.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+tasks/01-split.md:2:**State:** split-points
+tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+tasks/01-split.md:45:`NN-point-<slug>.md`:
+tasks/01-split.md:48:### Task point-<slug>: Resolve <point title>
+tasks/01-split.md:49:**State:** propose-solutions
+tasks/01-split.md:50:**Prior:** Task split
+tasks/01-split.md:60:**State:** final-solution
+tasks/01-split.md:61:**Prior:** Task point-<slug-1>, Task point-<slug-2>
+tasks/01-split.md:67:The final task's `**Prior:**` list must include every concrete point task id you
+tasks/01-split.md:68:created and no placeholders.
+tasks/05-point-language-reference.md:2:**State:** propose-solutions
+tasks/05-point-language-reference.md:3:**Prior:** Task split
+tasks/04-point-state-machine-resolution.md:2:**State:** propose-solutions
+tasks/04-point-state-machine-resolution.md:3:**Prior:** Task split
+tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+tasks/04-point-state-machine-resolution.md:25:- Omitted `**States:**` on a rhei may inherit a project default from
+tasks/99-final-solution.md:2:**State:** final-solution
+tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+tasks/03-point-cross-rhei-readiness.md:2:**State:** propose-solutions
+tasks/03-point-cross-rhei-readiness.md:3:**Prior:** Task split
+tasks/02-point-inbox-hierarchy.md:2:**State:** propose-solutions
+tasks/02-point-inbox-hierarchy.md:3:**Prior:** Task split
+
+exec
+/usr/bin/bash -lc "for f in tasks/02-point-inbox-hierarchy.md tasks/03-point-cross-rhei-readiness.md tasks/04-point-state-machine-resolution.md tasks/05-point-language-reference.md tasks/99-final-solution.md; do sed -n '1,80p' \""'$f"; done' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
+**State:** propose-solutions
+**Prior:** Task split
+
+Resolve how inbox tickets fit into the Panta hierarchy without merging this
+with dependency readiness or documentation decisions.
+
+Source evidence:
+
+> The current Panta specs must not make tickets direct children of Panta if
+> the plan-language hierarchy says level-1 children under Panta are rheis and
+> tickets are level 2 or deeper.
+
+> The model needs clear ids, levels, and state-policy resolution for inbox work.
+
+Question:
+
+How should inbox tickets be identified, leveled, parented, and assigned state
+policy within the Panta hierarchy?
+
+Constraints:
+
+- Level-1 children under Panta must remain rheis if that is what the
+  plan-language hierarchy defines.
+- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
+  Panta.
+- The resolution must define clear ids, hierarchy levels, and state-policy
+  lookup behavior for inbox work.
+### Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
+**State:** propose-solutions
+**Prior:** Task split
+
+Resolve the readiness rule for dependencies that cross rhei boundaries without
+changing unrelated hierarchy or state-machine default rules.
+
+Source evidence:
+
+> Cross-rhei dependencies must use the same readiness rule as normal
+> scheduling: a prior must be in a successful terminal state, meaning
+> `final: true` and not normalized `cancelled`.
+
+> A cancelled prerequisite should not unblock dependent work.
+
+Question:
+
+What readiness rule should determine whether a cross-rhei dependency unblocks
+dependent work?
+
+Constraints:
+
+- Cross-rhei dependencies must use the same readiness rule as normal
+  scheduling.
+- A prerequisite must be in a terminal state with `final: true` before it can
+  unblock dependent work.
+- A prerequisite whose normalized state is `cancelled` must not unblock
+  dependent work.
+### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+**State:** propose-solutions
+**Prior:** Task split
+
+Resolve how project defaults participate in state-machine lookup for rheis
+inside a Panta project.
+
+Source evidence:
+
+> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+> the project default.
+
+> The state-machine resolution rules need one non-conflicting lookup order for
+> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+> built-in fallback.
+
+Question:
+
+What single lookup order should resolve a rhei's state machine when explicit
+overrides, rhei-local declarations, inherited Panta defaults, and built-in
+fallback may all apply?
+
+Constraints:
+
+- Omitted `**States:**` on a rhei may inherit a project default from
+  `index.panta.md`.
+- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+  built-in fallback must each have defined precedence.
+- The lookup order must be non-conflicting and usable by validation and
+  execution.
+### Task point-language-reference: Resolve Panta syntax in the canonical language reference
+**State:** propose-solutions
+**Prior:** Task split
+
+Resolve how Panta-specific authoring syntax is surfaced in canonical user
+documentation.
+
+Source evidence:
+
+> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+> are user-authored language surface and should be discoverable from the
+> canonical language reference.
+
+Question:
+
+How should the canonical language reference expose and organize user-authored
+Panta syntax?
+
+Constraints:
+
+- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+  must be documented as user-authored language surface.
+- The documentation must be discoverable from the canonical language reference.
+- The documentation should support the coherent normative model for validation,
+  execution, ids, state-policy lookup, project defaults, and user-facing
+  behavior.
+### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+**State:** final-solution
+**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+
+Synthesize the resolved point decisions into one final solution and prepare the
+human-facing presentation.
+
+diff --git a/panta-deliberation/runtime/deliberation/points-manifest.md b/panta-deliberation/runtime/deliberation/points-manifest.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec033e2c31c2e75da19e8eb10ff0a2783d3a2e9f
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points-manifest.md
+@@ -0,0 +1,21 @@
++# Discussion Points - Resolve Panta project spec conflicts
++
++- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
++  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
++  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
++  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
++
++- point-cross-rhei-readiness: Cross-rhei dependency readiness
++  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
++  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
++  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
++
++- point-state-machine-resolution: Panta defaults in state-machine resolution
++  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
++  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
++  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
++
++- point-language-reference: Panta syntax in the canonical language reference
++  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
++  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
++  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+diff --git a/panta-deliberation/tasks/02-point-inbox-hierarchy.md b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6472c0d4ed1146af4a69eaa9dc100736a19e5973
+--- /dev/null
++++ b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+@@ -0,0 +1,28 @@
++### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how inbox tickets fit into the Panta hierarchy without merging this
++with dependency readiness or documentation decisions.
++
++Source evidence:
++
++> The current Panta specs must not make tickets direct children of Panta if
++> the plan-language hierarchy says level-1 children under Panta are rheis and
++> tickets are level 2 or deeper.
++
++> The model needs clear ids, levels, and state-policy resolution for inbox work.
++
++Question:
++
++How should inbox tickets be identified, leveled, parented, and assigned state
++policy within the Panta hierarchy?
++
++Constraints:
++
++- Level-1 children under Panta must remain rheis if that is what the
++  plan-language hierarchy defines.
++- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
++  Panta.
++- The resolution must define clear ids, hierarchy levels, and state-policy
++  lookup behavior for inbox work.
+diff --git a/panta-deliberation/tasks/03-point-cross-rhei-readiness.md b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..06e88fd123bd713ea7b3a5e5b9fc28e668e6952c
+--- /dev/null
++++ b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+@@ -0,0 +1,28 @@
++### Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve the readiness rule for dependencies that cross rhei boundaries without
++changing unrelated hierarchy or state-machine default rules.
++
++Source evidence:
++
++> Cross-rhei dependencies must use the same readiness rule as normal
++> scheduling: a prior must be in a successful terminal state, meaning
++> `final: true` and not normalized `cancelled`.
++
++> A cancelled prerequisite should not unblock dependent work.
++
++Question:
++
++What readiness rule should determine whether a cross-rhei dependency unblocks
++dependent work?
++
++Constraints:
++
++- Cross-rhei dependencies must use the same readiness rule as normal
++  scheduling.
++- A prerequisite must be in a terminal state with `final: true` before it can
++  unblock dependent work.
++- A prerequisite whose normalized state is `cancelled` must not unblock
++  dependent work.
+diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c9fae26a92e6b10728a5ee8ca6262acb372470
+--- /dev/null
++++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+@@ -0,0 +1,30 @@
++### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how project defaults participate in state-machine lookup for rheis
++inside a Panta project.
++
++Source evidence:
++
++> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
++> the project default.
++
++> The state-machine resolution rules need one non-conflicting lookup order for
++> explicit overrides, rhei-local declarations, inherited Panta defaults, and
++> built-in fallback.
++
++Question:
++
++What single lookup order should resolve a rhei's state machine when explicit
++overrides, rhei-local declarations, inherited Panta defaults, and built-in
++fallback may all apply?
++
++Constraints:
++
++- Omitted `**States:**` on a rhei may inherit a project default from
++  `index.panta.md`.
++- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
++  built-in fallback must each have defined precedence.
++- The lookup order must be non-conflicting and usable by validation and
++  execution.
+diff --git a/panta-deliberation/tasks/05-point-language-reference.md b/panta-deliberation/tasks/05-point-language-reference.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..beece96d62b99ecf6d24793995fa6cef75c64ce3
+--- /dev/null
++++ b/panta-deliberation/tasks/05-point-language-reference.md
+@@ -0,0 +1,26 @@
++### Task point-language-reference: Resolve Panta syntax in the canonical language reference
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how Panta-specific authoring syntax is surfaced in canonical user
++documentation.
++
++Source evidence:
++
++> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++> are user-authored language surface and should be discoverable from the
++> canonical language reference.
++
++Question:
++
++How should the canonical language reference expose and organize user-authored
++Panta syntax?
++
++Constraints:
++
++- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++  must be documented as user-authored language surface.
++- The documentation must be discoverable from the canonical language reference.
++- The documentation should support the coherent normative model for validation,
++  execution, ids, state-policy lookup, project defaults, and user-facing
++  behavior.
+diff --git a/panta-deliberation/tasks/99-final-solution.md b/panta-deliberation/tasks/99-final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10f94b87d8f5254a905f82c16e5a83f8309a6c51
+--- /dev/null
++++ b/panta-deliberation/tasks/99-final-solution.md
+@@ -0,0 +1,6 @@
++### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
++**State:** final-solution
++**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
++
++Synthesize the resolved point decisions into one final solution and prepare the
++human-facing presentation.
+
+exec
+/usr/bin/bash -lc 'git status --short' in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc 'git diff --check' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+ M ../docs/architecture/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-authoring.spec.md
+ M ../docs/functional-spec/rhei-language-reference.spec.md
+ M ../docs/functional-spec/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-plan-language.spec.md
+ M ../docs/functional-spec/rhei-validate.spec.md
+?? ../.agents/rhei/templates/multi-agent-deliberation/
+?? ../examples/multi-agent-deliberation-example/
+?? ../panta-deliberation-values.yaml
+?? ./
+
+ succeeded in 0ms:
+diff --git a/panta-deliberation/runtime/deliberation/points-manifest.md b/panta-deliberation/runtime/deliberation/points-manifest.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec033e2c31c2e75da19e8eb10ff0a2783d3a2e9f
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points-manifest.md
+@@ -0,0 +1,21 @@
++# Discussion Points - Resolve Panta project spec conflicts
++
++- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
++  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
++  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
++  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
++
++- point-cross-rhei-readiness: Cross-rhei dependency readiness
++  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
++  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
++  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
++
++- point-state-machine-resolution: Panta defaults in state-machine resolution
++  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
++  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
++  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
++
++- point-language-reference: Panta syntax in the canonical language reference
++  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
++  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
++  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+diff --git a/panta-deliberation/tasks/02-point-inbox-hierarchy.md b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6472c0d4ed1146af4a69eaa9dc100736a19e5973
+--- /dev/null
++++ b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+@@ -0,0 +1,28 @@
++### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how inbox tickets fit into the Panta hierarchy without merging this
++with dependency readiness or documentation decisions.
++
++Source evidence:
++
++> The current Panta specs must not make tickets direct children of Panta if
++> the plan-language hierarchy says level-1 children under Panta are rheis and
++> tickets are level 2 or deeper.
++
++> The model needs clear ids, levels, and state-policy resolution for inbox work.
++
++Question:
++
++How should inbox tickets be identified, leveled, parented, and assigned state
++policy within the Panta hierarchy?
++
++Constraints:
++
++- Level-1 children under Panta must remain rheis if that is what the
++  plan-language hierarchy defines.
++- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
++  Panta.
++- The resolution must define clear ids, hierarchy levels, and state-policy
++  lookup behavior for inbox work.
+diff --git a/panta-deliberation/tasks/03-point-cross-rhei-readiness.md b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..06e88fd123bd713ea7b3a5e5b9fc28e668e6952c
+--- /dev/null
++++ b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+@@ -0,0 +1,28 @@
++### Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve the readiness rule for dependencies that cross rhei boundaries without
++changing unrelated hierarchy or state-machine default rules.
++
++Source evidence:
++
++> Cross-rhei dependencies must use the same readiness rule as normal
++> scheduling: a prior must be in a successful terminal state, meaning
++> `final: true` and not normalized `cancelled`.
++
++> A cancelled prerequisite should not unblock dependent work.
++
++Question:
++
++What readiness rule should determine whether a cross-rhei dependency unblocks
++dependent work?
++
++Constraints:
++
++- Cross-rhei dependencies must use the same readiness rule as normal
++  scheduling.
++- A prerequisite must be in a terminal state with `final: true` before it can
++  unblock dependent work.
++- A prerequisite whose normalized state is `cancelled` must not unblock
++  dependent work.
+diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c9fae26a92e6b10728a5ee8ca6262acb372470
+--- /dev/null
++++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+@@ -0,0 +1,30 @@
++### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how project defaults participate in state-machine lookup for rheis
++inside a Panta project.
++
++Source evidence:
++
++> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
++> the project default.
++
++> The state-machine resolution rules need one non-conflicting lookup order for
++> explicit overrides, rhei-local declarations, inherited Panta defaults, and
++> built-in fallback.
++
++Question:
++
++What single lookup order should resolve a rhei's state machine when explicit
++overrides, rhei-local declarations, inherited Panta defaults, and built-in
++fallback may all apply?
++
++Constraints:
++
++- Omitted `**States:**` on a rhei may inherit a project default from
++  `index.panta.md`.
++- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
++  built-in fallback must each have defined precedence.
++- The lookup order must be non-conflicting and usable by validation and
++  execution.
+diff --git a/panta-deliberation/tasks/05-point-language-reference.md b/panta-deliberation/tasks/05-point-language-reference.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..beece96d62b99ecf6d24793995fa6cef75c64ce3
+--- /dev/null
++++ b/panta-deliberation/tasks/05-point-language-reference.md
+@@ -0,0 +1,26 @@
++### Task point-language-reference: Resolve Panta syntax in the canonical language reference
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how Panta-specific authoring syntax is surfaced in canonical user
++documentation.
++
++Source evidence:
++
++> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++> are user-authored language surface and should be discoverable from the
++> canonical language reference.
++
++Question:
++
++How should the canonical language reference expose and organize user-authored
++Panta syntax?
++
++Constraints:
++
++- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++  must be documented as user-authored language surface.
++- The documentation must be discoverable from the canonical language reference.
++- The documentation should support the coherent normative model for validation,
++  execution, ids, state-policy lookup, project defaults, and user-facing
++  behavior.
+diff --git a/panta-deliberation/tasks/99-final-solution.md b/panta-deliberation/tasks/99-final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10f94b87d8f5254a905f82c16e5a83f8309a6c51
+--- /dev/null
++++ b/panta-deliberation/tasks/99-final-solution.md
+@@ -0,0 +1,6 @@
++### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
++**State:** final-solution
++**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
++
++Synthesize the resolved point decisions into one final solution and prepare the
++human-facing presentation.
+
+codex
+Created the split artifacts:
+
+- `runtime/deliberation/points-manifest.md`
+- `tasks/02-point-inbox-hierarchy.md`
+- `tasks/03-point-cross-rhei-readiness.md`
+- `tasks/04-point-state-machine-resolution.md`
+- `tasks/05-point-language-reference.md`
+- `tasks/99-final-solution.md`
+
+The final solution task depends on all four concrete point task ids with no placeholders. `git diff --check` passed.
+diff --git a/panta-deliberation/runtime/deliberation/points-manifest.md b/panta-deliberation/runtime/deliberation/points-manifest.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..ec033e2c31c2e75da19e8eb10ff0a2783d3a2e9f
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points-manifest.md
+@@ -0,0 +1,21 @@
++# Discussion Points - Resolve Panta project spec conflicts
++
++- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
++  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
++  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
++  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
++
++- point-cross-rhei-readiness: Cross-rhei dependency readiness
++  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
++  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
++  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
++
++- point-state-machine-resolution: Panta defaults in state-machine resolution
++  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
++  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
++  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
++
++- point-language-reference: Panta syntax in the canonical language reference
++  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
++  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
++  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+diff --git a/panta-deliberation/tasks/02-point-inbox-hierarchy.md b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6472c0d4ed1146af4a69eaa9dc100736a19e5973
+--- /dev/null
++++ b/panta-deliberation/tasks/02-point-inbox-hierarchy.md
+@@ -0,0 +1,28 @@
++### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how inbox tickets fit into the Panta hierarchy without merging this
++with dependency readiness or documentation decisions.
++
++Source evidence:
++
++> The current Panta specs must not make tickets direct children of Panta if
++> the plan-language hierarchy says level-1 children under Panta are rheis and
++> tickets are level 2 or deeper.
++
++> The model needs clear ids, levels, and state-policy resolution for inbox work.
++
++Question:
++
++How should inbox tickets be identified, leveled, parented, and assigned state
++policy within the Panta hierarchy?
++
++Constraints:
++
++- Level-1 children under Panta must remain rheis if that is what the
++  plan-language hierarchy defines.
++- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
++  Panta.
++- The resolution must define clear ids, hierarchy levels, and state-policy
++  lookup behavior for inbox work.
+diff --git a/panta-deliberation/tasks/03-point-cross-rhei-readiness.md b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..06e88fd123bd713ea7b3a5e5b9fc28e668e6952c
+--- /dev/null
++++ b/panta-deliberation/tasks/03-point-cross-rhei-readiness.md
+@@ -0,0 +1,28 @@
++### Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve the readiness rule for dependencies that cross rhei boundaries without
++changing unrelated hierarchy or state-machine default rules.
++
++Source evidence:
++
++> Cross-rhei dependencies must use the same readiness rule as normal
++> scheduling: a prior must be in a successful terminal state, meaning
++> `final: true` and not normalized `cancelled`.
++
++> A cancelled prerequisite should not unblock dependent work.
++
++Question:
++
++What readiness rule should determine whether a cross-rhei dependency unblocks
++dependent work?
++
++Constraints:
++
++- Cross-rhei dependencies must use the same readiness rule as normal
++  scheduling.
++- A prerequisite must be in a terminal state with `final: true` before it can
++  unblock dependent work.
++- A prerequisite whose normalized state is `cancelled` must not unblock
++  dependent work.
+diff --git a/panta-deliberation/tasks/04-point-state-machine-resolution.md b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c9fae26a92e6b10728a5ee8ca6262acb372470
+--- /dev/null
++++ b/panta-deliberation/tasks/04-point-state-machine-resolution.md
+@@ -0,0 +1,30 @@
++### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how project defaults participate in state-machine lookup for rheis
++inside a Panta project.
++
++Source evidence:
++
++> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
++> the project default.
++
++> The state-machine resolution rules need one non-conflicting lookup order for
++> explicit overrides, rhei-local declarations, inherited Panta defaults, and
++> built-in fallback.
++
++Question:
++
++What single lookup order should resolve a rhei's state machine when explicit
++overrides, rhei-local declarations, inherited Panta defaults, and built-in
++fallback may all apply?
++
++Constraints:
++
++- Omitted `**States:**` on a rhei may inherit a project default from
++  `index.panta.md`.
++- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
++  built-in fallback must each have defined precedence.
++- The lookup order must be non-conflicting and usable by validation and
++  execution.
+diff --git a/panta-deliberation/tasks/05-point-language-reference.md b/panta-deliberation/tasks/05-point-language-reference.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..beece96d62b99ecf6d24793995fa6cef75c64ce3
+--- /dev/null
++++ b/panta-deliberation/tasks/05-point-language-reference.md
+@@ -0,0 +1,26 @@
++### Task point-language-reference: Resolve Panta syntax in the canonical language reference
++**State:** propose-solutions
++**Prior:** Task split
++
++Resolve how Panta-specific authoring syntax is surfaced in canonical user
++documentation.
++
++Source evidence:
++
++> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++> are user-authored language surface and should be discoverable from the
++> canonical language reference.
++
++Question:
++
++How should the canonical language reference expose and organize user-authored
++Panta syntax?
++
++Constraints:
++
++- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
++  must be documented as user-authored language surface.
++- The documentation must be discoverable from the canonical language reference.
++- The documentation should support the coherent normative model for validation,
++  execution, ids, state-policy lookup, project defaults, and user-facing
++  behavior.
+diff --git a/panta-deliberation/tasks/99-final-solution.md b/panta-deliberation/tasks/99-final-solution.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..10f94b87d8f5254a905f82c16e5a83f8309a6c51
+--- /dev/null
++++ b/panta-deliberation/tasks/99-final-solution.md
+@@ -0,0 +1,6 @@
++### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
++**State:** final-solution
++**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
++
++Synthesize the resolved point decisions into one final solution and prepare the
++human-facing presentation.
+
+tokens used
+Created the split artifacts:
+22,330
+
+- `runtime/deliberation/points-manifest.md`
+- `tasks/02-point-inbox-hierarchy.md`
+- `tasks/03-point-cross-rhei-readiness.md`
+- `tasks/04-point-state-machine-resolution.md`
+- `tasks/05-point-language-reference.md`
+- `tasks/99-final-solution.md`
+
+The final solution task depends on all four concrete point task ids with no placeholders. `git diff --check` passed.
+
+=== exit ===
+code: 0
+duration: 44s
+ended: 2026-06-01T08:16:58Z
+===

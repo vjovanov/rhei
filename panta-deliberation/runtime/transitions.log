@@ -1,0 +1,81 @@
+2026-06-01T08:16:14Z  split  start@split-points  runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:16:58Z  split  end@split-points  runtime/logs/task-split-split-points-codex-yolo-openai-gpt-5.5.log  exit=0,duration=44s,outcome=completed
+2026-06-01T08:16:58Z  split  usage  invocation=split::split-points::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:16:58Z  point-inbox-hierarchy  start@propose-solutions  runtime/logs/task-point-inbox-hierarchy-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:16:59Z  point-inbox-hierarchy  start@propose-solutions  runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:16:59Z  point-cross-rhei-readiness  start@propose-solutions  runtime/logs/task-point-cross-rhei-readiness-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:16:59Z  point-cross-rhei-readiness  start@propose-solutions  runtime/logs/task-point-cross-rhei-readiness-propose-solutions-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:17:30Z  point-cross-rhei-readiness  end@propose-solutions  runtime/logs/task-point-cross-rhei-readiness-propose-solutions-codex-yolo-openai-gpt-5.5.log  exit=0,duration=31s,outcome=completed
+2026-06-01T08:17:30Z  point-cross-rhei-readiness  usage  invocation=point-cross-rhei-readiness::propose-solutions::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:17:45Z  point-inbox-hierarchy  end@propose-solutions  runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log  exit=0,duration=46s,outcome=completed
+2026-06-01T08:17:45Z  point-inbox-hierarchy  usage  invocation=point-inbox-hierarchy::propose-solutions::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:18:05Z  point-cross-rhei-readiness  end@propose-solutions  runtime/logs/task-point-cross-rhei-readiness-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=1m6s,outcome=completed
+2026-06-01T08:18:05Z  point-cross-rhei-readiness  usage  invocation=point-cross-rhei-readiness::propose-solutions::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:19:25Z  point-inbox-hierarchy  end@propose-solutions  runtime/logs/task-point-inbox-hierarchy-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=2m26s,outcome=completed
+2026-06-01T08:19:25Z  point-inbox-hierarchy  usage  invocation=point-inbox-hierarchy::propose-solutions::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:19:25Z  point-inbox-hierarchy  start@aggregate-disagreements  runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:19:25Z  point-cross-rhei-readiness  start@aggregate-disagreements  runtime/logs/task-point-cross-rhei-readiness-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:20:00Z  point-cross-rhei-readiness  end@aggregate-disagreements  runtime/logs/task-point-cross-rhei-readiness-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log  exit=0,duration=34.5s,outcome=completed
+2026-06-01T08:20:00Z  point-cross-rhei-readiness  usage  invocation=point-cross-rhei-readiness::aggregate-disagreements::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:20:01Z  point-inbox-hierarchy  end@aggregate-disagreements  runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log  exit=0,duration=36s,outcome=completed
+2026-06-01T08:20:01Z  point-inbox-hierarchy  usage  invocation=point-inbox-hierarchy::aggregate-disagreements::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:20:01Z  point-inbox-hierarchy  start@discuss-point  runtime/logs/task-point-inbox-hierarchy-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:20:01Z  point-inbox-hierarchy  start@discuss-point  runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:20:01Z  point-cross-rhei-readiness  start@discuss-point  runtime/logs/task-point-cross-rhei-readiness-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:20:01Z  point-cross-rhei-readiness  start@discuss-point  runtime/logs/task-point-cross-rhei-readiness-discuss-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:20:39Z  point-cross-rhei-readiness  end@discuss-point  runtime/logs/task-point-cross-rhei-readiness-discuss-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=37.5s,outcome=completed
+2026-06-01T08:20:39Z  point-cross-rhei-readiness  usage  invocation=point-cross-rhei-readiness::discuss-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:20:53Z  point-cross-rhei-readiness  end@discuss-point  runtime/logs/task-point-cross-rhei-readiness-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=51.5s,outcome=completed
+2026-06-01T08:20:53Z  point-cross-rhei-readiness  usage  invocation=point-cross-rhei-readiness::discuss-point::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:20:58Z  point-inbox-hierarchy  end@discuss-point  runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=57s,outcome=completed
+2026-06-01T08:20:58Z  point-inbox-hierarchy  usage  invocation=point-inbox-hierarchy::discuss-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:21:18Z  point-inbox-hierarchy  end@discuss-point  runtime/logs/task-point-inbox-hierarchy-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=1m16s,outcome=completed
+2026-06-01T08:21:18Z  point-inbox-hierarchy  usage  invocation=point-inbox-hierarchy::discuss-point::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:21:18Z  point-inbox-hierarchy  start@resolve-point  runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:21:18Z  point-cross-rhei-readiness  start@resolve-point  runtime/logs/task-point-cross-rhei-readiness-resolve-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:21:45Z  point-cross-rhei-readiness  end@resolve-point  runtime/logs/task-point-cross-rhei-readiness-resolve-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=27.5s,outcome=completed
+2026-06-01T08:21:45Z  point-cross-rhei-readiness  usage  invocation=point-cross-rhei-readiness::resolve-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:21:52Z  point-inbox-hierarchy  end@resolve-point  runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=34.5s,outcome=completed
+2026-06-01T08:21:52Z  point-inbox-hierarchy  usage  invocation=point-inbox-hierarchy::resolve-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:21:52Z  point-state-machine-resolution  start@propose-solutions  runtime/logs/task-point-state-machine-resolution-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:21:52Z  point-state-machine-resolution  start@propose-solutions  runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:21:52Z  point-language-reference  start@propose-solutions  runtime/logs/task-point-language-reference-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:21:52Z  point-language-reference  start@propose-solutions  runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:22:35Z  point-state-machine-resolution  end@propose-solutions  runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log  exit=0,duration=42.5s,outcome=completed
+2026-06-01T08:22:35Z  point-state-machine-resolution  usage  invocation=point-state-machine-resolution::propose-solutions::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:22:47Z  point-language-reference  end@propose-solutions  runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log  exit=0,duration=55s,outcome=completed
+2026-06-01T08:22:47Z  point-language-reference  usage  invocation=point-language-reference::propose-solutions::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:23:38Z  point-state-machine-resolution  end@propose-solutions  runtime/logs/task-point-state-machine-resolution-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=1m46s,outcome=completed
+2026-06-01T08:23:38Z  point-state-machine-resolution  usage  invocation=point-state-machine-resolution::propose-solutions::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:24:31Z  point-language-reference  end@propose-solutions  runtime/logs/task-point-language-reference-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=2m38s,outcome=completed
+2026-06-01T08:24:31Z  point-language-reference  usage  invocation=point-language-reference::propose-solutions::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:24:31Z  point-state-machine-resolution  start@aggregate-disagreements  runtime/logs/task-point-state-machine-resolution-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:24:31Z  point-language-reference  start@aggregate-disagreements  runtime/logs/task-point-language-reference-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:25:06Z  point-state-machine-resolution  end@aggregate-disagreements  runtime/logs/task-point-state-machine-resolution-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log  exit=0,duration=35.5s,outcome=completed
+2026-06-01T08:25:06Z  point-state-machine-resolution  usage  invocation=point-state-machine-resolution::aggregate-disagreements::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:25:20Z  point-language-reference  end@aggregate-disagreements  runtime/logs/task-point-language-reference-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log  exit=0,duration=49s,outcome=completed
+2026-06-01T08:25:20Z  point-language-reference  usage  invocation=point-language-reference::aggregate-disagreements::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:25:20Z  point-state-machine-resolution  start@discuss-point  runtime/logs/task-point-state-machine-resolution-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:25:20Z  point-state-machine-resolution  start@discuss-point  runtime/logs/task-point-state-machine-resolution-discuss-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:25:20Z  point-language-reference  start@discuss-point  runtime/logs/task-point-language-reference-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:25:20Z  point-language-reference  start@discuss-point  runtime/logs/task-point-language-reference-discuss-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:26:20Z  point-language-reference  end@discuss-point  runtime/logs/task-point-language-reference-discuss-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=1m0s,outcome=completed
+2026-06-01T08:26:20Z  point-language-reference  usage  invocation=point-language-reference::discuss-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:26:41Z  point-state-machine-resolution  end@discuss-point  runtime/logs/task-point-state-machine-resolution-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=1m21s,outcome=completed
+2026-06-01T08:26:41Z  point-state-machine-resolution  usage  invocation=point-state-machine-resolution::discuss-point::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:26:55Z  point-state-machine-resolution  end@discuss-point  runtime/logs/task-point-state-machine-resolution-discuss-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=1m35s,outcome=completed
+2026-06-01T08:26:55Z  point-state-machine-resolution  usage  invocation=point-state-machine-resolution::discuss-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:27:10Z  point-language-reference  end@discuss-point  runtime/logs/task-point-language-reference-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=1m50s,outcome=completed
+2026-06-01T08:27:10Z  point-language-reference  usage  invocation=point-language-reference::discuss-point::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None
+2026-06-01T08:27:10Z  point-state-machine-resolution  start@resolve-point  runtime/logs/task-point-state-machine-resolution-resolve-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:27:10Z  point-language-reference  start@resolve-point  runtime/logs/task-point-language-reference-resolve-point-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:27:58Z  point-state-machine-resolution  end@resolve-point  runtime/logs/task-point-state-machine-resolution-resolve-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=47.5s,outcome=completed
+2026-06-01T08:27:58Z  point-state-machine-resolution  usage  invocation=point-state-machine-resolution::resolve-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:27:59Z  point-language-reference  end@resolve-point  runtime/logs/task-point-language-reference-resolve-point-codex-yolo-openai-gpt-5.5.log  exit=0,duration=49s,outcome=completed
+2026-06-01T08:27:59Z  point-language-reference  usage  invocation=point-language-reference::resolve-point::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:27:59Z  final-solution  start@final-solution  runtime/logs/task-final-solution-final-solution-codex-yolo-openai-gpt-5.5.log
+2026-06-01T08:28:40Z  final-solution  end@final-solution  runtime/logs/task-final-solution-final-solution-codex-yolo-openai-gpt-5.5.log  exit=0,duration=41s,outcome=completed
+2026-06-01T08:28:40Z  final-solution  usage  invocation=final-solution::final-solution::codex-yolo-openai-gpt-5.5::visit-1 agent=codex cost=unpriced coverage=None
+2026-06-01T08:28:40Z  final-solution  start@present-to-human  runtime/logs/task-final-solution-present-to-human-claude-code-yolo-anthropic-claude-opus-4-7.log
+2026-06-01T08:29:10Z  final-solution  end@present-to-human  runtime/logs/task-final-solution-present-to-human-claude-code-yolo-anthropic-claude-opus-4-7.log  exit=0,duration=30s,outcome=completed
+2026-06-01T08:29:10Z  final-solution  usage  invocation=final-solution::present-to-human::claude-code-yolo-anthropic-claude-opus-4-7::visit-1 agent=claude-code cost=unpriced coverage=None

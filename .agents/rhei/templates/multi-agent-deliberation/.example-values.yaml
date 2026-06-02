@@ -1,0 +1,24 @@
+plan_title: Multi-Agent Deliberation Example
+discussion_title: Choose the default export format
+discussion: |
+  The team needs to choose the default export format for generated reports.
+  One side wants Markdown because it is easy for agents and humans to review in
+  Git. Another side wants HTML because stakeholders can open it directly and it
+  supports richer layout. A third concern is that CI should be able to compare
+  outputs without noisy formatting diffs. The decision should keep the default
+  simple while leaving room for richer exports later.
+max_points: 4
+target_agents:
+  - id: claude
+    label: Claude proposal
+    selector: claude-code[yolo]:anthropic:claude-opus-4-7
+  - id: codex
+    label: Codex proposal
+    selector: codex[yolo]:openai:gpt-5.5
+  - id: gemini
+    label: Gemini proposal
+    selector: gemini[yolo]:google:gemini-3.1-pro-preview
+splitter_agent: codex[yolo]:openai:gpt-5.5
+point_aggregator_agent: codex[yolo]:openai:gpt-5.5
+final_aggregator_agent: codex[yolo]:openai:gpt-5.5
+presentation_agent: claude-code[yolo]:anthropic:claude-opus-4-7

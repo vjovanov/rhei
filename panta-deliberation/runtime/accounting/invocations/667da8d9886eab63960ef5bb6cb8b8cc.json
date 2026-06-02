@@ -1,0 +1,42 @@
+{
+  "schema": "rhei.accounting.invocation.v1",
+  "invocation_id": "point-language-reference::discuss-point::claude-code-yolo-anthropic-claude-opus-4-7::visit-1",
+  "task_id": "point-language-reference",
+  "state": "discuss-point",
+  "visit": 1,
+  "target_slug": "claude-code-yolo-anthropic-claude-opus-4-7",
+  "agent": "claude-code",
+  "provider": "anthropic",
+  "model": "claude-opus-4-7",
+  "started_at": "2026-06-01T08:25:20Z",
+  "ended_at": "2026-06-01T08:27:10Z",
+  "extraction_status": "no-usage-emitted",
+  "scope": "aggregate-agent-process",
+  "tokens": {
+    "input": {
+      "total": {
+        "status": "unknown"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    },
+    "output": {
+      "total": {
+        "status": "unknown"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    }
+  },
+  "pricing": {
+    "status": "not-applicable"
+  }
+}

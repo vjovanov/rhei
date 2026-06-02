@@ -1,0 +1,1395 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-language-reference
+state: aggregate-disagreements
+started: 2026-06-01T08:24:31Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8248-d384-7121-a8c5-be7779056945
+--------
+user
+# Task point-language-reference: Resolve Panta syntax in the canonical language reference
+
+## State: aggregate-disagreements
+
+You are the point aggregator. Preserve disagreement instead of smoothing
+it away. Tag exactly where proposals differ and what evidence could
+resolve the difference.
+
+## Instructions
+
+Aggregate proposals for Task point-language-reference: Resolve Panta syntax in the canonical language reference.
+
+Read:
+
+- `runtime/deliberation/points/point-language-reference/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md`
+
+- `runtime/deliberation/points/point-language-reference/proposals/codex-yolo-openai-gpt-5.5.md`
+
+Write `runtime/deliberation/points/point-language-reference/disagreement-map.md` with:
+
+# Disagreement Map - Resolve Panta syntax in the canonical language reference
+
+## Candidate Solutions
+- S-001: <solution>
+  - Proposed by: <targets>
+  - Reasons: <shared or strongest reasons>
+
+## Agreements
+- A-001: <what all or most proposals agree on>
+
+## Disagreements
+- D-001: <specific disagreement>
+  - Agents: <who disagrees>
+  - Options: <competing options>
+  - Why it matters: <impact on the final answer>
+  - Evidence needed: <what the discussion should resolve>
+
+## Discussion Prompt
+A short prompt that asks the agents to address only the tagged
+disagreements and to converge where possible.
+
+## Task Content
+
+Resolve how Panta-specific authoring syntax is surfaced in canonical user
+documentation.
+
+Source evidence:
+
+> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+> are user-authored language surface and should be discoverable from the
+> canonical language reference.
+
+Question:
+
+How should the canonical language reference expose and organize user-authored
+Panta syntax?
+
+Constraints:
+
+- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+  must be documented as user-authored language surface.
+- The documentation must be discoverable from the canonical language reference.
+- The documentation should support the coherent normative model for validation,
+  execution, ids, state-policy lookup, project defaults, and user-facing
+  behavior.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `aggregate-disagreements`:
+- aggregate-disagreements -> discuss-point
+- aggregate-disagreements -> cancelled
+
+codex
+I’ll read the two proposal files, compare their concrete recommendations, then write the disagreement map without advancing the Rhei state.
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-language-reference/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-language-reference/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Recommendation: Restructure `§FS-rhei-language-reference` so the "Plan and
+  project markdown" surface is presented as a small **file-kind map** organized
+  by container scope (Project → Rhei → Workspace tasks → Inbox). Each row names
+  one user-authored file or directory, gives a one-line role description, and
+  cites the single owning spec section where its normative rules live. Grammar
+  stays in `§FS-rhei-plan-language`; project semantics stay in `§FS-rhei-panta`;
+  the language reference remains a discoverability page that links to them.
+
+  Concretely, replace the current single "Plan and project markdown" bullet
+  with a structured map of the form:
+
+  | Layer            | Authored surface                  | Role                           | Owner |
+  |------------------|-----------------------------------|--------------------------------|-------|
+  | Project (Panta)  | `index.panta.md`                  | project manifest               | §FS-rhei-panta.1, §FS-rhei-plan-language.1.5 |
+  | Project (Panta)  | `rheis/` directory                | container for the project's rheis | §FS-rhei-plan-language.1.5 |
+  | Project (Panta)  | `inbox/` directory (optional)     | loose tickets, loaded as synthetic `inbox` rhei | §FS-rhei-plan-language.1.5, §FS-rhei-panta.2 |
+  | Project (Panta)  | `states.yaml` at project root     | project-default state machine  | §FS-rhei-panta.6, §FS-rhei-plan-language.1.3 |
+  | Rhei (single)    | `*.rhei.md`                       | one rhei in one file           | §FS-rhei-plan-language.1.1 |
+  | Rhei (workspace) | `index.rhei.md` + `tasks/**/*.md` | one rhei across many files     | §FS-rhei-plan-language.1.2 |
+  | Bare rhei        | a `.rhei.md` outside a project    | implicit Panta of one          | §AR-rhei-panta |
+
+  Update the **Reading Path** so project-layer files are introduced before
+  rhei-layer files (container-to-contained order): start at §FS-rhei-authoring,
+  then §FS-rhei-panta for project layout, then §FS-rhei-plan-language sections
+  1.5 (Panta Project) → 1.1/1.2 (rhei formats) → 1.3 (state-machine
+  resolution) → 2/3 (grammar and semantic constraints).
+
+  Extend **Ownership Rules** (§FS-rhei-language-reference.3) with one new
+  obligation: any change that adds, removes, or renames a user-authored
+  *file kind or directory* at the project or rhei level must update the
+  file-kind map in §FS-rhei-language-reference in the same change as the
+  owning spec edit. The map is the language reference's index of file kinds;
+  if it goes stale, discoverability is broken even if the grammar is correct.
+
+- Reasons:
+  - **Direct answer to the question.** The point asks "how should the
+    canonical language reference expose and organize user-authored Panta
+    syntax?" A file-kind map exposes each Panta file by name in the entry-
+    point spec, with one click to the owning normative rule. The current
+    text mentions the files in a prose bullet, which forces a reader to
+    scan §FS-rhei-plan-language to discover what files exist.
+  - **Discoverability without duplication.** The map names files and points
+    at the single normative source for each. No grammar is copied into the
+    language reference, so the spec cannot drift between two homes.
+  - **Layered organization matches the load model.** Project → rhei →
+    workspace task → inbox mirrors the Panta → rhei → ticket hierarchy the
+    rest of the spec already uses (§FS-rhei-panta.1). A reader who learns
+    "files are organized by container scope" can predict where to look for
+    new constructs as the language grows.
+  - **Supports the coherent normative model.** Every constraint in the
+    point statement (validation, execution, ids, state-policy lookup,
+    project defaults, user-facing behavior) is already specified somewhere;
+    the map's job is to make those locations easy to find:
+    - validation → §FS-rhei-validate (linked from the reference's command
+      section, which already exists).
+    - execution → §FS-rhei-run / §FS-rhei-panta.6.2.
+    - ids → §FS-rhei-panta.5 / §AR-rhei-panta.
+    - state-policy lookup → §FS-rhei-plan-language.1.3 (the row for
+      `states.yaml` in the map points there).
+    - project defaults → §FS-rhei-panta.6 / §FS-rhei-plan-language.1.3.
+    - user-facing behavior → §FS-rhei-authoring + §FS-rhei-panta.4.
+  - **Cheap to apply.** The current §FS-rhei-language-reference is 66 lines.
+    Inserting one table and one extended ownership clause is a contained edit
+    that does not perturb the larger grammar or panta specs.
+  - **Ownership rule makes future drift a `rhei validate`-able expectation.**
+    "Update the map in the same change" is concrete review guidance; reviewers
+    can mechanically check it.
+
+- Tradeoffs:
+  - **File names appear in two places** (the map and §FS-rhei-plan-language.1.5).
+    Mitigation: the map is one-liners-plus-citations, never normative grammar;
+    the row for `inbox/` says *"loose tickets, loaded as synthetic `inbox`
+    rhei"* and cites §FS-rhei-plan-language.1.5, but the loading rule itself
+    is only written once.
+  - **One extra editorial step per language change.** Adding a new file kind
+    now requires editing both the owner spec and the map. Acceptable cost for
+    the discoverability gain; this is exactly what the extended ownership rule
+    is for.
+  - **Tables are markdown-heavy.** Some reviewers prefer prose-bullet style
+    throughout. Mitigation: the table can be rendered as a bulleted list with
+    the same fields if the project's spec style guide rejects tables; the
+    structure (layer / surface / role / owner) is what matters, not the
+    rendering.
+  - **The map will need a tiny update if point-inbox-hierarchy chooses
+    "drop inbox in v1"** — the inbox row would be removed. Trivial.
+  - **Does not unify the panta and plan-language specs.** This proposal keeps
+    them as two distinct normative documents and only improves the map. A
+    more ambitious refactor (fold §FS-rhei-panta sections 1, 5, 6 into
+    §FS-rhei-plan-language) would yield a single grammar+semantics document
+    but is out of scope for the point at hand and risks merging two readable
+    specs into one over-large one.
+
+- Assumptions:
+  - The current three-spec layering is correct and should be preserved:
+    `§FS-rhei-language-reference` is the entry-point/map page,
+    `§FS-rhei-plan-language` owns grammar and load semantics,
+    `§FS-rhei-panta` owns project-root semantics and command scope.
+    Refactoring that layering is a larger architecture call not driven by
+    this point.
+  - The synthetic `inbox` rhei model proposed in
+    [[point-inbox-hierarchy]] is the load semantics. The language reference
+    only has to *name* `inbox/` as an authored surface and point at the spec
+    section that defines the synthesis rule — it does not encode the synthesis
+    itself.
+  - The state-machine resolution order (per [[point-state-machine-resolution]])
+    is documented in §FS-rhei-plan-language.1.3 and §FS-rhei-panta.6, and the
+    `states.yaml` row in the map cites those locations without redefining the
+    precedence.
+  - Cross-rhei readiness ([[point-cross-rhei-readiness]]) lives in
+    §FS-rhei-panta.6.1; the language reference does not need a row for it
+    because readiness is a runtime rule, not an authored file kind.
+  - Tables are an acceptable markdown construct in this repo's specs (the
+    plan-language spec already uses a table for "Single-File Plan" components).
+
+- Rejection criteria:
+  - **Reject if the team prefers prose over structured maps in the language
+    reference.** If §FS-rhei-language-reference must remain a short narrative
+    page with file kinds only mentioned in prose, drop the table and keep only
+    the extended ownership rule.
+  - **Reject if Panta files should not be promoted to first-class entries
+    in the language reference.** If the consensus is "the language reference
+    is rhei-level only and project-level syntax is one section among many
+    inside §FS-rhei-plan-language", then this proposal is moot — the fix
+    instead is to add a `§FS-rhei-language-reference.1` sub-bullet that links
+    to §FS-rhei-plan-language.1.5 and stop there.
+  - **Reject if a separate `§FS-rhei-panta-reference` spec is introduced**
+    as a sibling to §FS-rhei-plan-language. In that world the file map for
+    project-level files belongs in the new spec, and §FS-rhei-language-
+    reference only links to the two reference specs (rhei and panta).
+  - **Reject if `inbox/` is cut from v1.** The inbox row of the map is then
+    removed; the rest of the proposal still applies.
+  - **Reject if file-kind discoverability is judged adequately served by
+    §FS-rhei-plan-language.1.5 alone.** That section already lists the three
+    Panta-level surfaces; if reviewers think one extra link from
+    §FS-rhei-language-reference to §FS-rhei-plan-language.1.5 closes the
+    discoverability gap, the full map is overkill.
+
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Keep one canonical language-reference entry point, and make
+  Panta a first-class part of its "plan and project markdown" surface. The
+  reference should enumerate `index.panta.md`, `rheis/` entries, and optional
+  `inbox/` task files, then route readers to `§FS-rhei-plan-language.1.5` for
+  the normative project layout and grammar, `§FS-rhei-panta` for user-facing
+  behavior, and `§AR-rhei-panta` for load, id, execution-root, and state-binding
+  mechanics. Do not create a separate Panta language reference and do not copy
+  the full Panta grammar into the canonical reference.
+- Reasons: This gives users one discoverable entry point while keeping
+  normative detail with the specs that can validate it. `index.panta.md` is
+  manifest syntax, `rheis/` entries are normal rhei syntax discovered at project
+  scope, and `inbox/` files are normal workspace task-file syntax under a
+  synthetic rhei; documenting them as one plan/project markdown surface matches
+  the actual parser and avoids a second, inconsistent model. It also keeps ids,
+  cross-rhei dependencies, Panta defaults, state-policy lookup, execution roots,
+  and command behavior tied to the same project graph model.
+- Tradeoffs: The canonical reference remains a map, not a self-contained manual;
+  readers must follow links for exact grammar and behavior. The split requires
+  update discipline: any future Panta syntax change must update the language
+  reference and the owning spec together. If Panta authoring grows much larger,
+  the reference may need a deeper sub-table of contents, but still should not
+  duplicate the normative rules.
+- Assumptions: Panta authoring is an extension of the plan/project markdown
+  language surface, not a separate language. The inbox remains a reserved
+  synthetic level-1 rhei whose files parse as ordinary workspace task files.
+  State-machine resolution remains per rhei, with rhei-local declarations,
+  inherited `index.panta.md` defaults, and fallback handled by the shared lookup
+  rule.
+- Rejection criteria: Do not use this proposal if the team wants the canonical
+  language reference to be the complete normative grammar instead of a routing
+  page, if Panta gets a separate parser/language independent of plan markdown,
+  or if the final model stops treating `rheis/` entries and `inbox/` files as
+  ordinary rhei/workspace syntax loaded at project scope.
+
+codex
+The proposals mostly align on a single canonical entry point and avoiding duplicated grammar. The main split is how structured the entry point should be, plus which spec owns some mechanics.
+exec
+/usr/bin/bash -lc 'ls -la runtime/deliberation/points/point-language-reference' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+total 12
+drwxrwxr-x 3 vjovanov vjovanov 4096 Jun  1 10:22 .
+drwxrwxr-x 6 vjovanov vjovanov 4096 Jun  1 10:22 ..
+drwxrwxr-x 2 vjovanov vjovanov 4096 Jun  1 10:24 proposals
+
+exec
+/usr/bin/bash -lc "find runtime/deliberation/points -name 'disagreement-map.md' -maxdepth 3 -print | head -20" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+runtime/deliberation/points/point-cross-rhei-readiness/disagreement-map.md
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points/point-cross-rhei-readiness/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Cross-rhei dependency readiness
+
+## Candidate Solutions
+- S-001: A cross-rhei dependency unblocks dependent work only when the prior task is in a successful terminal state: the prior's resolved state definition has `final: true`, and the normalized state name is not `cancelled`.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7; codex[yolo]:openai:gpt-5.5
+  - Reasons: This exactly matches normal scheduling readiness, preserves identical semantics across rhei boundaries, and prevents cancelled prerequisites from unblocking dependent work.
+- S-002: Implement S-001 through a single normative predicate, such as `is_successful_terminal(prior)`, used by both local scheduling and cross-rhei readiness checks after resolving the prior state through the prior rhei's own state machine.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
+  - Reasons: A shared predicate makes "same readiness rule" enforceable in code, centralizes future changes, and ensures cross-rhei checks honor the state definitions and normalization rules of the rhei that owns the prior.
+- S-003: Implement S-001 by resolving the remote state definition and normalized state consistently with local scheduling, or by consuming an equivalent normalized readiness result.
+  - Proposed by: codex[yolo]:openai:gpt-5.5
+  - Reasons: This preserves the required semantics while allowing the integration boundary to expose either raw remote state-machine data or a precomputed readiness result.
+
+## Agreements
+- A-001: Cross-rhei dependencies must use the same readiness rule as normal scheduling.
+- A-002: A prior can unblock dependent work only when its resolved state has `final: true`.
+- A-003: A prior whose normalized state is `cancelled` must not unblock dependent work, even though it may be terminal for closure.
+- A-004: Cross-rhei readiness requires reliable access to the prior task's current state and either the referenced rhei's state machine or an equivalent semantic result.
+- A-005: Additional unsuccessful terminal states beyond normalized `cancelled` are out of scope for this point unless they normalize to `cancelled`.
+- A-006: Cancelled prerequisites may leave dependents blocked until a human changes the dependency, reroutes the work, or supplies a different successful prerequisite.
+
+## Disagreements
+- D-001: Whether the final answer should require a single shared readiness predicate as the implementation mechanism, or specify only semantic equivalence with normal scheduling.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 requires one normative predicate; codex[yolo]:openai:gpt-5.5 allows any implementation that resolves the same remote state semantics or equivalent normalized readiness result.
+  - Options: Require both local and cross-rhei scheduling to call the same predicate; or require cross-rhei checks to be behaviorally identical while permitting an equivalent readiness API/result.
+  - Why it matters: A mandatory shared predicate is easier to test and audit, but may over-constrain implementations that cross process, repository, or service boundaries. Semantic equivalence is more flexible, but needs stronger contract tests to prove it cannot drift from local scheduling.
+  - Evidence needed: Whether the current architecture can expose one shared predicate across local and cross-rhei scheduling paths, and whether cross-rhei checks run in the same codebase/process as normal scheduling or through a serialized/API boundary.
+- D-002: Where the cross-rhei readiness checker must resolve state-machine meaning.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 says resolve the prior state with the prior rhei's own state machine before applying the predicate; codex[yolo]:openai:gpt-5.5 says the consumer may access the referenced rhei's state machine or an equivalent normalized readiness result.
+  - Options: The dependent-side checker fetches and interprets the prior rhei's state machine directly; or the prior rhei exports a normalized readiness result that the dependent-side checker trusts.
+  - Why it matters: Direct interpretation keeps the rule transparent but adds a cross-rhei lookup and couples the consumer to remote state-machine definitions. Exported readiness reduces coupling but requires a precise contract so `final: true` and normalized-not-`cancelled` remain the actual basis for unblocking.
+  - Evidence needed: Existing cross-rhei dependency metadata, available APIs or file paths for remote state machines, and whether there is already a trusted normalized readiness output used by local scheduling.
+- D-003: Whether readiness checking must be synchronous at check time.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 assumes the prior rhei state machine can be resolved synchronously, with caching possible; codex[yolo]:openai:gpt-5.5 only requires reliable resolution and does not specify synchronous lookup.
+  - Options: Require synchronous resolution of the prior task state and state machine during readiness checks; or allow cached/eventual/serialized readiness data if it is reliable and preserves the same semantics.
+  - Why it matters: Synchronous resolution gives fresh decisions but can make scheduling depend on remote availability. Cached or serialized results may be more robust operationally but need freshness and invalidation rules to avoid incorrect unblocking.
+  - Evidence needed: How cross-rhei dependencies are evaluated today, whether readiness checks tolerate remote I/O, and what freshness guarantees exist for cached state or exported readiness artifacts.
+
+## Discussion Prompt
+The proposals agree that cross-rhei dependencies unblock only when the prior is in a successful terminal state: `final: true` and normalized state not `cancelled`. Please address only D-001 through D-003: should the final rule require a single shared predicate, must the dependent side directly resolve the prior rhei's state machine or may it consume an equivalent readiness result, and does the check need synchronous resolution or can cached/exported readiness be accepted with explicit guarantees?
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Inbox ticket placement in the Panta hierarchy
+
+## Candidate Solutions
+
+- S-001: Model the project inbox as a reserved synthetic level-1 rhei with id
+  `inbox`; model all inbox tickets as ordinary ticket/task nodes at level 2 or
+  deeper under that rhei, with project ids like `inbox.<local-id>` and parents
+  resolved to either the synthetic inbox rhei or an authored parent ticket.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
+    codex[yolo]:openai:gpt-5.5
+  - Reasons: Preserves the Panta -> rhei -> ticket hierarchy, avoids making
+    tickets direct children of Panta, reuses the normal `<rhei>.<local>` id
+    shape, and lets inbox work use the same validation, execution, artifact,
+    dependency, and state-policy paths as ordinary rhei work.
+
+## Agreements
+
+- A-001: Panta remains level 0; level-1 children under Panta remain rheis; inbox
+  tickets are never direct children of Panta.
+- A-002: The inbox should be represented as a level-1 rhei-like node with the
+  reserved id `inbox`.
+- A-003: Inbox ticket ids should be project-scoped through the inbox rhei, such
+  as `inbox.3` and `inbox.3.1`, instead of using a flat Panta-level ticket id.
+- A-004: Top-level inbox tickets have the synthetic inbox rhei as their parent;
+  nested inbox tickets have their authored parent ticket.
+- A-005: The inbox rhei may be synthetic and need not have an authored
+  `index.rhei.md`; inbox tickets are authored in normal task/ticket format under
+  an optional `inbox/` workspace area.
+- A-006: Inbox tickets should inherit or resolve state policy through the same
+  machinery used by ordinary rhei tickets, rather than through a separate inbox
+  policy tier.
+
+## Disagreements
+
+- D-001: Whether `inbox` is an unconditional reserved rhei id or reserved only
+  when project inbox capture is present.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 requires `inbox` to be
+    a reserved rhei id and treats `rheis/inbox` as a load-time error; codex[yolo]
+    says users cannot create a domain rhei named `inbox` while the project inbox
+    exists, leaving the no-inbox case less explicit.
+  - Options: Always reserve `inbox` at the project rhei-id level; reserve
+    `inbox` only when an inbox feature or `inbox/` directory is active.
+  - Why it matters: This determines whether existing or future domain rheis can
+    be named `inbox` in projects that do not use quick capture, and where
+    validation must report collisions.
+  - Evidence needed: The intended reserved-id rules for Panta/rhei ids, whether
+    optional features may reserve ids even when unused, and any compatibility
+    requirement for existing projects with a normal rhei named `inbox`.
+
+- D-002: How much state-policy behavior belongs in this hierarchy resolution.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 gives a full lookup rule
+    for inbox tickets: inherit the Panta default or built-in fallback, then apply
+    `node_policy.overrides -> node_policy.by_type[<kind>] -> node_policy.default`,
+    while treating the synthetic inbox rhei as a structural rollup with no
+    stored state. codex[yolo]:openai:gpt-5.5 agrees with inheritance in
+    principle but leaves rejection possible if the final state-policy decision
+    rejects inheritance from `index.panta.md` for synthetic rheis.
+  - Options: Normatively define the complete inherited ticket policy lookup here;
+    define only that inbox tickets use ordinary rhei-ticket lookup and defer
+    exact precedence/fallback behavior to the state-machine-resolution point.
+  - Why it matters: The task requires clear state-policy lookup behavior for
+    inbox work, but over-specifying precedence here could conflict with the
+    separate state-machine-resolution decision.
+  - Evidence needed: The current or accepted state-machine-resolution rule,
+    whether synthetic rheis without `index.rhei.md` may inherit `index.panta.md`,
+    and whether structural rhei nodes are expected to have claimable/stored
+    state.
+
+- D-003: Whether moving an inbox ticket into a domain rhei necessarily changes
+  its project id.
+  - Agents: codex[yolo]:openai:gpt-5.5 explicitly treats filing an inbox ticket
+    into a domain rhei as a reparenting/id-change operation; claude-code[yolo]
+    implies this through the `inbox.<local-id>` id scheme but does not make
+    promotion semantics part of the recommendation.
+  - Options: State that promotion from inbox to a domain rhei changes the
+    project id from `inbox.<local-id>` to `<target-rhei>.<local-id>`; leave
+    promotion/id stability out of this point and handle it in a separate
+    filing/refactoring decision.
+  - Why it matters: Stable external references, dependencies, artifacts, logs,
+    and operator expectations may depend on whether inbox ids are permanent or
+    temporary capture ids.
+  - Evidence needed: Existing id stability requirements, dependency/reference
+    rewrite behavior, and whether inbox filing is considered a hierarchy move or
+    a separate migration workflow.
+
+## Discussion Prompt
+
+Both proposals converge on S-001: inbox is a synthetic level-1 rhei named
+`inbox`, and inbox tickets are normal level-2-or-deeper ticket nodes under it.
+Please address only D-001 through D-003: decide whether `inbox` is always
+reserved or conditionally reserved, define the exact state-policy lookup without
+conflicting with the state-machine-resolution point, and decide whether inbox
+promotion must be specified here as an id-changing move. Converge where possible
+and identify any evidence that still blocks a final resolution.
+
+codex
+I’m going to write the map in the same format as the existing point maps. I’ll keep shared conclusions separate from the few editorial and ownership-scope choices that still need resolution.
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d5c12e7295dc167202a45a8d152a85f718485d3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+@@ -0,0 +1,148 @@
++# Disagreement Map - Resolve Panta syntax in the canonical language reference
++
++## Candidate Solutions
++
++- S-001: Keep one canonical language-reference entry point, and make Panta a
++  first-class part of its plan/project markdown surface. Enumerate
++  `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files,
++  then route readers to the owning normative specs instead of duplicating the
++  grammar.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Gives users one discoverable entry point, satisfies the requirement
++    that Panta-authored files are documented as language surface, and avoids a
++    second grammar source that could drift from validation and execution rules.
++
++- S-002: Implement S-001 as a structured file-kind map organized by container
++  scope: Project/Panta, Rhei, workspace tasks, inbox, and bare rhei. Each entry
++  names the authored surface, gives a one-line role, and cites the single owning
++  spec section.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Makes every user-authored file kind discoverable by name, mirrors
++    the Panta -> rhei -> task load hierarchy, and gives reviewers a concrete
++    map to keep synchronized with future language changes.
++
++- S-003: Implement S-001 as a lighter enumeration in the existing plan/project
++  markdown section, with links to `§FS-rhei-plan-language.1.5`,
++  `§FS-rhei-panta`, and `§AR-rhei-panta`; add a deeper table of contents only
++  if Panta authoring grows larger.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Keeps the canonical reference concise as a routing page while
++    still surfacing the required Panta files and tying ids, execution roots,
++    state binding, defaults, and command behavior to the project graph model.
++
++- S-004: Add an ownership/update rule requiring Panta or plan/project
++  authoring-syntax changes to update the language reference and the owning spec
++  together.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Both proposals identify update discipline as necessary to prevent
++    the canonical entry point from going stale while normative detail remains in
++    specialized specs.
++
++## Agreements
++
++- A-001: The canonical language reference should remain the single discoverable
++  entry point for user-authored plan/project markdown syntax.
++- A-002: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task
++  files must be explicitly named as user-authored language surface.
++- A-003: The canonical reference should not become a self-contained copy of the
++  Panta grammar or create a separate Panta language reference.
++- A-004: Normative detail should remain with owning specs: project layout and
++  grammar in `§FS-rhei-plan-language.1.5`, user-facing Panta behavior in
++  `§FS-rhei-panta`, and implementation/load/id/state-binding mechanics where
++  those are already owned.
++- A-005: Panta authoring is an extension of the plan/project markdown surface,
++  not an independent language.
++- A-006: `rheis/` entries should be described as normal rhei syntax discovered
++  at project scope, and `inbox/` files should be described as ordinary workspace
++  task-file syntax loaded under the synthetic inbox rhei.
++- A-007: Future changes to authored Panta or plan/project file kinds need an
++  explicit update path so the canonical reference does not drift from the owning
++  specs.
++
++## Disagreements
++
++- D-001: Whether the canonical language reference should expose Panta syntax
++  through a structured file-kind map or through a lighter prose/list
++  enumeration.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a scoped
++    file-kind map with layer, authored surface, role, and owner columns;
++    codex[yolo]:openai:gpt-5.5 proposes first-class enumeration and links, with
++    a deeper sub-table of contents only if the surface grows.
++  - Options: Add the full file-kind map now; or keep the current reference
++    compact and enumerate the required Panta surfaces with owner links.
++  - Why it matters: A table is more mechanically discoverable and auditable, but
++    adds editorial weight to a short reference. A lighter entry keeps the page
++    concise, but may leave readers scanning linked specs to understand all file
++    kinds.
++  - Evidence needed: The current style and intended depth of
++    `§FS-rhei-language-reference`, whether tables are preferred in canonical
++    reference pages, and whether users have trouble discovering file kinds from
++    prose links alone.
++
++- D-002: How broad the authored-surface inventory in the language reference
++  should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 includes Panta files
++    plus adjacent rhei/file kinds such as root `states.yaml`, `*.rhei.md`,
++    `index.rhei.md` plus `tasks/**/*.md`, and bare rheis; codex[yolo]:openai:gpt-5.5
++    focuses the recommendation on the required Panta surfaces and routes to the
++    existing owner specs for the rest.
++  - Options: Maintain an exhaustive or near-exhaustive plan/project file-kind
++    inventory in the canonical reference; or list the Panta-specific surfaces
++    needed for this decision and rely on owner specs for adjacent rhei details.
++  - Why it matters: A broader inventory makes the reference a stronger user map
++    for all authored files, but creates more synchronization work and may expand
++    the scope beyond the Panta syntax question. A narrower inventory satisfies
++    the point constraints with less churn, but may not fully solve
++    cross-file-kind discoverability.
++  - Evidence needed: Whether `§FS-rhei-language-reference` is intended to be a
++    complete index of all authored file kinds, and whether `states.yaml` and
++    bare-rhei entries belong in the same user-facing syntax surface as
++    `index.panta.md`, `rheis/`, and `inbox/`.
++
++- D-003: Which source should be cited as owning load, id, execution-root, and
++  state-binding mechanics from the language reference.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 cites
++    `§FS-rhei-plan-language`, `§FS-rhei-panta`, and selected architecture or
++    command specs depending on the file-kind row; codex[yolo]:openai:gpt-5.5
++    explicitly routes readers to `§AR-rhei-panta` for load, id, execution-root,
++    and state-binding mechanics.
++  - Options: Keep language-reference owner links primarily at functional-spec
++    sections, with architecture links only where already necessary; or include
++    `§AR-rhei-panta` as a standard destination for mechanics behind Panta
++    syntax.
++  - Why it matters: Functional-spec links are better for user-facing canonical
++    documentation, while architecture links may be needed to fully explain ids,
++    project graph loading, and state binding without duplicating implementation
++    semantics.
++  - Evidence needed: The repo's ownership boundary between functional specs and
++    architecture specs for user documentation, and which existing spec sections
++    currently declare the normative rules for load, ids, execution roots, and
++    state-policy lookup.
++
++- D-004: How concrete the ownership/update rule should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a specific
++    obligation that adding, removing, or renaming any user-authored project or
++    rhei file kind must update the file-kind map in the same change; codex[yolo]:openai:gpt-5.5
++    agrees on update discipline but phrases it more generally for future Panta
++    syntax changes.
++  - Options: Add a precise file-kind-map synchronization rule; or add a broader
++    rule that Panta authoring syntax changes update the canonical reference and
++    owning spec together.
++  - Why it matters: A precise rule is easier to review and validate if the table
++    exists, but may be too narrow if the final reference uses prose or if syntax
++    changes are not file-kind changes. A broader rule fits either rendering but
++    gives reviewers less mechanical guidance.
++  - Evidence needed: The final choice for D-001, and whether validation/review
++    tooling can or should enforce map synchronization for file-kind changes.
++
++## Discussion Prompt
++
++Both proposals agree that the canonical language reference remains the single
++entry point, that Panta syntax must be first-class there, and that exact grammar
++should stay in owning specs. Please address only D-001 through D-004: decide
++whether to add a structured file-kind map or lighter enumeration, decide how
++broad the authored-surface inventory should be, identify the proper owner links
++for load/id/execution/state mechanics, and choose the concrete update rule that
++matches the selected structure.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d5c12e7295dc167202a45a8d152a85f718485d3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+@@ -0,0 +1,148 @@
++# Disagreement Map - Resolve Panta syntax in the canonical language reference
++
++## Candidate Solutions
++
++- S-001: Keep one canonical language-reference entry point, and make Panta a
++  first-class part of its plan/project markdown surface. Enumerate
++  `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files,
++  then route readers to the owning normative specs instead of duplicating the
++  grammar.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Gives users one discoverable entry point, satisfies the requirement
++    that Panta-authored files are documented as language surface, and avoids a
++    second grammar source that could drift from validation and execution rules.
++
++- S-002: Implement S-001 as a structured file-kind map organized by container
++  scope: Project/Panta, Rhei, workspace tasks, inbox, and bare rhei. Each entry
++  names the authored surface, gives a one-line role, and cites the single owning
++  spec section.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Makes every user-authored file kind discoverable by name, mirrors
++    the Panta -> rhei -> task load hierarchy, and gives reviewers a concrete
++    map to keep synchronized with future language changes.
++
++- S-003: Implement S-001 as a lighter enumeration in the existing plan/project
++  markdown section, with links to `§FS-rhei-plan-language.1.5`,
++  `§FS-rhei-panta`, and `§AR-rhei-panta`; add a deeper table of contents only
++  if Panta authoring grows larger.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Keeps the canonical reference concise as a routing page while
++    still surfacing the required Panta files and tying ids, execution roots,
++    state binding, defaults, and command behavior to the project graph model.
++
++- S-004: Add an ownership/update rule requiring Panta or plan/project
++  authoring-syntax changes to update the language reference and the owning spec
++  together.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Both proposals identify update discipline as necessary to prevent
++    the canonical entry point from going stale while normative detail remains in
++    specialized specs.
++
++## Agreements
++
++- A-001: The canonical language reference should remain the single discoverable
++  entry point for user-authored plan/project markdown syntax.
++- A-002: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task
++  files must be explicitly named as user-authored language surface.
++- A-003: The canonical reference should not become a self-contained copy of the
++  Panta grammar or create a separate Panta language reference.
++- A-004: Normative detail should remain with owning specs: project layout and
++  grammar in `§FS-rhei-plan-language.1.5`, user-facing Panta behavior in
++  `§FS-rhei-panta`, and implementation/load/id/state-binding mechanics where
++  those are already owned.
++- A-005: Panta authoring is an extension of the plan/project markdown surface,
++  not an independent language.
++- A-006: `rheis/` entries should be described as normal rhei syntax discovered
++  at project scope, and `inbox/` files should be described as ordinary workspace
++  task-file syntax loaded under the synthetic inbox rhei.
++- A-007: Future changes to authored Panta or plan/project file kinds need an
++  explicit update path so the canonical reference does not drift from the owning
++  specs.
++
++## Disagreements
++
++- D-001: Whether the canonical language reference should expose Panta syntax
++  through a structured file-kind map or through a lighter prose/list
++  enumeration.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a scoped
++    file-kind map with layer, authored surface, role, and owner columns;
++    codex[yolo]:openai:gpt-5.5 proposes first-class enumeration and links, with
++    a deeper sub-table of contents only if the surface grows.
++  - Options: Add the full file-kind map now; or keep the current reference
++    compact and enumerate the required Panta surfaces with owner links.
++  - Why it matters: A table is more mechanically discoverable and auditable, but
++    adds editorial weight to a short reference. A lighter entry keeps the page
++    concise, but may leave readers scanning linked specs to understand all file
++    kinds.
++  - Evidence needed: The current style and intended depth of
++    `§FS-rhei-language-reference`, whether tables are preferred in canonical
++    reference pages, and whether users have trouble discovering file kinds from
++    prose links alone.
++
++- D-002: How broad the authored-surface inventory in the language reference
++  should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 includes Panta files
++    plus adjacent rhei/file kinds such as root `states.yaml`, `*.rhei.md`,
++    `index.rhei.md` plus `tasks/**/*.md`, and bare rheis; codex[yolo]:openai:gpt-5.5
++    focuses the recommendation on the required Panta surfaces and routes to the
++    existing owner specs for the rest.
++  - Options: Maintain an exhaustive or near-exhaustive plan/project file-kind
++    inventory in the canonical reference; or list the Panta-specific surfaces
++    needed for this decision and rely on owner specs for adjacent rhei details.
++  - Why it matters: A broader inventory makes the reference a stronger user map
++    for all authored files, but creates more synchronization work and may expand
++    the scope beyond the Panta syntax question. A narrower inventory satisfies
++    the point constraints with less churn, but may not fully solve
++    cross-file-kind discoverability.
++  - Evidence needed: Whether `§FS-rhei-language-reference` is intended to be a
++    complete index of all authored file kinds, and whether `states.yaml` and
++    bare-rhei entries belong in the same user-facing syntax surface as
++    `index.panta.md`, `rheis/`, and `inbox/`.
++
++- D-003: Which source should be cited as owning load, id, execution-root, and
++  state-binding mechanics from the language reference.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 cites
++    `§FS-rhei-plan-language`, `§FS-rhei-panta`, and selected architecture or
++    command specs depending on the file-kind row; codex[yolo]:openai:gpt-5.5
++    explicitly routes readers to `§AR-rhei-panta` for load, id, execution-root,
++    and state-binding mechanics.
++  - Options: Keep language-reference owner links primarily at functional-spec
++    sections, with architecture links only where already necessary; or include
++    `§AR-rhei-panta` as a standard destination for mechanics behind Panta
++    syntax.
++  - Why it matters: Functional-spec links are better for user-facing canonical
++    documentation, while architecture links may be needed to fully explain ids,
++    project graph loading, and state binding without duplicating implementation
++    semantics.
++  - Evidence needed: The repo's ownership boundary between functional specs and
++    architecture specs for user documentation, and which existing spec sections
++    currently declare the normative rules for load, ids, execution roots, and
++    state-policy lookup.
++
++- D-004: How concrete the ownership/update rule should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a specific
++    obligation that adding, removing, or renaming any user-authored project or
++    rhei file kind must update the file-kind map in the same change; codex[yolo]:openai:gpt-5.5
++    agrees on update discipline but phrases it more generally for future Panta
++    syntax changes.
++  - Options: Add a precise file-kind-map synchronization rule; or add a broader
++    rule that Panta authoring syntax changes update the canonical reference and
++    owning spec together.
++  - Why it matters: A precise rule is easier to review and validate if the table
++    exists, but may be too narrow if the final reference uses prose or if syntax
++    changes are not file-kind changes. A broader rule fits either rendering but
++    gives reviewers less mechanical guidance.
++  - Evidence needed: The final choice for D-001, and whether validation/review
++    tooling can or should enforce map synchronization for file-kind changes.
++
++## Discussion Prompt
++
++Both proposals agree that the canonical language reference remains the single
++entry point, that Panta syntax must be first-class there, and that exact grammar
++should stay in owning specs. Please address only D-001 through D-004: decide
++whether to add a structured file-kind map or lighter enumeration, decide how
++broad the authored-surface inventory should be, identify the proper owner links
++for load/id/execution/state mechanics, and choose the concrete update rule that
++matches the selected structure.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-language-reference/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Panta syntax in the canonical language reference
+
+## Candidate Solutions
+
+- S-001: Keep one canonical language-reference entry point, and make Panta a
+  first-class part of its plan/project markdown surface. Enumerate
+  `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files,
+  then route readers to the owning normative specs instead of duplicating the
+  grammar.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
+    codex[yolo]:openai:gpt-5.5
+  - Reasons: Gives users one discoverable entry point, satisfies the requirement
+    that Panta-authored files are documented as language surface, and avoids a
+    second grammar source that could drift from validation and execution rules.
+
+- S-002: Implement S-001 as a structured file-kind map organized by container
+  scope: Project/Panta, Rhei, workspace tasks, inbox, and bare rhei. Each entry
+  names the authored surface, gives a one-line role, and cites the single owning
+  spec section.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
+  - Reasons: Makes every user-authored file kind discoverable by name, mirrors
+    the Panta -> rhei -> task load hierarchy, and gives reviewers a concrete
+    map to keep synchronized with future language changes.
+
+- S-003: Implement S-001 as a lighter enumeration in the existing plan/project
+  markdown section, with links to `§FS-rhei-plan-language.1.5`,
+  `§FS-rhei-panta`, and `§AR-rhei-panta`; add a deeper table of contents only
+  if Panta authoring grows larger.
+  - Proposed by: codex[yolo]:openai:gpt-5.5
+  - Reasons: Keeps the canonical reference concise as a routing page while
+    still surfacing the required Panta files and tying ids, execution roots,
+    state binding, defaults, and command behavior to the project graph model.
+
+- S-004: Add an ownership/update rule requiring Panta or plan/project
+  authoring-syntax changes to update the language reference and the owning spec
+  together.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
+    codex[yolo]:openai:gpt-5.5
+  - Reasons: Both proposals identify update discipline as necessary to prevent
+    the canonical entry point from going stale while normative detail remains in
+    specialized specs.
+
+## Agreements
+
+- A-001: The canonical language reference should remain the single discoverable
+  entry point for user-authored plan/project markdown syntax.
+- A-002: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task
+  files must be explicitly named as user-authored language surface.
+- A-003: The canonical reference should not become a self-contained copy of the
+  Panta grammar or create a separate Panta language reference.
+- A-004: Normative detail should remain with owning specs: project layout and
+  grammar in `§FS-rhei-plan-language.1.5`, user-facing Panta behavior in
+  `§FS-rhei-panta`, and implementation/load/id/state-binding mechanics where
+  those are already owned.
+- A-005: Panta authoring is an extension of the plan/project markdown surface,
+  not an independent language.
+- A-006: `rheis/` entries should be described as normal rhei syntax discovered
+  at project scope, and `inbox/` files should be described as ordinary workspace
+  task-file syntax loaded under the synthetic inbox rhei.
+- A-007: Future changes to authored Panta or plan/project file kinds need an
+  explicit update path so the canonical reference does not drift from the owning
+  specs.
+
+## Disagreements
+
+- D-001: Whether the canonical language reference should expose Panta syntax
+  through a structured file-kind map or through a lighter prose/list
+  enumeration.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a scoped
+    file-kind map with layer, authored surface, role, and owner columns;
+    codex[yolo]:openai:gpt-5.5 proposes first-class enumeration and links, with
+    a deeper sub-table of contents only if the surface grows.
+  - Options: Add the full file-kind map now; or keep the current reference
+    compact and enumerate the required Panta surfaces with owner links.
+  - Why it matters: A table is more mechanically discoverable and auditable, but
+    adds editorial weight to a short reference. A lighter entry keeps the page
+    concise, but may leave readers scanning linked specs to understand all file
+    kinds.
+  - Evidence needed: The current style and intended depth of
+    `§FS-rhei-language-reference`, whether tables are preferred in canonical
+    reference pages, and whether users have trouble discovering file kinds from
+    prose links alone.
+
+- D-002: How broad the authored-surface inventory in the language reference
+  should be.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 includes Panta files
+    plus adjacent rhei/file kinds such as root `states.yaml`, `*.rhei.md`,
+    `index.rhei.md` plus `tasks/**/*.md`, and bare rheis; codex[yolo]:openai:gpt-5.5
+    focuses the recommendation on the required Panta surfaces and routes to the
+    existing owner specs for the rest.
+  - Options: Maintain an exhaustive or near-exhaustive plan/project file-kind
+    inventory in the canonical reference; or list the Panta-specific surfaces
+    needed for this decision and rely on owner specs for adjacent rhei details.
+  - Why it matters: A broader inventory makes the reference a stronger user map
+    for all authored files, but creates more synchronization work and may expand
+    the scope beyond the Panta syntax question. A narrower inventory satisfies
+    the point constraints with less churn, but may not fully solve
+    cross-file-kind discoverability.
+  - Evidence needed: Whether `§FS-rhei-language-reference` is intended to be a
+    complete index of all authored file kinds, and whether `states.yaml` and
+    bare-rhei entries belong in the same user-facing syntax surface as
+    `index.panta.md`, `rheis/`, and `inbox/`.
+
+- D-003: Which source should be cited as owning load, id, execution-root, and
+  state-binding mechanics from the language reference.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 cites
+    `§FS-rhei-plan-language`, `§FS-rhei-panta`, and selected architecture or
+    command specs depending on the file-kind row; codex[yolo]:openai:gpt-5.5
+    explicitly routes readers to `§AR-rhei-panta` for load, id, execution-root,
+    and state-binding mechanics.
+  - Options: Keep language-reference owner links primarily at functional-spec
+    sections, with architecture links only where already necessary; or include
+    `§AR-rhei-panta` as a standard destination for mechanics behind Panta
+    syntax.
+  - Why it matters: Functional-spec links are better for user-facing canonical
+    documentation, while architecture links may be needed to fully explain ids,
+    project graph loading, and state binding without duplicating implementation
+    semantics.
+  - Evidence needed: The repo's ownership boundary between functional specs and
+    architecture specs for user documentation, and which existing spec sections
+    currently declare the normative rules for load, ids, execution roots, and
+    state-policy lookup.
+
+- D-004: How concrete the ownership/update rule should be.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a specific
+    obligation that adding, removing, or renaming any user-authored project or
+    rhei file kind must update the file-kind map in the same change; codex[yolo]:openai:gpt-5.5
+    agrees on update discipline but phrases it more generally for future Panta
+    syntax changes.
+  - Options: Add a precise file-kind-map synchronization rule; or add a broader
+    rule that Panta authoring syntax changes update the canonical reference and
+    owning spec together.
+  - Why it matters: A precise rule is easier to review and validate if the table
+    exists, but may be too narrow if the final reference uses prose or if syntax
+    changes are not file-kind changes. A broader rule fits either rendering but
+    gives reviewers less mechanical guidance.
+  - Evidence needed: The final choice for D-001, and whether validation/review
+    tooling can or should enforce map synchronization for file-kind changes.
+
+## Discussion Prompt
+
+Both proposals agree that the canonical language reference remains the single
+entry point, that Panta syntax must be first-class there, and that exact grammar
+should stay in owning specs. Please address only D-001 through D-004: decide
+whether to add a structured file-kind map or lighter enumeration, decide how
+broad the authored-surface inventory should be, identify the proper owner links
+for load/id/execution/state mechanics, and choose the concrete update rule that
+matches the selected structure.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d5c12e7295dc167202a45a8d152a85f718485d3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+@@ -0,0 +1,148 @@
++# Disagreement Map - Resolve Panta syntax in the canonical language reference
++
++## Candidate Solutions
++
++- S-001: Keep one canonical language-reference entry point, and make Panta a
++  first-class part of its plan/project markdown surface. Enumerate
++  `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files,
++  then route readers to the owning normative specs instead of duplicating the
++  grammar.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Gives users one discoverable entry point, satisfies the requirement
++    that Panta-authored files are documented as language surface, and avoids a
++    second grammar source that could drift from validation and execution rules.
++
++- S-002: Implement S-001 as a structured file-kind map organized by container
++  scope: Project/Panta, Rhei, workspace tasks, inbox, and bare rhei. Each entry
++  names the authored surface, gives a one-line role, and cites the single owning
++  spec section.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Makes every user-authored file kind discoverable by name, mirrors
++    the Panta -> rhei -> task load hierarchy, and gives reviewers a concrete
++    map to keep synchronized with future language changes.
++
++- S-003: Implement S-001 as a lighter enumeration in the existing plan/project
++  markdown section, with links to `§FS-rhei-plan-language.1.5`,
++  `§FS-rhei-panta`, and `§AR-rhei-panta`; add a deeper table of contents only
++  if Panta authoring grows larger.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Keeps the canonical reference concise as a routing page while
++    still surfacing the required Panta files and tying ids, execution roots,
++    state binding, defaults, and command behavior to the project graph model.
++
++- S-004: Add an ownership/update rule requiring Panta or plan/project
++  authoring-syntax changes to update the language reference and the owning spec
++  together.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Both proposals identify update discipline as necessary to prevent
++    the canonical entry point from going stale while normative detail remains in
++    specialized specs.
++
++## Agreements
++
++- A-001: The canonical language reference should remain the single discoverable
++  entry point for user-authored plan/project markdown syntax.
++- A-002: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task
++  files must be explicitly named as user-authored language surface.
++- A-003: The canonical reference should not become a self-contained copy of the
++  Panta grammar or create a separate Panta language reference.
++- A-004: Normative detail should remain with owning specs: project layout and
++  grammar in `§FS-rhei-plan-language.1.5`, user-facing Panta behavior in
++  `§FS-rhei-panta`, and implementation/load/id/state-binding mechanics where
++  those are already owned.
++- A-005: Panta authoring is an extension of the plan/project markdown surface,
++  not an independent language.
++- A-006: `rheis/` entries should be described as normal rhei syntax discovered
++  at project scope, and `inbox/` files should be described as ordinary workspace
++  task-file syntax loaded under the synthetic inbox rhei.
++- A-007: Future changes to authored Panta or plan/project file kinds need an
++  explicit update path so the canonical reference does not drift from the owning
++  specs.
++
++## Disagreements
++
++- D-001: Whether the canonical language reference should expose Panta syntax
++  through a structured file-kind map or through a lighter prose/list
++  enumeration.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a scoped
++    file-kind map with layer, authored surface, role, and owner columns;
++    codex[yolo]:openai:gpt-5.5 proposes first-class enumeration and links, with
++    a deeper sub-table of contents only if the surface grows.
++  - Options: Add the full file-kind map now; or keep the current reference
++    compact and enumerate the required Panta surfaces with owner links.
++  - Why it matters: A table is more mechanically discoverable and auditable, but
++    adds editorial weight to a short reference. A lighter entry keeps the page
++    concise, but may leave readers scanning linked specs to understand all file
++    kinds.
++  - Evidence needed: The current style and intended depth of
++    `§FS-rhei-language-reference`, whether tables are preferred in canonical
++    reference pages, and whether users have trouble discovering file kinds from
++    prose links alone.
++
++- D-002: How broad the authored-surface inventory in the language reference
++  should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 includes Panta files
++    plus adjacent rhei/file kinds such as root `states.yaml`, `*.rhei.md`,
++    `index.rhei.md` plus `tasks/**/*.md`, and bare rheis; codex[yolo]:openai:gpt-5.5
++    focuses the recommendation on the required Panta surfaces and routes to the
++    existing owner specs for the rest.
++  - Options: Maintain an exhaustive or near-exhaustive plan/project file-kind
++    inventory in the canonical reference; or list the Panta-specific surfaces
++    needed for this decision and rely on owner specs for adjacent rhei details.
++  - Why it matters: A broader inventory makes the reference a stronger user map
++    for all authored files, but creates more synchronization work and may expand
++    the scope beyond the Panta syntax question. A narrower inventory satisfies
++    the point constraints with less churn, but may not fully solve
++    cross-file-kind discoverability.
++  - Evidence needed: Whether `§FS-rhei-language-reference` is intended to be a
++    complete index of all authored file kinds, and whether `states.yaml` and
++    bare-rhei entries belong in the same user-facing syntax surface as
++    `index.panta.md`, `rheis/`, and `inbox/`.
++
++- D-003: Which source should be cited as owning load, id, execution-root, and
++  state-binding mechanics from the language reference.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 cites
++    `§FS-rhei-plan-language`, `§FS-rhei-panta`, and selected architecture or
++    command specs depending on the file-kind row; codex[yolo]:openai:gpt-5.5
++    explicitly routes readers to `§AR-rhei-panta` for load, id, execution-root,
++    and state-binding mechanics.
++  - Options: Keep language-reference owner links primarily at functional-spec
++    sections, with architecture links only where already necessary; or include
++    `§AR-rhei-panta` as a standard destination for mechanics behind Panta
++    syntax.
++  - Why it matters: Functional-spec links are better for user-facing canonical
++    documentation, while architecture links may be needed to fully explain ids,
++    project graph loading, and state binding without duplicating implementation
++    semantics.
++  - Evidence needed: The repo's ownership boundary between functional specs and
++    architecture specs for user documentation, and which existing spec sections
++    currently declare the normative rules for load, ids, execution roots, and
++    state-policy lookup.
++
++- D-004: How concrete the ownership/update rule should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a specific
++    obligation that adding, removing, or renaming any user-authored project or
++    rhei file kind must update the file-kind map in the same change; codex[yolo]:openai:gpt-5.5
++    agrees on update discipline but phrases it more generally for future Panta
++    syntax changes.
++  - Options: Add a precise file-kind-map synchronization rule; or add a broader
++    rule that Panta authoring syntax changes update the canonical reference and
++    owning spec together.
++  - Why it matters: A precise rule is easier to review and validate if the table
++    exists, but may be too narrow if the final reference uses prose or if syntax
++    changes are not file-kind changes. A broader rule fits either rendering but
++    gives reviewers less mechanical guidance.
++  - Evidence needed: The final choice for D-001, and whether validation/review
++    tooling can or should enforce map synchronization for file-kind changes.
++
++## Discussion Prompt
++
++Both proposals agree that the canonical language reference remains the single
++entry point, that Panta syntax must be first-class there, and that exact grammar
++should stay in owning specs. Please address only D-001 through D-004: decide
++whether to add a structured file-kind map or lighter enumeration, decide how
++broad the authored-surface inventory should be, identify the proper owner links
++for load/id/execution/state mechanics, and choose the concrete update rule that
++matches the selected structure.
+
+exec
+/usr/bin/bash -lc "awk 'length("'$0)>120 { print FNR ":" length($0) ":" $0 }'"' runtime/deliberation/points/point-language-reference/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+diff --git a/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d5c12e7295dc167202a45a8d152a85f718485d3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+@@ -0,0 +1,148 @@
++# Disagreement Map - Resolve Panta syntax in the canonical language reference
++
++## Candidate Solutions
++
++- S-001: Keep one canonical language-reference entry point, and make Panta a
++  first-class part of its plan/project markdown surface. Enumerate
++  `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files,
++  then route readers to the owning normative specs instead of duplicating the
++  grammar.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Gives users one discoverable entry point, satisfies the requirement
++    that Panta-authored files are documented as language surface, and avoids a
++    second grammar source that could drift from validation and execution rules.
++
++- S-002: Implement S-001 as a structured file-kind map organized by container
++  scope: Project/Panta, Rhei, workspace tasks, inbox, and bare rhei. Each entry
++  names the authored surface, gives a one-line role, and cites the single owning
++  spec section.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Makes every user-authored file kind discoverable by name, mirrors
++    the Panta -> rhei -> task load hierarchy, and gives reviewers a concrete
++    map to keep synchronized with future language changes.
++
++- S-003: Implement S-001 as a lighter enumeration in the existing plan/project
++  markdown section, with links to `§FS-rhei-plan-language.1.5`,
++  `§FS-rhei-panta`, and `§AR-rhei-panta`; add a deeper table of contents only
++  if Panta authoring grows larger.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Keeps the canonical reference concise as a routing page while
++    still surfacing the required Panta files and tying ids, execution roots,
++    state binding, defaults, and command behavior to the project graph model.
++
++- S-004: Add an ownership/update rule requiring Panta or plan/project
++  authoring-syntax changes to update the language reference and the owning spec
++  together.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Both proposals identify update discipline as necessary to prevent
++    the canonical entry point from going stale while normative detail remains in
++    specialized specs.
++
++## Agreements
++
++- A-001: The canonical language reference should remain the single discoverable
++  entry point for user-authored plan/project markdown syntax.
++- A-002: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task
++  files must be explicitly named as user-authored language surface.
++- A-003: The canonical reference should not become a self-contained copy of the
++  Panta grammar or create a separate Panta language reference.
++- A-004: Normative detail should remain with owning specs: project layout and
++  grammar in `§FS-rhei-plan-language.1.5`, user-facing Panta behavior in
++  `§FS-rhei-panta`, and implementation/load/id/state-binding mechanics where
++  those are already owned.
++- A-005: Panta authoring is an extension of the plan/project markdown surface,
++  not an independent language.
++- A-006: `rheis/` entries should be described as normal rhei syntax discovered
++  at project scope, and `inbox/` files should be described as ordinary workspace
++  task-file syntax loaded under the synthetic inbox rhei.
++- A-007: Future changes to authored Panta or plan/project file kinds need an
++  explicit update path so the canonical reference does not drift from the owning
++  specs.
++
++## Disagreements
++
++- D-001: Whether the canonical language reference should expose Panta syntax
++  through a structured file-kind map or through a lighter prose/list
++  enumeration.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a scoped
++    file-kind map with layer, authored surface, role, and owner columns;
++    codex[yolo]:openai:gpt-5.5 proposes first-class enumeration and links, with
++    a deeper sub-table of contents only if the surface grows.
++  - Options: Add the full file-kind map now; or keep the current reference
++    compact and enumerate the required Panta surfaces with owner links.
++  - Why it matters: A table is more mechanically discoverable and auditable, but
++    adds editorial weight to a short reference. A lighter entry keeps the page
++    concise, but may leave readers scanning linked specs to understand all file
++    kinds.
++  - Evidence needed: The current style and intended depth of
++    `§FS-rhei-language-reference`, whether tables are preferred in canonical
++    reference pages, and whether users have trouble discovering file kinds from
++    prose links alone.
++
++- D-002: How broad the authored-surface inventory in the language reference
++  should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 includes Panta files
++    plus adjacent rhei/file kinds such as root `states.yaml`, `*.rhei.md`,
++    `index.rhei.md` plus `tasks/**/*.md`, and bare rheis; codex[yolo]:openai:gpt-5.5
++    focuses the recommendation on the required Panta surfaces and routes to the
++    existing owner specs for the rest.
++  - Options: Maintain an exhaustive or near-exhaustive plan/project file-kind
++    inventory in the canonical reference; or list the Panta-specific surfaces
++    needed for this decision and rely on owner specs for adjacent rhei details.
++  - Why it matters: A broader inventory makes the reference a stronger user map
++    for all authored files, but creates more synchronization work and may expand
++    the scope beyond the Panta syntax question. A narrower inventory satisfies
++    the point constraints with less churn, but may not fully solve
++    cross-file-kind discoverability.
++  - Evidence needed: Whether `§FS-rhei-language-reference` is intended to be a
++    complete index of all authored file kinds, and whether `states.yaml` and
++    bare-rhei entries belong in the same user-facing syntax surface as
++    `index.panta.md`, `rheis/`, and `inbox/`.
++
++- D-003: Which source should be cited as owning load, id, execution-root, and
++  state-binding mechanics from the language reference.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 cites
++    `§FS-rhei-plan-language`, `§FS-rhei-panta`, and selected architecture or
++    command specs depending on the file-kind row; codex[yolo]:openai:gpt-5.5
++    explicitly routes readers to `§AR-rhei-panta` for load, id, execution-root,
++    and state-binding mechanics.
++  - Options: Keep language-reference owner links primarily at functional-spec
++    sections, with architecture links only where already necessary; or include
++    `§AR-rhei-panta` as a standard destination for mechanics behind Panta
++    syntax.
++  - Why it matters: Functional-spec links are better for user-facing canonical
++    documentation, while architecture links may be needed to fully explain ids,
++    project graph loading, and state binding without duplicating implementation
++    semantics.
++  - Evidence needed: The repo's ownership boundary between functional specs and
++    architecture specs for user documentation, and which existing spec sections
++    currently declare the normative rules for load, ids, execution roots, and
++    state-policy lookup.
++
++- D-004: How concrete the ownership/update rule should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a specific
++    obligation that adding, removing, or renaming any user-authored project or
++    rhei file kind must update the file-kind map in the same change; codex[yolo]:openai:gpt-5.5
++    agrees on update discipline but phrases it more generally for future Panta
++    syntax changes.
++  - Options: Add a precise file-kind-map synchronization rule; or add a broader
++    rule that Panta authoring syntax changes update the canonical reference and
++    owning spec together.
++  - Why it matters: A precise rule is easier to review and validate if the table
++    exists, but may be too narrow if the final reference uses prose or if syntax
++    changes are not file-kind changes. A broader rule fits either rendering but
++    gives reviewers less mechanical guidance.
++  - Evidence needed: The final choice for D-001, and whether validation/review
++    tooling can or should enforce map synchronization for file-kind changes.
++
++## Discussion Prompt
++
++Both proposals agree that the canonical language reference remains the single
++entry point, that Panta syntax must be first-class there, and that exact grammar
++should stay in owning specs. Please address only D-001 through D-004: decide
++whether to add a structured file-kind map or lighter enumeration, decide how
++broad the authored-surface inventory should be, identify the proper owner links
++for load/id/execution/state mechanics, and choose the concrete update rule that
++matches the selected structure.
+
+codex
+Wrote the disagreement map at [disagreement-map.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md).
+
+It captures the shared single-entry-point recommendation, the structured-map vs lighter-enumeration split, scope/owner-link disagreements, and a targeted discussion prompt. No state transitions were run.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6d5c12e7295dc167202a45a8d152a85f718485d3
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md
+@@ -0,0 +1,148 @@
++# Disagreement Map - Resolve Panta syntax in the canonical language reference
++
++## Candidate Solutions
++
++- S-001: Keep one canonical language-reference entry point, and make Panta a
++  first-class part of its plan/project markdown surface. Enumerate
++  `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files,
++  then route readers to the owning normative specs instead of duplicating the
++  grammar.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Gives users one discoverable entry point, satisfies the requirement
++    that Panta-authored files are documented as language surface, and avoids a
++    second grammar source that could drift from validation and execution rules.
++
++- S-002: Implement S-001 as a structured file-kind map organized by container
++  scope: Project/Panta, Rhei, workspace tasks, inbox, and bare rhei. Each entry
++  names the authored surface, gives a one-line role, and cites the single owning
++  spec section.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
++  - Reasons: Makes every user-authored file kind discoverable by name, mirrors
++    the Panta -> rhei -> task load hierarchy, and gives reviewers a concrete
++    map to keep synchronized with future language changes.
++
++- S-003: Implement S-001 as a lighter enumeration in the existing plan/project
++  markdown section, with links to `§FS-rhei-plan-language.1.5`,
++  `§FS-rhei-panta`, and `§AR-rhei-panta`; add a deeper table of contents only
++  if Panta authoring grows larger.
++  - Proposed by: codex[yolo]:openai:gpt-5.5
++  - Reasons: Keeps the canonical reference concise as a routing page while
++    still surfacing the required Panta files and tying ids, execution roots,
++    state binding, defaults, and command behavior to the project graph model.
++
++- S-004: Add an ownership/update rule requiring Panta or plan/project
++  authoring-syntax changes to update the language reference and the owning spec
++  together.
++  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
++    codex[yolo]:openai:gpt-5.5
++  - Reasons: Both proposals identify update discipline as necessary to prevent
++    the canonical entry point from going stale while normative detail remains in
++    specialized specs.
++
++## Agreements
++
++- A-001: The canonical language reference should remain the single discoverable
++  entry point for user-authored plan/project markdown syntax.
++- A-002: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task
++  files must be explicitly named as user-authored language surface.
++- A-003: The canonical reference should not become a self-contained copy of the
++  Panta grammar or create a separate Panta language reference.
++- A-004: Normative detail should remain with owning specs: project layout and
++  grammar in `§FS-rhei-plan-language.1.5`, user-facing Panta behavior in
++  `§FS-rhei-panta`, and implementation/load/id/state-binding mechanics where
++  those are already owned.
++- A-005: Panta authoring is an extension of the plan/project markdown surface,
++  not an independent language.
++- A-006: `rheis/` entries should be described as normal rhei syntax discovered
++  at project scope, and `inbox/` files should be described as ordinary workspace
++  task-file syntax loaded under the synthetic inbox rhei.
++- A-007: Future changes to authored Panta or plan/project file kinds need an
++  explicit update path so the canonical reference does not drift from the owning
++  specs.
++
++## Disagreements
++
++- D-001: Whether the canonical language reference should expose Panta syntax
++  through a structured file-kind map or through a lighter prose/list
++  enumeration.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a scoped
++    file-kind map with layer, authored surface, role, and owner columns;
++    codex[yolo]:openai:gpt-5.5 proposes first-class enumeration and links, with
++    a deeper sub-table of contents only if the surface grows.
++  - Options: Add the full file-kind map now; or keep the current reference
++    compact and enumerate the required Panta surfaces with owner links.
++  - Why it matters: A table is more mechanically discoverable and auditable, but
++    adds editorial weight to a short reference. A lighter entry keeps the page
++    concise, but may leave readers scanning linked specs to understand all file
++    kinds.
++  - Evidence needed: The current style and intended depth of
++    `§FS-rhei-language-reference`, whether tables are preferred in canonical
++    reference pages, and whether users have trouble discovering file kinds from
++    prose links alone.
++
++- D-002: How broad the authored-surface inventory in the language reference
++  should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 includes Panta files
++    plus adjacent rhei/file kinds such as root `states.yaml`, `*.rhei.md`,
++    `index.rhei.md` plus `tasks/**/*.md`, and bare rheis; codex[yolo]:openai:gpt-5.5
++    focuses the recommendation on the required Panta surfaces and routes to the
++    existing owner specs for the rest.
++  - Options: Maintain an exhaustive or near-exhaustive plan/project file-kind
++    inventory in the canonical reference; or list the Panta-specific surfaces
++    needed for this decision and rely on owner specs for adjacent rhei details.
++  - Why it matters: A broader inventory makes the reference a stronger user map
++    for all authored files, but creates more synchronization work and may expand
++    the scope beyond the Panta syntax question. A narrower inventory satisfies
++    the point constraints with less churn, but may not fully solve
++    cross-file-kind discoverability.
++  - Evidence needed: Whether `§FS-rhei-language-reference` is intended to be a
++    complete index of all authored file kinds, and whether `states.yaml` and
++    bare-rhei entries belong in the same user-facing syntax surface as
++    `index.panta.md`, `rheis/`, and `inbox/`.
++
++- D-003: Which source should be cited as owning load, id, execution-root, and
++  state-binding mechanics from the language reference.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 cites
++    `§FS-rhei-plan-language`, `§FS-rhei-panta`, and selected architecture or
++    command specs depending on the file-kind row; codex[yolo]:openai:gpt-5.5
++    explicitly routes readers to `§AR-rhei-panta` for load, id, execution-root,
++    and state-binding mechanics.
++  - Options: Keep language-reference owner links primarily at functional-spec
++    sections, with architecture links only where already necessary; or include
++    `§AR-rhei-panta` as a standard destination for mechanics behind Panta
++    syntax.
++  - Why it matters: Functional-spec links are better for user-facing canonical
++    documentation, while architecture links may be needed to fully explain ids,
++    project graph loading, and state binding without duplicating implementation
++    semantics.
++  - Evidence needed: The repo's ownership boundary between functional specs and
++    architecture specs for user documentation, and which existing spec sections
++    currently declare the normative rules for load, ids, execution roots, and
++    state-policy lookup.
++
++- D-004: How concrete the ownership/update rule should be.
++  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 proposes a specific
++    obligation that adding, removing, or renaming any user-authored project or
++    rhei file kind must update the file-kind map in the same change; codex[yolo]:openai:gpt-5.5
++    agrees on update discipline but phrases it more generally for future Panta
++    syntax changes.
++  - Options: Add a precise file-kind-map synchronization rule; or add a broader
++    rule that Panta authoring syntax changes update the canonical reference and
++    owning spec together.
++  - Why it matters: A precise rule is easier to review and validate if the table
++    exists, but may be too narrow if the final reference uses prose or if syntax
++    changes are not file-kind changes. A broader rule fits either rendering but
++    gives reviewers less mechanical guidance.
++  - Evidence needed: The final choice for D-001, and whether validation/review
++    tooling can or should enforce map synchronization for file-kind changes.
++
++## Discussion Prompt
++
++Both proposals agree that the canonical language reference remains the single
++entry point, that Panta syntax must be first-class there, and that exact grammar
++should stay in owning specs. Please address only D-001 through D-004: decide
++whether to add a structured file-kind map or lighter enumeration, decide how
++broad the authored-surface inventory should be, identify the proper owner links
++for load/id/execution/state mechanics, and choose the concrete update rule that
++matches the selected structure.
+
+Wrote the disagreement map at [disagreement-map.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-language-reference/disagreement-map.md).
+
+It captures the shared single-entry-point recommendation, the structured-map vs lighter-enumeration split, scope/owner-link disagreements, and a targeted discussion prompt. No state transitions were run.
+tokens used
+28,988
+
+=== exit ===
+code: 0
+duration: 49s
+ended: 2026-06-01T08:25:20Z
+===

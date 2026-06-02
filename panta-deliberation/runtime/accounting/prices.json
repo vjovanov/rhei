@@ -1,0 +1,17 @@
+{
+  "schema": "rhei.accounting.prices.v1",
+  "price_book_id": "builtin-2026-05-20",
+  "currency": "USD",
+  "entries": [
+    {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "effective_at": "2026-05-20T00:00:00Z",
+      "unit": "1m_tokens",
+      "input_total_micro": 3000000,
+      "input_cached_read_micro": 300000,
+      "input_cache_write_micro": 3750000,
+      "output_total_micro": 15000000
+    }
+  ]
+}

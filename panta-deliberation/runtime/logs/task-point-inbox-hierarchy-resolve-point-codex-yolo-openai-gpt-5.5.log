@@ -1,0 +1,893 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-inbox-hierarchy
+state: resolve-point
+started: 2026-06-01T08:21:18Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8245-e132-7473-b775-2d462c0f4547
+--------
+user
+# Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
+
+## State: resolve-point
+
+You are the point resolver. Choose the solution that best fits the
+evidence and constraints. Do not vote-count blindly; explain why the
+chosen solution is stronger.
+
+## Instructions
+
+Resolve Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy.
+
+Read `runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md` and every discussion response.
+Write `runtime/deliberation/points/point-inbox-hierarchy/point-decision.md` with:
+
+# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
+
+- Chosen solution: <one solution>
+- Why chosen: <short evidence-based reason>
+- Alternatives considered: <other viable solutions and why not chosen>
+- Remaining uncertainty: <none, or what a human should know>
+- Effect on final solution: <how this point constrains the final answer>
+
+## Task Content
+
+Resolve how inbox tickets fit into the Panta hierarchy without merging this
+with dependency readiness or documentation decisions.
+
+Source evidence:
+
+> The current Panta specs must not make tickets direct children of Panta if
+> the plan-language hierarchy says level-1 children under Panta are rheis and
+> tickets are level 2 or deeper.
+
+> The model needs clear ids, levels, and state-policy resolution for inbox work.
+
+Question:
+
+How should inbox tickets be identified, leveled, parented, and assigned state
+policy within the Panta hierarchy?
+
+Constraints:
+
+- Level-1 children under Panta must remain rheis if that is what the
+  plan-language hierarchy defines.
+- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
+  Panta.
+- The resolution must define clear ids, hierarchy levels, and state-policy
+  lookup behavior for inbox work.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `resolve-point`:
+- resolve-point -> completed
+- resolve-point -> cancelled
+
+codex
+I’ll read the disagreement map and the response files first, then write the point decision in the required format without changing the Rhei state metadata.
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Inbox ticket placement in the Panta hierarchy
+
+## Candidate Solutions
+
+- S-001: Model the project inbox as a reserved synthetic level-1 rhei with id
+  `inbox`; model all inbox tickets as ordinary ticket/task nodes at level 2 or
+  deeper under that rhei, with project ids like `inbox.<local-id>` and parents
+  resolved to either the synthetic inbox rhei or an authored parent ticket.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
+    codex[yolo]:openai:gpt-5.5
+  - Reasons: Preserves the Panta -> rhei -> ticket hierarchy, avoids making
+    tickets direct children of Panta, reuses the normal `<rhei>.<local>` id
+    shape, and lets inbox work use the same validation, execution, artifact,
+    dependency, and state-policy paths as ordinary rhei work.
+
+## Agreements
+
+- A-001: Panta remains level 0; level-1 children under Panta remain rheis; inbox
+  tickets are never direct children of Panta.
+- A-002: The inbox should be represented as a level-1 rhei-like node with the
+  reserved id `inbox`.
+- A-003: Inbox ticket ids should be project-scoped through the inbox rhei, such
+  as `inbox.3` and `inbox.3.1`, instead of using a flat Panta-level ticket id.
+- A-004: Top-level inbox tickets have the synthetic inbox rhei as their parent;
+  nested inbox tickets have their authored parent ticket.
+- A-005: The inbox rhei may be synthetic and need not have an authored
+  `index.rhei.md`; inbox tickets are authored in normal task/ticket format under
+  an optional `inbox/` workspace area.
+- A-006: Inbox tickets should inherit or resolve state policy through the same
+  machinery used by ordinary rhei tickets, rather than through a separate inbox
+  policy tier.
+
+## Disagreements
+
+- D-001: Whether `inbox` is an unconditional reserved rhei id or reserved only
+  when project inbox capture is present.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 requires `inbox` to be
+    a reserved rhei id and treats `rheis/inbox` as a load-time error; codex[yolo]
+    says users cannot create a domain rhei named `inbox` while the project inbox
+    exists, leaving the no-inbox case less explicit.
+  - Options: Always reserve `inbox` at the project rhei-id level; reserve
+    `inbox` only when an inbox feature or `inbox/` directory is active.
+  - Why it matters: This determines whether existing or future domain rheis can
+    be named `inbox` in projects that do not use quick capture, and where
+    validation must report collisions.
+  - Evidence needed: The intended reserved-id rules for Panta/rhei ids, whether
+    optional features may reserve ids even when unused, and any compatibility
+    requirement for existing projects with a normal rhei named `inbox`.
+
+- D-002: How much state-policy behavior belongs in this hierarchy resolution.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 gives a full lookup rule
+    for inbox tickets: inherit the Panta default or built-in fallback, then apply
+    `node_policy.overrides -> node_policy.by_type[<kind>] -> node_policy.default`,
+    while treating the synthetic inbox rhei as a structural rollup with no
+    stored state. codex[yolo]:openai:gpt-5.5 agrees with inheritance in
+    principle but leaves rejection possible if the final state-policy decision
+    rejects inheritance from `index.panta.md` for synthetic rheis.
+  - Options: Normatively define the complete inherited ticket policy lookup here;
+    define only that inbox tickets use ordinary rhei-ticket lookup and defer
+    exact precedence/fallback behavior to the state-machine-resolution point.
+  - Why it matters: The task requires clear state-policy lookup behavior for
+    inbox work, but over-specifying precedence here could conflict with the
+    separate state-machine-resolution decision.
+  - Evidence needed: The current or accepted state-machine-resolution rule,
+    whether synthetic rheis without `index.rhei.md` may inherit `index.panta.md`,
+    and whether structural rhei nodes are expected to have claimable/stored
+    state.
+
+- D-003: Whether moving an inbox ticket into a domain rhei necessarily changes
+  its project id.
+  - Agents: codex[yolo]:openai:gpt-5.5 explicitly treats filing an inbox ticket
+    into a domain rhei as a reparenting/id-change operation; claude-code[yolo]
+    implies this through the `inbox.<local-id>` id scheme but does not make
+    promotion semantics part of the recommendation.
+  - Options: State that promotion from inbox to a domain rhei changes the
+    project id from `inbox.<local-id>` to `<target-rhei>.<local-id>`; leave
+    promotion/id stability out of this point and handle it in a separate
+    filing/refactoring decision.
+  - Why it matters: Stable external references, dependencies, artifacts, logs,
+    and operator expectations may depend on whether inbox ids are permanent or
+    temporary capture ids.
+  - Evidence needed: Existing id stability requirements, dependency/reference
+    rewrite behavior, and whether inbox filing is considered a hierarchy move or
+    a separate migration workflow.
+
+## Discussion Prompt
+
+Both proposals converge on S-001: inbox is a synthetic level-1 rhei named
+`inbox`, and inbox tickets are normal level-2-or-deeper ticket nodes under it.
+Please address only D-001 through D-003: decide whether `inbox` is always
+reserved or conditionally reserved, define the exact state-policy lookup without
+conflicting with the state-machine-resolution point, and decide whether inbox
+promotion must be specified here as an id-changing move. Converge where possible
+and identify any evidence that still blocks a final resolution.
+
+exec
+/usr/bin/bash -lc 'pwd && rg --files runtime/deliberation/points/point-inbox-hierarchy' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/panta-deliberation
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md
+runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+
+codex
+The map shows both proposals already converge on the core hierarchy. I’m reading the proposal and discussion files now to resolve only the three remaining points.
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Response - codex[yolo]:openai:gpt-5.5
+
+- Changed position: yes. I now support treating `inbox` as an unconditional
+  reserved project rhei id, not only as unavailable while an `inbox/` capture
+  directory exists. I also agree the state-policy behavior can be stated more
+  concretely here, provided this point references the ordinary state-machine
+  resolution rule instead of creating a second inbox-specific precedence table.
+- Remaining disagreements: D-003 only, and only as a boundary question. This
+  point should define the canonical id while a ticket is in the inbox, but the
+  filing workflow, reference rewrites, artifact migration, and external id
+  stability guarantees belong in a separate promotion/refactoring decision.
+  D-001 and D-002 should be resolved by this recommendation.
+- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
+  original wording left the no-inbox case too vague. Conditional reservation
+  makes validation depend on whether a feature is currently present, which is
+  a weak rule for a language-level namespace. They are also right that the
+  synthetic inbox rhei should be a structural rollup with no stored state, and
+  that tickets beneath it should use the same `node_policy.overrides ->
+  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
+  ordinary rhei tickets.
+- Final recommendation for this point: adopt S-001 with these clarifications.
+  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
+  domain rhei with id `inbox` under `rheis/` is a validation/load error even
+  when no `inbox/` directory is present. The synthetic inbox rhei is only
+  materialized when project inbox content exists, has parent Panta, has level 1,
+  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
+  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
+  nested inbox tickets have their authored parent ticket, deeper levels, and
+  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+  omitted: first bind the effective state machine using the state-machine
+  resolution rule for such rheis, then resolve the ticket profile with
+  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
+  `node_policy.default`. No separate inbox policy tier is introduced.
+- Reason: This handles D-001 by making the namespace stable and easy to
+  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
+  changes legality when quick capture appears. It handles D-002 by giving inbox
+  work a clear lookup rule while still delegating the generic precedence between
+  rhei-local declarations, Panta defaults, and built-in fallback to the
+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+  invariant from filing semantics: while a ticket is under the inbox its
+  canonical project id is `inbox.<local-id>`; if another decision defines
+  promotion as a move into a domain rhei, the normal namespaced-id model implies
+  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
+  decide reference-rewrite or id-alias guarantees.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Recommendation: Model the inbox as a **synthetic level-1 rhei** with the
+  reserved id `inbox`, materialized from an optional project-root `inbox/`
+  directory. Inbox tickets are ordinary `task`-kind nodes at level 2..N inside
+  that synthetic rhei.
+
+  Concretely:
+
+  - **Hierarchy / level.** `inbox` is a level-1 child of the virtual Panta root,
+    exactly like every other rhei. Inbox tickets are level 2 at minimum and may
+    nest to the inbox rhei's `structure.maxLevels`. Tickets are never direct
+    children of Panta.
+  - **Id.** The rhei id is the reserved name `inbox` (single segment). A ticket
+    authored in `inbox/<file>.md` as rhei-local id `3` has project-wide id
+    `inbox.3`; nested children extend it (`inbox.3.1`). `inbox` may not appear
+    as a discovered rhei under `rheis/` — that is a load-time error, not silent
+    shadowing.
+  - **Parent.** The synthetic `inbox` rhei's parent is the Panta virtual root.
+    Inbox tickets' parent is the synthetic `inbox` rhei (for top-level inbox
+    tickets) or their authored parent ticket (for nested ones). The Panta root
+    has no ticket children, ever.
+  - **State-policy resolution.** Because the synthetic inbox rhei has no
+    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+    therefore inherits the Panta-level default state-machine declaration from
+    `index.panta.md` (or the built-in fallback if neither is declared —
+    resolution order itself is point-state-machine-resolution's concern). Inbox
+    tickets then resolve their per-node policy through that inherited machine's
+    `node_policy.overrides → node_policy.by_type[<kind>] → node_policy.default`,
+    exactly as tickets in any other rhei do. The synthetic rhei node itself is
+    a pure structural rollup with no stored state — it has no `node_policy.rhei`
+    profile, so nothing tries to claim or transition it.
+
+- Reasons:
+  - **Preserves the single hierarchy invariant.** Panta → rhei → ticket holds
+    without an exception. Every cross-cutting tool (`rhei validate`, `rhei
+    list`, `rhei viz`, `rhei run`, `rhei complete`, readiness scans) keeps one
+    code path, because the inbox is "just another rhei" at the graph level.
+  - **Reuses existing id rules.** `inbox.3` follows the same `<rhei>.<local>`
+    pattern as `auth.1`. Readers, parsers, and authors learn one rule. No new
+    id syntax, no second namespace.
+  - **No new state-policy tier.** State-policy resolution for inbox tickets is
+    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+    every other rhei without an authored machine already follows. Adding the
+    inbox does not require a new `node_policy` key or a special case in the
+    resolver.
+  - **Confirms (and locks in) the cleanest reading of the existing spec.**
+    §AR-rhei-panta.2 step 3 and §FS-rhei-plan-language.1.5 item 3 already
+    describe a synthetic inbox rhei; the open issue is that the load rule,
+    id rule, and state-policy rule must be stated together as a single
+    normative paragraph so future spec edits can't drift them apart.
+  - **Optional and zero-cost when unused.** Projects that don't want loose
+    capture simply omit the `inbox/` directory; nothing is synthesized and the
+    user is never shown an empty `inbox` rhei.
+
+- Tradeoffs:
+  - **`inbox` becomes a reserved rhei id** alongside the reserved kinds `panta`
+    and `rhei`. Any project that already names a domain rhei `inbox` would
+    have to rename it. Mitigation: enforce as a `rhei validate` error with a
+    clear message at the rhei-id stage, before any cross-rhei merge.
+  - **Synthetic-but-visible node.** The inbox is "invisible on disk" (no
+    `index.rhei.md`) but visible in listings, viz, and ids. Operators must
+    learn that one rhei has no manifest file. Mitigation: list and viz surface
+    it identically to authored rheis so the distinction lives only at the load
+    layer.
+  - **Inbox cannot override `**States:**` locally.** Because there is no
+    authored manifest, an inbox ticket cannot run under a different state
+    machine than the Panta default without first being moved into a real rhei.
+    Acceptable for "loose capture" semantics; if a ticket grows up, the
+    operator promotes it.
+  - **Two-segment id at the CLI surface.** Quick captures still produce ids
+    like `inbox.3` rather than bare `3`. Slightly more verbose than a
+    Panta-direct ticket would be; offset by the consistency win.
+
+- Assumptions:
+  - The plan-language hierarchy invariant "level-1 children under Panta are
+    rheis" is non-negotiable (per the task constraints).
+  - `node_policy.rhei` remains optional; structural-rollup rheis (including
+    the synthetic inbox) are valid without a declared rhei profile.
+  - The Panta default-state-machine declaration in `index.panta.md` is a
+    feature the project will keep (the precedence order is decided by
+    [[point-state-machine-resolution]], not here).
+  - Cross-rhei readiness is decided in
+    [[point-cross-rhei-readiness]]; this proposal does not depend on its
+    outcome — inbox tickets follow whatever rule applies to all tickets.
+  - Authors and tools tolerate `inbox.N`-style ids; if not, a CLI affordance
+    can default-elide the prefix for inbox-scoped commands without changing
+    the model.
+
+- Rejection criteria:
+  - **Drop the "level-1 = rhei" invariant.** If the team decides Panta may
+    legitimately host ticket-kind direct children (a flat, two-level model),
+    this proposal is moot — the inbox would then be a Panta-direct ticket
+    container with a different parenting and id scheme.
+  - **Drop the inbox feature.** If quick-capture without a chosen rhei is cut
+    from v1 (a defensible scope reduction, see P1 in the discussion notes),
+    this proposal does not apply; tickets must always be authored under a
+    named rhei.
+  - **Require an authored `index.rhei.md` for every rhei.** If the team
+    forbids synthetic rheis on uniformity grounds, replace this with either
+    (a) a templated, authored `inbox/index.rhei.md` written by `rhei init`
+    (then the rhei is no longer synthetic, but everything else here still
+    holds), or (b) drop the inbox.
+  - **Adopt a flat global id scheme (P3a).** If project-wide ticket ids are
+    chosen to be globally unique without rhei prefixes, the id segment of
+    this proposal (`inbox.3`) must be rewritten to whatever the global scheme
+    produces; the levelling and parenting arguments still hold.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
+  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
+  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
+  hierarchy level is 2 or deeper.
+- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
+  keeping quick-capture work available without choosing a domain rhei. It also
+  gives inbox work the same identity, validation, dependency, execution-root,
+  and artifact rules as ordinary rhei work instead of creating a special direct
+  child case under Panta.
+- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
+  cannot create a domain rhei with that id while the project inbox exists. The
+  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
+  code must label it as an inbox without treating its tickets differently. Moving
+  a ticket out of the inbox becomes a reparenting/id-change operation from
+  `inbox.<id>` to `<target-rhei>.<id>`.
+- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
+  deeper. The optional `inbox/` directory contains task files authored in the
+  normal workspace-task format. A project-level `**States:**` declaration may be
+  inherited by rheis that omit their own declaration.
+- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
+  project ids after being filed into a domain rhei, if users must be allowed to
+  create a normal rhei named `inbox` alongside project inbox capture, or if the
+  final state-policy decision rejects inheritance from `index.panta.md` for
+  synthetic rheis.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-inbox-hierarchy/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Response - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Changed position: Partial. I keep the core of S-001 (synthetic level-1
+  `inbox` rhei, tickets at level 2..N, ids `inbox.<local>`, structural rollup
+  with no stored rhei state) but tighten three things: I now make D-003's
+  id-change-on-promotion explicit instead of implicit, I narrow D-002 so this
+  point only fixes ticket-level policy lookup and defers state-machine
+  selection to [[point-state-machine-resolution]], and I hold D-001 as
+  unconditional reservation with a sharper justification.
+
+- Remaining disagreements:
+  - D-001 (partially): I still want `inbox` reserved unconditionally; codex's
+    "reserved only while the project inbox exists" remains the alternative.
+    The remaining gap is purely whether reservation is temporal/conditional or
+    static.
+
+- Concessions:
+  - **D-003 — codex is right to make promotion an id-change move, explicitly.**
+    My proposal carried this implicitly via the `<rhei>.<local>` scheme but
+    didn't surface the operator consequence. Codex naming it ("filing an inbox
+    ticket into a domain rhei is a reparenting/id-change from `inbox.<id>` to
+    `<target-rhei>.<id>`") is the clearer framing and I adopt it. It is a
+    direct consequence of A-003 plus the id scheme, not a separate spec — so
+    we state it here as a one-line consequence rather than spinning up a
+    "filing/refactoring decision."
+  - **D-002 — codex is right that my proposal risked over-specifying.** The
+    full precedence chain I wrote (`overrides → by_type → default`) is about
+    *per-node policy lookup once a state machine is selected*, and that is
+    safe to fix here. The selection of *which* state machine the synthetic
+    inbox rhei inherits (Panta-declared vs built-in fallback) is
+    [[point-state-machine-resolution]]'s job; I should not pre-empt it. My
+    original text said as much in a parenthetical — I now make the split a
+    hard line in the recommendation.
+
+- Final recommendation for this point: Adopt S-001 with the following three
+  clarifications written as a single normative paragraph in the spec:
+
+  1. **Reservation (D-001).** `inbox` is an unconditionally reserved rhei id
+     at the project layer, alongside `panta` and `rhei`. A directory
+     `rheis/inbox/` (or any other source that would produce a rhei with id
+     `inbox`) is a load-time error from `rhei validate`, regardless of
+     whether project inbox capture is currently in use. Projects that
+     pre-existed this reservation and contain a rhei named `inbox` must
+     rename it; this is a one-time migration noted in release notes.
+  2. **Ticket-level state-policy lookup (D-002).** Inbox tickets resolve
+     their per-node policy through the ordinary
+     `node_policy.overrides → node_policy.by_type[<kind>] → node_policy.default`
+     chain of the state machine that resolution gives the synthetic inbox
+     rhei. The synthetic inbox rhei itself is a structural rollup: it has no
+     `node_policy.rhei` profile, no stored state, and is never claimable.
+     *Which* state machine the synthetic rhei inherits — Panta-declared vs
+     built-in fallback, and the precedence between them — is decided by
+     [[point-state-machine-resolution]] and intentionally not normatively
+     fixed here.
+  3. **Promotion (D-003).** Moving a ticket from the inbox into a domain
+     rhei is a reparenting operation that changes its project id from
+     `inbox.<local>` to `<target-rhei>.<local>`. Inbox ids are therefore
+     capture-stable, not lifetime-stable; external references (dependencies,
+     artifacts, logs) must follow the rename. Inbox ids are not a permanent
+     external identity for work that gets filed.
+
+- Reason: This converges with codex on every agreement (A-001..A-006) and on
+  S-001's core, while resolving the three tagged disagreements with a clear
+  rule per disagreement:
+  - On **D-001**, unconditional reservation is the simpler invariant. Codex's
+    "reserved while the project inbox exists" couples id validation to a
+    runtime/feature flag, meaning the same project layout can be legal or
+    illegal depending on whether `inbox/` is present elsewhere. That coupling
+    leaks the inbox feature into every rhei-id check and creates a
+    "first-time-you-add-inbox" migration trap when a user later enables
+    capture in a project that already has a domain rhei named `inbox`.
+    Reserving statically pays the cost once (one renamed rhei in legacy
+    projects) and gives the validator one rule instead of a conditional.
+  - On **D-002**, splitting "ticket policy lookup" (fixed here) from "state
+    machine selection for synthetic rheis" (deferred to
+    [[point-state-machine-resolution]]) honors the discussion prompt's
+    constraint that we not conflict with the state-machine-resolution point,
+    while still giving the task its required "clear state-policy lookup
+    behavior for inbox work." Without this split, the two points race; with
+    it, they compose.
+  - On **D-003**, codex's explicit framing matches operator reality: any
+    `<rhei>.<local>` id scheme forces a rename on cross-rhei moves, and
+    pretending otherwise would either require a second global id namespace
+    (contradicting A-003) or silent id rewriting (a bigger surprise than a
+    documented rename). Stating it openly in this point closes the question
+    without spawning a separate filing decision.
+
+codex
+The remaining split is mostly scope, not hierarchy. Both responses now agree on unconditional reservation and ordinary ticket policy lookup; I’m going to choose the explicit id-change consequence while keeping reference-rewrite mechanics out of this point.
+exec
+/usr/bin/bash -lc "test -f runtime/deliberation/points/point-inbox-hierarchy/point-decision.md && sed -n '1,220p' runtime/deliberation/points/point-inbox-hierarchy/point-decision.md || true" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+exec
+/usr/bin/bash -lc 'ls -la runtime/deliberation/points/point-inbox-hierarchy' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+total 24
+drwxrwxr-x 4 vjovanov vjovanov 4096 Jun  1 10:20 .
+drwxrwxr-x 4 vjovanov vjovanov 4096 Jun  1 10:17 ..
+-rw-rw-r-- 1 vjovanov vjovanov 5580 Jun  1 10:19 disagreement-map.md
+drwxrwxr-x 2 vjovanov vjovanov 4096 Jun  1 10:21 discussion
+drwxrwxr-x 2 vjovanov vjovanov 4096 Jun  1 10:19 proposals
+
+codex
+I’m creating the decision file now. The chosen text will lock the hierarchy and id rules, defer only generic state-machine selection and rewrite mechanics, and avoid touching task state lines.
+
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76eb3d2dfdf966c565791f41fa4705ec20312774
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+@@ -0,0 +1,54 @@
++# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
++
++- Chosen solution: Model the project inbox as a reserved synthetic level-1
++  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
++  nodes under that rhei, with project ids such as `inbox.<local-id>` and
++  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
++  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
++  The synthetic inbox rhei is materialized only when inbox content exists, has
++  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
++  always reserved at the project rhei-id level, so any discovered domain rhei
++  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
++  rhei-ticket state-policy lookup: first bind the effective state machine using
++  the generic state-machine resolution rule for a rhei without its own
++  `**States:**` declaration, then resolve the ticket policy through
++  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
++  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
++  reparenting/id-change operation from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
++  migration guarantees remain outside this point.
++- Why chosen: This is stronger than the alternatives because it preserves the
++  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
++  ticket namespace, and reuses the same id, validation, execution, artifact,
++  and state-policy paths as ordinary rhei work. Unconditionally reserving
++  `inbox` gives validation one stable language-level namespace rule instead of
++  making legality depend on whether quick-capture content currently exists.
++  Stating ticket-level policy lookup here gives inbox work clear behavior
++  without conflicting with the separate state-machine-resolution point, because
++  this decision does not choose the generic precedence between Panta defaults
++  and built-in fallbacks. Making promotion an id-changing reparenting
++  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
++  leaving that unstated would hide an operator-visible effect.
++- Alternatives considered: A conditional reservation rule for `inbox` was
++  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
++  feature appears, creating a delayed migration trap and a conditional
++  validation rule. A direct Panta-child inbox ticket model was rejected because
++  it violates the hierarchy constraint that level-1 Panta children are rheis
++  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
++  was rejected because it duplicates ordinary rhei-ticket machinery and risks
++  conflicting with state-machine resolution. Deferring every promotion/id-change
++  implication was rejected because the canonical inbox id is part of this
++  hierarchy decision, but detailed reference rewrites and alias guarantees are
++  left for a promotion/refactoring decision.
++- Remaining uncertainty: The separate state-machine-resolution decision still
++  owns the generic rule for selecting the effective state machine when a rhei,
++  including the synthetic inbox rhei, has no local `**States:**` declaration.
++  A later promotion/refactoring decision should define whether dependencies,
++  artifacts, logs, and external references are rewritten, aliased, or migrated
++  when an inbox ticket is filed into a domain rhei.
++- Effect on final solution: The final answer must treat inbox as a reserved
++  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
++  ids, parents, levels, validation, and state-policy lookup must follow ordinary
++  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
++  filing workflow must account for the fact that moving work out of `inbox`
++  changes its canonical project id.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76eb3d2dfdf966c565791f41fa4705ec20312774
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+@@ -0,0 +1,54 @@
++# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
++
++- Chosen solution: Model the project inbox as a reserved synthetic level-1
++  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
++  nodes under that rhei, with project ids such as `inbox.<local-id>` and
++  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
++  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
++  The synthetic inbox rhei is materialized only when inbox content exists, has
++  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
++  always reserved at the project rhei-id level, so any discovered domain rhei
++  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
++  rhei-ticket state-policy lookup: first bind the effective state machine using
++  the generic state-machine resolution rule for a rhei without its own
++  `**States:**` declaration, then resolve the ticket policy through
++  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
++  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
++  reparenting/id-change operation from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
++  migration guarantees remain outside this point.
++- Why chosen: This is stronger than the alternatives because it preserves the
++  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
++  ticket namespace, and reuses the same id, validation, execution, artifact,
++  and state-policy paths as ordinary rhei work. Unconditionally reserving
++  `inbox` gives validation one stable language-level namespace rule instead of
++  making legality depend on whether quick-capture content currently exists.
++  Stating ticket-level policy lookup here gives inbox work clear behavior
++  without conflicting with the separate state-machine-resolution point, because
++  this decision does not choose the generic precedence between Panta defaults
++  and built-in fallbacks. Making promotion an id-changing reparenting
++  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
++  leaving that unstated would hide an operator-visible effect.
++- Alternatives considered: A conditional reservation rule for `inbox` was
++  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
++  feature appears, creating a delayed migration trap and a conditional
++  validation rule. A direct Panta-child inbox ticket model was rejected because
++  it violates the hierarchy constraint that level-1 Panta children are rheis
++  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
++  was rejected because it duplicates ordinary rhei-ticket machinery and risks
++  conflicting with state-machine resolution. Deferring every promotion/id-change
++  implication was rejected because the canonical inbox id is part of this
++  hierarchy decision, but detailed reference rewrites and alias guarantees are
++  left for a promotion/refactoring decision.
++- Remaining uncertainty: The separate state-machine-resolution decision still
++  owns the generic rule for selecting the effective state machine when a rhei,
++  including the synthetic inbox rhei, has no local `**States:**` declaration.
++  A later promotion/refactoring decision should define whether dependencies,
++  artifacts, logs, and external references are rewritten, aliased, or migrated
++  when an inbox ticket is filed into a domain rhei.
++- Effect on final solution: The final answer must treat inbox as a reserved
++  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
++  ids, parents, levels, validation, and state-policy lookup must follow ordinary
++  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
++  filing workflow must account for the fact that moving work out of `inbox`
++  changes its canonical project id.
+
+codex
+The decision file is written. I’m doing a quick readback to catch formatting or scope mistakes before closing out.
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-inbox-hierarchy/point-decision.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
+
+- Chosen solution: Model the project inbox as a reserved synthetic level-1
+  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
+  nodes under that rhei, with project ids such as `inbox.<local-id>` and
+  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
+  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
+  The synthetic inbox rhei is materialized only when inbox content exists, has
+  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
+  always reserved at the project rhei-id level, so any discovered domain rhei
+  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
+  rhei-ticket state-policy lookup: first bind the effective state machine using
+  the generic state-machine resolution rule for a rhei without its own
+  `**States:**` declaration, then resolve the ticket policy through
+  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
+  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
+  reparenting/id-change operation from `inbox.<local-id>` to
+  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
+  migration guarantees remain outside this point.
+- Why chosen: This is stronger than the alternatives because it preserves the
+  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
+  ticket namespace, and reuses the same id, validation, execution, artifact,
+  and state-policy paths as ordinary rhei work. Unconditionally reserving
+  `inbox` gives validation one stable language-level namespace rule instead of
+  making legality depend on whether quick-capture content currently exists.
+  Stating ticket-level policy lookup here gives inbox work clear behavior
+  without conflicting with the separate state-machine-resolution point, because
+  this decision does not choose the generic precedence between Panta defaults
+  and built-in fallbacks. Making promotion an id-changing reparenting
+  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
+  leaving that unstated would hide an operator-visible effect.
+- Alternatives considered: A conditional reservation rule for `inbox` was
+  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
+  feature appears, creating a delayed migration trap and a conditional
+  validation rule. A direct Panta-child inbox ticket model was rejected because
+  it violates the hierarchy constraint that level-1 Panta children are rheis
+  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
+  was rejected because it duplicates ordinary rhei-ticket machinery and risks
+  conflicting with state-machine resolution. Deferring every promotion/id-change
+  implication was rejected because the canonical inbox id is part of this
+  hierarchy decision, but detailed reference rewrites and alias guarantees are
+  left for a promotion/refactoring decision.
+- Remaining uncertainty: The separate state-machine-resolution decision still
+  owns the generic rule for selecting the effective state machine when a rhei,
+  including the synthetic inbox rhei, has no local `**States:**` declaration.
+  A later promotion/refactoring decision should define whether dependencies,
+  artifacts, logs, and external references are rewritten, aliased, or migrated
+  when an inbox ticket is filed into a domain rhei.
+- Effect on final solution: The final answer must treat inbox as a reserved
+  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
+  ids, parents, levels, validation, and state-policy lookup must follow ordinary
+  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
+  filing workflow must account for the fact that moving work out of `inbox`
+  changes its canonical project id.
+
+exec
+/usr/bin/bash -lc 'git diff -- runtime/deliberation/points/point-inbox-hierarchy/point-decision.md' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76eb3d2dfdf966c565791f41fa4705ec20312774
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+@@ -0,0 +1,54 @@
++# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
++
++- Chosen solution: Model the project inbox as a reserved synthetic level-1
++  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
++  nodes under that rhei, with project ids such as `inbox.<local-id>` and
++  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
++  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
++  The synthetic inbox rhei is materialized only when inbox content exists, has
++  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
++  always reserved at the project rhei-id level, so any discovered domain rhei
++  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
++  rhei-ticket state-policy lookup: first bind the effective state machine using
++  the generic state-machine resolution rule for a rhei without its own
++  `**States:**` declaration, then resolve the ticket policy through
++  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
++  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
++  reparenting/id-change operation from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
++  migration guarantees remain outside this point.
++- Why chosen: This is stronger than the alternatives because it preserves the
++  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
++  ticket namespace, and reuses the same id, validation, execution, artifact,
++  and state-policy paths as ordinary rhei work. Unconditionally reserving
++  `inbox` gives validation one stable language-level namespace rule instead of
++  making legality depend on whether quick-capture content currently exists.
++  Stating ticket-level policy lookup here gives inbox work clear behavior
++  without conflicting with the separate state-machine-resolution point, because
++  this decision does not choose the generic precedence between Panta defaults
++  and built-in fallbacks. Making promotion an id-changing reparenting
++  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
++  leaving that unstated would hide an operator-visible effect.
++- Alternatives considered: A conditional reservation rule for `inbox` was
++  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
++  feature appears, creating a delayed migration trap and a conditional
++  validation rule. A direct Panta-child inbox ticket model was rejected because
++  it violates the hierarchy constraint that level-1 Panta children are rheis
++  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
++  was rejected because it duplicates ordinary rhei-ticket machinery and risks
++  conflicting with state-machine resolution. Deferring every promotion/id-change
++  implication was rejected because the canonical inbox id is part of this
++  hierarchy decision, but detailed reference rewrites and alias guarantees are
++  left for a promotion/refactoring decision.
++- Remaining uncertainty: The separate state-machine-resolution decision still
++  owns the generic rule for selecting the effective state machine when a rhei,
++  including the synthetic inbox rhei, has no local `**States:**` declaration.
++  A later promotion/refactoring decision should define whether dependencies,
++  artifacts, logs, and external references are rewritten, aliased, or migrated
++  when an inbox ticket is filed into a domain rhei.
++- Effect on final solution: The final answer must treat inbox as a reserved
++  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
++  ids, parents, levels, validation, and state-policy lookup must follow ordinary
++  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
++  filing workflow must account for the fact that moving work out of `inbox`
++  changes its canonical project id.
+
+exec
+/usr/bin/bash -lc 'git status --short runtime/deliberation/points/point-inbox-hierarchy/point-decision.md' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+?? runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76eb3d2dfdf966c565791f41fa4705ec20312774
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+@@ -0,0 +1,54 @@
++# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
++
++- Chosen solution: Model the project inbox as a reserved synthetic level-1
++  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
++  nodes under that rhei, with project ids such as `inbox.<local-id>` and
++  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
++  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
++  The synthetic inbox rhei is materialized only when inbox content exists, has
++  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
++  always reserved at the project rhei-id level, so any discovered domain rhei
++  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
++  rhei-ticket state-policy lookup: first bind the effective state machine using
++  the generic state-machine resolution rule for a rhei without its own
++  `**States:**` declaration, then resolve the ticket policy through
++  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
++  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
++  reparenting/id-change operation from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
++  migration guarantees remain outside this point.
++- Why chosen: This is stronger than the alternatives because it preserves the
++  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
++  ticket namespace, and reuses the same id, validation, execution, artifact,
++  and state-policy paths as ordinary rhei work. Unconditionally reserving
++  `inbox` gives validation one stable language-level namespace rule instead of
++  making legality depend on whether quick-capture content currently exists.
++  Stating ticket-level policy lookup here gives inbox work clear behavior
++  without conflicting with the separate state-machine-resolution point, because
++  this decision does not choose the generic precedence between Panta defaults
++  and built-in fallbacks. Making promotion an id-changing reparenting
++  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
++  leaving that unstated would hide an operator-visible effect.
++- Alternatives considered: A conditional reservation rule for `inbox` was
++  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
++  feature appears, creating a delayed migration trap and a conditional
++  validation rule. A direct Panta-child inbox ticket model was rejected because
++  it violates the hierarchy constraint that level-1 Panta children are rheis
++  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
++  was rejected because it duplicates ordinary rhei-ticket machinery and risks
++  conflicting with state-machine resolution. Deferring every promotion/id-change
++  implication was rejected because the canonical inbox id is part of this
++  hierarchy decision, but detailed reference rewrites and alias guarantees are
++  left for a promotion/refactoring decision.
++- Remaining uncertainty: The separate state-machine-resolution decision still
++  owns the generic rule for selecting the effective state machine when a rhei,
++  including the synthetic inbox rhei, has no local `**States:**` declaration.
++  A later promotion/refactoring decision should define whether dependencies,
++  artifacts, logs, and external references are rewritten, aliased, or migrated
++  when an inbox ticket is filed into a domain rhei.
++- Effect on final solution: The final answer must treat inbox as a reserved
++  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
++  ids, parents, levels, validation, and state-policy lookup must follow ordinary
++  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
++  filing workflow must account for the fact that moving work out of `inbox`
++  changes its canonical project id.
+
+codex
+Created [point-decision.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md).
+
+Decision chosen: `inbox` is a reserved synthetic level-1 rhei, inbox tickets are normal level-2+ rhei tickets with `inbox.<local-id>` ids, ordinary ticket state-policy lookup applies, and filing into a domain rhei is an id-changing reparenting consequence while rewrite/alias mechanics remain out of scope.
+
+No Rhei state lines or transitions were modified.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76eb3d2dfdf966c565791f41fa4705ec20312774
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md
+@@ -0,0 +1,54 @@
++# Point Decision - Resolve Inbox ticket placement in the Panta hierarchy
++
++- Chosen solution: Model the project inbox as a reserved synthetic level-1
++  rhei with id `inbox`. Inbox tickets are ordinary level-2-or-deeper ticket
++  nodes under that rhei, with project ids such as `inbox.<local-id>` and
++  `inbox.<local-id>.<child-id>`. Top-level inbox tickets have the synthetic
++  inbox rhei as parent; nested inbox tickets have their authored parent ticket.
++  The synthetic inbox rhei is materialized only when inbox content exists, has
++  no authored `index.rhei.md`, and carries no stored state. The id `inbox` is
++  always reserved at the project rhei-id level, so any discovered domain rhei
++  with id `inbox` is a validation/load error. Inbox tickets use the ordinary
++  rhei-ticket state-policy lookup: first bind the effective state machine using
++  the generic state-machine resolution rule for a rhei without its own
++  `**States:**` declaration, then resolve the ticket policy through
++  `node_policy.overrides`, `node_policy.by_type[<kind>]`, and
++  `node_policy.default`. Moving an inbox ticket into a domain rhei is a
++  reparenting/id-change operation from `inbox.<local-id>` to
++  `<target-rhei>.<local-id>`, while reference rewrite, alias, and artifact
++  migration guarantees remain outside this point.
++- Why chosen: This is stronger than the alternatives because it preserves the
++  non-negotiable Panta -> rhei -> ticket hierarchy, avoids a special Panta-level
++  ticket namespace, and reuses the same id, validation, execution, artifact,
++  and state-policy paths as ordinary rhei work. Unconditionally reserving
++  `inbox` gives validation one stable language-level namespace rule instead of
++  making legality depend on whether quick-capture content currently exists.
++  Stating ticket-level policy lookup here gives inbox work clear behavior
++  without conflicting with the separate state-machine-resolution point, because
++  this decision does not choose the generic precedence between Panta defaults
++  and built-in fallbacks. Making promotion an id-changing reparenting
++  consequence is the honest result of the chosen `<rhei>.<local>` id scheme;
++  leaving that unstated would hide an operator-visible effect.
++- Alternatives considered: A conditional reservation rule for `inbox` was
++  viable but weaker: it would allow a domain rhei named `inbox` until the inbox
++  feature appears, creating a delayed migration trap and a conditional
++  validation rule. A direct Panta-child inbox ticket model was rejected because
++  it violates the hierarchy constraint that level-1 Panta children are rheis
++  and tickets are level 2 or deeper. A separate inbox-specific state-policy tier
++  was rejected because it duplicates ordinary rhei-ticket machinery and risks
++  conflicting with state-machine resolution. Deferring every promotion/id-change
++  implication was rejected because the canonical inbox id is part of this
++  hierarchy decision, but detailed reference rewrites and alias guarantees are
++  left for a promotion/refactoring decision.
++- Remaining uncertainty: The separate state-machine-resolution decision still
++  owns the generic rule for selecting the effective state machine when a rhei,
++  including the synthetic inbox rhei, has no local `**States:**` declaration.
++  A later promotion/refactoring decision should define whether dependencies,
++  artifacts, logs, and external references are rewritten, aliased, or migrated
++  when an inbox ticket is filed into a domain rhei.
++- Effect on final solution: The final answer must treat inbox as a reserved
++  synthetic level-1 rhei, never as a direct Panta ticket container. Inbox ticket
++  ids, parents, levels, validation, and state-policy lookup must follow ordinary
++  rhei-ticket rules, with no separate inbox namespace or policy tier. Any
++  filing workflow must account for the fact that moving work out of `inbox`
++  changes its canonical project id.
+
+Created [point-decision.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/point-decision.md).
+
+Decision chosen: `inbox` is a reserved synthetic level-1 rhei, inbox tickets are normal level-2+ rhei tickets with `inbox.<local-id>` ids, ordinary ticket state-policy lookup applies, and filing into a domain rhei is an id-changing reparenting consequence while rewrite/alias mechanics remain out of scope.
+
+No Rhei state lines or transitions were modified.
+tokens used
+13,782
+
+=== exit ===
+code: 0
+duration: 34s
+ended: 2026-06-01T08:21:52Z
+===

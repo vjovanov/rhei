@@ -1,0 +1,96 @@
+{
+  "direct": {
+    "cost_micro": null,
+    "coverage": "none",
+    "currency": null,
+    "input_cache_write": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "input_cached_read": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "input_total": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unknown",
+      "value": null
+    },
+    "invocation_count": 1,
+    "measured_invocation_count": 0,
+    "missing_invocation_count": 1,
+    "output_cache_write": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "output_cached_read": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "output_total": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unknown",
+      "value": null
+    },
+    "priced_cost_micro": null,
+    "pricing_status": "not-applicable"
+  },
+  "schema": "rhei.accounting.task.v1",
+  "subtree": {
+    "cost_micro": null,
+    "coverage": "none",
+    "currency": null,
+    "input_cache_write": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "input_cached_read": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "input_total": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unknown",
+      "value": null
+    },
+    "invocation_count": 1,
+    "measured_invocation_count": 0,
+    "missing_invocation_count": 1,
+    "output_cache_write": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "output_cached_read": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unsupported",
+      "value": null
+    },
+    "output_total": {
+      "measured_count": 0,
+      "missing_count": 1,
+      "status": "unknown",
+      "value": null
+    },
+    "priced_cost_micro": null,
+    "pricing_status": "not-applicable"
+  },
+  "task_id": "split"
+}

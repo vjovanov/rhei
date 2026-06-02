@@ -90,6 +90,12 @@ old notes are historical; this roadmap owns the remaining backlog.
   route state, assignee, result, runtime, and artifact rewrites to each owning
   rhei; resolve per-rhei state machines during execution; and replace the
   current mutating-command rejection with scoped project execution. §FS-rhei-panta §AR-rhei-panta
+- Validate child-rhei content-section links under Panta: carry a per-section
+  link base so a rhei's own content sections resolve against that rhei's
+  execution root, not the project root. Today only task-content links are
+  checked per rhei; rhei-level content sections are dropped at merge. §FS-rhei-plan-language.3.6 §AR-rhei-panta.5
+- Treat a bare rhei as the single rhei of an implicit Panta so every load path
+  yields a Panta-rooted graph, matching the target load model. §AR-rhei-panta
 - Make failed `rhei complete` attempts from loop states explain the exact
   blocked transition condition and the currently available next transitions. §FS-rhei-complete §FS-rhei-transitions
 - Decide and normalize `rhei transition` result-file behavior: either stop
@@ -108,6 +114,37 @@ old notes are historical; this roadmap owns the remaining backlog.
   fields, reword built-in validation source labels, clarify live template
   variables versus prose in state instructions, and decide whether rendered
   JSON should keep or flatten `metadata.metadata`. §FS-rhei-next §FS-rhei-validate §FS-rhei-states §FS-rhei-render
+
+## Planned: Relocatable Rhei Root and Cross-Worktree Coordination
+
+Status: planned. Today the coordination signal — a task's claim, `**State:**`,
+and the transition that rewrites it — lives inside the working-tree task file,
+so parallel agents in separate git worktrees can only observe each other's
+progress by committing the rhei. This blocks the common multi-agent setup where
+users want live coordination but do not want plan state in git history. The work
+below decouples the rhei root from the working tree so worktrees on one machine
+share live state through the filesystem rather than through commits. §DA-panta-root §AR-rhei-panta §GOAL-rhei-outcomes
+
+- Make the rhei root relocatable with an explicit resolution order: `--rhei-root`
+  flag, then `RHEI_ROOT` environment variable, then the shared git common
+  directory (`$(git rev-parse --git-common-dir)/rhei/`) when inside a repository,
+  then the in-tree default. The common-dir default lets every linked worktree of
+  one repository read and write the same runtime state without that state ever
+  entering a commit. §AR-rhei-panta §FS-rhei-panta
+- Split the authored plan from runtime state: keep task bodies, `**Prior:**`, and
+  descriptions as the versioned "what," and move claims, current state, and the
+  event log into a side store keyed by node id under the relocatable root. This
+  lets users commit the plan while keeping live status uncommitted, instead of
+  forcing both into the same file. §FS-rhei-plan-language §AR-rhei-panta
+- Confirm the concurrency primitive on a shared store: Directory Workspace
+  per-task sharding plus `rhei transition` CAS already make parallel claims safe
+  on a shared local filesystem; document that contract and add a lock check where
+  filesystem atomicity weakens, such as NFS. §FS-rhei-plan-language §DA-panta-root
+- Specify the single-machine versus cross-machine boundary explicitly:
+  same-machine worktrees coordinate through the shared filesystem with no
+  commits, while coordination across machines without committing requires an
+  out-of-band transport — a shared filesystem or a small sync server — the same
+  constraint every on-disk tracker faces. §DA-panta-root §GOAL-rhei-outcomes
 
 ## Planned: Dashboard and Monitoring Follow-Ups
 

@@ -1,0 +1,42 @@
+{
+  "schema": "rhei.accounting.invocation.v1",
+  "invocation_id": "point-cross-rhei-readiness::propose-solutions::codex-yolo-openai-gpt-5.5::visit-1",
+  "task_id": "point-cross-rhei-readiness",
+  "state": "propose-solutions",
+  "visit": 1,
+  "target_slug": "codex-yolo-openai-gpt-5.5",
+  "agent": "codex",
+  "provider": "openai",
+  "model": "gpt-5.5",
+  "started_at": "2026-06-01T08:16:59Z",
+  "ended_at": "2026-06-01T08:17:30Z",
+  "extraction_status": "no-usage-emitted",
+  "scope": "aggregate-agent-process",
+  "tokens": {
+    "input": {
+      "total": {
+        "status": "unknown"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    },
+    "output": {
+      "total": {
+        "status": "unknown"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    }
+  },
+  "pricing": {
+    "status": "not-applicable"
+  }
+}

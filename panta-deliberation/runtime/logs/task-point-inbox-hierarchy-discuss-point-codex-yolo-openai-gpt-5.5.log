@@ -1,0 +1,1131 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-inbox-hierarchy
+state: discuss-point
+started: 2026-06-01T08:20:01Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8244-b62a-72e2-a300-5bbe982ea825
+--------
+user
+# Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
+
+## State: discuss-point
+
+You are codex[yolo]:openai:gpt-5.5. Respond to the disagreement map directly. Keep useful
+parts of your original proposal, concede weak points, and focus on
+resolving differences rather than restating your first answer.
+
+## Instructions
+
+Discuss Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy.
+
+Read `runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md` and the proposal files. Write your
+discussion response to `runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md` with:
+
+# Discussion Response - codex[yolo]:openai:gpt-5.5
+
+- Changed position: <yes/no and what changed>
+- Remaining disagreements: <specific disagreement ids>
+- Concessions: <what other agents got right>
+- Final recommendation for this point: <the solution you now support>
+- Reason: <why this recommendation best handles the tagged disagreements>
+
+## Task Content
+
+Resolve how inbox tickets fit into the Panta hierarchy without merging this
+with dependency readiness or documentation decisions.
+
+Source evidence:
+
+> The current Panta specs must not make tickets direct children of Panta if
+> the plan-language hierarchy says level-1 children under Panta are rheis and
+> tickets are level 2 or deeper.
+
+> The model needs clear ids, levels, and state-policy resolution for inbox work.
+
+Question:
+
+How should inbox tickets be identified, leveled, parented, and assigned state
+policy within the Panta hierarchy?
+
+Constraints:
+
+- Level-1 children under Panta must remain rheis if that is what the
+  plan-language hierarchy defines.
+- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
+  Panta.
+- The resolution must define clear ids, hierarchy levels, and state-policy
+  lookup behavior for inbox work.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `discuss-point`:
+- discuss-point -> resolve-point
+- discuss-point -> cancelled
+
+codex
+I’ll read the disagreement map and proposals first, then write the response file in the required format.
+exec
+/usr/bin/bash -lc 'pwd && rg --files runtime/deliberation/points/point-inbox-hierarchy' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/panta-deliberation
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Inbox ticket placement in the Panta hierarchy
+
+## Candidate Solutions
+
+- S-001: Model the project inbox as a reserved synthetic level-1 rhei with id
+  `inbox`; model all inbox tickets as ordinary ticket/task nodes at level 2 or
+  deeper under that rhei, with project ids like `inbox.<local-id>` and parents
+  resolved to either the synthetic inbox rhei or an authored parent ticket.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7,
+    codex[yolo]:openai:gpt-5.5
+  - Reasons: Preserves the Panta -> rhei -> ticket hierarchy, avoids making
+    tickets direct children of Panta, reuses the normal `<rhei>.<local>` id
+    shape, and lets inbox work use the same validation, execution, artifact,
+    dependency, and state-policy paths as ordinary rhei work.
+
+## Agreements
+
+- A-001: Panta remains level 0; level-1 children under Panta remain rheis; inbox
+  tickets are never direct children of Panta.
+- A-002: The inbox should be represented as a level-1 rhei-like node with the
+  reserved id `inbox`.
+- A-003: Inbox ticket ids should be project-scoped through the inbox rhei, such
+  as `inbox.3` and `inbox.3.1`, instead of using a flat Panta-level ticket id.
+- A-004: Top-level inbox tickets have the synthetic inbox rhei as their parent;
+  nested inbox tickets have their authored parent ticket.
+- A-005: The inbox rhei may be synthetic and need not have an authored
+  `index.rhei.md`; inbox tickets are authored in normal task/ticket format under
+  an optional `inbox/` workspace area.
+- A-006: Inbox tickets should inherit or resolve state policy through the same
+  machinery used by ordinary rhei tickets, rather than through a separate inbox
+  policy tier.
+
+## Disagreements
+
+- D-001: Whether `inbox` is an unconditional reserved rhei id or reserved only
+  when project inbox capture is present.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 requires `inbox` to be
+    a reserved rhei id and treats `rheis/inbox` as a load-time error; codex[yolo]
+    says users cannot create a domain rhei named `inbox` while the project inbox
+    exists, leaving the no-inbox case less explicit.
+  - Options: Always reserve `inbox` at the project rhei-id level; reserve
+    `inbox` only when an inbox feature or `inbox/` directory is active.
+  - Why it matters: This determines whether existing or future domain rheis can
+    be named `inbox` in projects that do not use quick capture, and where
+    validation must report collisions.
+  - Evidence needed: The intended reserved-id rules for Panta/rhei ids, whether
+    optional features may reserve ids even when unused, and any compatibility
+    requirement for existing projects with a normal rhei named `inbox`.
+
+- D-002: How much state-policy behavior belongs in this hierarchy resolution.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 gives a full lookup rule
+    for inbox tickets: inherit the Panta default or built-in fallback, then apply
+    `node_policy.overrides -> node_policy.by_type[<kind>] -> node_policy.default`,
+    while treating the synthetic inbox rhei as a structural rollup with no
+    stored state. codex[yolo]:openai:gpt-5.5 agrees with inheritance in
+    principle but leaves rejection possible if the final state-policy decision
+    rejects inheritance from `index.panta.md` for synthetic rheis.
+  - Options: Normatively define the complete inherited ticket policy lookup here;
+    define only that inbox tickets use ordinary rhei-ticket lookup and defer
+    exact precedence/fallback behavior to the state-machine-resolution point.
+  - Why it matters: The task requires clear state-policy lookup behavior for
+    inbox work, but over-specifying precedence here could conflict with the
+    separate state-machine-resolution decision.
+  - Evidence needed: The current or accepted state-machine-resolution rule,
+    whether synthetic rheis without `index.rhei.md` may inherit `index.panta.md`,
+    and whether structural rhei nodes are expected to have claimable/stored
+    state.
+
+- D-003: Whether moving an inbox ticket into a domain rhei necessarily changes
+  its project id.
+  - Agents: codex[yolo]:openai:gpt-5.5 explicitly treats filing an inbox ticket
+    into a domain rhei as a reparenting/id-change operation; claude-code[yolo]
+    implies this through the `inbox.<local-id>` id scheme but does not make
+    promotion semantics part of the recommendation.
+  - Options: State that promotion from inbox to a domain rhei changes the
+    project id from `inbox.<local-id>` to `<target-rhei>.<local-id>`; leave
+    promotion/id stability out of this point and handle it in a separate
+    filing/refactoring decision.
+  - Why it matters: Stable external references, dependencies, artifacts, logs,
+    and operator expectations may depend on whether inbox ids are permanent or
+    temporary capture ids.
+  - Evidence needed: Existing id stability requirements, dependency/reference
+    rewrite behavior, and whether inbox filing is considered a hierarchy move or
+    a separate migration workflow.
+
+## Discussion Prompt
+
+Both proposals converge on S-001: inbox is a synthetic level-1 rhei named
+`inbox`, and inbox tickets are normal level-2-or-deeper ticket nodes under it.
+Please address only D-001 through D-003: decide whether `inbox` is always
+reserved or conditionally reserved, define the exact state-policy lookup without
+conflicting with the state-machine-resolution point, and decide whether inbox
+promotion must be specified here as an id-changing move. Converge where possible
+and identify any evidence that still blocks a final resolution.
+
+codex
+The map shows both agents already agree on the core hierarchy: synthetic level-1 `inbox` rhei, tickets below it. I’m opening the two proposal files now to preserve the useful parts and address only the three remaining disagreements.
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
+  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
+  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
+  hierarchy level is 2 or deeper.
+- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
+  keeping quick-capture work available without choosing a domain rhei. It also
+  gives inbox work the same identity, validation, dependency, execution-root,
+  and artifact rules as ordinary rhei work instead of creating a special direct
+  child case under Panta.
+- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
+  cannot create a domain rhei with that id while the project inbox exists. The
+  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
+  code must label it as an inbox without treating its tickets differently. Moving
+  a ticket out of the inbox becomes a reparenting/id-change operation from
+  `inbox.<id>` to `<target-rhei>.<id>`.
+- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
+  deeper. The optional `inbox/` directory contains task files authored in the
+  normal workspace-task format. A project-level `**States:**` declaration may be
+  inherited by rheis that omit their own declaration.
+- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
+  project ids after being filed into a domain rhei, if users must be allowed to
+  create a normal rhei named `inbox` alongside project inbox capture, or if the
+  final state-policy decision rejects inheritance from `index.panta.md` for
+  synthetic rheis.
+
+exec
+/usr/bin/bash -lc 'ls -la runtime/deliberation/points/point-inbox-hierarchy && ls -la runtime/deliberation/points/point-inbox-hierarchy/discussion 2>/dev/null || true' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+total 20
+drwxrwxr-x 3 vjovanov vjovanov 4096 Jun  1 10:19 .
+drwxrwxr-x 4 vjovanov vjovanov 4096 Jun  1 10:17 ..
+-rw-rw-r-- 1 vjovanov vjovanov 5580 Jun  1 10:19 disagreement-map.md
+drwxrwxr-x 2 vjovanov vjovanov 4096 Jun  1 10:19 proposals
+
+exec
+/usr/bin/bash -lc "sed -n '1,300p' runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Recommendation: Model the inbox as a **synthetic level-1 rhei** with the
+  reserved id `inbox`, materialized from an optional project-root `inbox/`
+  directory. Inbox tickets are ordinary `task`-kind nodes at level 2..N inside
+  that synthetic rhei.
+
+  Concretely:
+
+  - **Hierarchy / level.** `inbox` is a level-1 child of the virtual Panta root,
+    exactly like every other rhei. Inbox tickets are level 2 at minimum and may
+    nest to the inbox rhei's `structure.maxLevels`. Tickets are never direct
+    children of Panta.
+  - **Id.** The rhei id is the reserved name `inbox` (single segment). A ticket
+    authored in `inbox/<file>.md` as rhei-local id `3` has project-wide id
+    `inbox.3`; nested children extend it (`inbox.3.1`). `inbox` may not appear
+    as a discovered rhei under `rheis/` — that is a load-time error, not silent
+    shadowing.
+  - **Parent.** The synthetic `inbox` rhei's parent is the Panta virtual root.
+    Inbox tickets' parent is the synthetic `inbox` rhei (for top-level inbox
+    tickets) or their authored parent ticket (for nested ones). The Panta root
+    has no ticket children, ever.
+  - **State-policy resolution.** Because the synthetic inbox rhei has no
+    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+    therefore inherits the Panta-level default state-machine declaration from
+    `index.panta.md` (or the built-in fallback if neither is declared —
+    resolution order itself is point-state-machine-resolution's concern). Inbox
+    tickets then resolve their per-node policy through that inherited machine's
+    `node_policy.overrides → node_policy.by_type[<kind>] → node_policy.default`,
+    exactly as tickets in any other rhei do. The synthetic rhei node itself is
+    a pure structural rollup with no stored state — it has no `node_policy.rhei`
+    profile, so nothing tries to claim or transition it.
+
+- Reasons:
+  - **Preserves the single hierarchy invariant.** Panta → rhei → ticket holds
+    without an exception. Every cross-cutting tool (`rhei validate`, `rhei
+    list`, `rhei viz`, `rhei run`, `rhei complete`, readiness scans) keeps one
+    code path, because the inbox is "just another rhei" at the graph level.
+  - **Reuses existing id rules.** `inbox.3` follows the same `<rhei>.<local>`
+    pattern as `auth.1`. Readers, parsers, and authors learn one rule. No new
+    id syntax, no second namespace.
+  - **No new state-policy tier.** State-policy resolution for inbox tickets is
+    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+    every other rhei without an authored machine already follows. Adding the
+    inbox does not require a new `node_policy` key or a special case in the
+    resolver.
+  - **Confirms (and locks in) the cleanest reading of the existing spec.**
+    §AR-rhei-panta.2 step 3 and §FS-rhei-plan-language.1.5 item 3 already
+    describe a synthetic inbox rhei; the open issue is that the load rule,
+    id rule, and state-policy rule must be stated together as a single
+    normative paragraph so future spec edits can't drift them apart.
+  - **Optional and zero-cost when unused.** Projects that don't want loose
+    capture simply omit the `inbox/` directory; nothing is synthesized and the
+    user is never shown an empty `inbox` rhei.
+
+- Tradeoffs:
+  - **`inbox` becomes a reserved rhei id** alongside the reserved kinds `panta`
+    and `rhei`. Any project that already names a domain rhei `inbox` would
+    have to rename it. Mitigation: enforce as a `rhei validate` error with a
+    clear message at the rhei-id stage, before any cross-rhei merge.
+  - **Synthetic-but-visible node.** The inbox is "invisible on disk" (no
+    `index.rhei.md`) but visible in listings, viz, and ids. Operators must
+    learn that one rhei has no manifest file. Mitigation: list and viz surface
+    it identically to authored rheis so the distinction lives only at the load
+    layer.
+  - **Inbox cannot override `**States:**` locally.** Because there is no
+    authored manifest, an inbox ticket cannot run under a different state
+    machine than the Panta default without first being moved into a real rhei.
+    Acceptable for "loose capture" semantics; if a ticket grows up, the
+    operator promotes it.
+  - **Two-segment id at the CLI surface.** Quick captures still produce ids
+    like `inbox.3` rather than bare `3`. Slightly more verbose than a
+    Panta-direct ticket would be; offset by the consistency win.
+
+- Assumptions:
+  - The plan-language hierarchy invariant "level-1 children under Panta are
+    rheis" is non-negotiable (per the task constraints).
+  - `node_policy.rhei` remains optional; structural-rollup rheis (including
+    the synthetic inbox) are valid without a declared rhei profile.
+  - The Panta default-state-machine declaration in `index.panta.md` is a
+    feature the project will keep (the precedence order is decided by
+    [[point-state-machine-resolution]], not here).
+  - Cross-rhei readiness is decided in
+    [[point-cross-rhei-readiness]]; this proposal does not depend on its
+    outcome — inbox tickets follow whatever rule applies to all tickets.
+  - Authors and tools tolerate `inbox.N`-style ids; if not, a CLI affordance
+    can default-elide the prefix for inbox-scoped commands without changing
+    the model.
+
+- Rejection criteria:
+  - **Drop the "level-1 = rhei" invariant.** If the team decides Panta may
+    legitimately host ticket-kind direct children (a flat, two-level model),
+    this proposal is moot — the inbox would then be a Panta-direct ticket
+    container with a different parenting and id scheme.
+  - **Drop the inbox feature.** If quick-capture without a chosen rhei is cut
+    from v1 (a defensible scope reduction, see P1 in the discussion notes),
+    this proposal does not apply; tickets must always be authored under a
+    named rhei.
+  - **Require an authored `index.rhei.md` for every rhei.** If the team
+    forbids synthetic rheis on uniformity grounds, replace this with either
+    (a) a templated, authored `inbox/index.rhei.md` written by `rhei init`
+    (then the rhei is no longer synthetic, but everything else here still
+    holds), or (b) drop the inbox.
+  - **Adopt a flat global id scheme (P3a).** If project-wide ticket ids are
+    chosen to be globally unique without rhei prefixes, the id segment of
+    this proposal (`inbox.3`) must be rewritten to whatever the global scheme
+    produces; the levelling and parenting arguments still hold.
+
+codex
+The proposals differ mainly in specificity, not direction. I’m checking the nearby specs/decision notes for whether `inbox` is already treated as reserved and whether state-machine precedence is already owned by another point.
+exec
+/usr/bin/bash -lc "rg -n \"inbox|synthetic inbox|state-machine-resolution|node_policy|States|state policy|state-policy\" docs runtime -g '*.md' -g '*.spec.md'" in /home/vjovanov/f/rhei/panta-deliberation
+ exited 2 in 0ms:
+rg: docs: No such file or directory (os error 2)
+runtime/deliberation/points-manifest.md:3:- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
+runtime/deliberation/points-manifest.md:5:  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
+runtime/deliberation/points-manifest.md:6:  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
+runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+runtime/deliberation/points-manifest.md:19:  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
+runtime/deliberation/points-manifest.md:21:  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:3:- Recommendation: Model the inbox as a **synthetic level-1 rhei** with the
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:4:  reserved id `inbox`, materialized from an optional project-root `inbox/`
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:10:  - **Hierarchy / level.** `inbox` is a level-1 child of the virtual Panta root,
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:12:    nest to the inbox rhei's `structure.maxLevels`. Tickets are never direct
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:14:  - **Id.** The rhei id is the reserved name `inbox` (single segment). A ticket
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:15:    authored in `inbox/<file>.md` as rhei-local id `3` has project-wide id
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:16:    `inbox.3`; nested children extend it (`inbox.3.1`). `inbox` may not appear
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:19:  - **Parent.** The synthetic `inbox` rhei's parent is the Panta virtual root.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:20:    Inbox tickets' parent is the synthetic `inbox` rhei (for top-level inbox
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:23:  - **State-policy resolution.** Because the synthetic inbox rhei has no
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:24:    authored `index.rhei.md`, it carries no rhei-local `**States:**` and
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:27:    resolution order itself is point-state-machine-resolution's concern). Inbox
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:29:    `node_policy.overrides → node_policy.by_type[<kind>] → node_policy.default`,
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:31:    a pure structural rollup with no stored state — it has no `node_policy.rhei`
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:38:    code path, because the inbox is "just another rhei" at the graph level.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:39:  - **Reuses existing id rules.** `inbox.3` follows the same `<rhei>.<local>`
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:42:  - **No new state-policy tier.** State-policy resolution for inbox tickets is
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:43:    the ordinary "rhei omits `**States:**` → inherit Panta default" path that
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:45:    inbox does not require a new `node_policy` key or a special case in the
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:49:    describe a synthetic inbox rhei; the open issue is that the load rule,
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:50:    id rule, and state-policy rule must be stated together as a single
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:53:    capture simply omit the `inbox/` directory; nothing is synthesized and the
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:54:    user is never shown an empty `inbox` rhei.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:57:  - **`inbox` becomes a reserved rhei id** alongside the reserved kinds `panta`
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:58:    and `rhei`. Any project that already names a domain rhei `inbox` would
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:61:  - **Synthetic-but-visible node.** The inbox is "invisible on disk" (no
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:66:  - **Inbox cannot override `**States:**` locally.** Because there is no
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:67:    authored manifest, an inbox ticket cannot run under a different state
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:72:    like `inbox.3` rather than bare `3`. Slightly more verbose than a
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:78:  - `node_policy.rhei` remains optional; structural-rollup rheis (including
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:79:    the synthetic inbox) are valid without a declared rhei profile.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:82:    [[point-state-machine-resolution]], not here).
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:85:    outcome — inbox tickets follow whatever rule applies to all tickets.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:86:  - Authors and tools tolerate `inbox.N`-style ids; if not, a CLI affordance
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:87:    can default-elide the prefix for inbox-scoped commands without changing
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:93:    this proposal is moot — the inbox would then be a Panta-direct ticket
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:95:  - **Drop the inbox feature.** If quick-capture without a chosen rhei is cut
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:101:    (a) a templated, authored `inbox/index.rhei.md` written by `rhei init`
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:103:    holds), or (b) drop the inbox.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md:106:    this proposal (`inbox.3`) must be rewritten to whatever the global scheme
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:5:- S-001: Model the project inbox as a reserved synthetic level-1 rhei with id
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:6:  `inbox`; model all inbox tickets as ordinary ticket/task nodes at level 2 or
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:7:  deeper under that rhei, with project ids like `inbox.<local-id>` and parents
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:8:  resolved to either the synthetic inbox rhei or an authored parent ticket.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:13:    shape, and lets inbox work use the same validation, execution, artifact,
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:14:    dependency, and state-policy paths as ordinary rhei work.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:18:- A-001: Panta remains level 0; level-1 children under Panta remain rheis; inbox
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:20:- A-002: The inbox should be represented as a level-1 rhei-like node with the
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:21:  reserved id `inbox`.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:22:- A-003: Inbox ticket ids should be project-scoped through the inbox rhei, such
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:23:  as `inbox.3` and `inbox.3.1`, instead of using a flat Panta-level ticket id.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:24:- A-004: Top-level inbox tickets have the synthetic inbox rhei as their parent;
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:25:  nested inbox tickets have their authored parent ticket.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:26:- A-005: The inbox rhei may be synthetic and need not have an authored
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:27:  `index.rhei.md`; inbox tickets are authored in normal task/ticket format under
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:28:  an optional `inbox/` workspace area.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:29:- A-006: Inbox tickets should inherit or resolve state policy through the same
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:30:  machinery used by ordinary rhei tickets, rather than through a separate inbox
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:35:- D-001: Whether `inbox` is an unconditional reserved rhei id or reserved only
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:36:  when project inbox capture is present.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:37:  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 requires `inbox` to be
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:38:    a reserved rhei id and treats `rheis/inbox` as a load-time error; codex[yolo]
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:39:    says users cannot create a domain rhei named `inbox` while the project inbox
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:40:    exists, leaving the no-inbox case less explicit.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:41:  - Options: Always reserve `inbox` at the project rhei-id level; reserve
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:42:    `inbox` only when an inbox feature or `inbox/` directory is active.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:44:    be named `inbox` in projects that do not use quick capture, and where
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:48:    requirement for existing projects with a normal rhei named `inbox`.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:50:- D-002: How much state-policy behavior belongs in this hierarchy resolution.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:52:    for inbox tickets: inherit the Panta default or built-in fallback, then apply
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:53:    `node_policy.overrides -> node_policy.by_type[<kind>] -> node_policy.default`,
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:54:    while treating the synthetic inbox rhei as a structural rollup with no
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:56:    principle but leaves rejection possible if the final state-policy decision
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:59:    define only that inbox tickets use ordinary rhei-ticket lookup and defer
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:60:    exact precedence/fallback behavior to the state-machine-resolution point.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:61:  - Why it matters: The task requires clear state-policy lookup behavior for
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:62:    inbox work, but over-specifying precedence here could conflict with the
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:63:    separate state-machine-resolution decision.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:64:  - Evidence needed: The current or accepted state-machine-resolution rule,
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:69:- D-003: Whether moving an inbox ticket into a domain rhei necessarily changes
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:71:  - Agents: codex[yolo]:openai:gpt-5.5 explicitly treats filing an inbox ticket
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:73:    implies this through the `inbox.<local-id>` id scheme but does not make
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:75:  - Options: State that promotion from inbox to a domain rhei changes the
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:76:    project id from `inbox.<local-id>` to `<target-rhei>.<local-id>`; leave
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:80:    and operator expectations may depend on whether inbox ids are permanent or
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:83:    rewrite behavior, and whether inbox filing is considered a hierarchy move or
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:88:Both proposals converge on S-001: inbox is a synthetic level-1 rhei named
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:89:`inbox`, and inbox tickets are normal level-2-or-deeper ticket nodes under it.
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:90:Please address only D-001 through D-003: decide whether `inbox` is always
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:91:reserved or conditionally reserved, define the exact state-policy lookup without
+runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md:92:conflicting with the state-machine-resolution point, and decide whether inbox
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:3:- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:4:  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:5:  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:9:  gives inbox work the same identity, validation, dependency, execution-root,
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:12:- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:13:  cannot create a domain rhei with that id while the project inbox exists. The
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:15:  code must label it as an inbox without treating its tickets differently. Moving
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:16:  a ticket out of the inbox becomes a reparenting/id-change operation from
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:17:  `inbox.<id>` to `<target-rhei>.<id>`.
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:19:  deeper. The optional `inbox/` directory contains task files authored in the
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:20:  normal workspace-task format. A project-level `**States:**` declaration may be
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:22:- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:24:  create a normal rhei named `inbox` alongside project inbox capture, or if the
+runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md:25:  final state-policy decision rejects inheritance from `index.panta.md` for
+
+exec
+/usr/bin/bash -lc 'grund list --kind FS,AR,DF,DA,ADR 2>/dev/null | rg -n "inbox|state|panta|rhei"' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+3:AR-rhei-language-reference      docs/architecture/language-reference.spec.md:1  Canonical Language Reference Architecture
+4:AR-rhei-panta                   docs/architecture/rhei-panta.spec.md:1  Panta root architecture
+5:AR-rhei-viz-flow                docs/architecture/rhei-viz-flow.spec.md:1  Flow Visualization Architecture
+7:DA-panta-root                   docs/decisions/architectural/panta-root.md:1  Panta is the per-project virtual root above all rheis
+8:FS-rhei-agents                  docs/functional-spec/rhei-agents.spec.md:1  Rhei Agents Specification
+9:FS-rhei-authoring               docs/functional-spec/rhei-authoring.spec.md:1  Rhei Plan Language Usage Guide
+10:FS-rhei-callbacks               docs/functional-spec/rhei-callbacks.spec.md:1  Transition Callback Examples
+11:FS-rhei-complete                docs/functional-spec/rhei-complete.spec.md:1  `rhei complete`
+12:FS-rhei-completions             docs/functional-spec/rhei-completions.spec.md:1  Rhei Completion UX Specification
+13:FS-rhei-cost-accounting         docs/functional-spec/rhei-cost-accounting.spec.md:1  Rhei Cost Accounting
+14:FS-rhei-distribution            docs/functional-spec/rhei-distribution.spec.md:1  Rhei distribution and release process
+15:FS-rhei-install-skills          docs/functional-spec/rhei-install-skills.spec.md:1  `rhei install-skills`
+16:FS-rhei-language-reference      docs/functional-spec/rhei-language-reference.spec.md:1  Rhei Language Reference
+17:FS-rhei-list                    docs/functional-spec/rhei-list.spec.md:1  `rhei list`
+18:FS-rhei-next                    docs/functional-spec/rhei-next.spec.md:1  `rhei next`
+19:FS-rhei-panta                   docs/functional-spec/rhei-panta.spec.md:1  Panta, the project root above all rheis
+20:FS-rhei-plan-language           docs/functional-spec/rhei-plan-language.spec.md:1  Rhei Plan Language Specification
+21:FS-rhei-programs                docs/functional-spec/rhei-programs.spec.md:1  Rhei Program States Specification
+22:FS-rhei-render                  docs/functional-spec/rhei-render.spec.md:1  `rhei render`
+23:FS-rhei-reset                   docs/functional-spec/rhei-reset.spec.md:1  `rhei reset`
+24:FS-rhei-run                     docs/functional-spec/rhei-run.spec.md:1  `rhei run`
+25:FS-rhei-run-tui                 docs/functional-spec/rhei-run-tui.spec.md:1  `rhei run` TUI and Transition Journal
+26:FS-rhei-snapshot-operations     docs/functional-spec/rhei-snapshot-operations.spec.md:1  Rhei Snapshot Operations Specification
+27:FS-rhei-snapshots               docs/functional-spec/rhei-snapshots.spec.md:1  Rhei Session Snapshots Specification
+28:FS-rhei-state-machine-writer    docs/functional-spec/rhei-state-machine-writer.spec.md:1  Rhei State Machine Writer
+29:FS-rhei-states                  docs/functional-spec/rhei-states.spec.md:1  Rhei States Specification
+30:FS-rhei-states-cmd              docs/functional-spec/rhei-states-cmd.spec.md:1  `rhei states`
+31:FS-rhei-templates               docs/functional-spec/rhei-templates.spec.md:1  Rhei Templates Specification
+32:FS-rhei-transition-cmd          docs/functional-spec/rhei-transition-cmd.spec.md:1  `rhei transition`
+33:FS-rhei-transitions             docs/functional-spec/rhei-transitions.spec.md:1  Rhei Transitions Specification
+34:FS-rhei-usage                   docs/functional-spec/rhei-usage.spec.md:1  How Rhei Is Used
+35:FS-rhei-validate                docs/functional-spec/rhei-validate.spec.md:1  `rhei validate`
+36:FS-rhei-version                 docs/functional-spec/rhei-version.spec.md:1  `rhei version`
+37:FS-rhei-viz                     docs/functional-spec/rhei-viz.spec.md:1  Flow Visualization
+38:FS-rhei-viz-ux                  docs/functional-spec/rhei-viz-ux.spec.md:1  Console-First Visualization UX
+
+codex
+There is no local `docs/` tree under this deliberation workspace, but `grund list` can still see the project IDs from its configured context. I’m resolving the two cited IDs narrowly before writing, so the response stays compatible with the existing model.
+exec
+/usr/bin/bash -lc 'grund AR-rhei-panta --toc' in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc 'grund FS-rhei-states --toc' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+This document specifies how Panta — the per-project virtual root above all rheis
+(§FS-rhei-panta) — is laid out on disk, loaded into a single graph, and
+addressed. It realizes the decision recorded in §DA-panta-root and extends the
+node hierarchy and virtual-root model of §FS-rhei-plan-language.3.
+
+## 1. On-disk layout
+## 2. Load model
+## 3. Identity and id namespacing
+## 4. State-machine binding
+## 5. Execution root and per-rhei runtime
+## 6. Command scope mechanics
+## 7. Invisibility surface
+
+ succeeded in 0ms:
+This document defines the default states configuration for tasks in the Rhei
+agent runtime. The authoritative machine-readable form lives in
+[states.yaml](states.yaml); the writer-skill mirror is
+[default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
+
+The state-machine schema also permits these optional fields for richer workflows:
+
+- Per-state `personality: <string>` to inject role framing into `rhei next` for that specific state (supports template variables)
+- Template variables in `instructions` and `personality` fields, resolved by `rhei next` at output time
+- Top-level `models: [<model-id>, ...]` to declare the model profile identifiers available to the machine
+- Per-state `target: <selector>` to bind a state to one inline execution target
+- Per-state `all_targets: [<selector>, ...]` to fan a state out across multiple execution targets
+- Per-state `all_models: [<model-id>, ...]` to declare the full model set that may execute that state
+- Per-state `model: <model-id>` to bind a state to exactly one declared model profile
+- Per-state `agent: <agent-id>` to bind a state to a specific coding agent CLI
+- Per-state `agent_timeout: <duration>` to set the maximum time an agent may work in this state
+- Per-state `program: <string|object>` to bind a state to a deterministic program command (mutually exclusive with `agent`)
+- Per-state `program_timeout: <duration>` to set the maximum time a program may run in this state
+- Per-state `visits: <integer>` to cap total counted visits for that state
+- Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit; individual inputs may be marked `optional: true` to skip the existence check while still exposing the path and an existence flag to agents and programs
+- Per-state `mcp_servers:` and `skills:` lists to attach MCP servers and agent skills to the agent subprocess for that state; individual entries may be marked `optional: true` to warn-and-continue rather than block when the tool is unavailable
+
+When `models` is omitted, the machine behaves as it does today and states are
+not model-constrained. For new workflows, prefer `target` / `all_targets`
+because they encode the full execution identity: agent, optional mode, optional
+provider, and model. The older `model` / `all_models` fields remain supported
+as compatibility forms for model-centric workflows. `visits` is orthogonal to
+both forms and may be combined with either single-target or fanout execution.
+
+The `model` field is the semantic execution identity for the state. It resolves
+through settings to a provider/model combo and is available to callbacks,
+templates, logs, and multi-model execution. When `agent` is set on a state,
+`rhei run` uses that agent transport to execute work in the state instead of
+relying on callbacks alone. When `agent` is omitted, callbacks still resolve the
+model; autonomous agent execution falls back to settings defaults and then the
+model profile's `default_agent`. See [Agents Specification](rhei-agents.spec.md)
+for configuration, resolution order, and invocation details.
+
+An execution target selector is an inline shorthand for the full execution
+identity. It uses one of these forms:
+
+- `<agent>:<model>`
+- `<agent>[<mode>]:<model>`
+- `<agent>:<provider>:<model>`
+- `<agent>[<mode>]:<provider>:<model>`
+
+Examples:
+
+- `claude-code:claude-opus-4-7`
+- `claude-code[yolo]:anthropic:claude-opus-4-7`
+- `gemini[yolo]:google:gemini-3.1-pro-preview`
+- `codex[safe]:openai:gpt-5-codex`
+
+## 1. Schema Additions
+### 1.1. Top-level fields
+### 1.2. Per-state fields
+### 1.3. Validation Rules
+## 2. Polling States
+### 2.1. Shape
+### 2.2. Semantics
+### 2.3. Variables for transition conditions
+### 2.4. Interaction with other state features
+## 3. Artifact Contracts
+### 3.1. Optional Inputs
+## 4. Template Variables in Instructions and Personality
+### 4.1. Variable Namespace
+### 4.2. Resolution Rules
+### 4.3. Multi-Target Example
+## 5. Agent Field
+## 6. Program States
+## 7. MCP Servers and Skills
+### 7.1. Entry forms
+### 7.2. Effective set
+### 7.3. Runtime semantics
+## 8. Profiles
+### 8.1. Shape
+### 8.2. Per-profile validation
+## 9. Node Policy
+### 9.1. Shape
+### 9.2. Resolution
+### 9.3. Validation
+## 10. States
+## 11. Transitions
+### 11.1. Completion paths
+
+exec
+/usr/bin/bash -lc 'grund FS-rhei-plan-language --toc' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+This document specifies the grammar and semantics of the Rhei Plan language — a structured subset of Markdown for hierarchical task management shared by humans and AI agents.
+
+## Overview
+
+The Rhei Plan language is a **context-sensitive subset of Markdown** designed for:
+
+- AI agent memory
+- AI agent coordination
+- Human oversight of work progress
+
+## Quick Start
+
+### 1. Write a plan
+### 2. Validate the plan
+### 3. Have an agent execute it
+## 1. Plan Formats
+### 1.1. Single-File Plan (1 Agent, or low concurrency)
+### 1.2. Directory Workspace (Agent Teams, High Concurrency)
+### 1.3. State Machine Resolution
+### 1.4. Directory Workspace Metadata
+### 1.5. Panta Project
+## 2. Grammar (EBNF)
+## 3. Semantic Constraints
+### 3.1. Dependency Integrity
+### 3.2. State Validity
+### 3.3. Acyclic Dependencies
+### 3.4. Hierarchical Task Consistency
+### 3.5. Identifier Uniqueness
+### 3.6. Link Integrity
+### 3.7. Node Kind Validity
+### 3.8. Result Block Consistency
+### 3.9. Terminal Tree Coherence
+### 3.10. State Artifact Contracts
+## 4. Token Types
+## 5. AST Node Types
+## 6. Language Classification
+## 7. File Extension
+## 8. CLI Command Groups
+
+exec
+/usr/bin/bash -lc 'grund FS-rhei-plan-language.1.5 --full' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### 1.5. Panta Project
+
+A **Panta Project** is the directory that groups a project's rheis under the
+single virtual Panta root (§FS-rhei-panta). It mirrors the Directory Workspace
+shape one level up: where a workspace merges task files, a project merges rheis.
+
+A Panta Project consists of:
+
+1. **`index.panta.md`**: the project manifest — `# Panta: <title>`, an optional
+   `States Declaration`, and any `Content Sections`. It contains no `## Tasks`
+   section and no authored nodes.
+2. **`rheis/` directory**: a folder whose entries are rheis. Each entry is a
+   Single-File Plan (`*.rhei.md`) or a Directory Workspace. Discovery under
+   `rheis/` is recursive and deterministic, using the same non-hidden,
+   `/`-normalized, case-sensitive ordering rules as workspace task-file
+   discovery (§FS-rhei-plan-language.1.2).
+3. **`inbox/` directory** (optional): loose tickets captured without a domain
+   rhei. This directory is loaded as a synthetic Directory Workspace rhei with id
+   `inbox`; its contents are authored as workspace task files. The synthetic
+   inbox has no authored `index.rhei.md`, inherits the Panta default state
+   declaration, and stores per-ticket runtime artifacts relative to `inbox/`.
+
+Each rhei's id is derived from its location under `rheis/`: the filename stem for
+a Single-File Plan (`rheis/auth.rhei.md` -> `auth`) or the directory name for a
+Directory Workspace rhei (`rheis/billing/` -> `billing`). The id must be a valid
+`IDENTIFIER` and must be unique across the project.
+
+At load time all rheis, including the synthetic `inbox` rhei when present, merge
+into one graph rooted at Panta. Ticket ids are namespaced by their rhei id and
+`**Prior:**` resolves across the whole project; see
+[Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
+
+exec
+/usr/bin/bash -lc 'grund AR-rhei-panta.2 --full' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+## 2. Load model
+
+Loading a Panta produces one graph rooted at the virtual `panta` node:
+
+1. Parse `index.panta.md` for project title, default states, and content.
+2. Discover the rheis under `rheis/` in deterministic order. Each rhei is loaded
+   by the existing single-file or Directory Workspace loader.
+3. If `inbox/` is present, load it as a synthetic Directory Workspace rhei with
+   id `inbox`. It has no authored `index.rhei.md`; its files parse as workspace
+   task files, inherit the Panta default state declaration, and use `inbox/` as
+   their execution root. The project must not also define a discovered rhei with
+   id `inbox` under `rheis/`.
+4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
+   synthetic inbox rhei, as a level-1 child.
+5. Merge into one task graph and resolve `**Prior:**` across the whole project,
+   exactly as workspace task files merge today.
+
+The virtual root is materialized in memory only; it is never written back. A
+source map records, for each node, the rhei (and file) that defines it, so
+targeted rewrites during transitions still target the owning file — the same
+contract `task_sources` provides for workspace task files.
+
+When a bare rhei is loaded directly (a `.rhei.md` file or a workspace with no
+enclosing `index.panta.md`), the loader synthesizes a Panta containing that one
+rhei, so every load path yields a Panta-rooted graph.
+
+exec
+/usr/bin/bash -lc 'grund AR-rhei-panta.3 --full' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+## 3. Identity and id namespacing
+
+Ids are dotted paths rooted at Panta. A rhei contributes its id as the prefix for
+its tickets:
+
+- A rhei has a single-segment id (`auth`, `billing`).
+- A ticket's project-wide id is its rhei id joined with its rhei-local id:
+  rhei-local `1` under rhei `auth` is the project id `auth.1`; rhei-local `1.2`
+  is `auth.1.2`.
+- A ticket captured without an owning rhei is authored under `inbox/`, which is
+  loaded as the `inbox` rhei, so rhei-local `3` becomes project id `inbox.3`.
+- Project ids must be unique across the whole Panta. Because the rhei id prefixes
+  every ticket beneath it, authors only need uniqueness within a rhei, plus
+  unique rhei ids across the project.
+
+Within a rhei, tickets are authored and validated exactly as today
+(§FS-rhei-plan-language.3.4): the rhei-local id space is unchanged, including
+`structure.maxLevels` (1–4) counted from the rhei-local level 1. The Panta prefix
+is applied at merge time and is not authored into the rhei's task headings.
+`**Prior:**` references may be written as project ids to point across rheis;
+within a rhei, rhei-local references continue to resolve locally.
+
+exec
+/usr/bin/bash -lc 'grund AR-rhei-panta.4 --full' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+## 4. State-machine binding
+
+`index.panta.md` supplies a default state-machine declaration for any rhei that
+omits its own `**States:**`. That inherited declaration resolves from the Panta
+project root; a rhei-local declaration still resolves from the rhei's own source
+location (§FS-rhei-plan-language.1.3).
+
+The state-machine profile that previously resolved the level-0 `rhei` root now
+resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node
+resolves through the dedicated `node_policy.rhei` key when declared; when it is
+omitted, the rhei is a pure structural rollup with no profile-driven state. The
+reserved names `panta` and `rhei` may not appear in `structure.nodeKinds` or as
+`by_type` keys. Panta carries no stored state; any project-level status is a
+rollup derived from its rheis (§FS-rhei-panta.3). The full resolution and
+validation rules are specified in the states spec node-policy section
+(§FS-rhei-states).
+
+exec
+/usr/bin/bash -lc 'grund FS-rhei-states.9.2 --full' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### 9.2. Resolution
+
+For a given node, resolve its profile in this order:
+
+1. If the node is the Panta project root (kind `panta`), use
+   `node_policy.root`.
+2. If the node is a rhei (kind `rhei`), use `node_policy.rhei` when defined.
+   When it is omitted, the rhei is a structural rollup with no profile-driven
+   state: its status is derived from its descendants (§FS-rhei-panta.3), and it
+   is never claimed or transitioned.
+3. Otherwise the node is a ticket. Walk `node_policy.overrides` in declaration
+   order; use the profile of the first entry whose `match` matches the node. A
+   `match` block may include `type` and/or `level` (rhei-local task depth);
+   every specified field must match the node.
+4. Otherwise, if `node_policy.by_type[<kind>]` is defined for the node's kind,
+   use it.
+5. Otherwise, use `node_policy.default`.
+
+The resolved profile's `initial` is the node's starting state; its `allowed`
+set is the authoritative list of states that node may ever hold. `rhei reset`
+returns each node to its resolved profile's `initial`.
+
+codex
+The existing specs already say an `inbox/` directory loads as synthetic rhei `inbox`, tickets get `inbox.<local>`, and state policy uses the normal `node_policy` ticket resolution. I’m going to write the discussion response with one real position change: make `inbox` unconditionally reserved, while keeping promotion/reference rewriting out of this hierarchy point.
+exec
+/usr/bin/bash -lc 'mkdir -p runtime/deliberation/points/point-inbox-hierarchy/discussion' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c0d25b686c72ef590a96a4c7bc0c3799cc7df64
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,45 @@
++# Discussion Response - codex[yolo]:openai:gpt-5.5
++
++- Changed position: yes. I now support treating `inbox` as an unconditional
++  reserved project rhei id, not only as unavailable while an `inbox/` capture
++  directory exists. I also agree the state-policy behavior can be stated more
++  concretely here, provided this point references the ordinary state-machine
++  resolution rule instead of creating a second inbox-specific precedence table.
++- Remaining disagreements: D-003 only, and only as a boundary question. This
++  point should define the canonical id while a ticket is in the inbox, but the
++  filing workflow, reference rewrites, artifact migration, and external id
++  stability guarantees belong in a separate promotion/refactoring decision.
++  D-001 and D-002 should be resolved by this recommendation.
++- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
++  original wording left the no-inbox case too vague. Conditional reservation
++  makes validation depend on whether a feature is currently present, which is
++  a weak rule for a language-level namespace. They are also right that the
++  synthetic inbox rhei should be a structural rollup with no stored state, and
++  that tickets beneath it should use the same `node_policy.overrides ->
++  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
++  ordinary rhei tickets.
++- Final recommendation for this point: adopt S-001 with these clarifications.
++  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
++  domain rhei with id `inbox` under `rheis/` is a validation/load error even
++  when no `inbox/` directory is present. The synthetic inbox rhei is only
++  materialized when project inbox content exists, has parent Panta, has level 1,
++  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
++  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
++  nested inbox tickets have their authored parent ticket, deeper levels, and
++  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
++  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
++  omitted: first bind the effective state machine using the state-machine
++  resolution rule for such rheis, then resolve the ticket profile with
++  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
++  `node_policy.default`. No separate inbox policy tier is introduced.
++- Reason: This handles D-001 by making the namespace stable and easy to
++  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
++  changes legality when quick capture appears. It handles D-002 by giving inbox
++  work a clear lookup rule while still delegating the generic precedence between
++  rhei-local declarations, Panta defaults, and built-in fallback to the
++  state-machine-resolution point. It handles D-003 by separating the hierarchy
++  invariant from filing semantics: while a ticket is under the inbox its
++  canonical project id is `inbox.<local-id>`; if another decision defines
++  promotion as a move into a domain rhei, the normal namespaced-id model implies
++  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
++  decide reference-rewrite or id-alias guarantees.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c0d25b686c72ef590a96a4c7bc0c3799cc7df64
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,45 @@
++# Discussion Response - codex[yolo]:openai:gpt-5.5
++
++- Changed position: yes. I now support treating `inbox` as an unconditional
++  reserved project rhei id, not only as unavailable while an `inbox/` capture
++  directory exists. I also agree the state-policy behavior can be stated more
++  concretely here, provided this point references the ordinary state-machine
++  resolution rule instead of creating a second inbox-specific precedence table.
++- Remaining disagreements: D-003 only, and only as a boundary question. This
++  point should define the canonical id while a ticket is in the inbox, but the
++  filing workflow, reference rewrites, artifact migration, and external id
++  stability guarantees belong in a separate promotion/refactoring decision.
++  D-001 and D-002 should be resolved by this recommendation.
++- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
++  original wording left the no-inbox case too vague. Conditional reservation
++  makes validation depend on whether a feature is currently present, which is
++  a weak rule for a language-level namespace. They are also right that the
++  synthetic inbox rhei should be a structural rollup with no stored state, and
++  that tickets beneath it should use the same `node_policy.overrides ->
++  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
++  ordinary rhei tickets.
++- Final recommendation for this point: adopt S-001 with these clarifications.
++  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
++  domain rhei with id `inbox` under `rheis/` is a validation/load error even
++  when no `inbox/` directory is present. The synthetic inbox rhei is only
++  materialized when project inbox content exists, has parent Panta, has level 1,
++  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
++  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
++  nested inbox tickets have their authored parent ticket, deeper levels, and
++  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
++  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
++  omitted: first bind the effective state machine using the state-machine
++  resolution rule for such rheis, then resolve the ticket profile with
++  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
++  `node_policy.default`. No separate inbox policy tier is introduced.
++- Reason: This handles D-001 by making the namespace stable and easy to
++  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
++  changes legality when quick capture appears. It handles D-002 by giving inbox
++  work a clear lookup rule while still delegating the generic precedence between
++  rhei-local declarations, Panta defaults, and built-in fallback to the
++  state-machine-resolution point. It handles D-003 by separating the hierarchy
++  invariant from filing semantics: while a ticket is under the inbox its
++  canonical project id is `inbox.<local-id>`; if another decision defines
++  promotion as a move into a domain rhei, the normal namespaced-id model implies
++  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
++  decide reference-rewrite or id-alias guarantees.
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Response - codex[yolo]:openai:gpt-5.5
+
+- Changed position: yes. I now support treating `inbox` as an unconditional
+  reserved project rhei id, not only as unavailable while an `inbox/` capture
+  directory exists. I also agree the state-policy behavior can be stated more
+  concretely here, provided this point references the ordinary state-machine
+  resolution rule instead of creating a second inbox-specific precedence table.
+- Remaining disagreements: D-003 only, and only as a boundary question. This
+  point should define the canonical id while a ticket is in the inbox, but the
+  filing workflow, reference rewrites, artifact migration, and external id
+  stability guarantees belong in a separate promotion/refactoring decision.
+  D-001 and D-002 should be resolved by this recommendation.
+- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
+  original wording left the no-inbox case too vague. Conditional reservation
+  makes validation depend on whether a feature is currently present, which is
+  a weak rule for a language-level namespace. They are also right that the
+  synthetic inbox rhei should be a structural rollup with no stored state, and
+  that tickets beneath it should use the same `node_policy.overrides ->
+  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
+  ordinary rhei tickets.
+- Final recommendation for this point: adopt S-001 with these clarifications.
+  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
+  domain rhei with id `inbox` under `rheis/` is a validation/load error even
+  when no `inbox/` directory is present. The synthetic inbox rhei is only
+  materialized when project inbox content exists, has parent Panta, has level 1,
+  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
+  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
+  nested inbox tickets have their authored parent ticket, deeper levels, and
+  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
+  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
+  omitted: first bind the effective state machine using the state-machine
+  resolution rule for such rheis, then resolve the ticket profile with
+  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
+  `node_policy.default`. No separate inbox policy tier is introduced.
+- Reason: This handles D-001 by making the namespace stable and easy to
+  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
+  changes legality when quick capture appears. It handles D-002 by giving inbox
+  work a clear lookup rule while still delegating the generic precedence between
+  rhei-local declarations, Panta defaults, and built-in fallback to the
+  state-machine-resolution point. It handles D-003 by separating the hierarchy
+  invariant from filing semantics: while a ticket is under the inbox its
+  canonical project id is `inbox.<local-id>`; if another decision defines
+  promotion as a move into a domain rhei, the normal namespaced-id model implies
+  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
+  decide reference-rewrite or id-alias guarantees.
+
+exec
+/usr/bin/bash -lc 'git diff -- runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c0d25b686c72ef590a96a4c7bc0c3799cc7df64
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,45 @@
++# Discussion Response - codex[yolo]:openai:gpt-5.5
++
++- Changed position: yes. I now support treating `inbox` as an unconditional
++  reserved project rhei id, not only as unavailable while an `inbox/` capture
++  directory exists. I also agree the state-policy behavior can be stated more
++  concretely here, provided this point references the ordinary state-machine
++  resolution rule instead of creating a second inbox-specific precedence table.
++- Remaining disagreements: D-003 only, and only as a boundary question. This
++  point should define the canonical id while a ticket is in the inbox, but the
++  filing workflow, reference rewrites, artifact migration, and external id
++  stability guarantees belong in a separate promotion/refactoring decision.
++  D-001 and D-002 should be resolved by this recommendation.
++- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
++  original wording left the no-inbox case too vague. Conditional reservation
++  makes validation depend on whether a feature is currently present, which is
++  a weak rule for a language-level namespace. They are also right that the
++  synthetic inbox rhei should be a structural rollup with no stored state, and
++  that tickets beneath it should use the same `node_policy.overrides ->
++  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
++  ordinary rhei tickets.
++- Final recommendation for this point: adopt S-001 with these clarifications.
++  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
++  domain rhei with id `inbox` under `rheis/` is a validation/load error even
++  when no `inbox/` directory is present. The synthetic inbox rhei is only
++  materialized when project inbox content exists, has parent Panta, has level 1,
++  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
++  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
++  nested inbox tickets have their authored parent ticket, deeper levels, and
++  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
++  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
++  omitted: first bind the effective state machine using the state-machine
++  resolution rule for such rheis, then resolve the ticket profile with
++  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
++  `node_policy.default`. No separate inbox policy tier is introduced.
++- Reason: This handles D-001 by making the namespace stable and easy to
++  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
++  changes legality when quick capture appears. It handles D-002 by giving inbox
++  work a clear lookup rule while still delegating the generic precedence between
++  rhei-local declarations, Panta defaults, and built-in fallback to the
++  state-machine-resolution point. It handles D-003 by separating the hierarchy
++  invariant from filing semantics: while a ticket is under the inbox its
++  canonical project id is `inbox.<local-id>`; if another decision defines
++  promotion as a move into a domain rhei, the normal namespaced-id model implies
++  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
++  decide reference-rewrite or id-alias guarantees.
+
+exec
+/usr/bin/bash -lc 'git status --short -- runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md runtime/deliberation/points/point-inbox-hierarchy' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+?? runtime/deliberation/points/point-inbox-hierarchy/disagreement-map.md
+?? runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+?? runtime/deliberation/points/point-inbox-hierarchy/proposals/
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c0d25b686c72ef590a96a4c7bc0c3799cc7df64
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,45 @@
++# Discussion Response - codex[yolo]:openai:gpt-5.5
++
++- Changed position: yes. I now support treating `inbox` as an unconditional
++  reserved project rhei id, not only as unavailable while an `inbox/` capture
++  directory exists. I also agree the state-policy behavior can be stated more
++  concretely here, provided this point references the ordinary state-machine
++  resolution rule instead of creating a second inbox-specific precedence table.
++- Remaining disagreements: D-003 only, and only as a boundary question. This
++  point should define the canonical id while a ticket is in the inbox, but the
++  filing workflow, reference rewrites, artifact migration, and external id
++  stability guarantees belong in a separate promotion/refactoring decision.
++  D-001 and D-002 should be resolved by this recommendation.
++- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
++  original wording left the no-inbox case too vague. Conditional reservation
++  makes validation depend on whether a feature is currently present, which is
++  a weak rule for a language-level namespace. They are also right that the
++  synthetic inbox rhei should be a structural rollup with no stored state, and
++  that tickets beneath it should use the same `node_policy.overrides ->
++  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
++  ordinary rhei tickets.
++- Final recommendation for this point: adopt S-001 with these clarifications.
++  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
++  domain rhei with id `inbox` under `rheis/` is a validation/load error even
++  when no `inbox/` directory is present. The synthetic inbox rhei is only
++  materialized when project inbox content exists, has parent Panta, has level 1,
++  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
++  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
++  nested inbox tickets have their authored parent ticket, deeper levels, and
++  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
++  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
++  omitted: first bind the effective state machine using the state-machine
++  resolution rule for such rheis, then resolve the ticket profile with
++  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
++  `node_policy.default`. No separate inbox policy tier is introduced.
++- Reason: This handles D-001 by making the namespace stable and easy to
++  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
++  changes legality when quick capture appears. It handles D-002 by giving inbox
++  work a clear lookup rule while still delegating the generic precedence between
++  rhei-local declarations, Panta defaults, and built-in fallback to the
++  state-machine-resolution point. It handles D-003 by separating the hierarchy
++  invariant from filing semantics: while a ticket is under the inbox its
++  canonical project id is `inbox.<local-id>`; if another decision defines
++  promotion as a move into a domain rhei, the normal namespaced-id model implies
++  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
++  decide reference-rewrite or id-alias guarantees.
+
+codex
+Wrote the discussion response to [codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md).
+
+I resolved D-001 by conceding to unconditional `inbox` reservation, resolved D-002 by defining ordinary ticket state-policy lookup without owning generic state-machine precedence, and kept D-003 as a separate promotion/reference-rewrite boundary question. No state lines or Rhei transitions were modified.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c0d25b686c72ef590a96a4c7bc0c3799cc7df64
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,45 @@
++# Discussion Response - codex[yolo]:openai:gpt-5.5
++
++- Changed position: yes. I now support treating `inbox` as an unconditional
++  reserved project rhei id, not only as unavailable while an `inbox/` capture
++  directory exists. I also agree the state-policy behavior can be stated more
++  concretely here, provided this point references the ordinary state-machine
++  resolution rule instead of creating a second inbox-specific precedence table.
++- Remaining disagreements: D-003 only, and only as a boundary question. This
++  point should define the canonical id while a ticket is in the inbox, but the
++  filing workflow, reference rewrites, artifact migration, and external id
++  stability guarantees belong in a separate promotion/refactoring decision.
++  D-001 and D-002 should be resolved by this recommendation.
++- Concessions: claude-code[yolo]:anthropic:claude-opus-4-7 is right that my
++  original wording left the no-inbox case too vague. Conditional reservation
++  makes validation depend on whether a feature is currently present, which is
++  a weak rule for a language-level namespace. They are also right that the
++  synthetic inbox rhei should be a structural rollup with no stored state, and
++  that tickets beneath it should use the same `node_policy.overrides ->
++  node_policy.by_type[<kind>] -> node_policy.default` ticket lookup used by
++  ordinary rhei tickets.
++- Final recommendation for this point: adopt S-001 with these clarifications.
++  `inbox` is always a reserved level-1 rhei id in a Panta project. A discovered
++  domain rhei with id `inbox` under `rheis/` is a validation/load error even
++  when no `inbox/` directory is present. The synthetic inbox rhei is only
++  materialized when project inbox content exists, has parent Panta, has level 1,
++  has no authored `index.rhei.md`, and carries no stored state. Top-level inbox
++  tickets have parent `inbox`, level 2, and project ids `inbox.<local-id>`;
++  nested inbox tickets have their authored parent ticket, deeper levels, and
++  ids such as `inbox.<local-id>.<child-id>`. Inbox tickets resolve state policy
++  exactly as ordinary tickets in a rhei whose `**States:**` declaration is
++  omitted: first bind the effective state machine using the state-machine
++  resolution rule for such rheis, then resolve the ticket profile with
++  `node_policy.overrides`, then `node_policy.by_type[<kind>]`, then
++  `node_policy.default`. No separate inbox policy tier is introduced.
++- Reason: This handles D-001 by making the namespace stable and easy to
++  validate: `inbox` is a language-reserved rhei id, not a user rhei id that
++  changes legality when quick capture appears. It handles D-002 by giving inbox
++  work a clear lookup rule while still delegating the generic precedence between
++  rhei-local declarations, Panta defaults, and built-in fallback to the
++  state-machine-resolution point. It handles D-003 by separating the hierarchy
++  invariant from filing semantics: while a ticket is under the inbox its
++  canonical project id is `inbox.<local-id>`; if another decision defines
++  promotion as a move into a domain rhei, the normal namespaced-id model implies
++  a new `<target-rhei>.<local-id>` canonical id, but this point should not also
++  decide reference-rewrite or id-alias guarantees.
+
+tokens used
+Wrote the discussion response to [codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/discussion/codex-yolo-openai-gpt-5.5.md).
+24,430
+
+I resolved D-001 by conceding to unconditional `inbox` reservation, resolved D-002 by defining ordinary ticket state-policy lookup without owning generic state-machine precedence, and kept D-003 as a separate promotion/reference-rewrite boundary question. No state lines or Rhei transitions were modified.
+
+=== exit ===
+code: 0
+duration: 57s
+ended: 2026-06-01T08:20:58Z
+===

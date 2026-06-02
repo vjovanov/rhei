@@ -1,0 +1,1502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rhei · Flow</title>
+<style>
+  /* Calm console palette — see docs/functional-spec/rhei-viz-ux.spec.md §3 */
+  :root {
+    --bg:        #0e1116;
+    --surface:   #14181f;
+    --surface-2: #1b212b;
+    --hairline:  #232a35;
+    --ink:       #d6dae0;
+    --dim:       #9aa3af;
+    --faint:     #6b7480;
+    --accent:    #7fb0d0;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+            "Liberation Mono", "Roboto Mono", monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f1ea; --surface: #fbf9f4; --surface-2: #efece4; --hairline: #d8d3c7;
+      --ink: #1c2128; --dim: #5a6470; --faint: #8a93a0; --accent: #2f6f97;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 var(--mono); }
+  a { color: var(--accent); }
+  header { padding: 10px 16px; background: var(--surface-2);
+    border-bottom: 1px solid var(--hairline);
+    display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header #plan-title { color: var(--ink); font-weight: 600; }
+  #live-dot { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); }
+  #live-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #d4a84e; }
+  #live-dot[hidden] { display: none; }
+  #plan-picker[hidden] { display: none; }
+  .controls { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+  select { background: var(--surface); color: var(--ink); border: 1px solid var(--hairline);
+    border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; }
+  .strip { display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    padding: 7px 16px; border-bottom: 1px solid var(--hairline); background: var(--surface);
+    color: var(--dim); font-size: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--hairline); border-radius: 4px; overflow: hidden; }
+  .seg button { background: transparent; color: var(--dim); border: 0; border-right: 1px solid var(--hairline);
+    padding: 4px 12px; font: inherit; cursor: pointer; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--surface-2); color: var(--ink); font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--accent); }
+  .summary b { color: var(--ink); font-weight: 600; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-left: auto; }
+  .legend span { white-space: nowrap; }
+  .gly { display: inline-block; width: 1.1em; text-align: center; }
+  main { padding: 14px 16px 24px; }
+  .flow { display: flex; gap: 14px; align-items: stretch; }
+  .pane-left, .pane-right { min-width: 0; }
+  /* List mode: compact outline on the left, surroundings grows to the right edge. */
+  .flow.list  .pane-left  { flex: 0 0 700px; }
+  .flow.list  .pane-right { flex: 1 1 auto; }
+  /* Graph mode: the DAG fills the left, surroundings stays a fixed column. */
+  .flow.graph .pane-left  { flex: 1 1 auto; }
+  .flow.graph .pane-right { flex: 0 0 560px; }
+  @media (max-width: 1060px) {
+    .flow { flex-direction: column; }
+    .flow.list .pane-left, .flow.list .pane-right,
+    .flow.graph .pane-left, .flow.graph .pane-right { flex: 0 0 auto; width: 100%; }
+  }
+  .panel { background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px; }
+  .panel > h2 { margin: 0; padding: 8px 12px; font-size: 11px; font-weight: 600;
+    letter-spacing: 0; text-transform: uppercase; color: var(--dim);
+    border-bottom: 1px solid var(--hairline); }
+
+  /* ---- list (outline) ---- */
+  .tree { padding: 6px 4px; max-width: 660px; }
+  .row { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0;
+    overflow: hidden; padding: 3px 10px;
+    border-left: 3px solid transparent; border-radius: 0 4px 4px 0;
+    cursor: pointer; white-space: nowrap; } /* §FS-rhei-viz.2 */
+  .row:hover { background: var(--surface-2); }
+  .row.sel { box-shadow: inset 0 0 0 1px var(--accent); }
+  .row .lead { flex: 0 0 15px; display: inline-flex; align-items: center; justify-content: center; }
+  .row .id { flex: 0 0 auto; max-width: 44%; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; color: var(--dim); }
+  .row .ttl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .row .st { flex: 0 0 140px; }                                  /* pill column, left-aligned */
+  .row .prog { flex: 0 0 46px; color: var(--faint); font-size: 11px; text-align: right; }
+  .pill { display: inline-block; max-width: 100%; padding: 1px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Whole-line state coloring — meaning, glanceable (see note in commit/spec). */
+  .row[data-cat="done"]    { background: color-mix(in srgb, #4f9e7e 16%, transparent); border-left-color: #4f9e7e; }
+  .row[data-cat="blocked"] { background: color-mix(in srgb, #cf5b5b 18%, transparent); border-left-color: #cf5b5b; }
+  .row[data-cat="failed"]  { background: color-mix(in srgb, #cf5b5b 14%, transparent); border-left-color: #cf5b5b; }
+  .row[data-cat="active"]  { background: color-mix(in srgb, #6bb0cf 14%, transparent); border-left-color: #6bb0cf; }
+  .row[data-cat="live"]    { background: color-mix(in srgb, #d4a84e 18%, transparent); border-left-color: #d4a84e; }
+  .row[data-cat="gate"]    { background: color-mix(in srgb, #6cae7c 12%, transparent); border-left-color: #6cae7c; border-left-style: double; border-left-width: 4px; }
+  .row[data-cat="retired"] { opacity: .55; }
+  .row[data-cat="done"] .ttl,
+  .row[data-cat="blocked"] .ttl,
+  .row[data-cat="active"] .ttl,
+  .row[data-cat="live"] .ttl    { color: var(--ink); }
+
+  /* Spinner — the one live affordance; stilled under reduced motion. */
+  .spinner { display: inline-block; width: 11px; height: 11px; box-sizing: border-box;
+    border: 2px solid color-mix(in srgb, #d4a84e 35%, transparent);
+    border-top-color: #d4a84e; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none; border: 0; width: auto; height: auto; }
+    .spinner::before { content: "●"; color: #d4a84e; }
+  }
+
+  /* ---- graph (DAG) ---- */
+  svg { display: block; background: var(--surface); }
+  .pane-left svg { width: 100%; }
+  .gnode { cursor: pointer; }
+  .gnode rect { fill: var(--surface-2); }
+  .gnode.done rect    { fill: color-mix(in srgb, #4f9e7e 22%, var(--surface-2)); }
+  .gnode.blocked rect { fill: color-mix(in srgb, #cf5b5b 22%, var(--surface-2)); }
+  .gnode.failed rect  { fill: color-mix(in srgb, #cf5b5b 16%, var(--surface-2)); }
+  .gnode.gate rect    { fill: color-mix(in srgb, #6cae7c 16%, var(--surface-2)); }
+  .gnode.active rect  { fill: color-mix(in srgb, #6bb0cf 18%, var(--surface-2)); }
+  .gnode.live rect    { fill: color-mix(in srgb, #d4a84e 20%, var(--surface-2));
+    stroke-dasharray: 5 4; animation: ants 1s linear infinite; }
+  @keyframes ants { to { stroke-dashoffset: -18; } }
+  @media (prefers-reduced-motion: reduce) { .gnode.live rect { animation: none; stroke-dasharray: none; } }
+  .gnode.sel rect { stroke: var(--accent); stroke-width: 2.5; }
+  .gedge { fill: none; stroke: var(--hairline); stroke-width: 1.5; }
+  text { font: 11px var(--mono); fill: var(--ink); }
+  text.gid { fill: var(--dim); }
+  text.gst { font-size: 10px; }
+
+  /* ---- running now strip ---- */
+  .running { display: none; margin-bottom: 14px; }
+  .running.on { display: block; padding: 8px 12px; }
+  .runhead { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0; margin-bottom: 7px; }
+  .runhead b { color: var(--ink); }
+  .runrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .runchip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0;
+    overflow: hidden; padding: 4px 10px; border-radius: 6px;
+    background: color-mix(in srgb, #d4a84e 14%, var(--surface));
+    border: 1px solid color-mix(in srgb, #d4a84e 40%, var(--hairline)); cursor: pointer; }
+  .runchip .id { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-weight: 600; }
+  .runchip .rst { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); font-size: 11px; }
+
+  /* ---- surroundings ---- */
+  .surr { padding: 12px; transition: opacity .12s ease; }
+  @media (prefers-reduced-motion: reduce) { .surr { transition: none; } }
+  .surr .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .surr .head .id { font-weight: 600; }
+  .surr .head .ttl { color: var(--dim); }
+  .surr .flags { color: var(--faint); font-size: 11px; }
+  /* Deep-link affordance: copy a URL that opens this node's surroundings. */
+  .surr .head .copylink { margin-left: auto; color: var(--faint); font-size: 11px;
+    cursor: pointer; border: 1px solid transparent; padding: 0 5px; border-radius: 3px;
+    user-select: none; white-space: nowrap; }
+  .surr .head .copylink:hover { color: var(--dim); border-color: var(--hairline); }
+  .surr .desc { color: var(--dim); margin: 8px 0 4px; }
+  .surr h3 { margin: 14px 0 5px; font-size: 11px; font-weight: 600; letter-spacing: 0;
+    text-transform: uppercase; color: var(--dim); }
+  .surr .vlabel { margin: 7px 0 3px; color: var(--faint); font-size: 11px; }
+  .deps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .deps h4 { margin: 0 0 4px; font-size: 11px; color: var(--faint); font-weight: 400; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--hairline); font-size: 12px;
+    cursor: pointer; color: var(--ink); }
+  .chip.flat { cursor: default; }
+  .chip .dot { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+  .chip .cond, .chip .wild { color: var(--faint); font-size: 11px; }
+  .chip.done { color: var(--faint); }
+  .none { color: var(--faint); }
+  /* Keep long descendants and artifact paths inside the inspector pane. §FS-rhei-viz.4 */
+  .child { display: flex; align-items: center; gap: 7px; max-width: 100%; min-width: 0;
+    overflow: hidden; padding: 2px 0; cursor: pointer; white-space: nowrap; }
+  .child:hover .ttl { color: var(--accent); }
+  .child .gly { flex: 0 0 auto; }
+  .child .id { flex: 0 1 auto; max-width: 58%; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; color: var(--dim); }
+  .child .ttl { flex: 1 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+  .child .st { flex: 0 0 auto; margin-left: auto; color: var(--dim); font-size: 11px; }
+  .arts { margin: 0; padding: 0; list-style: none; }
+  .arts li { max-width: 100%; margin: 4px 0; overflow-wrap: anywhere; }
+  .arts .io { color: var(--faint); }
+  .arts a { font-size: 11.5px; word-break: break-all; }
+  .arts .unres { color: var(--faint); font-size: 11.5px; word-break: break-all; }
+  .arts .adesc { color: var(--faint); font-size: 11px; }
+
+  /* ---- human gate transition controls (live dashboard only) ---- */
+  .gatebox { margin-top: 14px; padding: 10px 12px; border-radius: 6px;
+    border: 1px solid color-mix(in srgb, #6cae7c 45%, var(--hairline));
+    background: color-mix(in srgb, #6cae7c 8%, var(--surface)); }
+  .gatebox h3 { margin: 0 0 4px; }
+  .gatebox .gdesc { color: var(--dim); font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
+  .gatebox .grow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .gatebox .gstatus { color: var(--faint); font-size: 11px; }
+  .gatebox .gerr { color: #cf5b5b; }
+
+  /* ---- intervene (running tasks; static active-state preview) ---- */
+  .intervene { margin-top: 14px; padding: 10px 12px; border-radius: 6px;
+    border: 1px solid color-mix(in srgb, #d4a84e 45%, var(--hairline));
+    background: color-mix(in srgb, #d4a84e 9%, var(--surface)); }
+  .intervene h3 { margin: 0 0 4px; }
+  .intervene .now { color: var(--dim); font-size: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+  .intervene textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 46px;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--hairline); border-radius: 5px;
+    padding: 6px 8px; font: inherit; }
+  .intervene .irow { display: flex; gap: 10px; align-items: center; margin-top: 7px; }
+  .btn { background: var(--surface-2); color: var(--ink); border: 1px solid var(--hairline);
+    border-radius: 5px; padding: 5px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: var(--hairline); }
+  .intervene textarea:disabled { opacity: 0.55; cursor: not-allowed; }
+  .intervene .hint { color: var(--faint); font-size: 11px; }
+  /* Calm "can't be messaged" line for a live agent without an interactive stdin. */
+  .intervene .noiv { color: var(--faint); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .intervene .noiv code { color: var(--dim); background: rgba(127,127,127,0.13);
+    padding: 0 4px; border-radius: 3px; }
+  /* Live agent output — a real terminal: dark in any theme, scrollback, ANSI color. */
+  .term { margin: 8px 0; height: 340px; overflow-y: auto; background: #0b0e13; color: #cdd3de;
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 10px;
+    font-size: 12px; line-height: 1.5; }
+  .term .tline { white-space: pre-wrap; word-break: break-word; }
+  .term .me { color: #d4a84e; font-weight: 600; }
+  .term .meln { color: #e7c885; }
+  .term .err { color: #ff8f8f; font-weight: 600; }
+
+  /* ---- machine graphs (one per disjoint state machine) ---- */
+  .machines { margin-top: 14px; padding-bottom: 4px; }
+  .mgraph { padding: 8px 12px; border-top: 1px solid var(--hairline); overflow-x: auto; }
+  .mgraph:first-of-type { border-top: 0; }
+  .mlabel { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
+  .mlabel b { color: var(--ink); }
+  .mnode { cursor: pointer; }
+  .mnode rect { fill: var(--surface-2); }
+  .mnode .mcnt { font-weight: 600; }
+  .mnode.empty { opacity: .5; }
+  .mnode.empty rect { fill: var(--bg); }
+  .mnode.cur rect { stroke: var(--accent) !important; stroke-width: 2.5 !important; }
+  .medge { fill: none; stroke: var(--hairline); stroke-width: 1.4; }
+  .medge.back { stroke-dasharray: 4 3; stroke: var(--faint); }
+  .mk-fwd { fill: var(--hairline); }
+  .mk-back { fill: var(--faint); }
+  .mabout { padding: 8px 12px; color: var(--dim); font-size: 12px; line-height: 1.5;
+    border-top: 1px solid var(--hairline); white-space: pre-wrap; }
+  .mabout b { color: var(--ink); }
+  .mdetail { padding: 9px 12px; border-top: 1px solid var(--hairline); background: var(--surface-2); }
+  .mdetail .hint { color: var(--faint); font-size: 12px; }
+  .mdhead { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+  .mdlabel { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0; margin: 7px 0 3px; }
+  .mlegend { margin-top: 8px; display: grid; grid-template-columns: minmax(110px, max-content) 1fr;
+    gap: 1px 12px; }
+  .mlegrow { display: contents; cursor: pointer; }
+  .mlegrow > .mlegname { display: inline-flex; align-items: center; gap: 6px; padding: 1px 2px; }
+  .mlegrow > .mlegdesc { color: var(--dim); padding: 1px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mlegrow:hover > * { background: var(--surface-2); }
+  .mlegrow.cur > .mlegname { color: var(--accent); font-weight: 600; }
+  /* shared prompt block — machine-state template and instantiated task prompt */
+  .prompt { white-space: pre-wrap; word-break: break-word; background: var(--bg);
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 10px;
+    font-size: 12px; line-height: 1.5; margin: 3px 0; max-height: 240px; overflow: auto; }
+  .prompt .sub { color: var(--accent); font-weight: 600; }
+  .prompt .unres { color: var(--faint); }
+  .prompt a { color: var(--accent); }
+  .machine-line { color: var(--dim); font-size: 12px; }
+  .machine-line b { color: var(--accent); }
+
+  /* ---- supplementary scanning views (§FS-rhei-viz §12) ---- */
+  .supp { margin-top: 14px; }
+  .stabs { display: flex; gap: 2px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--hairline); align-items: center; }
+  .stabs .lbl { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0; margin-right: 6px; }
+  .stab { background: transparent; color: var(--dim); border: 0; border-radius: 5px; padding: 3px 10px; font: inherit; cursor: pointer; }
+  .stab:hover { background: var(--surface-2); }
+  .stab.on { background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+  .sbody { padding: 10px 12px; overflow-x: auto; }
+  .stable { border-collapse: collapse; font-size: 12px; }
+  .stable th { text-align: left; color: var(--faint); font-weight: 600; padding: 3px 10px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+  .stable td { padding: 3px 10px; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+  .stable td.num, .stable th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .stable tr:hover td { background: var(--surface-2); }
+  .jrow { display: flex; gap: 8px; padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+  .jrow .jt { color: var(--faint); flex: 0 0 auto; }
+  .jglyph { width: 1.1em; display: inline-block; text-align: center; flex: 0 0 auto; }
+  .jrow.warn .jglyph { color: #c79a4e; } .jrow.error .jglyph { color: #cf5b5b; } .jrow.info .jglyph { color: var(--faint); }
+  .linkrow { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+  .linkrow .src { color: var(--faint); font-size: 11px; }
+  .acct-grid { display: grid; grid-template-columns: max-content max-content; gap: 2px 18px; font-size: 12px; }
+  .acct-grid .k { color: var(--dim); } .acct-grid .v { text-align: right; font-variant-numeric: tabular-nums; }
+  .heat { display: inline-block; min-width: 16px; height: 16px; border-radius: 3px; vertical-align: middle; }
+  text.cell { font-size: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rhei · Flow</h1>
+  <span class="sub" id="plan-title"></span>
+  <span class="sub" id="machine-line"></span>
+  <div class="controls">
+    <span class="sub" id="live-dot" hidden>live</span>
+    <label class="sub" id="plan-picker" hidden>plan&nbsp;
+      <select id="plan"></select>
+    </label>
+  </div>
+</header>
+
+<div class="strip">
+  <span class="seg" id="mode">
+    <button data-mode="list" class="on">List</button>
+    <button data-mode="graph">Graph</button>
+  </span>
+  <span class="summary" id="summary"></span>
+  <span class="legend" id="legend"></span>
+</div>
+
+<main>
+  <div class="panel running" id="running"></div>
+  <div class="flow list">
+    <div class="pane-left panel" id="pane-left">
+      <h2 id="left-title">Plan · outline</h2>
+      <div id="left-body"></div>
+    </div>
+    <div class="pane-right panel">
+      <h2>Surroundings</h2>
+      <div class="surr" id="surr"></div>
+    </div>
+  </div>
+  <div class="panel machines" id="machines"></div>
+  <div class="panel supp" id="supp"></div>
+</main>
+
+<script>
+// Boot payload. Static render: an object mapping plan key -> VizModel (the JS
+// shows a selector when there is more than one). Live render: left as `null`,
+// which tells the JS to poll `/snapshot` for the superset payload instead.
+const BOOT = {"plan":{"plan_title":"Panta Spec Deliberation","plan_state":"pending","about":"This workspace resolves one discussion through a structured multi-agent\ndeliberation:\n1. split the input into separate decision points\n2. collect independent proposals from configured target agents for each point\n3. aggregate agreements and disagreements\n4. run one multi-agent discussion pass for each point\n5. resolve every point, synthesize the final solution, and present it to a human","tasks":[{"id":"split","title":"Split discussion into decision points","depth":0,"state":"completed","prior":[]},{"id":"point-inbox-hierarchy","title":"Resolve Inbox ticket placement in the Panta hierarchy","depth":0,"state":"completed","prior":["split"]},{"id":"point-cross-rhei-readiness","title":"Resolve Cross-rhei dependency readiness","depth":0,"state":"completed","prior":["split"]},{"id":"point-state-machine-resolution","title":"Resolve Panta defaults in state-machine resolution","depth":0,"state":"completed","prior":["split"]},{"id":"point-language-reference","title":"Resolve Panta syntax in the canonical language reference","depth":0,"state":"completed","prior":["split"]},{"id":"final-solution","title":"Produce final solution for Resolve Panta project spec conflicts","depth":0,"state":"human-review","prior":["point-inbox-hierarchy","point-cross-rhei-readiness","point-state-machine-resolution","point-language-reference"]}],"machine":{"name":"multi-agent-deliberation","states":[{"name":"split-points","description":"Split the input discussion into separate decision-point tasks.","instructions":"Split Task {task_id}: {task_title}.\n\nRead the input discussion in the task body. Create at most 4\ndecision-point tasks unless separating more points is necessary to avoid\nmerging unrelated decisions.\n\nWrite a point manifest to `{output.point-manifest.path}` with this shape:\n\n# Discussion Points - Resolve Panta project spec conflicts\n\n- point-\u003cslug\u003e: \u003cpoint title\u003e\n  - Source: \u003cshort quote or reference from the input discussion\u003e\n  - Question: \u003cthe exact decision to resolve\u003e\n  - Constraints: \u003cfacts, requirements, or tradeoffs that proposals must honor\u003e\n\nFor every manifest entry, append one task file under `tasks/` named\n`NN-point-\u003cslug\u003e.md` with:\n\n### Task point-\u003cslug\u003e: Resolve \u003cpoint title\u003e\n**State:** propose-solutions\n**Prior:** Task {task_id}\n\nInclude the neutral point statement, source evidence, and constraints.\n\nAppend `tasks/99-final-solution.md` with a final task:\n\n### Task final-solution: Produce final solution for Resolve Panta project spec conflicts\n**State:** final-solution\n**Prior:** Task point-\u003cslug-1\u003e, Task point-\u003cslug-2\u003e, ...\n\nReplace the prior list with every concrete point task id. Do not leave\nplaceholders, ellipses, empty prior entries, or duplicate task ids.\n","initial":true,"terminal":false,"gating":false,"transitions":[{"to":"completed","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[],"outputs":[{"name":"point-manifest","path":"runtime/deliberation/points-manifest.md","description":"Stable list of generated discussion points","optional":false}],"template_context":{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"}},{"name":"propose-solutions","description":"Configured target agents independently propose a solution for one point.","instructions":"Propose a solution for Task {task_id}: {task_title}.\n\nRead the point statement and constraints in the task body. Write your\nproposal to `{output.proposal.path}` with:\n\n# Proposal - {target}\n\n- Recommendation: \u003cone concrete solution\u003e\n- Reasons: \u003cwhy this should be chosen\u003e\n- Tradeoffs: \u003ccosts, risks, or limitations\u003e\n- Assumptions: \u003cfacts you rely on\u003e\n- Rejection criteria: \u003cwhen this proposal should not be used\u003e\n","initial":false,"terminal":false,"gating":false,"transitions":[{"to":"aggregate-disagreements","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[],"outputs":[{"name":"proposal","path":"runtime/deliberation/points/{task_id}/proposals/{target.slug}.md","description":"One target agent's proposal for this discussion point","optional":false}],"template_contexts":[{"target":"claude-code[yolo]:anthropic:claude-opus-4-7","target_slug":"claude-code-yolo-anthropic-claude-opus-4-7","model":"claude-opus-4-7","model_provider":"anthropic","model_name":"claude-opus-4-7","agent":"claude-code","agent_mode":"yolo"},{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"}]},{"name":"aggregate-disagreements","description":"Aggregate proposals, tag agreements and disagreements, and frame the discussion.","instructions":"Aggregate proposals for Task {task_id}: {task_title}.\n\nRead:\n\n- `{input.claude-proposal.path}`\n\n- `{input.codex-proposal.path}`\n\n\nWrite `{output.disagreement-map.path}` with:\n\n# Disagreement Map - {task_title}\n\n## Candidate Solutions\n- S-001: \u003csolution\u003e\n  - Proposed by: \u003ctargets\u003e\n  - Reasons: \u003cshared or strongest reasons\u003e\n\n## Agreements\n- A-001: \u003cwhat all or most proposals agree on\u003e\n\n## Disagreements\n- D-001: \u003cspecific disagreement\u003e\n  - Agents: \u003cwho disagrees\u003e\n  - Options: \u003ccompeting options\u003e\n  - Why it matters: \u003cimpact on the final answer\u003e\n  - Evidence needed: \u003cwhat the discussion should resolve\u003e\n\n## Discussion Prompt\nA short prompt that asks the agents to address only the tagged\ndisagreements and to converge where possible.\n","initial":false,"terminal":false,"gating":false,"transitions":[{"to":"discuss-point","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[{"name":"claude-proposal","path":"runtime/deliberation/points/{task_id}/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md","description":"Proposal from claude","optional":false},{"name":"codex-proposal","path":"runtime/deliberation/points/{task_id}/proposals/codex-yolo-openai-gpt-5.5.md","description":"Proposal from codex","optional":false}],"outputs":[{"name":"disagreement-map","path":"runtime/deliberation/points/{task_id}/disagreement-map.md","description":"Aggregated proposals with tagged agreements and disagreements","optional":false}],"template_context":{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"}},{"name":"discuss-point","description":"Configured target agents discuss the tagged disagreements for one point.","instructions":"Discuss Task {task_id}: {task_title}.\n\nRead `{input.disagreement-map.path}` and the proposal files. Write your\ndiscussion response to `{output.discussion-note.path}` with:\n\n# Discussion Response - {target}\n\n- Changed position: \u003cyes/no and what changed\u003e\n- Remaining disagreements: \u003cspecific disagreement ids\u003e\n- Concessions: \u003cwhat other agents got right\u003e\n- Final recommendation for this point: \u003cthe solution you now support\u003e\n- Reason: \u003cwhy this recommendation best handles the tagged disagreements\u003e\n","initial":false,"terminal":false,"gating":false,"transitions":[{"to":"resolve-point","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[{"name":"disagreement-map","path":"runtime/deliberation/points/{task_id}/disagreement-map.md","description":"Tagged disagreements and discussion prompt for this point","optional":false},{"name":"claude-proposal","path":"runtime/deliberation/points/{task_id}/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md","description":"Proposal from claude","optional":false},{"name":"codex-proposal","path":"runtime/deliberation/points/{task_id}/proposals/codex-yolo-openai-gpt-5.5.md","description":"Proposal from codex","optional":false}],"outputs":[{"name":"discussion-note","path":"runtime/deliberation/points/{task_id}/discussion/{target.slug}.md","description":"One target agent's response to the disagreement map","optional":false}],"template_contexts":[{"target":"claude-code[yolo]:anthropic:claude-opus-4-7","target_slug":"claude-code-yolo-anthropic-claude-opus-4-7","model":"claude-opus-4-7","model_provider":"anthropic","model_name":"claude-opus-4-7","agent":"claude-code","agent_mode":"yolo"},{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"}]},{"name":"resolve-point","description":"Aggregate the discussion and choose the best solution for one point.","instructions":"Resolve Task {task_id}: {task_title}.\n\nRead `{input.disagreement-map.path}` and every discussion response.\nWrite `{output.point-decision.path}` with:\n\n# Point Decision - {task_title}\n\n- Chosen solution: \u003cone solution\u003e\n- Why chosen: \u003cshort evidence-based reason\u003e\n- Alternatives considered: \u003cother viable solutions and why not chosen\u003e\n- Remaining uncertainty: \u003cnone, or what a human should know\u003e\n- Effect on final solution: \u003chow this point constrains the final answer\u003e\n","initial":false,"terminal":false,"gating":false,"transitions":[{"to":"completed","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[{"name":"disagreement-map","path":"runtime/deliberation/points/{task_id}/disagreement-map.md","description":"Tagged disagreements for this point","optional":false},{"name":"claude-discussion","path":"runtime/deliberation/points/{task_id}/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md","description":"Discussion response from claude","optional":false},{"name":"codex-discussion","path":"runtime/deliberation/points/{task_id}/discussion/codex-yolo-openai-gpt-5.5.md","description":"Discussion response from codex","optional":false}],"outputs":[{"name":"point-decision","path":"runtime/deliberation/points/{task_id}/point-decision.md","description":"Chosen solution and rationale for this point","optional":false}],"template_context":{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"}},{"name":"final-solution","description":"Synthesize all resolved point decisions into one final solution.","instructions":"Produce the final solution for Task {task_id}: {task_title}.\n\nRead the generated point manifest at `runtime/deliberation/points-manifest.md`\nand every point decision under `runtime/deliberation/points/*/point-decision.md`.\n\nWrite `{output.final-solution.path}` with:\n\n# Final Solution - Resolve Panta project spec conflicts\n\n## Recommendation\n\u003cthe final proposed solution\u003e\n\n## Why This Solution\n- \u003creason grounded in the point decisions\u003e\n\n## Point Decisions\n- \u003cpoint\u003e: \u003cchosen solution and reason\u003e\n\n## Alternatives Rejected\n- \u003calternative\u003e: \u003cwhy it was not chosen\u003e\n\n## Risks And Open Questions\n- \u003crisk or uncertainty, or none\u003e\n","initial":false,"terminal":false,"gating":false,"transitions":[{"to":"present-to-human","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[],"outputs":[{"name":"final-solution","path":"runtime/deliberation/final-solution.md","description":"Final proposed solution across all discussion points","optional":false}],"template_context":{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"}},{"name":"present-to-human","description":"Write the simplest human-readable presentation of the final solution.","instructions":"Prepare the human-facing summary for Task {task_id}: {task_title}.\n\nRead `{input.final-solution.path}`. Write `{output.human-summary.path}` in\nthe simplest useful form:\n\n# Recommended Solution\n\n\u003cone paragraph\u003e\n\n## Why This Was Chosen\n- \u003creason 1\u003e\n- \u003creason 2\u003e\n- \u003creason 3\u003e\n\n## What Was Not Chosen\n- \u003calternative and short reason\u003e\n\n## Human Check\n- \u003canything the human should confirm before accepting\u003e\n","initial":false,"terminal":false,"gating":false,"transitions":[{"to":"human-review","wildcard":false},{"to":"cancelled","wildcard":true}],"inputs":[{"name":"final-solution","path":"runtime/deliberation/final-solution.md","description":"Final proposed solution and rationale","optional":false}],"outputs":[{"name":"human-summary","path":"runtime/deliberation/human-summary.md","description":"Human-facing presentation of the recommended solution","optional":false}],"template_context":{"target":"claude-code[yolo]:anthropic:claude-opus-4-7","target_slug":"claude-code-yolo-anthropic-claude-opus-4-7","model":"claude-opus-4-7","model_provider":"anthropic","model_name":"claude-opus-4-7","agent":"claude-code","agent_mode":"yolo"}},{"name":"human-review","description":"Human reviews the final recommendation and reasons.","instructions":"Do not transition out of this state autonomously.\n\nA human reads `runtime/deliberation/human-summary.md` and decides whether to\naccept the proposed solution. The human may transition this task to\n`completed` after accepting it, or to `cancelled` if the deliberation\nshould be abandoned.\n","initial":false,"terminal":false,"gating":true,"transitions":[{"to":"completed","wildcard":false},{"to":"cancelled","wildcard":false}],"inputs":[],"outputs":[]},{"name":"completed","description":"The deliberation task is finished.","instructions":"No more action is required.\n","initial":true,"terminal":true,"gating":false,"transitions":[],"inputs":[],"outputs":[]},{"name":"cancelled","description":"The deliberation was cancelled.","instructions":"Stop work and leave existing artifacts for inspection.\n","initial":false,"terminal":true,"gating":false,"transitions":[],"inputs":[],"outputs":[]}]},"workspace":"/home/vjovanov/f/rhei/panta-deliberation","parallel":2,"total_tasks":1,"pass":11,"ready":["final-solution"],"deferred":[],"slots":[{"active":false,"task":"final-solution","agent":"claude-code","template_context":{"target":"claude-code[yolo]:anthropic:claude-opus-4-7","target_slug":"claude-code-yolo-anthropic-claude-opus-4-7","model":"claude-opus-4-7","model_provider":"anthropic","model_name":"claude-opus-4-7","agent":"claude-code","agent_mode":"yolo"},"state":"present-to-human","transition":null,"log_path":"/home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-final-solution-present-to-human-claude-code-yolo-anthropic-claude-opus-4-7.log","started_at_ms":1780302520928,"finished_at_ms":1780302550938,"duration_ms":30010,"exit_code":0,"outcome":"completed","traffic":[{"stream":"stdout","text":"Wrote `runtime/deliberation/human-summary.md` synthesizing the final solution into the requested format: a one-paragraph recommendation, three+ chosen-reasons, the rejected alternatives compressed into one bullet each, and a Human Check list covering the open questions and tradeoffs from the final solution's risks section.","ts_ms":1780302550345,"repeat":1}],"usage":{"invocation_id":"final-solution::present-to-human::claude-code-yolo-anthropic-claude-opus-4-7::visit-1","agent":"claude-code","provider":"anthropic","model":"claude-opus-4-7","input_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","status":"no-usage-emitted","pricing_status":"not-applicable"}},{"active":false,"task":"point-language-reference","agent":"codex","template_context":{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"},"state":"resolve-point","transition":null,"log_path":"/home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-resolve-point-codex-yolo-openai-gpt-5.5.log","started_at_ms":1780302430856,"finished_at_ms":1780302479872,"duration_ms":49016,"exit_code":0,"outcome":"completed","traffic":[{"stream":"stderr","text":"+# Point Decision - Resolve Panta syntax in the canonical language reference","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+- Chosen solution: Use S-001 with a compact, structured file-kind map in the","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  canonical language reference. The map should replace the dense","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  plan/project-markdown bullet with scoped rows for the user-authored Panta","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  surface and the adjacent rhei/workspace shapes needed to understand it:","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  `index.panta.md`, Panta `rheis/` entries, `*.rhei.md`,","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  `index.rhei.md` plus workspace `tasks/**/*.md`, optional `inbox/` task files,","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  and bare-rhei loading where relevant. Each row should give only a short role","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  and owner citations. `states.yaml` remains under the separate state-machine","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  language surface, while Panta rows link to the state-resolution/defaulting","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  rules when needed. Use functional specs as the primary user-facing owners","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  (`§FS-rhei-plan-language.1.5`, `§FS-rhei-plan-language.1.1`,","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  `§FS-rhei-plan-language.1.2`, `§FS-rhei-plan-language.1.3`,","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  `§FS-rhei-panta`, and `§FS-rhei-panta.6`) and include `§AR-rhei-panta` as the","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  mechanics destination for load order, id namespacing, execution roots, and","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  state-machine binding.","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+- Why chosen: The current `§FS-rhei-language-reference` explicitly exists to","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  answer what files and syntax make up a valid Rhei workflow, but its single","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  plan/project-markdown bullet already compresses too many file kinds into one","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  line. A small file-kind map makes the required Panta files discoverable by","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  name, preserves one canonical entry point, and avoids duplicating the grammar","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  because every row routes to its owning spec. Including adjacent rhei and","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  workspace shapes is stronger than a Panta-only list because `rheis/` entries","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  and `inbox/` files are meaningful only as ordinary rhei/workspace syntax","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  loaded at project scope. Keeping `states.yaml` out of that map preserves the","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  existing separation between plan/project markdown and the state-machine","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  surface.","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+- Alternatives considered: A full broad map including root `states.yaml` and","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  every nearby authored file kind was rejected because it blurs the current","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  language-surface boundary and risks making plan/project markdown own","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  state-machine syntax. A lighter prose or per-line Panta-only enumeration was","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  viable and would satisfy the minimum requirement, but it is weaker for","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  discoverability: readers still have to infer what shapes a `rheis/` entry may","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  take and how inbox task files relate to workspace task syntax. A separate","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  Panta language reference was rejected because both proposals agree Panta is an","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  extension of the plan/project markdown surface, not an independent language or","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  second grammar source.","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+- Remaining uncertainty: None for this point. The exact markdown rendering may","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  be a table or an equivalent scoped list, but it must behave as a file-kind map","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  with role text and owner citations rather than as copied normative grammar.","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+- Effect on final solution: The final answer must update the canonical language","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  reference as the single discoverable entry point for Panta authoring syntax.","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  It must explicitly name `index.panta.md`, Panta `rheis/` entries, and optional","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  `inbox/` task files; show how those entries relate to ordinary rhei and","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  workspace markdown; route grammar and user-facing behavior to functional","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  specs; route load/id/execution-root/state-binding mechanics to","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  `§AR-rhei-panta`; keep `states.yaml` in the state-machine surface; and add an","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  ownership rule that any addition, removal, or rename of a user-authored","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  project/rhei file kind or directory updates the language-reference map in the","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  same change as the owning spec edit, while broader authoring-syntax changes","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"+  continue to update the canonical reference and owner spec together.","ts_ms":1780302479693,"repeat":1},{"stream":"stderr","text":"","ts_ms":1780302479693,"repeat":1},{"stream":"stdout","text":"Wrote the decision at [point-decision.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-language-reference/point-decision.md).","ts_ms":1780302479714,"repeat":1},{"stream":"stdout","text":"","ts_ms":1780302479714,"repeat":1},{"stream":"stdout","text":"Chosen resolution: compact structured file-kind map in the canonical language reference, including Panta surfaces plus adjacent rhei/workspace shapes, while keeping `states.yaml` under the state-machine surface.","ts_ms":1780302479714,"repeat":1},{"stream":"stdout","text":"","ts_ms":1780302479714,"repeat":1},{"stream":"stdout","text":"Verification: `grund check` passed. I did not modify task state or run any Rhei transitions.","ts_ms":1780302479714,"repeat":1},{"stream":"stderr","text":"tokens used","ts_ms":1780302479714,"repeat":1},{"stream":"stderr","text":"20,547","ts_ms":1780302479714,"repeat":1}],"usage":{"invocation_id":"point-language-reference::resolve-point::codex-yolo-openai-gpt-5.5::visit-1","agent":"codex","provider":"openai","model":"gpt-5.5","input_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","status":"no-usage-emitted","pricing_status":"not-applicable"}},{"active":false,"task":"point-language-reference","agent":"claude-code","template_context":{"target":"claude-code[yolo]:anthropic:claude-opus-4-7","target_slug":"claude-code-yolo-anthropic-claude-opus-4-7","model":"claude-opus-4-7","model_provider":"anthropic","model_name":"claude-opus-4-7","agent":"claude-code","agent_mode":"yolo"},"state":"discuss-point","transition":null,"log_path":"/home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log","started_at_ms":1780302320297,"finished_at_ms":1780302430828,"duration_ms":110531,"exit_code":0,"outcome":"completed","traffic":[{"stream":"stdout","text":"Discussion response written. I conceded on three of the four open disagreements (table → per-line enumeration, scope narrowed to Panta-only surfaces, `§AR-rhei-panta` added as owner for mechanics, broader update rule) while keeping the structural insistence that each Panta file kind appear as a first-class bullet rather than a comma-separated jumble.","ts_ms":1780302430413,"repeat":1}],"usage":{"invocation_id":"point-language-reference::discuss-point::claude-code-yolo-anthropic-claude-opus-4-7::visit-1","agent":"claude-code","provider":"anthropic","model":"claude-opus-4-7","input_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","status":"no-usage-emitted","pricing_status":"not-applicable"}},{"active":false,"task":"point-language-reference","agent":"codex","template_context":{"target":"codex[yolo]:openai:gpt-5.5","target_slug":"codex-yolo-openai-gpt-5.5","model":"gpt-5.5","model_provider":"openai","model_name":"gpt-5.5","agent":"codex","agent_mode":"yolo"},"state":"discuss-point","transition":null,"log_path":"/home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-discuss-point-codex-yolo-openai-gpt-5.5.log","started_at_ms":1780302320300,"finished_at_ms":1780302380814,"duration_ms":60514,"exit_code":0,"outcome":"completed","traffic":[{"stream":"stderr","text":"diff --git a/panta-deliberation/runtime/deliberation/points/point-language-reference/discussion/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-language-reference/discussion/codex-yolo-openai-gpt-5.5.md","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"new file mode 100644","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"index 0000000000000000000000000000000000000000..77ce6aa329c75427fff876876229d5b3d305b4b4","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"--- /dev/null","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+++ b/panta-deliberation/runtime/deliberation/points/point-language-reference/discussion/codex-yolo-openai-gpt-5.5.md","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"@@ -0,0 +1,48 @@","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+# Discussion Response - codex[yolo]:openai:gpt-5.5","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+- Changed position: yes. I still support one canonical language-reference entry","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  point and still reject duplicating the Panta grammar there, but I now support a","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  compact structured file-kind map instead of only prose enumeration. The current","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  `§FS-rhei-language-reference` is already a routing page that answers \"what","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  files and syntax make up a valid Rhei workflow?\", so a small map fits its job","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  better than my original lighter bullet.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+- Remaining disagreements: D-002, narrowly. I agree the map should include the","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  adjacent rhei file kinds needed to understand Panta loading, but I would not","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  fold the whole state-machine surface into the plan/project markdown map.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  `states.yaml` should stay owned by the existing state-machine surface, with","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  Panta rows linking to the state-resolution/defaulting rules where relevant.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+- Concessions: claude-code was right on D-001 that the existing dense bullet is","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  less discoverable than a scoped map. It was also right that reviewers need a","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  concrete synchronization rule, not just a general reminder, once the reference","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  becomes an index of file kinds. The container-scope organization also matches","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  the actual load hierarchy better than a flat list.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+- Final recommendation for this point: implement S-001 with a modified S-002.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  Replace the current single \"Plan and project markdown\" bullet with a compact","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  file-kind map organized by scope: Project/Panta, Rhei, workspace tasks, inbox,","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  and bare rhei. The map should explicitly name `index.panta.md`, `rheis/`,","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  `*.rhei.md`, `index.rhei.md`, workspace `tasks/**/*.md`, optional `inbox/`","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  task files, and bare rhei loading. Each row should have only a role sentence","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  and owner citations. Use `§FS-rhei-plan-language.1.5` for Panta project layout","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  and grammar, `§FS-rhei-plan-language.1.1` / `§FS-rhei-plan-language.1.2` for","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  rhei formats, `§FS-rhei-plan-language.1.3` for state declaration lookup and","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  inherited defaults, `§FS-rhei-panta` / `§FS-rhei-panta.6` for user-facing","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  project behavior and command scope, and `§AR-rhei-panta` as a secondary link","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  for loader, id namespacing, execution-root, and state-binding mechanics. Keep","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  `states.yaml` under the separate \"State machines\" surface, but ensure the","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  Panta map points readers to the state-resolution rule for `index.panta.md`","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  defaults.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+- Reason: This resolves D-001 by choosing the structured map because the","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  canonical reference is explicitly a discoverability page, and file kinds are","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  what users search for first. It resolves most of D-002 by broadening beyond","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  only the three Panta-specific names, since `rheis/` entries cannot be explained","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  coherently without showing the single-file and workspace rhei shapes they","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  contain; it avoids overreach by leaving the state-machine language surface in","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  its existing owner lane. It resolves D-003 by making functional specs the","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  primary owner links for user documentation while retaining `§AR-rhei-panta`","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  where the question asks for load, ids, execution roots, and state-binding","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  mechanics that are not fully explained by grammar alone. It resolves D-004 by","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  adopting the precise synchronization rule for file-kind changes: any addition,","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  removal, or rename of a user-authored project/rhei file kind or directory must","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  update the language-reference map in the same change as the owning spec edit;","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  broader syntax changes that are not file-kind changes still follow the","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"+  existing rule that the canonical reference and owner spec move together.","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"","ts_ms":1780302380219,"repeat":1},{"stream":"stderr","text":"tokens used","ts_ms":1780302380227,"repeat":1},{"stream":"stderr","text":"22,640","ts_ms":1780302380227,"repeat":1},{"stream":"stdout","text":"Wrote the discussion response to [codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-language-reference/discussion/codex-yolo-openai-gpt-5.5.md).","ts_ms":1780302380227,"repeat":1},{"stream":"stdout","text":"","ts_ms":1780302380227,"repeat":1},{"stream":"stdout","text":"Position changed: it now supports a compact structured file-kind map, while keeping state-machine syntax in its existing owner lane and using architecture links only for Panta mechanics. No task state files were modified.","ts_ms":1780302380227,"repeat":1}],"usage":{"invocation_id":"point-language-reference::discuss-point::codex-yolo-openai-gpt-5.5::visit-1","agent":"codex","provider":"openai","model":"gpt-5.5","input_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","status":"no-usage-emitted","pricing_status":"not-applicable"}}],"recent":[{"level":"info","text":"\nSpawning agent 'codex' for Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy (parallel)","ts_ms":1780301819001},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-inbox-hierarchy-propose-solutions-codex-yolo-openai-gpt-5.5.log","ts_ms":1780301819001},{"level":"info","text":"slot 1: task point-inbox-hierarchy started in propose-solutions","ts_ms":1780301819001},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness (parallel)","ts_ms":1780301819004},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-cross-rhei-readiness-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780301819004},{"level":"info","text":"slot 2: task point-cross-rhei-readiness started in propose-solutions","ts_ms":1780301819004},{"level":"info","text":"\nSpawning agent 'codex' for Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness (parallel)","ts_ms":1780301819007},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-cross-rhei-readiness-propose-solutions-codex-yolo-openai-gpt-5.5.log","ts_ms":1780301819007},{"level":"info","text":"slot 3: task point-cross-rhei-readiness started in propose-solutions","ts_ms":1780301819007},{"level":"info","text":"slot 3: task point-cross-rhei-readiness finished in propose-solutions (completed)","ts_ms":1780301850016},{"level":"info","text":"task point-cross-rhei-readiness: usage reported for codex","ts_ms":1780301850017},{"level":"info","text":"slot 1: task point-inbox-hierarchy finished in propose-solutions (completed)","ts_ms":1780301865013},{"level":"info","text":"task point-inbox-hierarchy: usage reported for codex","ts_ms":1780301865014},{"level":"info","text":"slot 2: task point-cross-rhei-readiness finished in propose-solutions (completed)","ts_ms":1780301885020},{"level":"info","text":"task point-cross-rhei-readiness: usage reported for claude-code","ts_ms":1780301885021},{"level":"info","text":"slot 0: task point-inbox-hierarchy finished in propose-solutions (completed)","ts_ms":1780301965540},{"level":"info","text":"task point-inbox-hierarchy: usage reported for claude-code","ts_ms":1780301965540},{"level":"info","text":"  Task point-inbox-hierarchy auto-advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780301965548},{"level":"info","text":"  Task point-inbox-hierarchy advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780301965551},{"level":"info","text":"  Task point-cross-rhei-readiness auto-advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780301965559},{"level":"info","text":"  Task point-cross-rhei-readiness advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780301965562},{"level":"info","text":"pass 2 ended: progressed=true","ts_ms":1780301965562},{"level":"info","text":"pass 3: 4 ready","ts_ms":1780301965566},{"level":"info","text":"\nPass 3: 4 ready, 1 terminal, 6 total.","ts_ms":1780301965566},{"level":"info","text":"Ready: Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy, Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness, Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780301965566},{"level":"info","text":"\nSpawning agent 'codex' for Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy (parallel)","ts_ms":1780301965569},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-inbox-hierarchy-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log","ts_ms":1780301965569},{"level":"info","text":"slot 0: task point-inbox-hierarchy started in aggregate-disagreements","ts_ms":1780301965569},{"level":"info","text":"\nSpawning agent 'codex' for Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness (parallel)","ts_ms":1780301965572},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-cross-rhei-readiness-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log","ts_ms":1780301965572},{"level":"info","text":"slot 1: task point-cross-rhei-readiness started in aggregate-disagreements","ts_ms":1780301965572},{"level":"info","text":"slot 1: task point-cross-rhei-readiness finished in aggregate-disagreements (completed)","ts_ms":1780302000082},{"level":"info","text":"task point-cross-rhei-readiness: usage reported for codex","ts_ms":1780302000082},{"level":"info","text":"slot 0: task point-inbox-hierarchy finished in aggregate-disagreements (completed)","ts_ms":1780302001579},{"level":"info","text":"task point-inbox-hierarchy: usage reported for codex","ts_ms":1780302001579},{"level":"info","text":"  Task point-inbox-hierarchy auto-advanced: 'aggregate-disagreements' -\u003e 'discuss-point'","ts_ms":1780302001588},{"level":"info","text":"  Task point-cross-rhei-readiness auto-advanced: 'aggregate-disagreements' -\u003e 'discuss-point'","ts_ms":1780302001595},{"level":"info","text":"pass 3 ended: progressed=true","ts_ms":1780302001595},{"level":"info","text":"pass 4: 4 ready","ts_ms":1780302001599},{"level":"info","text":"\nPass 4: 4 ready, 1 terminal, 6 total.","ts_ms":1780302001599},{"level":"info","text":"Ready: Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy, Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness, Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780302001599},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy (parallel)","ts_ms":1780302001602},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-inbox-hierarchy-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302001602},{"level":"info","text":"slot 0: task point-inbox-hierarchy started in discuss-point","ts_ms":1780302001602},{"level":"info","text":"\nSpawning agent 'codex' for Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy (parallel)","ts_ms":1780302001605},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-inbox-hierarchy-discuss-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302001605},{"level":"info","text":"slot 1: task point-inbox-hierarchy started in discuss-point","ts_ms":1780302001605},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness (parallel)","ts_ms":1780302001608},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-cross-rhei-readiness-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302001608},{"level":"info","text":"slot 2: task point-cross-rhei-readiness started in discuss-point","ts_ms":1780302001608},{"level":"info","text":"\nSpawning agent 'codex' for Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness (parallel)","ts_ms":1780302001611},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-cross-rhei-readiness-discuss-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302001611},{"level":"info","text":"slot 3: task point-cross-rhei-readiness started in discuss-point","ts_ms":1780302001611},{"level":"info","text":"slot 3: task point-cross-rhei-readiness finished in discuss-point (completed)","ts_ms":1780302039121},{"level":"info","text":"task point-cross-rhei-readiness: usage reported for codex","ts_ms":1780302039121},{"level":"info","text":"slot 2: task point-cross-rhei-readiness finished in discuss-point (completed)","ts_ms":1780302053121},{"level":"info","text":"task point-cross-rhei-readiness: usage reported for claude-code","ts_ms":1780302053121},{"level":"info","text":"slot 1: task point-inbox-hierarchy finished in discuss-point (completed)","ts_ms":1780302058619},{"level":"info","text":"task point-inbox-hierarchy: usage reported for codex","ts_ms":1780302058619},{"level":"info","text":"slot 0: task point-inbox-hierarchy finished in discuss-point (completed)","ts_ms":1780302078119},{"level":"info","text":"task point-inbox-hierarchy: usage reported for claude-code","ts_ms":1780302078120},{"level":"info","text":"  Task point-inbox-hierarchy auto-advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302078135},{"level":"info","text":"  Task point-inbox-hierarchy advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302078138},{"level":"info","text":"  Task point-cross-rhei-readiness auto-advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302078146},{"level":"info","text":"  Task point-cross-rhei-readiness advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302078149},{"level":"info","text":"pass 4 ended: progressed=true","ts_ms":1780302078149},{"level":"info","text":"pass 5: 4 ready","ts_ms":1780302078152},{"level":"info","text":"\nPass 5: 4 ready, 1 terminal, 6 total.","ts_ms":1780302078152},{"level":"info","text":"Ready: Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy, Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness, Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780302078152},{"level":"info","text":"\nSpawning agent 'codex' for Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy (parallel)","ts_ms":1780302078155},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-inbox-hierarchy-resolve-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302078155},{"level":"info","text":"slot 0: task point-inbox-hierarchy started in resolve-point","ts_ms":1780302078155},{"level":"info","text":"\nSpawning agent 'codex' for Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness (parallel)","ts_ms":1780302078159},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-cross-rhei-readiness-resolve-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302078159},{"level":"info","text":"slot 1: task point-cross-rhei-readiness started in resolve-point","ts_ms":1780302078159},{"level":"info","text":"slot 1: task point-cross-rhei-readiness finished in resolve-point (completed)","ts_ms":1780302105666},{"level":"info","text":"task point-cross-rhei-readiness: usage reported for codex","ts_ms":1780302105667},{"level":"info","text":"slot 0: task point-inbox-hierarchy finished in resolve-point (completed)","ts_ms":1780302112668},{"level":"info","text":"task point-inbox-hierarchy: usage reported for codex","ts_ms":1780302112668},{"level":"info","text":"  Task point-inbox-hierarchy auto-advanced: 'resolve-point' -\u003e 'completed'","ts_ms":1780302112677},{"level":"info","text":"  Task point-cross-rhei-readiness auto-advanced: 'resolve-point' -\u003e 'completed'","ts_ms":1780302112685},{"level":"info","text":"pass 5 ended: progressed=true","ts_ms":1780302112685},{"level":"info","text":"pass 6: 2 ready","ts_ms":1780302112688},{"level":"info","text":"\nPass 6: 2 ready, 3 terminal, 6 total.","ts_ms":1780302112688},{"level":"info","text":"Ready: Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780302112688},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution (parallel)","ts_ms":1780302112691},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-state-machine-resolution-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302112691},{"level":"info","text":"slot 0: task point-state-machine-resolution started in propose-solutions","ts_ms":1780302112691},{"level":"info","text":"\nSpawning agent 'codex' for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution (parallel)","ts_ms":1780302112694},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-state-machine-resolution-propose-solutions-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302112694},{"level":"info","text":"slot 1: task point-state-machine-resolution started in propose-solutions","ts_ms":1780302112694},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-language-reference: Resolve Panta syntax in the canonical language reference (parallel)","ts_ms":1780302112697},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-propose-solutions-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302112697},{"level":"info","text":"slot 2: task point-language-reference started in propose-solutions","ts_ms":1780302112697},{"level":"info","text":"\nSpawning agent 'codex' for Task point-language-reference: Resolve Panta syntax in the canonical language reference (parallel)","ts_ms":1780302112700},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-propose-solutions-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302112700},{"level":"info","text":"slot 3: task point-language-reference started in propose-solutions","ts_ms":1780302112700},{"level":"info","text":"slot 1: task point-state-machine-resolution finished in propose-solutions (completed)","ts_ms":1780302155204},{"level":"info","text":"task point-state-machine-resolution: usage reported for codex","ts_ms":1780302155205},{"level":"info","text":"slot 3: task point-language-reference finished in propose-solutions (completed)","ts_ms":1780302167713},{"level":"info","text":"task point-language-reference: usage reported for codex","ts_ms":1780302167713},{"level":"info","text":"slot 0: task point-state-machine-resolution finished in propose-solutions (completed)","ts_ms":1780302218721},{"level":"info","text":"task point-state-machine-resolution: usage reported for claude-code","ts_ms":1780302218722},{"level":"info","text":"  Task point-state-machine-resolution auto-advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780302218732},{"level":"info","text":"  Task point-state-machine-resolution advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780302218735},{"level":"info","text":"slot 2: task point-language-reference finished in propose-solutions (completed)","ts_ms":1780302271235},{"level":"info","text":"task point-language-reference: usage reported for claude-code","ts_ms":1780302271236},{"level":"info","text":"  Task point-language-reference auto-advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780302271249},{"level":"info","text":"  Task point-language-reference advanced: 'propose-solutions' -\u003e 'aggregate-disagreements'","ts_ms":1780302271252},{"level":"info","text":"pass 6 ended: progressed=true","ts_ms":1780302271253},{"level":"info","text":"pass 7: 2 ready","ts_ms":1780302271256},{"level":"info","text":"\nPass 7: 2 ready, 3 terminal, 6 total.","ts_ms":1780302271256},{"level":"info","text":"Ready: Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780302271256},{"level":"info","text":"\nSpawning agent 'codex' for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution (parallel)","ts_ms":1780302271259},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-state-machine-resolution-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302271259},{"level":"info","text":"slot 0: task point-state-machine-resolution started in aggregate-disagreements","ts_ms":1780302271259},{"level":"info","text":"\nSpawning agent 'codex' for Task point-language-reference: Resolve Panta syntax in the canonical language reference (parallel)","ts_ms":1780302271262},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-aggregate-disagreements-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302271262},{"level":"info","text":"slot 1: task point-language-reference started in aggregate-disagreements","ts_ms":1780302271262},{"level":"info","text":"slot 0: task point-state-machine-resolution finished in aggregate-disagreements (completed)","ts_ms":1780302306770},{"level":"info","text":"task point-state-machine-resolution: usage reported for codex","ts_ms":1780302306770},{"level":"info","text":"  Task point-state-machine-resolution auto-advanced: 'aggregate-disagreements' -\u003e 'discuss-point'","ts_ms":1780302306781},{"level":"info","text":"slot 1: task point-language-reference finished in aggregate-disagreements (completed)","ts_ms":1780302320276},{"level":"info","text":"task point-language-reference: usage reported for codex","ts_ms":1780302320276},{"level":"info","text":"  Task point-language-reference auto-advanced: 'aggregate-disagreements' -\u003e 'discuss-point'","ts_ms":1780302320285},{"level":"info","text":"pass 7 ended: progressed=true","ts_ms":1780302320285},{"level":"info","text":"pass 8: 2 ready","ts_ms":1780302320288},{"level":"info","text":"\nPass 8: 2 ready, 3 terminal, 6 total.","ts_ms":1780302320288},{"level":"info","text":"Ready: Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780302320288},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution (parallel)","ts_ms":1780302320291},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-state-machine-resolution-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302320291},{"level":"info","text":"slot 0: task point-state-machine-resolution started in discuss-point","ts_ms":1780302320291},{"level":"info","text":"\nSpawning agent 'codex' for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution (parallel)","ts_ms":1780302320294},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-state-machine-resolution-discuss-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302320294},{"level":"info","text":"slot 1: task point-state-machine-resolution started in discuss-point","ts_ms":1780302320294},{"level":"info","text":"\nSpawning agent 'claude-code' for Task point-language-reference: Resolve Panta syntax in the canonical language reference (parallel)","ts_ms":1780302320297},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-discuss-point-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302320297},{"level":"info","text":"slot 2: task point-language-reference started in discuss-point","ts_ms":1780302320297},{"level":"info","text":"\nSpawning agent 'codex' for Task point-language-reference: Resolve Panta syntax in the canonical language reference (parallel)","ts_ms":1780302320300},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-discuss-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302320300},{"level":"info","text":"slot 3: task point-language-reference started in discuss-point","ts_ms":1780302320300},{"level":"info","text":"slot 3: task point-language-reference finished in discuss-point (completed)","ts_ms":1780302380815},{"level":"info","text":"task point-language-reference: usage reported for codex","ts_ms":1780302380815},{"level":"info","text":"slot 0: task point-state-machine-resolution finished in discuss-point (completed)","ts_ms":1780302401312},{"level":"info","text":"task point-state-machine-resolution: usage reported for claude-code","ts_ms":1780302401312},{"level":"info","text":"slot 1: task point-state-machine-resolution finished in discuss-point (completed)","ts_ms":1780302415320},{"level":"info","text":"task point-state-machine-resolution: usage reported for codex","ts_ms":1780302415320},{"level":"info","text":"  Task point-state-machine-resolution auto-advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302415329},{"level":"info","text":"slot 2: task point-language-reference finished in discuss-point (completed)","ts_ms":1780302430828},{"level":"info","text":"task point-language-reference: usage reported for claude-code","ts_ms":1780302430829},{"level":"info","text":"  Task point-language-reference auto-advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302430844},{"level":"info","text":"  Task point-language-reference advanced: 'discuss-point' -\u003e 'resolve-point'","ts_ms":1780302430847},{"level":"info","text":"pass 8 ended: progressed=true","ts_ms":1780302430847},{"level":"info","text":"pass 9: 2 ready","ts_ms":1780302430850},{"level":"info","text":"\nPass 9: 2 ready, 3 terminal, 6 total.","ts_ms":1780302430850},{"level":"info","text":"Ready: Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution, Task point-language-reference: Resolve Panta syntax in the canonical language reference","ts_ms":1780302430850},{"level":"info","text":"\nSpawning agent 'codex' for Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution (parallel)","ts_ms":1780302430853},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-state-machine-resolution-resolve-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302430853},{"level":"info","text":"slot 0: task point-state-machine-resolution started in resolve-point","ts_ms":1780302430853},{"level":"info","text":"\nSpawning agent 'codex' for Task point-language-reference: Resolve Panta syntax in the canonical language reference (parallel)","ts_ms":1780302430856},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-point-language-reference-resolve-point-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302430856},{"level":"info","text":"slot 1: task point-language-reference started in resolve-point","ts_ms":1780302430856},{"level":"info","text":"slot 0: task point-state-machine-resolution finished in resolve-point (completed)","ts_ms":1780302478369},{"level":"info","text":"task point-state-machine-resolution: usage reported for codex","ts_ms":1780302478370},{"level":"info","text":"  Task point-state-machine-resolution auto-advanced: 'resolve-point' -\u003e 'completed'","ts_ms":1780302478384},{"level":"info","text":"slot 1: task point-language-reference finished in resolve-point (completed)","ts_ms":1780302479872},{"level":"info","text":"task point-language-reference: usage reported for codex","ts_ms":1780302479873},{"level":"info","text":"  Task point-language-reference auto-advanced: 'resolve-point' -\u003e 'completed'","ts_ms":1780302479885},{"level":"info","text":"pass 9 ended: progressed=true","ts_ms":1780302479885},{"level":"info","text":"pass 10: 1 ready","ts_ms":1780302479888},{"level":"info","text":"\nPass 10: 1 ready, 5 terminal, 6 total.","ts_ms":1780302479888},{"level":"info","text":"Ready: Task final-solution: Produce final solution for Resolve Panta project spec conflicts","ts_ms":1780302479888},{"level":"info","text":"\nSpawning agent 'codex' for Task final-solution: Produce final solution for Resolve Panta project spec conflicts","ts_ms":1780302479891},{"level":"info","text":"  Model: gpt-5.5","ts_ms":1780302479891},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-final-solution-final-solution-codex-yolo-openai-gpt-5.5.log","ts_ms":1780302479891},{"level":"info","text":"slot 0: task final-solution started in final-solution","ts_ms":1780302479891},{"level":"info","text":"slot 0: task final-solution finished in final-solution (completed)","ts_ms":1780302520907},{"level":"info","text":"task final-solution: usage reported for codex","ts_ms":1780302520908},{"level":"info","text":"  Task final-solution auto-advanced: 'final-solution' -\u003e 'present-to-human'","ts_ms":1780302520922},{"level":"info","text":"pass 10 ended: progressed=true","ts_ms":1780302520922},{"level":"info","text":"pass 11: 1 ready","ts_ms":1780302520925},{"level":"info","text":"\nPass 11: 1 ready, 5 terminal, 6 total.","ts_ms":1780302520925},{"level":"info","text":"Ready: Task final-solution: Produce final solution for Resolve Panta project spec conflicts","ts_ms":1780302520925},{"level":"info","text":"\nSpawning agent 'claude-code' for Task final-solution: Produce final solution for Resolve Panta project spec conflicts","ts_ms":1780302520928},{"level":"info","text":"  Model: claude-opus-4-7","ts_ms":1780302520928},{"level":"info","text":"  Log: /home/vjovanov/f/rhei/panta-deliberation/runtime/logs/task-final-solution-present-to-human-claude-code-yolo-anthropic-claude-opus-4-7.log","ts_ms":1780302520928},{"level":"info","text":"slot 0: task final-solution started in present-to-human","ts_ms":1780302520928},{"level":"info","text":"slot 0: task final-solution finished in present-to-human (completed)","ts_ms":1780302550938},{"level":"info","text":"task final-solution: usage reported for claude-code","ts_ms":1780302550939},{"level":"info","text":"  Task final-solution auto-advanced: 'present-to-human' -\u003e 'human-review'","ts_ms":1780302550953},{"level":"info","text":"pass 11 ended: progressed=true","ts_ms":1780302550953},{"level":"info","text":"\nRun complete: 27 agent(s), 0 program(s) spawned, 5/6 tasks in terminal state.","ts_ms":1780302550959},{"level":"info","text":"Final states: completed=5, human-review=1","ts_ms":1780302550959},{"level":"info","text":"  - Task split: Split discussion into decision points [completed]","ts_ms":1780302550959},{"level":"info","text":"  - Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy [completed]","ts_ms":1780302550959},{"level":"info","text":"  - Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness [completed]","ts_ms":1780302550959},{"level":"info","text":"  - Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution [completed]","ts_ms":1780302550959},{"level":"info","text":"  - Task point-language-reference: Resolve Panta syntax in the canonical language reference [completed]","ts_ms":1780302550959},{"level":"info","text":"  - Task final-solution: Produce final solution for Resolve Panta project spec conflicts [human-review]","ts_ms":1780302550959},{"level":"info","text":"run finished: terminal=5/6","ts_ms":1780302550962}],"links":[{"label":"Dashboard","url":"http://127.0.0.1:35999","source":"callback"}],"accounting":{"input_total":{"value":null,"status":"unknown","missing_count":27,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":27,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":27,"measured_invocation_count":0,"missing_invocation_count":27},"finished":true,"summary":{"agents_spawned":27,"programs_spawned":0,"terminal_tasks":5,"total_tasks":6,"accounting":{"input_total":{"value":null,"status":"unknown","missing_count":27,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":27,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":27,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":27,"measured_invocation_count":0,"missing_invocation_count":27}},"started_at_ms":1780301774961,"updated_at_ms":1780302550962,"capabilities":{"gate_transition":true},"auto_links":[{"label":"Workspace","url":"file:///home/vjovanov/f/rhei/panta-deliberation","source":"workspace"},{"label":"Runtime logs","url":"file:///home/vjovanov/f/rhei/panta-deliberation/runtime/logs","source":"workspace"},{"label":"Runtime results","url":"file:///home/vjovanov/f/rhei/panta-deliberation/runtime/results","source":"workspace"}],"task_runtime":{"final-solution":{"intervene":false,"deferred_this_pass":false,"accounting":{"direct":{"input_total":{"value":null,"status":"unknown","missing_count":2,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":2,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":2,"measured_invocation_count":0,"missing_invocation_count":2},"subtree":{"input_total":{"value":null,"status":"unknown","missing_count":2,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":2,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":2,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":2,"measured_invocation_count":0,"missing_invocation_count":2}}},"point-cross-rhei-readiness":{"intervene":false,"deferred_this_pass":false,"accounting":{"direct":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6},"subtree":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6}}},"point-inbox-hierarchy":{"intervene":false,"deferred_this_pass":false,"accounting":{"direct":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6},"subtree":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6}}},"point-language-reference":{"intervene":false,"deferred_this_pass":false,"accounting":{"direct":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6},"subtree":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6}}},"point-state-machine-resolution":{"intervene":false,"deferred_this_pass":false,"accounting":{"direct":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6},"subtree":{"input_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":6,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":6,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":6,"measured_invocation_count":0,"missing_invocation_count":6}}},"split":{"intervene":false,"deferred_this_pass":false,"accounting":{"direct":{"input_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":1,"measured_invocation_count":0,"missing_invocation_count":1},"subtree":{"input_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"input_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"input_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_total":{"value":null,"status":"unknown","missing_count":1,"measured_count":0},"output_cached_read":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"output_cache_write":{"value":null,"status":"unsupported","missing_count":1,"measured_count":0},"cost_micro":null,"priced_cost_micro":null,"currency":null,"coverage":"none","pricing_status":"not-applicable","invocation_count":1,"measured_invocation_count":0,"missing_invocation_count":1}}}}}};
+
+// Canonical state order and the calm dark/light state colors (viz-ux §2,§3).
+const STATE_ORDER = [
+  "draft","pending","in_progress","in-progress","needs-review","review","prove",
+  "consolidate","fix","agent-review","agent-review-fix","human-review","active",
+  "completed","blocked","failed","cancelled","archived",
+];
+const STATE_COLOR = {
+  "draft":"#5b6573","pending":"#7c8694","in-progress":"#5a8fc7","in_progress":"#5a8fc7",
+  "active":"#6bb0cf","needs-review":"#c79a4e","human-review":"#6cae7c","review":"#9b7fc4",
+  "prove":"#4fa3b3","consolidate":"#4fa394","fix":"#c98552","agent-review":"#8a78c4",
+  "agent-review-fix":"#c47596","blocked":"#cf5b5b","failed":"#cf5b5b","completed":"#4f9e7e",
+  "cancelled":"#424b57","archived":"#353c46",
+};
+function stateIndex(s){ const i = STATE_ORDER.indexOf(s); return i>=0?i:STATE_ORDER.length; }
+function hashColor(s){ let h=0; for(const c of s) h=(h*31+c.charCodeAt(0))>>>0;
+  return `hsl(${h%360} 22% 48%)`; }
+function stateColor(s){ return STATE_COLOR[s] || hashColor(s); }
+function pillInk(hex){
+  if(!hex.startsWith("#")) return "#0e1116";
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return (0.299*r+0.587*g+0.114*b) > 150 ? "#0e1116" : "#eef1f5";
+}
+
+// ---- glyph + category per state (uses machine flags when known) -------------
+const GLYPH = { done:"✓", active:"●", live:"●", blocked:"⊘", gate:"⏸",
+  failed:"✗", retired:"⊝", idle:"·" };
+function machineState(plan, name){
+  const ss=(plan&&plan.machine&&plan.machine.states)||[];
+  return ss.find(s=>s.name===name)||null;
+}
+function category(plan, state){
+  const ms = machineState(plan, state);
+  if (state==="completed") return "done";
+  if (state==="failed") return "failed";
+  if (state==="blocked") return "blocked";
+  if (ms && ms.gating) return "gate";
+  if (state==="human-review") return "gate";
+  if (ms && ms.terminal) return state==="completed"?"done":"retired";
+  if (state==="cancelled"||state==="archived") return "retired";
+  if (state==="draft"||state==="pending"||(ms&&ms.initial)) return "idle";
+  return "active";
+}
+function glyph(plan, state){ return GLYPH[category(plan,state)]; }
+function runtimeFor(id){
+  const tr=(IX&&IX.plan&&IX.plan.task_runtime)||{};
+  return tr[id]||null;
+}
+function hasRuntimeOverlay(){
+  const p=IX&&IX.plan;
+  return !!(p && (p.slots || p.recent || p.task_runtime || p.accounting || p.finished || p.summary));
+}
+function isRunningNow(n){
+  const rt=runtimeFor(n.id);
+  return !!(rt && rt.in_slot!=null);
+}
+function showsLiveOutput(n){
+  return hasRuntimeOverlay() ? isRunningNow(n) : nodeCategory(n)==="active";
+}
+function nodeCategory(n){
+  const rt=runtimeFor(n.id);
+  // The live dashboard overlays slot assignment on persisted plan state, so an
+  // actively running pending task still exposes logs and intervention. §FS-rhei-viz.1.1
+  return hasRuntimeOverlay() && rt && rt.in_slot!=null ? "live" : category(IX.plan,n.state);
+}
+function nodeGlyph(n){ return GLYPH[nodeCategory(n)]; }
+
+// ---- index the plan into a navigable node graph -----------------------------
+function idDepth(id){ return id.split(".").length - 1; }
+function parentId(id){ const s=id.split("."); return s.length>1 ? s.slice(0,-1).join(".") : null; }
+// The model is a flat TaskRow[] (id, title, parent, depth, state, prior) in
+// source order — top-level tasks and their descendants. §FS-rhei-viz §8
+function indexPlan(plan){
+  const byId={}, nodes=[], order=[];
+  const add=n=>{ n.children=[]; n.dependents=[]; byId[n.id]=n; nodes.push(n); order.push(n.id); };
+  for(const t of (plan.tasks||[])){
+    const depth = (typeof t.depth==="number") ? t.depth : idDepth(t.id);
+    add({ id:t.id, title:t.title, state:t.state, prior:t.prior||[],
+          visit_count:t.visit_count,
+          kind: depth===0?"task":"sub", depth,
+          parent: (t.parent!=null ? t.parent : parentId(t.id)) });
+  }
+  for(const n of nodes){
+    if(n.parent && byId[n.parent]) byId[n.parent].children.push(n.id);
+    for(const d of n.prior) if(byId[d]) byId[d].dependents.push(n.id);
+  }
+  const top = nodes.filter(n=>n.depth===0).map(n=>n.id);
+  return { plan, byId, nodes, order, top };
+}
+function subtreeProgress(ix, id){
+  let done=0,total=0;
+  const walk=cid=>{ for(const c of ix.byId[cid].children){ total++; if(ix.byId[c].state==="completed") done++; walk(c); } };
+  walk(id);
+  return { done, total };
+}
+
+// ---- DOM helpers ------------------------------------------------------------
+const SVG="http://www.w3.org/2000/svg";
+function el(tag, attrs={}, kids=[]){ const n=document.createElement(tag);
+  for(const[k,v]of Object.entries(attrs)){ if(k==="class")n.className=v; else if(k==="text")n.textContent=v; else n.setAttribute(k,v);}
+  for(const c of kids) n.appendChild(c); return n; }
+function svgEl(tag, attrs={}, kids=[]){ const n=document.createElementNS(SVG,tag);
+  for(const[k,v]of Object.entries(attrs)) n.setAttribute(k,v); for(const c of kids)n.appendChild(c); return n; }
+function trunc(s,n){ return s.length>n ? s.slice(0,n-1)+"…" : s; }
+
+// ---- state ------------------------------------------------------------------
+let IX=null, MODE="list", SEL=null, liveTermEl=null, MSTATE=null, machineDetailEl=null, LIVE=false;
+// Live agent terminal: streams the selected running task's durable log via /log.
+let LOGTERM=null, LOGTASK=null, LOGKEY=null, LOGOFF=0;
+const rowEls={}, nodeEls={};
+const INTERVENTIONS={};   // node id -> [{t, text}] queued in this demo session
+
+// ---- left: outline ----------------------------------------------------------
+function renderList(){
+  const body=document.getElementById("left-body"); body.innerHTML="";
+  document.getElementById("left-title").textContent="Plan · outline";
+  const tree=el("div",{class:"tree"});
+  for(const id of Object.keys(rowEls)) delete rowEls[id];
+  for(const tid of IX.top){
+    tree.appendChild(listRow(tid));
+    for(const c of allDescendants(tid)) tree.appendChild(listRow(c));
+  }
+  body.appendChild(tree);
+  applySelectionVisual();
+}
+function allDescendants(id){ const out=[]; const walk=x=>{ for(const c of IX.byId[x].children){ out.push(c); walk(c);} }; walk(id); return out; }
+function listRow(id){
+  const n=IX.byId[id], c=stateColor(n.state), cat=nodeCategory(n);
+  const row=el("div",{class:"row", "data-cat":cat, "aria-label":`${id} · ${n.title}`});
+  row.style.paddingLeft=(10 + n.depth*20)+"px";
+  const lead=el("span",{class:"lead"});
+  lead.appendChild(cat==="live" ? el("span",{class:"spinner"}) : el("span",{class:"gly", text:nodeGlyph(n)}));
+  row.appendChild(lead);
+  row.appendChild(el("span",{class:"id", text:id}));
+  row.appendChild(el("span",{class:"ttl", text:n.title}));
+  const st=el("span",{class:"st"}); const pl=el("span",{class:"pill",text:n.state});
+  pl.style.background=c; pl.style.color=pillInk(c); st.appendChild(pl); row.appendChild(st);
+  const prog=el("span",{class:"prog"});
+  if(n.children.length){ const p=subtreeProgress(IX,id); prog.textContent=`${p.done}/${p.total} ✓`; }
+  row.appendChild(prog);
+  row.addEventListener("click",()=>select(id));
+  rowEls[id]=row; return row;
+}
+
+// ---- left: graph (dependency DAG over top-level tasks) ----------------------
+function renderGraph(){
+  const body=document.getElementById("left-body"); body.innerHTML="";
+  document.getElementById("left-title").textContent="Plan · dependency graph (Prior →)";
+  for(const id of Object.keys(nodeEls)) delete nodeEls[id];
+  const top=IX.top, topSet=new Set(top), memo={};
+  const depth=id=>{ if(id in memo)return memo[id]; memo[id]=0;
+    let d=0; for(const p of (IX.byId[id].prior||[])) if(topSet.has(p)) d=Math.max(d,depth(p)+1);
+    return memo[id]=d; };
+  const layers={}; let maxD=0;
+  for(const id of top){ const d=depth(id); (layers[d]=layers[d]||[]).push(id); maxD=Math.max(maxD,d); }
+  const BW=158,BH=44,HG=58,VG=14,PAD=16;
+  const pos={}; let maxRows=0;
+  for(let d=0; d<=maxD; d++){ const col=layers[d]||[]; maxRows=Math.max(maxRows,col.length);
+    col.forEach((id,r)=>{ pos[id]={x:PAD+d*(BW+HG), y:PAD+r*(BH+VG)}; }); }
+  const W=PAD*2+(maxD+1)*BW+maxD*HG, H=PAD*2+Math.max(1,maxRows)*(BH+VG)-VG;
+  const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`, style:`height:${H}px`});
+  // edges
+  for(const id of top) for(const p of (IX.byId[id].prior||[])){ if(!pos[p]||!pos[id])continue;
+    const a=pos[p], b=pos[id], x1=a.x+BW, y1=a.y+BH/2, x2=b.x, y2=b.y+BH/2, mx=(x1+x2)/2;
+    svg.appendChild(svgEl("path",{class:"gedge", d:`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`})); }
+  // nodes
+  for(const id of top){ const n=IX.byId[id], p=pos[id], col=stateColor(n.state);
+    const g=svgEl("g",{class:"gnode "+nodeCategory(n)}); g.style.cursor="pointer";
+    g.appendChild(svgEl("rect",{x:p.x,y:p.y,width:BW,height:BH,rx:7,stroke:col,"stroke-width":2}));
+    g.appendChild(svgEl("text",{x:p.x+10,y:p.y+17, class:"gid"}, [document.createTextNode(`${nodeGlyph(n)} ${id}`)]));
+    g.appendChild(svgEl("text",{x:p.x+10,y:p.y+34, class:"gst", fill:col}, [document.createTextNode(trunc(n.state,16))]));
+    g.appendChild(svgEl("title",{},[document.createTextNode(`${id} · ${n.title}`)]));
+    g.addEventListener("click",()=>select(id));
+    svg.appendChild(g); nodeEls[id]=g;
+  }
+  body.appendChild(svg);
+  applySelectionVisual();
+}
+
+// ---- right: surroundings of the selected node -------------------------------
+function depChip(id, satisfied){
+  const n=IX.byId[id], c=stateColor(n.state);
+  const chip=el("span",{class:"chip"+(satisfied?" done":""), "aria-label":`${id} · ${n.title}`});
+  chip.appendChild(Object.assign(document.createElement("span"),{className:"dot",style:`background:${c}`}));
+  chip.appendChild(document.createTextNode(`${id} ${n.state}`));
+  chip.addEventListener("click",()=>select(id));
+  return chip;
+}
+function renderSurroundings(){
+  const box=document.getElementById("surr"); box.style.opacity="0";
+  const n=IX.byId[SEL]; const ms=machineState(IX.plan,n.state); const c=stateColor(n.state);
+  const frag=document.createDocumentFragment();
+
+  const head=el("div",{class:"head"});
+  head.appendChild(el("span",{class:"gly",text:nodeGlyph(n)}));
+  head.appendChild(el("span",{class:"id",text:n.id}));
+  head.appendChild(el("span",{class:"ttl",text:n.title}));
+  const pl=el("span",{class:"pill",text:n.state}); pl.style.background=c; pl.style.color=pillInk(c);
+  head.appendChild(pl);
+  const flags=[]; if(ms){ if(ms.initial)flags.push("initial"); if(ms.terminal)flags.push("terminal"); if(ms.gating)flags.push("gating"); }
+  flags.push(n.kind==="task"?"root task":"depth "+n.depth);
+  head.appendChild(el("span",{class:"flags",text:flags.join(" · ")}));
+  // Deep link: copy a URL whose hash opens this node (§FS-rhei-viz §1).
+  const copy=el("span",{class:"copylink",title:"Copy a link that opens this node",text:"copy link"});
+  copy.addEventListener("click",()=>copyNodeLink(n.id, copy));
+  head.appendChild(copy);
+  frag.appendChild(head);
+  if(ms&&ms.description) frag.appendChild(el("div",{class:"desc",text:ms.description}));
+
+  // dependencies
+  const deps=el("div",{class:"deps"});
+  const left=el("div",{}, [el("h4",{text:"depends on (Prior)"})]);
+  const lc=el("div",{class:"chips"});
+  if(n.prior.length){ for(const p of n.prior){ const pn=IX.byId[p];
+      lc.appendChild(pn?depChip(p, isTerminal(pn.state)):flatChip(p+" (external)")); } }
+  else lc.appendChild(el("span",{class:"none",text:"— ready (no prior)"}));
+  left.appendChild(lc);
+  const right=el("div",{}, [el("h4",{text:"unblocks"})]);
+  const rc=el("div",{class:"chips"});
+  if(n.dependents.length) for(const d of n.dependents) rc.appendChild(depChip(d, false));
+  else rc.appendChild(el("span",{class:"none",text:"— nothing waiting"}));
+  right.appendChild(rc);
+  deps.appendChild(left); deps.appendChild(right);
+  frag.appendChild(el("h3",{text:"dependencies"})); frag.appendChild(deps);
+  if(n.prior.some(p=>IX.byId[p]&&!isTerminal(IX.byId[p].state)))
+    frag.appendChild(el("div",{class:"none", text:"waiting on: "+n.prior.filter(p=>IX.byId[p]&&!isTerminal(IX.byId[p].state)).join(", ")}));
+
+  // came from (incoming transitions) — which states this one can be entered from
+  frag.appendChild(el("h3",{text:"came from"}));
+  const fc=el("div",{class:"chips"});
+  const inc=incomingFor(n.state);
+  for(const e of inc.explicit){ const chip=el("span",{class:"chip"});
+    chip.appendChild(dot(stateColor(e.from)));
+    chip.appendChild(document.createTextNode(e.from+" →"));
+    if(e.condition) chip.appendChild(el("span",{class:"cond",text:"["+e.condition+"]"}));
+    chip.addEventListener("click",()=>highlightState(e.from));
+    fc.appendChild(chip); }
+  if(inc.wildcard) fc.appendChild(el("span",{class:"chip flat",text:"(from any · *)"}));
+  if(!inc.explicit.length && !inc.wildcard)
+    fc.appendChild(el("span",{class:"none",text: ms&&ms.initial?"— initial state":"—"}));
+  frag.appendChild(fc);
+
+  // next state (outgoing transitions)
+  frag.appendChild(el("h3",{text:"next state"}));
+  const nc=el("div",{class:"chips"});
+  if(ms&&ms.transitions.length){ for(const t of ms.transitions){
+      const chip=el("span",{class:"chip"});
+      chip.appendChild(dot(stateColor(t.to)));
+      chip.appendChild(document.createTextNode("→ "+t.to));
+      if(t.condition) chip.appendChild(el("span",{class:"cond",text:"["+t.condition+"]"}));
+      if(t.wildcard) chip.appendChild(el("span",{class:"wild",text:"(from *)"}));
+      chip.addEventListener("click",()=>highlightState(t.to));
+      nc.appendChild(chip); } }
+  else nc.appendChild(el("span",{class:"none",text: ms&&ms.terminal?"terminal — no exits":"—"}));
+  frag.appendChild(nc);
+
+  // Human gate — a live-only, explicit transition action for gating states.
+  // It calls the same transition path as `rhei transition`; static/frozen pages
+  // keep the choices visible but inert. §FS-rhei-viz.5.1
+  if(ms&&ms.gating){
+    frag.appendChild(renderGateTransition(n, ms));
+  }
+
+  // prompt — the state's instructions, instantiated for THIS task with linked artifacts
+  if(ms&&ms.instructions){
+    const variants=templateVariants(n,ms);
+    frag.appendChild(el("h3",{text:`prompt · ${n.state}`}));
+    variants.forEach((ctx,i)=>{
+      if(variants.length>1) frag.appendChild(el("div",{class:"vlabel",text:templateContextLabel(ctx,i)}));
+      frag.appendChild(instantiatePromptFrag(ms.instructions, n, ms, ctx));
+    });
+  }
+
+  // intervene — an actually running task shows live output; static active-state
+  // nodes keep a representative preview. The composer appears only when the
+  // running agent can take a live message. §FS-rhei-viz §5.
+  const hadLiveTerm=!!LOGTERM;
+  liveTermEl=null; LOGTERM=null; LOGTASK=null;
+  if(showsLiveOutput(n)){
+    const rt=runtimeFor(n.id)||{};
+    const runtime=hasRuntimeOverlay();
+    // Capability gate: only a live agent whose slot holds a streaming stdin open
+    // (profile `intervene_stdin`, surfaced as task_runtime[id].intervene) can be
+    // messaged. The static page never delivers. §FS-rhei-viz §5, §7.2.
+    const canMessage = LIVE && rt.intervene===true;
+    const iv=el("div",{class:"intervene"});
+    iv.appendChild(el("h3",{text: runtime ? (canMessage ? "live output · intervene" : "live output") : "sample output"}));
+    const now=el("div",{class:"now"});
+    now.appendChild(runtime ? el("span",{class:"spinner"}) : el("span",{class:"gly",text:GLYPH.active}));
+    now.appendChild(document.createTextNode(runtime
+      ? `running in ${n.state} — agent on ${n.id} · scroll up for history`
+      : `representative transcript for ${n.state} · messages are disabled`));
+    iv.appendChild(now);
+    const term=el("div",{class:"term"});
+    if(LIVE){
+      // Live agent output streams in from /log; the terminal starts empty and
+      // appends new lines in place on each poll. §FS-rhei-viz §5, AR §6.
+      const key=n.id+"|"+n.state;
+      if(key!==LOGKEY || !hadLiveTerm){ LOGKEY=key; LOGOFF=0; }
+      term._resid=""; LOGTERM=term; LOGTASK=n.id;
+    } else {
+      for(const raw of sampleTranscript(n)) term.appendChild(termLine(raw));
+    }
+    for(const m of (INTERVENTIONS[n.id]||[])) term.appendChild(m.error?errLine(m.text):meLine(n.id,m));
+    iv.appendChild(term); liveTermEl=term;
+    if(LIVE && !canMessage){
+      // Reachable to watch, but this agent can't take a live message — say so up
+      // front, and say *how* to enable it, rather than dead-ending the operator
+      // or inviting input that fails after they type. §FS-rhei-viz §5.
+      const noiv=el("div",{class:"noiv"});
+      noiv.appendChild(document.createTextNode(
+        "This agent can't be messaged live — it doesn't keep an interactive stdin open. To enable intervention, set "));
+      noiv.appendChild(el("code",{text:'"intervene_stdin": true'}));
+      noiv.appendChild(document.createTextNode(" on this agent's profile (agents.<id> in .agents/rhei/settings.json) and rerun; only agents that keep reading stdin mid-run can receive messages."));
+      iv.appendChild(noiv);
+    } else {
+      // Interactive on a reachable live agent; rendered disabled on the static
+      // page, where messages are illustrative only. §FS-rhei-viz §7.2.
+      const ta=el("textarea",{rows:"2", placeholder: canMessage
+        ? `Message to the agent on ${n.id}…`
+        : "Static preview — messages aren't delivered"});
+      if(!canMessage) ta.disabled=true;
+      iv.appendChild(ta);
+      const irow=el("div",{class:"irow"});
+      const btn=el("button",{class:"btn",text:"Send"});
+      if(!canMessage) btn.disabled=true;
+      irow.appendChild(btn);
+      const hint = canMessage ? "⌘/Ctrl+Enter · sends to the agent's stdin"
+                              : "static preview · messages are illustrative, not delivered";
+      irow.appendChild(el("span",{class:"hint",text:hint}));
+      iv.appendChild(irow);
+      if(canMessage){
+        const send=()=>{ const v=ta.value.trim(); if(!v) return;
+          const m={t:new Date(), text:v};
+          (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(m);
+          term.appendChild(meLine(n.id,m)); term.scrollTop=term.scrollHeight;
+          sendIntervene(n, v).then(res=>{
+            if(!res.ok){ const err={t:new Date(), text:res.error||"intervention was not delivered", error:true};
+              (INTERVENTIONS[n.id]=INTERVENTIONS[n.id]||[]).push(err);
+              term.appendChild(errLine(err.text)); term.scrollTop=term.scrollHeight; }
+          });
+          ta.value=""; ta.focus(); };
+        btn.addEventListener("click",send);
+        ta.addEventListener("keydown",e=>{ if((e.metaKey||e.ctrlKey)&&e.key==="Enter"){ e.preventDefault(); send(); } });
+      }
+    }
+    frag.appendChild(iv);
+  }
+
+  // children
+  if(n.children.length){
+    const p=subtreeProgress(IX,n.id);
+    frag.appendChild(el("h3",{text:`children · ${p.done}/${p.total} ✓`}));
+    const list=el("div",{});
+    for(const cid of allDescendants(n.id)){ const cn=IX.byId[cid], cc=stateColor(cn.state);
+      const ch=el("div",{class:"child", "aria-label":`${cid} · ${cn.title}`});
+      ch.style.paddingLeft=((idDepth(cid)-n.depth-1)*16)+"px";
+      ch.appendChild(el("span",{class:"gly",text:nodeGlyph(cn)}));
+      ch.appendChild(el("span",{class:"id",text:cid}));
+      ch.appendChild(el("span",{class:"ttl",text:trunc(cn.title,30)}));
+      ch.appendChild(el("span",{class:"st",text:cn.state}));
+      ch.addEventListener("click",()=>select(cid));
+      list.appendChild(ch); }
+    frag.appendChild(list);
+  }
+
+  // artifacts (resolved for this node)
+  if(ms&&((ms.inputs&&ms.inputs.length)||(ms.outputs&&ms.outputs.length))){
+    const variants=templateVariants(n,ms);
+    frag.appendChild(el("h3",{text:"artifacts"}));
+    variants.forEach((ctx,i)=>{
+      if(variants.length>1) frag.appendChild(el("div",{class:"vlabel",text:templateContextLabel(ctx,i)}));
+      frag.appendChild(artList(ms.inputs,"in ◂",n,ms,ctx));
+      frag.appendChild(artList(ms.outputs,"out ▸",n,ms,ctx));
+    });
+  }
+
+  box.innerHTML=""; box.appendChild(frag);
+  requestAnimationFrame(()=>{ box.style.opacity="1"; if(liveTermEl) liveTermEl.scrollTop=liveTermEl.scrollHeight; });
+}
+function flatChip(t){ return el("span",{class:"chip flat",text:t}); }
+function dot(c){ const d=document.createElement("span"); d.className="dot"; d.style.background=c; return d; }
+function gateTransitionAvailable(){
+  return LIVE && !!(IX && IX.plan && IX.plan.capabilities && IX.plan.capabilities.gate_transition);
+}
+function renderGateTransition(node, ms){
+  const box=el("div",{class:"gatebox"});
+  box.appendChild(el("h3",{text:"human gate"}));
+  const choices=(ms.transitions||[]).filter(t=>!t.wildcard);
+  const canAct=gateTransitionAvailable();
+  const desc=canAct
+    ? "Pick an explicit outgoing transition. Rhei validates the current state before writing."
+    : LIVE
+      ? "This live dashboard is not wired for gate transitions."
+      : "Static preview — gate transitions are not delivered.";
+  box.appendChild(el("div",{class:"gdesc",text:desc}));
+  const row=el("div",{class:"grow"});
+  const status=el("span",{class:"gstatus"});
+  if(!choices.length){
+    row.appendChild(el("span",{class:"none",text:"No explicit exits from this gate."}));
+  }
+  for(const t of choices){
+    const btn=el("button",{class:"btn",text:t.to,title:t.condition||""});
+    btn.disabled=!canAct;
+    btn.addEventListener("click",()=>{
+      if(btn.disabled) return;
+      const ok=window.confirm(`Transition Task ${node.id} from ${node.state} to ${t.to}?`);
+      if(!ok) return;
+      row.querySelectorAll("button").forEach(b=>b.disabled=true);
+      status.className="gstatus";
+      status.textContent="transitioning…";
+      sendGateTransition(node,t.to).then(res=>{
+        if(res.ok){
+          status.textContent=`transitioned to ${res.to||t.to}`;
+          refreshSnapshotOnce();
+        } else {
+          status.className="gstatus gerr";
+          status.textContent=res.error||"transition failed";
+          row.querySelectorAll("button").forEach(b=>b.disabled=false);
+        }
+      });
+    });
+    row.appendChild(btn);
+  }
+  row.appendChild(status);
+  box.appendChild(row);
+  return box;
+}
+function incomingFor(stateName){
+  const out={ explicit:[], wildcard:false };
+  const states=(IX.plan.machine&&IX.plan.machine.states)||[];
+  for(const s of states) for(const t of s.transitions){
+    if(t.to!==stateName) continue;
+    if(t.wildcard) out.wildcard=true; else out.explicit.push({ from:s.name, condition:t.condition });
+  }
+  return out;
+}
+// ANSI 16-color palette (dark terminal) used to render the agent's own coloring.
+const TERM_COLOR = {
+  30:"#3b4252",31:"#cf5b5b",32:"#6cae7c",33:"#d4a84e",34:"#5a8fc7",35:"#9b7fc4",36:"#4fa3b3",37:"#cdd3de",
+  90:"#6b7480",91:"#e07b7b",92:"#86c79a",93:"#e4c074",94:"#7aa6d6",95:"#b79bd6",96:"#6fbecd",97:"#eef1f5",
+};
+// Minimal SGR parser: maps the agent's \x1b[..m color/bold/dim runs into spans.
+function ansiToFrag(line){
+  const frag=document.createDocumentFragment();
+  const re=/\u001b\[([0-9;]*)m/g;
+  let last=0, m, cur={color:null,bold:false,dim:false};
+  const push=text=>{ if(!text) return; const sp=document.createElement("span"); sp.textContent=text;
+    if(cur.color) sp.style.color=cur.color; if(cur.bold) sp.style.fontWeight="600"; if(cur.dim) sp.style.opacity="0.6";
+    frag.appendChild(sp); };
+  while((m=re.exec(line))){ push(line.slice(last,m.index)); last=re.lastIndex;
+    const codes = m[1]==="" ? [0] : m[1].split(";").map(Number);
+    for(const c of codes){ if(c===0) cur={color:null,bold:false,dim:false};
+      else if(c===1) cur.bold=true; else if(c===2) cur.dim=true; else if(c===22){cur.bold=false;cur.dim=false;}
+      else if(c===39) cur.color=null; else if(TERM_COLOR[c]) cur.color=TERM_COLOR[c]; } }
+  push(line.slice(last));
+  return frag;
+}
+function termLine(raw){ const d=el("div",{class:"tline"}); d.appendChild(ansiToFrag(raw)); return d; }
+function meLine(id,m){
+  const d=el("div",{class:"tline"});
+  const hh=String(m.t.getHours()).padStart(2,"0"), mm=String(m.t.getMinutes()).padStart(2,"0");
+  const a=document.createElement("span"); a.className="me"; a.textContent=`▸ you ${hh}:${mm} `;
+  const b=document.createElement("span"); b.className="meln"; b.textContent=m.text;
+  d.appendChild(a); d.appendChild(b); return d;
+}
+function errLine(text){
+  const d=el("div",{class:"tline"});
+  const a=document.createElement("span"); a.className="err"; a.textContent="! not delivered ";
+  const b=document.createElement("span"); b.textContent=text;
+  d.appendChild(a); d.appendChild(b); return d;
+}
+// Synthetic agent transcript so the demo terminal has colored history to scroll.
+function sampleTranscript(n){
+  const id=n.id, st=n.state, ttl=n.title;
+  const E="\u001b[", R=E+"0m";
+  const dim=s=>E+"2m"+s+R, cy=s=>E+"36m"+s+R, gr=s=>E+"32m"+s+R, ye=s=>E+"33m"+s+R,
+        rd=s=>E+"31m"+s+R, bl=s=>E+"34m"+s+R, mg=s=>E+"35m"+s+R, bo=s=>E+"1m"+s+R;
+  const ts=(mm,ss)=>dim(`14:${mm}:${ss}`);
+  const f="crates/rhei-tui/src/dashboard/html.rs";
+  const head=[
+    `${ts("01","58")} ${cy("▸ claude-code")} attached to task ${bo(id)} ${dim("·")} state ${ye(st)}`,
+    `${ts("01","58")} ${dim("prompt")} ${ttl}`,
+    `${ts("02","01")} ${cy("● read")} ${bl(f)} ${dim("(1,284 lines)")}`,
+    `${ts("02","02")} ${cy("● grep")} ${dim("\"--accent\"")} ${dim("→")} 7 matches`,
+    `${ts("02","04")} thinking about the calm-palette mapping…`,
+  ];
+  const byState={
+    "in-progress":[
+      `${ts("02","06")} ${cy("● edit")} ${bl(f)} ${gr("+38")} ${rd("-12")}`,
+      `${ts("02","07")} rewrote token block to the desaturated ramp`,
+      `${ts("02","09")} ${cy("● run")} ${dim("cargo build -p rhei-tui")}`,
+      `${ts("02","21")} ${gr("✓")} build finished ${dim("12.4s")}`,
+    ],
+    "agent-review":[
+      `${ts("02","06")} ${cy("● read")} diff ${dim("runtime/diffs/task-"+id+".patch")}`,
+      `${ts("02","08")} reviewing against the description…`,
+      `${ts("02","10")} ${ye("! ")}pill contrast on ${bo("needs-review")} measures ${ye("4.1:1")} ${dim("(< 4.5:1)")}`,
+      `${ts("02","11")} ${gr("✓")} monochrome chrome confirmed`,
+    ],
+    "review":[
+      `${ts("02","06")} ${mg("● review pass 1/2")} gathering evidence`,
+      `${ts("02","08")} ${ye("! ")}found 2 spinners still present in slots view`,
+      `${ts("02","09")} ${gr("✓")} recorded findings → ${dim("runtime/reviews/task-"+id+"-review-1.md")}`,
+    ],
+    "consolidate":[
+      `${ts("02","06")} merging pass-1 and pass-2 findings`,
+      `${ts("02","08")} ${gr("✓")} ranked 9 findings, 3 blocking`,
+    ],
+    "needs-review":[
+      `${ts("02","06")} preparing review request`,
+      `${ts("02","07")} ${gr("✓")} wrote ${dim("runtime/reviews/task-"+id+"-request.md")}`,
+    ],
+    "active":[
+      `${ts("02","06")} ${cy("● probe")} polling /snapshot latency`,
+      `${ts("02","36")} p50 ${gr("41ms")} ${dim("·")} p99 ${ye("180ms")}`,
+    ],
+  };
+  const work=byState[st] || [ `${ts("02","06")} working in ${ye(st)}…`, `${ts("02","12")} ${gr("✓")} step complete` ];
+  const tail=[
+    `${ts("02","40")} ${cy("● read")} ${bl("docs/functional-spec/rhei-viz-ux.spec.md")}`,
+    `${ts("02","41")} cross-checking against §3.2 color rules`,
+    `${ts("02","45")} ${dim("…")} continuing, awaiting guidance`,
+  ];
+  // Pad so there is always enough to scroll.
+  const filler=[];
+  for(let i=0;i<6;i++) filler.push(`${ts("02",String(46+i).padStart(2,"0"))} ${dim("·")} heartbeat ${dim("agent alive, "+st)}`);
+  return [...head, ...work, ...tail, ...filler];
+}
+function isTerminal(state){ const ms=machineState(IX.plan,state); return ms?ms.terminal:["completed","cancelled","archived","failed"].includes(state); }
+function templateVariants(node, ms){
+  // Static fanout states render each authored target/model context; live slots
+  // use the concrete runtime invocation context. §FS-rhei-viz.8
+  if(((runtimeFor(node.id)||{}).template_context)) return [null];
+  const contexts=(ms&&ms.template_contexts)||[];
+  return contexts.length ? contexts : [null];
+}
+function templateContextLabel(ctx, i){
+  if(!ctx) return "variant "+(i+1);
+  return ctx.target_slug || ctx.target || ctx.model_name || ctx.model || ctx.agent || ("variant "+(i+1));
+}
+function templateScalars(node, ms, overrideCtx){
+  const stateCtx=(ms&&ms.template_context)||{}, runCtx=(runtimeFor(node.id)||{}).template_context||{};
+  const ctx=Object.assign({}, stateCtx, overrideCtx||{}, runCtx);
+  const visit = node.visit_count!=null ? String(node.visit_count) : "1";
+  const vals={
+    "task_id":node.id, "task_title":node.title, "state":ms?ms.name:node.state,
+    "visit_count":visit, "visits": ms&&ms.visits?String(ms.visits):"N",
+  };
+  const map=[
+    ["target","target"],["target.slug","target_slug"],["model","model"],
+    ["model.provider","model_provider"],["model.name","model_name"],
+    ["agent","agent"],["agent.mode","agent_mode"],
+  ];
+  for(const [tok,key] of map) if(ctx[key]!=null && ctx[key]!=="") vals[tok]=String(ctx[key]);
+  return vals;
+}
+function fillPath(t,node,ms,ctx){
+  const vals=templateScalars(node,ms,ctx); let unresolved=false;
+  const path=t.replace(/\{([^}]+)\}/g,(_,raw)=>{ const tok=raw.trim();
+    if(tok in vals) return vals[tok]; unresolved=true; return "{"+tok+"}"; });
+  return {path, unresolved};
+}
+// Render a state's instructions with every {template var} resolved for this
+// task: scalars inline (highlighted), and {input/output.<name>.path} as links.
+function instantiatePromptFrag(text, node, ms, ctx){
+  const pre=el("pre",{class:"prompt"});
+  const scalars=templateScalars(node,ms,ctx);
+  const artPath=(kind,name)=>{ const arr=(ms&&ms[kind])||[]; const a=arr.find(x=>x.name===name);
+    if(!a) return null; const r=fillPath(a.path,node,ms,ctx); return r.unresolved?null:r.path; };
+  const re=/\{([^}]+)\}/g; let last=0, m;
+  while((m=re.exec(text))){
+    if(m.index>last) pre.appendChild(document.createTextNode(text.slice(last,m.index)));
+    last=re.lastIndex;
+    const tok=m[1].trim();
+    const im=/^input\.(.+)\.path$/.exec(tok), om=/^output\.(.+)\.path$/.exec(tok);
+    const path = im ? artPath("inputs",im[1]) : om ? artPath("outputs",om[1]) : null;
+    if(path){ pre.appendChild(openLink(path)); }
+    else if(tok in scalars){ pre.appendChild(el("span",{class:"sub",text:scalars[tok]})); }
+    else { pre.appendChild(el("span",{class:"unres",text:"{"+tok+"}"})); }
+  }
+  if(last<text.length) pre.appendChild(document.createTextNode(text.slice(last)));
+  return pre;
+}
+function artList(arts,label,node,ms,ctx){
+  const ul=el("ul",{class:"arts"});
+  if(!arts||!arts.length){ ul.appendChild(el("li",{},[el("span",{class:"io",text:label+" "}),el("span",{class:"none",text:"—"})])); return ul; }
+  for(const a of arts){ const li=el("li");
+    li.appendChild(el("span",{class:"io",text:label+" "}));
+    const r=fillPath(a.path,node,ms,ctx);
+    if(r.unresolved) li.appendChild(el("span",{class:"unres",text:r.path}));
+    else li.appendChild(openLink(r.path, r.path, a.description||""));
+    if(a.optional) li.appendChild(el("span",{class:"adesc",text:" (optional)"}));
+    if(a.description){ li.appendChild(document.createElement("br")); li.appendChild(el("span",{class:"adesc",text:a.description})); }
+    ul.appendChild(li); }
+  return ul;
+}
+
+// ---- machine rails (disjoint state machines render as separate rails) -------
+function machineComponents(machine){
+  const states=machine.states.map(s=>s.name), adj={};
+  for(const s of states) adj[s]=new Set();
+  for(const s of machine.states) for(const t of s.transitions){ if(t.wildcard)continue; if(!(t.to in adj))continue;
+    adj[s.name].add(t.to); adj[t.to].add(s.name); }
+  const seen=new Set(), comps=[];
+  for(const s of states){ if(seen.has(s))continue; const q=[s]; seen.add(s); const comp=[];
+    while(q.length){ const x=q.pop(); comp.push(x); for(const y of adj[x]) if(!seen.has(y)){seen.add(y);q.push(y);} }
+    comps.push(comp); }
+  return comps;
+}
+let MK=0;
+function renderMachines(){
+  const root=document.getElementById("machines"); root.innerHTML="";
+  const machine=IX.plan.machine; if(!machine||!machine.states){ return; }
+  const flagOf={}; for(const s of machine.states) flagOf[s.name]=s;
+  const edgesAll=[];
+  for(const s of machine.states) for(const t of s.transitions) if(!t.wildcard) edgesAll.push({from:s.name,to:t.to});
+  const comps=machineComponents(machine);
+  const multi=comps.filter(c=>c.length>1).sort((a,b)=>Math.min(...a.map(stateIndex))-Math.min(...b.map(stateIndex)));
+  const termSingles=comps.filter(c=>c.length===1 && flagOf[c[0]] && flagOf[c[0]].terminal).map(c=>c[0]);
+  const otherSingles=comps.filter(c=>c.length===1 && !(flagOf[c[0]] && flagOf[c[0]].terminal)).map(c=>c[0]);
+  const heading = multi.length>1
+    ? `State machines — ${machine.name} (${multi.length} disjoint)`
+    : `State machine — ${machine.name}`;
+  root.appendChild(el("h2",{text:heading}));
+  if(IX.plan.about){
+    const about=el("div",{class:"mabout"});
+    about.appendChild(el("b",{text:"What this rhei is doing — "}));
+    about.appendChild(document.createTextNode(IX.plan.about));
+    root.appendChild(about);
+  }
+  machineDetailEl=el("div",{class:"mdetail"}); root.appendChild(machineDetailEl);
+  renderMachineDetail(MSTATE);
+  multi.forEach((comp,i)=>{
+    const label = multi.length>1 ? `${machine.name} · part ${i+1}` : machine.name;
+    drawMachineGraph(root, `<b>${label}</b> &middot; ${comp.length} states`, comp, edgesAll, flagOf);
+  });
+  if(otherSingles.length)
+    drawMachineGraph(root, "isolated", otherSingles, edgesAll, flagOf);
+  if(termSingles.length)
+    drawMachineGraph(root, "terminal &middot; reachable from any state (wildcard)", termSingles, edgesAll, flagOf);
+}
+
+// Longest-path layering with cycle tolerance: back edges (to a node still on the
+// DFS stack) are excluded from the layering and later drawn as dashed loops.
+function layeredLayout(orderedStates, edges){
+  const set=new Set(orderedStates), adj={};
+  orderedStates.forEach(s=>adj[s]=[]);
+  for(const e of edges) if(set.has(e.from)&&set.has(e.to)) adj[e.from].push(e.to);
+  const color={}, back=new Set(), finish=[];
+  const dfs=u=>{ color[u]=1;
+    for(const v of adj[u]){ if(color[v]===1) back.add(u+"\u0000"+v); else if(!color[v]) dfs(v); }
+    color[u]=2; finish.push(u); };
+  for(const r of orderedStates) if(!color[r]) dfs(r);
+  const layer={}; orderedStates.forEach(s=>layer[s]=0);
+  for(const u of finish.slice().reverse())
+    for(const v of adj[u]) if(!back.has(u+"\u0000"+v)) layer[v]=Math.max(layer[v],layer[u]+1);
+  return { layer };
+}
+function mkMarker(id, cls){
+  const m=svgEl("marker",{id, viewBox:"0 0 10 10", refX:9, refY:5, markerWidth:7, markerHeight:7, orient:"auto"});
+  m.appendChild(svgEl("path",{class:cls, d:"M0 0 L10 5 L0 10 z"}));
+  return m;
+}
+function drawMachineGraph(root, labelHtml, states, edgesAll, flagOf){
+  const uid="mk"+(MK++);
+  const box=el("div",{class:"mgraph"});
+  const lab=el("div",{class:"mlabel"}); lab.innerHTML=labelHtml; box.appendChild(lab);
+  const set=new Set(states);
+  const edges=edgesAll.filter(e=>set.has(e.from)&&set.has(e.to));
+  const ordered=[...states].sort((a,b)=>{
+    const ia=(flagOf[a]&&flagOf[a].initial)?0:1, ib=(flagOf[b]&&flagOf[b].initial)?0:1;
+    return ia-ib || stateIndex(a)-stateIndex(b);
+  });
+  const {layer}=layeredLayout(ordered, edges);
+  const cols={}; let maxL=0, maxRows=0;
+  ordered.forEach(s=>{ const l=layer[s]; (cols[l]=cols[l]||[]).push(s); maxL=Math.max(maxL,l); });
+  for(const l in cols){ cols[l].sort((a,b)=>stateIndex(a)-stateIndex(b)); maxRows=Math.max(maxRows,cols[l].length); }
+  const NW=126, NH=32, HG=52, VG=16, PAD=14, BACKDIP=30;
+  const pos={};
+  for(let l=0;l<=maxL;l++) (cols[l]||[]).forEach((s,r)=>{ pos[s]={x:PAD+l*(NW+HG), y:PAD+r*(NH+VG)}; });
+  const W=PAD*2+(maxL+1)*NW+maxL*HG;
+  const H=PAD*2+Math.max(1,maxRows)*(NH+VG)-VG+BACKDIP;
+  const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`, style:`height:${H}px; min-width:${W}px`});
+  const defs=svgEl("defs");
+  defs.appendChild(mkMarker("fwd-"+uid,"mk-fwd"));
+  defs.appendChild(mkMarker("back-"+uid,"mk-back"));
+  svg.appendChild(defs);
+  for(const e of edges){ const a=pos[e.from], b=pos[e.to]; if(!a||!b)continue;
+    const isBack = layer[e.to] <= layer[e.from];
+    let d, cls, mk;
+    if(!isBack){ const x1=a.x+NW,y1=a.y+NH/2,x2=b.x,y2=b.y+NH/2,mx=(x1+x2)/2;
+      d=`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`; cls="medge"; mk="url(#fwd-"+uid+")"; }
+    else { const x1=a.x+NW/2,y1=a.y+NH, x2=b.x+NW/2,y2=b.y+NH, dip=Math.max(y1,y2)+BACKDIP;
+      d=`M ${x1} ${y1} C ${x1} ${dip}, ${x2} ${dip}, ${x2} ${y2}`; cls="medge back"; mk="url(#back-"+uid+")"; }
+    svg.appendChild(svgEl("path",{class:cls, d, "marker-end":mk})); }
+  for(const s of ordered){ const p=pos[s], c=stateColor(s);
+    const g=svgEl("g",{class:"mnode", "data-state":s});
+    g.appendChild(svgEl("rect",{x:p.x,y:p.y,width:NW,height:NH,rx:6,stroke:c,"stroke-width":1.5}));
+    g.appendChild(svgEl("rect",{x:p.x,y:p.y,width:4,height:NH,fill:c}));
+    const label=svgEl("text",{x:p.x+12,y:p.y+NH/2+4});
+    label.appendChild(document.createTextNode(trunc(s,15)));
+    g.appendChild(label);
+    const fl=flagOf[s];
+    if(fl){ const tip=[fl.initial?"initial":"",fl.gating?"gating":"",fl.terminal?"terminal":"",fl.description||""].filter(Boolean).join(" · ");
+      if(tip) g.appendChild(svgEl("title",{},[document.createTextNode(tip)])); }
+    g.addEventListener("click",()=>showStateDetail(s));
+    svg.appendChild(g); }
+  box.appendChild(svg);
+  // Legend: each state and what it does, doubling as the prompt index.
+  const leg=el("div",{class:"mlegend"});
+  for(const s of ordered){ const fl=flagOf[s];
+    const row=el("div",{class:"mlegrow", "data-state":s});
+    const nm=el("span",{class:"mlegname"}); nm.appendChild(dot(stateColor(s)));
+    nm.appendChild(document.createTextNode(s));
+    const ds=el("span",{class:"mlegdesc",text:(fl&&fl.description)||""});
+    row.appendChild(nm); row.appendChild(ds);
+    row.addEventListener("click",()=>showStateDetail(s));
+    leg.appendChild(row); }
+  box.appendChild(leg);
+  root.appendChild(box);
+}
+function showStateDetail(name){ MSTATE=name; highlightState(name); renderMachineDetail(name); }
+function renderMachineDetail(name){
+  const box=machineDetailEl; if(!box) return; box.innerHTML="";
+  const ms=name?machineState(IX.plan,name):null;
+  if(!ms){ box.appendChild(el("div",{class:"hint",text:"Click a state to read its prompt."})); return; }
+  const head=el("div",{class:"mdhead"});
+  const c=stateColor(name); const pl=el("span",{class:"pill",text:name}); pl.style.background=c; pl.style.color=pillInk(c);
+  head.appendChild(pl);
+  const flags=[]; if(ms.initial)flags.push("initial"); if(ms.terminal)flags.push("terminal"); if(ms.gating)flags.push("gating");
+  if(ms.visits)flags.push(`counted ×${ms.visits}`);
+  if(flags.length) head.appendChild(el("span",{class:"flags",text:flags.join(" · ")}));
+  box.appendChild(head);
+  if(ms.description) box.appendChild(el("div",{class:"desc",text:ms.description}));
+  box.appendChild(el("div",{class:"mdlabel",text:"prompt (template)"}));
+  if(ms.instructions) box.appendChild(el("pre",{class:"prompt",text:ms.instructions}));
+  else box.appendChild(el("div",{class:"hint",text:"No prompt defined for this state."}));
+}
+function highlightState(state){
+  document.querySelectorAll("[data-state]").forEach(c=>c.classList.toggle("cur", c.getAttribute("data-state")===state));
+}
+
+// ---- running now: actual runtime slots -------------------------------------
+function renderRunning(){
+  const box=document.getElementById("running");
+  // Top-level tasks with an active runtime slot — the actual running work streams.
+  const running=IX.top.map(id=>IX.byId[id]).filter(isRunningNow);
+  box.innerHTML="";
+  if(!running.length){ box.className="panel running"; return; }
+  box.className="panel running on";
+  const head=el("div",{class:"runhead"}); head.innerHTML=`Running now &middot; <b>${running.length}</b>`;
+  box.appendChild(head);
+  const row=el("div",{class:"runrow"});
+  for(const n of running){ const c=stateColor(n.state);
+    const chip=el("div",{class:"runchip", "aria-label":`${n.id} · ${n.title}`});
+    chip.appendChild(el("span",{class:"spinner"}));
+    chip.appendChild(el("span",{class:"id",text:n.id}));
+    chip.appendChild(el("span",{class:"rst",text:trunc(n.title,24)}));
+    const pl=el("span",{class:"pill",text:n.state}); pl.style.background=c; pl.style.color=pillInk(c);
+    chip.appendChild(pl);
+    chip.addEventListener("click",()=>select(n.id));
+    row.appendChild(chip); }
+  box.appendChild(row);
+}
+
+// ---- selection --------------------------------------------------------------
+function applySelectionVisual(){
+  for(const id in rowEls) rowEls[id].classList.toggle("sel", id===SEL);
+  for(const id in nodeEls) nodeEls[id].classList.toggle("sel", id===SEL);
+}
+function select(id){
+  if(!IX.byId[id]) return;
+  SEL=id;
+  setHash(id);
+  applySelectionVisual();
+  renderSurroundings();
+  showStateDetail(IX.byId[id].state);   // machine prompt follows the selected task's state
+  if(rowEls[id]) rowEls[id].scrollIntoView({block:"nearest"});
+}
+// ---- deep linking (§FS-rhei-viz §1) -----------------------------------------
+// The selected node is mirrored into the URL hash so a link opens straight on a
+// node's surroundings, and pasting/editing the hash (or back/forward) reselects.
+// replaceState keeps keyboard navigation from flooding browser history; on the
+// offline file:// surface where it can be blocked we fall back to location.hash.
+let SUPPRESS_HASH=false;
+function setHash(id){
+  if(!id) return;
+  const h="#"+encodeURIComponent(id);
+  if(location.hash===h) return;
+  try{ history.replaceState(null,"",h); }
+  catch(e){ SUPPRESS_HASH=true; location.hash=h; }
+}
+function nodeFromHash(){
+  if(!IX || !location.hash) return null;
+  const id=decodeURIComponent(location.hash.slice(1));
+  return IX.byId[id] ? id : null;
+}
+function copyNodeLink(id, btnEl){
+  setHash(id);
+  const url=location.href, restore=btnEl.textContent;
+  const done=()=>{ btnEl.textContent="copied"; setTimeout(()=>{ btnEl.textContent=restore; },1200); };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done).catch(()=>fallbackCopy(url,done));
+  } else fallbackCopy(url,done);
+}
+function fallbackCopy(text, done){
+  try{ const ta=document.createElement("textarea"); ta.value=text;
+    ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); }
+  catch(e){ /* clipboard blocked; the URL bar still carries the node hash */ }
+}
+window.addEventListener("hashchange",()=>{
+  if(SUPPRESS_HASH){ SUPPRESS_HASH=false; return; }
+  const id=nodeFromHash();
+  if(id && id!==SEL) select(id);
+});
+function move(delta){
+  const i=IX.order.indexOf(SEL); if(i<0)return;
+  const j=Math.min(IX.order.length-1, Math.max(0, i+delta));
+  select(IX.order[j]);
+}
+
+// ---- supplementary scanning views (§FS-rhei-viz §12) ------------------------
+// Secondary to the Flow view: dense aids that consume the same /snapshot data.
+// Operational views (Journal/Slots/Cost/Links) need the live runtime overlay;
+// the charts (Gantt/Cube/Sankey) work from the task list alone, so they render
+// in a static page too.
+let SUPP="none";
+function emptyNote(t){ return el("div",{class:"none",text:t}); }
+function fmtCost(micro, currency){ if(micro==null) return "—";
+  const v=micro/1e6; return (currency==="USD"||!currency) ? "$"+v.toFixed(4) : v.toFixed(4)+" "+currency; }
+function fmtNum(n){ return n==null ? "—" : Number(n).toLocaleString(); }
+function fmtDur(ms){ if(ms==null) return "—"; const s=Math.round(ms/1000);
+  if(s<60) return s+"s"; const m=Math.floor(s/60); return m+"m"+String(s%60).padStart(2,"0")+"s"; }
+function fmtTime(ms){ if(!ms) return ""; const d=new Date(ms);
+  return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,"0")).join(":"); }
+function dimVal(d){ return d && d.value!=null ? d.value : null; }
+// In a live render, an artifact/log path opens in the operator's editor via the
+// loopback /open route (§FS-rhei-viz §11); in a static render the link is
+// illustrative and points at the (relative) path directly.
+function openLink(path, text, title){
+  if(LIVE){ const a=el("a",{href:"#",text:text!=null?text:path, title:title||""});
+    a.addEventListener("click",e=>{ e.preventDefault(); fetch("open?path="+encodeURIComponent(path)).catch(()=>{}); });
+    return a; }
+  return el("a",{href:path,target:"_blank",text:text!=null?text:path, title:title||""});
+}
+function suppViews(){
+  const hasRun = !!(IX.plan.slots || IX.plan.recent || IX.plan.accounting);
+  const v=[];
+  if(hasRun) v.push(["journal","Journal"],["slots","Slots"],["cost","Cost"]);
+  v.push(["gantt","Gantt"],["cube","Cube"],["sankey","Sankey"]);
+  if(hasRun || (IX.plan.links&&IX.plan.links.length)) v.push(["links","Links"]);
+  return v;
+}
+function renderSupp(){
+  const root=document.getElementById("supp"); const views=suppViews();
+  if(!views.some(v=>v[0]===SUPP)) { if(SUPP!=="none") SUPP="none"; }
+  root.innerHTML="";
+  const tabs=el("div",{class:"stabs"});
+  tabs.appendChild(el("span",{class:"lbl",text:"more views"}));
+  const mk=(k,lbl)=>{ const b=el("button",{class:"stab"+(SUPP===k?" on":""),text:lbl});
+    b.addEventListener("click",()=>{ SUPP=k; renderSupp(); }); return b; };
+  tabs.appendChild(mk("none","hide"));
+  for(const [k,lbl] of views) tabs.appendChild(mk(k,lbl));
+  root.appendChild(tabs);
+  const body=el("div",{class:"sbody"}); root.appendChild(body);
+  ({ journal:suppJournal, slots:suppSlots, cost:suppCost, gantt:suppGantt,
+     cube:suppCube, sankey:suppSankey, links:suppLinks }[SUPP]
+    || (b=>b.appendChild(emptyNote("Dense scanning aids — pick a view. The Flow view above is primary."))))(body);
+}
+function suppJournal(body){
+  const lines=IX.plan.recent||[];
+  if(!lines.length){ body.appendChild(emptyNote("No journal lines yet.")); return; }
+  const GL={info:"i",warn:"!",error:"x"};
+  for(const l of lines){ const r=el("div",{class:"jrow "+(l.level||"info")});
+    r.appendChild(el("span",{class:"jt",text:fmtTime(l.ts_ms)}));
+    r.appendChild(el("span",{class:"jglyph",text:GL[l.level]||"i"}));
+    r.appendChild(el("span",{text:l.text})); body.appendChild(r); }
+}
+function suppSlots(body){
+  const slots=IX.plan.slots||[];
+  if(!slots.length){ body.appendChild(emptyNote("No slots.")); return; }
+  const tbl=el("table",{class:"stable"});
+  const head=el("tr"); ["#","task","state","agent","dur","outcome"].forEach((h,i)=>head.appendChild(el("th",{text:h,class:i===4?"num":""}))); tbl.appendChild(head);
+  slots.forEach((s,i)=>{ const tr=el("tr");
+    tr.appendChild(el("td",{text:String(i)}));
+    const tt=el("td"); if(s.task&&IX.byId[s.task]){ const a=el("a",{href:"#",text:s.task}); a.addEventListener("click",e=>{e.preventDefault();select(s.task);}); tt.appendChild(a);} else tt.textContent=s.task||"—"; tr.appendChild(tt);
+    tr.appendChild(el("td",{text:s.state||"—"}));
+    tr.appendChild(el("td",{text:s.agent||"—"}));
+    tr.appendChild(el("td",{class:"num",text:fmtDur(s.duration_ms)}));
+    tr.appendChild(el("td",{text:s.outcome||(s.active?"running":"—")}));
+    tbl.appendChild(tr); });
+  body.appendChild(tbl);
+}
+function suppCost(body){
+  const a=IX.plan.accounting;
+  if(a){ body.appendChild(el("h3",{text:"run total"}));
+    const g=el("div",{class:"acct-grid"});
+    const add=(k,v)=>{ g.appendChild(el("div",{class:"k",text:k})); g.appendChild(el("div",{class:"v",text:v})); };
+    add("cost", fmtCost(a.cost_micro, a.currency));
+    add("input tokens", fmtNum(dimVal(a.input_total)));
+    add("output tokens", fmtNum(dimVal(a.output_total)));
+    add("cached read", fmtNum(dimVal(a.input_cached_read)));
+    add("invocations", fmtNum(a.invocation_count));
+    add("coverage", a.coverage||"—");
+    body.appendChild(g);
+  }
+  const tr=IX.plan.task_runtime||{};
+  const rows=IX.top.filter(id=>tr[id]&&tr[id].accounting);
+  if(rows.length){ body.appendChild(el("h3",{text:"by top-level task"}));
+    const tbl=el("table",{class:"stable"});
+    const h=el("tr"); ["task","direct","subtree"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i?"num":""}))); tbl.appendChild(h);
+    for(const id of rows){ const acc=tr[id].accounting, row=el("tr");
+      const tt=el("td"); const a2=el("a",{href:"#",text:id}); a2.addEventListener("click",e=>{e.preventDefault();select(id);}); tt.appendChild(a2); row.appendChild(tt);
+      row.appendChild(el("td",{class:"num",text:acc.direct?fmtCost(acc.direct.cost_micro,acc.direct.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtCost(acc.subtree.cost_micro,acc.subtree.currency):"—"}));
+      tbl.appendChild(row); }
+    body.appendChild(tbl);
+  }
+  if(!a && !rows.length) body.appendChild(emptyNote("No cost data yet."));
+}
+function suppLinks(body){
+  const links=[...(IX.plan.links||[]),...(IX.plan.auto_links||[])];
+  if(!links.length){ body.appendChild(emptyNote("No links.")); return; }
+  for(const l of links){ const r=el("div",{class:"linkrow"});
+    r.appendChild(el("a",{href:l.url,target:"_blank",text:l.label||l.url}));
+    r.appendChild(el("span",{class:"src",text:l.source||""})); body.appendChild(r); }
+}
+function allItems(){ const out=[]; for(const tid of IX.top){ out.push(tid); for(const c of allDescendants(tid)) out.push(c);} return out; }
+function suppGantt(body){
+  const items=allItems(); if(!items.length){ body.appendChild(emptyNote("No tasks.")); return; }
+  const present=[...new Set(items.map(id=>IX.byId[id].state))].sort((a,b)=>stateIndex(a)-stateIndex(b));
+  const colX={}; present.forEach((s,i)=>colX[s]=i);
+  const COLW=118, ROWH=22, PADX=170, PADY=26;
+  const W=PADX+present.length*COLW, H=PADY+items.length*ROWH+8;
+  const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`, style:`height:${H}px;min-width:${W}px`});
+  present.forEach((s,i)=>{ const x=PADX+i*COLW+COLW/2;
+    svg.appendChild(svgEl("line",{x1:x,y1:PADY-8,x2:x,y2:H-4,stroke:"var(--hairline)","stroke-width":1}));
+    const t=svgEl("text",{x:x,y:14,"text-anchor":"middle",class:"gst",fill:stateColor(s)}); t.appendChild(document.createTextNode(trunc(s,13))); svg.appendChild(t); });
+  items.forEach((id,r)=>{ const n=IX.byId[id], y=PADY+r*ROWH+ROWH/2;
+    const lbl=svgEl("text",{x:8,y:y+4,class:"gid"}); lbl.appendChild(document.createTextNode(trunc("  ".repeat(n.depth)+id,24))); svg.appendChild(lbl);
+    const x=PADX+colX[n.state]*COLW+COLW/2, c=stateColor(n.state);
+    const g=svgEl("g"); g.style.cursor="pointer";
+    g.appendChild(svgEl("circle",{cx:x,cy:y,r:6,fill:c}));
+    g.appendChild(svgEl("title",{},[document.createTextNode(`${id} · ${n.state}`)]));
+    g.addEventListener("click",()=>select(id)); svg.appendChild(g); });
+  body.appendChild(svg);
+}
+function suppCube(body){
+  const tops=IX.top; if(!tops.length){ body.appendChild(emptyNote("No tasks.")); return; }
+  if(IX.plan.plan_state){ const strip=el("div",{}); strip.style.marginBottom="8px";
+    const c=stateColor(IX.plan.plan_state), pl=el("span",{class:"pill",text:"plan · "+IX.plan.plan_state});
+    pl.style.background=c; pl.style.color=pillInk(c); strip.appendChild(pl); body.appendChild(strip); }
+  const tbl=el("table",{class:"stable"});
+  for(const t of tops){ const tr=el("tr");
+    const th=el("td"); const a=el("a",{href:"#",text:t}); a.addEventListener("click",e=>{e.preventDefault();select(t);}); th.appendChild(a); tr.appendChild(th);
+    const sc=el("td"); const sd=el("span",{class:"heat",title:t+" · "+IX.byId[t].state}); sd.style.background=stateColor(IX.byId[t].state);
+    sd.style.cursor="pointer"; sd.addEventListener("click",()=>select(t)); sc.appendChild(sd); tr.appendChild(sc);
+    for(const d of allDescendants(t)){ const td=el("td");
+      const h=el("span",{class:"heat",title:d+" · "+IX.byId[d].state}); h.style.background=stateColor(IX.byId[d].state);
+      h.style.cursor="pointer"; h.addEventListener("click",()=>select(d)); td.appendChild(h); tr.appendChild(td); }
+    tbl.appendChild(tr); }
+  body.appendChild(el("div",{class:"none",text:"Top-level task × descendant state heatmap. Click a cell to inspect."}));
+  body.appendChild(tbl);
+}
+function suppSankey(body){
+  const tops=IX.top.filter(t=>allDescendants(t).length);
+  if(!tops.length){ body.appendChild(emptyNote("No descendants to flow.")); return; }
+  const stateSet=new Set();
+  const flows=tops.map(t=>{ const counts={}; for(const d of allDescendants(t)){ const s=IX.byId[d].state; counts[s]=(counts[s]||0)+1; stateSet.add(s);} return {t,counts}; });
+  const states=[...stateSet].sort((a,b)=>stateIndex(a)-stateIndex(b));
+  const LH=28, PADY=12, LX=12, RX=330, NW=130, H=PADY*2+Math.max(tops.length,states.length)*LH, W=480;
+  const svg=svgEl("svg",{viewBox:`0 0 ${W} ${H}`,style:`height:${H}px;min-width:${W}px`});
+  const ly={}, ry={};
+  tops.forEach((t,i)=>ly[t]=PADY+i*LH+LH/2);
+  states.forEach((s,i)=>ry[s]=PADY+i*LH+LH/2);
+  const maxc=Math.max(1,...flows.flatMap(f=>Object.values(f.counts)));
+  for(const f of flows) for(const s in f.counts){ const w=1.5+6*f.counts[s]/maxc;
+    const y1=ly[f.t], y2=ry[s], x1=LX+NW, x2=RX, mx=(x1+x2)/2;
+    svg.appendChild(svgEl("path",{d:`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,fill:"none",stroke:stateColor(s),"stroke-width":w,"stroke-opacity":"0.5"})); }
+  tops.forEach(t=>{ const g=svgEl("g"); g.style.cursor="pointer";
+    g.appendChild(svgEl("rect",{x:LX,y:ly[t]-9,width:NW,height:18,rx:4,fill:"var(--surface-2)",stroke:stateColor(IX.byId[t].state)}));
+    const tx=svgEl("text",{x:LX+8,y:ly[t]+4,class:"gid"}); tx.appendChild(document.createTextNode(trunc(t,14))); g.appendChild(tx);
+    g.addEventListener("click",()=>select(t)); svg.appendChild(g); });
+  states.forEach(s=>{ const g=svgEl("g"), c=stateColor(s);
+    g.appendChild(svgEl("rect",{x:RX,y:ry[s]-9,width:NW,height:18,rx:4,fill:c}));
+    const tx=svgEl("text",{x:RX+8,y:ry[s]+4,fill:pillInk(c)}); tx.appendChild(document.createTextNode(trunc(s,14))); g.appendChild(tx); svg.appendChild(g); });
+  body.appendChild(svg);
+}
+
+// ---- top-level render -------------------------------------------------------
+function renderLeft(){
+  const flow=document.querySelector(".flow");
+  if(flow){ flow.classList.toggle("graph", MODE==="graph"); flow.classList.toggle("list", MODE!=="graph"); }
+  if(MODE==="graph") renderGraph(); else renderList();
+}
+function renderLegend(){
+  const box=document.getElementById("legend"); box.innerHTML="";
+  const items=[["done","completed"],["live","running"],["active","active"],["blocked","blocked"],["gate","gate"],["failed","failed"],["retired","retired"],["idle","idle"]];
+  for(const[k,lbl]of items){ const s=el("span",{}); s.appendChild(el("span",{class:"gly",text:GLYPH[k]})); s.appendChild(document.createTextNode(" "+lbl)); box.appendChild(s); }
+}
+function renderSummary(){
+  const cnt={done:0,active:0,live:0,blocked:0,gate:0,failed:0,retired:0,idle:0};
+  for(const id of IX.top) cnt[nodeCategory(IX.byId[id])]++;
+  const running=IX.top.map(id=>IX.byId[id]).filter(isRunningNow).length;
+  const runningPart = hasRuntimeOverlay() ? ` &middot; <b>${running}</b> running` : "";
+  const s=document.getElementById("summary");
+  s.innerHTML=`<b>${IX.top.length}</b> tasks${runningPart} &middot; <b>${cnt.active}</b> active &middot; <b>${cnt.blocked}</b> blocked &middot; <b>${cnt.gate}</b> gate &middot; <b>${cnt.done}</b> done &middot; <b>${cnt.failed}</b> failed`;
+}
+function renderMachineLine(){
+  const m=IX.plan.machine, line=document.getElementById("machine-line");
+  if(m&&m.name){
+    const note = LIVE ? "live · updates in place" : "artifact links are illustrative (files appear under runtime/ after a run)";
+    line.innerHTML=`states <b>${m.name}</b> &middot; ${note}`;
+  } else line.textContent="";
+}
+function renderPlanTitle(){
+  const t=document.getElementById("plan-title");
+  t.textContent = (IX.plan && IX.plan.plan_title) ? IX.plan.plan_title : "";
+}
+function drawAll(plan){
+  IX=indexPlan(plan); SEL=null; MSTATE=null;
+  for(const k in rowEls) delete rowEls[k]; for(const k in nodeEls) delete nodeEls[k];
+  renderPlanTitle(); renderMachineLine(); renderSummary(); renderLegend(); renderRunning(); renderLeft(); renderMachines(); renderSupp();
+  // A node named in the URL hash wins, so a shared link opens on it; otherwise
+  // the resting view leads with running work. §FS-rhei-viz §1, §5.
+  const firstRunning=IX.order.find(id=>isRunningNow(IX.byId[id]));
+  const firstActive=IX.order.find(id=>nodeCategory(IX.byId[id])==="active");
+  select(nodeFromHash() || firstRunning || firstActive || IX.top[0] || IX.order[0]);
+}
+
+// ---- live: poll /snapshot and update in place (§FS-rhei-viz §7.1) -----------
+// Liveness is shown by content changing where it sits, never by movement: a
+// poll updates row text, pills, the running-now strip, and the summary without
+// reflow, and preserves the operator's scroll position and selection.
+function sameStructure(ix, snap){
+  const a=ix.order.join("");
+  const b=(snap.tasks||[]).map(t=>t.id).join("");
+  return a===b;
+}
+function applyLive(snap){
+  if(!IX || !sameStructure(IX, snap)){
+    const keepSel = (IX && SEL && IX.byId[SEL]) ? SEL : null;
+    drawAll(snap);                       // first paint or the plan's shape changed
+    if(keepSel && IX.byId[keepSel]) select(keepSel);
+    return;
+  }
+  const y=window.scrollY, prevSel=SEL, changed={};
+  const prevCat = (prevSel && IX.byId[prevSel]) ? nodeCategory(IX.byId[prevSel]) : null;
+  for(const t of (snap.tasks||[])){ const n=IX.byId[t.id];
+    if(n && n.state!==t.state){ changed[t.id]=true; n.state=t.state; } }
+  IX.plan = snap;                        // refresh machine / about / accounting
+  const nextCat = (prevSel && IX.byId[prevSel]) ? nodeCategory(IX.byId[prevSel]) : null;
+  refreshListStates();
+  if(MODE==="graph") renderGraph();
+  renderPlanTitle(); renderMachineLine(); renderSummary(); renderRunning();
+  const supScroll = (document.querySelector(".sbody")||{}).scrollTop || 0;
+  renderSupp();
+  const sb=document.querySelector(".sbody"); if(sb) sb.scrollTop=supScroll;
+  if(prevSel && (changed[prevSel] || prevCat!==nextCat)){
+    renderSurroundings(); showStateDetail(IX.byId[prevSel].state);
+  }
+  applySelectionVisual();
+  window.scrollTo(0, y);
+}
+function refreshListStates(){
+  for(const id in rowEls){ const n=IX.byId[id]; if(!n) continue;
+    const row=rowEls[id], cat=nodeCategory(n), c=stateColor(n.state);
+    row.setAttribute("data-cat", cat);
+    const lead=row.querySelector(".lead"); if(lead){ lead.innerHTML="";
+      lead.appendChild(cat==="live" ? el("span",{class:"spinner"}) : el("span",{class:"gly", text:nodeGlyph(n)})); }
+    const pl=row.querySelector(".pill"); if(pl){ pl.textContent=n.state; pl.style.background=c; pl.style.color=pillInk(c); }
+    const prog=row.querySelector(".prog");
+    if(prog && n.children.length){ const p=subtreeProgress(IX,id); prog.textContent=`${p.done}/${p.total} ✓`; }
+  }
+}
+function poll(){
+  refreshSnapshotOnce()
+    .catch(()=>{})                       // tolerate a transient reload failure
+    .finally(()=>{ pollLog(); setTimeout(poll, 1000); });
+}
+function refreshSnapshotOnce(){
+  return fetch("snapshot",{cache:"no-store"})
+    .then(r=>r.ok?r.json():Promise.reject())
+    .then(snap=>{ if(snap && !snap.error) applyLive(snap); return snap; });
+}
+// Stream the selected running task's durable log into its terminal, appending
+// only the new bytes since the last offset. Liveness shown in place, no jump
+// unless the operator is already at the bottom. §FS-rhei-viz-ux §4.
+function pollLog(){
+  if(!LIVE || !LOGTERM || !LOGTASK) return;
+  const term=LOGTERM, task=LOGTASK, key=LOGKEY, off=LOGOFF;
+  fetch("log?task="+encodeURIComponent(task)+"&from="+off,{cache:"no-store"})
+    .then(r=>r.ok?r.json():null)
+    .then(j=>{ if(!j || LOGTERM!==term || LOGKEY!==key) return;   // selection moved on
+      if(j.data){ const atBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 30;
+        appendLog(term, j.data);
+        if(atBottom) term.scrollTop=term.scrollHeight; }
+      LOGOFF=j.next; })
+    .catch(()=>{});
+}
+function appendLog(term, data){
+  const buf=(term._resid||"")+data, parts=buf.split("\n");
+  term._resid=parts.pop();              // hold a partial line until its newline arrives
+  for(const line of parts) term.appendChild(termLine(line));
+}
+function sendIntervene(node, message){
+  const rt=runtimeFor(node.id)||{};
+  const body={task_id:node.id, message};
+  if(rt.in_slot!=null) body.slot=rt.in_slot;
+  return fetch("intervene",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():{ok:false,error:"intervene request failed"})
+    .then(j=>j&&j.ok ? {ok:true} : {ok:false,error:(j&&j.error)||"intervention was not delivered"})
+    .catch(err=>({ok:false,error:err&&err.message?err.message:"intervene request failed"}));
+}
+function sendGateTransition(node, to){
+  const body={task_id:node.id, from:node.state, to};
+  return fetch("transition-gate",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)})
+    .then(r=>r.ok?r.json():{ok:false,error:"gate transition request failed"})
+    .then(j=>j&&j.ok ? {ok:true,to:j.to} : {ok:false,error:(j&&j.error)||"gate transition failed"})
+    .catch(err=>({ok:false,error:err&&err.message?err.message:"gate transition request failed"}));
+}
+
+// ---- bootstrap --------------------------------------------------------------
+function setMode(m){ MODE=m;
+  document.querySelectorAll("#mode button").forEach(x=>x.classList.toggle("on", x.dataset.mode===m));
+  renderLeft(); applySelectionVisual(); }
+function bindControls(){
+  document.querySelectorAll("#mode button").forEach(b=>b.addEventListener("click",()=>setMode(b.dataset.mode)));
+  document.addEventListener("keydown",e=>{
+    if(["SELECT","TEXTAREA","INPUT"].includes(e.target.tagName)) return;
+    if(e.key==="ArrowDown"||e.key==="j"){ e.preventDefault(); move(1); }
+    else if(e.key==="ArrowUp"||e.key==="k"){ e.preventDefault(); move(-1); }
+    else if(e.key==="g"){ setMode("graph"); }
+    else if(e.key==="l"){ setMode("list"); }
+  });
+}
+function initStatic(bundle){
+  const sel=document.getElementById("plan"), keys=Object.keys(bundle);
+  if(!keys.length){ document.getElementById("surr").textContent="No plan data."; return; }
+  if(keys.length>1) document.getElementById("plan-picker").hidden=false;
+  for(const k of keys){ sel.appendChild(el("option",{value:k,text:k})); }
+  sel.value = keys.find(k=>k.endsWith("-demo")) || keys.find(k=>k.includes("inflight")) || keys[0];
+  sel.addEventListener("change",()=>drawAll(bundle[sel.value]));
+  bindControls();
+  drawAll(bundle[sel.value]);
+}
+function initLive(){
+  LIVE=true;
+  document.getElementById("live-dot").hidden=false;
+  bindControls();
+  poll();
+}
+function init(){
+  if(BOOT && typeof BOOT==="object" && Object.keys(BOOT).length) initStatic(BOOT);
+  else initLive();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,370 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-cross-rhei-readiness
+state: resolve-point
+started: 2026-06-01T08:21:18Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8245-e134-7ed2-adf4-48b65c182d47
+--------
+user
+# Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness
+
+## State: resolve-point
+
+You are the point resolver. Choose the solution that best fits the
+evidence and constraints. Do not vote-count blindly; explain why the
+chosen solution is stronger.
+
+## Instructions
+
+Resolve Task point-cross-rhei-readiness: Resolve Cross-rhei dependency readiness.
+
+Read `runtime/deliberation/points/point-cross-rhei-readiness/disagreement-map.md` and every discussion response.
+Write `runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md` with:
+
+# Point Decision - Resolve Cross-rhei dependency readiness
+
+- Chosen solution: <one solution>
+- Why chosen: <short evidence-based reason>
+- Alternatives considered: <other viable solutions and why not chosen>
+- Remaining uncertainty: <none, or what a human should know>
+- Effect on final solution: <how this point constrains the final answer>
+
+## Task Content
+
+Resolve the readiness rule for dependencies that cross rhei boundaries without
+changing unrelated hierarchy or state-machine default rules.
+
+Source evidence:
+
+> Cross-rhei dependencies must use the same readiness rule as normal
+> scheduling: a prior must be in a successful terminal state, meaning
+> `final: true` and not normalized `cancelled`.
+
+> A cancelled prerequisite should not unblock dependent work.
+
+Question:
+
+What readiness rule should determine whether a cross-rhei dependency unblocks
+dependent work?
+
+Constraints:
+
+- Cross-rhei dependencies must use the same readiness rule as normal
+  scheduling.
+- A prerequisite must be in a terminal state with `final: true` before it can
+  unblock dependent work.
+- A prerequisite whose normalized state is `cancelled` must not unblock
+  dependent work.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `resolve-point`:
+- resolve-point -> completed
+- resolve-point -> cancelled
+
+codex
+I’ll resolve this by reading the disagreement map and all response files, then I’ll write the decision file only. I’ll keep the state machine metadata untouched, per the Rhei instructions.
+exec
+/usr/bin/bash -lc 'rg --files runtime/deliberation/points/point-cross-rhei-readiness && pwd' in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc "sed -n '1,240p' runtime/deliberation/points/point-cross-rhei-readiness/disagreement-map.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Disagreement Map - Resolve Cross-rhei dependency readiness
+
+## Candidate Solutions
+- S-001: A cross-rhei dependency unblocks dependent work only when the prior task is in a successful terminal state: the prior's resolved state definition has `final: true`, and the normalized state name is not `cancelled`.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7; codex[yolo]:openai:gpt-5.5
+  - Reasons: This exactly matches normal scheduling readiness, preserves identical semantics across rhei boundaries, and prevents cancelled prerequisites from unblocking dependent work.
+- S-002: Implement S-001 through a single normative predicate, such as `is_successful_terminal(prior)`, used by both local scheduling and cross-rhei readiness checks after resolving the prior state through the prior rhei's own state machine.
+  - Proposed by: claude-code[yolo]:anthropic:claude-opus-4-7
+  - Reasons: A shared predicate makes "same readiness rule" enforceable in code, centralizes future changes, and ensures cross-rhei checks honor the state definitions and normalization rules of the rhei that owns the prior.
+- S-003: Implement S-001 by resolving the remote state definition and normalized state consistently with local scheduling, or by consuming an equivalent normalized readiness result.
+  - Proposed by: codex[yolo]:openai:gpt-5.5
+  - Reasons: This preserves the required semantics while allowing the integration boundary to expose either raw remote state-machine data or a precomputed readiness result.
+
+## Agreements
+- A-001: Cross-rhei dependencies must use the same readiness rule as normal scheduling.
+- A-002: A prior can unblock dependent work only when its resolved state has `final: true`.
+- A-003: A prior whose normalized state is `cancelled` must not unblock dependent work, even though it may be terminal for closure.
+- A-004: Cross-rhei readiness requires reliable access to the prior task's current state and either the referenced rhei's state machine or an equivalent semantic result.
+- A-005: Additional unsuccessful terminal states beyond normalized `cancelled` are out of scope for this point unless they normalize to `cancelled`.
+- A-006: Cancelled prerequisites may leave dependents blocked until a human changes the dependency, reroutes the work, or supplies a different successful prerequisite.
+
+## Disagreements
+- D-001: Whether the final answer should require a single shared readiness predicate as the implementation mechanism, or specify only semantic equivalence with normal scheduling.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 requires one normative predicate; codex[yolo]:openai:gpt-5.5 allows any implementation that resolves the same remote state semantics or equivalent normalized readiness result.
+  - Options: Require both local and cross-rhei scheduling to call the same predicate; or require cross-rhei checks to be behaviorally identical while permitting an equivalent readiness API/result.
+  - Why it matters: A mandatory shared predicate is easier to test and audit, but may over-constrain implementations that cross process, repository, or service boundaries. Semantic equivalence is more flexible, but needs stronger contract tests to prove it cannot drift from local scheduling.
+  - Evidence needed: Whether the current architecture can expose one shared predicate across local and cross-rhei scheduling paths, and whether cross-rhei checks run in the same codebase/process as normal scheduling or through a serialized/API boundary.
+- D-002: Where the cross-rhei readiness checker must resolve state-machine meaning.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 says resolve the prior state with the prior rhei's own state machine before applying the predicate; codex[yolo]:openai:gpt-5.5 says the consumer may access the referenced rhei's state machine or an equivalent normalized readiness result.
+  - Options: The dependent-side checker fetches and interprets the prior rhei's state machine directly; or the prior rhei exports a normalized readiness result that the dependent-side checker trusts.
+  - Why it matters: Direct interpretation keeps the rule transparent but adds a cross-rhei lookup and couples the consumer to remote state-machine definitions. Exported readiness reduces coupling but requires a precise contract so `final: true` and normalized-not-`cancelled` remain the actual basis for unblocking.
+  - Evidence needed: Existing cross-rhei dependency metadata, available APIs or file paths for remote state machines, and whether there is already a trusted normalized readiness output used by local scheduling.
+- D-003: Whether readiness checking must be synchronous at check time.
+  - Agents: claude-code[yolo]:anthropic:claude-opus-4-7 assumes the prior rhei state machine can be resolved synchronously, with caching possible; codex[yolo]:openai:gpt-5.5 only requires reliable resolution and does not specify synchronous lookup.
+  - Options: Require synchronous resolution of the prior task state and state machine during readiness checks; or allow cached/eventual/serialized readiness data if it is reliable and preserves the same semantics.
+  - Why it matters: Synchronous resolution gives fresh decisions but can make scheduling depend on remote availability. Cached or serialized results may be more robust operationally but need freshness and invalidation rules to avoid incorrect unblocking.
+  - Evidence needed: How cross-rhei dependencies are evaluated today, whether readiness checks tolerate remote I/O, and what freshness guarantees exist for cached state or exported readiness artifacts.
+
+## Discussion Prompt
+The proposals agree that cross-rhei dependencies unblock only when the prior is in a successful terminal state: `final: true` and normalized state not `cancelled`. Please address only D-001 through D-003: should the final rule require a single shared predicate, must the dependent side directly resolve the prior rhei's state machine or may it consume an equivalent readiness result, and does the check need synchronous resolution or can cached/exported readiness be accepted with explicit guarantees?
+
+ succeeded in 0ms:
+runtime/deliberation/points/point-cross-rhei-readiness/disagreement-map.md
+runtime/deliberation/points/point-cross-rhei-readiness/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-cross-rhei-readiness/proposals/codex-yolo-openai-gpt-5.5.md
+runtime/deliberation/points/point-cross-rhei-readiness/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+runtime/deliberation/points/point-cross-rhei-readiness/discussion/codex-yolo-openai-gpt-5.5.md
+/home/vjovanov/f/rhei/panta-deliberation
+
+codex
+The map shows full agreement on the actual readiness semantics; the only live questions are implementation constraints. I’m reading the proposal and discussion files now to choose the least over-constraining rule that still preserves the required behavior.
+exec
+/usr/bin/bash -lc "sed -n '1,300p' runtime/deliberation/points/point-cross-rhei-readiness/discussion/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Response - codex[yolo]:openai:gpt-5.5
+
+- Changed position: yes. I still support S-001, but my earlier S-003 wording was too loose around "equivalent normalized readiness result." I now support making `is_successful_terminal(prior)` the normative readiness predicate, with one caveat: cross-rhei boundaries do not have to call the same in-process function if the prior rhei exports a result that is explicitly produced from the same predicate and carries enough state/version/freshness evidence to audit that fact.
+- Remaining disagreements: D-001 only as an implementation-boundary distinction: one normative predicate should be required, but not necessarily one shared callable across process, repository, or serialized boundaries. D-002 only in who performs the resolution: the prior rhei's state-machine semantics must be authoritative, whether the dependent side reads them directly or consumes the prior rhei's exported predicate result. D-003 should be resolved by contract: synchronous lookup is sufficient but not mandatory; cached or exported readiness is acceptable only with explicit freshness/invalidation guarantees, and unavailable or stale readiness must be treated as not ready.
+- Concessions: claude-code is right that a single normative predicate is the cleanest way to make "same readiness rule as normal scheduling" enforceable instead of aspirational. It is also right that state meaning must come from the prior rhei's own state machine, because `final: true` and normalized `cancelled` are properties of that rhei's state definitions, not names the dependent side can safely guess.
+- Final recommendation for this point: adopt S-001 as the user-visible rule and S-002 as the normative implementation contract: a cross-rhei dependency unblocks only if the prior task satisfies `is_successful_terminal(prior)`, defined as the prior's resolved state having `final: true` and the normalized state name not being `cancelled`. The predicate must be evaluated using the prior rhei's state-machine semantics. Direct dependent-side resolution is acceptable; an exported/cached readiness result is also acceptable only if it is defined as the prior rhei's application of that predicate and includes freshness/version guarantees. If the prior state, state-machine meaning, or exported result cannot be resolved reliably, the dependency remains blocked.
+- Reason: This handles D-001 by preventing semantic drift without over-specifying deployment topology. It handles D-002 by making the prior rhei authoritative while still allowing a lower-coupling readiness API. It handles D-003 by preserving correctness under synchronous, cached, or exported evaluation: only fresh, auditable successful-terminal evidence can unblock, and cancelled or uncertain prerequisites cannot.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-cross-rhei-readiness/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Treat a cross-rhei dependency as ready only when the prior task's resolved state is a successful terminal state: the state definition has `final: true`, and the normalized state name is not `cancelled`.
+- Reasons: This keeps cross-rhei dependency handling identical to normal scheduling readiness, so moving a dependency across a rhei boundary does not change execution semantics. It also preserves the explicit cancellation rule: cancelled work is terminal for closure, but not successful for unblocking dependent work.
+- Tradeoffs: This requires cross-rhei readiness checks to resolve the remote state definition and normalized state consistently with local scheduling. It may leave dependents blocked after cancellation until a human changes the dependency, reroutes the work, or marks a different successful prerequisite.
+- Assumptions: Cross-rhei dependency metadata can identify the referenced prior and its current state. The consumer can access the referenced rhei's state machine or an equivalent normalized readiness result. `cancelled` is the only terminal state excluded by the stated constraint.
+- Rejection criteria: Do not use this proposal if cross-rhei dependencies intentionally need weaker semantics than normal scheduling, if remote state definitions cannot be resolved reliably, or if additional unsuccessful terminal states besides normalized `cancelled` must also be prevented from unblocking dependents.
+
+exec
+/usr/bin/bash -lc "sed -n '1,260p' runtime/deliberation/points/point-cross-rhei-readiness/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Recommendation: Define a single normative predicate `is_successful_terminal(prior)` that returns true iff the prior's resolved state has `final: true` and its normalized name is not `cancelled`, and require both local scheduling and cross-rhei readiness checks to call this same predicate against the prior task's state as resolved by the prior's own rhei state machine. Cross-rhei readiness is thus defined by composition (resolve remote state with the remote machine, then apply the shared predicate), not by a separate rule.
+- Reasons: Expressing readiness as one shared predicate makes "same rule as normal scheduling" enforceable rather than aspirational — there is one definition to update, one to test, and one to cite from §-marked code. Resolving the prior's state with the prior's own state machine handles the cross-rhei aspect correctly: each rhei may declare its own state machine, and only that machine knows which of its states are `final` and which normalize to `cancelled`. A non-terminal, non-final, or normalized-cancelled prior all collapse to "not ready" uniformly, which matches the constraint that cancellation must not unblock dependents.
+- Tradeoffs: The implementation must reach into the prior's rhei to read its state machine, which adds a cross-rhei lookup on every readiness check (cacheable, but a new dependency). It treats `cancelled` as the *only* unsuccessful terminal — if future state machines introduce other unsuccessful terminals (e.g. `abandoned`, `rejected`), they must either normalize to `cancelled` or this predicate must be extended; that extension point should be a separate decision so it does not silently broaden here. Cancelled priors leave dependents permanently blocked without an explicit override path, which is correct by the constraint but may surprise users — the UX cost is visible blockage rather than silent unblocking.
+- Assumptions: Each rhei's state machine is accessible to the readiness checker (either co-resident in the Panta or fetchable through the same project root). The `final: true` flag and the normalization to `cancelled` are properties of state definitions, not of individual tasks, and are stable for a given state machine version. The prior's current state is observable and unambiguous (one current state per task). Normalization of state names to `cancelled` is already defined elsewhere in the spec and produces a single canonical form.
+- Rejection criteria: Do not use this proposal if cross-rhei readiness must intentionally diverge from local scheduling (e.g. allowing dependents to proceed past a cancelled cross-rhei prior by policy), if multiple unsuccessful terminal states beyond normalized `cancelled` must block dependents in this change (extending the predicate inline would exceed this point's scope), or if the prior's rhei state machine cannot be resolved synchronously at readiness-check time and an async/eventual model is required instead.
+
+exec
+/usr/bin/bash -lc "sed -n '1,300p' runtime/deliberation/points/point-cross-rhei-readiness/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Response - claude-code[yolo]:anthropic:claude-opus-4-7
+
+- Changed position: Yes — on D-001, D-002, and D-003 I now favor specifying the
+  rule semantically and treating "one shared predicate", "direct state-machine
+  resolution", and "synchronous lookup" as preferred implementations rather
+  than as requirements. The semantic core of S-001 is unchanged.
+
+- Remaining disagreements: None substantive. D-001, D-002, and D-003 collapse
+  once the spec is written as a semantic contract with named, testable
+  obligations; what remains is wording, not divergent intent.
+
+- Concessions: codex[yolo]:openai:gpt-5.5 is right that mandating a single
+  in-process predicate over-constrains cross-rhei boundaries, which may cross
+  processes, repositories, or services where one callable function is not
+  always reachable. They are also right that an exported normalized readiness
+  result is acceptable provided it was computed against the prior rhei's own
+  state machine, and that the spec should not bake in synchronous lookup as
+  the only legal mechanism.
+
+- Final recommendation for this point: Adopt S-001 as the normative rule and
+  S-003 as the implementation latitude, with three explicit obligations that
+  make the rule testable regardless of implementation:
+  1. **Rule:** A cross-rhei dependency unblocks dependent work only when the
+     prior task's resolved state has `final: true` and its normalized state
+     name is not `cancelled`. This is the same rule as normal scheduling.
+  2. **Resolution authority (resolves D-002):** The prior task's state must be
+     interpreted against the prior rhei's own state machine — its
+     `final` flags and its normalization to `cancelled`. The dependent side
+     may either (a) read the prior rhei's state machine and apply the rule
+     itself, or (b) consume a normalized readiness result that was computed
+     against the prior rhei's state machine. Either path is conformant; both
+     must yield the same answer for the same `(prior state, prior state
+     machine)` input.
+  3. **Implementation guidance (resolves D-001):** When local scheduling and
+     cross-rhei readiness run in the same process and codebase, they SHOULD
+     call one shared predicate (e.g. `is_successful_terminal(prior)`) so the
+     rule has one definition, one test surface, and one citation site. When
+     they cross a process/repo/service boundary, a shared predicate is not
+     required, but the boundary MUST be covered by a contract test that
+     exercises `final: true`, non-final, and normalized-`cancelled` priors
+     and asserts behavioral equivalence with local scheduling.
+  4. **Freshness (resolves D-003):** Synchronous resolution at check time is
+     not required. Cached, exported, or asynchronously delivered readiness
+     data is acceptable iff the spec or implementation states (a) what
+     invalidates the cached value when the prior's state changes, and (b) a
+     bound on staleness; absent both, the readiness check must resolve the
+     prior's state at check time.
+  5. **Out of scope (carried from A-005):** Additional unsuccessful terminal
+     states beyond normalized `cancelled` are not addressed here; if a state
+     machine introduces them, it must normalize them to `cancelled` or open
+     a separate point to extend the rule.
+
+- Reason: This wording resolves all three tagged disagreements without
+  weakening the semantic guarantee both proposals agree on. D-001 is resolved
+  by separating the normative rule (one semantic definition) from its
+  implementation (shared predicate where co-resident, contract test
+  otherwise), which captures codex's flexibility concern without losing the
+  enforceability I argued for. D-002 is resolved by naming the prior rhei's
+  state machine as the authority while letting either side perform the
+  resolution, which matches codex's "raw state or equivalent normalized
+  result" framing. D-003 is resolved by making freshness an explicit
+  obligation rather than baking synchronous lookup into the rule, which keeps
+  the door open for cached or exported readiness without permitting silent
+  drift. The net effect: the rule is one sentence, the obligations are
+  testable, and cross-rhei readiness cannot diverge from local scheduling
+  whether they share code or a wire format.
+
+codex
+Both discussion responses converged: require one normative predicate/semantic contract, but don’t require the same in-process callable or synchronous direct lookup across boundaries. I’m checking nearby decision files for formatting consistency before writing this one.
+exec
+/usr/bin/bash -lc 'find runtime/deliberation/points -name point-decision.md -maxdepth 3 -print | head -5' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+exec
+/usr/bin/bash -lc "rg --files runtime/deliberation/points | rg 'point-decision\\.md"'$'"' | head -20" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+codex
+There isn’t an existing point-decision file to mirror, so I’m using the requested structure exactly. The decision will adopt the converged semantic rule and capture the freshness/audit requirements as constraints for the final answer.
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2283e2c9ffd269d68af148b0bf4e3e1a415546e7
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+@@ -0,0 +1,7 @@
++# Point Decision - Resolve Cross-rhei dependency readiness
++
++- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
++- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
++- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
++- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
++- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2283e2c9ffd269d68af148b0bf4e3e1a415546e7
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+@@ -0,0 +1,7 @@
++# Point Decision - Resolve Cross-rhei dependency readiness
++
++- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
++- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
++- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
++- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
++- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Point Decision - Resolve Cross-rhei dependency readiness
+
+- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
+- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
+- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
+- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
+- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+exec
+/usr/bin/bash -lc 'git diff -- runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+diff --git a/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2283e2c9ffd269d68af148b0bf4e3e1a415546e7
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+@@ -0,0 +1,7 @@
++# Point Decision - Resolve Cross-rhei dependency readiness
++
++- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
++- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
++- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
++- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
++- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+exec
+/usr/bin/bash -lc 'git status --short -- runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+?? runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2283e2c9ffd269d68af148b0bf4e3e1a415546e7
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+@@ -0,0 +1,7 @@
++# Point Decision - Resolve Cross-rhei dependency readiness
++
++- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
++- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
++- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
++- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
++- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+codex
+Wrote the decision file at [point-decision.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md).
+
+Decision: cross-rhei readiness uses the same successful-terminal rule as normal scheduling: resolved state has `final: true` and normalized state is not `cancelled`. The decision allows shared predicate, direct remote resolution, or exported/cached readiness results, but only if they are equivalent, fresh/auditable, and based on the prior rhei’s own state-machine semantics.
+
+No Rhei state lines or transitions were modified.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2283e2c9ffd269d68af148b0bf4e3e1a415546e7
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md
+@@ -0,0 +1,7 @@
++# Point Decision - Resolve Cross-rhei dependency readiness
++
++- Chosen solution: S-001 as the normative readiness rule, with S-003-style implementation latitude: a cross-rhei dependency unblocks dependent work only when the prior task satisfies the same successful-terminal rule used by normal scheduling, meaning the prior's resolved state has `final: true` and its normalized state name is not `cancelled`.
++- Why chosen: This directly satisfies all stated constraints and both discussions converged on it. It preserves identical scheduling semantics across rhei boundaries while avoiding unnecessary deployment assumptions: implementations may use a shared callable predicate, direct remote state-machine resolution, or an exported readiness result, provided the result is computed from the prior rhei's own state-machine semantics and is fresh or otherwise auditable.
++- Alternatives considered: S-002's single shared predicate is strong when local and cross-rhei scheduling run in the same codebase because it reduces drift and simplifies tests, but requiring one shared in-process callable over-constrains cross-process, cross-repository, or serialized/API boundaries. Direct synchronous dependent-side resolution of the prior rhei's state machine is transparent and sufficient, but it is not necessary if the prior rhei exports an equivalent predicate result with explicit state-machine version and freshness/invalidation guarantees. Treating any terminal state as ready was rejected because normalized `cancelled` must not unblock dependent work.
++- Remaining uncertainty: The final implementation still needs to specify the freshness and invalidation contract for cached or exported readiness data. If the prior state, prior state-machine meaning, or exported readiness result cannot be resolved reliably, the dependency must remain blocked.
++- Effect on final solution: The final answer must define cross-rhei readiness as the same successful-terminal predicate used by normal scheduling: `final: true` and normalized state not `cancelled`, evaluated with the prior rhei's state-machine semantics. It should prefer a shared predicate where practical, allow direct resolution or an exported/cached readiness result only when behaviorally equivalent and fresh/auditable, and require unresolved, stale, non-final, or normalized-`cancelled` prerequisites to keep dependents blocked.
+
+tokens used
+Wrote the decision file at [point-decision.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-cross-rhei-readiness/point-decision.md).
+10,691
+
+Decision: cross-rhei readiness uses the same successful-terminal rule as normal scheduling: resolved state has `final: true` and normalized state is not `cancelled`. The decision allows shared predicate, direct remote resolution, or exported/cached readiness results, but only if they are equivalent, fresh/auditable, and based on the prior rhei’s own state-machine semantics.
+
+No Rhei state lines or transitions were modified.
+
+=== exit ===
+code: 0
+duration: 27s
+ended: 2026-06-01T08:21:45Z
+===

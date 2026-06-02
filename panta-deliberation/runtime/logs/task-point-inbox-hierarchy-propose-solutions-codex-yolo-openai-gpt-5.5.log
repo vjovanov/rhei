@@ -1,0 +1,1471 @@
+=== rhei agent log v1 ===
+agent: codex
+mode: yolo
+target: codex[yolo]:openai:gpt-5.5
+model: gpt-5.5
+provider: openai
+model_name: gpt-5.5
+task: point-inbox-hierarchy
+state: propose-solutions
+started: 2026-06-01T08:16:59Z
+timeout: 30m
+plan: /home/vjovanov/f/rhei/panta-deliberation
+===
+
+Reading prompt from stdin...
+OpenAI Codex v0.135.0
+--------
+workdir: /home/vjovanov/f/rhei/panta-deliberation
+model: gpt-5.5
+provider: oca-responses
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019e8241-ece2-7143-bb5d-defeda102cbc
+--------
+user
+# Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
+
+## State: propose-solutions
+
+You are codex[yolo]:openai:gpt-5.5. Propose your own solution for this discussion point.
+Do not imitate the other agents. Be concise, concrete, and explicit about
+tradeoffs.
+
+## Instructions
+
+Propose a solution for Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy.
+
+Read the point statement and constraints in the task body. Write your
+proposal to `runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md` with:
+
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: <one concrete solution>
+- Reasons: <why this should be chosen>
+- Tradeoffs: <costs, risks, or limitations>
+- Assumptions: <facts you rely on>
+- Rejection criteria: <when this proposal should not be used>
+
+## Task Content
+
+Resolve how inbox tickets fit into the Panta hierarchy without merging this
+with dependency readiness or documentation decisions.
+
+Source evidence:
+
+> The current Panta specs must not make tickets direct children of Panta if
+> the plan-language hierarchy says level-1 children under Panta are rheis and
+> tickets are level 2 or deeper.
+
+> The model needs clear ids, levels, and state-policy resolution for inbox work.
+
+Question:
+
+How should inbox tickets be identified, leveled, parented, and assigned state
+policy within the Panta hierarchy?
+
+Constraints:
+
+- Level-1 children under Panta must remain rheis if that is what the
+  plan-language hierarchy defines.
+- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
+  Panta.
+- The resolution must define clear ids, hierarchy levels, and state-policy
+  lookup behavior for inbox work.
+
+## Rhei Commands
+
+You are working in a rhei-managed plan at `/home/vjovanov/f/rhei/panta-deliberation`.
+The active state machine is `/home/vjovanov/f/rhei/panta-deliberation/states.yaml`.
+The `rhei run` process that spawned you is responsible for advancing the task after this invocation completes.
+Do not call `rhei transition` or `rhei complete`, and do not modify `**State:**` lines directly, unless you are launching a nested execution that manages its own state.
+
+Available transitions from `propose-solutions`:
+- propose-solutions -> aggregate-disagreements
+- propose-solutions -> cancelled
+
+codex
+I’ll read the point artifacts first so the proposal fits the local terminology and avoids duplicating another agent’s position.
+exec
+/usr/bin/bash -lc 'rg --files runtime/deliberation/points/point-inbox-hierarchy docs | head -200' in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc 'find runtime/deliberation/points/point-inbox-hierarchy -maxdepth 3 -type f -print | sort' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+rg: runtime/deliberation/points/point-inbox-hierarchy: No such file or directory (os error 2)
+rg: docs: No such file or directory (os error 2)
+
+ succeeded in 0ms:
+find: ‘runtime/deliberation/points/point-inbox-hierarchy’: No such file or directory
+
+codex
+The expected path is not present from the current working directory, so I’m checking the workspace layout before writing anything.
+exec
+/usr/bin/bash -lc "find . -maxdepth 4 -type d -name 'point-inbox-hierarchy' -o -path './runtime/deliberation*'" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+./runtime/deliberation
+./runtime/deliberation/points-manifest.md
+
+exec
+/usr/bin/bash -lc ls in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+README.md
+index.rhei.md
+runtime
+states.yaml
+tasks
+
+exec
+/usr/bin/bash -lc pwd in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/panta-deliberation
+
+exec
+/usr/bin/bash -lc 'find runtime/deliberation -maxdepth 5 -type f -print | sort' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+runtime/deliberation/points-manifest.md
+
+exec
+/usr/bin/bash -lc 'find tasks -maxdepth 4 -type f -print | sort' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+tasks/01-split.md
+tasks/02-point-inbox-hierarchy.md
+tasks/03-point-cross-rhei-readiness.md
+tasks/04-point-state-machine-resolution.md
+tasks/05-point-language-reference.md
+tasks/99-final-solution.md
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points-manifest.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Discussion Points - Resolve Panta project spec conflicts
+
+- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
+  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
+  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
+  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
+
+- point-cross-rhei-readiness: Cross-rhei dependency readiness
+  - Source: "Cross-rhei dependencies must use the same readiness rule as normal scheduling: a prior must be in a successful terminal state, meaning `final: true` and not normalized `cancelled`."
+  - Question: What readiness rule should determine whether a cross-rhei dependency unblocks dependent work?
+  - Constraints: Cross-rhei dependencies must follow the same rule as normal scheduling; a prerequisite must be in a terminal state with `final: true`; normalized `cancelled` prerequisites must not unblock dependent work.
+
+- point-state-machine-resolution: Panta defaults in state-machine resolution
+  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
+  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+
+- point-language-reference: Panta syntax in the canonical language reference
+  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
+  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
+  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+
+codex
+This deliberation workspace has the task text under `tasks/` and no point directory yet, so I’m reading the task plus any relevant local docs before creating the requested proposal path.
+exec
+/usr/bin/bash -lc "sed -n '1,260p' tasks/02-point-inbox-hierarchy.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
+**State:** propose-solutions
+**Prior:** Task split
+
+Resolve how inbox tickets fit into the Panta hierarchy without merging this
+with dependency readiness or documentation decisions.
+
+Source evidence:
+
+> The current Panta specs must not make tickets direct children of Panta if
+> the plan-language hierarchy says level-1 children under Panta are rheis and
+> tickets are level 2 or deeper.
+
+> The model needs clear ids, levels, and state-policy resolution for inbox work.
+
+Question:
+
+How should inbox tickets be identified, leveled, parented, and assigned state
+policy within the Panta hierarchy?
+
+Constraints:
+
+- Level-1 children under Panta must remain rheis if that is what the
+  plan-language hierarchy defines.
+- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
+  Panta.
+- The resolution must define clear ids, hierarchy levels, and state-policy
+  lookup behavior for inbox work.
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' README.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Multi-Agent Deliberation Template
+
+This template turns a discussion, transcript, issue, or decision brief into a
+structured multi-agent deliberation. One splitter agent breaks the input into
+separate points. Configured target agents independently propose a solution for
+each point, an aggregator tags agreements and disagreements, the targets discuss
+those disagreements, and an aggregator chooses a point decision. A final
+aggregator then proposes the overall solution, and a presentation agent writes
+the simplest human-facing summary with the reasons for the choice.
+
+The custom workflow is defined in [`states.yaml`](states.yaml), including the
+state-machine diagram.
+
+## Inputs
+
+| Input | Type | Default | What it does |
+|---|---|---|---|
+| `plan_title` | string | `Multi-Agent Deliberation` | Title of the instantiated workspace. |
+| `discussion_title` | string | required | Short title for the discussion being resolved. |
+| `discussion` | string | required | Full discussion/transcript/brief. Use `--set-file` for long input. |
+| `splitter_agent` | string | `codex[yolo]:openai:gpt-5.5` | Agent that turns the input into point tasks. |
+| `target_agents` | object[] | claude/codex/gemini | Agents that propose and discuss solutions for every point. Each entry is `{ id, label, selector }`; the array must not be empty, and both `id` and `selector` values must be unique. |
+| `point_aggregator_agent` | string | `codex[yolo]:openai:gpt-5.5` | Agent that tags disagreements and resolves each point. |
+| `final_aggregator_agent` | string | `codex[yolo]:openai:gpt-5.5` | Agent that synthesizes the final cross-point solution. |
+| `presentation_agent` | string | `claude-code[yolo]:anthropic:claude-opus-4-7` | Agent that writes the simplest human-facing summary. |
+| `max_points` | positive number | `8` | Soft cap for how many point tasks the splitter should create. |
+| `output_dir` | string | `runtime/deliberation` | Workspace-relative artifact directory. |
+
+## Task Paths
+
+| Task kind | State path |
+|---|---|
+| Splitter task | `split-points -> completed` |
+| Generated point task | `propose-solutions -> aggregate-disagreements -> discuss-point -> resolve-point -> completed` |
+| Final aggregation task | `final-solution -> present-to-human -> human-review -> completed` |
+
+## Flow
+
+1. `Task split` reads the discussion, writes a point manifest, creates one
+   `point-<slug>` task per separate point, and creates `Task final-solution`
+   with priors on every point task.
+2. Each point task fans out through `propose-solutions`, running every configured
+   `target_agents` entry and writing one proposal per target.
+3. `aggregate-disagreements` reads the proposals, groups candidate solutions,
+   names agreements, tags disagreements, and writes a discussion prompt.
+4. `discuss-point` fans out to the same target agents so they respond to the
+   disagreement map rather than restating their first proposal.
+5. `resolve-point` chooses the best solution for that point and records why.
+6. `final-solution` reads all point decisions and writes the overall
+   recommendation.
+7. `present-to-human` writes `runtime/deliberation/human-summary.md`, then the
+   final task enters the `human-review` gate. A human accepts by transitioning to
+   `completed` or abandons by transitioning to `cancelled`.
+
+## Instantiate
+
+```bash
+cargo run -p rhei-cli -- instantiate multi-agent-deliberation \
+  --set discussion_title="Resolve API design discussion" \
+  --set-file discussion=./discussion.txt \
+  --output ./multi-agent-deliberation-demo
+```
+
+For custom target agents, use a values file:
+
+```yaml
+target_agents:
+  - id: claude
+    label: Claude proposal
+    selector: claude-code[yolo]:anthropic:claude-opus-4-7
+  - id: codex
+    label: Codex proposal
+    selector: codex[yolo]:openai:gpt-5.5
+  - id: gemini
+    label: Gemini proposal
+    selector: gemini[yolo]:google:gemini-3.1-pro-preview
+```
+
+Then instantiate with:
+
+```bash
+cargo run -p rhei-cli -- instantiate multi-agent-deliberation \
+  --values ./deliberation-values.yaml \
+  --set-file discussion=./discussion.txt \
+  --output ./multi-agent-deliberation-demo
+```
+
+## Example
+
+A pre-rendered example lives at
+[`examples/multi-agent-deliberation-example/`](../../../../examples/multi-agent-deliberation-example/)
+and passes `rhei validate` as shipped.
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' index.rhei.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Rhei: Panta Spec Deliberation
+**States:** multi-agent-deliberation
+
+## Overview
+
+This workspace resolves one discussion through a structured multi-agent
+deliberation:
+
+1. split the input into separate decision points
+2. collect independent proposals from configured target agents for each point
+3. aggregate agreements and disagreements
+4. run one multi-agent discussion pass for each point
+5. resolve every point, synthesize the final solution, and present it to a human
+
+exec
+/usr/bin/bash -lc "rg -n \"Panta|panta|inbox|ticket|hierarchy|state policy|state-policy|States\" /home/vjovanov/f/rhei -g '*.md' -g '*.spec.*' -g '*.rs'" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+/home/vjovanov/f/rhei/CHANGELOG.md:12:- Semantic validation for task state, dependency, hierarchy, terminal-tree, link, and artifact-contract rules.
+/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:8:Design a custom Rhei state machine only when the built-in `rhei` workflow is too generic. Produce a YAML file matching the project's real phases, actors, gates, retries, and automation hooks, ready to be referenced by a plan's `**States:**` declaration. The state machine writer runs before the plan writer: it defines the workflow the plan later uses.
+/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:164:### States
+/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:225:9. Write the YAML to a conventional location (see *File Placement*). For a template, write to `<template>/states.yaml` and ensure the plan skeleton declares the same machine name via `**States:**`.
+/home/vjovanov/f/rhei/skills/rhei-state-machine-writer/SKILL.md:255:A plan picks up a sibling or workspace-root `states.yaml` automatically when it declares `**States:** <name>`; the YAML's `name` must match. Use `--state-machine <path>` to override the auto-discovered file.
+/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:30:2. **Parameter surface** — Which values must the user supply? Which have sensible defaults? What are the types (`string`, `number`, `boolean`, `path`, `array`, `object`)? Any validation regexes (semver strings, ticket-id patterns)?
+/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:59:When a custom state machine is needed, `states.yaml` is a required generated artifact (not design notes): produce the complete YAML in the template directory, and keep the rendered plan's `**States:** <name>` aligned with `states.yaml:name`. See *Required Accompaniments* for its diagram and *Response Discipline* for how to present it.
+/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:144:1. **Treat the skeleton like a plan authored by `rhei-plan-writer`** — it must pass `rhei validate` after rendering, following the plan writer's contract (one H1 `# Rhei: <title>`, optional `**States:**`, `## Tasks` last for single-file, tasks with `**State:**` first and `**Prior:**` second). `**Prior:**` is not free text: each comma-separated element must render as `<Kind> <id>` (normally `Task <id>`), and every referenced id must exist in the same rendered workspace. Do not template partial prior fragments that can leave empty items, missing `Task` prefixes, unresolved placeholders, dangling ids, or dangling commas. A generated child task must never list its parent or any ancestor as `**Prior:**`; generate follow-up work as top-level sibling tasks when it must wait for the parent.
+/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:154:3. **If the rendered plan declares `**States:** <name>`, the bundled `states.yaml`'s `name` must match** — auto-discovery keys off it.
+/home/vjovanov/f/rhei/skills/rhei-template-writer/SKILL.md:213:- If `states.yaml` is bundled: the rendered plan's `**States:** <name>` matches its `name`; it begins with the ASCII diagram comment block; it passes the state-machine-writer checklist; placeholder-bearing source is inspected/validated only via the rendered workspace; and every MCP/skill/agent id it references is declared in a bundled or global `settings.json`. If the workflow needs a custom machine, `states.yaml` exists as a concrete artifact, not prose.
+/home/vjovanov/f/rhei/skills/rhei-plan-worker/SKILL.md:26:2. **Load the state machine.** Run `rhei states` against the plan (or `rhei states --state-machine <path>`) to read allowed states, their `instructions`, and the transition graph. The CLI resolves the machine from the plan's `**States:**` field (or a sibling/workspace `states.yaml`); add `--json` for structured data. Fall back to reading the YAML directly, or [default-states.md](../rhei-plan-writer/references/default-states.md), if the CLI is unavailable.
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:22:- Optionally emit `**States:** <state-machine-name>` as the first non-empty line after the H1 to declare which state machine the plan follows. Omit to use the built-in `rhei` state machine.
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:23:- Optionally emit a YAML frontmatter block (see *Frontmatter*) after the `**States:**` field, before any H2 section.
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:28:- Emit `index.rhei.md` at the workspace root: H1, optional `**States:**`, optional frontmatter, optional H2 context sections — **no** `## Tasks` section.
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:52:### Allowed States
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:54:Run `rhei states` in the project to discover the allowed state values, their agent instructions, and the declared transitions for the state machine the plan will follow. Use `rhei states --state-machine <path>` to target a specific YAML file (e.g. the one a plan's `**States:**` line references), and `--json` when machine-readable output is preferred. Use only state values reported by that command, follow the printed instructions when describing task work, and respect the declared transitions when choosing initial states.
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:56:If the `rhei` CLI is unavailable, fall back to reading the state machine YAML directly (typically `docs/states.yaml`, or the file referenced by `**States:**`). If the project defines no state machine, fall back to the default Rhei state set in [default-states.md](references/default-states.md).
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/SKILL.md:118:- If present, `**States:**` is the first non-empty line after the H1, and any YAML frontmatter sits between it and the first H2.
+/home/vjovanov/f/rhei/skills/rhei-plan-writer/references/default-states.md:3:These are the default states used by Rhei plans when no project-specific state machine is declared (i.e., when `**States:**` is omitted, or when the project's `docs/states.yaml` mirrors this set). This mirrors the built-in `rhei` machine (version 3.0).
+/home/vjovanov/f/rhei/examples/review-fix-visits/index.rhei.md:2:**States:** review-fix-visits
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:1:# FS-rhei-panta: Panta, the project root above all rheis
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:3:Panta is the single, invisible root of a Rhei project. It sits above every rhei
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:4:and every ticket, gives new rheis a default home, and is the one anchor from
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:9:The name follows *panta rhei* ("everything flows"): Panta is the still point that
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:11:§DA-panta-root; the load model, on-disk layout, and id rules are specified in
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:12:§AR-rhei-panta.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:14:## 1. What Panta is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:16:A Rhei **project** has exactly one Panta. Panta is a *virtual* node: it is never
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:19:node hierarchy:
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:22:Panta            the project        (virtual, exactly one, kind `panta`)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:24:│   ├── Task auth.1   a ticket       (kind `task`)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:28:└── Rhei  inbox  the project inbox   (synthetic when `inbox/` exists)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:29:    └── Task inbox.3   an unfiled ticket
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:32:A **rhei** is a plan — a self-contained flow with its own tasks. A **ticket** is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:33:a unit of work inside a rhei (the node kind is `task` by default; "ticket" is the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:34:user-facing name for a work item). Panta owns the rheis; rheis own their tickets.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:36:`panta` is a reserved node kind. It can never be authored, can never appear in
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:37:`structure.nodeKinds`, and there is never more than one Panta in a project.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:41:Creating a rhei without specifying where it goes places it under Panta. Panta is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:45:rhei new "Authentication"        # creates a rhei under Panta
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:49:A ticket created with no owning rhei is placed in the project **inbox**. The
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:50:inbox is loaded as a level-1 rhei with id `inbox`, so quick captures do not
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:51:require choosing a domain rhei first while the hierarchy remains Panta -> rhei
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:52:-> ticket. Inbox tickets use ordinary rhei-local ids and project-wide ids such
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:53:as `inbox.3`.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:57:Because every rhei hangs off the same Panta, a project loads and renders as one
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:60:- **Status rolls up** Panta ← rheis ← tickets through one tree. Panta's status is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:62:- **Dependencies resolve across rheis.** A ticket in one rhei may declare a
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:63:  `**Prior:**` on a ticket in another rhei; the reference resolves against the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:64:  whole project graph. §AR-rhei-panta
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:70:Panta is not shown to users as a node. Default listing, claim selection
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:72:Panta. Runtime commands must never claim, transition, complete, cancel, or reset
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:73:Panta — it has no state to move. Tooling may reveal the root only behind an
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:79:A rhei is addressed by its id (for example `auth`). A ticket is addressed by its
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:81:(`auth.1`, `auth.1.2`, `inbox.3`). This makes ticket identities unique across
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:83:id-extension and grammar rules are specified in §AR-rhei-panta.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:88:project — a directory containing `index.panta.md`, or invoked inside one — a
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:99:Each rhei may declare its own state machine via `**States:**`; the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:100:`index.panta.md` manifest supplies the project default for rheis that do not.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:101:Commands resolve and apply the correct machine per rhei (§AR-rhei-panta).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:105:Readiness is **project-global**. A ticket is ready when it is a claimable leaf
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:107:project graph — a ticket in one rhei may be blocked by a ticket in another. Each
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:109:Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:110:the candidate tickets but never narrows where their priors resolve: a candidate
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:115:At project scope, `rhei run` orchestrates ready tickets across all in-scope rheis
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:116:under one loop, applying each ticket's own rhei state machine. It drives tickets
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:117:to terminal states; it never writes state to a rhei or Panta node. Concurrency
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:119:and accounting. The loop stops when no eligible ticket remains in scope or a
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:124:`rhei complete` finishes a leaf ticket. A rhei is done when all its tickets are
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:125:terminal, and Panta when all rheis are done, but this status is **derived, not
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:126:stored**: unprofiled rheis and the virtual Panta have no `**State:**` to write,
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:130:after all its tickets are terminal, and `rhei run` or `rhei complete` may roll it
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:140:  `panta`/`rhei` kinds.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:144:- `rhei viz` renders Panta as the implicit canvas (never a drawn root box), rheis
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:149:- [Plan Language](rhei-plan-language.spec.md) — grammar, the node hierarchy, and the virtual-root model §FS-rhei-plan-language.3
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:150:- [Panta Architecture](../architecture/rhei-panta.spec.md) — load model, on-disk layout, id rules §AR-rhei-panta
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md:151:- [Panta Root Decision](../decisions/architectural/panta-root.md) — why Panta is a unified virtual root §DA-panta-root
+/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/preamble.rs:62:// States Loader (Task 4)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states-cmd.spec.md:71:- [States Specification](rhei-states.spec.md) - state machine schema and defaults
+/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/state_defs.rs:224:/// §FS-rhei-states.8: Named reusable `{initial, allowed}` state policy.
+/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/state_defs.rs:282:/// States data loaded from YAML.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-language-reference.spec.md:16:- Plan and project markdown: `index.panta.md`, Panta `rheis/` entries,
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-language-reference.spec.md:17:  optional Panta `inbox/` task files, `*.rhei.md`, `index.rhei.md`, and
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-language-reference.spec.md:18:  workspace `tasks/*.md`. Owned by §FS-rhei-plan-language and §FS-rhei-panta.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-language-reference.spec.md:28:membership, task state, dependencies, hierarchy, assignees, and result links.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-language-reference.spec.md:39:   constraints, including Panta Project layout.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-language-reference.spec.md:40:3. Read §FS-rhei-panta for project-root behavior and command scope.
+/home/vjovanov/f/rhei/examples/changeset-review-example/index.rhei.md:2:**States:** changeset-review
+/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/tests_profiles.rs:234:**States:** profiled
+/home/vjovanov/f/rhei/crates/rhei-validator/src/validator/tests_profiles.rs:274:        let input = "# Rhei: restricted-check\n**States:** restricted\n\n## Tasks\n\n### Task 1: First\n**State:** review\n";
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:112:groups its rheis under the virtual **Panta** root (§FS-rhei-panta); the project
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:113:container format is defined in [Panta Project](#15-panta-project). A bare rhei
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:114:loaded on its own is treated as the single rhei of an implicit Panta
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:115:(§AR-rhei-panta).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:124:| States Declaration | — | `**States:** <state-machine-name>` | No (defaults to `rhei`) |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:130:When present, the `**States:**` field must be the first non-empty line after
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:132:associated states configuration (see [States Specification](rhei-states.spec.md)).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:155:1. **`index.rhei.md`**: The root configuration. Contains the `Rhei Title`, `States Declaration`, and any `Content Sections`. It does **not** contain a `## Tasks` section.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:186:   automatic lookup. If the target plan or rhei declares `**States:**`, or
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:187:   inherits a Panta default declaration, the loaded file's `name` must match that
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:190:2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:192:   `**States:**`, it inherits the declaration from `index.panta.md` when that
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:193:   manifest declares one. The inherited declaration is resolved from the Panta
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:196:3. When `**States:**` is omitted after Panta inheritance has been applied, the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:199:4. When `**States:** rhei` is declared and no override is supplied, a matching
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:203:5. When a non-`rhei` `**States:** <name>` is declared and no override is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:207:   `index.panta.md`. That file must exist and its `name` must match `<name>`.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:244:### 1.5. Panta Project
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:246:A **Panta Project** is the directory that groups a project's rheis under the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:247:single virtual Panta root (§FS-rhei-panta). It mirrors the Directory Workspace
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:250:A Panta Project consists of:
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:252:1. **`index.panta.md`**: the project manifest — `# Panta: <title>`, an optional
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:253:   `States Declaration`, and any `Content Sections`. It contains no `## Tasks`
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:260:3. **`inbox/` directory** (optional): loose tickets captured without a domain
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:262:   `inbox`; its contents are authored as workspace task files. The synthetic
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:263:   inbox has no authored `index.rhei.md`, inherits the Panta default state
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:264:   declaration, and stores per-ticket runtime artifacts relative to `inbox/`.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:271:At load time all rheis, including the synthetic `inbox` rhei when present, merge
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:272:into one graph rooted at Panta. Ticket ids are namespaced by their rhei id and
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:274:[Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:291:states_field    = "**States:** ", state_machine_name, NEWLINE ;
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:313:(* A Panta Project is a directory layout, not a single token stream. The
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:315:   defined structurally in section 1.5. `index.panta.md` parses as
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:316:   panta_manifest. Each entry under `rheis/` is a Single-File Plan
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:318:   workspace_task_file files). Entries under the optional `inbox/` directory
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:319:   parse as workspace_task_file and are loaded as the synthetic `inbox` rhei. *)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:321:panta_manifest  = panta_header, { blank_line },
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:326:panta_header    = "# Panta: ", title, NEWLINE ;
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:409:   States with a declared `visits` budget may append `-<n>` (where n >= 2)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:525:`panta` and `rhei` are reserved node-kind names. `panta` denotes the project
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:527:denotes a plan (flow) and is the kind of every level-1 node directly under Panta.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:528:Neither `panta` nor `rhei` may appear in `structure.nodeKinds`. `panta` must
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:529:never be authored; a level-2-or-deeper node must never use the `panta` or `rhei`
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:534:The level-0 root node is **Panta**, the project root (§FS-rhei-panta). Panta is
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:538:complete, cancel, or reset Panta. Its rheis are the level-1 nodes beneath it; a
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:539:ticket (a `task`-kind node) is level 2 or deeper. The exact id-extension and
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:540:load rules for this hierarchy are specified in §AR-rhei-panta.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:543:model the Panta root internally, but it does not create a persisted or executable
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:551:Each node's state policy — which state it starts in and which states it may
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:553:`node_policy` blocks. The Panta root resolves through `node_policy.root`; all
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:556:[States Specification](rhei-states.spec.md#9-node-policy) for the full
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:739:In a Panta Project, each ticket's project-wide id is its rhei id joined with its
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:741:under the synthetic inbox rhei is `inbox.3`). Uniqueness is checked on these
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:743:unique across `rheis/` plus the optional synthetic `inbox` rhei. Because the rhei
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:744:id prefixes every ticket beneath it, authors only need rhei-local uniqueness
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:747:(§FS-rhei-plan-language.3.4); the Panta prefix is applied at merge and is not
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:938:| `MetadataStates` | `\*\*States:\*\* .*` | `**States:** rhei` |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:1036:- [States Specification](rhei-states.spec.md) - Defines the states configuration format
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md:1040:- [States Command](rhei-states-cmd.spec.md) - `rhei states` state-machine inspection
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-completions.spec.md:553:- [States Specification](rhei-states.spec.md) — State names, aliases, terminal
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-next.spec.md:123:ordinary prerequisite blocking. See [States Specification — State
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-next.spec.md:168:- [States Specification](rhei-states.spec.md) — state machine format
+/home/vjovanov/f/rhei/examples/ci-heal/index.rhei.md:2:**States:** ci-watch-and-heal
+/home/vjovanov/f/rhei/examples/ci-heal/index.rhei.md:51:States and `docs/functional-spec/rhei-run.spec.md` §Polling States for the semantics.
+/home/vjovanov/f/rhei/examples/ci-heal/index.rhei.md:76:`docs/functional-spec/rhei-states.spec.md` §Polling States):
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:5:For the state machine format see [States Specification](rhei-states.spec.md). For transition callbacks see [Transitions Specification](rhei-transitions.spec.md).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:152:`agents` is a registry of agent transport profiles keyed by agent id. States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:281:[States Specification — Agent Field](rhei-states.spec.md#5-agent-field) and
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:282:[States Specification — MCP Servers and Skills](rhei-states.spec.md#7-mcp-servers-and-skills).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:476:States and defaults then reference the agent by id:
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:626:in [Program States Specification](rhei-programs.spec.md#3-exit-code-transitions);
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:653:through the chain documented in [Timeout Handling](#7-timeout-handling). States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:704:| `--program-timeout <DURATION>` | | Override program timeout for this run (e.g., `10m`, `1h`). See [Program States Specification](rhei-programs.spec.md#4-timeout-handling). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:760:### 5.4. Gating States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:822:[States Specification — Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:1058:- [States Specification](rhei-states.spec.md) — state machine format, `model`/`agent` fields, template variables
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-agents.spec.md:1059:- [Program States Specification](rhei-programs.spec.md) — deterministic program execution (the algorithmic complement to agent states)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:291:See [States Specification — `all_targets`](rhei-states.spec.md#12-per-state-fields) for the schema, selector grammar, and a worked example.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:312:**States:** living-review-loop
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:346:### 3.11. Pattern 9: Program States for Deterministic Steps
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:350:See [Program States Specification](rhei-programs.spec.md) for program declaration, the full exit-code evaluation algorithm, timeout handling, and validation rules.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:358:**States:** ci-pipeline
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:397:- [States Specification](rhei-states.spec.md) — state machine format and default states
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-usage.spec.md:399:- [Program States Specification](rhei-programs.spec.md) — deterministic program execution, exit-code transitions
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-complete.spec.md:129:- [States Specification](rhei-states.spec.md) — state machine format
+/home/vjovanov/f/rhei/examples/ui-test-canonical-example/tasks/01-pipeline.md:17:##### Task full-pipeline.dependency-blocking.three-level-nesting: Render a third hierarchy level
+/home/vjovanov/f/rhei/examples/ui-test-canonical-example/tasks/01-pipeline.md:22:###### Task full-pipeline.dependency-blocking.three-level-nesting.four-level-nesting: Render a fourth hierarchy level
+/home/vjovanov/f/rhei/examples/ui-test-canonical-example/tasks/01-pipeline.md:25:Tests: `structure.maxLevels: 4` and depth-four hierarchy rendering.
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:322:            "# Rhei: Deep\n**States:** rhei\n---\nstructure:\n  maxLevels: 4\n  nodeKinds: [task, bug]\n---\n\n## Tasks\n\n### Task api: Build API\n**State:** pending\n\n#### Bug api.cache: Cache issue\n**State:** in-progress\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:355:            "# Rhei: Visits\n**States:** custom\n\n## Tasks\n\n### Task 1: A\n**State:** review-2\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:390:            "# Rhei: Fanout\n**States:** custom\n\n## Tasks\n\n### Task pm: Evaluate\n**State:** product-run\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:416:            "# Rhei: P\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n\n### Task 2: B\n**State:** pending\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:426:            "# Rhei: A\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** in-progress\n\n### Task 2: B\n**State:** pending\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:436:            "# Rhei: C\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** completed\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/lib.rs:442:            "# Rhei: C\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** completed\n\n### Task 2: B\n**State:** cancelled\n",
+/home/vjovanov/f/rhei/examples/ui-test-canonical-example/index.rhei.md:2:**States:** ui-test-canonical
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-callbacks.spec.md:782:- [States Specification](rhei-states.spec.md) - State machine format and default states
+/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:28:/// otherwise each plan resolves the built-in default (`**States:** rhei`) or a
+/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:86:/// then the built-in default for `**States:** rhei`.
+/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:184:            "# Rhei: Workspace\n**States:** rhei\n\n## Overview\nDemo.\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:195:            "# Rhei: Extra\n**States:** rhei\n\n## Tasks\n\n### Task 1: Extra\n**State:** completed\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:211:            "# Rhei: Solo\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** in-progress\n",
+/home/vjovanov/f/rhei/crates/rhei-viz/src/collect.rs:226:            "# Rhei: Local\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** local-work\n",
+/home/vjovanov/f/rhei/examples/parallel-worktrees-example/index.rhei.md:2:**States:** parallel-worktrees
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-list.spec.md:4:dependency, hierarchy, free-text, and readiness. Modeled after `bd list` from
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-list.spec.md:40:   (auto-discovery, `**States:**` field, `--state-machine` override).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-list.spec.md:71:A flat array of objects (no hierarchy nesting); the `parent` field carries the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-list.spec.md:103:- [States Specification](rhei-states.spec.md) — state machine format and terminal/gating semantics
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-run-tui.spec.md:398:- [Program States Specification](rhei-programs.spec.md) — program execution and exit-code transitions.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:420:The `exit_code` field on the transition is only meaningful for program states. Declaring `exit_code` on a transition from a non-program state is a validation error. See [Program States Specification](rhei-programs.spec.md) for the complete exit-code evaluation algorithm and validation rules.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:525:[States Specification — MCP Servers and Skills](rhei-states.spec.md#7-mcp-servers-and-skills)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:566:    program: <string|object>    # Optional: deterministic program to execute (see Program States Specification)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:588:| `program` | string or object | No | Deterministic program command for this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:592:| `mcp_servers` | array | No | MCP server entries (ids or inline definitions) attached to the agent subprocess. Individual entries may be marked `optional: true`. Mutually exclusive with `gating: true` and `program:`. See [States Specification — MCP Servers and Skills](rhei-states.spec.md#7-mcp-servers-and-skills). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:753:| `exit_code` | integer, integer array, or `"nonzero"` | No | Exit-code condition for transitions from program states. Only evaluated when a program exits without calling `rhei transition`. See [Program States Specification](rhei-programs.spec.md#3-exit-code-transitions). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:761:State artifact contracts (see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the schema) are enforced around transitions:
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:854:> the [States Specification](rhei-states.spec.md#8-profiles) for the full
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:1803:- [States Specification](rhei-states.spec.md) — state machine format and default states
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transitions.spec.md:1805:- [Program States Specification](rhei-programs.spec.md) — deterministic program execution, exit-code transitions
+/home/vjovanov/f/rhei/examples/hourly-human-intervention-example/index.rhei.md:2:**States:** hourly-human-intervention
+/home/vjovanov/f/rhei/docs/functional-spec/README.md:10:| §FS-rhei-panta | Panta, the invisible project root above all rheis and tickets |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:5:For the YAML schema and transition callback system see the [Transitions Specification](rhei-transitions.spec.md). For the default state machine see the [States Specification](rhei-states.spec.md).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:32:| Distinct workflow phases | States |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:58:The state machine writer produces a single YAML file conforming to the [YAML State Machine Format](rhei-transitions.spec.md#4-yaml-state-machine-format-specification). The file is ready to be referenced by a Rhei plan's `**States:**` declaration.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:176:4. **Use template variables instead of placeholders.** When instructions reference task-specific data, use resolved template variables (`{task_id}`, `{task_title}`, `{visit_count}`, `{visits}`, `{model}`) instead of prose placeholders like `<id>`. When a state declares artifact contracts (`inputs:` / `outputs:` — see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the YAML schema), reference them by name (`{input.<name>.path}`, `{output.<name>.path}`) instead of repeating raw paths. See the [States Specification](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) for the full variable namespace.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:465:| **Plan Writer** | Uses the state machine produced by this role. References it via `**States:** <name>` in the plan header. |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:494:automatically when they declare `**States:** <name>`. The YAML file's
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-state-machine-writer.spec.md:502:- [States Specification](rhei-states.spec.md) — default state machine format
+/home/vjovanov/f/rhei/docs/functional-spec/comparison.md:42:explicit `**Prior:**` DAG, configurable hierarchy, swappable YAML state machine
+/home/vjovanov/f/rhei/docs/adr/0002-hierarchical-task-nodes.md:90:This preserves today's top-level ids while allowing arbitrary hierarchy.
+/home/vjovanov/f/rhei/docs/adr/0002-hierarchical-task-nodes.md:106:- hierarchy depth is a property of the plan language, not the workflow state
+/home/vjovanov/f/rhei/docs/adr/0002-hierarchical-task-nodes.md:146:Task hierarchy and node kind should be orthogonal.
+/home/vjovanov/f/rhei/docs/adr/0002-hierarchical-task-nodes.md:247:- The first implementation intentionally limits hierarchy depth to what Markdown
+/home/vjovanov/f/rhei/examples/spec-review-example/index.rhei.md:2:**States:** spec-review
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:1:# FS-rhei-states: Rhei States Specification
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:64:| `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` (the Panta project root) and `default`. Optionally defines `rhei` (the rhei tier), `by_type`, and `overrides`. See [Node Policy](#9-node-policy). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:78:| `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#2-polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#51-polling-states). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:88:| `program` | string or object | No | The program command to execute in this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:89:| `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#4-timeout-handling). |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:144:- `state.program`, when present, must be a non-empty string or a valid program object with at least a `command` field. See [Program States Specification](rhei-programs.spec.md).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:178:## 2. Polling States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:237:States may declare required file artifacts as explicit contracts. This lets a
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:500:States can declare which coding agent transport executes work in that state. The
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:561:## 6. Program States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:563:States can declare a deterministic program to execute instead of spawning an AI agent. The `program` field names a command (string form) or provides a structured command definition (object form). Program states are the right choice for build, test, lint, deploy, and other steps where the behavior is fixed and an AI agent adds no value.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:605:See [Program States Specification](rhei-programs.spec.md) for the complete specification including program declaration forms, exit-code transitions, environment variables, timeout handling, and validation rules.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:609:States can attach **MCP servers** and **skills** to the agent subprocess. MCP
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:692:      Read Task {task_id}: {task_title} and linked Linear tickets.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:695:      Use the Linear MCP to fetch related tickets and comments before writing
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:733:per-node state policy. Profiles are defined once at the top level of the
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:749:> entry is a state policy assigned to nodes. They live at different layers
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:797:`root` (the Panta project root, §FS-rhei-panta) and `default`, and the optional
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:804:  root: <profile-name>           # required: profile the Panta project root runs
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:818:1. If the node is the Panta project root (kind `panta`), use
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:822:   state: its status is derived from its descendants (§FS-rhei-panta.3), and it
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:824:3. Otherwise the node is a ticket. Walk `node_policy.overrides` in declaration
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:838:- `node_policy.root` is required; it names the Panta project root profile and
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:845:  The reserved names `panta` and `rhei` must not appear as `by_type` keys or in
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:852:  `[1, structure.maxLevels]` and refer to rhei-local task depth. The `panta`
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:864:  root: reviewed        # the Panta project root
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:875:In this configuration the Panta root uses `reviewed`, each rhei uses `simple`,
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:881:## 10. States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-states.spec.md:921:- [Program States Specification](rhei-programs.spec.md) - Deterministic program execution, exit-code transitions
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:1:# FS-rhei-programs: Rhei Program States Specification
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:5:For agent states see [Agents Specification](rhei-agents.spec.md). For the state machine format see [States Specification](rhei-states.spec.md).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:281:| Flag | Effect on Program States |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:307:### 6.6. Gating States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:315:Program states use the same `inputs` / `outputs` artifact contracts as any other state — see [States Specification — Artifact Contracts](rhei-states.spec.md#3-artifact-contracts) for the schema, path template variables, and general semantics.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:432:## 9. Per-State Fields (additions to States Specification)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-programs.spec.md:657:- [States Specification](rhei-states.spec.md) — State machine format, per-state fields, artifact contracts
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz-ux.spec.md:104:without bolding or coloring for hierarchy.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz-ux.spec.md:139:- **Chroma is proportional to attention.** States that demand action keep their
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/integration_markdown_plans/workspace_validation.rs:228:        "# Rhei: Workspace Auto States\n**States:** workspace-test-machine\n",
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/integration_markdown_plans/workspace_validation.rs:259:        "# Rhei: Auto States Mismatch\n**States:** custom-review\n\n## Tasks\n\n### Task 1: Review docs\n**State:** draft\n",
+/home/vjovanov/f/rhei/docs/adr/0003-agents-registry-and-modes.md:110:### 4. States and defaults
+/home/vjovanov/f/rhei/docs/grund.md:30:dependencies, hierarchy, artifacts, and transitions. The file is the thing
+/home/vjovanov/f/rhei/examples/escaped-state-values.rhei.md:2:**States:** review-flow-with-spaces
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz.spec.md:22:for the state machine see the [States Specification](rhei-states.spec.md).
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz.spec.md:386:  `**States:**` declaration (an override, then a matching sibling `states.yaml`,
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz.spec.md:440:are not conflated. States sort by this canonical order, with unknown states sorted
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-viz.spec.md:500:- [States Specification](rhei-states.spec.md) — the state machine, profiles,
+/home/vjovanov/f/rhei/examples/multi-model-analysis-example/index.rhei.md:2:**States:** multi-model-analysis
+/home/vjovanov/f/rhei/crates/rhei-core/src/tokens.rs:13:    /// States declaration: `**States:** <name>`.
+/home/vjovanov/f/rhei/crates/rhei-core/src/tokens.rs:14:    MetadataStates { name: String },
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-run.spec.md:71:   for the manual claimability rule and [Polling States](#51-polling-states) for
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-run.spec.md:129:### 5.1. Polling States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-run.spec.md:131:States that declare a [`poll:`](rhei-states.spec.md#2-polling-states) block are time-triggered: each attempt spawns one subprocess, the engine evaluates transitions, and a self-loop transition means "retry after `poll.interval`". Between attempts, the orchestrator:
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-run.spec.md:145:### 5.2. Concurrent vs. Serial States
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-run.spec.md:163:- [Program States Specification](rhei-programs.spec.md) — exit-code transitions and program-specific semantics
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-transition-cmd.spec.md:81:- [States Specification](rhei-states.spec.md) — state machine format
+/home/vjovanov/f/rhei/examples/living-review-loop/index.rhei.md:2:**States:** living-review-loop
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:326:States: <state=count[, ...]>
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:352:`Task tree` prints every rendered task in source order, preserving hierarchy by
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:440:**States:** code-review
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:538:**States:** code-review
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:563:| **State machines** | A template may bundle its own `states.yaml` at the output root. If present, `rhei instantiate`, `rhei validate`, `rhei run`, `rhei next`, and related commands that operate on the instantiated workspace use that sibling/root `states.yaml` by default when `--state-machine` is not supplied; otherwise they fall back to the built-in default. When the rendered plan declares `**States:** <name>`, that declaration participates in lookup: the auto-discovered `states.yaml` is the active configuration and its `name` must match `<name>`. `--state-machine <path>` overrides the auto-discovered file. Templates that rely on non-default state names should therefore bundle `states.yaml`. |
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:606:- [States Specification](rhei-states.spec.md) — State machine format (bundled in templates)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-templates.spec.md:607:- [Program States Specification](rhei-programs.spec.md) — Deterministic program execution (program states work in templates)
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-reset.spec.md:66:- [States Specification](rhei-states.spec.md) — profile resolution and `initial` state rules
+/home/vjovanov/f/rhei/examples/README.md:44:  - `**States:** claude-code-simple`
+/home/vjovanov/f/rhei/crates/rhei-core/src/lexer.rs:48:        // For "**States:** name" (must be checked before re_state)
+/home/vjovanov/f/rhei/crates/rhei-core/src/lexer.rs:49:        let re_states = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+/home/vjovanov/f/rhei/crates/rhei-core/src/lexer.rs:137:            // Metadata: States declaration (must be checked before State)
+/home/vjovanov/f/rhei/crates/rhei-core/src/lexer.rs:140:                return Some(Token::MetadataStates { name: name.to_string() });
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:31:explicit `--state-machine <PATH>` first, rhei-local `**States:**` declarations,
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:32:Panta default inheritance for rheis that omit `**States:**`, omitted effective
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:33:declarations as the built-in `rhei` machine, declared `**States:** rhei` with
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-validate.spec.md:91:- [States Specification](rhei-states.spec.md) - state machine format and defaults
+/home/vjovanov/f/rhei/crates/rhei-core/src/ast.rs:220:    /// Whether the `**States:**` line was authored explicitly.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-version.spec.md:38:- [States Command](rhei-states-cmd.spec.md) - command used to inspect state-machine configuration
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace.rs:19:    let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace.rs:84:                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:27:When no `**States:**` field is declared, a standalone plan uses the built-in
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:28:`rhei` state machine. Inside a Panta Project, a rhei that omits `**States:**`
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:29:may inherit the project default from `index.panta.md`.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:169:**States:** content-workflow
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:182:See the [States Specification](rhei-states.spec.md) for the states file format.
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:212:## 7. Advancing Task States with `rhei transition`
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-authoring.spec.md:259:- Browse the [States Specification](rhei-states.spec.md) to define project-
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:1:# AR-rhei-panta: Panta root architecture
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:3:This document specifies how Panta — the per-project virtual root above all rheis
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:4:(§FS-rhei-panta) — is laid out on disk, loaded into a single graph, and
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:5:addressed. It realizes the decision recorded in §DA-panta-root and extends the
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:6:node hierarchy and virtual-root model of §FS-rhei-plan-language.3.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:10:A Panta is a project directory. It reuses the Directory Workspace machinery
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:12:task files into one plan, a Panta merges rheis into one project.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:15:project/                 ← Panta (the project root)
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:16:  index.panta.md         ← Panta manifest: project title, default **States:**
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:22:      runtime/           ← this rhei's own per-ticket artifacts
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:23:  inbox/                 ← optional: project inbox rhei for unfiled tickets
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:24:  rheis/runtime/         ← per-ticket artifacts for the single-file rheis here
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:28:Per-ticket artifacts live under each rhei's own execution root, not at the
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:31:`index.panta.md` is the Panta manifest. It plays the role `index.rhei.md` plays
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:36:is a Panta when it contains `index.panta.md`.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:40:Loading a Panta produces one graph rooted at the virtual `panta` node:
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:42:1. Parse `index.panta.md` for project title, default states, and content.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:45:3. If `inbox/` is present, load it as a synthetic Directory Workspace rhei with
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:46:   id `inbox`. It has no authored `index.rhei.md`; its files parse as workspace
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:47:   task files, inherit the Panta default state declaration, and use `inbox/` as
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:49:   id `inbox` under `rheis/`.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:50:4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:51:   synthetic inbox rhei, as a level-1 child.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:61:enclosing `index.panta.md`), the loader synthesizes a Panta containing that one
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:62:rhei, so every load path yields a Panta-rooted graph.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:66:Ids are dotted paths rooted at Panta. A rhei contributes its id as the prefix for
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:67:its tickets:
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:70:- A ticket's project-wide id is its rhei id joined with its rhei-local id:
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:73:- A ticket captured without an owning rhei is authored under `inbox/`, which is
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:74:  loaded as the `inbox` rhei, so rhei-local `3` becomes project id `inbox.3`.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:75:- Project ids must be unique across the whole Panta. Because the rhei id prefixes
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:76:  every ticket beneath it, authors only need uniqueness within a rhei, plus
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:79:Within a rhei, tickets are authored and validated exactly as today
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:81:`structure.maxLevels` (1–4) counted from the rhei-local level 1. The Panta prefix
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:88:`index.panta.md` supplies a default state-machine declaration for any rhei that
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:89:omits its own `**States:**`. That inherited declaration resolves from the Panta
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:94:resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:97:reserved names `panta` and `rhei` may not appear in `structure.nodeKinds` or as
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:98:`by_type` keys. Panta carries no stored state; any project-level status is a
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:99:rollup derived from its rheis (§FS-rhei-panta.3). The full resolution and
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:105:Because each rhei may run its own state machine (§FS-rhei-panta.6), artifact and
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:113:Result and artifact paths use the project-qualified ticket id
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:120:The project (Panta) root owns only cross-rhei rollups: aggregate cost
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:122:holds per-ticket artifacts.
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:127:ticket's machine when transitioning it; cross-rhei dependency readiness consults
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:128:the prior ticket's own machine and requires a successful terminal state
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:133:rheis they will touch before acting (§FS-rhei-panta.6).
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:137:Panta is excluded from default output by the layers that present nodes:
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:139:the top level (§FS-rhei-panta.4). Tooling may expose the root behind an explicit
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:145:- [Panta (functional)](../functional-spec/rhei-panta.spec.md) §FS-rhei-panta
+/home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md:147:- [Panta Root Decision](../decisions/architectural/panta-root.md) §DA-panta-root
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan_tests.rs:293:**States:** custom
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-snapshots.spec.md:34:- §FS-rhei-plan-language for task identifiers and the plan hierarchy
+/home/vjovanov/f/rhei/docs/functional-spec/rhei-snapshots.spec.md:248:For `from: ancestor`, walk the plan hierarchy from the inheriting task's
+/home/vjovanov/f/rhei/examples/snapshot-continuation/index.rhei.md:2:**States:** snapshot-continuation
+/home/vjovanov/f/rhei/examples/spec-implementation-example/index.rhei.md:2:**States:** spec-implementation
+/home/vjovanov/f/rhei/docs/architecture/agent-orchestrator-workflow.spec.md:374:- [States Specification](../functional-spec/rhei-states.spec.md) — State machine format and default states
+/home/vjovanov/f/rhei/docs/architecture/overview.md:9:1. **GitHub/Ticket Integration** — Reflect a hierarchy of tickets with dependencies and states
+/home/vjovanov/f/rhei/docs/architecture/overview.md:73:### States and Transitions
+/home/vjovanov/f/rhei/docs/architecture/overview.md:90:| [States Specification](../functional-spec/rhei-states.spec.md) | State machine format and default states |
+/home/vjovanov/f/rhei/docs/architecture/overview.md:112:| [`escaped-state-values.rhei.md`](../../examples/escaped-state-values.rhei.md) | States with spaces, custom states files |
+/home/vjovanov/f/rhei/docs/architecture/overview.md:212:- `.yaml` — States and state machine definitions
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan.rs:18:    let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan.rs:111:                "YAML frontmatter must appear after the `# Rhei:` header (and any `**States:**` declaration). Move the `---` block below the header.",
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/plan.rs:150:                    "**States:** declaration must be the first non-empty line after the Rhei header",
+/home/vjovanov/f/rhei/README.md:31:  integrity, hierarchy/id alignment, link integrity, terminal-tree coherence,
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace_tests.rs:11:**States:** custom
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace_tests.rs:43:    let explicit = parse_workspace_index("# Rhei: Workspace\n**States:** custom\n")
+/home/vjovanov/f/rhei/crates/rhei-core/src/parser/workspace_tests.rs:63:**States:** custom
+/home/vjovanov/f/rhei/docs/architecture/rhei-viz-flow.spec.md:317:- [States Specification](../functional-spec/rhei-states.spec.md) — profiles,
+/home/vjovanov/f/rhei/docs/architecture/README.md:9:| §AR-rhei-panta | Panta root: on-disk layout, load model, id namespacing |
+/home/vjovanov/f/rhei/examples/product-management-example/index.rhei.md:2:**States:** product-management
+/home/vjovanov/f/rhei/examples/agent-discussion/index.rhei.md:2:**States:** agent-discussion
+/home/vjovanov/f/rhei/examples/multi-agent-deliberation-example/index.rhei.md:2:**States:** multi-agent-deliberation
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/next_tests.rs:15:**States:** custom-review
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/next_tests.rs:636:    let plan = r#"# Rhei: Mid Workflow Hyphen States
+/home/vjovanov/f/rhei/panta-deliberation/index.rhei.md:1:# Rhei: Panta Spec Deliberation
+/home/vjovanov/f/rhei/panta-deliberation/index.rhei.md:2:**States:** multi-agent-deliberation
+/home/vjovanov/f/rhei/examples/claude-code/plan.rhei.md:2:**States:** claude-code-simple
+/home/vjovanov/f/rhei/panta-deliberation/tasks/99-final-solution.md:1:### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+/home/vjovanov/f/rhei/panta-deliberation/tasks/99-final-solution.md:3:**Prior:** Task point-inbox-hierarchy, Task point-cross-rhei-readiness, Task point-state-machine-resolution, Task point-language-reference
+/home/vjovanov/f/rhei/panta-deliberation/tasks/03-point-cross-rhei-readiness.md:6:changing unrelated hierarchy or state-machine default rules.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:4:Discussion title: Resolve Panta project spec conflicts
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:9:We need resolve the Panta spec discussion around:
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:11:1. How inbox tickets fit the Panta hierarchy.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:12:   The current Panta specs must not make tickets direct children of Panta if
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:13:   the plan-language hierarchy says level-1 children under Panta are rheis and
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:14:   tickets are level 2 or deeper. The model needs clear ids, levels, and
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:15:   state-policy resolution for inbox work.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:23:3. How Panta project defaults affect state-machine resolution.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:24:   If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:27:   declarations, inherited Panta defaults, and built-in fallback.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:29:4. How the canonical language reference should expose Panta syntax.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:30:   `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:35:state-policy lookup, project defaults, and user-facing documentation.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/01-split.md:59:### Task final-solution: Produce final solution for Resolve Panta project spec conflicts
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:1:# DA-panta-root: Panta is the per-project virtual root above all rheis
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:25:Introduce **Panta**: a single, per-project, *virtual* root node that sits above
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:26:all rheis and their tickets. It is the default place rheis are added and the
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:27:single anchor for a project-wide unified view. The name follows *panta rhei* —
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:28:the still root that contains all the flows. §FS-rhei-panta
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:30:## 1. Position in the hierarchy
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:32:The node hierarchy gains one level at the top:
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:35:Panta            level 0   kind `panta`   (virtual, one per project)
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:37:    └── Task     level 2+  kind `task`…   (a ticket — a unit of work)
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:41:node: a rhei is now *a node among siblings* under Panta rather than the top of
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:42:its own isolated tree. `panta` becomes the new reserved, virtual root kind and
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:50:Panta reuses the Directory Workspace merge mechanism rather than inventing a new
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:52:(§FS-rhei-plan-language.1.2); under Panta, the rheis in a project merge into one
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:56:- Status rolls up Panta ← rheis ← tickets through one uniform tree walk.
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:57:- A project loads as one graph rooted at Panta instead of N disconnected plans.
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:64:Creating a rhei without naming a parent attaches it under Panta. Panta is the
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:66:needs no location argument. A loose ticket created with no rhei is likewise
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:67:allowed directly under Panta, giving an inbox for unfiled work.
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:71:Panta has no authored heading and no node file of its own, so there is nothing
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:85:- **A real, authored Panta heading.** Author Panta as an explicit top-of-file
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:95:- **ID namespacing.** A ticket's project-wide identity is its rhei id joined with
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:96:  its rhei-local task id (a dotted Panta path). This yields cross-rhei
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:98:  rules and grammar productions are deferred to §AR-rhei-panta.
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:100:  the `rhei` root to the `panta` root; rheis gain their own node profile. The
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md:101:  binding is specified in §AR-rhei-panta and the states spec follow-up.
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:1:# Panta root — discussion notes and open questions
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:3:Working notes for the Panta proposal (§DA-panta-root, §FS-rhei-panta,
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:4:§AR-rhei-panta). This is **not normative** — it captures a skeptical review of
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:8:## What Panta is (one paragraph)
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:10:Panta is a single, invisible, per-project root that sits above all rheis and
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:11:tickets. It is the default home for new rheis and the one anchor for a
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:12:project-wide view. The model: `Panta → rhei → ticket`. The key reuse is that the
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:14:`rhei` root that "denotes the plan itself"); Panta is that same pattern promoted
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:38:   (§FS-rhei-plan-language, Panta Project). Renaming the file silently changes
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:69:8. **Smaller:** "invisible" yet the user must author the `# Panta:` manifest;
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:72:   ticket's artifacts go; and the other command specs still describe the old
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:105:- *Why:* one name for one thing is boring and safe; two names for the same ticket
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:139:  that names its give-up state differently breaks it, and a ticket could start
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:147:- **P8a — `index.panta.md` optional;** a single-rhei project needs no manifest.
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:151:- **P8c — one rule for where a ticket's artifacts live.** *Why:* the current
+/home/vjovanov/f/rhei/docs/decisions/architectural/panta-root-discussion.md:153:- **P8d — one-line Panta pointer in each affected command spec.** *Why:* the docs
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md:1:### Task point-language-reference: Resolve Panta syntax in the canonical language reference
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md:5:Resolve how Panta-specific authoring syntax is surfaced in canonical user
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md:10:> `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md:17:Panta syntax?
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md:21:- `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files
+/home/vjovanov/f/rhei/panta-deliberation/tasks/05-point-language-reference.md:25:  execution, ids, state-policy lookup, project defaults, and user-facing
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:1:### Task point-state-machine-resolution: Resolve Panta defaults in state-machine resolution
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:6:inside a Panta project.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:10:> If a rhei inside a project omits `**States:**`, `index.panta.md` may supply
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:14:> explicit overrides, rhei-local declarations, inherited Panta defaults, and
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:20:overrides, rhei-local declarations, inherited Panta defaults, and built-in
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:25:- Omitted `**States:**` on a rhei may inherit a project default from
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:26:  `index.panta.md`.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/04-point-state-machine-resolution.md:27:- Explicit overrides, rhei-local declarations, inherited Panta defaults, and
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:1:### Task point-inbox-hierarchy: Resolve Inbox ticket placement in the Panta hierarchy
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:5:Resolve how inbox tickets fit into the Panta hierarchy without merging this
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:10:> The current Panta specs must not make tickets direct children of Panta if
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:11:> the plan-language hierarchy says level-1 children under Panta are rheis and
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:12:> tickets are level 2 or deeper.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:14:> The model needs clear ids, levels, and state-policy resolution for inbox work.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:18:How should inbox tickets be identified, leveled, parented, and assigned state
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:19:policy within the Panta hierarchy?
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:23:- Level-1 children under Panta must remain rheis if that is what the
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:24:  plan-language hierarchy defines.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:25:- Inbox tickets must be modeled as level 2 or deeper, not as direct children of
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:26:  Panta.
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:27:- The resolution must define clear ids, hierarchy levels, and state-policy
+/home/vjovanov/f/rhei/panta-deliberation/tasks/02-point-inbox-hierarchy.md:28:  lookup behavior for inbox work.
+/home/vjovanov/f/rhei/examples/spec-implementation-discrepancy-audit-example/tasks/syntax-authoring-validation.md:17:Focus on markdown grammar, directory workspace semantics, task hierarchy rules,
+/home/vjovanov/f/rhei/examples/spec-implementation-discrepancy-audit-example/tasks/syntax-authoring-validation.md:18:metadata fields, `**States:**` lookup, prior dependency semantics, terminal child
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:1:# Discussion Points - Resolve Panta project spec conflicts
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:3:- point-inbox-hierarchy: Inbox ticket placement in the Panta hierarchy
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:4:  - Source: "The current Panta specs must not make tickets direct children of Panta if the plan-language hierarchy says level-1 children under Panta are rheis and tickets are level 2 or deeper."
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:5:  - Question: How should inbox tickets be identified, leveled, parented, and assigned state policy within the Panta hierarchy?
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:6:  - Constraints: The normative hierarchy must keep level-1 children under Panta as rheis when the plan-language hierarchy requires that shape; tickets must be level 2 or deeper; the model must define clear ids, levels, and state-policy resolution for inbox work.
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:13:- point-state-machine-resolution: Panta defaults in state-machine resolution
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:14:  - Source: "If a rhei inside a project omits `**States:**`, `index.panta.md` may supply the project default."
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:15:  - Question: What single lookup order should resolve a rhei's state machine when explicit overrides, rhei-local declarations, inherited Panta defaults, and built-in fallback may all apply?
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:16:  - Constraints: The lookup order must avoid conflicts; explicit overrides, rhei-local declarations, inherited `index.panta.md` defaults, and built-in fallback must each have a defined precedence; omitted `**States:**` on a rhei may inherit a project default.
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:18:- point-language-reference: Panta syntax in the canonical language reference
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:19:  - Source: "`index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files are user-authored language surface and should be discoverable from the canonical language reference."
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:20:  - Question: How should the canonical language reference expose and organize user-authored Panta syntax?
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points-manifest.md:21:  - Constraints: `index.panta.md`, Panta `rheis/` entries, and optional `inbox/` task files must be documented as language surface; the documentation must be discoverable from the canonical language reference; the result must support one coherent normative model for validation, execution, ids, state-policy lookup, project defaults, and user-facing documentation.
+/home/vjovanov/f/rhei/examples/spec-implementation-discrepancy-audit-example/index.rhei.md:2:**States:** spec-implementation-discrepancy-audit
+/home/vjovanov/f/rhei/examples/analyze-and-dispatch-example/index.rhei.md:2:**States:** analyze-and-dispatch
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/fixtures/living-review-loop/index.rhei.md:2:**States:** living-review-loop
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/completions_tests.rs:138:**States:** integration-test
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/completions_tests.rs:410:**States:** integration-test
+/home/vjovanov/f/rhei/crates/rhei-cli/tests/e2e/fixtures/bash-agent-team/index.rhei.md:2:**States:** bash-agent-team
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/metadata_rewrite.rs:21:    if idx < lines.len() && lines[idx].trim_start().starts_with("**States:**") {
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/states_render.rs:28:    out.push_str("\nStates:\n");
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/tests_cli_render.rs:132:            Commands::States { json } => assert!(!json),
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/tests_cli_render.rs:138:            Commands::States { json } => assert!(json),
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/templates_instantiate.rs:191:        println!("States: {}", format_state_counts(&loaded.rhei));
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/cli_dispatch.rs:189:        Commands::States { json } => *json,
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/cli_dispatch.rs:221:        Commands::States { json } => states_command(cli.state_machine.as_deref(), json),
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/cli_declarations.rs:149:    States {
+/home/vjovanov/f/rhei/crates/rhei-cli/src/cli/tests_snapshot_runtime.rs:1702:            "# Rhei: Snapshot Test\n**States:** snapshot-test\n\n## Notes\n",
+
+exec
+/usr/bin/bash -lc "find /home/vjovanov/f/rhei -path '*/runtime/deliberation/points/*/proposals/*' -type f -maxdepth 8 -print | sort" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+exec
+/usr/bin/bash -lc "sed -n '1,170p' /home/vjovanov/f/rhei/docs/functional-spec/rhei-panta.spec.md" in /home/vjovanov/f/rhei/panta-deliberation
+exec
+/usr/bin/bash -lc "sed -n '244,275p' /home/vjovanov/f/rhei/docs/functional-spec/rhei-plan-language.spec.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+### 1.5. Panta Project
+
+A **Panta Project** is the directory that groups a project's rheis under the
+single virtual Panta root (§FS-rhei-panta). It mirrors the Directory Workspace
+shape one level up: where a workspace merges task files, a project merges rheis.
+
+A Panta Project consists of:
+
+1. **`index.panta.md`**: the project manifest — `# Panta: <title>`, an optional
+   `States Declaration`, and any `Content Sections`. It contains no `## Tasks`
+   section and no authored nodes.
+2. **`rheis/` directory**: a folder whose entries are rheis. Each entry is a
+   Single-File Plan (`*.rhei.md`) or a Directory Workspace. Discovery under
+   `rheis/` is recursive and deterministic, using the same non-hidden,
+   `/`-normalized, case-sensitive ordering rules as workspace task-file
+   discovery (§FS-rhei-plan-language.1.2).
+3. **`inbox/` directory** (optional): loose tickets captured without a domain
+   rhei. This directory is loaded as a synthetic Directory Workspace rhei with id
+   `inbox`; its contents are authored as workspace task files. The synthetic
+   inbox has no authored `index.rhei.md`, inherits the Panta default state
+   declaration, and stores per-ticket runtime artifacts relative to `inbox/`.
+
+Each rhei's id is derived from its location under `rheis/`: the filename stem for
+a Single-File Plan (`rheis/auth.rhei.md` -> `auth`) or the directory name for a
+Directory Workspace rhei (`rheis/billing/` -> `billing`). The id must be a valid
+`IDENTIFIER` and must be unique across the project.
+
+At load time all rheis, including the synthetic `inbox` rhei when present, merge
+into one graph rooted at Panta. Ticket ids are namespaced by their rhei id and
+`**Prior:**` resolves across the whole project; see
+[Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
+
+
+ succeeded in 0ms:
+# FS-rhei-panta: Panta, the project root above all rheis
+
+Panta is the single, invisible root of a Rhei project. It sits above every rhei
+and every ticket, gives new rheis a default home, and is the one anchor from
+which an operator can see the whole project as a single graph. Making the whole
+project visible from one root, and keeping "add a rhei" a zero-friction action,
+serve Rhei's monitoring and predictability goals. §GOAL-rhei-outcomes
+
+The name follows *panta rhei* ("everything flows"): Panta is the still point that
+contains all the flows. The decision and its rationale are recorded in
+§DA-panta-root; the load model, on-disk layout, and id rules are specified in
+§AR-rhei-panta.
+
+## 1. What Panta is
+
+A Rhei **project** has exactly one Panta. Panta is a *virtual* node: it is never
+authored, never written to a file as a node, and has no `**State:**`,
+`**Prior:**`, `**Assignee:**`, or `> **Result:**`. It is the level-0 root of the
+node hierarchy:
+
+```
+Panta            the project        (virtual, exactly one, kind `panta`)
+├── Rhei  auth   a flow / plan       (kind `rhei`)
+│   ├── Task auth.1   a ticket       (kind `task`)
+│   └── Task auth.2
+├── Rhei  billing
+│   └── Task billing.1
+└── Rhei  inbox  the project inbox   (synthetic when `inbox/` exists)
+    └── Task inbox.3   an unfiled ticket
+```
+
+A **rhei** is a plan — a self-contained flow with its own tasks. A **ticket** is
+a unit of work inside a rhei (the node kind is `task` by default; "ticket" is the
+user-facing name for a work item). Panta owns the rheis; rheis own their tickets.
+
+`panta` is a reserved node kind. It can never be authored, can never appear in
+`structure.nodeKinds`, and there is never more than one Panta in a project.
+
+## 2. Default home for new rheis
+
+Creating a rhei without specifying where it goes places it under Panta. Panta is
+the implicit default parent, so adding a rhei takes no location argument:
+
+```bash
+rhei new "Authentication"        # creates a rhei under Panta
+rhei new "Billing" --under auth  # opt out of the default to nest elsewhere
+```
+
+A ticket created with no owning rhei is placed in the project **inbox**. The
+inbox is loaded as a level-1 rhei with id `inbox`, so quick captures do not
+require choosing a domain rhei first while the hierarchy remains Panta -> rhei
+-> ticket. Inbox tickets use ordinary rhei-local ids and project-wide ids such
+as `inbox.3`.
+
+## 3. One unified view
+
+Because every rhei hangs off the same Panta, a project loads and renders as one
+graph rather than as many disconnected plans:
+
+- **Status rolls up** Panta ← rheis ← tickets through one tree. Panta's status is
+  always derived from its rheis and is never stored.
+- **Dependencies resolve across rheis.** A ticket in one rhei may declare a
+  `**Prior:**` on a ticket in another rhei; the reference resolves against the
+  whole project graph. §AR-rhei-panta
+- **Listing and monitoring** treat the set of rheis as the top level, so an
+  operator sees the whole project from a single root.
+
+## 4. Invisibility
+
+Panta is not shown to users as a node. Default listing, claim selection
+(`rhei next`), rendering, and monitoring present rheis as the top level and omit
+Panta. Runtime commands must never claim, transition, complete, cancel, or reset
+Panta — it has no state to move. Tooling may reveal the root only behind an
+explicit opt-in flag (for example `--show-root`) for debugging; the default
+output never mentions it.
+
+## 5. Identity
+
+A rhei is addressed by its id (for example `auth`). A ticket is addressed by its
+project-wide path, formed by joining its rhei id with its rhei-local id
+(`auth.1`, `auth.1.2`, `inbox.3`). This makes ticket identities unique across
+the whole project without authors coordinating ids by hand. The exact
+id-extension and grammar rules are specified in §AR-rhei-panta.
+
+## 6. Project scope and command behavior
+
+Every command resolves a **scope** from the target it is given. Pointed at a
+project — a directory containing `index.panta.md`, or invoked inside one — a
+command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
+file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
+(repeatable) narrows a project-scoped invocation to named rheis.
+
+Within a project, commands operate **project-wide by default**, including the
+mutating commands `rhei run`, `rhei reset`, and `rhei complete`. The project is
+the unit an operator drives. Because a single invocation can fan out across every
+rhei, any command that spawns work or destroys runtime state must report its
+scope and the affected rheis before acting.
+
+Each rhei may declare its own state machine via `**States:**`; the
+`index.panta.md` manifest supplies the project default for rheis that do not.
+Commands resolve and apply the correct machine per rhei (§AR-rhei-panta).
+
+### 6.1. Readiness and `rhei next`
+
+Readiness is **project-global**. A ticket is ready when it is a claimable leaf
+and every `**Prior:**` is terminal-and-not-cancelled, resolved across the whole
+project graph — a ticket in one rhei may be blocked by a ticket in another. Each
+prior's terminal status is judged against *that prior's own* rhei state machine.
+Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
+the candidate tickets but never narrows where their priors resolve: a candidate
+may still be blocked by a prior outside the named rheis.
+
+### 6.2. `rhei run`
+
+At project scope, `rhei run` orchestrates ready tickets across all in-scope rheis
+under one loop, applying each ticket's own rhei state machine. It drives tickets
+to terminal states; it never writes state to a rhei or Panta node. Concurrency
+across rheis is bounded, and each spawned unit is attributed to its rhei in logs
+and accounting. The loop stops when no eligible ticket remains in scope or a
+gating state requires a human.
+
+### 6.3. Completion and rollup
+
+`rhei complete` finishes a leaf ticket. A rhei is done when all its tickets are
+terminal, and Panta when all rheis are done, but this status is **derived, not
+stored**: unprofiled rheis and the virtual Panta have no `**State:**` to write,
+so no cascade stamps `completed` up the tree — doneness is computed on read. A
+rhei given an explicit profile through `node_policy.rhei` does carry state; for
+such a rhei the non-leaf rule applies — it may move to a terminal state only
+after all its tickets are terminal, and `rhei run` or `rhei complete` may roll it
+up automatically.
+
+### 6.4. Reset, validate, list, viz
+
+- `rhei reset` is project-wide by default; because it destroys runtime state
+  across every in-scope rhei, it surfaces the scope and the affected rheis before
+  acting. `--rhei` narrows it.
+- `rhei validate` always checks the whole project graph: cross-rhei dependency
+  resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
+  `panta`/`rhei` kinds.
+- `rhei list` is project-wide with rheis as the top level; existing filters
+  (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
+  `--rhei` filters to a rhei.
+- `rhei viz` renders Panta as the implicit canvas (never a drawn root box), rheis
+  as top-level groups, with cross-rhei dependency edges drawn between them.
+
+## Related Specifications
+
+- [Plan Language](rhei-plan-language.spec.md) — grammar, the node hierarchy, and the virtual-root model §FS-rhei-plan-language.3
+- [Panta Architecture](../architecture/rhei-panta.spec.md) — load model, on-disk layout, id rules §AR-rhei-panta
+- [Panta Root Decision](../decisions/architectural/panta-root.md) — why Panta is a unified virtual root §DA-panta-root
+
+exec
+/usr/bin/bash -lc "sed -n '1,180p' /home/vjovanov/f/rhei/docs/architecture/rhei-panta.spec.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# AR-rhei-panta: Panta root architecture
+
+This document specifies how Panta — the per-project virtual root above all rheis
+(§FS-rhei-panta) — is laid out on disk, loaded into a single graph, and
+addressed. It realizes the decision recorded in §DA-panta-root and extends the
+node hierarchy and virtual-root model of §FS-rhei-plan-language.3.
+
+## 1. On-disk layout
+
+A Panta is a project directory. It reuses the Directory Workspace machinery
+(§FS-rhei-plan-language.1.2) one level up: where a Directory Workspace merges
+task files into one plan, a Panta merges rheis into one project.
+
+```
+project/                 ← Panta (the project root)
+  index.panta.md         ← Panta manifest: project title, default **States:**
+  rheis/                 ← one entry per rhei, discovered like tasks/
+    auth.rhei.md         ← a single-file rhei
+    billing/             ← or a rhei as a Directory Workspace
+      index.rhei.md
+      tasks/
+      runtime/           ← this rhei's own per-ticket artifacts
+  inbox/                 ← optional: project inbox rhei for unfiled tickets
+  rheis/runtime/         ← per-ticket artifacts for the single-file rheis here
+  runtime/               ← project-level ROLLUPS only (accounting, snapshots, viz)
+```
+
+Per-ticket artifacts live under each rhei's own execution root, not at the
+project root; the project `runtime/` holds only cross-rhei rollups (§6).
+
+`index.panta.md` is the Panta manifest. It plays the role `index.rhei.md` plays
+for a workspace: project title, default state-machine declaration, and content
+sections; it contains no authored nodes. Rhei discovery under `rheis/` follows
+the same recursive, deterministic, non-hidden, `/`-normalized ordering rules
+that task-file discovery already uses (§FS-rhei-plan-language.1.2). A directory
+is a Panta when it contains `index.panta.md`.
+
+## 2. Load model
+
+Loading a Panta produces one graph rooted at the virtual `panta` node:
+
+1. Parse `index.panta.md` for project title, default states, and content.
+2. Discover the rheis under `rheis/` in deterministic order. Each rhei is loaded
+   by the existing single-file or Directory Workspace loader.
+3. If `inbox/` is present, load it as a synthetic Directory Workspace rhei with
+   id `inbox`. It has no authored `index.rhei.md`; its files parse as workspace
+   task files, inherit the Panta default state declaration, and use `inbox/` as
+   their execution root. The project must not also define a discovered rhei with
+   id `inbox` under `rheis/`.
+4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
+   synthetic inbox rhei, as a level-1 child.
+5. Merge into one task graph and resolve `**Prior:**` across the whole project,
+   exactly as workspace task files merge today.
+
+The virtual root is materialized in memory only; it is never written back. A
+source map records, for each node, the rhei (and file) that defines it, so
+targeted rewrites during transitions still target the owning file — the same
+contract `task_sources` provides for workspace task files.
+
+When a bare rhei is loaded directly (a `.rhei.md` file or a workspace with no
+enclosing `index.panta.md`), the loader synthesizes a Panta containing that one
+rhei, so every load path yields a Panta-rooted graph.
+
+## 3. Identity and id namespacing
+
+Ids are dotted paths rooted at Panta. A rhei contributes its id as the prefix for
+its tickets:
+
+- A rhei has a single-segment id (`auth`, `billing`).
+- A ticket's project-wide id is its rhei id joined with its rhei-local id:
+  rhei-local `1` under rhei `auth` is the project id `auth.1`; rhei-local `1.2`
+  is `auth.1.2`.
+- A ticket captured without an owning rhei is authored under `inbox/`, which is
+  loaded as the `inbox` rhei, so rhei-local `3` becomes project id `inbox.3`.
+- Project ids must be unique across the whole Panta. Because the rhei id prefixes
+  every ticket beneath it, authors only need uniqueness within a rhei, plus
+  unique rhei ids across the project.
+
+Within a rhei, tickets are authored and validated exactly as today
+(§FS-rhei-plan-language.3.4): the rhei-local id space is unchanged, including
+`structure.maxLevels` (1–4) counted from the rhei-local level 1. The Panta prefix
+is applied at merge time and is not authored into the rhei's task headings.
+`**Prior:**` references may be written as project ids to point across rheis;
+within a rhei, rhei-local references continue to resolve locally.
+
+## 4. State-machine binding
+
+`index.panta.md` supplies a default state-machine declaration for any rhei that
+omits its own `**States:**`. That inherited declaration resolves from the Panta
+project root; a rhei-local declaration still resolves from the rhei's own source
+location (§FS-rhei-plan-language.1.3).
+
+The state-machine profile that previously resolved the level-0 `rhei` root now
+resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node
+resolves through the dedicated `node_policy.rhei` key when declared; when it is
+omitted, the rhei is a pure structural rollup with no profile-driven state. The
+reserved names `panta` and `rhei` may not appear in `structure.nodeKinds` or as
+`by_type` keys. Panta carries no stored state; any project-level status is a
+rollup derived from its rheis (§FS-rhei-panta.3). The full resolution and
+validation rules are specified in the states spec node-policy section
+(§FS-rhei-states).
+
+## 5. Execution root and per-rhei runtime
+
+Because each rhei may run its own state machine (§FS-rhei-panta.6), artifact and
+relative-link resolution is **per rhei**, not per project. A rhei's execution
+root is defined exactly as a standalone plan's is today
+(§FS-rhei-plan-language.3.10): the containing directory for a Single-File Plan,
+the workspace directory for a Directory Workspace rhei. State-machine `inputs`,
+`outputs`, `> **Result:**` paths, and content links inside a rhei all resolve
+against that rhei's root.
+
+Result and artifact paths use the project-qualified ticket id
+(`runtime/results/auth.1.md`), so single-file rheis that share the `rheis/`
+directory — and therefore one execution root — never collide on artifact names.
+A rhei authored as a workspace directory gets a fully isolated runtime tree; that
+is the escape hatch when an operator wants per-rhei isolation rather than a shared
+`rheis/runtime/`.
+
+The project (Panta) root owns only cross-rhei rollups: aggregate cost
+accounting, project-level snapshots, and the unified visualization. It never
+holds per-ticket artifacts.
+
+## 6. Command scope mechanics
+
+`rhei run` resolves and caches one state machine per rhei in scope and applies a
+ticket's machine when transitioning it; cross-rhei dependency readiness consults
+the prior ticket's own machine and requires a successful terminal state
+(`final: true` and a normalized state name other than `cancelled`). The ready-set
+scan, claim selection, and rollup all walk the single merged graph (§2), so
+project-wide is the natural default and `--rhei` is a filter applied to candidate
+nodes after the merge. Mutating commands report the resolved scope and the set of
+rheis they will touch before acting (§FS-rhei-panta.6).
+
+## 7. Invisibility surface
+
+Panta is excluded from default output by the layers that present nodes:
+listing, `rhei next` claim selection, rendering, and visualization treat rheis as
+the top level (§FS-rhei-panta.4). Tooling may expose the root behind an explicit
+opt-in. Because the root is virtual and derived, no command may claim,
+transition, complete, cancel, or reset it.
+
+## Related Specifications
+
+- [Panta (functional)](../functional-spec/rhei-panta.spec.md) §FS-rhei-panta
+- [Plan Language](../functional-spec/rhei-plan-language.spec.md) §FS-rhei-plan-language.3
+- [Panta Root Decision](../decisions/architectural/panta-root.md) §DA-panta-root
+
+exec
+/usr/bin/bash -lc "sed -n '1,130p' /home/vjovanov/f/rhei/docs/decisions/architectural/panta-root.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# DA-panta-root: Panta is the per-project virtual root above all rheis
+
+## Status
+
+proposed
+
+## Context
+
+Rhei has no entity above an individual rhei. A plan is loaded by path, executed,
+and rendered in isolation; there is no default home for a newly created rhei, no
+registry of the rheis in a project, and no single graph that spans them. This
+limits the monitoring and predictability goals — an operator cannot see "what is
+everything in this project doing" from one root, only one plan at a time.
+§GOAL-rhei-outcomes
+
+The plan language already models a virtual level-0 `rhei` root that "denotes the
+plan itself," is not authored in markdown, is not persisted as a task node, and
+derives its status from authored task nodes. §FS-rhei-plan-language.3 That
+established pattern — a derived, non-authored root that owns rollups and is
+excluded from claim/transition/complete — is exactly what a cross-rhei container
+needs, one level higher.
+
+## Decision
+
+Introduce **Panta**: a single, per-project, *virtual* root node that sits above
+all rheis and their tickets. It is the default place rheis are added and the
+single anchor for a project-wide unified view. The name follows *panta rhei* —
+the still root that contains all the flows. §FS-rhei-panta
+
+## 1. Position in the hierarchy
+
+The node hierarchy gains one level at the top:
+
+```
+Panta            level 0   kind `panta`   (virtual, one per project)
+└── Rhei         level 1   kind `rhei`    (a plan / flow)
+    └── Task     level 2+  kind `task`…   (a ticket — a unit of work)
+```
+
+The former per-plan virtual `rhei` root is promoted to a first-class level-1
+node: a rhei is now *a node among siblings* under Panta rather than the top of
+its own isolated tree. `panta` becomes the new reserved, virtual root kind and
+takes over the role previously held by the level-0 `rhei` root
+(§FS-rhei-plan-language.3): not authored, not persisted, no `**State:**`,
+`**Prior:**`, `**Assignee:**`, or `> **Result:**`, and never claimed,
+transitioned, completed, cancelled, or reset.
+
+## 2. One unified graph, built by merge
+
+Panta reuses the Directory Workspace merge mechanism rather than inventing a new
+structure. Today, task files under `tasks/` merge into one global graph at load
+(§FS-rhei-plan-language.1.2); under Panta, the rheis in a project merge into one
+graph the same way. Consequences that fall out of the merge:
+
+- `**Prior:**` dependencies resolve **across rheis**, not just within one.
+- Status rolls up Panta ← rheis ← tickets through one uniform tree walk.
+- A project loads as one graph rooted at Panta instead of N disconnected plans.
+
+This is the concrete meaning of "unified root node" as opposed to a registry
+that only references independent plans (see Alternatives).
+
+## 3. Default container for new rheis
+
+Creating a rhei without naming a parent attaches it under Panta. Panta is the
+implicit default parent — analogous to `/` in a filesystem — so "add a rhei"
+needs no location argument. A loose ticket created with no rhei is likewise
+allowed directly under Panta, giving an inbox for unfiled work.
+
+## 4. Invisible by construction
+
+Panta has no authored heading and no node file of its own, so there is nothing
+to hide: default listings, claim selection, and monitoring present rheis as the
+top level. Tooling exposes the root only behind an explicit opt-in
+(e.g. `--show-root`). Its status is always derived from its rheis, never stored.
+
+## Alternatives considered
+
+- **Registry by reference.** A singleton index that lists independent plan files
+  and caches a per-plan rollup, leaving each plan a self-contained isolated tree.
+  Smaller and non-invasive, but it cannot express cross-rhei dependencies or a
+  true single-graph rollup without re-deriving structure on every read. Rejected
+  in favour of the unified graph, which is a direct reuse of the existing merge
+  pattern and gives cross-rhei dependencies for free.
+
+- **A real, authored Panta heading.** Author Panta as an explicit top-of-file
+  node. Rejected because it breaks the "root is derived, not authored" invariant
+  the language already relies on (§FS-rhei-plan-language.3), and would force the
+  root to carry state it should only ever roll up.
+
+## Consequences
+
+- **Clean break, no migration.** Promoting the top authored level from task to
+  rhei reinterprets existing plans. Backward compatibility is explicitly out of
+  scope for this decision; no migration path is provided.
+- **ID namespacing.** A ticket's project-wide identity is its rhei id joined with
+  its rhei-local task id (a dotted Panta path). This yields cross-rhei
+  uniqueness without authors hand-coordinating ids, but the exact id-extension
+  rules and grammar productions are deferred to §AR-rhei-panta.
+- **State-machine profile.** The state machine's root profile semantics move from
+  the `rhei` root to the `panta` root; rheis gain their own node profile. The
+  binding is specified in §AR-rhei-panta and the states spec follow-up.
+
+codex
+I found the current docs already lean toward a synthetic `inbox` rhei, while the older ADR text still contains a direct-under-Panta sentence. I’m going to make the proposal explicit: keep inbox tickets under a reserved synthetic rhei and resolve their policy exactly like any other rhei’s tickets.
+exec
+/usr/bin/bash -lc 'mkdir -p runtime/deliberation/points/point-inbox-hierarchy/proposals' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+apply patch
+patch: completed
+/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bdf823fd11f526c04991d894a73155bc8220a67
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,26 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
++  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
++  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
++  hierarchy level is 2 or deeper.
++- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
++  keeping quick-capture work available without choosing a domain rhei. It also
++  gives inbox work the same identity, validation, dependency, execution-root,
++  and artifact rules as ordinary rhei work instead of creating a special direct
++  child case under Panta.
++- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
++  cannot create a domain rhei with that id while the project inbox exists. The
++  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
++  code must label it as an inbox without treating its tickets differently. Moving
++  a ticket out of the inbox becomes a reparenting/id-change operation from
++  `inbox.<id>` to `<target-rhei>.<id>`.
++- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
++  deeper. The optional `inbox/` directory contains task files authored in the
++  normal workspace-task format. A project-level `**States:**` declaration may be
++  inherited by rheis that omit their own declaration.
++- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
++  project ids after being filed into a domain rhei, if users must be allowed to
++  create a normal rhei named `inbox` alongside project inbox capture, or if the
++  final state-policy decision rejects inheritance from `index.panta.md` for
++  synthetic rheis.
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bdf823fd11f526c04991d894a73155bc8220a67
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,26 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
++  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
++  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
++  hierarchy level is 2 or deeper.
++- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
++  keeping quick-capture work available without choosing a domain rhei. It also
++  gives inbox work the same identity, validation, dependency, execution-root,
++  and artifact rules as ordinary rhei work instead of creating a special direct
++  child case under Panta.
++- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
++  cannot create a domain rhei with that id while the project inbox exists. The
++  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
++  code must label it as an inbox without treating its tickets differently. Moving
++  a ticket out of the inbox becomes a reparenting/id-change operation from
++  `inbox.<id>` to `<target-rhei>.<id>`.
++- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
++  deeper. The optional `inbox/` directory contains task files authored in the
++  normal workspace-task format. A project-level `**States:**` declaration may be
++  inherited by rheis that omit their own declaration.
++- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
++  project ids after being filed into a domain rhei, if users must be allowed to
++  create a normal rhei named `inbox` alongside project inbox capture, or if the
++  final state-policy decision rejects inheritance from `index.panta.md` for
++  synthetic rheis.
+
+exec
+/usr/bin/bash -lc "sed -n '1,220p' runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md" in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+# Proposal - codex[yolo]:openai:gpt-5.5
+
+- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
+  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
+  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
+  hierarchy level is 2 or deeper.
+- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
+  keeping quick-capture work available without choosing a domain rhei. It also
+  gives inbox work the same identity, validation, dependency, execution-root,
+  and artifact rules as ordinary rhei work instead of creating a special direct
+  child case under Panta.
+- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
+  cannot create a domain rhei with that id while the project inbox exists. The
+  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
+  code must label it as an inbox without treating its tickets differently. Moving
+  a ticket out of the inbox becomes a reparenting/id-change operation from
+  `inbox.<id>` to `<target-rhei>.<id>`.
+- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
+  deeper. The optional `inbox/` directory contains task files authored in the
+  normal workspace-task format. A project-level `**States:**` declaration may be
+  inherited by rheis that omit their own declaration.
+- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
+  project ids after being filed into a domain rhei, if users must be allowed to
+  create a normal rhei named `inbox` alongside project inbox capture, or if the
+  final state-policy decision rejects inheritance from `index.panta.md` for
+  synthetic rheis.
+
+exec
+/usr/bin/bash -lc 'git status --short' in /home/vjovanov/f/rhei/panta-deliberation
+ succeeded in 0ms:
+ M ../docs/architecture/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-authoring.spec.md
+ M ../docs/functional-spec/rhei-language-reference.spec.md
+ M ../docs/functional-spec/rhei-panta.spec.md
+ M ../docs/functional-spec/rhei-plan-language.spec.md
+ M ../docs/functional-spec/rhei-validate.spec.md
+?? ../.agents/rhei/templates/multi-agent-deliberation/
+?? ../examples/multi-agent-deliberation-example/
+?? ../panta-deliberation-values.yaml
+?? ./
+
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bdf823fd11f526c04991d894a73155bc8220a67
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,26 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
++  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
++  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
++  hierarchy level is 2 or deeper.
++- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
++  keeping quick-capture work available without choosing a domain rhei. It also
++  gives inbox work the same identity, validation, dependency, execution-root,
++  and artifact rules as ordinary rhei work instead of creating a special direct
++  child case under Panta.
++- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
++  cannot create a domain rhei with that id while the project inbox exists. The
++  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
++  code must label it as an inbox without treating its tickets differently. Moving
++  a ticket out of the inbox becomes a reparenting/id-change operation from
++  `inbox.<id>` to `<target-rhei>.<id>`.
++- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
++  deeper. The optional `inbox/` directory contains task files authored in the
++  normal workspace-task format. A project-level `**States:**` declaration may be
++  inherited by rheis that omit their own declaration.
++- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
++  project ids after being filed into a domain rhei, if users must be allowed to
++  create a normal rhei named `inbox` alongside project inbox capture, or if the
++  final state-policy decision rejects inheritance from `index.panta.md` for
++  synthetic rheis.
+
+codex
+Wrote the proposal to:
+
+[runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md)
+
+Recommendation is the reserved synthetic `inbox` rhei: Panta level 0, `Rhei inbox` level 1, inbox tickets as normal level 2+ tasks with ids like `inbox.3`. No Rhei state transitions were run.
+diff --git a/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bdf823fd11f526c04991d894a73155bc8220a67
+--- /dev/null
++++ b/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md
+@@ -0,0 +1,26 @@
++# Proposal - codex[yolo]:openai:gpt-5.5
++
++- Recommendation: Model the project inbox as a reserved synthetic level-1 rhei
++  with id `inbox`; every inbox ticket is a normal task below that rhei, so its
++  project id is `inbox.<local-task-id>`, its parent is `Rhei inbox`, and its
++  hierarchy level is 2 or deeper.
++- Reasons: This preserves the required `Panta -> rhei -> ticket` hierarchy while
++  keeping quick-capture work available without choosing a domain rhei. It also
++  gives inbox work the same identity, validation, dependency, execution-root,
++  and artifact rules as ordinary rhei work instead of creating a special direct
++  child case under Panta.
++- Tradeoffs: The id `inbox` becomes reserved at the project rhei level, so a user
++  cannot create a domain rhei with that id while the project inbox exists. The
++  loader must synthesize a rhei node with no authored `index.rhei.md`, and UI
++  code must label it as an inbox without treating its tickets differently. Moving
++  a ticket out of the inbox becomes a reparenting/id-change operation from
++  `inbox.<id>` to `<target-rhei>.<id>`.
++- Assumptions: Panta is level 0, rheis are level 1, and tickets are level 2 or
++  deeper. The optional `inbox/` directory contains task files authored in the
++  normal workspace-task format. A project-level `**States:**` declaration may be
++  inherited by rheis that omit their own declaration.
++- Rejection criteria: Do not use this proposal if inbox tickets must keep stable
++  project ids after being filed into a domain rhei, if users must be allowed to
++  create a normal rhei named `inbox` alongside project inbox capture, or if the
++  final state-policy decision rejects inheritance from `index.panta.md` for
++  synthetic rheis.
+
+tokens used
+40,485
+Wrote the proposal to:
+
+[runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md](/home/vjovanov/f/rhei/panta-deliberation/runtime/deliberation/points/point-inbox-hierarchy/proposals/codex-yolo-openai-gpt-5.5.md)
+
+Recommendation is the reserved synthetic `inbox` rhei: Panta level 0, `Rhei inbox` level 1, inbox tickets as normal level 2+ tasks with ids like `inbox.3`. No Rhei state transitions were run.
+
+=== exit ===
+code: 0
+duration: 46s
+ended: 2026-06-01T08:17:45Z
+===
