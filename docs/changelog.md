@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Clear stale Flow dashboard running indicators after the live loopback server
+  stops answering, so closed runs do not leave browser tabs spinning forever.
+  PR #31
 - Clarify the first-run example path, Panta's current read-only project support
   boundary, and runnable example discovery; fix `xtask` example copying for
   fixtures that contain snapshot symlinks. PR #28

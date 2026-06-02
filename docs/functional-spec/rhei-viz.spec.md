@@ -303,6 +303,9 @@ per §FS-rhei-viz-ux §4: a poll updates row text, pills, running-now chips, and
 agent terminal where they sit, with no layout shift, stable ordering, and the
 operator's scroll position and text selection preserved. The surface tolerates a
 temporary plan-reload failure by rendering the last-good snapshot already cached.
+If the loopback transport becomes unavailable after a live snapshot, the surface
+keeps the last-good plan data but clears runtime-only "running now" affordances
+after a short retry grace, so a closed run cannot leave rows spinning forever.
 Artifact and log links open through the open-in-editor route (§11). When the run
 finishes and the loopback server exits, the surface writes a frozen,
 self-contained HTML artifact under `runtime/` from the final snapshot, so the

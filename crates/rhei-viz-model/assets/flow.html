@@ -443,6 +443,7 @@ function trunc(s,n){ return s.length>n ? s.slice(0,n-1)+"…" : s; }
 
 // ---- state ------------------------------------------------------------------
 let IX=null, MODE="list", SEL=null, liveTermEl=null, MSTATE=null, machineDetailEl=null, LIVE=false;
+let POLL_FAILS=0, LIVE_STALE=false;
 // Live agent terminal: streams the selected running task's durable log via /log.
 let LOGTERM=null, LOGTASK=null, LOGKEY=null, LOGOFF=0;
 const rowEls={}, nodeEls={};
@@ -1349,7 +1350,9 @@ function renderSummary(){
 function renderMachineLine(){
   const m=IX.plan.machine, line=document.getElementById("machine-line");
   if(m&&m.name){
-    const note = LIVE ? "live · updates in place" : "artifact links are illustrative (files appear under runtime/ after a run)";
+    const note = LIVE
+      ? (LIVE_STALE ? "live · disconnected" : "live · updates in place")
+      : "artifact links are illustrative (files appear under runtime/ after a run)";
     line.innerHTML=`states <b>${m.name}</b> &middot; ${note}`;
   } else line.textContent="";
 }
@@ -1415,13 +1418,40 @@ function refreshListStates(){
 }
 function poll(){
   refreshSnapshotOnce()
-    .catch(()=>{})                       // tolerate a transient reload failure
+    .catch(()=>{                         // tolerate transient transport failures
+      POLL_FAILS++;
+      if(POLL_FAILS>=2) clearRunningOverlay();
+    })
     .finally(()=>{ pollLog(); setTimeout(poll, 1000); });
 }
 function refreshSnapshotOnce(){
   return fetch("snapshot",{cache:"no-store"})
     .then(r=>r.ok?r.json():Promise.reject())
-    .then(snap=>{ if(snap && !snap.error) applyLive(snap); return snap; });
+    .then(snap=>{
+      if(snap && !snap.error){
+        POLL_FAILS=0; LIVE_STALE=false; applyLive(snap);
+      }
+      return snap;
+    });
+}
+function clearRunningOverlay(){
+  // Closed live transports keep plan data but clear stale runtime slots. §FS-rhei-viz.7.1
+  if(!IX || !IX.plan || !hasRuntimeOverlay()) return;
+  let changed=false;
+  const runtime=IX.plan.task_runtime||{};
+  for(const rt of Object.values(runtime)){
+    if(rt && rt.in_slot!=null){ delete rt.in_slot; delete rt.template_context; changed=true; }
+  }
+  if(Array.isArray(IX.plan.slots)){
+    for(const s of IX.plan.slots){ if(s && s.active){ s.active=false; changed=true; } }
+  }
+  if(!changed) return;
+  LIVE_STALE=true;
+  refreshListStates();
+  if(MODE==="graph") renderGraph();
+  renderMachineLine(); renderSummary(); renderRunning(); renderSupp();
+  if(SEL && IX.byId[SEL]) renderSurroundings();
+  applySelectionVisual();
 }
 // Stream the selected running task's durable log into its terminal, appending
 // only the new bytes since the last offset. Liveness shown in place, no jump
