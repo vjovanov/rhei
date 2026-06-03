@@ -54,9 +54,9 @@ Filters combine with logical AND. Empty result sets are not an error.
 One task per line, indented two spaces per depth level, in source order:
 
 ```text
-Task 1: Define pipeline contracts [draft]
-  Task 1.1: Capture deployment events [draft]
-Task 2: Bootstrap environments [draft] (prior: 1)
+Task 1: Define pipeline contracts [pending]
+  Task 1.1: Capture deployment events [pending]
+Task 2: Bootstrap environments [pending] (prior: 1)
 Task 3: Roll out release bot [in-progress] (prior: 1, 2) @claude-code
 ```
 

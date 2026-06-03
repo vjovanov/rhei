@@ -783,7 +783,7 @@ The special value `"*"` in the `from` field matches any state with these rules:
 - Specific transitions take precedence over wildcard transitions
 - A transition from a final state is always forbidden, even with wildcards
 
-Wildcards are optional. When a machine omits wildcards, only explicitly declared transitions are valid. Engines must not synthesize wildcard transitions; if cancellation from a particular state is desired, it must be declared explicitly (as the default `rhei` machine does).
+Wildcards are optional. When a machine omits wildcards, only explicitly declared transitions are valid. Engines must not synthesize wildcard transitions; if cancellation from a particular state is desired, it must be declared explicitly by that machine.
 
 ### 4.7. Callback Declaration
 
@@ -1484,6 +1484,7 @@ A rhei file that would work with the state machine definitions above:
 **ci-pipeline.rhei.md:**
 ```markdown
 # Rhei: Feature Branch CI Pipeline
+**States:** ci-pipeline-states
 
 ## Overview
 Automated CI pipeline for feature branch validation and deployment.

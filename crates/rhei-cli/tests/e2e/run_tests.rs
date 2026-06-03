@@ -3,6 +3,42 @@ use std::fs;
 use super::*;
 
 #[test]
+fn run_builtin_default_refuses_manual_pending_tasks() {
+    let dir = unique_temp_dir("run-builtin-manual-pending");
+    let plan = r#"# Rhei: Manual Default
+
+## Tasks
+
+### Task 1: Do manually
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+
+    let result = run_cli_without_machine("run", &plan_path, &[]);
+    assert!(
+        !result.status.success(),
+        "run should refuse manual-only built-in pending task\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("manual-only initial state 'pending'")
+            && result.stderr.contains("rhei next")
+            && result.stderr.contains("rhei complete"),
+        "expected manual workflow diagnostic; got:\n{}",
+        result.stderr
+    );
+    let content = fs::read_to_string(&plan_path).expect("read plan after failed run");
+    assert!(
+        content.contains("**State:** pending") && !content.contains("**State:** completed"),
+        "run must not complete manual task; got:\n{}",
+        content
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_single_file_linear_to_completion() {
     let (dir, plan_path, machine_path) = setup_single_file("run-linear", LINEAR_PLAN);
 

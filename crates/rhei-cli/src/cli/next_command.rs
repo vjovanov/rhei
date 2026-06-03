@@ -374,8 +374,10 @@ fn next_command(
         .states
         .get(&current_state)
         .ok_or_else(|| miette!("state '{}' missing from loaded machine", current_state))?;
-    let auto_transition_initial =
-        is_initial && !state_declares_autonomous_execution(current_state_def);
+    // §FS-rhei-next.3: claim initial states in place when the next edge is terminal completion.
+    let auto_transition_initial = is_initial
+        && !state_declares_autonomous_execution(current_state_def)
+        && initial_state_has_non_terminal_forward_transition(selected_task, &loaded.rhei, &machine)?;
 
     let task_file = loaded.task_file(&task_id_str, input);
     let metadata_file = if workspace::is_workspace(input) {
@@ -385,7 +387,7 @@ fn next_command(
     };
 
     let final_state = if auto_transition_initial && !peek {
-        // Advance from the initial state (e.g. draft → pending).
+        // Advance from a setup-only initial state (for example planning -> pending).
         let target_id = parse_task_id(&task_id_str);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
@@ -435,25 +437,24 @@ fn next_command(
     // `rhei next` cannot re-claim the same task. Skipped in peek mode and
     // when the task already has an assignee set.
     if !peek && task.assignee.is_none() {
-        if let Some(agent) = agent_id_str.as_deref() {
-            let final_state_def = machine
-                .states
-                .get(&final_state)
-                .ok_or_else(|| miette!("state '{}' missing from loaded machine", final_state))?;
-            write_task_assignee(
-                &task_file,
-                &task_id_str,
-                &final_state,
-                &machine,
-                TaskAssigneeClaimContext {
-                    workspace_root: &task_workspace_root,
-                    metadata: loaded.rhei.metadata.as_ref(),
-                    state_def: final_state_def,
-                    settings: &settings,
-                },
-                agent,
-            )?;
-        }
+        let assignee = agent_id_str.as_deref().unwrap_or("manual");
+        let final_state_def = machine
+            .states
+            .get(&final_state)
+            .ok_or_else(|| miette!("state '{}' missing from loaded machine", final_state))?;
+        write_task_assignee(
+            &task_file,
+            &task_id_str,
+            &final_state,
+            &machine,
+            TaskAssigneeClaimContext {
+                workspace_root: &task_workspace_root,
+                metadata: loaded.rhei.metadata.as_ref(),
+                state_def: final_state_def,
+                settings: &settings,
+            },
+            assignee,
+        )?;
     }
     let tooling = resolve_tooling(&machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {

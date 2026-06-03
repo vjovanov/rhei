@@ -221,9 +221,6 @@ rhei next plan.rhei.md
 
 # ... agent does the work ...
 
-# Advance state when ready (e.g., draft → pending, or pending → agent-review)
-rhei transition plan.rhei.md --task 3 --from draft --to pending
-
 # Complete: transition to terminal state, write result file, release assignment
 rhei complete plan.rhei.md --task 3 --result "Schema migration applied successfully"
 ```
@@ -231,7 +228,7 @@ rhei complete plan.rhei.md --task 3 --result "Schema migration applied successfu
 For finer-grained control, workers can use `rhei transition` directly with a compare-and-swap:
 
 ```bash
-rhei transition plan.rhei.md --task 3 --from pending --to agent-review
+rhei transition plan.rhei.md --task 3 --from pending --to completed
 ```
 
 The `--from` flag is the key: the command acquires a file lock, verifies the task is still in the expected state, and only then writes the new state. If another worker already claimed the task, the command fails with a conflict error — the losing worker re-reads the plan and picks a different task.

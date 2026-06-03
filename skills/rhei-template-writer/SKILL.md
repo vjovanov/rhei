@@ -305,19 +305,19 @@ inputs:
 ## Tasks
 
 ### Task draft: Draft notes for {{version}}
-**State:** draft
+**State:** pending
 
 Draft the release notes for `{{version}}` targeting the `{{channel}}` channel.
 Include highlights, breaking changes, and migration notes.
 
 ### Task review: Review draft
-**State:** draft
+**State:** pending
 **Prior:** Task draft
 
 Review the draft for accuracy, tone, and completeness.
 
 ### Task publish: Publish to {{channel}}
-**State:** draft
+**State:** pending
 **Prior:** Task review
 
 Publish the reviewed notes to the `{{channel}}` channel.

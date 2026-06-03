@@ -407,7 +407,7 @@ Task candidates use the task id as the inserted value. Help should include the
 task title and current state:
 
 ```text
-1       Write initial draft [draft]
+1       Write initial draft [pending]
 auth    Review auth module [review]
 ```
 

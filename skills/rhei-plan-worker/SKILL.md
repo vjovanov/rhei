@@ -31,14 +31,14 @@ Execute this loop until no eligible task remains or a human gate stops you:
 5. **Work in the current state.** Follow the printed instructions verbatim. The state you are handed is where the work happens — `rhei next` does **not** advance state. Implement child task nodes in order, logging per child (see *Progress Logging*).
 6. **Advance state only when the workflow demands it.** Use `rhei transition` for intermediate hops; for terminal completion use `rhei complete` (see *State Transitions*).
 7. **Finalize with `rhei complete`.** Run `rhei complete <plan> --task <id> --result "<one-line summary>"`. It transitions to the first reachable non-cancelled terminal, appends a `## <from> → <to>` entry plus the message to `runtime/results/<task-id>.md`, links that file via `> **Result:**`, and removes `**Assignee:**`.
-8. **Stop at terminal or gating states.** `completed` and `cancelled` are final. Any state with `gating: true` (typically `human-review`) halts the worker — do not transition out of it autonomously, and do not try to `rhei complete` through it.
+8. **Stop at terminal or gating states.** `completed` is final in the built-in machine. Any state with `gating: true` in a custom machine halts the worker — do not transition out of it autonomously, and do not try to `rhei complete` through it.
 9. **Loop.** Return to step 4. Re-read the plan on every pass; the markdown file is the single source of truth.
 
 ## Task Selection
 
 Selection is owned by `rhei next` — do not re-implement it in prose. A task is claimable when:
 
-1. Every task in its `**Prior:**` list is in a terminal state (`final: true`; `completed` or `cancelled` in the default machine).
+1. Every task in its `**Prior:**` list is in a terminal state (`final: true`; `completed` in the default machine).
 2. The task has no `**Assignee:**` field.
 3. The current state is neither terminal nor gating.
 4. Every required `inputs` artifact declared on the current state exists.
@@ -61,18 +61,13 @@ For terminal completion use `rhei complete`, not `rhei transition` — it picks 
 
 ### Typical transitions for the default `rhei` machine
 
-- `draft` → `pending` — description finalized, ready to implement.
-- `pending` → `agent-review` — implementation complete and self-tested; route to review.
-- `agent-review` → `agent-review-fix` — review found issues; record findings first (see *Agent Review*).
-- `agent-review` → `human-review` — review passed but a human gate is required.
-- `agent-review-fix` → `agent-review` — fixes applied, re-submit.
-- `human-review` → … — the worker does **not** perform these; a human does.
+- `pending` → `completed` — the task is done.
 
 If the loaded machine differs from the default, trust it over this list.
 
 ## Assignee Discipline
 
-`**Assignee:**` is owned by the CLI — never edit it by hand. `rhei next` writes it when claiming; `rhei complete` removes it when finalizing; `rhei transition` leaves it untouched, so a long-running task keeps the same assignee across intermediate transitions (e.g. `pending` → `agent-review` → `agent-review-fix`).
+`**Assignee:**` is owned by the CLI — never edit it by hand. `rhei next` writes it when claiming; `rhei complete` removes it when finalizing; `rhei transition` leaves it untouched, so a long-running task keeps the same assignee across intermediate transitions in custom machines.
 
 ## Progress Logging
 
@@ -80,7 +75,7 @@ Log implementation progress by appending to each task node's body — do not inv
 
 - One short paragraph per leaf task node, written as you complete it (not batched at the end).
 - State the concrete change: files touched, functions added, commands run to verify. Do not restate the task title; extend the description.
-- When a task re-enters an earlier state (e.g. `agent-review` → `agent-review-fix` → `agent-review`), append a new paragraph describing the rework rather than rewriting history. If the machine uses counted visits, the re-rendered `**State:** <name>-<n>` line makes the visit explicit — do not edit that suffix by hand.
+- When a task re-enters an earlier state in a custom machine, append a new paragraph describing the rework rather than rewriting history. If the machine uses counted visits, the re-rendered `**State:** <name>-<n>` line makes the visit explicit — do not edit that suffix by hand.
 
 ## Agent Review
 
@@ -100,8 +95,8 @@ Run `rhei validate <plan>` after any direct edit; a failure means the edit is wr
 
 Stop the loop and report when any of these is true:
 
-- `rhei next` prints no claimable task (everything terminal, blocked on a gating state, still in `draft` with unmet analysis, or awaiting priors).
-- A task reaches a gating state (typically `human-review`) — stop *that* task but keep working independent branches of the DAG by re-running `rhei next`.
+- `rhei next` prints no claimable task (everything terminal, blocked on a gating state in a custom machine, or awaiting priors).
+- A task reaches a gating state in a custom machine — stop *that* task but keep working independent branches of the DAG by re-running `rhei next`.
 - `rhei validate` fails after an edit you cannot explain.
 - A CAS conflict on `rhei transition` / `rhei complete` cannot be resolved by re-claiming (another worker is actively driving the same plan and there is no other eligible work).
 - The task requires information or access the worker does not have (credentials, external decisions, missing input artifact) — stop and ask.
@@ -123,4 +118,4 @@ This worker flow is distinct from `rhei run` (agent mode): under `rhei run`, the
 If the plan path, state machine, or a task description is ambiguous or missing required detail:
 
 - Ask the user before editing, and never invent prerequisites, states, or transitions to unblock selection.
-- If a task description is too thin to implement, surface it and ask for clarification — do not silently expand scope. (In the default machine, thin descriptions normally mean the task is still in `draft` and needs analysis before it reaches `pending`.)
+- If a task description is too thin to implement, surface it and ask for clarification — do not silently expand scope.

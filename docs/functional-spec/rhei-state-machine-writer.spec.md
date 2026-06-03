@@ -6,7 +6,7 @@ For the YAML schema and transition callback system see the [Transitions Specific
 
 ## Purpose
 
-The default `rhei` state machine covers a generic agent workflow (draft, pending, review, completed, with optional human review). Many projects need domain-specific workflows:
+The default `rhei` state machine is a minimal `pending` -> `completed` workflow with only basic task instructions. Many projects need domain-specific workflows:
 
 - A compliance-heavy project may require multiple approval gates from distinct teams.
 - A data pipeline project may model stages like `ingesting`, `transforming`, `validating`, `published`.

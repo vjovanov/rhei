@@ -18,7 +18,15 @@ rhei next <RHEI_PLAN> [--peek]
 
 Without `--peek`, `rhei next` atomically claims the next claimable task: it assigns the task to the current agent and prints the task instructions. The task's state is **not** advanced — the agent works in the current state and uses `rhei transition` or `rhei complete` to advance when ready. This is the standard entry point for agents beginning work.
 
-Initial states are not all treated the same: an initial state that declares runnable autonomous work (`program`, `agent`, `target`, `all_targets`, `model`, or `all_models`) is claimed and presented in place; only non-runnable initial states are auto-advanced to their first forward state before printing instructions.
+Initial states are not all treated the same: an initial state that declares
+runnable autonomous work (`program`, `agent`, `target`, `all_targets`, `model`,
+or `all_models`) is claimed and presented in place. A non-runnable initial
+state is auto-advanced only when its first applicable forward transition targets
+another non-terminal state. If its first applicable forward transition targets
+a terminal state, `rhei next` claims and presents the initial state in place so
+the agent can do the work before `rhei complete` finishes it. This keeps the
+built-in `pending` -> `completed` machine claimable without completing work at
+claim time.
 
 A task is *claimable* when:
 
@@ -47,11 +55,14 @@ would otherwise make them ready.
 6. Re-read and re-validate the task's claimability under the lock, including
    re-checking required `inputs` (guards against concurrent claims and moved
    files).
-7. Set `**Assignee:** <current-agent>` on the task, where `<current-agent>` is the agent id resolved for the task's current state via the [agent resolution order](rhei-agents.spec.md) (state `agent:` field → project settings → global settings). When no agent is configured, the assignee is omitted rather than written as a placeholder.
-8. Write the task file atomically (temp file + rename), release lock.
-9. Resolve template variables in the state's `instructions` and `personality`
+7. If the selected task is in a non-runnable initial state whose first
+   applicable forward transition targets another non-terminal state, apply that
+   transition before rendering. Otherwise keep the task in its current state.
+8. Set `**Assignee:** <current-agent>` on the task, where `<current-agent>` is the agent id resolved for the rendered state via the [agent resolution order](rhei-agents.spec.md) (state `agent:` field → project settings → global settings). When no agent is configured, write the reserved assignee value `manual` so the task still leaves the claimable set durably and concurrent `rhei next` calls cannot claim it twice.
+9. Write the task file atomically (temp file + rename), release lock.
+10. Resolve template variables in the state's `instructions` and `personality`
    fields (see [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)).
-10. Print the task id, title, current state, and resolved instructions to stdout.
+11. Print the task id, title, current state, and resolved instructions to stdout.
 
 If no claimable task exists, print a status summary (see [No Tasks Ready](#5-no-tasks-ready)).
 

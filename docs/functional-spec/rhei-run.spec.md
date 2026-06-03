@@ -58,6 +58,13 @@ Flags are grouped by concern:
 
 Mode selection: `rhei run` uses orchestrated subprocess execution whenever any reachable non-terminal, non-gating state declares autonomous work via `program`, `agent`, `target`, `all_targets`, `model`, or `all_models`. Callback-only advancement is entered only when no such state exists, or when the caller explicitly disables spawning with `--no-agent` and/or `--no-program`. If a state declares model/target-driven work but no agent transport resolves, `rhei run` fails with a missing-agent configuration error; it does not silently fall back to callback-only transitions for that state.
 
+The built-in `pending` -> `completed` machine is manual-only, not
+callback-complete work. If a ready task under that built-in machine is in its
+profile's initial `pending` state, `rhei run` must fail without changing the
+task. The manual worker loop must claim such a task with `rhei next`, do the
+work, and finish it with `rhei complete`. This prevents the built-in machine
+from silently completing fresh tasks without executing them.
+
 1. Load the state machine and plan. Validate.
 2. Scan all task nodes, including child and grandchild tasks, and compute the
    *ready set*: tasks whose `**Prior:**` are all in successful terminal states
