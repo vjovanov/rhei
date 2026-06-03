@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `rhei run` auto-advance for nested agent tasks after required output
+  artifacts are written. PR #33
 - Clear stale Flow dashboard running indicators after the live loopback server
   stops answering, so closed runs do not leave browser tabs spinning forever.
   PR #31
