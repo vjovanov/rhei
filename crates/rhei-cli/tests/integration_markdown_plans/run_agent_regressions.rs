@@ -4,6 +4,21 @@ fn write_run_agent_settings(dir: &Path, settings: &str) {
     fs::write(settings_dir.join("settings.json"), settings).expect("write settings");
 }
 
+fn canonical_path_text(path: &Path) -> String {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
+}
+
+fn recorded_value<'a>(recorded: &'a str, prefix: &str) -> &'a str {
+    recorded
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix))
+        .unwrap_or_else(|| panic!("recorded output missing {prefix:?}: {recorded}"))
+}
+
+fn assert_recorded_path_eq(recorded: &str, expected: &Path) {
+    assert_eq!(canonical_path_text(Path::new(recorded)), canonical_path_text(expected));
+}
+
 fn make_run_agent_script_executable(path: &Path) {
     #[cfg(unix)]
     {
@@ -169,9 +184,9 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     let recorded =
         fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
     // §FS-rhei-agents.4: repository-root checkout context lets agents discover root AGENTS.md.
-    assert!(recorded.lines().next() == Some(repo.to_str().expect("repo path")));
-    assert!(recorded.contains(&format!("rhei={}", plan_dir.display())));
-    assert!(recorded.contains(&format!("checkout={}", repo.display())));
+    assert_recorded_path_eq(recorded.lines().next().expect("recorded cwd"), &repo);
+    assert_recorded_path_eq(recorded_value(&recorded, "rhei="), &plan_dir);
+    assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &repo);
     assert!(plan_dir.join("runtime/logs/task-1-review.log").exists());
 
     fs::remove_dir_all(root).expect("cleanup");
@@ -229,7 +244,7 @@ printf '%s\n' "$path" > "$RHEI_ROOT/runtime/rendered-artifact-path.txt"
     let rendered = fs::read_to_string(plan_dir.join("runtime/rendered-artifact-path.txt"))
         .expect("read rendered path");
     // §FS-rhei-agents.4: artifact template paths stay rooted at RHEI_ROOT when cwd is checkout root.
-    assert_eq!(rendered.trim(), expected.to_str().expect("expected path"));
+    assert_recorded_path_eq(rendered.trim(), &expected);
     assert!(
         !repo.join("runtime/reports/1.md").exists(),
         "agent should not write checkout-root runtime artifacts"
@@ -261,9 +276,9 @@ fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     let recorded =
         fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
     // §FS-rhei-agents.4: no-git runs use the operator's invocation cwd as checkout context.
-    assert!(recorded.lines().next() == Some(cwd.to_str().expect("cwd path")));
-    assert!(recorded.contains(&format!("rhei={}", plan_dir.display())));
-    assert!(recorded.contains(&format!("checkout={}", cwd.display())));
+    assert_recorded_path_eq(recorded.lines().next().expect("recorded cwd"), &cwd);
+    assert_recorded_path_eq(recorded_value(&recorded, "rhei="), &plan_dir);
+    assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &cwd);
 
     fs::remove_dir_all(root).expect("cleanup");
 }
@@ -341,9 +356,9 @@ fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     let recorded =
         fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
     // §FS-rhei-agents.4: per-task worktree refs override the enclosing repository root.
-    assert!(recorded.lines().next() == Some(worktree.to_str().expect("worktree path")));
-    assert!(recorded.contains(&format!("checkout={}", worktree.display())));
-    assert!(recorded.contains(&format!("worktree={}", worktree.display())));
+    assert_recorded_path_eq(recorded.lines().next().expect("recorded cwd"), &worktree);
+    assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &worktree);
+    assert_recorded_path_eq(recorded_value(&recorded, "worktree="), &worktree);
 
     fs::remove_dir_all(root).expect("cleanup");
 }
