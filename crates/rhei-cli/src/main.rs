@@ -15,6 +15,7 @@ include!("cli/states_render.rs");
 include!("cli/metadata_conditions.rs");
 include!("cli/metadata_rewrite.rs");
 include!("cli/transition_context.rs");
+include!("cli/checkout_roots.rs");
 include!("cli/artifacts.rs");
 include!("cli/transition_checks.rs");
 include!("cli/system_transition_triggers.rs");

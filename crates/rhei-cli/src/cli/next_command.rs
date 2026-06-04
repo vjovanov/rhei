@@ -459,6 +459,7 @@ fn next_command(
     let tooling = resolve_tooling(&machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
+        checkout_root: &task_workspace_root,
         plan_path: &callback_paths.plan_path,
         state_machine_path: callback_paths.state_machine_path.as_deref(),
         plan_title: &loaded.rhei.title,

@@ -55,6 +55,299 @@ fn assert_run_agent_snapshot(
     );
 }
 
+const CHECKOUT_ROOT_MACHINE: &str = r#"name: checkout-root-agent
+version: 1
+states:
+  review:
+    initial: true
+    agent: fake
+  completed:
+    final: true
+transitions:
+  - from: review
+    to: completed
+"#;
+
+const CHECKOUT_ROOT_PLAN: &str = r#"# Rhei: Checkout Root
+
+## Tasks
+
+### Task 1: Record checkout root
+**State:** review
+"#;
+
+fn write_checkout_recording_script(dir: &Path) -> PathBuf {
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "$RHEI_ROOT/runtime"
+{
+  pwd
+  printf 'rhei=%s\n' "$RHEI_ROOT"
+  printf 'checkout=%s\n' "$RHEI_CHECKOUT_ROOT"
+  printf 'worktree=%s\n' "${RHEI_WORKTREE_ROOT:-}"
+} > "$RHEI_ROOT/runtime/checkout-root.txt"
+"#;
+    let script_path = write_fixture_file(dir, "record-checkout.sh", script);
+    make_run_agent_script_executable(&script_path);
+    script_path
+}
+
+fn write_absolute_fake_agent_settings(dir: &Path, script_path: &Path) {
+    let settings = format!(
+        r#"{{
+  "agents": {{
+    "fake": {{
+      "command": [{}],
+      "timeout": "5s"
+    }}
+  }}
+}}"#,
+        serde_json::to_string(&script_path.display().to_string()).expect("script path json")
+    );
+    write_run_agent_settings(dir, &settings);
+}
+
+fn write_stdin_fake_agent_settings(dir: &Path, script_path: &Path) {
+    let settings = format!(
+        r#"{{
+  "agents": {{
+    "fake": {{
+      "command": [{}],
+      "stdin_prompt": true,
+      "timeout": "5s"
+    }}
+  }}
+}}"#,
+        serde_json::to_string(&script_path.display().to_string()).expect("script path json")
+    );
+    write_run_agent_settings(dir, &settings);
+}
+
+fn run_git(args: &[&str]) {
+    let output = Command::new("git").args(args).output().expect("git should run");
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn init_git_repo(repo: &Path) {
+    fs::create_dir_all(repo).expect("create repo");
+    run_git(&["-C", repo.to_str().expect("repo path"), "init"]);
+    run_git(&["-C", repo.to_str().expect("repo path"), "config", "user.email", "rhei@example.test"]);
+    run_git(&["-C", repo.to_str().expect("repo path"), "config", "user.name", "Rhei Test"]);
+    fs::write(repo.join("README.md"), "repo\n").expect("write readme");
+    run_git(&["-C", repo.to_str().expect("repo path"), "add", "README.md"]);
+    run_git(&["-C", repo.to_str().expect("repo path"), "commit", "-m", "initial"]);
+}
+
+#[test]
+fn run_agent_uses_enclosing_git_root_as_checkout_root() {
+    let root = unique_temp_dir("run-agent-git-checkout-root");
+    let repo = root.join("repo");
+    init_git_repo(&repo);
+    fs::write(repo.join("AGENTS.md"), "root instructions\n").expect("write agents");
+
+    let plan_dir = repo.join(".agents/scratchpad/review");
+    fs::create_dir_all(&plan_dir).expect("create plan dir");
+    let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
+    let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
+    let script_path = write_checkout_recording_script(&plan_dir);
+    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+
+    assert!(
+        result.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let recorded =
+        fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
+    // §FS-rhei-agents.4: repository-root checkout context lets agents discover root AGENTS.md.
+    assert!(recorded.lines().next() == Some(repo.to_str().expect("repo path")));
+    assert!(recorded.contains(&format!("rhei={}", plan_dir.display())));
+    assert!(recorded.contains(&format!("checkout={}", repo.display())));
+    assert!(plan_dir.join("runtime/logs/task-1-review.log").exists());
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn run_agent_renders_artifact_paths_at_rhei_root_when_checkout_root_differs() {
+    let root = unique_temp_dir("run-agent-artifact-path-checkout-root");
+    let repo = root.join("repo");
+    init_git_repo(&repo);
+
+    let machine = r#"name: checkout-artifact-root
+version: 1
+states:
+  review:
+    initial: true
+    agent: fake
+    instructions: "ARTIFACT={output.report.path}"
+    outputs:
+      - name: report
+        path: runtime/reports/{task_id}.md
+  completed:
+    final: true
+transitions:
+  - from: review
+    to: completed
+"#;
+    let plan_dir = repo.join(".agents/scratchpad/review");
+    fs::create_dir_all(&plan_dir).expect("create plan dir");
+    let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
+    let machine_path = write_fixture_file(&plan_dir, "states.yaml", machine);
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+prompt="$(cat)"
+path="$(printf '%s\n' "$prompt" | sed -n 's/^ARTIFACT=//p' | head -n 1)"
+mkdir -p "$(dirname "$path")"
+printf done > "$path"
+mkdir -p "$RHEI_ROOT/runtime"
+printf '%s\n' "$path" > "$RHEI_ROOT/runtime/rendered-artifact-path.txt"
+"#;
+    let script_path = write_fixture_file(&plan_dir, "write-rendered-artifact.sh", script);
+    make_run_agent_script_executable(&script_path);
+    write_stdin_fake_agent_settings(&plan_dir, &script_path);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+
+    assert!(
+        result.status.success(),
+        "run should succeed when the agent writes the rendered artifact path\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let expected = plan_dir.join("runtime/reports/1.md");
+    assert!(expected.exists(), "required output should be written under RHEI_ROOT");
+    let rendered = fs::read_to_string(plan_dir.join("runtime/rendered-artifact-path.txt"))
+        .expect("read rendered path");
+    // §FS-rhei-agents.4: artifact template paths stay rooted at RHEI_ROOT when cwd is checkout root.
+    assert_eq!(rendered.trim(), expected.to_str().expect("expected path"));
+    assert!(
+        !repo.join("runtime/reports/1.md").exists(),
+        "agent should not write checkout-root runtime artifacts"
+    );
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
+    let root = unique_temp_dir("run-agent-cwd-checkout-root");
+    let cwd = root.join("caller");
+    let plan_dir = root.join("scratchpad");
+    fs::create_dir_all(&cwd).expect("create cwd");
+    fs::create_dir_all(&plan_dir).expect("create plan dir");
+    let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
+    let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
+    let script_path = write_checkout_recording_script(&plan_dir);
+    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+
+    let result = run_run_command_in_dir(&cwd, &plan_path, &machine_path, &["--no-callbacks"]);
+
+    assert!(
+        result.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let recorded =
+        fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
+    // §FS-rhei-agents.4: no-git runs use the operator's invocation cwd as checkout context.
+    assert!(recorded.lines().next() == Some(cwd.to_str().expect("cwd path")));
+    assert!(recorded.contains(&format!("rhei={}", plan_dir.display())));
+    assert!(recorded.contains(&format!("checkout={}", cwd.display())));
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
+    let root = unique_temp_dir("run-agent-clear-stale-worktree-env");
+    let plan_dir = root.join("scratchpad");
+    fs::create_dir_all(&plan_dir).expect("create plan dir");
+    let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
+    let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
+    let script_path = write_checkout_recording_script(&plan_dir);
+    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+
+    let result = run_run_command_with_env(
+        &plan_path,
+        &machine_path,
+        &["--no-callbacks"],
+        &[("RHEI_WORKTREE_ROOT", "/stale/worktree")],
+    );
+
+    assert!(
+        result.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let recorded =
+        fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
+    // §FS-rhei-agents.4: RHEI_WORKTREE_ROOT is unset unless a task worktree ref applies.
+    assert!(recorded.contains("worktree=\n"), "{recorded}");
+    assert!(!recorded.contains("/stale/worktree"), "{recorded}");
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn run_agent_prefers_task_worktree_ref_over_repository_root() {
+    let root = unique_temp_dir("run-agent-task-worktree-root");
+    let repo = root.join("repo");
+    init_git_repo(&repo);
+    let worktree = root.join("worktrees/task-1");
+    let worktree_parent = worktree.parent().expect("worktree parent");
+    fs::create_dir_all(worktree_parent).expect("create worktree parent");
+    run_git(&[
+        "-C",
+        repo.to_str().expect("repo path"),
+        "worktree",
+        "add",
+        "-b",
+        "rhei/task-1",
+        worktree.to_str().expect("worktree path"),
+    ]);
+
+    let plan_dir = repo.join(".agents/scratchpad/review");
+    fs::create_dir_all(plan_dir.join("runtime/worktree-refs")).expect("create worktree refs");
+    let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
+    let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
+    fs::write(
+        plan_dir.join("runtime/worktree-refs/1.yaml"),
+        format!("path: {}\nbranch: rhei/task-1\n", worktree.display()),
+    )
+    .expect("write worktree ref");
+    let script_path = write_checkout_recording_script(&plan_dir);
+    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+
+    assert!(
+        result.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let recorded =
+        fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
+    // §FS-rhei-agents.4: per-task worktree refs override the enclosing repository root.
+    assert!(recorded.lines().next() == Some(worktree.to_str().expect("worktree path")));
+    assert!(recorded.contains(&format!("checkout={}", worktree.display())));
+    assert!(recorded.contains(&format!("worktree={}", worktree.display())));
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
 #[test]
 fn run_spawns_agent_state_without_outputs() {
     let machine = r#"name: no-output-agent

@@ -120,7 +120,9 @@ fn drain_agent_output_reader(
 fn spawn_and_wait_agent(
     resolved: &ResolvedAgent,
     prompt: &str,
-    working_dir: &Path,
+    rhei_root: &Path,
+    checkout_root: &Path,
+    worktree_root: Option<&Path>,
     plan_path: &Path,
     state_machine_path: Option<&Path>,
     task_id: &str,
@@ -175,6 +177,11 @@ fn spawn_and_wait_agent(
             writeln!(f, "timeout: {}", format_duration_human(t))?;
         }
         writeln!(f, "plan: {}", plan_path.display())?;
+        writeln!(f, "rhei_root: {}", rhei_root.display())?;
+        writeln!(f, "checkout_root: {}", checkout_root.display())?;
+        if let Some(path) = worktree_root {
+            writeln!(f, "worktree_root: {}", path.display())?;
+        }
         let mcp_line = format_tooling_log_line(&tooling.mcp_servers, |e| {
             (e.id.as_str(), e.optional, e.definition.is_some())
         });
@@ -209,7 +216,9 @@ fn spawn_and_wait_agent(
     let mut cmd = build_agent_command(
         resolved,
         prompt,
-        working_dir,
+        rhei_root,
+        checkout_root,
+        worktree_root,
         plan_path,
         state_machine_path,
         task_id,
