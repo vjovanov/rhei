@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the `issue-converter` template, which fetches a bounded GitHub issue queue
+  and converts each matching non-duplicate issue into an executable Rhei task
+  chain with spec-inspection, implementation, verification, and PR-opening tasks
+  in its own worktree. PR #34
 - Clear stale Flow dashboard running indicators after the live loopback server
   stops answering, so closed runs do not leave browser tabs spinning forever.
   PR #31
