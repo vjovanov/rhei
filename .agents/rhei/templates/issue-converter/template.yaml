@@ -1,0 +1,130 @@
+name: issue-converter
+version: 1.0.0
+description: Fetch a bounded GitHub issue queue and convert matching non-duplicate issues into executable Rhei task files inside a generated workspace.
+
+inputs:
+  - name: repo
+    description: GitHub repository to inspect, in owner/name form.
+    type: string
+    required: true
+
+  - name: project_owner
+    description: GitHub Projects owner login. Use an organization/user login or @me.
+    type: string
+    required: true
+
+  - name: project_number
+    description: GitHub Projects project number that owns the issue queue.
+    type: number
+    required: true
+    validate: "[1-9][0-9]*"
+
+  - name: repo_checkout
+    description: Local git checkout root used as the source for per-issue worktrees.
+    type: path
+    required: true
+
+  - name: work_subdir
+    description: Subdirectory inside each issue worktree where implementation commands should run; use "." for the repository root.
+    type: string
+    default: "."
+
+  - name: worktree_root
+    description: Directory where the converter creates one git worktree per converted issue.
+    type: string
+    required: true
+
+  - name: todo_status
+    description: Project Status value that means an issue is ready to convert.
+    type: string
+    default: Todo
+
+  - name: in_progress_status
+    description: Project Status value to set after a Rhei task file has been generated.
+    type: string
+    default: In Progress
+
+  - name: author
+    description: Optional GitHub issue author filter. Leave empty to include issues from any author.
+    type: string
+    default: ""
+
+  - name: limit
+    description: Maximum number of issue task chains to generate in each batch.
+    type: number
+    default: 10
+    validate: "[1-9][0-9]*"
+
+  - name: candidate_limit
+    description: Maximum number of exact issue-search candidates to inspect in each batch before Project status verification.
+    type: number
+    default: 50
+    validate: "[1-9][0-9]*"
+
+  - name: sleep
+    description: Delay between bounded issue batches. Use 0s to poll immediately, or a duration such as 30s, 10m, or 1h.
+    type: string
+    default: 0s
+    validate: "^(0s|[1-9][0-9]*[smh])$"
+
+  - name: max_batches
+    description: Safety cap for conversion batches before the converter stops even if more issues may remain.
+    type: number
+    default: 20
+    validate: "[1-9][0-9]*"
+
+  - name: state
+    description: GitHub issue state to fetch.
+    type: string
+    default: open
+    validate: "^(open|closed|all)$"
+
+  - name: labels
+    description: Optional comma-separated GitHub labels to require.
+    type: string
+    default: ""
+
+  - name: search
+    description: Optional extra GitHub search query terms, for example "is:issue no:assignee".
+    type: string
+    default: ""
+
+  - name: pr_push_remote
+    description: Writable git remote used by generated PR tasks when pushing issue branches. Leave empty to let the task infer a non-origin fork remote.
+    type: string
+    default: ""
+
+  - name: pr_head_owner
+    description: GitHub owner/login for PR heads, used as <owner>:<branch>. Leave empty to infer it from pr_push_remote.
+    type: string
+    default: ""
+
+  - name: pr_base_branch
+    description: Target branch for generated pull requests.
+    type: string
+    default: master
+
+  - name: plan_title
+    description: Title of the instantiated workspace.
+    type: string
+    default: Issue Converter
+
+  - name: conversion_brief
+    description: Project-specific guidance for what counts as an executable Rhei task.
+    type: string
+    default: Convert every matching non-duplicate issue into executable Rhei tasks. If the issue is vague or broad, create a spec-inspection task before implementation instead of skipping it. Only skip exact duplicates, non-issue project items, or inaccessible items that cannot be inspected.
+
+  - name: converter_agent
+    description: Agent that fetches issues, triages them, and writes the generated task files.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: worker_agent
+    description: Agent that executes generated issue tasks and writes result artifacts.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: reviewer_agent
+    description: Agent that reviews generated issue task results and sends findings back to the fix state.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
