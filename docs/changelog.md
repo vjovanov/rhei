@@ -8,8 +8,9 @@
   task final states, and spawned invocations with relative log links. The non-TTY
   path now prints a greppable `Report:` pointer, and a run that advanced tasks
   without spawning any agent or program is called out so reused-output advances are
-  not mistaken for fast work. The report is also written for dry runs and for runs
-  that abort with an error mid-execution. PR #41 §FS-rhei-run-report.1 §FS-rhei-run-report.4
+  not mistaken for fast work. The report is also written for runs that abort with
+  an error mid-execution; a `--dry-run` stays side-effect-free and writes nothing.
+  PR #41 §FS-rhei-run-report.1 §FS-rhei-run-report.4
 - Add task-level execution overrides with `**Model:**` and `**Target:**`,
   including validation, agent resolution precedence, transition artifact checks,
   and canonical example coverage. PR #40 §FS-rhei-plan-language.3.11

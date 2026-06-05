@@ -139,6 +139,7 @@ fn run_agent_mode(
         parallel: max_parallel,
         mode: "agent",
         initial_states: initial_states.clone(),
+        dry_run: opts.dry_run(),
         summary: None,
         armed: true,
     };
@@ -2165,8 +2166,8 @@ fn run_agent_mode(
     drop(sink);
     drop(frontend);
 
-    // §FS-rhei-run-report.1/.3: write the durable report (dry runs included),
-    // print the console summary or `Report:` pointer (§3.4), then disarm the
+    // §FS-rhei-run-report.1/.3: write the durable report (skipped under --dry-run,
+    // §3.5), print the console summary or `Report:` pointer (§3.4), then disarm the
     // guard so its fallback only fires on an early error.
     emit_run_report(
         input,

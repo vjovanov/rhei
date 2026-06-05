@@ -152,11 +152,17 @@ fn emit_run_report(
     let Ok(loaded) = load_plan(input) else {
         return;
     };
+    // A dry run is a side-effect-free preview: render the console summary but
+    // never touch the durable report on disk. §FS-rhei-run-report.3.5
+    let dry_run = stats.dry_run;
     let mut report = RunSummaryReport::build(&loaded.rhei, machine, summary, stats);
-    // The durable report is the point of this surface; the console view is its
-    // pointer. Write it even when stdout is piped, so CI runs leave the artifact.
-    if let Err(err) = report.write_to_runtime(runtime_dir) {
-        eprintln!("warning: could not write run report: {err}");
+    // Write the durable report even when stdout is piped, so CI runs leave the
+    // artifact; a dry run writes nothing, leaving `report_path` unset so no pointer
+    // prints below. §FS-rhei-run-report.1 §FS-rhei-run-report.3.5
+    if !dry_run {
+        if let Err(err) = report.write_to_runtime(runtime_dir) {
+            eprintln!("warning: could not write run report: {err}");
+        }
     }
     if std::io::stdout().is_terminal() {
         // Honor NO_COLOR for users who disable ANSI globally.
@@ -243,6 +249,9 @@ struct RunReportGuard<'a> {
     parallel: usize,
     mode: &'static str,
     initial_states: HashMap<String, String>,
+    /// A dry run is side-effect-free, so the fallback writes nothing on an early
+    /// error either. §FS-rhei-run-report.3.5
+    dry_run: bool,
     /// Set once the frontend exists; without it there is nothing to report from.
     summary: Option<std::sync::Arc<SummarySink>>,
     /// Cleared by the happy path after the authoritative report is written.
@@ -258,7 +267,8 @@ impl RunReportGuard<'_> {
 
 impl Drop for RunReportGuard<'_> {
     fn drop(&mut self) {
-        if !self.armed {
+        // A dry run never writes a report, even when it aborts. §FS-rhei-run-report.3.5
+        if !self.armed || self.dry_run {
             return;
         }
         let Some(summary) = self.summary.clone() else {

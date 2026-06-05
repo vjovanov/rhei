@@ -34,6 +34,7 @@ fn run_callback_mode(
         parallel: max_parallel,
         mode: "callback",
         initial_states: initial_states.clone(),
+        dry_run: opts.dry_run(),
         summary: None,
         armed: true,
     };
@@ -289,8 +290,8 @@ fn run_callback_mode(
     drop(sink);
     drop(frontend);
 
-    // §FS-rhei-run-report.1/.3: durable report (including dry runs) + console
-    // summary. Callback mode spawns no agents/programs; its advances are
+    // §FS-rhei-run-report.1/.3: durable report (skipped under --dry-run, §3.5) +
+    // console summary. Callback mode spawns no agents/programs; its advances are
     // callback-only. Disarm the guard so its fallback only fires on early error.
     emit_run_report(
         input,
