@@ -120,6 +120,74 @@ printf invoked > runtime/agent-invoked.txt
 }
 
 #[test]
+fn run_auto_advances_nested_agent_task_after_outputs_exist() {
+    let machine = r#"name: nested-agent-output
+version: 1
+states:
+  waiting:
+    gating: true
+  pending:
+    initial: true
+    agent: fake
+    outputs:
+      - name: report
+        path: runtime/reports/{task_id}.md
+  completed:
+    final: true
+transitions:
+  - from: pending
+    to: completed
+"#;
+    let plan = r#"# Rhei: Nested Agent Output
+
+## Tasks
+
+### Task 1: Parent
+**State:** waiting
+
+#### Task 1.1: Child agent work
+**State:** pending
+"#;
+    let settings = r#"{
+  "agents": {
+    "fake": {
+      "command": ["bash", "./agent.sh"],
+      "timeout": "5s"
+    }
+  }
+}"#;
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p runtime/reports
+printf done > runtime/reports/1.1.md
+"#;
+
+    let dir = unique_temp_dir("run-nested-agent-output");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let script_path = write_fixture_file(&dir, "agent.sh", script);
+    make_run_agent_script_executable(&script_path);
+    write_run_agent_settings(&dir, settings);
+
+    let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
+
+    assert!(
+        result.status.success(),
+        "run should spawn and auto-advance the nested agent task\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(dir.join("runtime/reports/1.1.md").exists(), "agent should write required output");
+    // §FS-rhei-run.3: Successful agent output on a child task still applies the selected transition.
+    let updated = fs::read_to_string(&plan_path).expect("read plan");
+    let rhei = parse(&updated).expect("parse plan");
+    assert_eq!(rhei.tasks[0].state.as_str(), "waiting");
+    assert_eq!(rhei.tasks[0].children[0].state.as_str(), "completed");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_model_state_without_resolved_agent_fails_instead_of_callback_fallback() {
     let machine = r#"name: missing-model-agent
 version: 1

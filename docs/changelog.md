@@ -6,6 +6,8 @@
   and converts each matching non-duplicate issue into an executable Rhei task
   chain with spec-inspection, implementation, verification, and PR-opening tasks
   in its own worktree. PR #34
+- Fix `rhei run` auto-advance for nested agent tasks after required output
+  artifacts are written. PR #33
 - Clear stale Flow dashboard running indicators after the live loopback server
   stops answering, so closed runs do not leave browser tabs spinning forever.
   PR #31
