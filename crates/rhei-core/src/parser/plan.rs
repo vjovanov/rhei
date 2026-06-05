@@ -23,6 +23,10 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
     let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
     let re_assignee_like = Regex::new(r#"^\*\*Assignee\b.*$"#).unwrap();
+    let re_model = Regex::new(r#"^\*\*Model:\*\*\s*(.+)$"#).unwrap();
+    let re_model_like = Regex::new(r#"^\*\*Model(?::\*\*\s*|\*\*.*)$"#).unwrap();
+    let re_target = Regex::new(r#"^\*\*Target:\*\*\s*(.+)$"#).unwrap();
+    let re_target_like = Regex::new(r#"^\*\*Target(?::\*\*\s*|\*\*.*)$"#).unwrap();
     let re_h2_heading = Regex::new(r#"^##\s+\S.*$"#).unwrap();
     let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
 
@@ -179,6 +183,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
             if re_state_like.is_match(line)
                 || re_prior_like.is_match(line)
                 || re_assignee_like.is_match(line)
+                || re_model_like.is_match(line)
+                || re_target_like.is_match(line)
             {
                 return Err(ParseError::new(
                     "Metadata field appears outside a task",
@@ -298,6 +304,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 state: None,
                 prior: Vec::new(),
                 assignee: None,
+                model: None,
+                target: None,
                 content: String::new(),
                 children: Vec::new(),
                 metadata_closed: false,
@@ -440,6 +448,92 @@ pub fn parse(input: &str) -> Result<Rhei> {
             if node_stack.last().is_some() {
                 return Err(ParseError::new(
                     "Malformed metadata field: expected '**Assignee:** <value>'",
+                    Some(line_number),
+                ));
+            }
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        // **Model:** metadata
+        if let Some(caps) = re_model.captures(line) {
+            let Some(top) = node_stack.last_mut() else {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
+            };
+            if top.metadata_closed {
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
+            }
+            if top.state.is_none() {
+                return Err(ParseError::new(
+                    format!("**State:** must appear before **Model:** for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            if top.model.is_some() {
+                return Err(ParseError::new(
+                    format!("Duplicate **Model:** metadata for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            top.model = Some(caps.get(1).unwrap().as_str().trim().to_string());
+            continue;
+        }
+
+        if re_model_like.is_match(line) {
+            if node_stack.last().is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Model:** <value>'",
+                    Some(line_number),
+                ));
+            }
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        // **Target:** metadata
+        if let Some(caps) = re_target.captures(line) {
+            let Some(top) = node_stack.last_mut() else {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
+            };
+            if top.metadata_closed {
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
+            }
+            if top.state.is_none() {
+                return Err(ParseError::new(
+                    format!("**State:** must appear before **Target:** for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            if top.target.is_some() {
+                return Err(ParseError::new(
+                    format!("Duplicate **Target:** metadata for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            top.target = Some(caps.get(1).unwrap().as_str().trim().to_string());
+            continue;
+        }
+
+        if re_target_like.is_match(line) {
+            if node_stack.last().is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Target:** <value>'",
                     Some(line_number),
                 ));
             }

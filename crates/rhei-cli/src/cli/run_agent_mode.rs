@@ -255,8 +255,13 @@ fn run_agent_mode(
                     program_tasks.push((task_id_str, current_state_raw, current_state, resolved));
                 }
             } else {
-                let invocations =
-                    resolve_agent_invocations(machine, &current_state, settings, opts)?;
+                let invocations = resolve_agent_invocations_for_task(
+                    machine,
+                    &current_state,
+                    settings,
+                    opts,
+                    Some(task),
+                )?;
                 if invocations.is_empty() {
                     if opts.no_agent() {
                         callback_tasks.push((task_id_str, current_state_raw, current_state));

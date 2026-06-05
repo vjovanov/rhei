@@ -314,6 +314,7 @@ fn next_command(
         let task_workspace_root = loaded.task_root(tid, &workspace_root);
         ensure_state_inputs_exist_for_transition(
             &task_workspace_root,
+            Some(task),
             tid,
             &state_name,
             state_def,
@@ -347,6 +348,7 @@ fn next_command(
         let task_workspace_root = loaded.task_root(&task.id.to_string(), &workspace_root);
         ensure_state_inputs_exist_for_transition(
             &task_workspace_root,
+            Some(task),
             &task.id.to_string(),
             &state_name,
             state_def,
@@ -418,7 +420,7 @@ fn next_command(
     // errors to a stderr warning instead of failing the command outright.
     let settings = load_merged_settings(&workspace_root)?;
     let no_agent_opts = default_run_options();
-    let resolved = match resolve_agent(&machine, &final_state, &settings, &no_agent_opts) {
+    let resolved = match resolve_agent_for_task(&machine, &final_state, &settings, &no_agent_opts, task) {
         Ok(resolved) => resolved,
         Err(err) => {
             eprintln!(

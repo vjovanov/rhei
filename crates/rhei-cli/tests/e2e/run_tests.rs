@@ -279,6 +279,364 @@ fn run_living_review_loop_fixture_to_completion() {
 }
 
 #[test]
+fn run_applies_task_model_and_target_overrides_to_agent_processes() {
+    let dir = unique_temp_dir("run-task-execution-overrides");
+    let agent_script = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        r#"#!/bin/sh
+set -eu
+workspace="$(dirname "$RHEI_PLAN_PATH")"
+mkdir -p "$workspace/runtime/logs"
+printf 'task=%s model=%s target=%s mode=%s agent=%s provider=%s name=%s\n' \
+  "${RHEI_TASK_ID:-}" "${RHEI_MODEL:-}" "${RHEI_TARGET:-}" "${RHEI_AGENT_MODE:-}" \
+  "${RHEI_AGENT:-}" "${RHEI_MODEL_PROVIDER:-}" "${RHEI_MODEL_NAME:-}" \
+  >> "$workspace/runtime/logs/override-agent.log"
+"#,
+    );
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "agents": {{
+    "mock": {{
+      "command": ["sh", {script_json}],
+      "timeout": "5s",
+      "modes": {{
+        "yolo": [],
+        "slow": []
+      }}
+    }}
+  }},
+  "models": {{
+    "default-model": {{ "provider": "mock", "model": "default-model", "default_agent": "mock" }},
+    "special-model": {{ "provider": "mock", "model": "special-model", "default_agent": "mock" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let machine = r#"name: task-overrides
+version: 1
+models: [default-model, special-model]
+states:
+  work:
+    target: mock[yolo]:mock:default-model
+    agent_timeout: 5s
+  completed:
+    final: true
+transitions:
+  - from: work
+    to: completed
+"#;
+    let plan = r#"# Rhei: Task Overrides
+
+## Tasks
+
+### Task model-override: Use a task model
+**State:** work
+**Model:** special-model
+
+### Task target-override: Use a task target
+**State:** work
+**Target:** mock[slow]:mock:target-model
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert_success(&result);
+
+    let log =
+        fs::read_to_string(dir.join("runtime/logs/override-agent.log")).expect("read override log");
+    assert!(
+        log.contains(
+            "task=model-override model=special-model target=mock[yolo]:mock:special-model mode=yolo agent=mock provider=mock name=special-model"
+        ),
+        "model override did not preserve state target identity with swapped model; log:\n{}",
+        log
+    );
+    assert!(
+        log.contains(
+            "task=target-override model=target-model target=mock[slow]:mock:target-model mode=slow agent=mock provider=mock name=target-model"
+        ),
+        "target override did not replace full identity; log:\n{}",
+        log
+    );
+    assert_all_tasks_in_state(&plan_path, &machine_path, "completed");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn validate_rejects_task_override_on_fanout_state() {
+    let dir = unique_temp_dir("validate-task-override-fanout");
+    let machine = r#"name: task-overrides-fanout
+version: 1
+models: [default-model, special-model]
+states:
+  review:
+    all_models: [default-model, special-model]
+    agent: codex
+  completed:
+    final: true
+"#;
+    let plan = r#"# Rhei: Task Override Fanout
+
+## Tasks
+
+### Task 1: Invalid override
+**State:** review
+**Model:** special-model
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("validate", &plan_path, &machine_path, &[]);
+    assert!(
+        !result.status.success(),
+        "validate should reject task override on fanout state\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let normalized_stderr = result.stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized_stderr.contains("Task 1 declares a task execution override")
+            && normalized_stderr.contains("fanout state"),
+        "expected fanout validation error; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_uses_task_override_for_transition_output_artifact_checks() {
+    let dir = unique_temp_dir("run-task-override-output-checks");
+    let agent_script = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        r#"#!/bin/sh
+set -eu
+workspace="$(dirname "$RHEI_PLAN_PATH")"
+mkdir -p "$workspace/runtime/outputs"
+printf 'model=%s\n' "${RHEI_MODEL:-}" > "$workspace/runtime/outputs/${RHEI_MODEL}.txt"
+"#,
+    );
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "agents": {{
+    "mock": {{
+      "command": ["sh", {script_json}],
+      "timeout": "5s",
+      "modes": {{ "yolo": [] }}
+    }}
+  }},
+  "models": {{
+    "default-model": {{ "provider": "mock", "model": "default-model", "default_agent": "mock" }},
+    "special-model": {{ "provider": "mock", "model": "special-model", "default_agent": "mock" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let machine = r#"name: output-checks
+version: 1
+models: [default-model, special-model]
+states:
+  work:
+    target: mock[yolo]:mock:default-model
+    agent_timeout: 5s
+    outputs:
+      - name: model-output
+        path: runtime/outputs/{model}.txt
+  completed:
+    final: true
+transitions:
+  - from: work
+    to: completed
+"#;
+    let plan = r#"# Rhei: Task Override Output Checks
+
+## Tasks
+
+### Task 1: Use special output
+**State:** work
+**Model:** special-model
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert!(dir.join("runtime/outputs/special-model.txt").exists());
+    assert!(!dir.join("runtime/outputs/default-model.txt").exists());
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_does_not_create_agent_work_from_task_override_in_callback_state() {
+    let dir = unique_temp_dir("run-task-override-callback-only");
+    let agent_script = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        r#"#!/bin/sh
+set -eu
+workspace="$(dirname "$RHEI_PLAN_PATH")"
+mkdir -p "$workspace/runtime/logs"
+printf 'unexpected agent spawn\n' >> "$workspace/runtime/logs/agent.log"
+"#,
+    );
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "agents": {{
+    "mock": {{
+      "command": ["sh", {script_json}],
+      "timeout": "5s",
+      "modes": {{ "yolo": [] }}
+    }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let machine = r#"name: callback-only
+version: 1
+states:
+  step: {}
+  completed:
+    final: true
+transitions:
+  - from: step
+    to: completed
+"#;
+    let plan = r#"# Rhei: Callback Only Override
+
+## Tasks
+
+### Task 1: Callback transition
+**State:** step
+**Target:** mock[yolo]:mock:target-model
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert!(
+        !dir.join("runtime/logs/agent.log").exists(),
+        "task override should not spawn an agent for callback-only states"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_cli_model_override_supersedes_task_target_model() {
+    let dir = unique_temp_dir("run-cli-model-over-task-target");
+    let agent_script = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        r#"#!/bin/sh
+set -eu
+workspace="$(dirname "$RHEI_PLAN_PATH")"
+mkdir -p "$workspace/runtime/logs"
+printf 'model=%s target=%s\n' "${RHEI_MODEL:-}" "${RHEI_TARGET:-}" \
+  >> "$workspace/runtime/logs/agent.log"
+"#,
+    );
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "agents": {{
+    "mock": {{
+      "command": ["sh", {script_json}],
+      "timeout": "5s",
+      "modes": {{
+        "yolo": [],
+        "slow": []
+      }}
+    }}
+  }},
+  "models": {{
+    "default-model": {{ "provider": "mock", "model": "default-model", "default_agent": "mock" }},
+    "cli-model": {{ "provider": "mock", "model": "cli-model", "default_agent": "mock" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let machine = r#"name: cli-model-over-target
+version: 1
+models: [default-model, cli-model]
+states:
+  work:
+    target: mock[yolo]:mock:default-model
+    agent_timeout: 5s
+  completed:
+    final: true
+transitions:
+  - from: work
+    to: completed
+"#;
+    let plan = r#"# Rhei: CLI Model Over Task Target
+
+## Tasks
+
+### Task 1: Target with CLI model
+**State:** work
+**Target:** mock[slow]:mock:task-target-model
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli(
+        "run",
+        &plan_path,
+        &machine_path,
+        &["--no-tui", "--no-callbacks", "--model", "cli-model"],
+    );
+    assert_success(&result);
+
+    let log = fs::read_to_string(dir.join("runtime/logs/agent.log")).expect("read agent log");
+    assert!(
+        log.contains("model=cli-model target=mock[slow]:mock:cli-model"),
+        "CLI model override should replace the task target model segment; log:\n{}",
+        log
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_executes_program_states_and_routes_on_exit_code() {
     let plan = r#"# Rhei: Program State Run
 

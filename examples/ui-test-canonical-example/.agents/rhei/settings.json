@@ -49,6 +49,11 @@
       "provider": "mock",
       "model": "mock-fast",
       "default_agent": "mock-agent"
+    },
+    "ui-specialist": {
+      "provider": "mock",
+      "model": "ui-specialist",
+      "default_agent": "mock-agent"
     }
   },
   "skills": {

@@ -208,6 +208,12 @@ pub struct Task {
     /// Assignee value captured from the optional `**Assignee:**` metadata
     /// field. `None` when the field is absent.
     pub assignee: Option<String>,
+    /// Per-task model override from `**Model:**`, if present.
+    // §FS-rhei-plan-language.3.11: Task-level model override.
+    pub model: Option<String>,
+    /// Per-task full execution identity override from `**Target:**`, if present.
+    // §FS-rhei-plan-language.3.11: Task-level target override.
+    pub target: Option<String>,
     /// Free-form content accumulated from lines between the metadata and the
     /// first child heading (or the next sibling / end of file).
     pub content: String,

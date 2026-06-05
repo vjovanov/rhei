@@ -1,7 +1,6 @@
 
 struct TransitionTaskInfo {
-    current_state: String,
-    kind: String,
+    task: rhei_core::ast::Task,
     level: u8,
 }
 
@@ -108,7 +107,7 @@ fn execute_transition_with_origin(
         &target_id,
         task_id_str,
     )?;
-    let current_state_raw = task_info.current_state;
+    let current_state_raw = task_info.task.state.clone();
     let current_state = normalized_state_name(&current_state_raw, machine);
     let metadata = if task_file == metadata_file {
         rhei_core::parse(&metadata_raw)
@@ -139,7 +138,7 @@ fn execute_transition_with_origin(
     if let Err(err) = ensure_task_profile_allows_state(
         machine,
         task_id_str,
-        &task_info.kind,
+        &task_info.task.kind,
         task_info.level,
         to,
     ) {
@@ -227,9 +226,14 @@ fn execute_transition_with_origin(
         .get(from)
         .ok_or_else(|| miette!("state '{}' missing from loaded machine", from))?;
 
-    let from_invocations =
-        resolve_agent_invocations(machine, from, &settings, &default_run_options())
-            .unwrap_or_default();
+    let from_invocations = resolve_agent_invocations_for_task(
+        machine,
+        from,
+        &settings,
+        &default_run_options(),
+        Some(&task_info.task),
+    )
+    .unwrap_or_default();
     let callback_contexts = callback_contexts_for_state(from_state_def, &from_invocations);
 
     // Parse the plan once for callback-context serialization. Failure here
@@ -317,7 +321,7 @@ fn execute_transition_with_origin(
         } else if let Err(err) = ensure_task_profile_allows_state(
             machine,
             task_id_str,
-            &task_info.kind,
+            &task_info.task.kind,
             task_info.level,
             redirect,
         ) {
@@ -380,6 +384,7 @@ fn execute_transition_with_origin(
     if !origin.skip_source_outputs {
         ensure_state_outputs_exist_for_transition(
             &workspace_root,
+            Some(&task_info.task),
             task_id_str,
             from,
             from_state_def,
@@ -390,6 +395,7 @@ fn execute_transition_with_origin(
     }
     ensure_state_inputs_exist_for_transition(
         &workspace_root,
+        Some(&task_info.task),
         task_id_str,
         to,
         to_state_def,
@@ -505,8 +511,7 @@ fn find_task_transition_info(
     if let Ok(rhei) = rhei_core::parse(raw) {
         if let Some(task) = find_task_by_id(&rhei.tasks, target_id) {
             return Ok(TransitionTaskInfo {
-                current_state: task.state.as_str().to_string(),
-                kind: task.kind.clone(),
+                task: task.clone(),
                 level: task.id.depth() as u8,
             });
         }
@@ -520,8 +525,7 @@ fn find_task_transition_info(
     if let Ok(tasks) = workspace_tasks {
         if let Some(task) = find_task_by_id(&tasks, target_id) {
             return Ok(TransitionTaskInfo {
-                current_state: task.state.as_str().to_string(),
-                kind: task.kind.clone(),
+                task: task.clone(),
                 level: task.id.depth() as u8,
             });
         }

@@ -61,6 +61,19 @@ fn resolve_target_agent(
     })
 }
 
+fn resolve_target_agent_with_model_override(
+    selector: &str,
+    state_def: Option<&rhei_validator::StateDef>,
+    settings: &RheiSettings,
+    model_override: &str,
+) -> MietteResult<ResolvedAgent> {
+    let mut target = parse_execution_target(selector)
+        .map_err(|err| miette!("invalid target selector '{}': {}", selector, err))?;
+    target.model = model_override.to_string();
+    // §FS-rhei-plan-language.3.11: `**Model:**` preserves state target agent/mode/provider.
+    resolve_target_agent(&target.selector(), state_def, settings)
+}
+
 fn resolve_legacy_agent_with_model(
     state_def: Option<&rhei_validator::StateDef>,
     settings: &RheiSettings,
@@ -188,12 +201,81 @@ fn resolve_agent_invocations(
     settings: &RheiSettings,
     opts: &RunOptions,
 ) -> MietteResult<Vec<ResolvedAgent>> {
+    resolve_agent_invocations_for_task(machine, state_name, settings, opts, None)
+}
+
+fn resolve_agent_invocations_for_task(
+    machine: &rhei_validator::StateMachine,
+    state_name: &str,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+    task: Option<&rhei_core::ast::Task>,
+) -> MietteResult<Vec<ResolvedAgent>> {
     if opts.no_agent() {
         return Ok(Vec::new());
     }
 
     let state_def = machine.states.get(state_name);
     if let Some(state_def) = state_def {
+        let apply_task_override = state_declares_autonomous_agent_work(state_def);
+        let task_target_override =
+            apply_task_override.then(|| task.and_then(|task| task.target.as_deref())).flatten();
+        let task_model_override = if apply_task_override && opts.model_override().is_none() {
+            task.and_then(|task| task.model.as_deref())
+        } else {
+            None
+        };
+
+        if task_target_override.is_some() || task_model_override.is_some() {
+            if !state_def.all_targets.is_empty() || !state_def.all_models.is_empty() {
+                return Err(miette!(
+                    "Task {} declares a task execution override but state '{}' is a fanout state",
+                    task.map(|task| task.id.to_string())
+                        .unwrap_or_else(|| "<unknown>".to_string()),
+                    state_name
+                ));
+            }
+            if state_def.target_locked {
+                return Err(miette!(
+                    "Task {} declares a task execution override but state '{}' has target_locked: true",
+                    task.map(|task| task.id.to_string())
+                        .unwrap_or_else(|| "<unknown>".to_string()),
+                    state_name
+                ));
+            }
+        }
+
+        if let Some(selector) = task_target_override {
+            // §FS-rhei-plan-language.3.11: `**Target:**` replaces the full execution identity.
+            if let Some(model) = opts.model_override() {
+                return Ok(vec![resolve_target_agent_with_model_override(
+                    selector,
+                    Some(state_def),
+                    settings,
+                    model,
+                )?]);
+            }
+            return Ok(vec![resolve_target_agent(selector, Some(state_def), settings)?]);
+        }
+        if let Some(model) = task_model_override {
+            if let Some(selector) = state_def.target.as_deref() {
+                return Ok(vec![resolve_target_agent_with_model_override(
+                    selector,
+                    Some(state_def),
+                    settings,
+                    model,
+                )?]);
+            }
+            return Ok(resolve_legacy_agent_with_model(
+                Some(state_def),
+                settings,
+                opts,
+                Some(model.to_string()),
+            )?
+            .into_iter()
+            .collect());
+        }
+
         if !state_def.all_targets.is_empty() {
             let mut resolved = Vec::with_capacity(state_def.all_targets.len());
             for selector in &state_def.all_targets {
@@ -231,13 +313,16 @@ fn state_declares_autonomous_agent_work(state_def: &rhei_validator::StateDef) ->
         || !state_def.all_targets.is_empty()
 }
 
-fn resolve_agent(
+fn resolve_agent_for_task(
     machine: &rhei_validator::StateMachine,
     state_name: &str,
     settings: &RheiSettings,
     opts: &RunOptions,
+    task: &rhei_core::ast::Task,
 ) -> MietteResult<Option<ResolvedAgent>> {
-    Ok(resolve_agent_invocations(machine, state_name, settings, opts)?.into_iter().next())
+    Ok(resolve_agent_invocations_for_task(machine, state_name, settings, opts, Some(task))?
+        .into_iter()
+        .next())
 }
 
 type TransitionInvocationContext<'a> =

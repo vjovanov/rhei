@@ -39,6 +39,9 @@ fn run_command(
     // Initial validation pass.
     let mut report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
     report.errors.extend(validate_machine_settings_references(&machine, &settings));
+    report
+        .errors
+        .extend(validate_task_execution_override_settings_references(&loaded.rhei, &settings));
     report.errors.extend(validate_snapshot_plan_context(&loaded, &machine));
     if report.has_errors() {
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
@@ -83,7 +86,8 @@ fn should_use_agent_mode(
             return Ok(true);
         }
         if !opts.no_agent() {
-            let invocations = resolve_agent_invocations(machine, &state_name, settings, opts)?;
+            let invocations =
+                resolve_agent_invocations_for_task(machine, &state_name, settings, opts, Some(task))?;
             if !invocations.is_empty() || state_declares_autonomous_agent_work(def) {
                 return Ok(true);
             }

@@ -49,6 +49,9 @@ pub struct StateDef {
     /// Explicit list of execution target selectors for fanout execution.
     #[serde(default)]
     pub all_targets: Vec<String>,
+    /// When true, per-task execution overrides cannot replace this state's identity.
+    #[serde(default)]
+    pub target_locked: bool,
     /// Explicit list of declared models that should each execute this state.
     #[serde(default)]
     pub all_models: Vec<String>,

@@ -349,6 +349,7 @@ fn write_task_assignee(
     }
     ensure_state_inputs_exist_for_transition(
         claim.workspace_root,
+        Some(&task),
         task_id,
         &current_state,
         claim.state_def,
