@@ -4,7 +4,7 @@ This document describes how a user-directed agent creates a Rhei plan, validates
 and fixes syntax, and passes it to the orchestrator for state-managed execution.
 It expands the plan language, state machine, transition, and run-command
 contracts into the component workflow they imply. §FS-rhei-plan-language
-§FS-rhei-states §FS-rhei-transitions §FS-rhei-run
+§FS-rhei-states §FS-rhei-transitions §FS-rhei-run §FS-rhei-agents
 
 ## 1. High-Level Architecture
 
@@ -252,6 +252,32 @@ The orchestrator manages workflow execution through state transitions:
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### 3.4. Durable State and Git Boundary
+
+Rhei-owned durable state is the authored plan/workspace task state plus the
+orchestrator result ledger under `runtime/results`. Agent subprocesses may
+edit repository files and may even create Git commits as part of their domain
+work, but they do not own Rhei state transitions under orchestrator authority.
+The orchestrator therefore treats Git commit creation as an external side
+effect, not as a state-transition persistence mechanism. §FS-rhei-agents.3.1
+§FS-rhei-run.3
+
+At `rhei run` entry, the CLI records the repository root and `HEAD` only when
+the execution workspace is inside Git. At successful run exit, it re-reads
+`HEAD`; if `HEAD` moved, the CLI performs a read-only tracked-status check over
+the actual plan/workspace path and `runtime/results`. The pathspecs are derived
+from resolved filesystem paths and converted to repository-relative paths, so
+relative invocations from nested directories and repository-root invocations
+cover the same Rhei-owned files. A dirty tracked Rhei-owned path turns the
+would-be success into a clear error; non-Git workspaces, unchanged `HEAD`, and
+untracked runtime artifacts are ignored. §FS-rhei-run.3.1
+
+This boundary deliberately does not stage, commit, or roll back files. Rhei can
+detect that a subprocess commit made `HEAD` stale relative to the final
+orchestrator-owned transition, but deciding how to commit or discard that
+transition remains an operator or surrounding workflow responsibility.
+§FS-rhei-run.3.1
 
 ---
 

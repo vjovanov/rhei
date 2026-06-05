@@ -20,6 +20,9 @@ fn run_command(
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let settings = load_merged_settings(&workspace_root)?;
     let _run_lock = if opts.dry_run() { None } else { Some(acquire_run_lock(&workspace_root)?) };
+    // §FS-rhei-run.3.1: detect subprocess commits that leave run-owned state dirty.
+    let git_consistency =
+        RunGitConsistencyGuard::capture(&workspace_root, input, !opts.dry_run());
 
     // Warn if --parallel > 1 on single-file plans.
     let is_workspace = workspace::is_workspace(input);
@@ -44,11 +47,13 @@ fn run_command(
     let use_standalone_mode =
         should_use_agent_mode(&loaded.rhei, &machine, &settings, &opts, &workspace_root)?;
 
-    if use_standalone_mode {
+    let result = if use_standalone_mode {
         run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
     } else {
         run_callback_mode(input, &machine, &callback_paths, &opts, effective_parallel)
-    }
+    };
+    result?;
+    git_consistency.verify_after_success()
 }
 
 fn should_use_agent_mode(

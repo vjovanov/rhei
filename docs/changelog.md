@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Detect when an agent-created commit leaves tracked Rhei-owned plan/result
+  state uncommitted after `rhei run` applies its orchestrator transition, and
+  report a clear error instead of silently reporting durable success. PR #38
 - Run agents from checkout roots so repository `AGENTS.md` files and task
   worktrees are visible while Rhei artifacts stay rooted at the plan workspace.
   PR #35

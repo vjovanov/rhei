@@ -149,6 +149,18 @@ fn run_git(args: &[&str]) {
     );
 }
 
+fn git_stdout(args: &[&str]) -> String {
+    let output = Command::new("git").args(args).output().expect("git should run");
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 fn init_git_repo(repo: &Path) {
     fs::create_dir_all(repo).expect("create repo");
     run_git(&["-C", repo.to_str().expect("repo path"), "init"]);
@@ -188,6 +200,66 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     assert_recorded_path_eq(recorded_value(&recorded, "rhei="), &plan_dir);
     assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &repo);
     assert!(plan_dir.join("runtime/logs/task-1-review.log").exists());
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn run_agent_fails_when_agent_commit_leaves_orchestrator_transition_uncommitted() {
+    let root = unique_temp_dir("run-agent-commit-dirty-transition");
+    let repo = root.join("repo");
+    init_git_repo(&repo);
+
+    let plan_dir = repo.join(".agents/scratchpad/review");
+    fs::create_dir_all(&plan_dir).expect("create plan dir");
+    let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
+    write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
+    let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+printf 'agent work\n' > agent-work.txt
+git add agent-work.txt
+git commit -m 'agent work'
+"#;
+    let script_path = write_fixture_file(&plan_dir, "commit-work.sh", script);
+    make_run_agent_script_executable(&script_path);
+    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+    run_git(&["-C", repo.to_str().expect("repo path"), "add", ".agents"]);
+    run_git(&["-C", repo.to_str().expect("repo path"), "commit", "-m", "add rhei plan"]);
+
+    let result = run_run_command_in_dir(
+        &plan_dir,
+        Path::new("plan.rhei.md"),
+        Path::new("states.yaml"),
+        &["--no-callbacks"],
+    );
+
+    // §FS-rhei-run.3.1: a subprocess commit followed by a run-owned transition must not be silent.
+    assert!(
+        !result.status.success(),
+        "run should fail when HEAD moved and the plan transition is dirty\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("plan/result paths remain uncommitted"),
+        "diagnostic should explain the durable-state mismatch; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("plan.rhei.md"),
+        "diagnostic should name the dirty plan path; got:\n{}",
+        result.stderr
+    );
+
+    let worktree_plan = fs::read_to_string(&plan_path).expect("read worktree plan");
+    assert!(worktree_plan.contains("**State:** completed"), "{worktree_plan}");
+    let head_plan = git_stdout(&[
+        "-C",
+        repo.to_str().expect("repo path"),
+        "show",
+        "HEAD:.agents/scratchpad/review/plan.rhei.md",
+    ]);
+    assert!(head_plan.contains("**State:** review"), "{head_plan}");
 
     fs::remove_dir_all(root).expect("cleanup");
 }
