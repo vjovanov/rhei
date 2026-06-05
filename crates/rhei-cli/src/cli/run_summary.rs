@@ -68,14 +68,17 @@ impl SummarySink {
         Self { inner: Mutex::new(SummaryState::default()) }
     }
 
-    /// Snapshot the accumulated activity for rendering after the run.
+    /// Snapshot the accumulated activity for rendering after the run. A poisoned
+    /// lock (a worker panicked mid-run) degrades to empty rather than panicking
+    /// the report — a partial report still beats none.
     fn snapshot(&self) -> HashMap<String, TaskActivity> {
-        self.inner.lock().expect("summary sink poisoned").tasks.clone()
+        self.inner.lock().map(|state| state.tasks.clone()).unwrap_or_default()
     }
 
-    /// The spawned-transition ledger in chronological order.
+    /// The spawned-transition ledger in chronological order; empty on a poisoned
+    /// lock, for the same best-effort reason as [`snapshot`](Self::snapshot).
     fn ledger(&self) -> Vec<LedgerRecord> {
-        self.inner.lock().expect("summary sink poisoned").ledger.clone()
+        self.inner.lock().map(|state| state.ledger.clone()).unwrap_or_default()
     }
 }
 
@@ -179,14 +182,28 @@ fn short_run_id(started_at: std::time::SystemTime) -> String {
 }
 
 /// The relative path to the frozen dashboard artifact when one was written this
-/// run, for the report's Dashboard pointer; `None` when the dashboard was off.
-/// §FS-rhei-run-report.2
+/// run, for the report's Dashboard pointer. Gated on `enabled_this_run` so a
+/// stale `dashboard.html` left by an earlier run is never linked. §FS-rhei-run-report.2
 fn frozen_dashboard_relative_path(
+    enabled_this_run: bool,
     runtime_dir: &std::path::Path,
     workspace_root: &std::path::Path,
 ) -> Option<String> {
+    if !enabled_this_run {
+        return None;
+    }
     let path = runtime_dir.join("dashboard.html");
     path.exists().then(|| relativize(&path, workspace_root))
+}
+
+/// The current process command line with `argv[0]` normalized to `rhei`, so the
+/// report header records the real flags the operator ran. §FS-rhei-run-report.2
+fn current_command_line() -> String {
+    let mut args: Vec<String> = std::env::args().collect();
+    if let Some(first) = args.first_mut() {
+        *first = "rhei".to_string();
+    }
+    args.join(" ")
 }
 
 /// Snapshot each task's normalized state at run start, keyed by task id, so the
@@ -209,6 +226,71 @@ fn collect_initial_states(
     let mut out = HashMap::new();
     walk(&rhei.tasks, machine, &mut out);
     out
+}
+
+/// Writes a best-effort report if `rhei run` returns early with an error.
+/// Declared before the frontend so it drops after the terminal is restored; the
+/// happy path disarms it after the full report is written. §FS-rhei-run-report.1
+struct RunReportGuard<'a> {
+    input: &'a std::path::Path,
+    machine: &'a rhei_validator::StateMachine,
+    runtime_dir: std::path::PathBuf,
+    run_started: std::time::Instant,
+    run_started_wall: std::time::SystemTime,
+    run_id: String,
+    workspace_root: std::path::PathBuf,
+    command: String,
+    parallel: usize,
+    mode: &'static str,
+    initial_states: HashMap<String, String>,
+    /// Set once the frontend exists; without it there is nothing to report from.
+    summary: Option<std::sync::Arc<SummarySink>>,
+    /// Cleared by the happy path after the authoritative report is written.
+    armed: bool,
+}
+
+impl RunReportGuard<'_> {
+    /// The run wrote its own report; suppress the best-effort fallback.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RunReportGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Some(summary) = self.summary.clone() else {
+            return;
+        };
+        // Best-effort from the data captured before the failure: spawn counts come
+        // from the ledger, callbacks and dashboard are unknown on an aborted run.
+        let ledger = summary.ledger();
+        let agents = ledger.iter().filter(|r| r.driver == "agent").count() as u32;
+        let programs = ledger.iter().filter(|r| r.driver == "program").count() as u32;
+        emit_run_report(
+            self.input,
+            self.machine,
+            &summary,
+            &self.runtime_dir,
+            RunStats {
+                agents_spawned: agents,
+                programs_spawned: programs,
+                callback_only: 0,
+                duration: Some(self.run_started.elapsed()),
+                dashboard: None,
+                run_id: self.run_id.clone(),
+                started_at: Some(self.run_started_wall),
+                workspace_root: self.workspace_root.clone(),
+                command: self.command.clone(),
+                parallel: self.parallel,
+                mode: self.mode,
+                initial_states: self.initial_states.clone(),
+                dry_run: false,
+            },
+        );
+    }
 }
 
 /// The scan glyph for a task's final state. Color and the state label remain the
@@ -321,6 +403,9 @@ pub struct RunStats {
     /// and reconciling callback advances that emit no slot events.
     /// §FS-rhei-run-report.8
     pub initial_states: HashMap<String, String>,
+    /// True under `--dry-run`: the report records a simulated run that applied no
+    /// changes, so its result line and counts read as a preview. §FS-rhei-run-report.3.5
+    pub dry_run: bool,
 }
 
 /// One rendered Transition Ledger row. §FS-rhei-run-report.4
@@ -449,7 +534,13 @@ impl RunSummaryReport {
             r.marker == Marker::Done
                 && stats.initial_states.get(&r.id).map(String::as_str) != Some(r.state.as_str())
         });
-        let result = result_phrase(&attention, &rows, no_work, advanced_without_work);
+        // A dry run simulated transitions but applied nothing, so its result
+        // reads as a preview rather than an outcome. §FS-rhei-run-report.3.5
+        let result = if stats.dry_run {
+            "dry run — no changes applied".to_string()
+        } else {
+            result_phrase(&attention, &rows, no_work, advanced_without_work)
+        };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
 
         let ledger = build_ledger(
@@ -624,7 +715,10 @@ impl RunSummaryReport {
             for a in &self.attention {
                 out.push_str(&format!(
                     "| {} | {} | {} | {} |\n",
-                    a.id, a.state, a.reason, a.next
+                    md_cell(&a.id),
+                    md_cell(&a.state),
+                    md_cell(&a.reason),
+                    md_cell(&a.next),
                 ));
             }
             out.push('\n');
@@ -981,7 +1075,7 @@ fn build_ledger(
         let task_records: Vec<&LedgerRecord> =
             records.iter().filter(|r| r.task == row.id).collect();
         if !task_records.is_empty() {
-            for rec in task_records {
+            for rec in &task_records {
                 let log = relativize(&rec.log_path, workspace_root);
                 ledger.push(LedgerEntry {
                     task: row.id.clone(),
@@ -990,6 +1084,22 @@ fn build_ledger(
                     driver: rec.driver,
                     invocation: format!("{} / {}", rec.driver, log),
                     reason: ledger_outcome_reason(&rec.outcome, rec.exit_code),
+                });
+            }
+            // If the task ended in a terminal-success state past the last spawned
+            // transition, a callback or transition rule carried it the rest of the
+            // way — record that advance so the ledger reaches the final state.
+            let last_to = task_records.last().map(|r| r.to.as_str());
+            if matches!(row.marker, Marker::Done | Marker::TerminalAtStart)
+                && last_to != Some(row.state.as_str())
+            {
+                ledger.push(LedgerEntry {
+                    task: row.id.clone(),
+                    from: last_to.unwrap_or("").to_string(),
+                    to: row.state.clone(),
+                    driver: "callback-only",
+                    invocation: "none".to_string(),
+                    reason: "advanced without spawning work".to_string(),
                 });
             }
             continue;
@@ -1189,6 +1299,7 @@ mod run_summary_tests {
             parallel: 4,
             mode: "agent",
             initial_states: HashMap::new(),
+            dry_run: false,
         }
     }
 
@@ -1325,5 +1436,81 @@ mod run_summary_tests {
             .filter_map(Result::ok)
             .count();
         assert_eq!(history, 1, "one timestamped history entry written");
+    }
+
+    #[test]
+    fn dry_run_result_reads_as_preview() {
+        let stats = RunStats { dry_run: true, ..test_stats() };
+        let r = report_with(&[("1", "completed")], stats);
+        assert_eq!(r.result, "dry run — no changes applied");
+        assert!(r.render_markdown().contains("Result: dry run — no changes applied"));
+    }
+
+    #[test]
+    fn dashboard_pointer_gated_on_enabled_this_run() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let runtime = dir.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::write(runtime.join("dashboard.html"), "<html>").unwrap();
+        // A stale dashboard from an earlier run must not be linked when the
+        // dashboard was off this run.
+        assert_eq!(frozen_dashboard_relative_path(false, &runtime, dir.path()), None);
+        assert_eq!(
+            frozen_dashboard_relative_path(true, &runtime, dir.path()).as_deref(),
+            Some("runtime/dashboard.html"),
+        );
+    }
+
+    #[test]
+    fn md_cell_escapes_pipes_and_newlines() {
+        assert_eq!(md_cell("a|b"), "a\\|b");
+        assert_eq!(md_cell("line1\nline2"), "line1 line2");
+    }
+
+    /// A `SummarySink` carrying one spawned transition `from`→`to`.
+    fn summary_with_spawn(task: &str, from: &str, to: &str, agent: bool) -> SummarySink {
+        use rhei_tui::EventSink;
+        let s = SummarySink::new();
+        let log = std::path::PathBuf::from("runtime/logs/x.log");
+        s.emit(rhei_tui::RunEvent::SlotAssigned {
+            slot: 0,
+            task: task.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            agent: agent.then(|| "mock".to_string()),
+            template_context: None,
+            log_path: log.clone(),
+            started_at: std::time::Instant::now(),
+            wall_clock: std::time::SystemTime::now(),
+        });
+        s.emit(rhei_tui::RunEvent::SlotReleased {
+            slot: 0,
+            task: task.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            log_path: log,
+            outcome: rhei_tui::TaskOutcome::Completed,
+            finished_at: std::time::Instant::now(),
+            wall_clock: std::time::SystemTime::now(),
+            exit_code: Some(0),
+            duration_ms: 1_200,
+        });
+        s
+    }
+
+    #[test]
+    fn ledger_records_trailing_callback_advance_after_spawn() {
+        // An agent ran build->review, then a callback carried review->completed
+        // with no further spawn. The ledger must reach the final state.
+        let summary = summary_with_spawn("1", "build", "review", true);
+        let stats = RunStats { initial_states: HashMap::new(), ..test_stats() };
+        let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
+        md.push_str("### Task 1: Task 1\n**State:** completed\n\n");
+        let rhei = rhei_core::parse(&md).expect("plan parses");
+        let report = RunSummaryReport::build(&rhei, &machine(), &summary, stats);
+        let md = report.render_markdown();
+        // The spawned agent row and the synthesized callback advance both appear.
+        assert!(md.contains("| 1 | build | review | agent |"), "{md}");
+        assert!(md.contains("| 1 | review | completed | callback-only |"), "{md}");
     }
 }

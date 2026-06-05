@@ -294,14 +294,16 @@ an agent completed the work.
 (§4) are emitted from the run event stream and the run-start state snapshot: every
 spawned agent/program transition carries its real driver, exit, log path, and the
 synthesized callback-only, terminal-at-start, and blocked rows complete the
-picture. The per-artifact Inputs/Outputs evidence columns (§5) and the
-`reused-output` driver are not yet captured — distinguishing reuse from a
-callback advance needs a pre-run output-existence snapshot from the engine, so
-no-spawn advances are currently reported as `callback-only`. Until that lands,
-the report makes the artifact-collision case visible the coarse way: a run whose
-Outcome Strip shows `agent invocations: 0 · program invocations: 0` while tasks
-advanced is flagged in the report body as "no agent or program ran," which is the
-signal the motivating issue asked for.
+picture. A report is written for every run, including dry runs (§3.5) and runs
+that abort with an error mid-execution — the latter via a best-effort write of
+the data available up to the failure (§1). The per-artifact Inputs/Outputs
+evidence columns (§5) and the `reused-output` driver are not yet captured —
+distinguishing reuse from a callback advance needs a pre-run output-existence
+snapshot from the engine, so no-spawn advances are currently reported as
+`callback-only`. Until that lands, the report makes the artifact-collision case
+visible the coarse way: a run whose Outcome Strip shows `agent invocations: 0 ·
+program invocations: 0` while tasks advanced is flagged in the report body as "no
+agent or program ran," which is the signal the motivating issue asked for.
 
 ## 6. Canonical Rhei Example
 

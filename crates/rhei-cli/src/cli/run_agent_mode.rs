@@ -118,9 +118,29 @@ fn run_agent_mode(
     let run_started_wall = SystemTime::now();
     let run_id = short_run_id(run_started_wall);
 
+    let command = current_command_line();
+
     let (initial_total_tasks, initial_states) = {
         let loaded = load_plan(input)?;
         (total_task_count(&loaded.rhei), collect_initial_states(&loaded.rhei, machine))
+    };
+    // §FS-rhei-run-report.1: declared before the frontend so it drops *after* the
+    // terminal is restored; the happy path disarms it once the full report is
+    // written, so it only fires when the run returns early with an error.
+    let mut report_guard = RunReportGuard {
+        input,
+        machine,
+        runtime_dir: runtime_dir.clone(),
+        run_started,
+        run_started_wall,
+        run_id: run_id.clone(),
+        workspace_root: workspace_root.clone(),
+        command: command.clone(),
+        parallel: max_parallel,
+        mode: "agent",
+        initial_states: initial_states.clone(),
+        summary: None,
+        armed: true,
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
@@ -136,6 +156,8 @@ fn run_agent_mode(
     // Held past the frontend drop so the end-of-run summary can read per-task
     // activity after the TUI restores the terminal. §FS-rhei-run-report.3
     let summary_sink = frontend.summary.clone();
+    report_guard.summary = Some(summary_sink.clone());
+    let dashboard_enabled = frontend.dashboard.is_some();
     // AR §7: present only when the dashboard is live; each spawned agent's stdin
     // is registered here so `/intervene` can stream messages to it.
     let intervene = frontend.intervene.clone();
@@ -2143,31 +2165,35 @@ fn run_agent_mode(
     drop(sink);
     drop(frontend);
 
-    // §FS-rhei-run-report.1/.3: write the durable report, then print the rich
-    // console summary on a TTY (after the TUI restores it) or a greppable
-    // `Report:` pointer for non-TTY runs (§3.4).
-    if !opts.dry_run() {
-        emit_run_report(
-            input,
-            machine,
-            &summary_sink,
-            &runtime_dir,
-            RunStats {
-                agents_spawned,
-                programs_spawned,
-                callback_only: callback_transitions_made,
-                duration: Some(run_started.elapsed()),
-                dashboard: frozen_dashboard_relative_path(&runtime_dir, &workspace_root),
-                run_id,
-                started_at: Some(run_started_wall),
-                workspace_root: workspace_root.clone(),
-                command: format!("rhei run {} --parallel {}", input.display(), max_parallel),
-                parallel: max_parallel,
-                mode: "agent",
-                initial_states,
-            },
-        );
-    }
+    // §FS-rhei-run-report.1/.3: write the durable report (dry runs included),
+    // print the console summary or `Report:` pointer (§3.4), then disarm the
+    // guard so its fallback only fires on an early error.
+    emit_run_report(
+        input,
+        machine,
+        &summary_sink,
+        &runtime_dir,
+        RunStats {
+            agents_spawned,
+            programs_spawned,
+            callback_only: callback_transitions_made,
+            duration: Some(run_started.elapsed()),
+            dashboard: frozen_dashboard_relative_path(
+                dashboard_enabled,
+                &runtime_dir,
+                &workspace_root,
+            ),
+            run_id,
+            started_at: Some(run_started_wall),
+            workspace_root: workspace_root.clone(),
+            command,
+            parallel: max_parallel,
+            mode: "agent",
+            initial_states,
+            dry_run: opts.dry_run(),
+        },
+    );
+    report_guard.disarm();
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
