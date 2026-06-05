@@ -6,6 +6,12 @@
   and converts each matching non-duplicate issue into an executable Rhei task
   chain with spec-inspection, implementation, verification, and PR-opening tasks
   in its own worktree. PR #34
+- Detect when an agent-created commit leaves tracked Rhei-owned plan/result
+  state uncommitted after `rhei run` applies its orchestrator transition, and
+  report a clear error instead of silently reporting durable success. PR #38
+- Run agents from checkout roots so repository `AGENTS.md` files and task
+  worktrees are visible while Rhei artifacts stay rooted at the plan workspace.
+  PR #35
 - Fix `rhei run` auto-advance for nested agent tasks after required output
   artifacts are written. PR #33
 - Clear stale Flow dashboard running indicators after the live loopback server

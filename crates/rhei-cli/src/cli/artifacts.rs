@@ -1,5 +1,6 @@
 struct RuntimeTemplateContext<'a> {
     workspace_root: &'a Path,
+    checkout_root: &'a Path,
     plan_path: &'a Path,
     state_machine_path: Option<&'a Path>,
     plan_title: &'a str,
@@ -110,6 +111,31 @@ fn resolve_artifact_path(
     (relative.clone(), workspace_root.join(&relative))
 }
 
+fn render_artifact_template_path(
+    context: &RuntimeTemplateContext<'_>,
+    artifact: &rhei_validator::StateArtifactDef,
+    visit_count: Option<u64>,
+) -> String {
+    let (relative, absolute) = resolve_artifact_path(
+        context.workspace_root,
+        artifact,
+        &context.task.id.to_string(),
+        context.state_name,
+        visit_count,
+        context.target,
+        context.model,
+        context.model_provider,
+        context.model_name,
+        context.agent,
+        context.agent_mode,
+    );
+    if context.checkout_root == context.workspace_root {
+        relative
+    } else {
+        absolute.display().to_string()
+    }
+}
+
 fn artifact_relative_path_escapes_root(relative: &str) -> bool {
     let mut depth = 0usize;
     for component in Path::new(relative).components() {
@@ -156,6 +182,8 @@ fn resolve_runtime_template_variable(
         "agent.mode" => context.agent_mode.map(str::to_string),
         "plan_title" => Some(context.plan_title.to_string()),
         "plan_path" => Some(context.plan_path.display().to_string()),
+        "rhei_root" => Some(context.workspace_root.display().to_string()),
+        "checkout_root" => Some(context.checkout_root.display().to_string()),
         _ => {
             if variable.strip_prefix("model.").is_some() {
                 return None;
@@ -178,22 +206,11 @@ fn resolve_runtime_template_variable(
             if let Some(name) =
                 variable.strip_prefix("input.").and_then(|v| v.strip_suffix(".path"))
             {
-                return state_def.inputs.iter().find(|artifact| artifact.name == name).map(
-                    |artifact| {
-                        artifact_relative_path(
-                            artifact,
-                            &context.task.id.to_string(),
-                            context.state_name,
-                            visit_count,
-                            context.target,
-                            context.model,
-                            context.model_provider,
-                            context.model_name,
-                            context.agent,
-                            context.agent_mode,
-                        )
-                    },
-                );
+                return state_def
+                    .inputs
+                    .iter()
+                    .find(|artifact| artifact.name == name)
+                    .map(|artifact| render_artifact_template_path(context, artifact, visit_count));
             }
 
             if let Some(name) =
@@ -222,22 +239,11 @@ fn resolve_runtime_template_variable(
             if let Some(name) =
                 variable.strip_prefix("output.").and_then(|v| v.strip_suffix(".path"))
             {
-                return state_def.outputs.iter().find(|artifact| artifact.name == name).map(
-                    |artifact| {
-                        artifact_relative_path(
-                            artifact,
-                            &context.task.id.to_string(),
-                            context.state_name,
-                            visit_count,
-                            context.target,
-                            context.model,
-                            context.model_provider,
-                            context.model_name,
-                            context.agent,
-                            context.agent_mode,
-                        )
-                    },
-                );
+                return state_def
+                    .outputs
+                    .iter()
+                    .find(|artifact| artifact.name == name)
+                    .map(|artifact| render_artifact_template_path(context, artifact, visit_count));
             }
 
             if let Some(name) =

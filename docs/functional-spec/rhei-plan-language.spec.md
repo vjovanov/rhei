@@ -897,6 +897,11 @@ artifact template is interpreted relative to the single-file plan directory in
 single-file mode and relative to the workspace root in directory-workspace
 mode.
 
+This execution root is the Rhei artifact root, not necessarily the subprocess
+checkout root. Agent subprocess cwd resolution is defined by the agents spec so
+repository-root instruction files and task worktrees can be used without moving
+Rhei runtime artifacts (§FS-rhei-agents.4).
+
 Because artifact existence depends on runtime workspace state, this constraint
 is enforced by execution commands such as `rhei transition`, `rhei complete`,
 `rhei run`, and `rhei next`, rather than by pure syntax validation of markdown

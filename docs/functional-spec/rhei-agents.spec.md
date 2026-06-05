@@ -668,6 +668,9 @@ callback environment:
 | Variable | Value |
 |----------|-------|
 | `RHEI_PLAN_PATH` | Absolute path to the plan file or workspace directory |
+| `RHEI_ROOT` | Absolute path to the Rhei artifact root: the plan-file directory for a single-file plan, or the workspace directory for a Directory Workspace |
+| `RHEI_CHECKOUT_ROOT` | Absolute path to the checkout directory used as the agent subprocess working directory |
+| `RHEI_WORKTREE_ROOT` | Absolute path to the task git worktree when the task is running from a worktree reference; unset otherwise |
 | `RHEI_TASK_ID` | Current task identifier |
 | `RHEI_STATE` | Current state name |
 | `RHEI_MODEL` | Model profile id, if configured |
@@ -679,7 +682,25 @@ callback environment:
 | `RHEI_SKILLS` | Comma-separated list of resolved skill ids enabled for this state. Empty when none are attached. |
 | `RHEI_SKILL_<ID>_AVAILABLE` | `true` or `false` for each declared skill in the state's effective set. `<ID>` follows the same transformation as MCP names. |
 
-The agent's working directory is set to the workspace root (for directory workspaces) or the plan file's parent directory (for single-file plans).
+The agent subprocess working directory is the **checkout root**. `rhei run`
+resolves it in this order:
+
+1. `runtime/worktree-refs/<task-id>.yaml` under `RHEI_ROOT`, when present. The
+   file must contain an absolute `path:` pointing at an existing git worktree
+   root; that path becomes both `RHEI_CHECKOUT_ROOT` and `RHEI_WORKTREE_ROOT`.
+2. The enclosing git repository root for `RHEI_ROOT`, when `git -C
+   <RHEI_ROOT> rev-parse --show-toplevel` succeeds.
+3. The `rhei run` process current working directory when no git repository is
+   found.
+
+Artifact contracts, logs, accounting, snapshots, result files, and other Rhei
+runtime files remain rooted at `RHEI_ROOT`; the checkout root exists so agents
+discover repository-local instructions such as `AGENTS.md` and, when a task
+uses an isolated git worktree, edit inside that worktree. When `RHEI_CHECKOUT_ROOT`
+differs from `RHEI_ROOT`, `{input.<name>.path}` and `{output.<name>.path}`
+render as absolute paths under `RHEI_ROOT` so agents can follow artifact
+instructions from the checkout cwd without writing runtime files into the
+checkout by accident.
 
 ## 5. `rhei run` — Agent Mode
 

@@ -80,7 +80,7 @@ from silently completing fresh tasks without executing them.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#5-parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
    - Resolve the state's target: either an agent subprocess (`agent` or resolved target selector) or a program (`program`).
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
-   - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), and timeout.
+   - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), checkout-root working directory, and timeout.
    - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
 4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk.
 5. Select the outgoing transition without applying it yet. If the condition
@@ -112,6 +112,29 @@ non-gating work finish. The run halts for human input only when the remaining
 non-terminal tasks are either themselves in gating states or blocked behind a
 gating dependency. In other words: a gate waits for everyone else to complete,
 then stops autonomous progress at the boundary.
+
+### 3.1. Git Consistency After Subprocess Commits
+
+The orchestrator-owned transition in step 8 is a durable-state write to the
+authored plan or workspace task file. If a subprocess creates a Git commit
+before that write, the commit cannot include the later Rhei-owned transition
+without violating orchestrator authority.
+
+When a non-dry-run execution starts inside a Git repository, `rhei run`
+records the starting `HEAD`. If the final success path observes that `HEAD`
+changed during the run, it must inspect tracked changes under the plan input
+and `runtime/results` before returning success. The path check resolves the
+actual plan or workspace path independent of the operator's current directory,
+so `rhei run plan.rhei.md` from a subdirectory and `rhei run
+path/to/plan.rhei.md` from the repository root are equivalent for this
+postcondition.
+
+If any of those Rhei-owned tracked paths remain dirty, `rhei run` exits
+non-zero with a diagnostic that names the paths instead of silently reporting a
+durable success. This check is read-only: it does not create commits, stage
+files, or reject untracked runtime artifacts. Outside Git repositories, or
+when `HEAD` does not move during the run, the check is a no-op.
+§GOAL-rhei-outcomes
 
 ## 4. Dry Run
 

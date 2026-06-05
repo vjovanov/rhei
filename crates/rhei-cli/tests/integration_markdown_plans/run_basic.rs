@@ -18,9 +18,37 @@ transitions:
 
 fn run_run_command(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -> CliRun {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    if let Some(parent) = plan_path.parent() {
+        cmd.current_dir(parent);
+    }
     cmd.arg("--state-machine").arg(machine_path).arg("run").arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);
+    }
+    let output = cmd.output().expect("run command should execute");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+fn run_run_command_with_env(
+    plan_path: &Path,
+    machine_path: &Path,
+    extra_args: &[&str],
+    envs: &[(&str, &str)],
+) -> CliRun {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    if let Some(parent) = plan_path.parent() {
+        cmd.current_dir(parent);
+    }
+    cmd.arg("--state-machine").arg(machine_path).arg("run").arg(plan_path);
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    for (key, value) in envs {
+        cmd.env(key, value);
     }
     let output = cmd.output().expect("run command should execute");
     CliRun {
