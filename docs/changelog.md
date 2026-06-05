@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Run agents from checkout roots so repository `AGENTS.md` files and task
+  worktrees are visible while Rhei artifacts stay rooted at the plan workspace.
+  PR #35
 - Fix `rhei run` auto-advance for nested agent tasks after required output
   artifacts are written. PR #33
 - Clear stale Flow dashboard running indicators after the live loopback server

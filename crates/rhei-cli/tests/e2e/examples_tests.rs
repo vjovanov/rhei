@@ -74,10 +74,18 @@ EOF
     printf '# Mock dispatch report\n' > runtime/report.md
     ;;
   prepare-worktree)
-    mkdir -p "runtime/worktrees/$task" runtime/worktree-refs
+    worktree_path="$PWD/runtime/worktrees/$task"
+    mkdir -p "$(dirname "$worktree_path")" runtime/worktree-refs
+    if git -C "${RHEI_CHECKOUT_ROOT:-.}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      rm -rf "$worktree_path"
+      git -C "${RHEI_CHECKOUT_ROOT:-.}" worktree prune >/dev/null 2>&1 || true
+      git -C "${RHEI_CHECKOUT_ROOT:-.}" worktree add --detach "$worktree_path" HEAD >/dev/null
+    else
+      mkdir -p "$worktree_path"
+    fi
     {
       printf 'task_id: %s\n' "$task"
-      printf 'path: %s\n' "$PWD/runtime/worktrees/$task"
+      printf 'path: %s\n' "$worktree_path"
       printf 'branch: docs-pass/%s\n' "$task"
       printf 'target_path: mock\n'
     } > "runtime/worktree-refs/$task.yaml"

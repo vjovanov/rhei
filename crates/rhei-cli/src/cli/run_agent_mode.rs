@@ -498,6 +498,7 @@ fn run_agent_mode(
                 let Some(task) = task else { continue };
                 let render_context = RuntimeTemplateContext {
                     workspace_root: &workspace_root,
+                    checkout_root: &workspace_root,
                     plan_path: &callback_paths.plan_path,
                     state_machine_path: callback_paths.state_machine_path.as_deref(),
                     plan_title: &plan_title,
@@ -892,8 +893,10 @@ fn run_agent_mode(
                 continue;
             }
             let tooling = gate.tooling;
+            let checkout_root = resolve_agent_checkout_root(&workspace_root, task_id_str)?;
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root,
+                checkout_root: &checkout_root.path,
                 plan_path: &callback_paths.plan_path,
                 state_machine_path: callback_paths.state_machine_path.as_deref(),
                 plan_title: &loaded.rhei.title,
@@ -934,6 +937,7 @@ fn run_agent_mode(
             if let Some(m) = &resolved.model {
                 run_info!("  Model: {m}");
             }
+            run_info!("  Checkout: {}", checkout_root.path.display());
             run_info!("  Log: {}", log.display());
 
             // Spec § Execution Loop step 3: if the state declares
@@ -971,7 +975,9 @@ fn run_agent_mode(
             let spawn_result = spawn_and_wait_agent(
                 resolved,
                 &prompt,
-                &execution_workspace_root(&callback_paths.plan_path),
+                &workspace_root,
+                &checkout_root.path,
+                checkout_root.worktree_root.as_deref(),
                 &callback_paths.plan_path,
                 callback_paths.state_machine_path.as_deref(),
                 task_id_str,
@@ -1438,8 +1444,10 @@ fn run_agent_mode(
                     continue;
                 }
                 let tooling = gate.tooling;
+                let checkout_root = resolve_agent_checkout_root(&workspace_root, task_id_str)?;
                 let render_context = RuntimeTemplateContext {
                     workspace_root: &workspace_root,
+                    checkout_root: &checkout_root.path,
                     plan_path: &callback_paths.plan_path,
                     state_machine_path: callback_paths.state_machine_path.as_deref(),
                     plan_title: &loaded.rhei.title,
@@ -1470,7 +1478,8 @@ fn run_agent_mode(
                     current_state,
                     resolved_agent_log_suffix(resolved, Some(visit_count)).as_deref(),
                 );
-                let working_dir = execution_workspace_root(&callback_paths.plan_path);
+                let working_dir = checkout_root.path.clone();
+                let worktree_root = checkout_root.worktree_root.clone();
                 let plan_path = callback_paths.plan_path.clone();
                 let state_machine_path = callback_paths.state_machine_path.clone();
                 let tid = task_id_str.clone();
@@ -1482,6 +1491,7 @@ fn run_agent_mode(
                     task_id_str,
                     task.title
                 );
+                run_info!("  Checkout: {}", working_dir.display());
                 run_info!("  Log: {}", log.display());
 
                 // Spec § Execution Loop step 3: snapshot inherit preload runs
@@ -1532,6 +1542,8 @@ fn run_agent_mode(
                 let visit_for_result = visit_count;
                 let resolved_for_result = resolved.clone();
                 let workspace_root_for_thread = workspace_root.clone();
+                let rhei_root_for_thread = workspace_root.clone();
+                let worktree_root_for_thread = worktree_root.clone();
                 let task_for_accounting = task.clone();
 
                 let handle = std::thread::spawn(move || {
@@ -1539,7 +1551,9 @@ fn run_agent_mode(
                     let result = spawn_and_wait_agent(
                         &resolved,
                         &prompt,
+                        &rhei_root_for_thread,
                         &working_dir,
+                        worktree_root_for_thread.as_deref(),
                         &plan_path,
                         state_machine_path.as_deref(),
                         &tid,

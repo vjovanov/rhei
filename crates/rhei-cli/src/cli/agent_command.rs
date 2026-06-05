@@ -55,7 +55,9 @@ fn stdin_message_bytes(format: AgentStdinFormat, message: &str) -> Vec<u8> {
 fn build_agent_command(
     resolved: &ResolvedAgent,
     prompt: &str,
-    working_dir: &Path,
+    rhei_root: &Path,
+    checkout_root: &Path,
+    worktree_root: Option<&Path>,
     plan_path: &Path,
     state_machine_path: Option<&Path>,
     task_id: &str,
@@ -73,7 +75,7 @@ fn build_agent_command(
         profile.command.split_first().expect("registry profile has non-empty command");
 
     let mut cmd = std::process::Command::new(program);
-    cmd.current_dir(working_dir);
+    cmd.current_dir(checkout_root);
     for arg in base_args {
         cmd.arg(arg);
     }
@@ -151,10 +153,17 @@ fn build_agent_command(
     }
 
     cmd.env("RHEI_PLAN_PATH", plan_path)
+        .env("RHEI_ROOT", rhei_root)
+        .env("RHEI_CHECKOUT_ROOT", checkout_root)
         .env("RHEI_TASK_ID", task_id)
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())
         .env("RHEI_AGENT", id);
+    if let Some(path) = worktree_root {
+        cmd.env("RHEI_WORKTREE_ROOT", path);
+    } else {
+        cmd.env_remove("RHEI_WORKTREE_ROOT");
+    }
     if let Some(path) = state_machine_path {
         cmd.env("RHEI_STATE_MACHINE_PATH", path);
     }

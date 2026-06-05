@@ -52,12 +52,13 @@ while [ "$#" -gt 0 ]; do
   shift || true
 done
 
-mkdir -p runtime
+runtime_root="${RHEI_ROOT:-.}/runtime"
+mkdir -p "$runtime_root"
 {
   printf 'task=%s state=%s target=%s resume=%s parent=%s\n' \
     "$RHEI_TASK_ID" "$RHEI_STATE" "$RHEI_TARGET_SLUG" "$resume_value" \
     "${RHEI_SNAPSHOT_PARENT_REF:-}"
-} >> runtime/fake-agent.log
+} >> "$runtime_root/fake-agent.log"
 
 if [ -n "$session_dir" ]; then
   mkdir -p "$session_dir"

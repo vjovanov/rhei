@@ -63,16 +63,17 @@ while [ "$#" -gt 0 ]; do
   shift || true
 done
 
-mkdir -p runtime
+runtime_root="${RHEI_ROOT:-.}/runtime"
+mkdir -p "$runtime_root"
 printf 'task=%s state=%s target=%s resume=%s\n' \
-  "$RHEI_TASK_ID" "$RHEI_STATE" "$RHEI_TARGET_SLUG" "$resume_value" >> runtime/retry-agent.log
+  "$RHEI_TASK_ID" "$RHEI_STATE" "$RHEI_TARGET_SLUG" "$resume_value" >> "$runtime_root/retry-agent.log"
 
 # Cold run leaves the work incomplete; a resumed (cache-warm) run finishes it.
 # Markers must not be substrings of one another.
 if [ -n "$resume_value" ]; then
-  printf 'DONE\n' > runtime/result.txt
+  printf 'DONE\n' > "$runtime_root/result.txt"
 else
-  printf 'PENDING\n' > runtime/result.txt
+  printf 'PENDING\n' > "$runtime_root/result.txt"
 fi
 
 # Emit the session transcript so the state can capture an inheritable snapshot.

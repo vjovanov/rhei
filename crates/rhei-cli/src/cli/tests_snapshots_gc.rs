@@ -146,6 +146,8 @@
             dir.path(),
             dir.path(),
             None,
+            dir.path(),
+            None,
             "task-timeout",
             "pending",
             1,

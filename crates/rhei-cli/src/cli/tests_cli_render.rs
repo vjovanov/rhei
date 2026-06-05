@@ -493,6 +493,7 @@ transitions:
         let task = &rhei.tasks[0];
         let context = RuntimeTemplateContext {
             workspace_root: Path::new("/tmp/workspace"),
+            checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace"),
             state_machine_path: Some(Path::new("/tmp/workspace/states.yaml")),
             plan_title: &rhei.title,
@@ -552,6 +553,7 @@ states:
         .expect("machine should parse");
         let context = RuntimeTemplateContext {
             workspace_root: Path::new("/tmp/workspace"),
+            checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace"),
             state_machine_path: None,
             plan_title: &rhei.title,
