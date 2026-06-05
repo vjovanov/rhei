@@ -12,8 +12,12 @@ fn run_callback_mode(
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
     let run_started = std::time::Instant::now();
+    // §FS-rhei-run-report.2: wall-clock start and run id for the durable report.
+    let run_started_wall = std::time::SystemTime::now();
+    let run_id = short_run_id(run_started_wall);
     let initial = load_plan(input)?;
     let initial_total_tasks = total_task_count(&initial.rhei);
+    let initial_states = collect_initial_states(&initial.rhei, machine);
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
@@ -264,17 +268,30 @@ fn run_callback_mode(
     drop(sink);
     drop(frontend);
 
-    // §FS-rhei-run-report.3: rich console summary on an interactive terminal.
-    // Callback mode spawns no agents/programs; its advances are callback-only.
+    // §FS-rhei-run-report.1/.3: durable report + rich console summary on an
+    // interactive terminal. Callback mode spawns no agents/programs; its advances
+    // are callback-only.
     if !opts.dry_run() {
-        print_run_summary(
+        let runtime_dir = workspace_root.join("runtime");
+        emit_run_report(
             input,
             machine,
             &summary_sink,
-            0,
-            0,
-            transitions_made,
-            run_started.elapsed(),
+            &runtime_dir,
+            RunStats {
+                agents_spawned: 0,
+                programs_spawned: 0,
+                callback_only: transitions_made,
+                duration: Some(run_started.elapsed()),
+                dashboard: frozen_dashboard_relative_path(&runtime_dir, &workspace_root),
+                run_id,
+                started_at: Some(run_started_wall),
+                workspace_root: workspace_root.clone(),
+                command: format!("rhei run {} --no-agent", input.display()),
+                parallel: max_parallel,
+                mode: "callback",
+                initial_states,
+            },
         );
     }
 

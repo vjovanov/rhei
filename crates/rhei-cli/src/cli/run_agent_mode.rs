@@ -114,10 +114,13 @@ fn run_agent_mode(
     let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
     let run_started = TuiInstant::now();
+    // §FS-rhei-run-report.2: wall-clock start and run id for the durable report.
+    let run_started_wall = SystemTime::now();
+    let run_id = short_run_id(run_started_wall);
 
-    let initial_total_tasks = {
+    let (initial_total_tasks, initial_states) = {
         let loaded = load_plan(input)?;
-        total_task_count(&loaded.rhei)
+        (total_task_count(&loaded.rhei), collect_initial_states(&loaded.rhei, machine))
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
@@ -2140,18 +2143,29 @@ fn run_agent_mode(
     drop(sink);
     drop(frontend);
 
-    // §FS-rhei-run-report.3: print the rich console summary on an interactive
-    // terminal, after the TUI has restored it. Non-TTY runs keep the existing
-    // line-oriented output above, which scripts and tests already match (§3.4).
+    // §FS-rhei-run-report.1/.3: write the durable report, then print the rich
+    // console summary on a TTY (after the TUI restores it) or a greppable
+    // `Report:` pointer for non-TTY runs (§3.4).
     if !opts.dry_run() {
-        print_run_summary(
+        emit_run_report(
             input,
             machine,
             &summary_sink,
-            agents_spawned,
-            programs_spawned,
-            callback_transitions_made,
-            run_started.elapsed(),
+            &runtime_dir,
+            RunStats {
+                agents_spawned,
+                programs_spawned,
+                callback_only: callback_transitions_made,
+                duration: Some(run_started.elapsed()),
+                dashboard: frozen_dashboard_relative_path(&runtime_dir, &workspace_root),
+                run_id,
+                started_at: Some(run_started_wall),
+                workspace_root: workspace_root.clone(),
+                command: format!("rhei run {} --parallel {}", input.display(), max_parallel),
+                parallel: max_parallel,
+                mode: "agent",
+                initial_states,
+            },
         );
     }
 

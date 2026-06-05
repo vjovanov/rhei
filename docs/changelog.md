@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Write a durable per-run Markdown report at the end of every `rhei run` to
+  `runtime/run-report.md` (latest) and `runtime/run-reports/<timestamp>-<run-id>.md`
+  (history): header, outcome strip, attention list, transition ledger, source-order
+  task final states, and spawned invocations with relative log links. The non-TTY
+  path now prints a greppable `Report:` pointer, and a run that advanced tasks
+  without spawning any agent or program is called out so reused-output advances are
+  not mistaken for fast work. PR #41 §FS-rhei-run-report.1 §FS-rhei-run-report.4
 - Add task-level execution overrides with `**Model:**` and `**Target:**`,
   including validation, agent resolution precedence, transition artifact checks,
   and canonical example coverage. PR #40 §FS-rhei-plan-language.3.11
