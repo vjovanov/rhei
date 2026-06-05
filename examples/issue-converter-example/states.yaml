@@ -10,15 +10,20 @@
 #                                                                    completed [final]
 #
 #   (generated issue tasks)
-#       pending --> agent-review --> completed [final]
-#          |             |
-#          |             v
-#          |       agent-review-fix
-#          |             |
-#          +-------------+
+#       pending --> agent-review --> check-verdict --(exit 0)--> completed [final]
+#          |                              |
+#          |                       (exit nonzero)
+#          |                              v
+#          |                        agent-review-fix
+#          |                              |
+#          +------------------------------+   (back to agent-review)
 #          |
 #          v
 #       human-review [gate] --> pending|completed|cancelled
+#
+#   check-verdict is a deterministic program state: it greps the reviewer's
+#   `approved:` line and exits 0 (approved) or nonzero (rejected) so `rhei run`
+#   can route the fork without the agent driving its own transition.
 #
 #   Per issue, the converter appends one independent task file containing a small task plan:
 #     issue-N-spec -> issue-N-implementation -> issue-N-verification -> issue-N-pr
@@ -27,10 +32,10 @@
 #
 # Per-task paths:
 # - converter: convert -> wait-for-next-batch -> convert ... -> completed
-# - spec inspection: pending -> agent-review -> completed, or pending -> human-review
-# - implementation: pending -> agent-review -> [agent-review-fix -> agent-review] -> completed
-# - verification: pending -> agent-review -> [agent-review-fix -> agent-review] -> completed
-# - PR opening: pending -> agent-review -> [agent-review-fix -> agent-review] -> completed
+# - spec inspection: pending -> agent-review -> check-verdict -> completed, or pending -> human-review
+# - implementation: pending -> agent-review -> check-verdict -> [agent-review-fix -> agent-review -> check-verdict] -> completed
+# - verification: pending -> agent-review -> check-verdict -> [agent-review-fix -> agent-review -> check-verdict] -> completed
+# - PR opening: pending -> agent-review -> check-verdict -> [agent-review-fix -> agent-review -> check-verdict] -> completed
 # - report: report -> completed
 #
 # The converter writes task files under `tasks/`; Rhei discovers them on the
@@ -472,10 +477,12 @@ states:
         resolved issue correctly
       - runtime artifacts are clear enough for the report task
 
-      Write `{output.review.path}` with either:
-      - `approved: true` and concise rationale, then transition to `completed`
-      - `approved: false` with concrete findings, then transition to
-        `agent-review-fix`
+      Write `{output.review.path}`. Begin it with a machine-readable verdict
+      line — exactly `approved: true` when the task is acceptable, or
+      `approved: false` with concrete, actionable findings when it is not — then
+      add your rationale below. After writing the artifact, exit. `rhei run`
+      reads the verdict line and advances the task to `completed` or
+      `agent-review-fix`.
     inputs:
       - name: work
         path: runtime/issues/work/{task_id}.md
@@ -483,6 +490,23 @@ states:
       - name: review
         path: runtime/issues/reviews/{task_id}.md
         description: Agent review result for one generated issue task.
+
+  check-verdict:
+    description: >-
+      Translate the agent-review verdict into a routing exit code: 0 when the
+      review approved the task, non-zero otherwise. The reviewer agent makes the
+      judgement; this deterministic step turns it into a signal `rhei run` can
+      route on.
+    concurrent: true
+    program: |
+      if grep -qiE 'approved:[[:space:]]*true' "$RHEI_INPUT_REVIEW_PATH"; then
+        exit 0
+      fi
+      exit 1
+    program_timeout: 1m
+    inputs:
+      - name: review
+        path: runtime/issues/reviews/{task_id}.md
 
   agent-review-fix:
     description: Address agent-review findings for one generated issue task.
@@ -592,12 +616,18 @@ transitions:
     description: Human approved the task as complete.
 
   - from: agent-review
-    to: completed
-    description: Agent review approved the task.
+    to: check-verdict
+    description: Review artifact written; route on the recorded verdict.
 
-  - from: agent-review
+  - from: check-verdict
+    to: completed
+    exit_code: 0
+    description: Verdict approved the task.
+
+  - from: check-verdict
     to: agent-review-fix
-    description: Agent review found issues to fix.
+    exit_code: nonzero
+    description: Verdict rejected the task; send it to agent-review-fix.
 
   - from: agent-review-fix
     to: agent-review
