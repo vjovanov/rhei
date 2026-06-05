@@ -112,6 +112,8 @@ fn run_agent_mode(
 
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
+    // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
+    let run_started = TuiInstant::now();
 
     let initial_total_tasks = {
         let loaded = load_plan(input)?;
@@ -128,6 +130,9 @@ fn run_agent_mode(
         machine,
     );
     let sink = frontend.sink.clone();
+    // Held past the frontend drop so the end-of-run summary can read per-task
+    // activity after the TUI restores the terminal. §FS-rhei-run-report.3
+    let summary_sink = frontend.summary.clone();
     // AR §7: present only when the dashboard is live; each spawned agent's stdin
     // is registered here so `/intervene` can stream messages to it.
     let intervene = frontend.intervene.clone();
@@ -2129,6 +2134,21 @@ fn run_agent_mode(
     frontend.write_frozen_dashboard();
     drop(sink);
     drop(frontend);
+
+    // §FS-rhei-run-report.3: print the rich console summary on an interactive
+    // terminal, after the TUI has restored it. Non-TTY runs keep the existing
+    // line-oriented output above, which scripts and tests already match (§3.4).
+    if !opts.dry_run() {
+        print_run_summary(
+            input,
+            machine,
+            &summary_sink,
+            agents_spawned,
+            programs_spawned,
+            callback_transitions_made,
+            run_started.elapsed(),
+        );
+    }
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;

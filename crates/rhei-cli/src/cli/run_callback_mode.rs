@@ -10,6 +10,8 @@ fn run_callback_mode(
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
+    let run_started = std::time::Instant::now();
     let initial = load_plan(input)?;
     let initial_total_tasks = total_task_count(&initial.rhei);
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
@@ -23,6 +25,9 @@ fn run_callback_mode(
         machine,
     );
     let sink = frontend.sink.clone();
+    // Held past the frontend drop so the end-of-run summary can read activity
+    // after the TUI restores the terminal. §FS-rhei-run-report.3
+    let summary_sink = frontend.summary.clone();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
         parallel: frontend_parallel,
@@ -258,6 +263,20 @@ fn run_callback_mode(
     frontend.write_frozen_dashboard();
     drop(sink);
     drop(frontend);
+
+    // §FS-rhei-run-report.3: rich console summary on an interactive terminal.
+    // Callback mode spawns no agents/programs; its advances are callback-only.
+    if !opts.dry_run() {
+        print_run_summary(
+            input,
+            machine,
+            &summary_sink,
+            0,
+            0,
+            transitions_made,
+            run_started.elapsed(),
+        );
+    }
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
