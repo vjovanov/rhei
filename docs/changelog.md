@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the `issue-converter` template, which fetches a bounded GitHub issue queue
+  and converts each matching non-duplicate issue into an executable Rhei task
+  chain with spec-inspection, implementation, verification, and PR-opening tasks
+  in its own worktree. PR #34
 - Detect when an agent-created commit leaves tracked Rhei-owned plan/result
   state uncommitted after `rhei run` applies its orchestrator transition, and
   report a clear error instead of silently reporting durable success. PR #38

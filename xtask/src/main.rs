@@ -105,6 +105,12 @@ const EXAMPLES: &[Example] = &[
         state_machine: Some("examples/ui-test-canonical-example/states.yaml"),
         runnable: true,
     },
+    Example {
+        name: "issue-converter",
+        path: "examples/issue-converter-example",
+        state_machine: Some("examples/issue-converter-example/states.yaml"),
+        runnable: false,
+    },
 ];
 
 fn workspace_root() -> PathBuf {

@@ -1,0 +1,612 @@
+# State machine diagram
+# ---------------------
+#
+#   convert [initial] -- creates worktrees + appends issue task chains --> wait-for-next-batch
+#       ^                                                                  |
+#       |                    project has TODO items; sleep                  |
+#       +------------------------------------------------------------------+
+#                                                                          |
+#                         no TODO items / batch cap                        v
+#                                                                    completed [final]
+#
+#   (generated issue tasks)
+#       pending --> agent-review --> completed [final]
+#          |             |
+#          |             v
+#          |       agent-review-fix
+#          |             |
+#          +-------------+
+#          |
+#          v
+#       human-review [gate] --> pending|completed|cancelled
+#
+#   Per issue, the converter appends one independent task file containing a small task plan:
+#     issue-N-spec -> issue-N-implementation -> issue-N-verification -> issue-N-pr
+#
+#   (dynamic report task) report --> completed [final]
+#
+# Per-task paths:
+# - converter: convert -> wait-for-next-batch -> convert ... -> completed
+# - spec inspection: pending -> agent-review -> completed, or pending -> human-review
+# - implementation: pending -> agent-review -> [agent-review-fix -> agent-review] -> completed
+# - verification: pending -> agent-review -> [agent-review-fix -> agent-review] -> completed
+# - PR opening: pending -> agent-review -> [agent-review-fix -> agent-review] -> completed
+# - report: report -> completed
+#
+# The converter writes task files under `tasks/`; Rhei discovers them on the
+# next run pass.
+
+name: issue-converter
+version: 1.0.0
+
+states:
+  convert:
+    description: Fetch the next bounded GitHub Project TODO batch, create per-issue worktrees, and append task chains.
+    initial: true
+    visits: {{max_batches}}
+    target: "{{converter_agent}}"
+    personality: |
+      You are an issue conversion coordinator. Fetch the requested issue queue,
+      create or reuse one git worktree per converted issue, and write precise
+      Rhei task chains. Every matching non-duplicate issue must become
+      executable work, even when the issue is vague.
+    instructions: |
+      Convert Task {task_id}: {task_title}.
+
+      You are on conversion batch {visit_count} of {visits}.
+
+      Rhei workspace:
+      - Current working directory: this generated scratchpad workspace.
+      - Store plan files under `tasks/` and runtime artifacts under `runtime/`.
+
+      Source checkout and worktrees:
+      - Source checkout root: `{{repo_checkout}}`
+      - Work subdirectory inside each worktree: `{{work_subdir}}`
+      - Per-issue worktree root: `{{worktree_root}}`
+      - Do not implement code in the scratchpad workspace. Generated issue
+        tasks must do code/docs work in their per-issue worktree.
+
+      Use GitHub Projects as the source of truth for project membership and
+      Status, but do not list the whole Project queue to discover candidates.
+      First fetch at most {{candidate_limit}} GitHub issue candidates from
+      `{{repo}}` using the exact issue filters below, then verify each
+      candidate's Project item and Status directly. Convert at most {{limit}}
+      verified issue item(s) from project `{{project_owner}}/{{project_number}}`
+      whose Status field is `{{todo_status}}`.
+      After this bounded batch is converted, the next state sleeps for
+      `{{sleep}}` and loops back if more matching `{{todo_status}}` issue
+      candidates remain.
+
+      Filters:
+      - author: `{% if author %}{{author}}{% else %}<any>{% endif %}`
+      - labels: `{% if labels %}{{labels}}{% else %}<none>{% endif %}`
+      - extra search terms: `{% if search %}{{search}}{% else %}<none>{% endif %}`
+
+      PR publication:
+      - push remote: `{% if pr_push_remote %}{{pr_push_remote}}{% else %}<infer writable fork remote>{% endif %}`
+      - head owner: `{% if pr_head_owner %}{{pr_head_owner}}{% else %}<infer from push remote>{% endif %}`
+      - base branch: `{{pr_base_branch}}`
+
+      Maintain these local audit files:
+      - `runtime/issues/seen.txt`: one issue number per line for every exact
+        `{{todo_status}}` Project issue already considered, whether converted
+        or skipped.
+      - `runtime/issues/conversion.md`: append the aggregate conversion report.
+
+      Use the GitHub CLI. First discover the project id, the Status field id,
+      and the option id for `{{in_progress_status}}`:
+
+          gh project field-list {{project_number}} --owner "{{project_owner}}" --format json
+
+      Then build an exact issue query first. Use `gh issue list` against
+      `{{repo}}` with:
+      - `--state "{{state}}"`
+      - `--author "{{author}}"` when the author filter is non-empty
+      - one `--label "<label>"` flag for each comma-separated label when the
+        label filter is non-empty
+      - `--search "{{search}}"` when extra search terms are non-empty
+      - `--limit {{candidate_limit}}`
+
+      Do not treat an empty label filter as `no:label`; it means no label
+      restriction. Do not use a broad `gh project item-list` scan as the primary
+      candidate source.
+
+      For every issue candidate not already listed in `runtime/issues/seen.txt`,
+      query that issue's ProjectV2 items with `gh api graphql` and select only
+      the item whose project owner is `{{project_owner}}`, project number is
+      `{{project_number}}`, and Status field value is exactly `{{todo_status}}`.
+      This per-issue Project check must return the Project item id needed for
+      `gh project item-edit`; candidates without that exact Project item/status
+      are outside this batch and must not be converted.
+
+      Write the raw inventory to `{output.inventory.path}`. For every fetched
+      issue candidate, include issue number, title, URL, author, state, labels,
+      assignees, created/updated timestamps, body, the Project item id and
+      Project Status when the exact Project check matches, the reason when it
+      does not match, recent comments when available, and any linked PR or
+      duplicate references you can find.
+
+      Convert issues using this brief:
+
+      {{ conversion_brief | trim }}
+
+      Conversion rule:
+      - Generate an executable task chain for every matching non-duplicate issue.
+      - Do not skip an issue merely because it is vague, broad, missing an
+        implementation boundary, or may require a product/spec decision.
+      - For vague or broad issues, make the spec-inspection task discover the
+        boundary before implementation instead of skipping the issue.
+      - Only skip exact duplicates, project items that are not issues, issues
+        outside the requested filters, or inaccessible issues that cannot be
+        inspected. Record the evidence for every skip.
+
+      For each converted issue, first create or reuse its worktree. This is a
+      strict conversion responsibility, not a separate generated task. Use this
+      command shape, replacing `<number>` with the issue number and `<slug>`
+      with a lowercase filesystem-safe issue-title slug:
+
+          issue_worktree="{{worktree_root}}/{{repo | slug}}-issue-<number>-<slug>"
+          issue_branch="rhei/issue-<number>-<slug>"
+          mkdir -p "{{worktree_root}}"
+          if [ -e "$issue_worktree/.git" ]; then
+            git -C "$issue_worktree" status --short
+          else
+            git -C "{{repo_checkout}}" worktree add -b "$issue_branch" "$issue_worktree" HEAD
+          fi
+
+      If the branch already exists, reuse the existing worktree when present; if
+      no worktree exists, use `git -C "{{repo_checkout}}" worktree add
+      "$issue_worktree" "$issue_branch"` instead of creating a duplicate branch.
+      If worktree creation fails, record the failure in `{output.conversion.path}`,
+      do not generate the issue task chain, do not move the project item, and do
+      not mark the issue converted in `runtime/issues/seen.txt`.
+
+      The issue's implementation path is:
+      - if `{{work_subdir}}` is `.`, use `<issue_worktree>`
+      - otherwise use `<issue_worktree>/{{work_subdir}}`
+
+      For each converted issue, write one issue plan file under `tasks/`. Pick
+      the next free `NN` prefix and use a filename like
+      `tasks/NN-issue-<number>.md`. That one file must contain the complete
+      mini-plan for the issue as multiple Rhei tasks. Do not write separate
+      files for spec, implementation, verification, and PR opening.
+
+      Use this exact issue-plan shape:
+
+          ### Task issue-<number>-spec: Inspect specs for <short issue title>
+          **State:** pending
+
+          - Source issue: <URL>
+          - Project item: <project item id>
+          - Project status when converted: {{todo_status}}
+          - Issue author: <author>
+          - Labels: <labels>
+          - Worktree: <issue_worktree>
+          - Work path: <implementation path>
+          - Purpose: inspect local docs/specs and relevant code before implementation.
+          - Required work:
+            - Read the issue, docs/specs, and relevant code in the work path.
+            - Decide whether the issue reason makes sense.
+            - Decide whether docs/specs need changing.
+            - If docs/specs need changing, make the minimal docs/spec change in
+              the worktree, write the work artifact, and transition to
+              `human-review` with a clear approval request in the artifact.
+            - If no docs/spec change needs approval, write the work artifact and
+              continue through `agent-review`.
+          - Output artifact: `runtime/issues/work/issue-<number>-spec.md`
+          - Human-review rule: human review is requested from this task when
+            docs/spec changes or product/spec decisions need approval.
+
+          ### Task issue-<number>-implementation: Implement <short issue title>
+          **State:** pending
+          **Prior:** Task issue-<number>-spec
+
+          - Source issue: <URL>
+          - Worktree: <issue_worktree>
+          - Work path: <implementation path>
+          - Purpose: implement the smallest approved change for the issue.
+          - Required work:
+            - Read `runtime/issues/work/issue-<number>-spec.md`.
+            - Work only in the worktree/work path for code/docs changes.
+            - Keep the change inside the spec-inspection boundary.
+            - Write `runtime/issues/work/issue-<number>-implementation.md`.
+          - Review: this task must pass `agent-review`; fix findings in
+            `agent-review-fix` and return to `agent-review`.
+
+          ### Task issue-<number>-verification: Verify <short issue title>
+          **State:** pending
+          **Prior:** Task issue-<number>-implementation
+
+          - Source issue: <URL>
+          - Worktree: <issue_worktree>
+          - Work path: <implementation path>
+          - Purpose: final verification for this issue.
+          - Required work:
+            - Perform local review of the worktree diff.
+            - Run project E2E tests or the closest documented E2E/integration
+              suite from the work path.
+            - Write `runtime/issues/work/issue-<number>-verification.md` with
+              exact commands, results, and any risk.
+          - Review: this task must pass `agent-review`; fix findings in
+            `agent-review-fix` and return to `agent-review`.
+
+          ### Task issue-<number>-pr: Open PR for <short issue title>
+          **State:** pending
+          **Prior:** Task issue-<number>-verification
+
+          - Source issue: <URL>
+          - Worktree: <issue_worktree>
+          - Work path: <implementation path>
+          - PR push remote: {% if pr_push_remote %}`{{pr_push_remote}}`{% else %}`<infer writable fork remote>`{% endif %}
+          - PR head owner: {% if pr_head_owner %}`{{pr_head_owner}}`{% else %}`<infer from push remote>`{% endif %}
+          - PR base branch: `{{pr_base_branch}}`
+          - Purpose: open a pull request for the verified issue resolution.
+          - Required work:
+            - Read `runtime/issues/work/issue-<number>-verification.md`.
+            - Confirm the worktree is on the issue branch.
+            - Inspect `git status`; if the verified changes are uncommitted,
+              create a focused commit for the issue resolution before pushing.
+            - Push the issue branch to the configured PR push remote. If the
+              push remote was left for inference, use a writable fork remote
+              rather than `origin`; fail with a clear artifact note if no
+              writable fork remote can be determined.
+            - Open a GitHub pull request for the resolved issue with a title and
+              body that link to the source issue, summarize the implemented
+              resolution, and include verification results. Use
+              `{{repo}}` as the PR repository, `{{pr_base_branch}}` as the base,
+              and `{% if pr_head_owner %}{{pr_head_owner}}{% else %}<inferred head owner>{% endif %}:<issue branch>` as the head.
+            - Use a closing keyword for the source issue only when the PR is
+              intended to fully resolve it; otherwise link the issue without
+              auto-closing it and explain the remaining follow-up.
+            - Write `runtime/issues/work/issue-<number>-pr.md` with the PR URL,
+              branch, issue linkage, commands run, and any human follow-up.
+          - Review: this task must pass `agent-review`; fix findings in
+            `agent-review-fix` and return to `agent-review`.
+
+      Rules for generated issue task chains:
+      - Do not generate more than {{limit}} issue chains in this batch.
+      - Each issue chain must be contained in exactly one issue plan file, e.g.
+        `tasks/NN-issue-<number>.md`.
+      - Each issue chain is an independent root graph. The first
+        `issue-<number>-spec` task must not depend on Task {task_id}; only the
+        tasks inside the same issue chain may depend on each other.
+      - Use task ids `issue-<number>-spec`, `issue-<number>-implementation`,
+        `issue-<number>-verification`, and `issue-<number>-pr` unless that would
+        collide; then append a short slug.
+      - Keep each issue chain independently executable. If two issues truly
+        require the same fix, generate one chain and mention every source issue.
+      - Do not modify GitHub issues while converting unless the task body
+        explicitly requires it.
+      - After the worktree and the issue plan file are written
+        successfully, update that issue's GitHub project item Status from
+        `{{todo_status}}` to `{{in_progress_status}}` using
+        `gh project item-edit`. Do not set Done; issue/PR closure is expected
+        to move the item to Done automatically.
+      - If a project item cannot be moved to `{{in_progress_status}}`, leave a
+        clear note in `{output.conversion.path}` and do not mark the issue as
+        converted in `runtime/issues/seen.txt`.
+
+      Append a batch section to `{output.conversion.path}` with:
+      - batch number `{visit_count}` of `{visits}`
+      - converted issue numbers, worktree paths, issue plan files, and generated task ids
+      - skipped issue numbers and the duplicate/nonmatching/inaccessible reason
+      - any grouping or deduplication decisions
+      - risks, missing context, and suggested human follow-up
+
+      Add every fetched-and-considered issue number whose exact Project item
+      matched `{{todo_status}}` to `runtime/issues/seen.txt` before you finish
+      this batch, whether converted or skipped. Do not generate another task
+      for a number already listed there.
+
+      After the issue task files, create or update `tasks/99-report.md`:
+
+          ### Task report: Summarize converted issue work
+          **State:** report
+          **Prior:** Task {task_id}, Task issue-<number>-pr, ...
+
+          Summarize the issue execution results and the skipped issue list.
+
+      The report task's `**Prior:**` line must list Task {task_id} and every
+      generated PR task across all batches. If no issue task chain has been
+      generated yet, keep it depending only on Task {task_id} and explain why
+      the queue produced no convertible work so far.
+
+      Transition to `wait-for-next-batch` after writing the inventory,
+      conversion report, seen file, issue plan files, report task, worktrees,
+      and project status updates.
+    outputs:
+      - name: inventory
+        path: runtime/issues/batches/{visit_count}-inventory.md
+        description: Raw fetched issue inventory for this batch.
+      - name: conversion
+        path: runtime/issues/conversion.md
+        description: Aggregate issue conversion rationale.
+
+  wait-for-next-batch:
+    description: Sleep between issue batches and route based on remaining exact issue candidates in GitHub Project TODO.
+    program: |
+      batch_count="$(find runtime/issues/batches -type f -name '*-inventory.md' 2>/dev/null | wc -l | tr -d '[:space:]')"
+      if [ "${batch_count:-0}" -ge "{{max_batches}}" ]; then
+        exit 0
+      fi
+
+      retry_later() {
+        if [ "{{sleep}}" != "0s" ]; then
+          sleep {{sleep}}
+        fi
+        exit 75
+      }
+
+      repo="{{repo}}"
+      repo_owner="${repo%%/*}"
+      repo_name="${repo#*/}"
+      project_owner="{{project_owner}}"
+      if [ "$project_owner" = "@me" ]; then
+        project_owner="$(gh api user --jq .login 2>/dev/null || printf '@me')"
+      fi
+
+      search_terms="{{search}}"
+      labels="{{labels}}"
+      old_ifs="$IFS"
+      IFS=","
+      for label in $labels; do
+        trimmed="$(printf '%s' "$label" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        if [ -n "$trimmed" ]; then
+          search_terms="$search_terms label:\"$trimmed\""
+        fi
+      done
+      IFS="$old_ifs"
+
+      if [ -n "{{author}}" ]; then
+        search_terms="$search_terms author:{{author}}"
+      fi
+
+      seen_count="$(wc -l < runtime/issues/seen.txt 2>/dev/null | tr -d '[:space:]')"
+      fetch_limit="$(( ${seen_count:-0} + {{candidate_limit}} ))"
+      if [ "$fetch_limit" -lt "{{candidate_limit}}" ]; then
+        fetch_limit="{{candidate_limit}}"
+      fi
+
+      if [ -n "$search_terms" ]; then
+        if ! candidates="$(gh issue list --repo "$repo" --state "{{state}}" --limit "$fetch_limit" --search "$search_terms" --json number --jq '.[].number' 2>/dev/null)"; then
+          retry_later
+        fi
+      else
+        if ! candidates="$(gh issue list --repo "$repo" --state "{{state}}" --limit "$fetch_limit" --json number --jq '.[].number' 2>/dev/null)"; then
+          retry_later
+        fi
+      fi
+
+      unseen_checked=0
+      for number in $candidates; do
+        if [ -f runtime/issues/seen.txt ] && grep -qx "$number" runtime/issues/seen.txt; then
+          continue
+        fi
+        unseen_checked="$((unseen_checked + 1))"
+        if [ "$unseen_checked" -gt "{{candidate_limit}}" ]; then
+          break
+        fi
+        if ! match_count="$(
+          gh api graphql \
+            -F repoOwner="$repo_owner" \
+            -F repoName="$repo_name" \
+            -F number="$number" \
+            -f query='query($repoOwner:String!, $repoName:String!, $number:Int!) {
+              repository(owner: $repoOwner, name: $repoName) {
+                issue(number: $number) {
+                  projectItems(first: 50) {
+                    nodes {
+                      project {
+                        number
+                        owner {
+                          __typename
+                          ... on Organization { login }
+                          ... on User { login }
+                        }
+                      }
+                      fieldValueByName(name: "Status") {
+                        ... on ProjectV2ItemFieldSingleSelectValue { name }
+                      }
+                    }
+                  }
+                }
+              }
+            }' \
+            --jq '.data.repository.issue.projectItems.nodes
+              | map(select((.project.number == {{project_number}})
+                  and ((.project.owner.login // "") == "'"$project_owner"'")
+                  and ((.fieldValueByName.name // "") == "{{todo_status}}")))
+              | length' 2>/dev/null
+        )"; then
+          retry_later
+        fi
+        if [ "${match_count:-0}" -gt 0 ]; then
+          retry_later
+        fi
+      done
+
+      exit 0
+    program_timeout: 999h
+
+  pending:
+    description: Execute a generated issue task in its task-specific worktree.
+    target: "{{worker_agent}}"
+    concurrent: true
+    instructions: |
+      Execute Task {task_id}: {task_title}.
+
+      The task body names the source issue, worktree, work path, required work,
+      and output artifact. Use the Rhei scratchpad only for `runtime/` artifacts
+      and task files. Perform code/docs edits only in the task's worktree/work
+      path.
+
+      Write the output artifact named in the task body. It must include:
+      - source issue URL
+      - worktree and work path used
+      - files inspected or changed
+      - decisions made
+      - commands run and results, when applicable
+      - remaining risk or human follow-up
+
+      If this is a spec-inspection task and docs/spec changes or product/spec
+      decisions need approval, transition to `human-review` after writing the
+      artifact. Otherwise transition to `agent-review`.
+    outputs:
+      - name: work
+        path: runtime/issues/work/{task_id}.md
+        description: Work artifact for one generated issue task.
+
+  agent-review:
+    description: Review a generated issue task before it can complete.
+    target: "{{reviewer_agent}}"
+    concurrent: true
+    instructions: |
+      Review Task {task_id}: {task_title}.
+
+      Read the task body, `{input.work.path}`, the relevant worktree/work path,
+      and the current worktree diff if the task changed files. Check:
+      - the task followed its issue-specific instructions
+      - implementation stayed within the spec-inspection boundary
+      - verification tasks ran local review and E2E/integration checks
+      - PR tasks opened or updated the expected pull request and linked the
+        resolved issue correctly
+      - runtime artifacts are clear enough for the report task
+
+      Write `{output.review.path}` with either:
+      - `approved: true` and concise rationale, then transition to `completed`
+      - `approved: false` with concrete findings, then transition to
+        `agent-review-fix`
+    inputs:
+      - name: work
+        path: runtime/issues/work/{task_id}.md
+    outputs:
+      - name: review
+        path: runtime/issues/reviews/{task_id}.md
+        description: Agent review result for one generated issue task.
+
+  agent-review-fix:
+    description: Address agent-review findings for one generated issue task.
+    target: "{{worker_agent}}"
+    concurrent: true
+    instructions: |
+      Fix review findings for Task {task_id}: {task_title}.
+
+      Read `{input.work.path}` and `{input.review.path}`. Make the smallest
+      necessary changes in the task's worktree/work path or runtime artifact,
+      then update `{output.fix.path}` with:
+      - findings addressed
+      - files changed
+      - commands run and results
+      - residual risk
+
+      Transition back to `agent-review`.
+    inputs:
+      - name: work
+        path: runtime/issues/work/{task_id}.md
+      - name: review
+        path: runtime/issues/reviews/{task_id}.md
+    outputs:
+      - name: fix
+        path: runtime/issues/fixes/{task_id}.md
+        description: Fixes applied after agent review findings.
+
+  human-review:
+    description: Human reviews spec/docs changes or product decisions before work continues.
+    gating: true
+    instructions: |
+      Stop autonomous work on Task {task_id}: {task_title}.
+
+      A human must review the task body and `runtime/issues/work/{task_id}.md`.
+      Do not transition out of this state autonomously.
+
+      Human options:
+      - transition to `pending` when the task needs rework
+      - transition to `completed` when the task is approved as-is
+      - transition to `cancelled` when the issue should not proceed
+
+  report:
+    description: Summarize generated issue-task outcomes.
+    target: "{{worker_agent}}"
+    instructions: |
+      Summarize Task {task_id}: {task_title}.
+
+      Read `runtime/issues/conversion.md`, every artifact under
+      `runtime/issues/work/`, every review under `runtime/issues/reviews/`, and
+      every fix note under `runtime/issues/fixes/`. Write `{output.summary.path}`
+      with:
+      - converted issues and generated task chains
+      - per-issue worktree paths
+      - skipped issues and reasons
+      - docs/spec changes that went through human-review
+      - implementation, verification, and PR status
+      - human follow-up or PR/comment actions still needed
+
+      Transition to `completed` after writing the summary.
+    outputs:
+      - name: summary
+        path: runtime/issues/summary.md
+        description: Final summary of converted issue work.
+
+  completed:
+    description: Work is complete.
+    instructions: |
+      Task {task_id} is complete. No further action required.
+    final: true
+
+  cancelled:
+    description: Work was cancelled.
+    instructions: |
+      Task {task_id} was cancelled. Leave generated task files and runtime
+      artifacts in place for inspection.
+    final: true
+
+transitions:
+  - from: convert
+    to: wait-for-next-batch
+    description: Batch inventoried, worktrees created, and issue task chains written.
+
+  - from: wait-for-next-batch
+    to: convert
+    description: More TODO project items remain; process the next bounded batch.
+    exit_code: 75
+
+  - from: wait-for-next-batch
+    to: completed
+    description: No TODO project items remain or the batch cap was reached.
+    exit_code: 0
+
+  - from: pending
+    to: agent-review
+    description: Task work artifact is ready for automated review.
+
+  - from: pending
+    to: human-review
+    description: Spec/docs changes or product/spec decisions require human approval.
+
+  - from: human-review
+    to: pending
+    description: Human requested rework.
+
+  - from: human-review
+    to: completed
+    description: Human approved the task as complete.
+
+  - from: agent-review
+    to: completed
+    description: Agent review approved the task.
+
+  - from: agent-review
+    to: agent-review-fix
+    description: Agent review found issues to fix.
+
+  - from: agent-review-fix
+    to: agent-review
+    description: Review findings were addressed; re-run review.
+
+  - from: report
+    to: completed
+    description: Converted issue work summarized.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel any non-final task.
