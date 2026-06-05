@@ -567,54 +567,6 @@ All `{{...}}` are resolved during instantiation. All `{...}` remain for runtime.
 | **Skills** | The `rhei-plan-worker` skill works on instantiated plans identically to hand-authored plans. No skill changes required. |
 | **`install-skills`** | Unchanged. Templates are orthogonal to skill installation. |
 
-### 7.1. Packaged Issue Conversion
-
-A project may ship a general issue-conversion template for turning an external
-issue queue into an executable Directory Workspace. The template accepts the
-issue source, GitHub Project location, TODO and in-progress status names, a
-maximum conversion count, a bounded candidate-query count, optional author,
-label, state, and query filters, optional PR publication target inputs, and
-agent targets. It may also accept a sleep duration and batch cap so scheduled or
-looped invocations can fetch a bounded batch of exact issue candidates, verify
-each candidate's Project item and TODO status directly, mark converted items
-in-progress, sleep, and fetch the next TODO batch until no matching project
-items remain or the cap is reached. When checking whether another batch is
-available, the converter must account for already-seen issue numbers before
-applying the candidate-query bound, so a page full of seen issues cannot be
-mistaken for an empty queue. The
-converter must not discover work by scanning the whole Project item list and
-filtering locally when narrower issue filters are available. Its first task
-inventories matching issues, writes a durable conversion report, creates or
-reuses one git worktree per converted issue, and appends one issue plan file per
-matching non-duplicate issue. The converter must not skip an issue merely
-because the issue is broad, vague, or lacks an implementation boundary. Instead,
-the issue plan file must start with a spec-inspection task before implementation
-so local docs/specs can be consulted, the issue reason can be checked, and any
-docs/spec update can request human review. A generated issue plan must include
-separate spec-inspection, implementation, verification, and pull-request-opening
-tasks in that one file. The issue plan's first task must be an independent root
-task rather than a child of the converter task, so generated issue plans form
-disjoint executable graphs and can run concurrently under `rhei run --parallel
-N`. The implementation, verification, and pull-request-opening tasks must use
-the classic pending, agent-review, agent-review-fix, human-review, completed
-flow.
-Generated tasks must carry the source issue URL, project item id, worktree path,
-observed evidence, acceptance criteria, non-goals, and verification guidance so
-a later `rhei run` can execute them without reinterpreting the original issue
-queue. The verification task must verify the result with local review plus
-project E2E tests or the closest documented E2E/integration suite. The final
-pull-request task must open a PR for the resolved issue after verification
-passes and record the PR URL, branch, issue linkage, and any required human
-follow-up. The PR task must use explicit PR publication target inputs when they
-are supplied, or infer a writable fork remote and head owner before pushing; it
-must fail with a clear artifact note rather than pushing to an ambiguous remote.
-
-Issue conversion is intentionally implemented as a template workflow rather than
-a dedicated top-level CLI subcommand. This keeps external tracker fetching,
-triage policy, task decomposition, and execution style editable by project-local
-template files while reusing the normal `rhei instantiate` and `rhei run`
-surfaces.
-
 ## 8. Grammar Extension
 
 The `rhei_document` and `workspace_index` productions are unchanged. Templates are a pre-processing layer that produces valid Rhei documents — the parser never sees `{{...}}` syntax.

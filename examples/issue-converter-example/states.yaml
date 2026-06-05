@@ -43,8 +43,8 @@ states:
   convert:
     description: Fetch the next bounded GitHub Project TODO batch, create per-issue worktrees, and append task chains.
     initial: true
-    visits: {{max_batches}}
-    target: "{{converter_agent}}"
+    visits: 20
+    target: "codex[yolo]:openai:gpt-5.5"
     personality: |
       You are an issue conversion coordinator. Fetch the requested issue queue,
       create or reuse one git worktree per converted issue, and write precise
@@ -60,52 +60,52 @@ states:
       - Store plan files under `tasks/` and runtime artifacts under `runtime/`.
 
       Source checkout and worktrees:
-      - Source checkout root: `{{repo_checkout}}`
-      - Work subdirectory inside each worktree: `{{work_subdir}}`
-      - Per-issue worktree root: `{{worktree_root}}`
+      - Source checkout root: `/path/to/hello-world`
+      - Work subdirectory inside each worktree: `.`
+      - Per-issue worktree root: `/path/to/worktrees`
       - Do not implement code in the scratchpad workspace. Generated issue
         tasks must do code/docs work in their per-issue worktree.
 
       Use GitHub Projects as the source of truth for project membership and
       Status, but do not list the whole Project queue to discover candidates.
-      First fetch at most {{candidate_limit}} GitHub issue candidates from
-      `{{repo}}` using the exact issue filters below, then verify each
-      candidate's Project item and Status directly. Convert at most {{limit}}
-      verified issue item(s) from project `{{project_owner}}/{{project_number}}`
-      whose Status field is `{{todo_status}}`.
+      First fetch at most 50 GitHub issue candidates from
+      `octocat/hello-world` using the exact issue filters below, then verify each
+      candidate's Project item and Status directly. Convert at most 5
+      verified issue item(s) from project `octocat/1`
+      whose Status field is `Todo`.
       After this bounded batch is converted, the next state sleeps for
-      `{{sleep}}` and loops back if more matching `{{todo_status}}` issue
+      `10m` and loops back if more matching `Todo` issue
       candidates remain.
 
       Filters:
-      - author: `{% if author %}{{author}}{% else %}<any>{% endif %}`
-      - labels: `{% if labels %}{{labels}}{% else %}<none>{% endif %}`
-      - extra search terms: `{% if search %}{{search}}{% else %}<none>{% endif %}`
+      - author: `octocat`
+      - labels: `<none>`
+      - extra search terms: `<none>`
 
       PR publication:
-      - push remote: `{% if pr_push_remote %}{{pr_push_remote}}{% else %}<infer writable fork remote>{% endif %}`
-      - head owner: `{% if pr_head_owner %}{{pr_head_owner}}{% else %}<infer from push remote>{% endif %}`
-      - base branch: `{{pr_base_branch}}`
+      - push remote: `<infer writable fork remote>`
+      - head owner: `<infer from push remote>`
+      - base branch: `master`
 
       Maintain these local audit files:
       - `runtime/issues/seen.txt`: one issue number per line for every exact
-        `{{todo_status}}` Project issue already considered, whether converted
+        `Todo` Project issue already considered, whether converted
         or skipped.
       - `runtime/issues/conversion.md`: append the aggregate conversion report.
 
       Use the GitHub CLI. First discover the project id, the Status field id,
-      and the option id for `{{in_progress_status}}`:
+      and the option id for `In Progress`:
 
-          gh project field-list {{project_number}} --owner "{{project_owner}}" --format json
+          gh project field-list 1 --owner "octocat" --format json
 
       Then build an exact issue query first. Use `gh issue list` against
-      `{{repo}}` with:
-      - `--state "{{state}}"`
-      - `--author "{{author}}"` when the author filter is non-empty
+      `octocat/hello-world` with:
+      - `--state "open"`
+      - `--author "octocat"` when the author filter is non-empty
       - one `--label "<label>"` flag for each comma-separated label when the
         label filter is non-empty
-      - `--search "{{search}}"` when extra search terms are non-empty
-      - `--limit {{candidate_limit}}`
+      - `--search ""` when extra search terms are non-empty
+      - `--limit 50`
 
       Do not treat an empty label filter as `no:label`; it means no label
       restriction. Do not use a broad `gh project item-list` scan as the primary
@@ -113,8 +113,8 @@ states:
 
       For every issue candidate not already listed in `runtime/issues/seen.txt`,
       query that issue's ProjectV2 items with `gh api graphql` and select only
-      the item whose project owner is `{{project_owner}}`, project number is
-      `{{project_number}}`, and Status field value is exactly `{{todo_status}}`.
+      the item whose project owner is `octocat`, project number is
+      `1`, and Status field value is exactly `Todo`.
       This per-issue Project check must return the Project item id needed for
       `gh project item-edit`; candidates without that exact Project item/status
       are outside this batch and must not be converted.
@@ -128,7 +128,7 @@ states:
 
       Convert issues using this brief:
 
-      {{ conversion_brief | trim }}
+      Convert every matching non-duplicate issue into executable Rhei tasks. If the issue is vague or broad, create a spec-inspection task before implementation instead of skipping it. Only skip exact duplicates, non-issue project items, or inaccessible items that cannot be inspected.
 
       Conversion rule:
       - Generate an executable task chain for every matching non-duplicate issue.
@@ -145,25 +145,25 @@ states:
       command shape, replacing `<number>` with the issue number and `<slug>`
       with a lowercase filesystem-safe issue-title slug:
 
-          issue_worktree="{{worktree_root}}/{{repo | slug}}-issue-<number>-<slug>"
+          issue_worktree="/path/to/worktrees/octocat-hello-world-issue-<number>-<slug>"
           issue_branch="rhei/issue-<number>-<slug>"
-          mkdir -p "{{worktree_root}}"
+          mkdir -p "/path/to/worktrees"
           if [ -e "$issue_worktree/.git" ]; then
             git -C "$issue_worktree" status --short
           else
-            git -C "{{repo_checkout}}" worktree add -b "$issue_branch" "$issue_worktree" HEAD
+            git -C "/path/to/hello-world" worktree add -b "$issue_branch" "$issue_worktree" HEAD
           fi
 
       If the branch already exists, reuse the existing worktree when present; if
-      no worktree exists, use `git -C "{{repo_checkout}}" worktree add
+      no worktree exists, use `git -C "/path/to/hello-world" worktree add
       "$issue_worktree" "$issue_branch"` instead of creating a duplicate branch.
       If worktree creation fails, record the failure in `{output.conversion.path}`,
       do not generate the issue task chain, do not move the project item, and do
       not mark the issue converted in `runtime/issues/seen.txt`.
 
       The issue's implementation path is:
-      - if `{{work_subdir}}` is `.`, use `<issue_worktree>`
-      - otherwise use `<issue_worktree>/{{work_subdir}}`
+      - if `.` is `.`, use `<issue_worktree>`
+      - otherwise use `<issue_worktree>/.`
 
       For each converted issue, write one issue plan file under `tasks/`. Pick
       the next free `NN` prefix and use a filename like
@@ -178,7 +178,7 @@ states:
 
           - Source issue: <URL>
           - Project item: <project item id>
-          - Project status when converted: {{todo_status}}
+          - Project status when converted: Todo
           - Issue author: <author>
           - Labels: <labels>
           - Worktree: <issue_worktree>
@@ -237,9 +237,9 @@ states:
           - Source issue: <URL>
           - Worktree: <issue_worktree>
           - Work path: <implementation path>
-          - PR push remote: {% if pr_push_remote %}`{{pr_push_remote}}`{% else %}`<infer writable fork remote>`{% endif %}
-          - PR head owner: {% if pr_head_owner %}`{{pr_head_owner}}`{% else %}`<infer from push remote>`{% endif %}
-          - PR base branch: `{{pr_base_branch}}`
+          - PR push remote: `<infer writable fork remote>`
+          - PR head owner: `<infer from push remote>`
+          - PR base branch: `master`
           - Purpose: open a pull request for the verified issue resolution.
           - Required work:
             - Read `runtime/issues/work/issue-<number>-verification.md`.
@@ -253,8 +253,8 @@ states:
             - Open a GitHub pull request for the resolved issue with a title and
               body that link to the source issue, summarize the implemented
               resolution, and include verification results. Use
-              `{{repo}}` as the PR repository, `{{pr_base_branch}}` as the base,
-              and `{% if pr_head_owner %}{{pr_head_owner}}{% else %}<inferred head owner>{% endif %}:<issue branch>` as the head.
+              `octocat/hello-world` as the PR repository, `master` as the base,
+              and `<inferred head owner>:<issue branch>` as the head.
             - Use a closing keyword for the source issue only when the PR is
               intended to fully resolve it; otherwise link the issue without
               auto-closing it and explain the remaining follow-up.
@@ -264,7 +264,7 @@ states:
             `agent-review-fix` and return to `agent-review`.
 
       Rules for generated issue task chains:
-      - Do not generate more than {{limit}} issue chains in this batch.
+      - Do not generate more than 5 issue chains in this batch.
       - Each issue chain must be contained in exactly one issue plan file, e.g.
         `tasks/NN-issue-<number>.md`.
       - Each issue chain is an independent root graph. The first
@@ -279,10 +279,10 @@ states:
         explicitly requires it.
       - After the worktree and the issue plan file are written
         successfully, update that issue's GitHub project item Status from
-        `{{todo_status}}` to `{{in_progress_status}}` using
+        `Todo` to `In Progress` using
         `gh project item-edit`. Do not set Done; issue/PR closure is expected
         to move the item to Done automatically.
-      - If a project item cannot be moved to `{{in_progress_status}}`, leave a
+      - If a project item cannot be moved to `In Progress`, leave a
         clear note in `{output.conversion.path}` and do not mark the issue as
         converted in `runtime/issues/seen.txt`.
 
@@ -294,7 +294,7 @@ states:
       - risks, missing context, and suggested human follow-up
 
       Add every fetched-and-considered issue number whose exact Project item
-      matched `{{todo_status}}` to `runtime/issues/seen.txt` before you finish
+      matched `Todo` to `runtime/issues/seen.txt` before you finish
       this batch, whether converted or skipped. Do not generate another task
       for a number already listed there.
 
@@ -326,27 +326,27 @@ states:
     description: Sleep between issue batches and route based on remaining exact issue candidates in GitHub Project TODO.
     program: |
       batch_count="$(find runtime/issues/batches -type f -name '*-inventory.md' 2>/dev/null | wc -l | tr -d '[:space:]')"
-      if [ "${batch_count:-0}" -ge "{{max_batches}}" ]; then
+      if [ "${batch_count:-0}" -ge "20" ]; then
         exit 0
       fi
 
       retry_later() {
-        if [ "{{sleep}}" != "0s" ]; then
-          sleep {{sleep}}
+        if [ "10m" != "0s" ]; then
+          sleep 10m
         fi
         exit 75
       }
 
-      repo="{{repo}}"
+      repo="octocat/hello-world"
       repo_owner="${repo%%/*}"
       repo_name="${repo#*/}"
-      project_owner="{{project_owner}}"
+      project_owner="octocat"
       if [ "$project_owner" = "@me" ]; then
         project_owner="$(gh api user --jq .login 2>/dev/null || printf '@me')"
       fi
 
-      search_terms="{{search}}"
-      labels="{{labels}}"
+      search_terms=""
+      labels=""
       old_ifs="$IFS"
       IFS=","
       for label in $labels; do
@@ -357,22 +357,22 @@ states:
       done
       IFS="$old_ifs"
 
-      if [ -n "{{author}}" ]; then
-        search_terms="$search_terms author:{{author}}"
+      if [ -n "octocat" ]; then
+        search_terms="$search_terms author:octocat"
       fi
 
       seen_count="$(wc -l < runtime/issues/seen.txt 2>/dev/null | tr -d '[:space:]')"
-      fetch_limit="$(( ${seen_count:-0} + {{candidate_limit}} ))"
-      if [ "$fetch_limit" -lt "{{candidate_limit}}" ]; then
-        fetch_limit="{{candidate_limit}}"
+      fetch_limit="$(( ${seen_count:-0} + 50 ))"
+      if [ "$fetch_limit" -lt "50" ]; then
+        fetch_limit="50"
       fi
 
       if [ -n "$search_terms" ]; then
-        if ! candidates="$(gh issue list --repo "$repo" --state "{{state}}" --limit "$fetch_limit" --search "$search_terms" --json number --jq '.[].number' 2>/dev/null)"; then
+        if ! candidates="$(gh issue list --repo "$repo" --state "open" --limit "$fetch_limit" --search "$search_terms" --json number --jq '.[].number' 2>/dev/null)"; then
           retry_later
         fi
       else
-        if ! candidates="$(gh issue list --repo "$repo" --state "{{state}}" --limit "$fetch_limit" --json number --jq '.[].number' 2>/dev/null)"; then
+        if ! candidates="$(gh issue list --repo "$repo" --state "open" --limit "$fetch_limit" --json number --jq '.[].number' 2>/dev/null)"; then
           retry_later
         fi
       fi
@@ -383,7 +383,7 @@ states:
           continue
         fi
         unseen_checked="$((unseen_checked + 1))"
-        if [ "$unseen_checked" -gt "{{candidate_limit}}" ]; then
+        if [ "$unseen_checked" -gt "50" ]; then
           break
         fi
         if ! match_count="$(
@@ -413,9 +413,9 @@ states:
               }
             }' \
             --jq '.data.repository.issue.projectItems.nodes
-              | map(select((.project.number == {{project_number}})
+              | map(select((.project.number == 1)
                   and ((.project.owner.login // "") == "'"$project_owner"'")
-                  and ((.fieldValueByName.name // "") == "{{todo_status}}")))
+                  and ((.fieldValueByName.name // "") == "Todo")))
               | length' 2>/dev/null
         )"; then
           retry_later
@@ -430,7 +430,7 @@ states:
 
   pending:
     description: Execute a generated issue task in its task-specific worktree.
-    target: "{{worker_agent}}"
+    target: "codex[yolo]:openai:gpt-5.5"
     concurrent: true
     instructions: |
       Execute Task {task_id}: {task_title}.
@@ -458,7 +458,7 @@ states:
 
   agent-review:
     description: Review a generated issue task before it can complete.
-    target: "{{reviewer_agent}}"
+    target: "codex[yolo]:openai:gpt-5.5"
     concurrent: true
     instructions: |
       Review Task {task_id}: {task_title}.
@@ -486,7 +486,7 @@ states:
 
   agent-review-fix:
     description: Address agent-review findings for one generated issue task.
-    target: "{{worker_agent}}"
+    target: "codex[yolo]:openai:gpt-5.5"
     concurrent: true
     instructions: |
       Fix review findings for Task {task_id}: {task_title}.
@@ -526,7 +526,7 @@ states:
 
   report:
     description: Summarize generated issue-task outcomes.
-    target: "{{worker_agent}}"
+    target: "codex[yolo]:openai:gpt-5.5"
     instructions: |
       Summarize Task {task_id}: {task_title}.
 

@@ -18,13 +18,13 @@ rhei instantiate issue-converter \
   --set pr_base_branch=master \
   --set sleep=10m \
   --set max_batches=20 \
-  --output .agents/scratchpad/issues-octocat
+  --output issues-octocat
 ```
 
-Then run the generated workspace:
+Then run the generated workspace by its rhei id under the Panta project root:
 
 ```sh
-rhei run .agents/scratchpad/issues-octocat --parallel 2
+rhei run issues-octocat --parallel 2
 ```
 
 Run with `--parallel 2` or higher so the converter can keep batching while
@@ -95,3 +95,6 @@ Useful inputs:
 - `reviewer_agent`: agent that reviews generated task results.
 
 State-machine paths are documented in [states.yaml](states.yaml).
+
+A rendered, runnable instantiation of this template is checked in at
+[`examples/issue-converter-example/`](../../../../examples/issue-converter-example).

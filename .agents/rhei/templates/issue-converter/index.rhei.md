@@ -18,7 +18,6 @@ worktree, then appends one issue plan file containing spec-inspection,
 implementation, verification, and PR-opening tasks. Each issue plan is an
 independent root graph; code and docs work happens in the per-issue worktree
 while the scratchpad stores Rhei plan/runtime artifacts.
-§FS-rhei-templates.7.1
 
 ## Source
 

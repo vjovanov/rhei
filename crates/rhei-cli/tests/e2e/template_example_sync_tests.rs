@@ -25,6 +25,7 @@ const TEMPLATE_EXAMPLES: &[(&str, &str)] = &[
     ("parallel-worktrees", "parallel-worktrees-example"),
     ("multi-model-analysis", "multi-model-analysis-example"),
     ("spec-review", "spec-review-example"),
+    ("issue-converter", "issue-converter-example"),
 ];
 
 /// Example-owned files that the rendered template output does not include.

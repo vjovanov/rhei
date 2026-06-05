@@ -1,0 +1,8 @@
+repo: octocat/hello-world
+project_owner: octocat
+project_number: 1
+repo_checkout: /path/to/hello-world
+worktree_root: /path/to/worktrees
+author: octocat
+limit: 5
+sleep: 10m

@@ -17,6 +17,7 @@ Use this table when you know the job you want to model:
 | Parallel implementation branches | `parallel-worktrees/` | Demonstrates independent tasks advancing concurrently. |
 | Snapshot continuation | `snapshot-continuation/` | Shows snapshot emit, inherit, list, continue, and run override commands. |
 | Live dashboard regression testing | `ui-test-canonical-example/` | Canonical runnable fixture for Flow and TUI/dashboard behavior. |
+| Convert a GitHub issue queue into work | `issue-converter-example/` | Fetches a bounded issue batch and generates one executable task chain (spec → impl → verify → PR) per matching issue, each in its own worktree. |
 
 ## Files
 
@@ -98,6 +99,13 @@ Use this table when you know the job you want to model:
     callbacks, generated follow-up task files, snapshots, seeded gates, and
     terminal examples
   - Run the mock workflow with `cargo xtask examples run ui-test-canonical --viz`.
+
+- `issue-converter-example/`
+  Valid example directory using:
+  - a directory workspace instantiated from `.agents/rhei/templates/issue-converter/`
+  - a bootstrap converter task plus a `convert` / `wait-for-next-batch` polling loop
+  - generated per-issue task chains (spec → impl → verify → PR) in their own worktrees
+  - a template-shipped `.agents/rhei/settings.json`
 
 - `states-with-spaces.yaml`
   Companion states file for `escaped-state-values.rhei.md`.
