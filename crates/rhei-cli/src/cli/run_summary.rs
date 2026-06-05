@@ -20,9 +20,35 @@ struct TaskActivity {
     last_duration_ms: u64,
 }
 
-/// An `EventSink` recording per-task driver/duration for the console summary's
-/// task tree; teed alongside the journal/frontend sinks and read after the run.
-/// §FS-rhei-run-report.3.2 §FS-rhei-run-report.8
+/// One spawned transition from the run event stream, rendered into the report's
+/// ledger and invocations (agent/program only; callback and terminal-at-start
+/// rows are synthesized at build time). §FS-rhei-run-report.4 §FS-rhei-run-report.7
+#[derive(Debug, Clone)]
+struct LedgerRecord {
+    task: String,
+    from: String,
+    to: String,
+    /// `"agent"` or `"program"`.
+    driver: &'static str,
+    log_path: std::path::PathBuf,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    outcome: LedgerOutcome,
+}
+
+/// The terminal disposition of a spawned invocation, mirrored from
+/// [`rhei_tui::TaskOutcome`] so the renderer does not depend on the TUI enum.
+#[derive(Debug, Clone)]
+enum LedgerOutcome {
+    Completed,
+    Failed(String),
+    Cancelled,
+    TimedOut,
+}
+
+/// `EventSink` recording per-task driver/duration for the console task tree and
+/// the spawned-transition ledger for the durable report; teed alongside the
+/// journal/frontend sinks and read post-run. §FS-rhei-run-report.3.2 §FS-rhei-run-report.8
 pub struct SummarySink {
     inner: Mutex<SummaryState>,
 }
@@ -33,6 +59,8 @@ struct SummaryState {
     inflight: HashMap<u16, &'static str>,
     /// Finalized per-task activity, keyed by task id.
     tasks: HashMap<String, TaskActivity>,
+    /// Spawned transitions in chronological order, for the durable ledger.
+    ledger: Vec<LedgerRecord>,
 }
 
 impl SummarySink {
@@ -40,9 +68,17 @@ impl SummarySink {
         Self { inner: Mutex::new(SummaryState::default()) }
     }
 
-    /// Snapshot the accumulated activity for rendering after the run.
+    /// Snapshot the accumulated activity for rendering after the run. A poisoned
+    /// lock (a worker panicked mid-run) degrades to empty rather than panicking
+    /// the report — a partial report still beats none.
     fn snapshot(&self) -> HashMap<String, TaskActivity> {
-        self.inner.lock().expect("summary sink poisoned").tasks.clone()
+        self.inner.lock().map(|state| state.tasks.clone()).unwrap_or_default()
+    }
+
+    /// The spawned-transition ledger in chronological order; empty on a poisoned
+    /// lock, for the same best-effort reason as [`snapshot`](Self::snapshot).
+    fn ledger(&self) -> Vec<LedgerRecord> {
+        self.inner.lock().map(|state| state.ledger.clone()).unwrap_or_default()
     }
 }
 
@@ -64,52 +100,207 @@ impl rhei_tui::EventSink for SummarySink {
                 let driver = if agent.is_some() { "agent" } else { "program" };
                 state.inflight.insert(slot, driver);
             }
-            rhei_tui::RunEvent::SlotReleased { slot, task, duration_ms, .. } => {
+            rhei_tui::RunEvent::SlotReleased {
+                slot,
+                task,
+                from,
+                to,
+                log_path,
+                outcome,
+                exit_code,
+                duration_ms,
+                ..
+            } => {
                 let driver = state.inflight.remove(&slot).unwrap_or("program");
-                let entry = state.tasks.entry(task).or_default();
+                let entry = state.tasks.entry(task.clone()).or_default();
                 entry.driver = Some(driver);
                 entry.invocations += 1;
                 entry.last_duration_ms = duration_ms;
+                let outcome = match outcome {
+                    rhei_tui::TaskOutcome::Completed => LedgerOutcome::Completed,
+                    rhei_tui::TaskOutcome::Failed(msg) => LedgerOutcome::Failed(msg),
+                    rhei_tui::TaskOutcome::Cancelled => LedgerOutcome::Cancelled,
+                    rhei_tui::TaskOutcome::TimedOut => LedgerOutcome::TimedOut,
+                };
+                state.ledger.push(LedgerRecord {
+                    task,
+                    from,
+                    to,
+                    driver,
+                    log_path,
+                    exit_code,
+                    duration_ms,
+                    outcome,
+                });
             }
             _ => {}
         }
     }
 }
 
-/// Print the end-of-run console summary to stdout. Best-effort: a non-interactive
-/// stdout or plan-load failure skips it, leaving the run's line-oriented output
-/// as the non-TTY record. §FS-rhei-run-report.3 §FS-rhei-run-report.3.4
-fn print_run_summary(
+/// Build the report, write the durable Markdown files, then print the run's
+/// end-of-run surface: rich console summary on a TTY, else a `Report:` pointer.
+/// Best-effort — a load or write failure must not mask the result. §FS-rhei-run-report.1 §FS-rhei-run-report.3
+fn emit_run_report(
     input: &std::path::Path,
     machine: &rhei_validator::StateMachine,
     summary: &SummarySink,
-    agents_spawned: u32,
-    programs_spawned: u32,
-    callback_only: u32,
-    duration: std::time::Duration,
+    runtime_dir: &std::path::Path,
+    stats: RunStats,
 ) {
     use std::io::IsTerminal;
-    if !std::io::stdout().is_terminal() {
-        return;
-    }
     let Ok(loaded) = load_plan(input) else {
         return;
     };
-    let report = RunSummaryReport::build(
-        &loaded.rhei,
-        machine,
-        summary,
-        RunStats {
-            agents_spawned,
-            programs_spawned,
-            callback_only,
-            duration: Some(duration),
-            dashboard: None,
-        },
-    );
-    // Honor NO_COLOR for users who disable ANSI globally.
-    let color = std::env::var_os("NO_COLOR").is_none();
-    print!("{}", report.render_tty(color));
+    // A dry run is a side-effect-free preview: render the console summary but
+    // never touch the durable report on disk. §FS-rhei-run-report.3.5
+    let dry_run = stats.dry_run;
+    let mut report = RunSummaryReport::build(&loaded.rhei, machine, summary, stats);
+    // Write the durable report even when stdout is piped, so CI runs leave the
+    // artifact; a dry run writes nothing, leaving `report_path` unset so no pointer
+    // prints below. §FS-rhei-run-report.1 §FS-rhei-run-report.3.5
+    if !dry_run {
+        if let Err(err) = report.write_to_runtime(runtime_dir) {
+            eprintln!("warning: could not write run report: {err}");
+        }
+    }
+    if std::io::stdout().is_terminal() {
+        // Honor NO_COLOR for users who disable ANSI globally.
+        let color = std::env::var_os("NO_COLOR").is_none();
+        print!("{}", report.render_tty(color));
+    } else if let Some(report_path) = &report.report_path {
+        println!("Report: {report_path}");
+    }
+}
+
+/// A short, stable run identifier derived from the run's wall-clock start. FNV-1a
+/// over the start nanoseconds folded to six hex digits — enough to disambiguate
+/// history entries without a random-number dependency. §FS-rhei-run-report.2
+fn short_run_id(started_at: std::time::SystemTime) -> String {
+    let nanos =
+        started_at.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in nanos.to_le_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:06x}", hash & 0xff_ffff)
+}
+
+/// The relative path to the frozen dashboard artifact when one was written this
+/// run, for the report's Dashboard pointer. Gated on `enabled_this_run` so a
+/// stale `dashboard.html` left by an earlier run is never linked. §FS-rhei-run-report.2
+fn frozen_dashboard_relative_path(
+    enabled_this_run: bool,
+    runtime_dir: &std::path::Path,
+    workspace_root: &std::path::Path,
+) -> Option<String> {
+    if !enabled_this_run {
+        return None;
+    }
+    let path = runtime_dir.join("dashboard.html");
+    path.exists().then(|| relativize(&path, workspace_root))
+}
+
+/// The current process command line with `argv[0]` normalized to `rhei`, so the
+/// report header records the real flags the operator ran. §FS-rhei-run-report.2
+fn current_command_line() -> String {
+    let mut args: Vec<String> = std::env::args().collect();
+    if let Some(first) = args.first_mut() {
+        *first = "rhei".to_string();
+    }
+    args.join(" ")
+}
+
+/// Snapshot each task's normalized state at run start, keyed by task id, so the
+/// report can mark terminal-at-start tasks and reconcile callback advances that
+/// emit no slot events. §FS-rhei-run-report.8
+fn collect_initial_states(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> HashMap<String, String> {
+    fn walk(
+        tasks: &[rhei_core::ast::Task],
+        machine: &rhei_validator::StateMachine,
+        out: &mut HashMap<String, String>,
+    ) {
+        for task in tasks {
+            out.insert(task.id.to_string(), normalized_state_name(task.state.as_str(), machine));
+            walk(&task.children, machine, out);
+        }
+    }
+    let mut out = HashMap::new();
+    walk(&rhei.tasks, machine, &mut out);
+    out
+}
+
+/// Writes a best-effort report if `rhei run` returns early with an error.
+/// Declared before the frontend so it drops after the terminal is restored; the
+/// happy path disarms it after the full report is written. §FS-rhei-run-report.1
+struct RunReportGuard<'a> {
+    input: &'a std::path::Path,
+    machine: &'a rhei_validator::StateMachine,
+    runtime_dir: std::path::PathBuf,
+    run_started: std::time::Instant,
+    run_started_wall: std::time::SystemTime,
+    run_id: String,
+    workspace_root: std::path::PathBuf,
+    command: String,
+    parallel: usize,
+    mode: &'static str,
+    initial_states: HashMap<String, String>,
+    /// A dry run is side-effect-free, so the fallback writes nothing on an early
+    /// error either. §FS-rhei-run-report.3.5
+    dry_run: bool,
+    /// Set once the frontend exists; without it there is nothing to report from.
+    summary: Option<std::sync::Arc<SummarySink>>,
+    /// Cleared by the happy path after the authoritative report is written.
+    armed: bool,
+}
+
+impl RunReportGuard<'_> {
+    /// The run wrote its own report; suppress the best-effort fallback.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RunReportGuard<'_> {
+    fn drop(&mut self) {
+        // A dry run never writes a report, even when it aborts. §FS-rhei-run-report.3.5
+        if !self.armed || self.dry_run {
+            return;
+        }
+        let Some(summary) = self.summary.clone() else {
+            return;
+        };
+        // Best-effort from the data captured before the failure: spawn counts come
+        // from the ledger, callbacks and dashboard are unknown on an aborted run.
+        let ledger = summary.ledger();
+        let agents = ledger.iter().filter(|r| r.driver == "agent").count() as u32;
+        let programs = ledger.iter().filter(|r| r.driver == "program").count() as u32;
+        emit_run_report(
+            self.input,
+            self.machine,
+            &summary,
+            &self.runtime_dir,
+            RunStats {
+                agents_spawned: agents,
+                programs_spawned: programs,
+                callback_only: 0,
+                duration: Some(self.run_started.elapsed()),
+                dashboard: None,
+                run_id: self.run_id.clone(),
+                started_at: Some(self.run_started_wall),
+                workspace_root: self.workspace_root.clone(),
+                command: self.command.clone(),
+                parallel: self.parallel,
+                mode: self.mode,
+                initial_states: self.initial_states.clone(),
+                dry_run: false,
+            },
+        );
+    }
 }
 
 /// The scan glyph for a task's final state. Color and the state label remain the
@@ -124,6 +315,8 @@ enum Marker {
     Attention,
     /// Cancelled.
     Cancelled,
+    /// Terminal at the start of the run — no work was attempted. §FS-rhei-run-report.3.2
+    TerminalAtStart,
 }
 
 impl Marker {
@@ -133,17 +326,20 @@ impl Marker {
             Marker::Gate => '⏸',
             Marker::Attention => '!',
             Marker::Cancelled => '⊘',
+            Marker::TerminalAtStart => '·',
         }
     }
 
     /// ANSI color for this marker class. Only `Attention` and `Gate` are
-    /// saturated; success and cancelled rows stay calm. §FS-rhei-viz-ux.3
+    /// saturated; success, cancelled, and terminal-at-start rows stay calm.
+    /// §FS-rhei-viz-ux.3
     fn color(self) -> &'static str {
         match self {
             Marker::Done => GREEN,
             Marker::Gate => YELLOW,
             Marker::Attention => RED,
             Marker::Cancelled => DIM,
+            Marker::TerminalAtStart => DIM,
         }
     }
 
@@ -200,9 +396,53 @@ pub struct RunStats {
     pub callback_only: u32,
     pub duration: Option<std::time::Duration>,
     pub dashboard: Option<String>,
+    /// Short run identifier shown in the header and history filename.
+    pub run_id: String,
+    /// Wall-clock start, rendered in the report header. `None` falls back to
+    /// the run id alone.
+    pub started_at: Option<std::time::SystemTime>,
+    /// Workspace root, used to render relative artifact links. §FS-rhei-run-report.1
+    pub workspace_root: std::path::PathBuf,
+    /// The command label shown in the header (`rhei run …`).
+    pub command: String,
+    /// Worker parallelism for the run.
+    pub parallel: usize,
+    /// `"agent"` or `"callback"` execution mode.
+    pub mode: &'static str,
+    /// Task id → normalized state at run start, for terminal-at-start detection
+    /// and reconciling callback advances that emit no slot events.
+    /// §FS-rhei-run-report.8
+    pub initial_states: HashMap<String, String>,
+    /// True under `--dry-run`: the report records a simulated run that applied no
+    /// changes, so its result line and counts read as a preview. §FS-rhei-run-report.3.5
+    pub dry_run: bool,
 }
 
-/// The fully resolved console summary, ready to render.
+/// One rendered Transition Ledger row. §FS-rhei-run-report.4
+struct LedgerEntry {
+    task: String,
+    from: String,
+    /// Destination state, or `-` when no transition was taken.
+    to: String,
+    /// `agent`, `program`, `callback-only`, `terminal-at-start`, or `blocked`.
+    driver: &'static str,
+    /// Invocation label + relative log link, or `none`.
+    invocation: String,
+    reason: String,
+}
+
+/// One spawned agent/program for the Invocations section. §FS-rhei-run-report.7
+struct InvocationRow {
+    driver: &'static str,
+    task: String,
+    /// `exit 0`, `exit 42`, `cancelled`, `timed out`, or `—`.
+    exit: String,
+    duration_ms: u64,
+    /// Relative log path.
+    log: String,
+}
+
+/// The fully resolved run report, ready to render to the console or to Markdown.
 pub struct RunSummaryReport {
     title: String,
     result: String,
@@ -214,6 +454,22 @@ pub struct RunSummaryReport {
     attention: Vec<AttentionRow>,
     rows: Vec<TaskRow>,
     dashboard: Option<String>,
+    // ── Durable-report fields (§FS-rhei-run-report.1, .2, .4, .7) ────────────
+    run_id: String,
+    started_at: Option<std::time::SystemTime>,
+    workspace: String,
+    command: String,
+    parallel: usize,
+    mode: &'static str,
+    agents_spawned: u32,
+    programs_spawned: u32,
+    callback_only: u32,
+    terminal_at_start: usize,
+    ledger: Vec<LedgerEntry>,
+    invocations: Vec<InvocationRow>,
+    /// Relative paths to the written report files, filled by [`write_to_runtime`].
+    report_path: Option<String>,
+    history_path: Option<String>,
 }
 
 // ANSI codes; emitted only when color is enabled.
@@ -257,6 +513,25 @@ impl RunSummaryReport {
             &mut counts,
         );
 
+        // Terminal-at-start: same terminal state at run start as now, so no work
+        // was attempted. The row keeps its state count but flips to the calm `·`
+        // marker so it reads apart from work that just ran. §FS-rhei-run-report.3.2
+        let mut terminal_at_start = 0usize;
+        for row in &mut rows {
+            let was = stats.initial_states.get(&row.id).map(String::as_str);
+            let unchanged_terminal =
+                was == Some(row.state.as_str()) && is_terminal_state(&row.state, machine);
+            if unchanged_terminal {
+                terminal_at_start += 1;
+                // A success state flips to the calm `·` marker; a cancelled task
+                // keeps its own `⊘` marker but still counts as terminal-at-start.
+                if row.marker == Marker::Done {
+                    row.marker = Marker::TerminalAtStart;
+                    row.detail = Some("terminal at start".to_string());
+                }
+            }
+        }
+
         let total_tasks = rows.len();
 
         // Counts in canonical order: success, gate, attention, cancelled.
@@ -264,8 +539,29 @@ impl RunSummaryReport {
             counts.into_iter().map(|(state, (n, marker))| (state, n, marker)).collect();
         state_counts.sort_by_key(|(_, _, marker)| marker_order(*marker));
 
-        let result = result_phrase(&attention, &rows);
+        let no_work = stats.agents_spawned == 0 && stats.programs_spawned == 0;
+        let advanced_without_work = rows.iter().any(|r| {
+            r.marker == Marker::Done
+                && stats.initial_states.get(&r.id).map(String::as_str) != Some(r.state.as_str())
+        });
+        // A dry run simulated transitions but applied nothing, so its result
+        // reads as a preview rather than an outcome. §FS-rhei-run-report.3.5
+        let result = if stats.dry_run {
+            "dry run — no changes applied".to_string()
+        } else {
+            result_phrase(&attention, &rows, no_work, advanced_without_work)
+        };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
+
+        let ledger = build_ledger(
+            &rows,
+            &attention,
+            &summary.ledger(),
+            &stats.initial_states,
+            machine,
+            &stats.workspace_root,
+        );
+        let invocations = build_invocations(&summary.ledger(), &stats.workspace_root);
 
         Self {
             title: rhei.title.clone(),
@@ -277,6 +573,20 @@ impl RunSummaryReport {
             attention,
             rows,
             dashboard: stats.dashboard,
+            run_id: stats.run_id,
+            started_at: stats.started_at,
+            workspace: stats.workspace_root.display().to_string(),
+            command: stats.command,
+            parallel: stats.parallel,
+            mode: stats.mode,
+            agents_spawned: stats.agents_spawned,
+            programs_spawned: stats.programs_spawned,
+            callback_only: stats.callback_only,
+            terminal_at_start,
+            ledger,
+            invocations,
+            report_path: None,
+            history_path: None,
         }
     }
 
@@ -338,9 +648,17 @@ impl RunSummaryReport {
         ));
         out.push_str(&self.render_tree(&c));
 
-        // Pointers.
+        // Pointers: the durable report is the at-a-glance summary's companion;
+        // the console points at it for the full forensic read. §FS-rhei-run-report.3.1
+        out.push('\n');
+        if let Some(report) = &self.report_path {
+            out.push_str(&format!("Report     {report}\n"));
+        }
+        if let Some(history) = &self.history_path {
+            out.push_str(&format!("History    {history}\n"));
+        }
         if let Some(dashboard) = &self.dashboard {
-            out.push_str(&format!("\nDashboard  {dashboard}\n"));
+            out.push_str(&format!("Dashboard  {dashboard}\n"));
         }
         // Drop trailing spaces left by empty detail columns; keep the final newline.
         let trailing_newline = out.ends_with('\n');
@@ -349,6 +667,158 @@ impl RunSummaryReport {
             trimmed.push('\n');
         }
         trimmed
+    }
+
+    /// Render the durable Markdown report — header, outcome strip, attention,
+    /// ledger, task final states, invocations: the commit-friendly explanation
+    /// an operator can read without the dashboard. §FS-rhei-run-report.1 §FS-rhei-run-report.2
+    pub fn render_markdown(&self) -> String {
+        let mut out = String::new();
+
+        // 1. Header.
+        out.push_str(&format!("# Run Report: {}\n\n", self.title));
+        let when = self
+            .started_at
+            .map(format_iso8601_utc)
+            .map(|ts| format!("{ts} / {}", self.run_id))
+            .unwrap_or_else(|| self.run_id.clone());
+        out.push_str(&format!("Run: {when}\n"));
+        out.push_str(&format!("Workspace: {}\n", self.workspace));
+        out.push_str(&format!("Command: {}\n", self.command));
+        out.push_str(&format!("Mode: {} · parallel {}\n", self.mode, self.parallel));
+        if let Some(dur) = self.duration {
+            out.push_str(&format!("Duration: {}\n", format_duration_long(dur)));
+        }
+        out.push_str(&format!("Result: {}\n", self.result));
+        if let Some(dashboard) = &self.dashboard {
+            out.push_str(&format!("Dashboard: {dashboard}\n"));
+        }
+        out.push('\n');
+
+        // 2. Outcome strip — final states and run activity. The reuse/blocked
+        // signal sits at the top of the report, never below a fold.
+        out.push_str("| Final states | Count |\n| --- | ---: |\n");
+        for (state, n, _) in &self.state_counts {
+            out.push_str(&format!("| {state} | {n} |\n"));
+        }
+        out.push('\n');
+        let could_not_advance = self.attention.len();
+        out.push_str("| Activity | Count |\n| --- | ---: |\n");
+        out.push_str(&format!("| agent invocations | {} |\n", self.agents_spawned));
+        out.push_str(&format!("| program invocations | {} |\n", self.programs_spawned));
+        out.push_str(&format!("| callback-only transitions | {} |\n", self.callback_only));
+        out.push_str(&format!("| terminal at start | {} |\n", self.terminal_at_start));
+        out.push_str(&format!("| could not advance | {could_not_advance} |\n"));
+        out.push('\n');
+        if self.agents_spawned == 0 && self.programs_spawned == 0 {
+            out.push_str(
+                "> No agent or program ran this run. Any task that advanced did so through \
+                 callbacks, transition rules, or outputs that already existed — inspect the \
+                 ledger below before assuming work was performed.\n\n",
+            );
+        }
+
+        // 3. Attention.
+        if !self.attention.is_empty() {
+            out.push_str("## Attention\n\n");
+            out.push_str("| Task | State | Reason | Next action |\n| --- | --- | --- | --- |\n");
+            for a in &self.attention {
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} |\n",
+                    md_cell(&a.id),
+                    md_cell(&a.state),
+                    md_cell(&a.reason),
+                    md_cell(&a.next),
+                ));
+            }
+            out.push('\n');
+        }
+
+        // 4. Transition ledger.
+        out.push_str("## Transition Ledger\n\n");
+        out.push_str(
+            "| Task | From | To | Driver | Invocation | Reason |\n\
+             | --- | --- | --- | --- | --- | --- |\n",
+        );
+        for e in &self.ledger {
+            out.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} |\n",
+                e.task,
+                md_cell(&e.from),
+                md_cell(&e.to),
+                e.driver,
+                md_link_or_text(&e.invocation),
+                md_cell(&e.reason),
+            ));
+        }
+        out.push('\n');
+
+        // 5. Task final states.
+        out.push_str("## Task Final States\n\n");
+        for row in &self.rows {
+            let indent = "  ".repeat(row.depth);
+            let detail = row.detail.as_deref().unwrap_or("");
+            let detail = if detail.is_empty() {
+                String::new()
+            } else {
+                format!(" — {detail}")
+            };
+            out.push_str(&format!(
+                "{indent}- {} `{}` ({}){detail}\n",
+                row.marker.glyph(),
+                row.id,
+                row.state,
+            ));
+        }
+        out.push('\n');
+
+        // 6. Invocations.
+        if !self.invocations.is_empty() {
+            out.push_str("## Invocations\n\n");
+            out.push_str(
+                "| Task | Driver | Exit | Duration | Log |\n| --- | --- | --- | --- | --- |\n",
+            );
+            for inv in &self.invocations {
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} | [{}]({}) |\n",
+                    inv.task,
+                    inv.driver,
+                    inv.exit,
+                    format_duration_short(inv.duration_ms),
+                    inv.log,
+                    inv.log,
+                ));
+            }
+            out.push('\n');
+        }
+
+        out
+    }
+
+    /// Write the durable report to `runtime/run-report.md` and a timestamped
+    /// history entry, recording the relative paths for the console pointer.
+    /// Best-effort. §FS-rhei-run-report.1
+    pub fn write_to_runtime(&mut self, runtime_dir: &std::path::Path) -> std::io::Result<()> {
+        let body = self.render_markdown();
+        let latest = runtime_dir.join("run-report.md");
+        let history_dir = runtime_dir.join("run-reports");
+        std::fs::create_dir_all(&history_dir)?;
+        let stamp = self
+            .started_at
+            .map(format_iso8601_utc)
+            .map(|ts| ts.replace(':', "-"))
+            .unwrap_or_else(|| "unknown".to_string());
+        let history = history_dir.join(format!("{stamp}-{}.md", self.run_id));
+        std::fs::write(&latest, &body)?;
+        std::fs::write(&history, &body)?;
+        self.report_path = Some(relativize(&latest, &self.workspace_root_path()));
+        self.history_path = Some(relativize(&history, &self.workspace_root_path()));
+        Ok(())
+    }
+
+    /// The workspace root reconstructed from its display string, for link bases.
+    fn workspace_root_path(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(&self.workspace)
     }
 
     /// The static state-distribution bar, sized by count and colored by class.
@@ -526,16 +996,195 @@ fn attention_reason(marker: Marker, state: &str) -> (String, String) {
     }
 }
 
-fn result_phrase(attention: &[AttentionRow], rows: &[TaskRow]) -> String {
+fn result_phrase(
+    attention: &[AttentionRow],
+    rows: &[TaskRow],
+    no_work: bool,
+    advanced_without_work: bool,
+) -> String {
+    let all_terminal_success =
+        rows.iter().all(|r| matches!(r.marker, Marker::Done | Marker::TerminalAtStart));
     if !attention.is_empty() {
         // Gated and blocked tasks both halt the run for a human; the report and
         // tree carry the per-task distinction. §FS-rhei-run-report.6
         "stopped for human attention".to_string()
-    } else if rows.iter().all(|r| r.marker == Marker::Done) {
+    } else if all_terminal_success && no_work && advanced_without_work {
+        // A run that advanced tasks while spawning nothing must not read like a
+        // fast successful run — name the absence of work. §FS-rhei-run-report.3.3
+        "completed — no work spawned".to_string()
+    } else if all_terminal_success {
         "completed".to_string()
     } else {
         "finished".to_string()
     }
+}
+
+/// Escape a value for a Markdown table cell: pipes would split the column and
+/// newlines would break the row, so both are neutralized.
+fn md_cell(value: &str) -> String {
+    value.replace('|', "\\|").replace('\n', " ")
+}
+
+/// Render an invocation cell. `"<driver> / <log>"` becomes `<driver> / [log](log)`
+/// so the log is a relative link; anything else (notably `none`) is escaped text.
+/// §FS-rhei-run-report.7
+fn md_link_or_text(value: &str) -> String {
+    match value.split_once(" / ") {
+        Some((label, path)) => format!("{} / [{}]({})", md_cell(label), path, path),
+        None => md_cell(value),
+    }
+}
+
+/// Render a path relative to the workspace root with forward slashes, so report
+/// links survive the workspace being moved, committed, or pasted into an issue.
+/// §FS-rhei-run-report.1
+fn relativize(path: &std::path::Path, root: &std::path::Path) -> String {
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// A short reason string for a spawned invocation, from its outcome and exit.
+fn ledger_outcome_reason(outcome: &LedgerOutcome, exit_code: Option<i32>) -> String {
+    match outcome {
+        LedgerOutcome::Completed => match exit_code {
+            Some(0) | None => "exit 0".to_string(),
+            Some(code) => format!("exit {code}"),
+        },
+        LedgerOutcome::Failed(msg) => {
+            let msg = msg.lines().next().unwrap_or("").trim();
+            match exit_code {
+                Some(code) if msg.is_empty() => format!("failed, exit {code}"),
+                Some(code) => format!("exit {code}: {msg}"),
+                None if msg.is_empty() => "failed".to_string(),
+                None => format!("failed: {msg}"),
+            }
+        }
+        LedgerOutcome::Cancelled => "cancelled".to_string(),
+        LedgerOutcome::TimedOut => "timed out".to_string(),
+    }
+}
+
+/// Assemble the Transition Ledger in source order: spawned rows from the event
+/// stream, plus synthesized callback / terminal-at-start / blocked rows for tasks
+/// that emit no slot events. §FS-rhei-run-report.4
+fn build_ledger(
+    rows: &[TaskRow],
+    attention: &[AttentionRow],
+    records: &[LedgerRecord],
+    initial_states: &HashMap<String, String>,
+    machine: &rhei_validator::StateMachine,
+    workspace_root: &std::path::Path,
+) -> Vec<LedgerEntry> {
+    let attention_by_id: HashMap<&str, &AttentionRow> =
+        attention.iter().map(|a| (a.id.as_str(), a)).collect();
+    let mut ledger = Vec::new();
+    for row in rows {
+        let task_records: Vec<&LedgerRecord> =
+            records.iter().filter(|r| r.task == row.id).collect();
+        if !task_records.is_empty() {
+            for rec in &task_records {
+                let log = relativize(&rec.log_path, workspace_root);
+                ledger.push(LedgerEntry {
+                    task: row.id.clone(),
+                    from: rec.from.clone(),
+                    to: rec.to.clone(),
+                    driver: rec.driver,
+                    invocation: format!("{} / {}", rec.driver, log),
+                    reason: ledger_outcome_reason(&rec.outcome, rec.exit_code),
+                });
+            }
+            // If the task ended in a terminal-success state past the last spawned
+            // transition, a callback or transition rule carried it the rest of the
+            // way — record that advance so the ledger reaches the final state.
+            let last_to = task_records.last().map(|r| r.to.as_str());
+            if matches!(row.marker, Marker::Done | Marker::TerminalAtStart)
+                && last_to != Some(row.state.as_str())
+            {
+                ledger.push(LedgerEntry {
+                    task: row.id.clone(),
+                    from: last_to.unwrap_or("").to_string(),
+                    to: row.state.clone(),
+                    driver: "callback-only",
+                    invocation: "none".to_string(),
+                    reason: "advanced without spawning work".to_string(),
+                });
+            }
+            continue;
+        }
+
+        // No invocation ran for this task this run — classify why it sits where
+        // it does from the plan and the initial-state snapshot.
+        let initial = initial_states.get(&row.id).map(String::as_str);
+        if row.marker == Marker::TerminalAtStart {
+            ledger.push(LedgerEntry {
+                task: row.id.clone(),
+                from: row.state.clone(),
+                to: "-".to_string(),
+                driver: "terminal-at-start",
+                invocation: "none".to_string(),
+                reason: "already terminal".to_string(),
+            });
+        } else if matches!(row.marker, Marker::Attention | Marker::Gate) {
+            let reason = attention_by_id
+                .get(row.id.as_str())
+                .map(|a| a.reason.clone())
+                .unwrap_or_else(|| format!("stalled in non-terminal state {}", row.state));
+            ledger.push(LedgerEntry {
+                task: row.id.clone(),
+                from: row.state.clone(),
+                to: "-".to_string(),
+                driver: "blocked",
+                invocation: "none".to_string(),
+                reason,
+            });
+        } else if initial != Some(row.state.as_str()) {
+            // Advanced to a new state without spawning a subprocess: callbacks,
+            // transition rules, or already-present outputs carried it forward.
+            ledger.push(LedgerEntry {
+                task: row.id.clone(),
+                from: initial.unwrap_or("").to_string(),
+                to: row.state.clone(),
+                driver: "callback-only",
+                invocation: "none".to_string(),
+                reason: "advanced without spawning work".to_string(),
+            });
+        } else if is_terminal_state(&row.state, machine) {
+            ledger.push(LedgerEntry {
+                task: row.id.clone(),
+                from: row.state.clone(),
+                to: "-".to_string(),
+                driver: "terminal-at-start",
+                invocation: "none".to_string(),
+                reason: "already terminal".to_string(),
+            });
+        }
+    }
+    ledger
+}
+
+/// Collect spawned agents/programs for the Invocations section. §FS-rhei-run-report.7
+fn build_invocations(
+    records: &[LedgerRecord],
+    workspace_root: &std::path::Path,
+) -> Vec<InvocationRow> {
+    records
+        .iter()
+        .map(|rec| InvocationRow {
+            driver: rec.driver,
+            task: rec.task.clone(),
+            exit: match (&rec.outcome, rec.exit_code) {
+                (LedgerOutcome::Cancelled, _) => "cancelled".to_string(),
+                (LedgerOutcome::TimedOut, _) => "timed out".to_string(),
+                (_, Some(code)) => format!("exit {code}"),
+                (_, None) => "—".to_string(),
+            },
+            duration_ms: rec.duration_ms,
+            log: relativize(&rec.log_path, workspace_root),
+        })
+        .collect()
 }
 
 fn format_work(agents: u32, programs: u32, callback_only: u32) -> String {
@@ -552,6 +1201,7 @@ fn marker_order(marker: Marker) -> u8 {
         Marker::Gate => 1,
         Marker::Attention => 2,
         Marker::Cancelled => 3,
+        Marker::TerminalAtStart => 4,
     }
 }
 
@@ -640,18 +1290,27 @@ mod run_summary_tests {
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(
-            &rhei,
-            &machine(),
-            &SummarySink::new(),
-            RunStats {
-                agents_spawned: 2,
-                programs_spawned: 3,
-                callback_only: 0,
-                duration: Some(std::time::Duration::from_secs(5)),
-                dashboard: None,
-            },
-        )
+        RunSummaryReport::build(&rhei, &machine(), &SummarySink::new(), test_stats())
+    }
+
+    /// `RunStats` with non-zero spawn counts and empty run metadata, for the
+    /// renderer tests that do not exercise the durable header.
+    fn test_stats() -> RunStats {
+        RunStats {
+            agents_spawned: 2,
+            programs_spawned: 3,
+            callback_only: 0,
+            duration: Some(std::time::Duration::from_secs(5)),
+            dashboard: None,
+            run_id: "abc123".to_string(),
+            started_at: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_749_115_351)),
+            workspace_root: std::path::PathBuf::from("examples/test"),
+            command: "rhei run .".to_string(),
+            parallel: 4,
+            mode: "agent",
+            initial_states: HashMap::new(),
+            dry_run: false,
+        }
     }
 
     #[test]
@@ -704,5 +1363,164 @@ mod run_summary_tests {
         assert_eq!(format_duration_short(8_100), "8.1s");
         assert_eq!(format_duration_short(65_000), "1m05s");
         assert_eq!(format_duration_long(std::time::Duration::from_secs(724)), "12m04s");
+    }
+
+    /// Build a report from `(id, state)` pairs and a custom `RunStats`, used by
+    /// the durable-report tests that vary spawn counts and initial states.
+    fn report_with(tasks: &[(&str, &str)], stats: RunStats) -> RunSummaryReport {
+        let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
+        for (id, state) in tasks {
+            md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
+        }
+        let rhei = rhei_core::parse(&md).expect("plan parses");
+        RunSummaryReport::build(&rhei, &machine(), &SummarySink::new(), stats)
+    }
+
+    #[test]
+    fn markdown_report_has_all_sections() {
+        let r = report(&[("1", "completed"), ("2", "blocked")]);
+        let md = r.render_markdown();
+        assert!(md.starts_with("# Run Report: Test Plan"), "{md}");
+        assert!(md.contains("Run: 2025-"), "header carries the ISO start: {md}");
+        assert!(md.contains("| Final states | Count |"), "{md}");
+        assert!(md.contains("| Activity | Count |"), "{md}");
+        assert!(md.contains("## Attention"), "{md}");
+        assert!(md.contains("## Transition Ledger"), "{md}");
+        assert!(md.contains("## Task Final States"), "{md}");
+    }
+
+    #[test]
+    fn run_id_is_stable_for_a_given_start() {
+        let t = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_749_115_351_123_456);
+        assert_eq!(short_run_id(t), short_run_id(t));
+        assert_eq!(short_run_id(t).len(), 6);
+    }
+
+    #[test]
+    fn no_work_run_that_advanced_reads_differently() {
+        // Every task ended completed, nothing spawned, and a task moved off its
+        // non-terminal start — the report must not look like fast agent work.
+        // §FS-rhei-run-report.3.3
+        let mut initial = HashMap::new();
+        initial.insert("1".to_string(), "queued".to_string());
+        let stats = RunStats {
+            agents_spawned: 0,
+            programs_spawned: 0,
+            callback_only: 1,
+            initial_states: initial,
+            ..test_stats()
+        };
+        let r = report_with(&[("1", "completed")], stats);
+        assert_eq!(r.result, "completed — no work spawned");
+        let md = r.render_markdown();
+        assert!(md.contains("No agent or program ran"), "{md}");
+        // The advance with no invocation is a callback-only ledger row.
+        assert!(md.contains("| 1 | queued | completed | callback-only |"), "{md}");
+    }
+
+    #[test]
+    fn terminal_at_start_task_is_marked_calm() {
+        let mut initial = HashMap::new();
+        initial.insert("done".to_string(), "completed".to_string());
+        let stats = RunStats { initial_states: initial, ..test_stats() };
+        let r = report_with(&[("done", "completed")], stats);
+        assert_eq!(r.terminal_at_start, 1);
+        let md = r.render_markdown();
+        assert!(md.contains("terminal at start"), "{md}");
+        // It is a terminal-at-start ledger row, not an invocation.
+        assert!(md.contains("| done | completed | - | terminal-at-start |"), "{md}");
+    }
+
+    #[test]
+    fn write_to_runtime_emits_latest_and_history() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let runtime = dir.path().join("runtime");
+        let stats =
+            RunStats { workspace_root: dir.path().to_path_buf(), ..test_stats() };
+        let mut r = report_with(&[("1", "completed")], stats);
+        r.write_to_runtime(&runtime).expect("write report");
+        assert!(runtime.join("run-report.md").exists());
+        assert_eq!(r.report_path.as_deref(), Some("runtime/run-report.md"));
+        let history = std::fs::read_dir(runtime.join("run-reports"))
+            .expect("history dir")
+            .filter_map(Result::ok)
+            .count();
+        assert_eq!(history, 1, "one timestamped history entry written");
+    }
+
+    #[test]
+    fn dry_run_result_reads_as_preview() {
+        let stats = RunStats { dry_run: true, ..test_stats() };
+        let r = report_with(&[("1", "completed")], stats);
+        assert_eq!(r.result, "dry run — no changes applied");
+        assert!(r.render_markdown().contains("Result: dry run — no changes applied"));
+    }
+
+    #[test]
+    fn dashboard_pointer_gated_on_enabled_this_run() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let runtime = dir.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::write(runtime.join("dashboard.html"), "<html>").unwrap();
+        // A stale dashboard from an earlier run must not be linked when the
+        // dashboard was off this run.
+        assert_eq!(frozen_dashboard_relative_path(false, &runtime, dir.path()), None);
+        assert_eq!(
+            frozen_dashboard_relative_path(true, &runtime, dir.path()).as_deref(),
+            Some("runtime/dashboard.html"),
+        );
+    }
+
+    #[test]
+    fn md_cell_escapes_pipes_and_newlines() {
+        assert_eq!(md_cell("a|b"), "a\\|b");
+        assert_eq!(md_cell("line1\nline2"), "line1 line2");
+    }
+
+    /// A `SummarySink` carrying one spawned transition `from`→`to`.
+    fn summary_with_spawn(task: &str, from: &str, to: &str, agent: bool) -> SummarySink {
+        use rhei_tui::EventSink;
+        let s = SummarySink::new();
+        let log = std::path::PathBuf::from("runtime/logs/x.log");
+        s.emit(rhei_tui::RunEvent::SlotAssigned {
+            slot: 0,
+            task: task.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            agent: agent.then(|| "mock".to_string()),
+            template_context: None,
+            log_path: log.clone(),
+            started_at: std::time::Instant::now(),
+            wall_clock: std::time::SystemTime::now(),
+        });
+        s.emit(rhei_tui::RunEvent::SlotReleased {
+            slot: 0,
+            task: task.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+            log_path: log,
+            outcome: rhei_tui::TaskOutcome::Completed,
+            finished_at: std::time::Instant::now(),
+            wall_clock: std::time::SystemTime::now(),
+            exit_code: Some(0),
+            duration_ms: 1_200,
+        });
+        s
+    }
+
+    #[test]
+    fn ledger_records_trailing_callback_advance_after_spawn() {
+        // An agent ran build->review, then a callback carried review->completed
+        // with no further spawn. The ledger must reach the final state.
+        let summary = summary_with_spawn("1", "build", "review", true);
+        let stats = RunStats { initial_states: HashMap::new(), ..test_stats() };
+        let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
+        md.push_str("### Task 1: Task 1\n**State:** completed\n\n");
+        let rhei = rhei_core::parse(&md).expect("plan parses");
+        let report = RunSummaryReport::build(&rhei, &machine(), &summary, stats);
+        let md = report.render_markdown();
+        // The spawned agent row and the synthesized callback advance both appear.
+        assert!(md.contains("| 1 | build | review | agent |"), "{md}");
+        assert!(md.contains("| 1 | review | completed | callback-only |"), "{md}");
     }
 }

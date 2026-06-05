@@ -76,6 +76,37 @@ fn run_single_file_linear_to_completion() {
 }
 
 #[test]
+fn run_writes_durable_report_and_points_at_it() {
+    // §FS-rhei-run-report.1: every run leaves a durable Markdown report and the
+    // non-TTY output gains a greppable `Report:` pointer.
+    let (dir, plan_path, machine_path) = setup_single_file("run-report", LINEAR_PLAN);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+
+    assert!(
+        result.stdout.contains("Report: runtime/run-report.md"),
+        "expected non-TTY Report pointer; got:\n{}",
+        result.stdout
+    );
+
+    let runtime = dir.join("runtime");
+    let report = fs::read_to_string(runtime.join("run-report.md")).expect("durable report written");
+    assert!(report.starts_with("# Run Report: Linear Chain"), "got:\n{report}");
+    assert!(report.contains("## Transition Ledger"), "got:\n{report}");
+    assert!(report.contains("## Task Final States"), "got:\n{report}");
+    assert!(report.contains("Result: completed"), "got:\n{report}");
+
+    let history: Vec<_> = fs::read_dir(runtime.join("run-reports"))
+        .expect("history dir exists")
+        .filter_map(Result::ok)
+        .collect();
+    assert_eq!(history.len(), 1, "one timestamped history entry written");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn run_single_file_parallel_to_completion() {
     let (dir, plan_path, machine_path) = setup_single_file("run-parallel", PARALLEL_PLAN);
 

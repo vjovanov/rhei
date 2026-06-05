@@ -25,7 +25,8 @@ At the end of `rhei run`, Rhei writes:
 The latest report may be overwritten by the next run. Timestamped reports are
 append-only unless `rhei reset` removes `runtime/`, matching the existing runtime
 artifact lifecycle. A failed run still writes a report with the information
-available up to the failure point.
+available up to the failure point. A `--dry-run` is the one exception: it is a
+side-effect-free preview and writes no report file (§3.5).
 
 The report uses relative links for logs and artifacts so it remains useful after
 the workspace is moved, committed, archived, or pasted into an issue.
@@ -220,15 +221,17 @@ Final states: blocked=5, cancelled=1, completed=9, human-gate=2
   …
 ```
 
-A future durable Markdown report (§1, §4, §5) gives the non-TTY path a richer,
-greppable rendering and a `Report:` pointer; until then the existing output is
-the non-TTY record.
+The durable Markdown report (§1, §4) now backs the non-TTY path: after the
+preserved line-oriented output, `rhei run` prints a greppable `Report:
+runtime/run-report.md` pointer to the report it just wrote.
 
 ### 3.5. Dry runs and empty runs
 
-- Under `--dry-run`, the summary keeps the existing terminal phrase `Dry run
-  complete - no agents were spawned.`, adds only the Report pointer, and shows
-  counts for simulated transitions with every output status `not-checked`.
+- Under `--dry-run`, the run is side-effect-free: it writes no report file and
+  leaves `runtime/` untouched. The summary keeps the existing terminal phrase
+  `Dry run complete - no agents were spawned.` and, on a TTY, shows the rich
+  summary's counts for the simulated transitions (every output status
+  `not-checked`). It prints no `Report:` pointer, since no report was written.
 - When nothing advanced and nothing was reused, the result line reads `no tasks
   could be advanced` and the Attention group lists the blockers - the
   explanation the current bare `No tasks could be advanced.` line cannot give.
@@ -289,6 +292,21 @@ This makes accidental path collisions visible. If two different plans use
 `runtime/milestones/{task_id}.md` and numeric task ids, a later run shows
 `driver: reused-output` and `output: milestone reused` instead of implying that
 an agent completed the work.
+
+**Implementation status.** The durable report (§1, §2) and the Transition Ledger
+(§4) are emitted from the run event stream and the run-start state snapshot: every
+spawned agent/program transition carries its real driver, exit, log path, and the
+synthesized callback-only, terminal-at-start, and blocked rows complete the
+picture. A report is written for every run except a `--dry-run` preview (§3.5),
+including runs that abort with an error mid-execution — the latter via a
+best-effort write of the data available up to the failure (§1). The per-artifact
+Inputs/Outputs evidence columns (§5) and the `reused-output` driver are not yet
+captured — distinguishing reuse from a callback advance needs a pre-run
+output-existence snapshot from the engine, so no-spawn advances are reported as
+`callback-only`. Until that lands, the report makes the artifact-collision case
+visible the coarse way: a run whose Outcome Strip shows `agent invocations: 0 ·
+program invocations: 0` while tasks advanced is flagged in the report body as "no
+agent or program ran," which is the signal the motivating issue asked for.
 
 ## 6. Canonical Rhei Example
 

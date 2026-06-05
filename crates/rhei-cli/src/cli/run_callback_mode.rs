@@ -10,10 +10,34 @@ fn run_callback_mode(
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
     let run_started = std::time::Instant::now();
+    // §FS-rhei-run-report.2: wall-clock start and run id for the durable report.
+    let run_started_wall = std::time::SystemTime::now();
+    let run_id = short_run_id(run_started_wall);
+    let command = current_command_line();
     let initial = load_plan(input)?;
     let initial_total_tasks = total_task_count(&initial.rhei);
+    let initial_states = collect_initial_states(&initial.rhei, machine);
+    // §FS-rhei-run-report.1: declared before the frontend so it drops after the
+    // terminal is restored; disarmed on the happy path (see end of run).
+    let mut report_guard = RunReportGuard {
+        input,
+        machine,
+        runtime_dir: runtime_dir.clone(),
+        run_started,
+        run_started_wall,
+        run_id: run_id.clone(),
+        workspace_root: workspace_root.clone(),
+        command: command.clone(),
+        parallel: max_parallel,
+        mode: "callback",
+        initial_states: initial_states.clone(),
+        dry_run: opts.dry_run(),
+        summary: None,
+        armed: true,
+    };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
@@ -28,6 +52,8 @@ fn run_callback_mode(
     // Held past the frontend drop so the end-of-run summary can read activity
     // after the TUI restores the terminal. §FS-rhei-run-report.3
     let summary_sink = frontend.summary.clone();
+    report_guard.summary = Some(summary_sink.clone());
+    let dashboard_enabled = frontend.dashboard.is_some();
     sink.emit(RunEvent::RunStarted {
         workspace: workspace_root.clone(),
         parallel: frontend_parallel,
@@ -264,19 +290,35 @@ fn run_callback_mode(
     drop(sink);
     drop(frontend);
 
-    // §FS-rhei-run-report.3: rich console summary on an interactive terminal.
-    // Callback mode spawns no agents/programs; its advances are callback-only.
-    if !opts.dry_run() {
-        print_run_summary(
-            input,
-            machine,
-            &summary_sink,
-            0,
-            0,
-            transitions_made,
-            run_started.elapsed(),
-        );
-    }
+    // §FS-rhei-run-report.1/.3: durable report (skipped under --dry-run, §3.5) +
+    // console summary. Callback mode spawns no agents/programs; its advances are
+    // callback-only. Disarm the guard so its fallback only fires on early error.
+    emit_run_report(
+        input,
+        machine,
+        &summary_sink,
+        &runtime_dir,
+        RunStats {
+            agents_spawned: 0,
+            programs_spawned: 0,
+            callback_only: transitions_made,
+            duration: Some(run_started.elapsed()),
+            dashboard: frozen_dashboard_relative_path(
+                dashboard_enabled,
+                &runtime_dir,
+                &workspace_root,
+            ),
+            run_id,
+            started_at: Some(run_started_wall),
+            workspace_root: workspace_root.clone(),
+            command,
+            parallel: max_parallel,
+            mode: "callback",
+            initial_states,
+            dry_run: opts.dry_run(),
+        },
+    );
+    report_guard.disarm();
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
