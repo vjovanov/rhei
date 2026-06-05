@@ -20,6 +20,8 @@ pub struct Tokenizer<'a> {
     re_states: Regex,
     re_state: Regex,
     re_assignee: Regex,
+    re_model: Regex,
+    re_target: Regex,
 
     in_code_block: bool,
 }
@@ -54,6 +56,12 @@ impl<'a> Tokenizer<'a> {
         // For "**Assignee:** value"
         let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
 
+        // For "**Model:** value"
+        let re_model = Regex::new(r#"^\*\*Model:\*\*\s*(.+)$"#).unwrap();
+
+        // For "**Target:** value"
+        let re_target = Regex::new(r#"^\*\*Target:\*\*\s*(.+)$"#).unwrap();
+
         Self {
             lines: input.lines(),
             re_rhei,
@@ -63,6 +71,8 @@ impl<'a> Tokenizer<'a> {
             re_states,
             re_state,
             re_assignee,
+            re_model,
+            re_target,
             in_code_block: false,
         }
     }
@@ -163,6 +173,18 @@ impl<'a> Iterator for Tokenizer<'a> {
             if let Some(caps) = self.re_assignee.captures(line) {
                 let name = caps.get(1).map(|m| m.as_str().trim()).unwrap_or_default();
                 return Some(Token::MetadataAssignee { name: name.to_string() });
+            }
+
+            // Metadata: Model
+            if let Some(caps) = self.re_model.captures(line) {
+                let model = caps.get(1).map(|m| m.as_str().trim()).unwrap_or_default();
+                return Some(Token::MetadataModel { model: model.to_string() });
+            }
+
+            // Metadata: Target
+            if let Some(caps) = self.re_target.captures(line) {
+                let target = caps.get(1).map(|m| m.as_str().trim()).unwrap_or_default();
+                return Some(Token::MetadataTarget { target: target.to_string() });
             }
 
             return Some(Token::TextContent);

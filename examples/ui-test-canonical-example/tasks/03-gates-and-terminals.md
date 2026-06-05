@@ -1,10 +1,12 @@
 ### Task human-gate: Seed a visible human gate
 **State:** human-gate
 **Assignee:** ui-reviewer
+**Target:** mock-agent[slow]:mock:human-review-override
 
 Tests: a `gating` state that stops autonomous progress until a human transitions
 it to `completed` or `cancelled`, plus `**Assignee:**` rendering (the gate is
-owned by a human, so the orchestrator never auto-claims it).
+owned by a human, so the orchestrator never auto-claims it) and task-level
+`Target` metadata that has no effect in human-only states.
 
 ### Task blocked-seeded: Seed a static blocked row
 **State:** blocked

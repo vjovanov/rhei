@@ -1,11 +1,12 @@
 ### Task full-pipeline: Walk the complete agent and program pipeline
 **State:** human-gate
+**Model:** ui-specialist
 
 Tests: agent + program states, artifact input/output contracts, a single
 `target`, snapshot `emit` (`on: success`), the `all_targets` review fan-out, the
 counted `visits` fix-loop, transition `on_leave`/`on_enter` callbacks, the
-callback-generated follow-up expansion, and the terminal human gate — one task
-that walks the entire main path.
+callback-generated follow-up expansion, task-level `Model`, and the terminal
+human gate — one task that walks the entire main path.
 
 #### Task full-pipeline.dependency-blocking: Block until a prior task reaches a terminal state
 **State:** completed

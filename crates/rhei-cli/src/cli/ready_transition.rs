@@ -25,6 +25,7 @@ fn state_inputs_exist_for_ready_set(
     ));
     ensure_state_inputs_exist_for_transition(
         artifact_root,
+        Some(task),
         &task.id.to_string(),
         state_name,
         state_def,

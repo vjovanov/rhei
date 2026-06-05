@@ -1,3 +1,22 @@
+    fn sample_machine_with_models() -> StateMachine {
+        StateMachine::from_yaml_str(
+            r#"
+name: model-overrides
+version: 1.0
+models:
+  - gpt-5
+  - claude-opus-4-7
+states:
+  pending:
+    model: gpt-5
+    agent: codex
+  completed:
+    final: true
+"#,
+        )
+        .expect("states load")
+    }
+
     #[test]
     fn reports_missing_named_dependency() {
         let input = r#"# Rhei: Example
@@ -106,6 +125,121 @@ structure:
         let report = validate_with_machine(&rhei, &sm);
 
         assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
+    }
+
+    #[test]
+    fn rejects_mutually_exclusive_task_execution_overrides() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+**Model:** gpt-5
+**Target:** codex:openai:gpt-5-codex
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine_with_models();
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected mutual exclusion error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("declares both **Model:** and **Target:**"),
+            "did not find expected message; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn rejects_task_model_not_declared_by_machine() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** pending
+**Model:** missing-model
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine_with_models();
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected model membership error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("declares **Model:** 'missing-model'"),
+            "did not find expected message; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn rejects_task_override_on_fanout_state() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** review
+**Model:** gpt-5
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = StateMachine::from_yaml_str(
+            r#"
+name: fanout
+version: 1
+models: [gpt-5, claude]
+states:
+  review:
+    all_models: [gpt-5, claude]
+    agent: codex
+  completed:
+    final: true
+"#,
+        )
+        .expect("states load");
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected fanout override error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("state 'review' is a fanout state"),
+            "did not find expected message; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn rejects_task_override_on_target_locked_state() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: A
+**State:** locked
+**Target:** codex:openai:gpt-5-codex
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = StateMachine::from_yaml_str(
+            r#"
+name: locked
+version: 1
+models: [gpt-5]
+states:
+  locked:
+    target: codex:openai:gpt-5-codex
+    target_locked: true
+  completed:
+    final: true
+"#,
+        )
+        .expect("states load");
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(report.has_errors(), "expected target_locked override error");
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("state 'locked' has target_locked: true"),
+            "did not find expected message; got:\n{}",
+            joined
+        );
     }
 
     #[test]

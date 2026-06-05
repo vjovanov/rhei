@@ -51,6 +51,8 @@
 
 name: ui-test-canonical
 version: 1.0.0
+models:
+  - ui-specialist
 
 states:
   collect-inputs:
@@ -323,6 +325,7 @@ states:
   agent-missing-mcp:
     description: Mock agent state that requires an unavailable MCP server, routing to blocked.
     target: "mock-agent[yolo]:mock:ui-implementer"
+    target_locked: true
     agent_timeout: 30s
     mcp_servers:
       - id: mock-mcp

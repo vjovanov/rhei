@@ -36,6 +36,12 @@ pub enum Token {
     /// Metadata "Assignee": `**Assignee:** <name>`.
     MetadataAssignee { name: String },
 
+    /// Metadata "Model": `**Model:** <model>`.
+    MetadataModel { model: String },
+
+    /// Metadata "Target": `**Target:** <target>`.
+    MetadataTarget { target: String },
+
     /// Any non-heading, non-metadata text content.
     TextContent,
 }

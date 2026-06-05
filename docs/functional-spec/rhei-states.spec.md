@@ -83,8 +83,9 @@ can start in different states within the same state machine.
 | `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
 | `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#2-polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#51-polling-states). |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
-| `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. |
+| `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. A task may override this per work item with `**Model:**` or `**Target:**` unless `target_locked` is set; see [Plan Language — Task Execution Overrides](rhei-plan-language.spec.md#311-task-execution-overrides). |
 | `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
+| `target_locked` | boolean | No | When `true`, the state's execution identity is essential to the phase and must not be reassigned per task: any task-level `**Model:**` or `**Target:**` override (§FS-rhei-plan-language.3.11) on a task entering this state is a validation error. Defaults to `false`. |
 | `all_models` | string array | No | The complete set of declared model profile identifiers allowed to work this state |
 | `snapshot` | object | No | Per-state session snapshot emit/inherit contract. Optional; details and closed-schema validation live in [Snapshots Specification](rhei-snapshots.spec.md). |
 | `model` | string | No | A single model profile identifier from the machine-level `models` list |
@@ -123,6 +124,9 @@ can start in different states within the same state machine.
   different tasks, states, snapshot names, or visits because those fields are
   part of the snapshot storage identity. See
   [Snapshots Specification — Target Slug](rhei-snapshots.spec.md#71-target-slug).
+- `state.target_locked`, when present, must be a boolean. When `true`, a task
+  entering this state must not carry a `**Model:**` or `**Target:**` override
+  (§FS-rhei-plan-language.3.11); such a combination is a validation error.
 - `state.target` and `state.all_targets` are mutually exclusive.
 - `state.target` and `state.all_targets` must not be combined with any of
   `state.model`, `state.all_models`, `state.agent`, or `state.agent_mode`.

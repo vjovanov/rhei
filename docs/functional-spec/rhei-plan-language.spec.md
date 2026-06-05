@@ -386,11 +386,29 @@ task_id_segment = NUMBER | IDENTIFIER ;
 (* ============================================== *)
 
 (* State field is mandatory and must appear first.
-   Prior and Assignee are optional; the `complete` command strips the assignee
-   on completion. *)
-metadata        = state_field, [ prior_field ], [ assignee_field ] ;
+   Prior, Assignee, and an optional execution override follow; the `complete`
+   command strips the assignee on completion. A task may declare at most one
+   execution override — either `**Model:**` or `**Target:**`, never both. See
+   section 3.11. *)
+metadata        = state_field, [ prior_field ], [ assignee_field ],
+                  [ execution_override ] ;
 
 assignee_field  = "**Assignee:** ", title, NEWLINE ;
+
+(* Per-task execution override. `**Model:**` swaps only the model dimension and
+   keeps each state's agent/mode/provider; `**Target:**` replaces the full
+   inline execution identity. The target selector grammar is the one defined in
+   §FS-rhei-states (the four `<agent>[<mode>]:<provider>:<model>` forms).
+   Semantic validation is deferred to section 3.11. *)
+execution_override = model_field | target_field ;
+
+model_field     = "**Model:** ", model_id, NEWLINE ;
+
+target_field    = "**Target:** ", target_selector, NEWLINE ;
+
+model_id        = { ANY_CHAR - NEWLINE }+ ;
+
+target_selector = { ANY_CHAR - NEWLINE }+ ;
 
 (* Result block links a terminal task to its runtime result/audit file.
    It is inserted by the `complete` command after task content and before child
@@ -937,6 +955,77 @@ Artifact path: runtime/reviews/release.md
 Resolves to: /repo/release/runtime/reviews/release.md
 ```
 
+### 3.11. Task Execution Overrides
+
+A task may pin the execution identity used when an agent works that task,
+independent of the per-state `target` declared by the active state machine
+(§FS-rhei-states.1.2). Two optional, mutually exclusive metadata fields express
+this at two altitudes:
+
+- `**Model:**` overrides only the *model* dimension. Each state the task enters
+  keeps its own agent, mode, and provider; only the resolved model is replaced.
+  This is the common case: capability and cost are properties of the work item,
+  while agent identity is a property of the phase.
+- `**Target:**` overrides the *full* execution identity using an inline target
+  selector — one of the four `<agent>[<mode>]:<provider>:<model>` forms defined
+  in §FS-rhei-states. It replaces the agent, mode, provider, and model the state
+  would otherwise resolve.
+
+Both fields, when present, apply in **every** state in which the task is run by
+an autonomous agent — the override follows the work item across its lifecycle
+rather than belonging to a single phase. They have no effect in states that
+perform no autonomous agent work (human-gated states, program states).
+
+**Mutual exclusivity.** A single task must declare at most one of `**Model:**`
+or `**Target:**`. Declaring both is a validation error, because a `**Target:**`
+selector already carries a model and the combined intent would be ambiguous.
+
+**Validation.**
+
+- `**Target:**` must be a non-empty string matching one of the selector forms
+  in §FS-rhei-states.1.3, and its `<agent>`, `<mode>`, `<provider>`, and
+  `<model>` segments must resolve under the same rules a state `target` is held
+  to.
+- `**Model:**` must name a model profile available to the active state machine —
+  the same membership check applied to a state's `model` field
+  (§FS-rhei-states.1.3).
+- A task override on a *fanout* state — one declaring `all_targets` or
+  `all_models` — is a validation error. Fanout means "run once per declared
+  target," which a single per-task identity contradicts. A future revision may
+  relax this.
+- A task override targeting a state that declares `target_locked: true`
+  (§FS-rhei-states.1.2) is rejected: such states pin an execution identity that
+  is essential to the phase and must not be reassigned per task.
+
+**Resolution precedence.** A task override sits between the command-line
+override and the state in the agent/model resolution chain
+(§FS-rhei-agents.1.4):
+
+```
+CLI override  >  task **Target:** / **Model:**  >  state target /
+all_targets / legacy model+agent  >  settings defaults
+```
+
+`**Target:**` is resolved exactly as a state `target` selector. `**Model:**`
+resolves the state's identity normally and then substitutes the model segment,
+whether the state used a modern `target` selector or the legacy `agent`+`model`
+split.
+
+Example — two sibling tasks in the same state, executed with different models:
+
+```markdown
+### Task 7: Tricky migration
+**State:** pending
+**Model:** claude-opus-4-7
+
+### Task 8: Routine follow-up
+**State:** pending
+**Prior:** Task 7
+```
+
+Both tasks pass through the same states, but Task 7 runs on `claude-opus-4-7`
+in every agent state while Task 8 uses each state's default model.
+
 ## 4. Token Types
 
 This section is illustrative and non-normative. A complete implementation must
@@ -957,6 +1046,8 @@ For lexer implementation, the following token types are a reasonable minimum:
 | `MetadataState` | `\*\*State:\*\* .*` | `**State:** pending` |
 | `MetadataPrior` | `\*\*Prior:\*\* .*` | `**Prior:** Bug 1.2` |
 | `MetadataAssignee` | `\*\*Assignee:\*\* .*` | `**Assignee:** alice` |
+| `MetadataModel` | `\*\*Model:\*\* .*` | `**Model:** claude-opus-4-7` |
+| `MetadataTarget` | `\*\*Target:\*\* .*` | `**Target:** codex[safe]:openai:gpt-5-codex` |
 | `ResultBlock` | `^> \*\*Result:\*\* \[[^]]+\]\([^)]+\)\s*$` | `> **Result:** [task-1](runtime/results/task-1.md)` |
 | `Text` | Any other line | Description text |
 
@@ -988,6 +1079,8 @@ struct TaskNode {
     kind: String,
     prior: Vec<TaskId>,
     assignee: Option<String>,
+    model: Option<String>,    // per-task model override (**Model:**)
+    target: Option<String>,   // per-task full execution identity (**Target:**)
     content: String,
     result: Option<ResultLink>,
     children: Vec<TaskNode>,

@@ -471,6 +471,9 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     let workspace_root = execution_workspace_root(input);
     let settings = load_merged_settings(&workspace_root)?;
     report.errors.extend(validate_machine_settings_references(&resolved.machine, &settings));
+    report
+        .errors
+        .extend(validate_task_execution_override_settings_references(&loaded.rhei, &settings));
     report.errors.extend(validate_snapshot_plan_context(&loaded, &resolved.machine));
     report.warnings.extend(snapshot_orphan_validation_warnings(
         &workspace_root,

@@ -58,6 +58,28 @@ code block
 }
 
 #[test]
+fn parses_task_execution_overrides() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Model:** claude-opus-4-7
+
+### Task 2: Beta
+**State:** pending
+**Target:** codex[yolo]:openai:gpt-5-codex
+"#;
+
+    let rhei = parse(input).expect("parse ok");
+
+    assert_eq!(rhei.tasks[0].model.as_deref(), Some("claude-opus-4-7"));
+    assert_eq!(rhei.tasks[0].target, None);
+    assert_eq!(rhei.tasks[1].model, None);
+    assert_eq!(rhei.tasks[1].target.as_deref(), Some("codex[yolo]:openai:gpt-5-codex"));
+}
+
+#[test]
 fn parses_plan_frontmatter_metadata() {
     let input = r#"# Rhei: Example
 

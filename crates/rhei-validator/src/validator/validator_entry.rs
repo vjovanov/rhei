@@ -62,6 +62,7 @@ impl Validator {
         validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
+        validate_task_execution_overrides(rhei, &self.machine, &mut report);
         validate_terminal_tree_coherence(rhei, &self.machine, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
         validate_assignee_nonempty(rhei, &mut report);
@@ -244,6 +245,72 @@ fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut 
             machine,
             report,
         );
+    });
+}
+
+fn validate_task_execution_overrides(
+    rhei: &Rhei,
+    machine: &StateMachine,
+    report: &mut ValidationReport,
+) {
+    // §FS-rhei-plan-language.3.11: Task execution override validation.
+    let declared_models: HashSet<&str> = machine.models.iter().map(String::as_str).collect();
+
+    for_each_node(rhei, |task| {
+        let subject = format!("{} {}", title_case_kind(&task.kind), task.id);
+        let has_model = task.model.is_some();
+        let has_target = task.target.is_some();
+        if has_model && has_target {
+            report.errors.push(format!(
+                "{} declares both **Model:** and **Target:**; task execution overrides are mutually exclusive",
+                subject
+            ));
+        }
+
+        if let Some(model) = task.model.as_deref() {
+            let trimmed = model.trim();
+            if trimmed.is_empty() {
+                report.errors.push(format!("{} declares an empty **Model:** override", subject));
+            } else if !declared_models.contains(trimmed) {
+                report.errors.push(format!(
+                    "{} declares **Model:** '{}' but the active state machine does not declare that model",
+                    subject, trimmed
+                ));
+            }
+        }
+
+        if let Some(target) = task.target.as_deref() {
+            let trimmed = target.trim();
+            if trimmed.is_empty() {
+                report.errors.push(format!("{} declares an empty **Target:** override", subject));
+            } else if let Err(err) = parse_execution_target(trimmed) {
+                report.errors.push(format!(
+                    "{} declares invalid **Target:** '{}': {}",
+                    subject, trimmed, err
+                ));
+            }
+        }
+
+        if !has_model && !has_target {
+            return;
+        }
+
+        let parsed = parse_task_state(&task.state, machine);
+        let Some(state_def) = machine.states.get(&parsed.state) else {
+            return;
+        };
+        if !state_def.all_targets.is_empty() || !state_def.all_models.is_empty() {
+            report.errors.push(format!(
+                "{} declares a task execution override but state '{}' is a fanout state",
+                subject, parsed.state
+            ));
+        }
+        if state_def.target_locked {
+            report.errors.push(format!(
+                "{} declares a task execution override but state '{}' has target_locked: true",
+                subject, parsed.state
+            ));
+        }
     });
 }
 

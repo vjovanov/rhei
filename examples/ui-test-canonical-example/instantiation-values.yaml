@@ -1,6 +1,8 @@
 plan_title: Rhei UI Canonical Test
 scenario_name: dashboard checkout flow
 primary_target: mock-agent[yolo]:mock:ui-implementer
+task_model_override: ui-specialist
+task_target_override: mock-agent[slow]:mock:human-review-override
 review_targets:
   - mock-agent[yolo]:mock:review-alpha
   - mock-agent[slow]:mock:review-beta

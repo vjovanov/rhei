@@ -57,6 +57,12 @@ fn task_json(t: &Task) -> Value {
     if let Some(ref assignee) = t.assignee {
         obj.insert("assignee".to_string(), Value::String(assignee.clone()));
     }
+    if let Some(ref model) = t.model {
+        obj.insert("model".to_string(), Value::String(model.clone()));
+    }
+    if let Some(ref target) = t.target {
+        obj.insert("target".to_string(), Value::String(target.clone()));
+    }
     if !t.content.is_empty() {
         obj.insert("content".to_string(), Value::String(t.content.clone()));
     }

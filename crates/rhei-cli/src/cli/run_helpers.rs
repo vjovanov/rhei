@@ -17,6 +17,7 @@ fn instantiate_execute_args_from_env() -> Vec<String> {
 #[allow(clippy::too_many_arguments)]
 fn ensure_state_inputs_exist_for_transition(
     workspace_root: &Path,
+    task: Option<&rhei_core::ast::Task>,
     task_id: &str,
     state_name: &str,
     state_def: &rhei_validator::StateDef,
@@ -25,9 +26,14 @@ fn ensure_state_inputs_exist_for_transition(
     settings: &RheiSettings,
     context: &str,
 ) -> MietteResult<()> {
-    let invocations =
-        resolve_agent_invocations(machine, state_name, settings, &default_run_options())
-            .unwrap_or_default();
+    let invocations = resolve_agent_invocations_for_task(
+        machine,
+        state_name,
+        settings,
+        &default_run_options(),
+        task,
+    )
+    .unwrap_or_default();
     for (target, model, model_provider, model_name, agent, agent_mode) in
         transition_contexts_for_state(state_def, &invocations)
     {
@@ -50,8 +56,10 @@ fn ensure_state_inputs_exist_for_transition(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_state_outputs_exist_for_transition(
     workspace_root: &Path,
+    task: Option<&rhei_core::ast::Task>,
     task_id: &str,
     state_name: &str,
     state_def: &rhei_validator::StateDef,
@@ -59,9 +67,14 @@ fn ensure_state_outputs_exist_for_transition(
     machine: &rhei_validator::StateMachine,
     settings: &RheiSettings,
 ) -> MietteResult<()> {
-    let invocations =
-        resolve_agent_invocations(machine, state_name, settings, &default_run_options())
-            .unwrap_or_default();
+    let invocations = resolve_agent_invocations_for_task(
+        machine,
+        state_name,
+        settings,
+        &default_run_options(),
+        task,
+    )
+    .unwrap_or_default();
     for (target, model, model_provider, model_name, agent, agent_mode) in
         transition_contexts_for_state(state_def, &invocations)
     {
@@ -98,8 +111,13 @@ fn task_has_pending_agent_invocations(
         return Ok(false);
     }
 
-    let invocations =
-        resolve_agent_invocations(machine, state_name, settings, &default_run_options())?;
+    let invocations = resolve_agent_invocations_for_task(
+        machine,
+        state_name,
+        settings,
+        &default_run_options(),
+        Some(task),
+    )?;
     Ok(invocations.iter().any(|resolved| {
         !state_outputs_exist_for_resolved_invocation(
             workspace_root,

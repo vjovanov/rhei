@@ -10,6 +10,8 @@ pub(super) struct NodeBuilder {
     pub(super) state: Option<String>,
     pub(super) prior: Vec<TaskId>,
     pub(super) assignee: Option<String>,
+    pub(super) model: Option<String>,
+    pub(super) target: Option<String>,
     pub(super) content: String,
     pub(super) children: Vec<Task>,
     /// Once non-metadata content appears, further metadata fields become
@@ -38,6 +40,8 @@ fn finalize_builder(b: NodeBuilder) -> Result<Task> {
         state,
         prior: b.prior,
         assignee: b.assignee,
+        model: b.model,
+        target: b.target,
         content: b.content,
         children: b.children,
     })

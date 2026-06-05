@@ -402,6 +402,49 @@ fn validate_machine_settings_references(
     errors
 }
 
+fn validate_task_execution_override_settings_references(
+    rhei: &rhei_core::ast::Rhei,
+    settings: &RheiSettings,
+) -> Vec<String> {
+    fn visit(task: &rhei_core::ast::Task, settings: &RheiSettings, errors: &mut Vec<String>) {
+        if let Some(selector) = task.target.as_deref() {
+            match parse_execution_target(selector) {
+                Ok(target) => {
+                    let Some(profile) = settings.agents.get(target.agent.as_str()) else {
+                        errors.push(format!(
+                            "Task {} references unknown target agent '{}' in **Target:** '{}'",
+                            task.id, target.agent, selector
+                        ));
+                        return;
+                    };
+                    if let Some(mode) = target.mode.as_deref() {
+                        if !profile.modes.contains_key(mode) {
+                            errors.push(format!(
+                                "Task {} references unknown target mode '{}' for agent '{}' in **Target:** '{}'",
+                                task.id, mode, target.agent, selector
+                            ));
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Shape errors are reported by the semantic validator.
+                }
+            }
+        }
+
+        for child in &task.children {
+            visit(child, settings, errors);
+        }
+    }
+
+    // §FS-rhei-plan-language.3.11: Task `**Target:**` uses state target registry checks.
+    let mut errors = Vec::new();
+    for task in &rhei.tasks {
+        visit(task, settings, &mut errors);
+    }
+    errors
+}
+
 fn validate_mcp_entries_known(
     label: &str,
     entries: Option<&[StateMcpEntry]>,

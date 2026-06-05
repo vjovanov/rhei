@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add task-level execution overrides with `**Model:**` and `**Target:**`,
+  including validation, agent resolution precedence, transition artifact checks,
+  and canonical example coverage. PR #40 §FS-rhei-plan-language.3.11
 - Print a console-first end-of-run summary when `rhei run` exits on an
   interactive terminal: a result line, a state-distribution bar, run counts, an
   attention list of gated/blocked tasks, and a source-order task tree with
