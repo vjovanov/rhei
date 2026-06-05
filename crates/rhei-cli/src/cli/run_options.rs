@@ -170,6 +170,9 @@ impl RunOptions {
 struct ActiveRunFrontend {
     sink: Arc<dyn rhei_tui::EventSink>,
     dashboard: Option<Arc<rhei_tui::DashboardSink>>,
+    /// Accumulates per-task driver/duration for the end-of-run console summary.
+    /// §FS-rhei-run-report.3
+    summary: Arc<SummarySink>,
     /// The intervene registry, present only when the dashboard is live. The run
     /// loop registers each running agent's stdin here so `/intervene` can reach
     /// it. AR §7.
@@ -250,6 +253,7 @@ fn start_run_frontend(
         return ActiveRunFrontend {
             sink: Arc::new(rhei_tui::StdoutSink::new()),
             dashboard: None,
+            summary: Arc::new(SummarySink::new()),
             intervene: None,
             _frontend: None,
         };
@@ -299,13 +303,18 @@ fn start_run_frontend(
         None
     };
 
-    let sink: Arc<dyn rhei_tui::EventSink> = if let Some(dashboard) = &dashboard {
-        Arc::new(rhei_tui::Tee::new(vec![frontend.sink.clone(), dashboard.clone()]))
-    } else {
-        frontend.sink.clone()
-    };
+    // The summary sink is always teed in so the end-of-run console summary can
+    // render per-task driver/duration regardless of dashboard state.
+    // §FS-rhei-run-report.3
+    let summary = Arc::new(SummarySink::new());
+    let mut inner: Vec<Arc<dyn rhei_tui::EventSink>> =
+        vec![frontend.sink.clone(), summary.clone()];
+    if let Some(dashboard) = &dashboard {
+        inner.push(dashboard.clone());
+    }
+    let sink: Arc<dyn rhei_tui::EventSink> = Arc::new(rhei_tui::Tee::new(inner));
 
-    ActiveRunFrontend { sink, dashboard, intervene, _frontend: Some(frontend) }
+    ActiveRunFrontend { sink, dashboard, summary, intervene, _frontend: Some(frontend) }
 }
 
 fn transition_dashboard_gate(

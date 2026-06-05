@@ -40,6 +40,7 @@ include!("cli/run_command.rs");
 include!("cli/run_agent_mode.rs");
 include!("cli/run_callback_mode.rs");
 include!("cli/run_failure_transitions.rs");
+include!("cli/run_summary.rs");
 include!("cli/ready_transition.rs");
 include!("cli/snapshot_runtime_emit.rs");
 include!("cli/snapshot_runtime_preload.rs");

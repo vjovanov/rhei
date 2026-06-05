@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Print a console-first end-of-run summary when `rhei run` exits on an
+  interactive terminal: a result line, a state-distribution bar, run counts, an
+  attention list of gated/blocked tasks, and a source-order task tree with
+  per-task driver, duration, and final-state markers. Non-TTY output is
+  unchanged so scripts and CI keep matching it. PR #39 §FS-rhei-run-report.3
 - Detect when an agent-created commit leaves tracked Rhei-owned plan/result
   state uncommitted after `rhei run` applies its orchestrator transition, and
   report a clear error instead of silently reporting durable success. PR #38
