@@ -10,20 +10,19 @@
 #                                                                    completed [final]
 #
 #   (generated issue tasks)
-#       pending --> agent-review --> check-verdict --(exit 0)--> completed [final]
-#          |                              |
-#          |                       (exit nonzero)
-#          |                              v
-#          |                        agent-review-fix
-#          |                              |
-#          +------------------------------+   (back to agent-review)
-#          |
-#          v
-#       human-review [gate] --> pending|completed|cancelled
+#       pending --(auto-claim)--> execute --> agent-review --> review-dispatch --(Needs fixes: no)--> completed [final]
+#                               |              ^              |
+#                               |              |              +--(Needs fixes: yes)--> agent-review-fix
+#                               |              |                                            |
+#                               |              +--------------------------------------------+
+#                               |
+#                               +--> human-review [gate] --> execute|completed|cancelled
 #
-#   check-verdict is a deterministic program state: it greps the reviewer's
-#   `approved:` line and exits 0 (approved) or nonzero (rejected) so `rhei run`
-#   can route the fork without the agent driving its own transition.
+#   Agent review writes one latest `review-summary` artifact per task. A
+#   deterministic `review-dispatch` program greps the `**Needs fixes:** yes/no`
+#   line and routes to `completed` or `agent-review-fix`. The fix state consumes
+#   only that latest review summary, applies required fixes, and returns to
+#   review.
 #
 #   Per issue, the converter appends one independent task file containing a small task plan:
 #     issue-N-spec -> issue-N-implementation -> issue-N-verification -> issue-N-pr
@@ -32,10 +31,11 @@
 #
 # Per-task paths:
 # - converter: convert -> wait-for-next-batch -> convert ... -> completed
-# - spec inspection: pending -> agent-review -> check-verdict -> completed, or pending -> human-review
-# - implementation: pending -> agent-review -> check-verdict -> [agent-review-fix -> agent-review -> check-verdict] -> completed
-# - verification: pending -> agent-review -> check-verdict -> [agent-review-fix -> agent-review -> check-verdict] -> completed
-# - PR opening: pending -> agent-review -> check-verdict -> [agent-review-fix -> agent-review -> check-verdict] -> completed
+# - spec inspection: pending -> execute -> agent-review -> review-dispatch -> completed, or execute -> human-review
+# - implementation: pending -> execute -> agent-review -> review-dispatch -> completed
+# - verification: pending -> execute -> agent-review -> review-dispatch -> completed
+# - PR opening: pending -> execute -> agent-review -> review-dispatch -> completed
+# - review fix loop: review-dispatch -> agent-review-fix -> agent-review -> review-dispatch
 # - report: report -> completed
 #
 # The converter writes task files under `tasks/`; Rhei discovers them on the
@@ -176,6 +176,13 @@ states:
       mini-plan for the issue as multiple Rhei tasks. Do not write separate
       files for spec, implementation, verification, and PR opening.
 
+      Every converted issue chain must include all four tasks in this order:
+      spec-inspection, implementation, verification, then PR opening. The PR
+      task is mandatory and must depend on the verification task. If PR
+      publication cannot proceed later because credentials, remotes, or
+      permissions are missing, the PR task records that failure in its work
+      artifact; the converter must still generate the PR task.
+
       Use this exact issue-plan shape:
 
           ### Task issue-<number>-spec: Inspect specs for <short issue title>
@@ -196,8 +203,7 @@ states:
             - If docs/specs need changing, make the minimal docs/spec change in
               the worktree, write the work artifact, and transition to
               `human-review` with a clear approval request in the artifact.
-            - If no docs/spec change needs approval, write the work artifact and
-              continue through `agent-review`.
+            - If no docs/spec change needs approval, write the work artifact.
           - Output artifact: `runtime/issues/work/issue-<number>-spec.md`
           - Human-review rule: human review is requested from this task when
             docs/spec changes or product/spec decisions need approval.
@@ -215,8 +221,7 @@ states:
             - Work only in the worktree/work path for code/docs changes.
             - Keep the change inside the spec-inspection boundary.
             - Write `runtime/issues/work/issue-<number>-implementation.md`.
-          - Review: this task must pass `agent-review`; fix findings in
-            `agent-review-fix` and return to `agent-review`.
+          - Output artifact: `runtime/issues/work/issue-<number>-implementation.md`
 
           ### Task issue-<number>-verification: Verify <short issue title>
           **State:** pending
@@ -232,8 +237,7 @@ states:
               suite from the work path.
             - Write `runtime/issues/work/issue-<number>-verification.md` with
               exact commands, results, and any risk.
-          - Review: this task must pass `agent-review`; fix findings in
-            `agent-review-fix` and return to `agent-review`.
+          - Output artifact: `runtime/issues/work/issue-<number>-verification.md`
 
           ### Task issue-<number>-pr: Open PR for <short issue title>
           **State:** pending
@@ -265,11 +269,12 @@ states:
               auto-closing it and explain the remaining follow-up.
             - Write `runtime/issues/work/issue-<number>-pr.md` with the PR URL,
               branch, issue linkage, commands run, and any human follow-up.
-          - Review: this task must pass `agent-review`; fix findings in
-            `agent-review-fix` and return to `agent-review`.
+          - Output artifact: `runtime/issues/work/issue-<number>-pr.md`
 
       Rules for generated issue task chains:
       - Do not generate more than {{limit}} issue chains in this batch.
+      - Every converted issue chain must include a PR-opening task after
+        verification. Never stop a converted issue chain at verification.
       - Each issue chain must be contained in exactly one issue plan file, e.g.
         `tasks/NN-issue-<number>.md`.
       - Each issue chain is an independent root graph. The first
@@ -434,6 +439,11 @@ states:
     program_timeout: 999h
 
   pending:
+    description: Generated issue task is queued and ready to enter execution.
+    concurrent: true
+    program: "true"
+
+  execute:
     description: Execute a generated issue task in its task-specific worktree.
     target: "{{worker_agent}}"
     concurrent: true
@@ -455,7 +465,7 @@ states:
 
       If this is a spec-inspection task and docs/spec changes or product/spec
       decisions need approval, transition to `human-review` after writing the
-      artifact. Otherwise transition to `agent-review`.
+      artifact. Otherwise exit after writing the work artifact.
     outputs:
       - name: work
         path: runtime/issues/work/{task_id}.md
@@ -477,36 +487,43 @@ states:
         resolved issue correctly
       - runtime artifacts are clear enough for the report task
 
-      Write `{output.review.path}`. Begin it with a machine-readable verdict
-      line — exactly `approved: true` when the task is acceptable, or
-      `approved: false` with concrete, actionable findings when it is not — then
-      add your rationale below. After writing the artifact, exit. `rhei run`
-      reads the verdict line and advances the task to `completed` or
-      `agent-review-fix`.
+      Write `{output.review-summary.path}` using exactly this structure:
+
+      **Review summary:**
+      <brief review result, including any material findings>
+
+      **Needs fixes:** <yes/no>
+
+      Set `**Needs fixes:** yes` only when there is a material correctness,
+      verification, scope, PR, or artifact problem that must be fixed by a
+      separate follow-up pass. If the only changes you would request are small,
+      stylistic, optional, or can be recorded as residual risk without blocking
+      the issue, set `**Needs fixes:** no` so the task can complete.
     inputs:
       - name: work
         path: runtime/issues/work/{task_id}.md
     outputs:
-      - name: review
-        path: runtime/issues/reviews/{task_id}.md
-        description: Agent review result for one generated issue task.
+      - name: review-summary
+        path: runtime/issues/review-summary/{task_id}.md
+        description: Latest agent review summary and fix verdict for one generated issue task.
 
-  check-verdict:
-    description: >-
-      Translate the agent-review verdict into a routing exit code: 0 when the
-      review approved the task, non-zero otherwise. The reviewer agent makes the
-      judgement; this deterministic step turns it into a signal `rhei run` can
-      route on.
+  review-dispatch:
+    description: Route a generated issue task based on the latest review summary verdict.
     concurrent: true
     program: |
-      if grep -qiE 'approved:[[:space:]]*true' "$RHEI_INPUT_REVIEW_PATH"; then
+      review_file="$RHEI_INPUT_REVIEW_SUMMARY_PATH"
+      if grep -qiE '^\*\*Needs fixes:\*\*[[:space:]]*no[[:space:]]*$' "$review_file"; then
         exit 0
       fi
-      exit 1
+      if grep -qiE '^\*\*Needs fixes:\*\*[[:space:]]*yes[[:space:]]*$' "$review_file"; then
+        exit 75
+      fi
+      printf 'review summary must contain exactly "**Needs fixes:** yes" or "**Needs fixes:** no"\\n' >&2
+      exit 2
     program_timeout: 1m
     inputs:
-      - name: review
-        path: runtime/issues/reviews/{task_id}.md
+      - name: review-summary
+        path: runtime/issues/review-summary/{task_id}.md
 
   agent-review-fix:
     description: Address agent-review findings for one generated issue task.
@@ -515,20 +532,21 @@ states:
     instructions: |
       Fix review findings for Task {task_id}: {task_title}.
 
-      Read `{input.work.path}` and `{input.review.path}`. Make the smallest
-      necessary changes in the task's worktree/work path or runtime artifact,
-      then update `{output.fix.path}` with:
+      Read `{input.work.path}` and the latest review summary at
+      `{input.review-summary.path}`. Make only the fixes required by that
+      latest review summary in the task's worktree/work path or runtime
+      artifact, then update `{output.fix.path}` with:
       - findings addressed
       - files changed
       - commands run and results
       - residual risk
 
-      Transition back to `agent-review`.
+      Do not address stale findings from older summaries or broaden the work.
     inputs:
       - name: work
         path: runtime/issues/work/{task_id}.md
-      - name: review
-        path: runtime/issues/reviews/{task_id}.md
+      - name: review-summary
+        path: runtime/issues/review-summary/{task_id}.md
     outputs:
       - name: fix
         path: runtime/issues/fixes/{task_id}.md
@@ -544,7 +562,7 @@ states:
       Do not transition out of this state autonomously.
 
       Human options:
-      - transition to `pending` when the task needs rework
+      - transition to `execute` when the task needs rework
       - transition to `completed` when the task is approved as-is
       - transition to `cancelled` when the issue should not proceed
 
@@ -555,9 +573,9 @@ states:
       Summarize Task {task_id}: {task_title}.
 
       Read `runtime/issues/conversion.md`, every artifact under
-      `runtime/issues/work/`, every review under `runtime/issues/reviews/`, and
-      every fix note under `runtime/issues/fixes/`. Write `{output.summary.path}`
-      with:
+      `runtime/issues/work/`, every latest review summary under
+      `runtime/issues/review-summary/`, and every fix note under
+      `runtime/issues/fixes/`. Write `{output.summary.path}` with:
       - converted issues and generated task chains
       - per-issue worktree paths
       - skipped issues and reasons
@@ -600,15 +618,19 @@ transitions:
     exit_code: 0
 
   - from: pending
+    to: execute
+    description: Generated issue task was picked up and enters actual execution.
+
+  - from: execute
     to: agent-review
     description: Task work artifact is ready for automated review.
 
-  - from: pending
+  - from: execute
     to: human-review
     description: Spec/docs changes or product/spec decisions require human approval.
 
   - from: human-review
-    to: pending
+    to: execute
     description: Human requested rework.
 
   - from: human-review
@@ -616,22 +638,22 @@ transitions:
     description: Human approved the task as complete.
 
   - from: agent-review
-    to: check-verdict
-    description: Review artifact written; route on the recorded verdict.
+    to: review-dispatch
+    description: Latest review summary written; route based on the Needs fixes verdict.
 
-  - from: check-verdict
+  - from: review-dispatch
     to: completed
     exit_code: 0
-    description: Verdict approved the task.
+    description: Review summary says no fixes are needed.
 
-  - from: check-verdict
+  - from: review-dispatch
     to: agent-review-fix
-    exit_code: nonzero
-    description: Verdict rejected the task; send it to agent-review-fix.
+    exit_code: 75
+    description: Review summary says fixes are needed.
 
   - from: agent-review-fix
     to: agent-review
-    description: Review findings were addressed; re-run review.
+    description: Review findings were addressed; run review again.
 
   - from: report
     to: completed

@@ -60,9 +60,17 @@ Those tasks are written together in one file such as
 issue chain is an independent root task, so multiple converted issues can run as
 separate graphs under `rhei run --parallel N`.
 
-Generated work tasks use the classic review loop:
-`pending -> agent-review -> completed`, with `agent-review-fix` for findings and
-`human-review` for human-gated spec/product decisions.
+Generated work tasks start in `pending`, which is only a queued/generated state.
+When picked up by `rhei run`, `pending` advances immediately to `execute`; the
+actual task work happens there. Work tasks then use a review-summary router:
+`pending -> execute -> agent-review -> review-dispatch -> completed`, or
+`review-dispatch -> agent-review-fix -> agent-review` when the latest review
+summary says fixes are needed. `agent-review` always writes the latest
+`runtime/issues/review-summary/<task-id>.md` with a `**Needs fixes:** yes/no`
+line; `review-dispatch` greps that line and routes deterministically. Small,
+stylistic, optional, or non-blocking review notes should set the marker to
+`**Needs fixes:** no`, allowing the task to complete. `human-review` remains the
+human gate for spec/product decisions and returns rework to `execute`.
 
 Useful inputs:
 
