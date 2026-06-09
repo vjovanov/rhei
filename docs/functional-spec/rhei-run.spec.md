@@ -153,8 +153,15 @@ With `--parallel N`, up to `N` subprocesses run concurrently. The orchestrator:
 - Assigns each spawn a slot index.
 - Writes one line to `runtime/transitions.log` per `SlotAssigned` and one per `SlotReleased`; see [Run TUI Specification — Transition Journal](rhei-run-tui.spec.md#17-journal-format).
 - Serializes every state write through its own file lock, so two agents completing at once cannot corrupt the plan.
+- Refills freed slots immediately: after any subprocess exits and its result is
+  processed, the orchestrator re-reads the plan, recomputes the ready set, and
+  starts newly ready work while the rest of the pool keeps running.
 
-Tasks whose transitions would race on the same task node are never scheduled in parallel: scheduling is driven by the ready set, which excludes tasks already in flight.
+Tasks whose transitions would race on the same task node are never scheduled in
+parallel: scheduling is driven by the ready set, which excludes tasks already in
+flight. A dependent task only becomes schedulable after its `**Prior:**` task has
+actually reached a successful terminal state; if sibling work finishes first,
+the freed slot is filled only with work whose dependencies are already satisfied.
 
 ### 5.1. Polling States
 
