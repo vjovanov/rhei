@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Run program states in the same live `--parallel` worker pool as agent states,
+  so a long-running program consumes one slot while other ready independent work
+  continues to be scheduled. PR #43 §FS-rhei-run.5 §FS-rhei-programs.6.3
 - Write a durable per-run Markdown report at the end of every `rhei run` to
   `runtime/run-report.md` (latest) and `runtime/run-reports/<timestamp>-<run-id>.md`
   (history): header, outcome strip, attention list, transition ledger, source-order
