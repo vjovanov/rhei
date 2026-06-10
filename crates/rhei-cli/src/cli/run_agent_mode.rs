@@ -13,6 +13,13 @@ struct AgentWorkItem {
     resolved: ResolvedAgent,
 }
 
+#[derive(Clone)]
+struct ProgramWorkItem {
+    task_id_str: String,
+    current_state: String,
+    resolved: ResolvedProgram,
+}
+
 struct ParallelAgentCompletion {
     task_id_str: String,
     state_name: String,
@@ -26,8 +33,16 @@ struct ParallelAgentCompletion {
     slot: rhei_tui::Slot,
 }
 
+struct ParallelProgramCompletion {
+    task_id_str: String,
+    state_name: String,
+    result: MietteResult<ProgramSpawnOutcome>,
+    slot: rhei_tui::Slot,
+}
+
 enum ParallelAgentThreadMessage {
     Completed(ParallelAgentCompletion),
+    ProgramCompleted(ParallelProgramCompletion),
     Panicked { task_id_str: String, state_name: String, slot: rhei_tui::Slot },
 }
 
@@ -40,6 +55,17 @@ struct ParallelAgentSpawned {
 enum ParallelAgentSpawnOutcome {
     Spawned(ParallelAgentSpawned),
     Advanced,
+    Skipped,
+}
+
+struct ParallelProgramSpawned {
+    task_id_str: String,
+    state_name: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+enum ParallelProgramSpawnOutcome {
+    Spawned(ParallelProgramSpawned),
     Skipped,
 }
 
@@ -244,6 +270,68 @@ fn collect_ready_agent_work_items(
     }
 
     Ok((agent_tasks, deferred.into_iter().collect()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_ready_program_work_items(
+    loaded: &LoadedPlan,
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+    workspace_root: &Path,
+    active_task_ids: &HashSet<String>,
+    active_nonconcurrent_states: &HashSet<String>,
+) -> MietteResult<(Vec<ProgramWorkItem>, Vec<String>)> {
+    let mut program_tasks = Vec::new();
+    let mut state_claimant: HashMap<String, String> = HashMap::new();
+    let mut deferred: BTreeSet<String> = BTreeSet::new();
+
+    for task in find_runnable_tasks(&loaded.rhei, machine, workspace_root) {
+        let task_id_str = task.id.to_string();
+        if active_task_ids.contains(&task_id_str) {
+            continue;
+        }
+
+        let current_state_raw = task.state.as_str().to_string();
+        let current_state = normalized_state_name(&current_state_raw, machine);
+        let Some(state_def) = machine.states.get(&current_state) else {
+            continue;
+        };
+        if state_def.program.is_none() || state_def.terminal || state_def.gating || opts.no_program()
+        {
+            continue;
+        }
+
+        let Some(resolved) = resolve_program(machine, &current_state, settings, opts)? else {
+            continue;
+        };
+
+        let is_concurrent = state_def.concurrent;
+        if !is_concurrent && active_nonconcurrent_states.contains(&current_state) {
+            deferred.insert(task_id_str);
+            continue;
+        }
+        if !is_concurrent {
+            match state_claimant.get(&current_state) {
+                Some(claimant) if claimant == &task_id_str => {}
+                Some(_) => {
+                    deferred.insert(task_id_str);
+                    continue;
+                }
+                None => {
+                    state_claimant.insert(current_state.clone(), task_id_str.clone());
+                }
+            }
+        }
+
+        program_tasks.push(ProgramWorkItem {
+            task_id_str,
+            current_state,
+            resolved,
+        });
+    }
+
+    Ok((program_tasks, deferred.into_iter().collect()))
 }
 
 fn take_parallel_slot(free_slots: &mut BTreeSet<rhei_tui::Slot>, next_extra_slot: &mut rhei_tui::Slot) -> rhei_tui::Slot {
@@ -541,6 +629,140 @@ fn spawn_parallel_agent_work_item(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn spawn_parallel_program_work_item(
+    item: &ProgramWorkItem,
+    slot: rhei_tui::Slot,
+    tx: std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    workspace_root: &Path,
+    runtime_dir: &Path,
+    sink: &Arc<dyn rhei_tui::EventSink>,
+) -> MietteResult<ParallelProgramSpawnOutcome> {
+    let loaded = load_plan(input)?;
+    let target_id = parse_task_id(&item.task_id_str);
+    let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
+    let Some(task) = task else { return Ok(ParallelProgramSpawnOutcome::Skipped) };
+
+    let log = program_log_path(runtime_dir, &item.task_id_str, &item.current_state);
+    emit_run_message(
+        sink,
+        rhei_tui::MessageLevel::Info,
+        format!("\nSpawning program for Task {}: {} (parallel)", item.task_id_str, task.title),
+    );
+    emit_run_message(sink, rhei_tui::MessageLevel::Info, format!("  Log: {}", log.display()));
+
+    let from_state = task.state.as_str().to_string();
+    let started_at = std::time::Instant::now();
+    let started_wall = std::time::SystemTime::now();
+    sink.emit(rhei_tui::RunEvent::SlotAssigned {
+        slot,
+        task: item.task_id_str.clone(),
+        from: from_state.clone(),
+        to: item.current_state.clone(),
+        agent: None,
+        template_context: None,
+        log_path: log.clone(),
+        started_at,
+        wall_clock: started_wall,
+    });
+
+    let resolved_for_thread = item.resolved.clone();
+    let workspace_root_for_thread = workspace_root.to_path_buf();
+    let callback_paths_for_thread = callback_paths.clone();
+    let plan_title_for_thread = loaded.rhei.title.clone();
+    let task_for_thread = task.clone();
+    let state_name_for_thread = item.current_state.clone();
+    let current_state_raw_for_thread = task.state.as_str().to_string();
+    let machine_for_thread = machine.clone();
+    let metadata_for_thread = loaded.rhei.metadata.clone();
+    let log_for_thread = log.clone();
+    let sink_for_thread = sink.clone();
+    let task_id_for_result = item.task_id_str.clone();
+    let state_name_for_result = item.current_state.clone();
+    let task_id_for_panic = item.task_id_str.clone();
+    let state_for_panic = item.current_state.clone();
+
+    let handle = std::thread::spawn(move || {
+        let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let render_context = RuntimeTemplateContext {
+                workspace_root: &workspace_root_for_thread,
+                checkout_root: &workspace_root_for_thread,
+                plan_path: &callback_paths_for_thread.plan_path,
+                state_machine_path: callback_paths_for_thread.state_machine_path.as_deref(),
+                plan_title: &plan_title_for_thread,
+                task: &task_for_thread,
+                state_name: &state_name_for_thread,
+                current_state_raw: &current_state_raw_for_thread,
+                machine: &machine_for_thread,
+                metadata: metadata_for_thread.as_ref(),
+                target: None,
+                model: None,
+                model_provider: None,
+                model_name: None,
+                agent: None,
+                agent_mode: None,
+                tooling: None,
+            };
+            let result = spawn_and_wait_program(
+                &resolved_for_thread,
+                &render_context,
+                &log_for_thread,
+            );
+            let duration_ms = started_at.elapsed().as_millis() as u64;
+            let (outcome, exit_code) = match &result {
+                Ok(program_outcome) if program_outcome.status.success() => {
+                    (rhei_tui::TaskOutcome::Completed, program_outcome.status.code())
+                }
+                Ok(program_outcome) => {
+                    let code = program_outcome.status.code().unwrap_or(-1);
+                    (
+                        if program_outcome.timed_out {
+                            rhei_tui::TaskOutcome::TimedOut
+                        } else {
+                            rhei_tui::TaskOutcome::Failed(format!("exit {code}"))
+                        },
+                        program_outcome.status.code(),
+                    )
+                }
+                Err(err) => (rhei_tui::TaskOutcome::Failed(err.to_string()), None),
+            };
+            sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
+                slot,
+                task: task_id_for_result.clone(),
+                from: from_state,
+                to: state_name_for_result.clone(),
+                log_path: log_for_thread,
+                outcome,
+                finished_at: std::time::Instant::now(),
+                wall_clock: std::time::SystemTime::now(),
+                exit_code,
+                duration_ms,
+            });
+            ParallelAgentThreadMessage::ProgramCompleted(ParallelProgramCompletion {
+                task_id_str: task_id_for_result,
+                state_name: state_name_for_result,
+                result,
+                slot,
+            })
+        }));
+        let message = thread_result.unwrap_or(ParallelAgentThreadMessage::Panicked {
+            task_id_str: task_id_for_panic,
+            state_name: state_for_panic,
+            slot,
+        });
+        let _ = tx.send(message);
+    });
+
+    Ok(ParallelProgramSpawnOutcome::Spawned(ParallelProgramSpawned {
+        task_id_str: item.task_id_str.clone(),
+        state_name: item.current_state.clone(),
+        handle,
+    }))
+}
+
 struct ParallelScheduleOutcome {
     spawned: usize,
     advanced: bool,
@@ -619,6 +841,474 @@ fn schedule_agent_work_items(
     }
 
     Ok(ParallelScheduleOutcome { spawned, advanced })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn schedule_program_work_items(
+    items: Vec<ProgramWorkItem>,
+    max_new_tasks: usize,
+    tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    workspace_root: &Path,
+    runtime_dir: &Path,
+    sink: &Arc<dyn rhei_tui::EventSink>,
+    free_slots: &mut BTreeSet<rhei_tui::Slot>,
+    next_extra_slot: &mut rhei_tui::Slot,
+    active_invocation_counts: &mut HashMap<String, usize>,
+    active_state_counts: &mut HashMap<String, usize>,
+    handles: &mut Vec<std::thread::JoinHandle<()>>,
+) -> MietteResult<ParallelScheduleOutcome> {
+    let mut selected_task_ids = HashSet::new();
+    let mut spawned = 0usize;
+    let advanced = false;
+
+    for item in items {
+        if !selected_task_ids.contains(&item.task_id_str) {
+            if selected_task_ids.len() >= max_new_tasks {
+                continue;
+            }
+            selected_task_ids.insert(item.task_id_str.clone());
+        }
+
+        let slot = take_parallel_slot(free_slots, next_extra_slot);
+        match spawn_parallel_program_work_item(
+            &item,
+            slot,
+            tx.clone(),
+            input,
+            machine,
+            callback_paths,
+            workspace_root,
+            runtime_dir,
+            sink,
+        )? {
+            ParallelProgramSpawnOutcome::Spawned(spawned_program) => {
+                *active_invocation_counts
+                    .entry(spawned_program.task_id_str.clone())
+                    .or_insert(0) += 1;
+                if !machine
+                    .states
+                    .get(&spawned_program.state_name)
+                    .map(|state| state.concurrent)
+                    .unwrap_or(false)
+                {
+                    *active_state_counts.entry(spawned_program.state_name.clone()).or_insert(0) += 1;
+                }
+                handles.push(spawned_program.handle);
+                spawned += 1;
+            }
+            ParallelProgramSpawnOutcome::Skipped => {
+                free_slots.insert(slot);
+            }
+        }
+    }
+
+    Ok(ParallelScheduleOutcome { spawned, advanced })
+}
+
+fn release_parallel_worker(
+    task_id_str: &str,
+    state_name: &str,
+    slot: rhei_tui::Slot,
+    free_slots: &mut BTreeSet<rhei_tui::Slot>,
+    active_invocation_counts: &mut HashMap<String, usize>,
+    active_state_counts: &mut HashMap<String, usize>,
+) {
+    free_slots.insert(slot);
+    if let Some(count) = active_invocation_counts.get_mut(task_id_str) {
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            active_invocation_counts.remove(task_id_str);
+        }
+    }
+    if let Some(count) = active_state_counts.get_mut(state_name) {
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            active_state_counts.remove(state_name);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn refill_parallel_worker_pool(
+    pass: u32,
+    task_limit: usize,
+    tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+    workspace_root: &Path,
+    runtime_dir: &Path,
+    sink: &Arc<dyn rhei_tui::EventSink>,
+    intervene: Option<&Arc<RunInterveneSink>>,
+    free_slots: &mut BTreeSet<rhei_tui::Slot>,
+    next_extra_slot: &mut rhei_tui::Slot,
+    active_invocation_counts: &mut HashMap<String, usize>,
+    active_state_counts: &mut HashMap<String, usize>,
+    handles: &mut Vec<std::thread::JoinHandle<()>>,
+) -> MietteResult<ParallelScheduleOutcome> {
+    // Program and agent work share live capacity.
+    // Each completion reloads the ready set. §FS-rhei-run.5 §FS-rhei-programs.6.3
+    let task_capacity = if task_limit == usize::MAX {
+        usize::MAX
+    } else {
+        task_limit.saturating_sub(active_invocation_counts.len())
+    };
+    if task_capacity == 0 {
+        return Ok(ParallelScheduleOutcome { spawned: 0, advanced: false });
+    }
+
+    let reloaded = load_plan(input)?;
+    let active_task_ids = active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
+    let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
+    let (program_items, program_deferred) = collect_ready_program_work_items(
+        &reloaded,
+        machine,
+        settings,
+        opts,
+        workspace_root,
+        &active_task_ids,
+        &active_nonconcurrent_states,
+    )?;
+    if !program_deferred.is_empty() {
+        emit_run_message(
+            sink,
+            rhei_tui::MessageLevel::Info,
+            format!(
+                "Deferred {} task(s) in non-concurrent states to a later pass: {}",
+                program_deferred.len(),
+                program_deferred.join(", ")
+            ),
+        );
+        sink.emit(rhei_tui::RunEvent::TasksDeferred { pass, tasks: program_deferred });
+    }
+
+    let program_outcome = schedule_program_work_items(
+        program_items,
+        task_capacity,
+        tx,
+        input,
+        machine,
+        callback_paths,
+        workspace_root,
+        runtime_dir,
+        sink,
+        free_slots,
+        next_extra_slot,
+        active_invocation_counts,
+        active_state_counts,
+        handles,
+    )?;
+
+    let task_capacity = if task_limit == usize::MAX {
+        usize::MAX
+    } else {
+        task_limit.saturating_sub(active_invocation_counts.len())
+    };
+    if task_capacity == 0 {
+        return Ok(program_outcome);
+    }
+
+    let reloaded = load_plan(input)?;
+    let active_task_ids = active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
+    let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
+    let (agent_items, agent_deferred) = collect_ready_agent_work_items(
+        &reloaded,
+        machine,
+        settings,
+        opts,
+        workspace_root,
+        &active_task_ids,
+        &active_nonconcurrent_states,
+    )?;
+    if !agent_deferred.is_empty() {
+        emit_run_message(
+            sink,
+            rhei_tui::MessageLevel::Info,
+            format!(
+                "Deferred {} task(s) in non-concurrent states to a later pass: {}",
+                agent_deferred.len(),
+                agent_deferred.join(", ")
+            ),
+        );
+        sink.emit(rhei_tui::RunEvent::TasksDeferred { pass, tasks: agent_deferred });
+    }
+
+    let refill_candidates = agent_items
+        .iter()
+        .map(|item| {
+            (
+                item.task_id_str.clone(),
+                item.current_state_raw.clone(),
+                item.current_state.clone(),
+                item.resolved.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let snapshot_override_selection =
+        select_snapshot_override_run_invocation(machine, opts, &refill_candidates)?;
+    let agent_outcome = schedule_agent_work_items(
+        agent_items,
+        task_capacity,
+        tx,
+        input,
+        machine,
+        callback_paths,
+        settings,
+        opts,
+        workspace_root,
+        runtime_dir,
+        snapshot_override_selection.as_ref(),
+        sink,
+        intervene,
+        free_slots,
+        next_extra_slot,
+        active_invocation_counts,
+        active_state_counts,
+        handles,
+    )?;
+
+    Ok(ParallelScheduleOutcome {
+        spawned: program_outcome.spawned + agent_outcome.spawned,
+        advanced: program_outcome.advanced || agent_outcome.advanced,
+    })
+}
+
+struct ParallelProgramCompletionEffect {
+    advanced: bool,
+    program_spawned: bool,
+}
+
+fn handle_parallel_program_completion(
+    input: &Path,
+    machine: &rhei_validator::StateMachine,
+    callback_paths: &CallbackPaths,
+    opts: &RunOptions,
+    workspace_root: &Path,
+    sink: &Arc<dyn rhei_tui::EventSink>,
+    completion: ParallelProgramCompletion,
+) -> MietteResult<ParallelProgramCompletionEffect> {
+    let ParallelProgramCompletion {
+        task_id_str,
+        state_name,
+        result,
+        slot: _,
+    } = completion;
+
+    match result {
+        Ok(program_outcome) => {
+            let mut advanced = false;
+            let target_id = parse_task_id(&task_id_str);
+            let mut reloaded = load_plan(input)?;
+            let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
+            let mut state_after =
+                task_after.map(|task| task.state.as_str()).unwrap_or("unknown").to_string();
+
+            if normalized_state_name(&state_after, machine)
+                != normalized_state_name(&state_name, machine)
+            {
+                emit_run_message(
+                    sink,
+                    rhei_tui::MessageLevel::Info,
+                    format!(
+                        "  Task {} advanced: '{}' -> '{}'",
+                        task_id_str, state_name, state_after
+                    ),
+                );
+                return Ok(ParallelProgramCompletionEffect {
+                    advanced: true,
+                    program_spawned: true,
+                });
+            }
+
+            if program_outcome.timed_out {
+                match fire_timeout_transition(
+                    input,
+                    machine,
+                    callback_paths,
+                    &task_id_str,
+                    &state_name,
+                    program_outcome.timeout_secs,
+                    opts.no_callbacks(),
+                ) {
+                    TimeoutTransitionOutcome::Fired => {}
+                    TimeoutTransitionOutcome::NoRule => {
+                        emit_run_message(
+                            sink,
+                            rhei_tui::MessageLevel::Warn,
+                            format!(
+                                "  warning: program for task {} timed out from '{}' but no timeout transition is declared; task remains in state",
+                                task_id_str, state_name
+                            ),
+                        );
+                    }
+                    TimeoutTransitionOutcome::Failed => {}
+                }
+                reloaded = load_plan(input)?;
+                state_after = reloaded
+                    .rhei
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == target_id)
+                    .map(|task| task.state.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                if normalized_state_name(&state_after, machine)
+                    != normalized_state_name(&state_name, machine)
+                {
+                    emit_run_message(
+                        sink,
+                        rhei_tui::MessageLevel::Info,
+                        format!(
+                            "  Task {} advanced: '{}' -> '{}'",
+                            task_id_str, state_name, state_after
+                        ),
+                    );
+                    advanced = true;
+                }
+                return Ok(ParallelProgramCompletionEffect {
+                    advanced,
+                    program_spawned: true,
+                });
+            }
+
+            let exit_code = program_outcome.status.code().unwrap_or(-1);
+            let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
+            let Some(task) = task_after else {
+                return Ok(ParallelProgramCompletionEffect {
+                    advanced,
+                    program_spawned: true,
+                });
+            };
+
+            if let Some(to_state) = find_program_exit_transition(
+                machine,
+                reloaded.rhei.metadata.as_ref(),
+                task,
+                &state_name,
+                exit_code,
+            )? {
+                if exit_code == 0 && to_state != state_name {
+                    let missing_required_outputs = collect_missing_required_outputs(
+                        workspace_root,
+                        machine,
+                        reloaded.rhei.metadata.as_ref(),
+                        task,
+                        &state_name,
+                    );
+                    if !missing_required_outputs.is_empty() {
+                        emit_run_message(
+                            sink,
+                            rhei_tui::MessageLevel::Warn,
+                            format!(
+                                "  warning: program exited 0 but required outputs are missing for task {} in state '{}': {}",
+                                task_id_str,
+                                state_name,
+                                missing_required_outputs.join(", ")
+                            ),
+                        );
+                        return Ok(ParallelProgramCompletionEffect {
+                            advanced,
+                            program_spawned: true,
+                        });
+                    }
+                }
+                if record_poll_self_loop_if_needed(
+                    input,
+                    reloaded.rhei.metadata.as_ref(),
+                    machine,
+                    task,
+                    &state_name,
+                    &to_state,
+                )? {
+                    emit_run_message(
+                        sink,
+                        rhei_tui::MessageLevel::Info,
+                        format!(
+                            "  Task {} poll self-loop scheduled next attempt from '{}'",
+                            task_id_str, state_name
+                        ),
+                    );
+                    return Ok(ParallelProgramCompletionEffect {
+                        advanced: true,
+                        program_spawned: true,
+                    });
+                }
+                let task_file = reloaded.task_file(&task_id_str, input);
+                let metadata_file = if workspace::is_workspace(input) {
+                    input.join("index.rhei.md")
+                } else {
+                    task_file.clone()
+                };
+                execute_system_program_exit_transition(
+                    TransitionFiles {
+                        task_file: &task_file,
+                        metadata_file: &metadata_file,
+                    },
+                    callback_paths,
+                    machine,
+                    &task_id_str,
+                    &state_name,
+                    &to_state,
+                    exit_code,
+                    opts.no_callbacks(),
+                )?;
+                emit_run_message(
+                    sink,
+                    rhei_tui::MessageLevel::Info,
+                    format!(
+                        "  Task {} advanced: '{}' -> '{}'",
+                        task_id_str, state_name, to_state
+                    ),
+                );
+                advanced = true;
+            } else if program_outcome.status.success() {
+                emit_run_message(
+                    sink,
+                    rhei_tui::MessageLevel::Warn,
+                    format!(
+                        "  warning: program exited 0 but task {} did not advance from '{}'",
+                        task_id_str, state_name
+                    ),
+                );
+            } else {
+                emit_run_message(
+                    sink,
+                    rhei_tui::MessageLevel::Error,
+                    format!(
+                        "  error: program exited with code {} for task {}",
+                        exit_code, task_id_str
+                    ),
+                );
+                if !opts.continue_on_error() {
+                    return Err(miette!(
+                        "program exited with code {} for Task {}. Use --continue-on-error to skip failures.",
+                        exit_code,
+                        task_id_str
+                    ));
+                }
+            }
+
+            Ok(ParallelProgramCompletionEffect {
+                advanced,
+                program_spawned: true,
+            })
+        }
+        Err(err) => {
+            emit_run_message(sink, rhei_tui::MessageLevel::Error, format!("  error: {}", err));
+            if !opts.continue_on_error() {
+                return Err(err);
+            }
+            Ok(ParallelProgramCompletionEffect {
+                advanced: false,
+                program_spawned: false,
+            })
+        }
+    }
 }
 
 /// Agent-driven execution mode: spawn coding agents for tasks.
@@ -898,6 +1588,7 @@ fn run_agent_mode(
         }
 
         let mut advanced_any = false;
+        let run_programs_in_worker_pool = max_parallel != 1;
 
         // Handle callback-only tasks first (fast, synchronous).
         for (task_id_str, current_state_raw, current_state) in &callback_tasks {
@@ -1021,7 +1712,7 @@ fn run_agent_mode(
             filtered
         };
 
-        if !program_tasks.is_empty() {
+        if !program_tasks.is_empty() && !run_programs_in_worker_pool {
             if opts.dry_run() {
                 for (task_id_str, current_state_raw, current_state, resolved) in &program_tasks {
                     let loaded = load_plan(input)?;
@@ -1290,7 +1981,7 @@ fn run_agent_mode(
             }
         }
 
-        if agent_tasks.is_empty() {
+        if agent_tasks.is_empty() && (program_tasks.is_empty() || !run_programs_in_worker_pool) {
             if !advanced_any {
                 if opts.dry_run() {
                     sink.emit(RunEvent::PassEnded { pass, progressed: false });
@@ -1361,6 +2052,31 @@ fn run_agent_mode(
             select_snapshot_override_run_invocation(machine, opts, &agent_tasks)?;
 
         if opts.dry_run() {
+            if run_programs_in_worker_pool {
+                for (task_id_str, current_state_raw, current_state, resolved) in &program_tasks {
+                    let loaded = load_plan(input)?;
+                    let target_id = parse_task_id(task_id_str);
+                    if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
+                        if let Some(to_state) = find_program_exit_transition(
+                            machine,
+                            loaded.rhei.metadata.as_ref(),
+                            task,
+                            current_state,
+                            0,
+                        )? {
+                            run_info!(
+                                "{}",
+                                format_dry_run_transition(
+                                    task_id_str,
+                                    current_state_raw,
+                                    &to_state,
+                                )
+                            );
+                        }
+                    }
+                    let _ = resolved;
+                }
+            }
             for (task_id_str, current_state_raw, current_state, resolved) in &batch {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
@@ -1384,7 +2100,7 @@ fn run_agent_mode(
         }
 
         // Spawn agents (sequential or parallel).
-        if batch_size == 1 {
+        if batch_size == 1 && (program_tasks.is_empty() || !run_programs_in_worker_pool) {
             // Sequential: spawn one agent at a time.
             let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
             let loaded = load_plan(input)?;
@@ -1940,6 +2656,41 @@ fn run_agent_mode(
             let mut next_extra_slot = frontend_parallel;
             let mut active_invocation_counts: HashMap<String, usize> = HashMap::new();
             let mut active_state_counts: HashMap<String, usize> = HashMap::new();
+            let initial_program_items = if run_programs_in_worker_pool {
+                program_tasks
+                    .iter()
+                    .map(|(task_id_str, _current_state_raw, current_state, resolved)| ProgramWorkItem {
+                        task_id_str: task_id_str.clone(),
+                        current_state: current_state.clone(),
+                        resolved: resolved.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let program_schedule_outcome = schedule_program_work_items(
+                initial_program_items,
+                task_limit,
+                &tx,
+                input,
+                machine,
+                callback_paths,
+                &workspace_root,
+                &runtime_dir,
+                &sink,
+                &mut free_slots,
+                &mut next_extra_slot,
+                &mut active_invocation_counts,
+                &mut active_state_counts,
+                &mut handles,
+            )?;
+            advanced_any |= program_schedule_outcome.advanced;
+
+            let agent_capacity = if task_limit == usize::MAX {
+                usize::MAX
+            } else {
+                task_limit.saturating_sub(active_invocation_counts.len())
+            };
             let initial_items = batch
                 .iter()
                 .map(|(task_id_str, current_state_raw, current_state, resolved)| AgentWorkItem {
@@ -1951,7 +2702,7 @@ fn run_agent_mode(
                 .collect::<Vec<_>>();
             let schedule_outcome = schedule_agent_work_items(
                 initial_items,
-                task_limit,
+                agent_capacity,
                 &tx,
                 input,
                 machine,
@@ -1970,30 +2721,72 @@ fn run_agent_mode(
                 &mut handles,
             )?;
             advanced_any |= schedule_outcome.advanced;
-            let mut active_worker_count = schedule_outcome.spawned;
+            let mut active_worker_count =
+                program_schedule_outcome.spawned + schedule_outcome.spawned;
 
             while active_worker_count > 0 {
                 let completion = match rx.recv() {
                     Ok(ParallelAgentThreadMessage::Completed(completion)) => completion,
+                    Ok(ParallelAgentThreadMessage::ProgramCompleted(completion)) => {
+                        active_worker_count = active_worker_count.saturating_sub(1);
+                        release_parallel_worker(
+                            &completion.task_id_str,
+                            &completion.state_name,
+                            completion.slot,
+                            &mut free_slots,
+                            &mut active_invocation_counts,
+                            &mut active_state_counts,
+                        );
+                        let effect = handle_parallel_program_completion(
+                            input,
+                            machine,
+                            callback_paths,
+                            opts,
+                            &workspace_root,
+                            &sink,
+                            completion,
+                        )?;
+                        if effect.program_spawned {
+                            programs_spawned += 1;
+                        }
+                        advanced_any |= effect.advanced;
+                        let refill_outcome = refill_parallel_worker_pool(
+                            pass,
+                            task_limit,
+                            &tx,
+                            input,
+                            machine,
+                            callback_paths,
+                            settings,
+                            opts,
+                            &workspace_root,
+                            &runtime_dir,
+                            &sink,
+                            intervene.as_ref(),
+                            &mut free_slots,
+                            &mut next_extra_slot,
+                            &mut active_invocation_counts,
+                            &mut active_state_counts,
+                            &mut handles,
+                        )?;
+                        active_worker_count += refill_outcome.spawned;
+                        advanced_any |= refill_outcome.advanced;
+                        continue;
+                    }
                     Ok(ParallelAgentThreadMessage::Panicked {
                         task_id_str,
                         state_name,
                         slot,
                     }) => {
                         active_worker_count = active_worker_count.saturating_sub(1);
-                        free_slots.insert(slot);
-                        if let Some(count) = active_invocation_counts.get_mut(&task_id_str) {
-                            *count = count.saturating_sub(1);
-                            if *count == 0 {
-                                active_invocation_counts.remove(&task_id_str);
-                            }
-                        }
-                        if let Some(count) = active_state_counts.get_mut(&state_name) {
-                            *count = count.saturating_sub(1);
-                            if *count == 0 {
-                                active_state_counts.remove(&state_name);
-                            }
-                        }
+                        release_parallel_worker(
+                            &task_id_str,
+                            &state_name,
+                            slot,
+                            &mut free_slots,
+                            &mut active_invocation_counts,
+                            &mut active_state_counts,
+                        );
                         let err = miette!("agent thread panicked");
                         run_error!("  error for task {}: {}", task_id_str, err);
                         if !opts.continue_on_error() {
@@ -2005,19 +2798,14 @@ fn run_agent_mode(
                 };
 
                 active_worker_count = active_worker_count.saturating_sub(1);
-                free_slots.insert(completion.slot);
-                if let Some(count) = active_invocation_counts.get_mut(&completion.task_id_str) {
-                    *count = count.saturating_sub(1);
-                    if *count == 0 {
-                        active_invocation_counts.remove(&completion.task_id_str);
-                    }
-                }
-                if let Some(count) = active_state_counts.get_mut(&completion.state_name) {
-                    *count = count.saturating_sub(1);
-                    if *count == 0 {
-                        active_state_counts.remove(&completion.state_name);
-                    }
-                }
+                release_parallel_worker(
+                    &completion.task_id_str,
+                    &completion.state_name,
+                    completion.slot,
+                    &mut free_slots,
+                    &mut active_invocation_counts,
+                    &mut active_state_counts,
+                );
 
                 let ParallelAgentCompletion {
                     task_id_str,
@@ -2415,77 +3203,27 @@ fn run_agent_mode(
                     }
                 }
 
-                let task_capacity = if task_limit == usize::MAX {
-                    usize::MAX
-                } else {
-                    task_limit.saturating_sub(active_invocation_counts.len())
-                };
-                if task_capacity > 0 {
-                    let reloaded = load_plan(input)?;
-                    let active_task_ids =
-                        active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
-                    let active_nonconcurrent_states =
-                        active_state_counts.keys().cloned().collect::<HashSet<_>>();
-                    let (refill_items, deferred_vec) = collect_ready_agent_work_items(
-                        &reloaded,
-                        machine,
-                        settings,
-                        opts,
-                        &workspace_root,
-                        &active_task_ids,
-                        &active_nonconcurrent_states,
-                    )?;
-                    if !deferred_vec.is_empty() {
-                        run_info!(
-                            "Deferred {} task(s) in non-concurrent states to a later pass: {}",
-                            deferred_vec.len(),
-                            deferred_vec.join(", ")
-                        );
-                        sink.emit(RunEvent::TasksDeferred { pass, tasks: deferred_vec });
-                    }
-
-                    if !refill_items.is_empty() {
-                        let refill_candidates = refill_items
-                            .iter()
-                            .map(|item| {
-                                (
-                                    item.task_id_str.clone(),
-                                    item.current_state_raw.clone(),
-                                    item.current_state.clone(),
-                                    item.resolved.clone(),
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        let refill_snapshot_override_selection =
-                            select_snapshot_override_run_invocation(
-                                machine,
-                                opts,
-                                &refill_candidates,
-                            )?;
-                        let refill_outcome = schedule_agent_work_items(
-                            refill_items,
-                            task_capacity,
-                            &tx,
-                            input,
-                            machine,
-                            callback_paths,
-                            settings,
-                            opts,
-                            &workspace_root,
-                            &runtime_dir,
-                            refill_snapshot_override_selection.as_ref(),
-                            &sink,
-                            intervene.as_ref(),
-                            &mut free_slots,
-                            &mut next_extra_slot,
-                            &mut active_invocation_counts,
-                            &mut active_state_counts,
-                            &mut handles,
-                        )?;
-                        active_worker_count += refill_outcome.spawned;
-                        advanced_any |= refill_outcome.advanced;
-                    }
-                }
+                let refill_outcome = refill_parallel_worker_pool(
+                    pass,
+                    task_limit,
+                    &tx,
+                    input,
+                    machine,
+                    callback_paths,
+                    settings,
+                    opts,
+                    &workspace_root,
+                    &runtime_dir,
+                    &sink,
+                    intervene.as_ref(),
+                    &mut free_slots,
+                    &mut next_extra_slot,
+                    &mut active_invocation_counts,
+                    &mut active_state_counts,
+                    &mut handles,
+                )?;
+                active_worker_count += refill_outcome.spawned;
+                advanced_any |= refill_outcome.advanced;
             }
 
             for handle in handles {
