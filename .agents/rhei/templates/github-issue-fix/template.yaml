@@ -1,0 +1,103 @@
+name: github-issue-fix
+version: 0.1.0
+description: Fix one GitHub issue through repo-rule discovery, spec-fit analysis, isolated worktree implementation, validation, focused review, and optional PR publication.
+
+inputs:
+  - name: issue
+    description: GitHub issue number or URL to fix.
+    type: string
+    required: true
+    positional: 1
+
+  - name: repo
+    description: GitHub repository containing the issue, in owner/name form.
+    type: string
+    required: true
+    validate: "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+
+  - name: repo_checkout
+    description: Local git checkout root used as the source for the issue worktree.
+    type: path
+    required: true
+
+  - name: work_subdir
+    description: Subdirectory inside the issue worktree where implementation commands should run; use "." for the repository root.
+    type: string
+    default: "."
+
+  - name: worktree_root
+    description: Directory where the workflow creates or reuses the issue git worktree.
+    type: string
+    default: runtime/worktrees
+
+  - name: base_branch
+    description: Base branch for the issue branch and PR.
+    type: string
+    default: main
+
+  - name: branch_prefix
+    description: Branch-name prefix used for the issue branch.
+    type: string
+    default: rhei
+
+  - name: require_human_spec_review
+    description: Whether compatible issues still stop for human review after spec-fit analysis before implementation.
+    type: boolean
+    default: true
+
+  - name: publication_mode
+    description: External publication behavior. Use no-pr for local artifacts only, draft for a draft PR, or ready for a ready-for-review PR.
+    type: string
+    default: draft
+    validate: "^(no-pr|draft|ready)$"
+
+  - name: pr_push_remote
+    description: Writable git remote used when pushing the issue branch. Leave empty to infer a non-origin fork remote.
+    type: string
+    default: ""
+
+  - name: pr_head_owner
+    description: GitHub owner/login for PR heads, used as <owner>:<branch>. Leave empty to infer it from pr_push_remote.
+    type: string
+    default: ""
+
+  - name: pr_labels
+    description: GitHub labels to apply to the PR when those labels already exist on the target repository.
+    type: array
+    items:
+      type: string
+    default:
+      - rhei
+
+  - name: validation_commands
+    description: Optional explicit validation commands. The agent also follows validation documented in the target repo's AGENTS.md.
+    type: array
+    items:
+      type: string
+    default: []
+
+  - name: implementation_target
+    description: Agent target that performs issue analysis, implementation, validation fixes, and publication.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: review_target
+    description: Agent target that performs focused requirements, spec, implementation, and validation reviews.
+    type: string
+    default: codex[yolo]:openai:gpt-5.5
+
+  - name: review_passes
+    description: Number of focused review cycles before publication can proceed.
+    type: number
+    default: 2
+    validate: "[1-9][0-9]*"
+
+  - name: plan_title
+    description: Title of the instantiated issue-fix workspace.
+    type: string
+    default: GitHub Issue Fix
+
+  - name: extra_context
+    description: Optional extra project-specific instructions appended to the workspace overview and issue intake task.
+    type: string
+    default: ""

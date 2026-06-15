@@ -1,0 +1,669 @@
+# State machine diagram
+# ---------------------
+#
+# Legend: [initial] [gating] [final]
+#
+#   issue-intake [initial]
+#        |
+#        | creates/reuses worktree, fetches issue, discovers repo rules,
+#        | writes adequacy/spec-fit + routing artifacts, then writes
+#        | exactly one follow-up task file starting in one of:
+#        |
+#        +--> implement-fix ----------------------+
+#        |                                        |
+#        +--> human-review [gating] --approve-----+
+#        |        |                               |
+#        |        +--handoff--> github-handoff    |
+#        |        +--cancel----> cancelled        |
+#        |
+#        +--> github-handoff ---------------------+
+#                                                 |
+#                                                 v
+#   completed [final] <--- publish-pr <--- aggregate-review <--- validation-review
+#                                ^               |                    ^
+#                                |               v                    |
+#                                +------- address-review -------------+
+#                                                ^
+#                                                |
+#   implement-fix -> validate-fix -> requirements-review -> spec-review
+#                                             -> implementation-review -> validation-review
+#
+# Review loop:
+#   implement-fix -> validate-fix -> four focused reviews -> aggregate-review cycle 1
+#   aggregate-review cycle 1 -> address-review -> validate-fix -> focused reviews -> aggregate-review cycle 2
+#   aggregate-review cycle N -> publish-pr when visitCount >= visits
+#
+# Per-task paths:
+#   issue-intake: issue-intake -> completed
+#   compatible follow-up: implement-fix -> validate-fix -> focused review cycle -> publish-pr -> completed
+#   gated follow-up: human-review -> implement-fix OR github-handoff OR cancelled
+#   blocked/unclear follow-up: github-handoff -> completed
+#
+# The intake task writes one top-level follow-up task under `tasks/`, not a
+# child task, so the follow-up can depend on `Task issue-intake` without a
+# parent/ancestor dependency.
+
+name: github-issue-fix
+version: 0.1.0
+
+states:
+  issue-intake:
+    description: Prepare the issue worktree, fetch the issue, discover repo rules, analyze issue adequacy and spec fit, and write one routed follow-up task.
+    initial: true
+    target: "codex[yolo]:openai:gpt-5.5"
+    instructions: |
+      Intake GitHub issue `1234` in `vjovanov/rhei` for Task {task_id}: {task_title}.
+
+      Treat this Rhei workspace as the scratchpad. Runtime artifacts and generated
+      task files are written here. Code and documentation edits happen only in
+      the issue worktree created from `/home/jovan/Work/rhei/.`.
+
+      Step 1: create or reuse the issue worktree.
+      - Resolve `/home/jovan/Work/rhei/.` to an absolute git checkout path.
+      - Fetch `origin main` when possible.
+      - Derive a filesystem-safe issue slug from `1234`.
+      - Create or reuse a branch named `rhei/issue-<issue-slug>`.
+      - Create or reuse a worktree under `runtime/worktrees/issue-<issue-slug>`.
+      - Record the absolute worktree path, branch, base branch, work subdir, and
+        checkout root in `{output.worktree-ref.path}`.
+
+      Step 2: fetch the issue.
+      - Use `gh issue view 1234 --repo vjovanov/rhei` or the equivalent URL form.
+      - Include title, body, labels, author, assignees, state, comments, linked
+        PRs, and any reproduction or acceptance evidence.
+      - Write the durable snapshot to `{output.issue-snapshot.path}`.
+
+      Step 3: discover repository instructions.
+      - Read root `AGENTS.md` when present.
+      - Read nested `AGENTS.md` files that apply to `.` and to
+        any issue-mentioned paths.
+      - Inspect `.agents/grund.toml` when present and determine whether `grund`
+        is available.
+      - Record relevant validation commands. Include the explicit configured
+        commands when present: `[]`.
+      - Write the result to `{output.repo-rules.path}`.
+
+      Step 4: analyze issue adequacy and spec fit.
+      - First decide whether the issue contains enough detail for an
+        autonomous implementation. A fixable issue must identify a concrete
+        failing or desired behavior, the affected component or enough evidence
+        to locate it, the expected outcome, and a validation path. Refactor,
+        cleanup, and design issues must also state the intended direction or
+        acceptance criteria clearly enough that the workflow can name the
+        likely change before editing code.
+      - If the issue is too broad or vague to name the course of action, use
+        verdict `underspecified`. If required facts, reproduction data, target
+        component, or owner decision are missing, use verdict
+        `insufficient-information`.
+      - Compare the issue request with the repository instructions, goals,
+        specs, non-goals, and decisions discovered from the checkout.
+      - If `grund` is configured, use `grund list`, `grund <ID> --toc`, and
+        `grund <ID> --full` as needed. Cite the most-specific relevant `§` IDs.
+      - Do not edit specs or code in this state.
+      - Write `{output.spec-fit.path}` with: issue request, adequacy check,
+        missing details if any, relevant repo rules, relevant
+        spec/goal/decision IDs, verdict, risks, whether spec/doc updates may be
+        needed, and whether human review is required.
+      - Use one verdict: `compatible`, `compatible-but-human-review-required`,
+        `underspecified`, `conflicts-with-spec`, `insufficient-information`, or
+        `external-owner-required`.
+
+      Step 5: route and write exactly one follow-up task file under `tasks/`.
+      - Write `{output.routing.path}` with the selected start state and why.
+
+      - If the verdict is `compatible`, create `tasks/02-issue-work.md` with
+        `**State:** human-review` because `require_human_spec_review` is true.
+
+      - If the verdict is `compatible-but-human-review-required`, create
+        `tasks/02-issue-work.md` with `**State:** human-review`.
+      - If the verdict is `underspecified`, `insufficient-information`,
+        `conflicts-with-spec`, or `external-owner-required`, create
+        `tasks/02-issue-work.md` with `**State:** github-handoff`.
+
+      The generated task must have this shape:
+
+        ### Task issue-work: Resolve issue <issue number or slug>
+        **State:** <implement-fix | human-review | github-handoff>
+        **Prior:** Task issue-intake
+
+        - Repository: `vjovanov/rhei`
+        - Issue: `1234`
+        - Worktree: `{output.worktree-ref.path}`
+        - Issue snapshot: `{output.issue-snapshot.path}`
+        - Repository rules: `{output.repo-rules.path}`
+        - Spec fit: `{output.spec-fit.path}`
+        - Routing: `{output.routing.path}`
+        - Publication mode: `no-pr`
+
+      Finish only after all artifacts and the follow-up task file exist. The
+      parent `rhei run` process advances the task to `completed`.
+    outputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+        description: Worktree, branch, base branch, and work subdirectory for this issue.
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+        description: Durable GitHub issue snapshot.
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+        description: Applicable AGENTS.md, grund, validation, and contribution instructions.
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+        description: Spec compatibility analysis and routing verdict.
+      - name: routing
+        path: runtime/github-issue-fix/issue-intake/routing.md
+        description: Selected follow-up start state and rationale.
+
+  human-review:
+    description: Human decides whether a spec-fit finding may proceed to implementation.
+    gating: true
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: routing
+        path: runtime/github-issue-fix/issue-intake/routing.md
+    instructions: |
+      Stop autonomous work on Task {task_id}: {task_title}.
+
+      Review `{input.spec-fit.path}` and `{input.routing.path}`. If the issue
+      may be implemented, transition this task to `implement-fix`. If it should
+      only receive a GitHub response or needs an external owner, transition to
+      `github-handoff`. If it should be abandoned, transition to `cancelled`.
+
+  github-handoff:
+    description: Prepare or publish a GitHub issue handoff when implementation should not proceed.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: routing
+        path: runtime/github-issue-fix/issue-intake/routing.md
+    instructions: |
+      Prepare the GitHub handoff for Task {task_id}: {task_title}.
+
+      Read the issue snapshot, repo rules, spec-fit report, and routing note.
+      Do not edit code.
+
+      Publication mode is `no-pr`:
+      - `no-pr`: do not perform any external GitHub writes. Do not post or
+        update issue comments, push branches, or open/update PRs. Write a local
+        draft handoff only, with `Posted URL: Not posted (publication_mode=no-pr)`.
+      - `draft` or `ready`: draft a concise issue comment in `vjovanov/rhei`
+        explaining why implementation is blocked, what evidence was checked,
+        and what human information or decision is needed. If the verdict is
+        `underspecified` or `insufficient-information`, ask targeted
+        clarification questions for the missing details instead of proposing a
+        speculative implementation. Avoid duplicate comments: if an equivalent
+        recent handoff or clarification request already exists, record its URL
+        instead of posting another one. Otherwise, post the comment and record
+        the posted URL.
+
+      Write `{output.github-handoff.path}` with the comment body, posted URL if
+      posted, and any remaining human action.
+    outputs:
+      - name: github-handoff
+        path: runtime/github-issue-fix/{task_id}/github-handoff.md
+        description: GitHub handoff result or draft.
+
+  implement-fix:
+    description: Implement the issue fix in the isolated worktree.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: routing
+        path: runtime/github-issue-fix/issue-intake/routing.md
+    instructions: |
+      Implement the issue fix for Task {task_id}: {task_title}.
+
+      Read all intake artifacts. Work only inside the worktree recorded in
+      `{input.worktree-ref.path}`, under `.` unless the issue or
+      repo rules require a broader path.
+
+      Follow the applicable `AGENTS.md` instructions. If the target repo uses
+      grund, preserve its citation rules. If the implementation needs spec or
+      documentation updates, include them in this same change set and cite the
+      most-specific relevant `§` IDs according to the target repo's rules.
+
+      Apply the smallest fix that addresses the issue and stays consistent with
+      the spec-fit analysis. Do not broaden the scope into unrelated cleanup.
+      Do not push or open a PR in this state.
+
+      Write `{output.implementation-note.path}` with files changed, rationale,
+      spec/doc updates, tests added or changed, and known risks.
+    outputs:
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        description: Summary of the implementation change.
+
+  validate-fix:
+    description: Run grund and repository validation for the issue fix.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
+      - name: review-fix-note
+        path: runtime/github-issue-fix/{task_id}/review-fix.md
+        optional: true
+    instructions: |
+      Validate the issue fix for Task {task_id}: {task_title}.
+
+      Work inside the recorded worktree and run the narrowest meaningful checks
+      from the target repo's `AGENTS.md` and repo-rules artifact. If `grund` is
+      configured, run `grund check` from the appropriate repo root. Also run
+      the explicit configured commands when present: `[]`.
+
+      If a command is too expensive or unavailable, record why and what narrower
+      check was run instead. Do not hide failures.
+
+      Write `{output.validation-note.path}` with every command, working
+      directory, exit result, important output summary, and remaining validation
+      gaps.
+    outputs:
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+        description: Validation commands and results.
+
+  requirements-review:
+    description: Review whether the implementation satisfies the GitHub issue requirements.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+    instructions: |
+      Review issue requirements for Task {task_id}: {task_title}.
+
+      Inspect the current diff in the recorded worktree and the intake,
+      implementation, and validation artifacts. Focus only on whether the
+      implementation solves the issue that was actually reported:
+      - requested behavior, bug, or acceptance criteria
+      - reproduction evidence and expected outcome
+      - affected component and user-facing behavior
+      - missing issue details that make the implementation speculative
+      - whether the change solves a different or narrower problem than the issue
+
+      Write `{output.requirements-review.path}` with:
+      - evidence checked
+      - blocking findings, or `none`
+      - non-blocking follow-ups, or `none`
+      - `Requirements ready: yes` or `Requirements ready: no`
+    outputs:
+      - name: requirements-review
+        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+        description: Requirements-focused review findings.
+
+  spec-review:
+    description: Review goals, non-goals, grund citations, and spec compatibility.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: requirements-review
+        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+    instructions: |
+      Review spec and repo-rule fit for Task {task_id}: {task_title}.
+
+      Inspect the current diff in the recorded worktree and the intake,
+      implementation, validation, and requirements-review artifacts. Focus only
+      on whether the change fits the target repository's rules:
+      - `AGENTS.md` instructions and nested repo guidance
+      - goals, non-goals, decisions, and spec-fit verdict
+      - grund declaration and citation requirements when configured
+      - whether spec or documentation updates are required for the behavior
+      - whether the change adds product surface outside the accepted scope
+
+      Write `{output.spec-review.path}` with:
+      - evidence checked
+      - blocking findings, or `none`
+      - non-blocking follow-ups, or `none`
+      - `Spec ready: yes` or `Spec ready: no`
+    outputs:
+      - name: spec-review
+        path: runtime/github-issue-fix/{task_id}/review-spec.md
+        description: Spec, goals, non-goals, and grounding review findings.
+
+  implementation-review:
+    description: Review code quality, scope, maintainability, and edge cases.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: requirements-review
+        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+      - name: spec-review
+        path: runtime/github-issue-fix/{task_id}/review-spec.md
+    instructions: |
+      Review implementation quality for Task {task_id}: {task_title}.
+
+      Inspect the current diff in the recorded worktree and the intake,
+      implementation, validation, requirements-review, and spec-review
+      artifacts. Focus only on engineering quality:
+      - local patterns and API boundaries
+      - minimal scope and maintainability
+      - error handling, edge cases, and compatibility risks
+      - test placement and whether changed behavior is covered in code
+      - whether unrelated cleanup or broad refactoring slipped in
+
+      Write `{output.implementation-review.path}` with:
+      - evidence checked
+      - blocking findings, or `none`
+      - non-blocking follow-ups, or `none`
+      - `Implementation ready: yes` or `Implementation ready: no`
+    outputs:
+      - name: implementation-review
+        path: runtime/github-issue-fix/{task_id}/review-implementation.md
+        description: Implementation-quality review findings.
+
+  validation-review:
+    description: Review validation coverage, command choice, failures, and CI risk.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: requirements-review
+        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+      - name: spec-review
+        path: runtime/github-issue-fix/{task_id}/review-spec.md
+      - name: implementation-review
+        path: runtime/github-issue-fix/{task_id}/review-implementation.md
+    instructions: |
+      Review validation readiness for Task {task_id}: {task_title}.
+
+      Inspect the current diff in the recorded worktree and the intake,
+      implementation, validation, requirements-review, spec-review, and
+      implementation-review artifacts. Focus only on validation quality:
+      - whether commands match the affected files and repo instructions
+      - whether failures were fixed or explicitly remain blocking
+      - whether skipped commands are justified with credible narrower checks
+      - whether likely CI-only failures were considered
+      - whether the PR body can honestly report validation evidence
+
+      Write `{output.validation-review.path}` with:
+      - evidence checked
+      - blocking findings, or `none`
+      - non-blocking follow-ups, or `none`
+      - validation gaps, or `none`
+      - `Validation ready: yes` or `Validation ready: no`
+    outputs:
+      - name: validation-review
+        path: runtime/github-issue-fix/{task_id}/review-validation.md
+        description: Validation-focused review findings.
+
+  aggregate-review:
+    description: Combine focused reviews into one PR-readiness decision for this cycle.
+    target: "codex[yolo]:openai:gpt-5.5"
+    visits: 2
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: repo-rules
+        path: runtime/github-issue-fix/issue-intake/repo-rules.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: requirements-review
+        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+      - name: spec-review
+        path: runtime/github-issue-fix/{task_id}/review-spec.md
+      - name: implementation-review
+        path: runtime/github-issue-fix/{task_id}/review-implementation.md
+      - name: validation-review
+        path: runtime/github-issue-fix/{task_id}/review-validation.md
+    instructions: |
+      Aggregate focused review cycle {visit_count} of {visits} for Task
+      {task_id}: {task_title}.
+
+      Read the requirements, spec, implementation, and validation review
+      artifacts. Do not introduce new broad review themes here; reconcile the
+      focused findings into a single action list for the implementer.
+
+      Write `{output.review-summary.path}` with:
+      - review cycle number
+      - requirements blockers, or `none`
+      - spec/grund blockers, or `none`
+      - implementation blockers, or `none`
+      - validation blockers or gaps, or `none`
+      - non-blocking follow-ups, or `none`
+      - `Ready to publish: yes` only when all focused reviews are ready and no
+        important validation gaps remain; otherwise `Ready to publish: no`
+    outputs:
+      - name: review-summary
+        path: runtime/github-issue-fix/{task_id}/review-summary.md
+        description: Aggregated focused-review findings and PR readiness.
+
+  address-review:
+    description: Address blocking findings from the latest focused review cycle.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: review-summary
+        path: runtime/github-issue-fix/{task_id}/review-summary.md
+      - name: requirements-review
+        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+      - name: spec-review
+        path: runtime/github-issue-fix/{task_id}/review-spec.md
+      - name: implementation-review
+        path: runtime/github-issue-fix/{task_id}/review-implementation.md
+      - name: validation-review
+        path: runtime/github-issue-fix/{task_id}/review-validation.md
+    instructions: |
+      Address review findings for Task {task_id}: {task_title}.
+
+      Read `{input.review-summary.path}` and the four focused review artifacts.
+      If the summary has no blocking findings, make no code changes and record
+      a no-op. Otherwise, fix only the blocking findings inside the recorded
+      worktree. Preserve the issue scope and do not broaden the PR.
+
+      Write `{output.review-fix-note.path}` with findings addressed, files
+      changed, and any validation that should be rerun.
+    outputs:
+      - name: review-fix-note
+        path: runtime/github-issue-fix/{task_id}/review-fix.md
+        description: Summary of fixes applied after review.
+
+  publish-pr:
+    description: Push the reviewed branch and open or update the issue PR.
+    target: "codex[yolo]:openai:gpt-5.5"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: review-summary
+        path: runtime/github-issue-fix/{task_id}/review-summary.md
+    instructions: |
+      Publish the issue fix for Task {task_id}: {task_title}.
+
+      First inspect `{input.review-summary.path}`. If it has blocking findings,
+      important validation gaps, or `Ready to publish: no`, do not publish.
+      Write the publication note as blocked and leave the branch local.
+
+      Publication mode is `no-pr`:
+      - `no-pr`: do not perform any external GitHub writes. Do not push, open
+        or update a PR, apply labels, request reviewers, or post/update issue
+        comments. Write the local branch and commit status only.
+      - `draft`: push the branch and open or update a draft PR.
+      - `ready`: push the branch and open or update a ready-for-review PR.
+
+
+      Infer a writable fork remote because `pr_push_remote` was not supplied.
+
+
+      Infer the PR head owner from the push remote because `pr_head_owner` was
+      not supplied.
+
+      Fail clearly in the publication artifact rather than pushing to an
+      ambiguous remote.
+
+      The PR body must include the issue link, spec-fit summary, implementation
+      summary, validation evidence, review readiness, and any remaining human
+      follow-up.
+
+      Resolve configured PR labels before applying them: `["rhei"]`.
+      Check the target repository's existing labels with `gh label list` or the
+      GitHub labels API. Apply only configured labels that already exist on the
+      repository, including `rhei` when present. Do not create missing labels.
+      For an existing PR, add any existing configured labels that are missing
+      from the PR. Record missing configured labels as skipped.
+
+      Write `{output.publication-note.path}` with PR URL or local-only status,
+      branch, commit SHA, configured labels, applied labels, skipped labels,
+      reviewers if any, and remaining human action.
+    outputs:
+      - name: publication-note
+        path: runtime/github-issue-fix/{task_id}/publication.md
+        description: PR publication or local-only result.
+
+  completed:
+    description: Issue workflow is complete.
+    instructions: |
+      Task {task_id} is complete.
+    final: true
+
+  cancelled:
+    description: Issue workflow was cancelled.
+    instructions: |
+      Stop work on Task {task_id}. Leave worktree branches and runtime artifacts
+      in place for inspection.
+    final: true
+
+transitions:
+  - from: issue-intake
+    to: completed
+    description: Intake artifacts and routed follow-up task were written.
+
+  - from: human-review
+    to: implement-fix
+    description: Human approved implementation.
+
+  - from: human-review
+    to: github-handoff
+    description: Human selected GitHub handoff instead of implementation.
+
+  - from: github-handoff
+    to: completed
+    description: GitHub handoff was recorded.
+
+  - from: implement-fix
+    to: validate-fix
+    description: Implementation is ready for validation.
+
+  - from: validate-fix
+    to: requirements-review
+    description: Validation results are ready for focused requirements review.
+
+  - from: requirements-review
+    to: spec-review
+    description: Requirements review is ready for spec review.
+
+  - from: spec-review
+    to: implementation-review
+    description: Spec review is ready for implementation review.
+
+  - from: implementation-review
+    to: validation-review
+    description: Implementation review is ready for validation review.
+
+  - from: validation-review
+    to: aggregate-review
+    description: Focused reviews are ready for aggregation.
+
+  - from: aggregate-review
+    to: address-review
+    condition: visitCount < visits
+    description: More focused review cycles remain; address findings before the next validation.
+
+  - from: address-review
+    to: validate-fix
+    description: Review findings were addressed; validate again.
+
+  - from: aggregate-review
+    to: publish-pr
+    condition: visitCount >= visits
+    description: Required focused review cycles are complete; publish or report local-only status.
+
+  - from: publish-pr
+    to: completed
+    description: Publication result was recorded.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel any non-final task.
