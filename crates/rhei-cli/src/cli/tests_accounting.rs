@@ -42,6 +42,7 @@ fn accounting_usage(
         agent: "codex".to_string(),
         provider: Some("openai".to_string()),
         model: Some("gpt-test".to_string()),
+        total: measured.clone(),
         input_total: measured.clone(),
         input_cached_read: measured.clone(),
         input_cache_write: measured.clone(),

@@ -86,6 +86,7 @@ Each supported agent spawn writes one JSON object:
   "extraction_status": "measured",
   "scope": "aggregate-agent-process",
   "tokens": {
+    "total": { "value": 14645, "source": "agent-usage-capture" },
     "input": {
       "total": { "value": 12345, "source": "agent-usage-capture" },
       "cached_read": { "value": 9000, "source": "agent-usage-capture" },
@@ -110,6 +111,7 @@ Each supported agent spawn writes one JSON object:
 
 | Dimension | Meaning |
 | --- | --- |
+| `total` | Total tokens when the agent reports an aggregate count, or input plus output when those dimensions are available. |
 | `input.total` | Total input tokens reported by the agent/provider. |
 | `input.cached_read` | Input tokens served from cache. |
 | `input.cache_write` | Input tokens written into cache. |
@@ -375,7 +377,10 @@ Cost: $1.23  in=2.4M  in_cached=1.5M  out=180k  out_cached=-  coverage=Partial
 The header uses absolute token totals rather than a cache percentage so cached
 input and cached output remain separate. Unavailable dimensions render as `-`.
 Each active TUI slot line shows the current direct accounting reported for that
-task next to its elapsed running time. The slots pane also shows a current
+task next to its elapsed running time. When an agent only reports a final total
+token count, the compact slot line shows `total` and leaves input/cache/output
+dimensions unavailable rather than misclassifying the total as input or output.
+The slots pane also shows a current
 run-level token/cost total below the slot rows, even before the first usage
 report arrives; unavailable dimensions render as `-`.
 

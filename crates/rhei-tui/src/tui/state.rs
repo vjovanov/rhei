@@ -777,6 +777,7 @@ fn summarize_usage_summaries<'a>(
     let coverage = summarize_coverage(&usages, cost_micro, priced_cost_micro);
 
     Some(AccountingRunSummary {
+        total: summarize_dimension(usages.iter().map(|usage| &usage.total)),
         input_total: summarize_dimension(usages.iter().map(|usage| &usage.input_total)),
         input_cached_read: summarize_dimension(usages.iter().map(|usage| &usage.input_cached_read)),
         input_cache_write: summarize_dimension(usages.iter().map(|usage| &usage.input_cache_write)),

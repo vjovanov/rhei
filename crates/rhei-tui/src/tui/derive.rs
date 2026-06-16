@@ -143,6 +143,7 @@ pub(super) fn machine_groups(machine: &Machine) -> Vec<Vec<usize>> {
 pub(super) struct CostRollup {
     pub(super) cost_micro: Option<u64>,
     pub(super) any_cost_missing: bool,
+    pub(super) total_tokens: u64,
     pub(super) input_tokens: u64,
     pub(super) input_cached_read_tokens: u64,
     pub(super) output_tokens: u64,
@@ -157,6 +158,7 @@ impl CostRollup {
             Some(c) => self.cost_micro = Some(self.cost_micro.unwrap_or(0) + c),
             None => self.any_cost_missing = true,
         }
+        self.total_tokens += usage.total.value.unwrap_or(0);
         self.input_tokens += usage.input_total.value.unwrap_or(0);
         self.input_cached_read_tokens += usage.input_cached_read.value.unwrap_or(0);
         self.output_tokens += usage.output_total.value.unwrap_or(0);

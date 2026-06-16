@@ -104,6 +104,7 @@ pub struct UsageSummary {
     pub agent: String,
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub total: DimensionSummary,
     pub input_total: DimensionSummary,
     pub input_cached_read: DimensionSummary,
     pub input_cache_write: DimensionSummary,
@@ -120,6 +121,7 @@ pub struct UsageSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AccountingRunSummary {
+    pub total: DimensionSummary,
     pub input_total: DimensionSummary,
     pub input_cached_read: DimensionSummary,
     pub input_cache_write: DimensionSummary,

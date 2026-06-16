@@ -482,6 +482,7 @@ struct InvocationRow {
 struct TaskAccountingRow {
     task: String,
     cost: String,
+    total: String,
     input: String,
     input_cached: String,
     output: String,
@@ -672,8 +673,9 @@ impl RunSummaryReport {
             // §FS-rhei-cost-accounting.9: End-of-run surfaces show separate input,
             // cached input, output, and cached output totals.
             out.push_str(&format!(
-                "  Cost      {} · In {} · In cached {} · Out {} · Out cached {} · Coverage {:?}\n",
+                "  Cost      {} · Total {} · In {} · In cached {} · Out {} · Out cached {} · Coverage {:?}\n",
                 format_summary_cost(accounting),
+                format_dimension_value(&accounting.total),
                 format_dimension_value(&accounting.input_total),
                 format_dimension_value(&accounting.input_cached_read),
                 format_dimension_value(&accounting.output_total),
@@ -781,6 +783,10 @@ impl RunSummaryReport {
             out.push_str("| Accounting | Value |\n| --- | ---: |\n");
             out.push_str(&format!("| cost | {} |\n", format_summary_cost(accounting)));
             out.push_str(&format!(
+                "| total tokens | {} |\n",
+                format_dimension_value(&accounting.total)
+            ));
+            out.push_str(&format!(
                 "| input tokens | {} |\n",
                 format_dimension_value(&accounting.input_total)
             ));
@@ -864,14 +870,15 @@ impl RunSummaryReport {
         if !self.task_accounting.is_empty() {
             out.push_str("## Task Costs\n\n");
             out.push_str(
-                "| Task | Cost | Input | Input cached | Output | Output cached | Coverage |\n\
-                 | --- | ---: | ---: | ---: | ---: | ---: | --- |\n",
+                "| Task | Cost | Total | Input | Input cached | Output | Output cached | Coverage |\n\
+                 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n",
             );
             for row in &self.task_accounting {
                 out.push_str(&format!(
-                    "| {} | {} | {} | {} | {} | {} | {} |\n",
+                    "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
                     md_cell(&row.task),
                     row.cost,
+                    row.total,
                     row.input,
                     row.input_cached,
                     row.output,
@@ -1108,6 +1115,7 @@ fn build_task_accounting_rows(
             Some(TaskAccountingRow {
                 task: row.id.clone(),
                 cost: format_summary_cost(accounting),
+                total: format_dimension_value(&accounting.total),
                 input: format_dimension_value(&accounting.input_total),
                 input_cached: format_dimension_value(&accounting.input_cached_read),
                 output: format_dimension_value(&accounting.output_total),

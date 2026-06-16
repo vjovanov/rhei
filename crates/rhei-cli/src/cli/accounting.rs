@@ -28,10 +28,22 @@ struct AccountingInvocationRecord {
     pricing: AccountingPricing,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct AccountingTokens {
+    #[serde(default = "unknown_token_dimension")]
+    total: AccountingTokenDimension,
     input: AccountingTokenSide,
     output: AccountingTokenSide,
+}
+
+impl Default for AccountingTokens {
+    fn default() -> Self {
+        Self {
+            total: AccountingTokenDimension::unavailable("unknown"),
+            input: AccountingTokenSide::default(),
+            output: AccountingTokenSide::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -63,9 +75,13 @@ struct AccountingTokenDimension {
 
 impl AccountingTokenDimension {
     fn measured(value: u64) -> Self {
+        Self::measured_from(value, "agent-usage-capture")
+    }
+
+    fn measured_from(value: u64, source: &str) -> Self {
         Self {
             value: Some(value),
-            source: Some("agent-usage-capture".to_string()),
+            source: Some(source.to_string()),
             status: None,
         }
     }
@@ -73,6 +89,10 @@ impl AccountingTokenDimension {
     fn unavailable(status: &str) -> Self {
         Self { value: None, source: None, status: Some(status.to_string()) }
     }
+}
+
+fn unknown_token_dimension() -> AccountingTokenDimension {
+    AccountingTokenDimension::unavailable("unknown")
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -110,6 +130,8 @@ struct PriceBookEntry {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ExtractedUsage {
+    total: Option<u64>,
+    total_source: Option<&'static str>,
     input_total: Option<u64>,
     input_cached_read: Option<u64>,
     input_cache_write: Option<u64>,
@@ -120,6 +142,7 @@ struct ExtractedUsage {
 
 impl ExtractedUsage {
     fn merge(&mut self, other: ExtractedUsage) {
+        merge_usage_value(&mut self.total, other.total);
         merge_usage_value(&mut self.input_total, other.input_total);
         merge_usage_value(&mut self.input_cached_read, other.input_cached_read);
         merge_usage_value(&mut self.input_cache_write, other.input_cache_write);
@@ -129,7 +152,7 @@ impl ExtractedUsage {
     }
 
     fn has_total(&self) -> bool {
-        self.input_total.is_some() || self.output_total.is_some()
+        self.total.is_some() || self.input_total.is_some() || self.output_total.is_some()
     }
 }
 
@@ -163,6 +186,7 @@ struct AgentAccountingInvocation<'a> {
     ended_at: std::time::SystemTime,
     slot: Option<rhei_tui::Slot>,
     usage_capture_path: Option<&'a Path>,
+    log_path: Option<&'a Path>,
     sink: &'a Arc<dyn rhei_tui::EventSink>,
 }
 
@@ -187,15 +211,19 @@ fn record_agent_accounting_invocation(
     write_price_book(&accounting_root)?;
 
     // §FS-rhei-cost-accounting.11: Extraction failures affect coverage only.
-    let (tokens, extraction_status) = match extract_usage_from_capture(invocation.usage_capture_path)
-    {
-        ExtractedUsageStatus::Measured(usage) => (tokens_from_usage(usage), "measured"),
-        ExtractedUsageStatus::NoUsageEmitted => (AccountingTokens::default(), "no-usage-emitted"),
-        ExtractedUsageStatus::ExtractorUnavailable => {
-            (AccountingTokens::default(), "extractor-unavailable")
-        }
-        ExtractedUsageStatus::ExtractorFailed => (AccountingTokens::default(), "extractor-failed"),
-    };
+    let (tokens, extraction_status) =
+        match extract_usage(invocation.usage_capture_path, invocation.log_path) {
+            ExtractedUsageStatus::Measured(usage) => (tokens_from_usage(usage), "measured"),
+            ExtractedUsageStatus::NoUsageEmitted => {
+                (AccountingTokens::default(), "no-usage-emitted")
+            }
+            ExtractedUsageStatus::ExtractorUnavailable => {
+                (AccountingTokens::default(), "extractor-unavailable")
+            }
+            ExtractedUsageStatus::ExtractorFailed => {
+                (AccountingTokens::default(), "extractor-failed")
+            }
+        };
     let provider = invocation.resolved.model_provider.clone();
     let model =
         invocation.resolved.model_name.clone().or_else(|| invocation.resolved.model.clone());
@@ -411,8 +439,9 @@ fn grouped_cost_json(inspection: &CostInspection, by: CostGroup) -> Vec<serde_js
 fn print_run_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, by: CostGroup) {
     if let Some(summary) = inspection.summary.as_ref() {
         println!(
-            "Cost {} | In {} | Out {} | Coverage {:?} | Invocations {}",
+            "Cost {} | Total {} | In {} | Out {} | Coverage {:?} | Invocations {}",
             format_summary_cost(summary),
+            format_dimension_value(&summary.total),
             format_dimension_value(&summary.input_total),
             format_dimension_value(&summary.output_total),
             summary.coverage,
@@ -423,8 +452,9 @@ fn print_run_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, by: 
     for (key, records) in grouped_records(inspection, by) {
         if let Some(summary) = summarize_records(records.into_iter()) {
             println!(
-                "  {key}: {} in={} out={} coverage={:?}",
+                "  {key}: {} total={} in={} out={} coverage={:?}",
                 format_summary_cost(&summary),
+                format_dimension_value(&summary.total),
                 format_dimension_value(&summary.input_total),
                 format_dimension_value(&summary.output_total),
                 summary.coverage
@@ -542,6 +572,7 @@ fn summarize_usage_summaries<'a>(
     let priced_cost_micro = sum_usage_costs(usages.iter().map(|usage| usage.priced_cost_micro));
     let pricing_status = summarize_usage_pricing(&usages);
     Some(rhei_tui::AccountingRunSummary {
+        total: summarize_usage_dimension(usages.iter().map(|usage| &usage.total)),
         input_total: summarize_usage_dimension(usages.iter().map(|usage| &usage.input_total)),
         input_cached_read: summarize_usage_dimension(usages.iter().map(|usage| &usage.input_cached_read)),
         input_cache_write: summarize_usage_dimension(usages.iter().map(|usage| &usage.input_cache_write)),
@@ -684,6 +715,7 @@ fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::U
         agent: record.agent.clone(),
         provider: record.provider.clone(),
         model: record.model.clone(),
+        total: dimension_summary(&record.tokens.total),
         input_total: dimension_summary(&record.tokens.input.total),
         input_cached_read: dimension_summary(&record.tokens.input.cached_read),
         input_cache_write: dimension_summary(&record.tokens.input.cache_write),
@@ -771,6 +803,15 @@ fn configure_accounting_capture(cmd: &mut std::process::Command, capture_path: O
     }
 }
 
+fn extract_usage(capture_path: Option<&Path>, log_path: Option<&Path>) -> ExtractedUsageStatus {
+    match extract_usage_from_capture(capture_path) {
+        ExtractedUsageStatus::NoUsageEmitted => {
+            extract_usage_from_agent_log(log_path).unwrap_or(ExtractedUsageStatus::NoUsageEmitted)
+        }
+        other => other,
+    }
+}
+
 fn extract_usage_from_capture(capture_path: Option<&Path>) -> ExtractedUsageStatus {
     // §FS-rhei-cost-accounting.4: Only Rhei-declared structured usage events are accepted.
     let Some(capture_path) = capture_path else {
@@ -804,6 +845,42 @@ fn extract_usage_from_capture(capture_path: Option<&Path>) -> ExtractedUsageStat
     }
 }
 
+fn extract_usage_from_agent_log(log_path: Option<&Path>) -> Option<ExtractedUsageStatus> {
+    let log_path = log_path?;
+    let text = fs::read_to_string(log_path).ok()?;
+    parse_codex_total_tokens_from_log(&text).map(|total| {
+        ExtractedUsageStatus::Measured(ExtractedUsage {
+            total: Some(total),
+            total_source: Some("agent-log-total"),
+            ..ExtractedUsage::default()
+        })
+    })
+}
+
+fn parse_codex_total_tokens_from_log(text: &str) -> Option<u64> {
+    let mut lines = text.lines();
+    let mut last_total = None;
+    while let Some(line) = lines.next() {
+        if line.trim().eq_ignore_ascii_case("tokens used") {
+            if let Some(value_line) = lines.next() {
+                if let Some(value) = parse_token_count(value_line.trim()) {
+                    last_total = Some(value);
+                }
+            }
+        }
+    }
+    last_total
+}
+
+fn parse_token_count(text: &str) -> Option<u64> {
+    let compact: String = text.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if compact.is_empty() {
+        None
+    } else {
+        compact.parse().ok()
+    }
+}
+
 fn usage_from_structured_event_value(value: &serde_json::Value) -> Option<ExtractedUsage> {
     let object = value.as_object()?;
     let schema = object.get("schema").and_then(serde_json::Value::as_str)?;
@@ -825,6 +902,8 @@ fn usage_from_json_payload(value: &serde_json::Value) -> Option<ExtractedUsage> 
     }
 
     let mut usage = ExtractedUsage {
+        total: first_u64(object, &["total_tokens", "tokens_used", "total"]),
+        total_source: None,
         input_total: first_u64(
             object,
             &[
@@ -902,7 +981,12 @@ fn dimension_u64(value: Option<&serde_json::Value>) -> Option<u64> {
 
 fn tokens_from_usage(usage: ExtractedUsage) -> AccountingTokens {
     // §FS-rhei-cost-accounting.3.1: Missing dimensions remain unavailable.
+    let total = usage.total.or_else(|| sum_optional_pair(usage.input_total, usage.output_total));
+    let total_source = usage.total_source.unwrap_or("agent-usage-capture");
     AccountingTokens {
+        total: total
+            .map(|value| AccountingTokenDimension::measured_from(value, total_source))
+            .unwrap_or_else(|| AccountingTokenDimension::unavailable("unknown")),
         input: AccountingTokenSide {
             total: usage
                 .input_total
@@ -934,13 +1018,21 @@ fn tokens_from_usage(usage: ExtractedUsage) -> AccountingTokens {
     }
 }
 
+fn sum_optional_pair(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
 fn price_tokens(
     provider: Option<&str>,
     model: Option<&str>,
     tokens: &AccountingTokens,
 ) -> AccountingPricing {
     // §FS-rhei-cost-accounting.5: Pricing is separate from measurement.
-    let measured = [
+    let priceable_measured = [
         tokens.input.total.value,
         tokens.input.cached_read.value,
         tokens.input.cache_write.value,
@@ -951,13 +1043,22 @@ fn price_tokens(
     .into_iter()
     .flatten()
     .count();
-    if measured == 0 {
+    if priceable_measured == 0 && tokens.total.value.is_none() {
         return AccountingPricing {
             status: "not-applicable".to_string(),
             currency: None,
             amount_micro: None,
             priced_amount_micro: None,
             price_book_id: None,
+        };
+    }
+    if priceable_measured == 0 {
+        return AccountingPricing {
+            status: "unpriced".to_string(),
+            currency: Some("USD".to_string()),
+            amount_micro: None,
+            priced_amount_micro: None,
+            price_book_id: Some(PRICE_BOOK_ID.to_string()),
         };
     }
 
