@@ -374,9 +374,15 @@ Cost: $1.23  in=2.4M  in_cached=1.5M  out=180k  out_cached=-  coverage=Partial
 
 The header uses absolute token totals rather than a cache percentage so cached
 input and cached output remain separate. Unavailable dimensions render as `-`.
+Each active TUI slot line shows the current direct accounting reported for that
+task next to its elapsed running time. The slots pane also shows a current
+run-level token/cost total below the slot rows, even before the first usage
+report arrives; unavailable dimensions render as `-`.
+
 When `UsageReported` arrives after slot release, the TUI updates the run-level
-header and journal summary; it does not keep a completed-slot accounting history
-in the terminal UI.
+header, slot-pane total, and journal summary. Active task lines update while the
+same task remains in a slot; completed-slot history is not kept in the terminal
+UI.
 
 The end-of-run console summary and durable run report include the same run-level
 accounting strip. Task rows may show a compact direct task cost only; the direct
@@ -397,8 +403,12 @@ the frequently polled `/snapshot` payload.
 Task accounting rollups are carried in `task_runtime` so dashboard views can add
 direct cost, subtree cost, input, output, cached input, cached output, and
 coverage where that density fits. The current Cost tab exposes the compact
-top-level task table; future Cube and Sankey modes may use subtree cost as
-heatmap color or ribbon width. §FS-rhei-viz
+top-level task table. The selected-task surroundings panel includes a token
+section with direct and subtree rollups for the clicked task, and live refreshes
+that section when `/snapshot` reports updated accounting. The dashboard Slots
+view shows per-slot task accounting columns and a current run total below the
+slot table. Future Cube and Sankey modes may use subtree cost as heatmap color
+or ribbon width. §FS-rhei-viz
 
 ## 10. Dashboard Data
 
