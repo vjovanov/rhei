@@ -65,6 +65,7 @@ Examples:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `extends` | string | No | Name of a base machine this machine composes on top of. When present, the effective machine is the union of the base chain with this machine layered on top (whole-entity override). When absent, this machine fully replaces any inherited default. See [Machine Composition](#12-machine-composition-extends). |
 | `models` | string array | No | The complete set of model profile identifiers available to the machine |
 | `profiles` | map of name to `{initial, allowed}` | Yes | Named, reusable state profiles. Each profile declares the `initial` state and the `allowed` state subset for any node assigned to it. Referenced by `node_policy`. |
 | `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` (the Panta project root) and `default`. Optionally defines `rhei` (the rhei tier), `by_type`, and `overrides`. See [Node Policy](#9-node-policy). |
@@ -101,9 +102,15 @@ can start in different states within the same state machine.
 
 ### 1.3. Validation Rules
 
-- `profiles` must be present and non-empty. Each entry must declare `initial`
-  (a state name) and `allowed` (a list of state names). See
-  [Profiles](#8-profiles) for per-profile validation.
+- `extends`, when present, must be a non-empty string naming a base machine that
+  resolves through the standard resolver (§AR-rhei-panta.4). The `extends` chain
+  must be acyclic, must terminate (ultimately at the built-in `rhei`), and must
+  list each machine at most once. All other schema rules are validated against
+  the **merged** machine, not the declaring layer alone. See
+  [Machine Composition](#12-machine-composition-extends).
+- `profiles` must be present and non-empty in the **merged** machine. Each entry
+  must declare `initial` (a state name) and `allowed` (a list of state names).
+  See [Profiles](#8-profiles) for per-profile validation.
 - `node_policy.root` and `node_policy.default` are required and must name
   defined profiles. `node_policy.by_type`, when present, maps each declared
   non-root node kind to a defined profile. `node_policy.overrides`, when
@@ -918,6 +925,87 @@ Any transition not listed in `states.yaml` is forbidden.
 Not every state can be completed directly via `rhei complete`. The command requires a non-cancelled terminal state reachable in one hop:
 
 - From `pending`: direct completion to `completed` is available.
+
+## 12. Machine Composition (`extends`)
+
+By default a state machine is self-contained: a rhei that declares its own
+`**States:**` resolves to a machine that fully **replaces** the Panta project
+default (§AR-rhei-panta.4). A machine opts into *composition* by declaring a
+top-level `extends: <base-machine-name>`; the effective machine is then the
+**union** of the base chain with the declaring machine layered on top. This is
+the only form of state-machine merging — without `extends`, resolution is
+wholesale replacement as before. The decision and its tradeoffs are recorded in
+§DA-state-machine-composition.
+
+### 12.1. The composition chain
+
+- The built-in `rhei` machine is the implicit ultimate base; a machine need not
+  name it.
+- An `extends: <name>` value resolves through the same source rules as any
+  declared machine name (§AR-rhei-panta.4): rhei-local sibling, inherited
+  `index.panta.md` default, or the built-in `rhei`.
+- The typical project chain is `rhei` (built-in) ⊂ `<panta-default>` ⊂
+  `<rhei-override>`: the Panta default may extend the built-in, and a rhei
+  override extends the Panta default.
+- The `extends` graph must be acyclic and finite; a cycle or an unresolvable
+  base name is a validation error, and each machine appears at most once in a
+  chain.
+
+### 12.2. Merge rules
+
+The effective machine is built by folding the chain from the base upward. For
+each collection a higher layer composes with the accumulated lower layers:
+
+- **`states`** — union by state name. A name present in a higher layer replaces
+  the lower-layer state **as a whole entity** (§12.3); a new name is added.
+- **`transitions`** — union keyed by the `(from, to)` pair. A higher-layer
+  transition with the same pair replaces the lower one as a whole; a new pair is
+  added. A higher layer removes an inherited transition with an explicit
+  `remove: [{from, to}, ...]` directive.
+- **`profiles`** — union by profile name; a same-named profile replaces the
+  lower one wholesale, consistent with the "profiles are never merged" rule
+  (§8). `allowed` is never element-merged.
+- **`node_policy`** — per-key override: `root`, `rhei`, `default`, `by_type`,
+  and `overrides` are each taken from the highest layer that declares them; a
+  layer that omits a key inherits it. `by_type` and `overrides` are replaced
+  wholesale, not element-merged.
+- **`models`** — union of the model-id lists, de-duplicated, lower-layer order
+  first then higher-layer additions.
+
+### 12.3. Whole-entity override
+
+The atomic unit of override is the **named entity** — one state, one transition,
+one profile — never an individual field. To change a single field of an
+inherited state, a higher layer restates that whole state; the lower-layer
+definition is discarded, not field-merged. This keeps the effective definition of
+any state readable in one place and matches the wholesale-by-name philosophy the
+profiles model already uses (§8).
+
+### 12.4. Validation and diagnostics
+
+- Validation runs on the **merged** machine, not on each layer in isolation:
+  profile reachability (§8.2), "every `allowed` set contains a `final` state",
+  terminal semantics, target/agent/program rules, and node-policy validity are
+  all checked against the folded result.
+- Diagnostics report **provenance**: each state, transition, and profile in the
+  effective machine names the layer that contributed it (built-in, the Panta
+  default, or the rhei override) and, when overridden, the layer it shadowed.
+
+### 12.5. Node-tier ownership across a composed override
+
+When a rhei composes or replaces the project default, ownership of the nodes
+above its tickets is fixed so the project keeps the shared rollup
+(§AR-rhei-panta.4):
+
+- The **Panta project root** always resolves `node_policy.root` from the
+  **project (Panta) default machine**. A rhei override cannot reach above itself
+  to redefine the root.
+- The **rhei node** and **all tickets within that rhei** resolve through the
+  rhei's **effective (composed) machine**.
+
+Cross-rhei dependency readiness judges each prior against *its own* rhei's
+effective machine (§AR-rhei-panta.6), so heterogeneous composed machines stay
+coherent across `**Prior:**` edges.
 
 ## Related Documentation
 

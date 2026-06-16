@@ -107,19 +107,19 @@ command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
 file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
 (repeatable) narrows a project-scoped invocation to named rheis.
 
-Within a project, read-only commands operate **project-wide by default**. The
-current Panta implementation supports loading, validation, listing, rendering,
-and visualization over the merged project graph. Mutating commands are staged:
-until project-wide rewrites can route every state, assignee, result, and runtime
-artifact back to the owning rhei with that rhei's state machine, `rhei run`,
-`rhei next`, `rhei transition`, `rhei complete`, and `rhei reset` must reject
-project-scoped Panta inputs with an actionable message. Operators can still
-target an individual rhei directly when they need mutation.
+Within a project, every command — read-only and mutating alike — operates
+**project-wide by default**. Loading, validation, listing, rendering, and
+visualization read the merged project graph; `rhei run`, `rhei next`,
+`rhei transition`, `rhei complete`, and `rhei reset` mutate it, routing every
+state, assignee, result, and runtime-artifact rewrite back to the owning rhei
+file and applying that rhei's own state machine. Because a single rhei loaded
+directly is the sole rhei of an implicit Panta (§AR-rhei-panta.2), there is no
+separate "bare rhei" command path: targeting one rhei is simply a one-rhei
+project, and `--rhei <id>` narrows a multi-rhei project to named rheis.
 
-The target behavior for full Panta execution remains project-wide mutation: the
-project is the unit an operator drives. Because a future mutating invocation can
-fan out across every rhei, any command that spawns work or destroys runtime
-state must report its scope and the affected rheis before acting.
+The project is the unit an operator drives. Because a mutating invocation can fan
+out across every rhei, any command that spawns work or destroys runtime state
+must report its resolved scope and the affected rheis before acting.
 
 Each rhei may declare its own state machine via `**States:**`; the
 `index.panta.md` manifest supplies the project default for rheis that do not.
@@ -135,10 +135,9 @@ Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
 the candidate tickets but never narrows where their priors resolve: a candidate
 may still be blocked by a prior outside the named rheis.
 
-Project-scoped `rhei next` follows the staged mutation boundary above: the
-readiness model is specified here so future execution is deterministic, but the
-current CLI must reject Panta project inputs for claim mode rather than writing
-assignments into child rhei files.
+Claim mode writes the `**Assignee:**` into the owning rhei's file, resolved
+through the source map (§AR-rhei-panta.2). `--peek` is read-only and never
+writes.
 
 ### 6.2. `rhei run`
 
@@ -149,9 +148,9 @@ across rheis is bounded, and each spawned unit is attributed to its rhei in logs
 and accounting. The loop stops when no eligible ticket remains in scope or a
 gating state requires a human.
 
-This is the intended project-wide execution behavior. Until the staged mutation
-boundary is lifted, the current CLI must reject `rhei run <panta-project>` and
-ask the operator to use read-only project commands or target one child rhei.
+Before spawning, `rhei run` reports the resolved scope and the rheis it will
+touch (§6). A bare rhei runs as the single rhei of its implicit Panta, so the
+project-wide loop is the only execution path.
 
 ### 6.3. Completion and rollup
 
@@ -166,11 +165,9 @@ up automatically.
 
 ### 6.4. Reset, validate, list, viz
 
-- `rhei reset` is intended to be project-wide by default; because it destroys
-  runtime state across every in-scope rhei, it surfaces the scope and the
-  affected rheis before acting. `--rhei` narrows it. Under the current staged
-  mutation boundary, project-scoped reset must reject Panta inputs instead of
-  deleting child rhei runtime state.
+- `rhei reset` is project-wide by default; because it destroys runtime state
+  across every in-scope rhei, it surfaces the scope and the affected rheis before
+  acting. `--rhei` narrows it.
 - `rhei validate` always checks the whole project graph: cross-rhei dependency
   resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
   `panta`/`rhei` kinds.
