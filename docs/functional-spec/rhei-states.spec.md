@@ -11,10 +11,11 @@ transition is `pending` -> `completed`, and `completed` is the only terminal
 state. Projects that need drafting, review, cancellation, human gates, retries,
 artifact contracts, or richer routing should declare a custom state machine.
 
-The state-machine schema also permits these optional fields for richer workflows:
+The state-machine surface also permits these optional fields for richer workflows:
 
 - Per-state `personality: <string>` to inject role framing into `rhei next` for that specific state (supports template variables)
 - Template variables in `instructions` and `personality` fields, resolved by `rhei next` at output time
+- A sibling `prompt-templates.yaml` file to define reusable `personality` / `instructions` prompt text, and per-state `prompt_template:` references with concrete placeholder values
 - Top-level `models: [<model-id>, ...]` to declare the model profile identifiers available to the machine
 - Per-state `target: <selector>` to bind a state to one inline execution target
 - Per-state `all_targets: [<selector>, ...]` to fan a state out across multiple execution targets
@@ -78,6 +79,7 @@ can start in different states within the same state machine.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `prompt_template` | string or object | No | Reusable prompt selected from sibling `prompt-templates.yaml`. String form is the template id. Object form is `{name, values}` where `values` supplies concrete scalar values for placeholders in that template. |
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
 | `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
@@ -104,6 +106,20 @@ can start in different states within the same state machine.
 - `profiles` must be present and non-empty. Each entry must declare `initial`
   (a state name) and `allowed` (a list of state names). See
   [Profiles](#8-profiles) for per-profile validation.
+- `states.yaml` must not declare a top-level `prompt_templates` block.
+  Reusable prompt definitions live in sibling `prompt-templates.yaml`.
+- When `prompt-templates.yaml` is present, every top-level key in that file
+  must be non-empty. Each prompt template must define at least one non-empty
+  prompt field: `personality` or `instructions`.
+- A state's `prompt_template` must reference a prompt template declared in
+  sibling `prompt-templates.yaml`. Object form must declare a non-empty `name`,
+  and every `values` entry must use a non-empty identifier key and a scalar YAML
+  value. Arrays and objects are rejected as prompt-template values.
+- Prompt-template placeholders use identifier-shaped `{placeholder}` syntax.
+  Every placeholder in the reusable prompt text must be supplied in the state's
+  `prompt_template.values` map. Runtime variables are used by assigning them as
+  values, for example `task_id: "{task_id}"`. Non-identifier brace content such
+  as JSON examples is literal.
 - `node_policy.root` and `node_policy.default` are required and must name
   defined profiles. `node_policy.by_type`, when present, maps each declared
   non-root node kind to a defined profile. `node_policy.overrides`, when
@@ -418,6 +434,10 @@ The `instructions` and `personality` fields support template variable substituti
 - **`{visit_count}` and `{visits}` are only meaningful for counted-loop states.** For states without a `visits` declaration, `{visits}` is left unresolved and `{visit_count}` resolves to `1`.
 - **`{target}` and `{target.slug}` are only available for target-based execution.** For states that use the legacy `model` / `all_models` fields, `{target}` is left unresolved.
 - **Conditional blocks suppress whole paragraphs.** Use `{if input.<name>.exists}`, `{if mcp.<name>.available}`, or `{if skill.<id>.available}` … `{endif}` to include a block of text only when the referenced artifact, server, or skill is present. Use `{else}` between the opening tag and `{endif}` for an alternative block. The entire block — including surrounding blank lines — is removed from the output when the condition is false. Conditional blocks may not be nested in v1.
+- **Escaped braces are literal.** Use `\{` and `\}` when prompt text needs to
+  show identifier-shaped runtime syntax literally, for example
+  `\{task_id\}` renders as `{task_id}` instead of the current task id. Brace
+  content that is not a supported runtime variable already remains literal.
 
 ### Example
 
@@ -510,6 +530,86 @@ Recommended authoring pattern for heterogeneous multi-target runs:
   dimensions are intentionally omitted.
 - Add a later synthesis state that consumes the per-target artifacts and writes
   one final document.
+
+### 4.4. Prompt Templates
+
+Prompt templates let one state machine define reusable prompt text once and
+reuse it across states with state-specific values. They live in a sibling
+`prompt-templates.yaml` file next to `states.yaml` and are loaded with that
+state machine. They are resolved before the normal runtime variables in
+[Variable Namespace](#41-variable-namespace). The template body uses
+prompt-template placeholders only; values may contain runtime variables such as
+`{task_title}` or `{output.findings.path}`.
+
+`prompt-templates.yaml`:
+
+```yaml
+artifact-review:
+  personality: |
+    You are a {review_role}. Review only the requested scope.
+  instructions: |
+    Review Task {task_id}: {task_title}.
+
+    Focus on {focus_area}. Write findings to `{findings_path}`.
+```
+
+`states.yaml`:
+
+```yaml
+states:
+  api-review:
+    description: Review API behavior and compatibility.
+    prompt_template:
+      name: artifact-review
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        review_role: API compatibility reviewer
+        focus_area: public API behavior and migration risk
+        findings_path: "{output.findings.path}"
+    outputs:
+      - name: findings
+        path: runtime/reviews/api-{task_id}.md
+
+  ui-review:
+    description: Review UI behavior.
+    prompt_template:
+      name: artifact-review
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        review_role: UI reviewer
+        focus_area: user-visible states, copy, and interaction flow
+        findings_path: "{output.findings.path}"
+    instructions: |
+      Also check empty, loading, and error states.
+    outputs:
+      - name: findings
+        path: runtime/reviews/ui-{task_id}.md
+```
+
+Resolution rules:
+
+- `<id>.personality` and `<id>.instructions` entries in the loaded
+  `prompt-templates.yaml` are reusable prompt fragments. Each template must
+  define at least one of them.
+- `prompt_template: <id>` selects a template with no custom values.
+- `prompt_template: { name: <id>, values: { ... } }` selects a template and
+  supplies concrete placeholder values for that state.
+- Placeholder values are scalar YAML values. Strings may include runtime
+  variables; those runtime variables resolve after prompt-template placeholder
+  substitution.
+- Non-identifier brace content is literal and does not require escaping, so
+  examples like `{"status":"ok"}` can appear in a prompt template. Use `\{` and
+  `\}` only when an identifier-shaped token such as `{focus_area}` must remain
+  literal instead of being treated as a prompt-template placeholder.
+- Inline `personality` and `instructions` remain valid. When a state declares
+  both `prompt_template` and inline text, the selected template text is emitted
+  first and the inline state text is appended after a blank line. This lets a
+  template provide shared guidance while a state adds local detail.
+- Conditional tags (`{if ...}`, `{else}`, `{endif}`) are control syntax, not
+  prompt-template placeholders. Runtime variables should be passed through
+  `values`, not written directly in reusable prompt-template text.
 
 ## 5. Agent Field
 

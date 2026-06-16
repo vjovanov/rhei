@@ -7,16 +7,34 @@ impl StateMachine {
     /// Load a StateMachine from YAML string contents.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
         reject_explicit_empty_all_targets(yaml)?;
+        reject_inline_prompt_templates(yaml)?;
         let sm: Self = serde_yaml::from_str(yaml)?;
-        sm.validate_model_configuration()?;
-        sm.validate_program_configuration()?;
-        sm.validate_snapshot_configuration()?;
-        sm.validate_tooling_configuration()?;
-        sm.validate_template_conditions()?;
-        sm.validate_poll_configuration()?;
-        sm.validate_profiles_and_node_policy()?;
-        sm.validate_terminal_state_present()?;
-        Ok(sm)
+        sm.validate()
+    }
+
+    /// Load a StateMachine from YAML string contents plus prompt-template file contents.
+    pub fn from_yaml_and_prompt_templates_str(
+        yaml: &str,
+        prompt_templates_yaml: &str,
+    ) -> Result<Self, StateMachineLoadError> {
+        reject_explicit_empty_all_targets(yaml)?;
+        reject_inline_prompt_templates(yaml)?;
+        let mut sm: Self = serde_yaml::from_str(yaml)?;
+        sm.prompt_templates = parse_prompt_templates_yaml(prompt_templates_yaml)?;
+        sm.validate()
+    }
+
+    fn validate(self) -> Result<Self, StateMachineLoadError> {
+        self.validate_model_configuration()?;
+        self.validate_prompt_templates()?;
+        self.validate_program_configuration()?;
+        self.validate_snapshot_configuration()?;
+        self.validate_tooling_configuration()?;
+        self.validate_template_conditions()?;
+        self.validate_poll_configuration()?;
+        self.validate_profiles_and_node_policy()?;
+        self.validate_terminal_state_present()?;
+        Ok(self)
     }
 
     /// Reject state machines that declare zero terminal states. Without one,
@@ -32,6 +50,88 @@ impl StateMachine {
              state with `final: true` (note: the field is `final`, not `terminal`).",
             self.name
         )))
+    }
+
+    /// Validate reusable prompt template declarations and per-state references.
+    // §FS-rhei-states.4.4: Prompt templates must resolve their concrete placeholders.
+    fn validate_prompt_templates(&self) -> Result<(), StateMachineLoadError> {
+        for (template_name, template) in &self.prompt_templates {
+            if template_name.trim().is_empty() {
+                return Err(StateMachineLoadError::Invalid(
+                    "prompt-templates.yaml contains an empty template id".to_string(),
+                ));
+            }
+            let has_personality = template
+                .personality
+                .as_deref()
+                .is_some_and(|text| !text.trim().is_empty());
+            let has_instructions = template
+                .instructions
+                .as_deref()
+                .is_some_and(|text| !text.trim().is_empty());
+            if !has_personality && !has_instructions {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "prompt template '{template_name}' must declare non-empty 'personality' or 'instructions'"
+                )));
+            }
+        }
+
+        for (state_name, state) in &self.states {
+            let Some(reference) = state.prompt_template.as_ref() else {
+                continue;
+            };
+            let template_name = reference.name().trim();
+            if template_name.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares an empty 'prompt_template' name"
+                )));
+            }
+            let template = self.prompt_templates.get(template_name).ok_or_else(|| {
+                StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' references unknown prompt template '{template_name}'"
+                ))
+            })?;
+
+            let values = reference.values();
+            if let Some(values) = values {
+                for (key, value) in values {
+                    if !is_prompt_template_placeholder_name(key) {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' prompt_template.values contains invalid key '{key}' (expected an identifier)"
+                        )));
+                    }
+                    if !is_prompt_template_scalar_value(value) {
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' prompt_template.values.{key} must be a scalar value"
+                        )));
+                    }
+                }
+            }
+
+            for (field_name, text) in [
+                ("personality", template.personality.as_deref()),
+                ("instructions", template.instructions.as_deref()),
+            ] {
+                let Some(text) = text else {
+                    continue;
+                };
+                for token in extract_runtime_template_tokens(text) {
+                    if is_prompt_template_control_token(token) {
+                        continue;
+                    }
+                    if is_prompt_template_placeholder_name(token) {
+                        if values.is_some_and(|values| values.contains_key(token)) {
+                            continue;
+                        }
+                        return Err(StateMachineLoadError::Invalid(format!(
+                            "state '{state_name}' prompt template '{template_name}' {field_name} uses placeholder '{{{token}}}' but prompt_template.values does not supply '{token}'"
+                        )));
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     // §FS-rhei-states.9.2: Resolve non-root node profiles by policy order.
@@ -65,8 +165,17 @@ impl StateMachine {
 
     /// Load a StateMachine from a file path.
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, StateMachineLoadError> {
+        let path = path.as_ref();
         let text = std::fs::read_to_string(path)?;
-        Self::from_yaml_str(&text)
+        reject_explicit_empty_all_targets(&text)?;
+        reject_inline_prompt_templates(&text)?;
+        let mut sm: Self = serde_yaml::from_str(&text)?;
+        let prompt_templates_path = prompt_templates_path_for_state_machine(path);
+        if prompt_templates_path.exists() {
+            let prompt_templates_text = std::fs::read_to_string(&prompt_templates_path)?;
+            sm.prompt_templates = parse_prompt_templates_yaml(&prompt_templates_text)?;
+        }
+        sm.validate()
     }
 
     /// Returns true if `state` is among the allowed states.
@@ -284,4 +393,76 @@ fn reject_explicit_empty_all_targets(yaml: &str) -> Result<(), StateMachineLoadE
     }
 
     Ok(())
+}
+
+fn reject_inline_prompt_templates(yaml: &str) -> Result<(), StateMachineLoadError> {
+    let raw: serde_yaml::Value = serde_yaml::from_str(yaml)?;
+    if raw.get("prompt_templates").is_some() {
+        return Err(StateMachineLoadError::Invalid(
+            "'prompt_templates' must be defined in sibling 'prompt-templates.yaml', not in 'states.yaml'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn prompt_templates_path_for_state_machine(path: &Path) -> PathBuf {
+    path.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("prompt-templates.yaml")
+}
+
+fn parse_prompt_templates_yaml(
+    yaml: &str,
+) -> Result<IndexMap<String, PromptTemplateDef>, StateMachineLoadError> {
+    let templates: IndexMap<String, PromptTemplateDef> = serde_yaml::from_str(yaml)?;
+    Ok(templates)
+}
+
+fn is_prompt_template_placeholder_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn is_prompt_template_scalar_value(value: &serde_yaml::Value) -> bool {
+    matches!(
+        value,
+        serde_yaml::Value::Null
+            | serde_yaml::Value::Bool(_)
+            | serde_yaml::Value::Number(_)
+            | serde_yaml::Value::String(_)
+    )
+}
+
+fn extract_runtime_template_tokens(text: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut idx = 0usize;
+    while idx < text.len() {
+        if text[idx..].starts_with("\\{") {
+            idx += 2;
+            continue;
+        }
+        if !text[idx..].starts_with('{') {
+            let ch = text[idx..].chars().next().expect("substring should have a char");
+            idx += ch.len_utf8();
+            continue;
+        }
+        let start = idx;
+        let token_start = start + 1;
+        let Some(end_offset) = text[token_start..].find('}') else {
+            break;
+        };
+        let end = token_start + end_offset;
+        tokens.push(&text[token_start..end]);
+        idx = end + 1;
+    }
+    tokens
+}
+
+fn is_prompt_template_control_token(token: &str) -> bool {
+    matches!(token, "else" | "endif") || token.starts_with("if ")
 }

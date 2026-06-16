@@ -248,15 +248,12 @@ fn resolve_program(
 
 /// Compose the prompt that will be sent to the agent.
 fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> String {
-    let state_def = render_context.machine.states.get(render_context.state_name);
     let instructions = resolve_runtime_template_text(
-        state_def.and_then(|d| d.instructions.as_deref()).unwrap_or("").trim(),
+        state_instructions(render_context.machine, render_context.state_name).as_str(),
         render_context,
     );
-    let personality = state_def
-        .and_then(|d| d.personality.as_deref())
-        .map(str::trim)
-        .map(|text| resolve_runtime_template_text(text, render_context));
+    let personality = state_personality(render_context.machine, render_context.state_name)
+        .map(|text| resolve_runtime_template_text(text.as_str(), render_context));
 
     // Build available transitions list.
     let mut transitions_list = String::new();
