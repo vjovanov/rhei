@@ -197,18 +197,14 @@ fn cost_strip_line(state: &UiState) -> Line<'static> {
     spans.push(Span::styled(cost, Style::default().fg(theme.accent())));
     spans.push(Span::styled(
         format!(
-            "  in {}  out {}",
+            "  in {}  in_cached {}  out {}  out_cached {}",
             format_tokens(roll.input_tokens),
-            format_tokens(roll.output_tokens)
+            format_tokens(roll.input_cached_read_tokens),
+            format_tokens(roll.output_tokens),
+            format_tokens(roll.output_cached_read_tokens)
         ),
         Style::default().fg(theme.dim()),
     ));
-    if let Some(ratio) = roll.cache_ratio() {
-        spans.push(Span::styled(
-            format!("  cache {:.0}%", ratio * 100.0),
-            Style::default().fg(theme.dim()),
-        ));
-    }
     spans.push(Span::styled(
         format!("  cov {}", roll.coverage_glyph()),
         Style::default().fg(theme.dim()),

@@ -18,6 +18,8 @@ struct TaskActivity {
     invocations: u32,
     /// Duration of the last invocation, milliseconds.
     last_duration_ms: u64,
+    /// Direct accounting for usage reported against this task during the run.
+    accounting: Option<rhei_tui::AccountingRunSummary>,
 }
 
 /// One spawned transition from the run event stream, rendered into the report's
@@ -61,6 +63,13 @@ struct SummaryState {
     tasks: HashMap<String, TaskActivity>,
     /// Spawned transitions in chronological order, for the durable ledger.
     ledger: Vec<LedgerRecord>,
+    /// Usage reported during the run, used before `RunFinished` publishes the
+    /// authoritative rollup or on an early-error fallback. §FS-rhei-cost-accounting.7
+    usages: Vec<rhei_tui::UsageSummary>,
+    /// Usage grouped by direct task id for task-row cost display.
+    usage_by_task: HashMap<String, Vec<rhei_tui::UsageSummary>>,
+    /// The finalized run rollup from `RunFinished`, when available.
+    accounting: Option<rhei_tui::AccountingRunSummary>,
 }
 
 impl SummarySink {
@@ -79,6 +88,17 @@ impl SummarySink {
     /// lock, for the same best-effort reason as [`snapshot`](Self::snapshot).
     fn ledger(&self) -> Vec<LedgerRecord> {
         self.inner.lock().map(|state| state.ledger.clone()).unwrap_or_default()
+    }
+
+    /// Run-level accounting, preferring the finalized `RunFinished` summary and
+    /// falling back to accumulated usage events for aborted runs.
+    fn accounting(&self) -> Option<rhei_tui::AccountingRunSummary> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state.accounting.clone().or_else(|| summarize_usage_summaries(state.usages.iter()))
+            })
     }
 }
 
@@ -131,6 +151,22 @@ impl rhei_tui::EventSink for SummarySink {
                     exit_code,
                     duration_ms,
                     outcome,
+                });
+            }
+            rhei_tui::RunEvent::UsageReported { task, usage, .. } => {
+                state.usages.push(usage.clone());
+                state.usage_by_task.entry(task.clone()).or_default().push(usage);
+                let accounting = state
+                    .usage_by_task
+                    .get(&task)
+                    .and_then(|usages| summarize_usage_summaries(usages.iter()));
+                if let Some(accounting) = accounting {
+                    state.tasks.entry(task).or_default().accounting = Some(accounting);
+                }
+            }
+            rhei_tui::RunEvent::RunFinished { summary } => {
+                state.accounting = summary.accounting.clone().or_else(|| {
+                    summarize_usage_summaries(state.usages.iter())
                 });
             }
             _ => {}
@@ -442,6 +478,17 @@ struct InvocationRow {
     log: String,
 }
 
+/// Direct accounting shown for a task in the end-of-run report.
+struct TaskAccountingRow {
+    task: String,
+    cost: String,
+    input: String,
+    input_cached: String,
+    output: String,
+    output_cached: String,
+    coverage: String,
+}
+
 /// The fully resolved run report, ready to render to the console or to Markdown.
 pub struct RunSummaryReport {
     title: String,
@@ -451,6 +498,7 @@ pub struct RunSummaryReport {
     state_counts: Vec<(String, usize, Marker)>,
     total_tasks: usize,
     work: String,
+    accounting: Option<rhei_tui::AccountingRunSummary>,
     attention: Vec<AttentionRow>,
     rows: Vec<TaskRow>,
     dashboard: Option<String>,
@@ -467,6 +515,7 @@ pub struct RunSummaryReport {
     terminal_at_start: usize,
     ledger: Vec<LedgerEntry>,
     invocations: Vec<InvocationRow>,
+    task_accounting: Vec<TaskAccountingRow>,
     /// Relative paths to the written report files, filled by [`write_to_runtime`].
     report_path: Option<String>,
     history_path: Option<String>,
@@ -552,6 +601,8 @@ impl RunSummaryReport {
             result_phrase(&attention, &rows, no_work, advanced_without_work)
         };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
+        let accounting = summary.accounting();
+        let task_accounting = build_task_accounting_rows(&rows, &activity);
 
         let ledger = build_ledger(
             &rows,
@@ -570,6 +621,7 @@ impl RunSummaryReport {
             state_counts,
             total_tasks,
             work,
+            accounting,
             attention,
             rows,
             dashboard: stats.dashboard,
@@ -585,6 +637,7 @@ impl RunSummaryReport {
             terminal_at_start,
             ledger,
             invocations,
+            task_accounting,
             report_path: None,
             history_path: None,
         }
@@ -615,6 +668,19 @@ impl RunSummaryReport {
         out.push_str(&self.render_state_labels(&c));
         out.push('\n');
         out.push_str(&format!("  Work      {}\n", self.work));
+        if let Some(accounting) = &self.accounting {
+            // §FS-rhei-cost-accounting.9: End-of-run surfaces show separate input,
+            // cached input, output, and cached output totals.
+            out.push_str(&format!(
+                "  Cost      {} · In {} · In cached {} · Out {} · Out cached {} · Coverage {:?}\n",
+                format_summary_cost(accounting),
+                format_dimension_value(&accounting.input_total),
+                format_dimension_value(&accounting.input_cached_read),
+                format_dimension_value(&accounting.output_total),
+                format_dimension_value(&accounting.output_cached_read),
+                accounting.coverage,
+            ));
+        }
 
         // Attention.
         if !self.attention.is_empty() {
@@ -710,6 +776,29 @@ impl RunSummaryReport {
         out.push_str(&format!("| terminal at start | {} |\n", self.terminal_at_start));
         out.push_str(&format!("| could not advance | {could_not_advance} |\n"));
         out.push('\n');
+        if let Some(accounting) = &self.accounting {
+            // §FS-rhei-cost-accounting.9: Durable reports carry the run accounting strip.
+            out.push_str("| Accounting | Value |\n| --- | ---: |\n");
+            out.push_str(&format!("| cost | {} |\n", format_summary_cost(accounting)));
+            out.push_str(&format!(
+                "| input tokens | {} |\n",
+                format_dimension_value(&accounting.input_total)
+            ));
+            out.push_str(&format!(
+                "| input cached | {} |\n",
+                format_dimension_value(&accounting.input_cached_read)
+            ));
+            out.push_str(&format!(
+                "| output tokens | {} |\n",
+                format_dimension_value(&accounting.output_total)
+            ));
+            out.push_str(&format!(
+                "| output cached | {} |\n",
+                format_dimension_value(&accounting.output_cached_read)
+            ));
+            out.push_str(&format!("| coverage | {:?} |\n", accounting.coverage));
+            out.push('\n');
+        }
         if self.agents_spawned == 0 && self.programs_spawned == 0 {
             out.push_str(
                 "> No agent or program ran this run. Any task that advanced did so through \
@@ -771,6 +860,27 @@ impl RunSummaryReport {
             ));
         }
         out.push('\n');
+
+        if !self.task_accounting.is_empty() {
+            out.push_str("## Task Costs\n\n");
+            out.push_str(
+                "| Task | Cost | Input | Input cached | Output | Output cached | Coverage |\n\
+                 | --- | ---: | ---: | ---: | ---: | ---: | --- |\n",
+            );
+            for row in &self.task_accounting {
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} | {} | {} | {} |\n",
+                    md_cell(&row.task),
+                    row.cost,
+                    row.input,
+                    row.input_cached,
+                    row.output,
+                    row.output_cached,
+                    row.coverage,
+                ));
+            }
+            out.push('\n');
+        }
 
         // 6. Invocations.
         if !self.invocations.is_empty() {
@@ -961,19 +1071,51 @@ fn task_detail(
     activity: &HashMap<String, TaskActivity>,
 ) -> Option<String> {
     if let Some(act) = activity.get(id) {
+        let cost = act
+            .accounting
+            .as_ref()
+            .map(|accounting| format!(" · {}", format_summary_cost(accounting)))
+            .unwrap_or_default();
         if let Some(driver) = act.driver {
             let label = if act.invocations > 1 {
                 format!("{driver}×{}", act.invocations)
             } else {
                 driver.to_string()
             };
-            return Some(format!("{label}  {}", format_duration_short(act.last_duration_ms)));
+            return Some(format!(
+                "{label}  {}{}",
+                format_duration_short(act.last_duration_ms),
+                cost
+            ));
+        }
+        if !cost.is_empty() {
+            return Some(cost.trim_start_matches(" · ").to_string());
         }
     }
     match marker {
         Marker::Gate | Marker::Attention => Some(attention_reason(marker, state).0),
         _ => None,
     }
+}
+
+fn build_task_accounting_rows(
+    rows: &[TaskRow],
+    activity: &HashMap<String, TaskActivity>,
+) -> Vec<TaskAccountingRow> {
+    rows.iter()
+        .filter_map(|row| {
+            let accounting = activity.get(&row.id)?.accounting.as_ref()?;
+            Some(TaskAccountingRow {
+                task: row.id.clone(),
+                cost: format_summary_cost(accounting),
+                input: format_dimension_value(&accounting.input_total),
+                input_cached: format_dimension_value(&accounting.input_cached_read),
+                output: format_dimension_value(&accounting.output_total),
+                output_cached: format_dimension_value(&accounting.output_cached_read),
+                coverage: format!("{:?}", accounting.coverage),
+            })
+        })
+        .collect()
 }
 
 /// A generic, honest reason and next action for a halted task. Precise blockers

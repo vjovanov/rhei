@@ -144,8 +144,9 @@ pub(super) struct CostRollup {
     pub(super) cost_micro: Option<u64>,
     pub(super) any_cost_missing: bool,
     pub(super) input_tokens: u64,
+    pub(super) input_cached_read_tokens: u64,
     pub(super) output_tokens: u64,
-    pub(super) cached_read: u64,
+    pub(super) output_cached_read_tokens: u64,
     pub(super) invocations: u64,
 }
 
@@ -157,16 +158,9 @@ impl CostRollup {
             None => self.any_cost_missing = true,
         }
         self.input_tokens += usage.input_total.value.unwrap_or(0);
+        self.input_cached_read_tokens += usage.input_cached_read.value.unwrap_or(0);
         self.output_tokens += usage.output_total.value.unwrap_or(0);
-        self.cached_read += usage.input_cached_read.value.unwrap_or(0);
-    }
-
-    pub(super) fn cache_ratio(&self) -> Option<f64> {
-        if self.input_tokens == 0 {
-            None
-        } else {
-            Some(self.cached_read as f64 / self.input_tokens as f64)
-        }
+        self.output_cached_read_tokens += usage.output_cached_read.value.unwrap_or(0);
     }
 
     /// A coverage glyph — meaning never rides color alone (§FS-rhei-cost-accounting).

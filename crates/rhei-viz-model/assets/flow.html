@@ -1169,6 +1169,7 @@ let SUPP="none";
 function emptyNote(t){ return el("div",{class:"none",text:t}); }
 function fmtCost(micro, currency){ if(micro==null) return "—";
   const v=micro/1e6; return (currency==="USD"||!currency) ? "$"+v.toFixed(4) : v.toFixed(4)+" "+currency; }
+function costVal(a){ return a ? (a.cost_micro ?? a.priced_cost_micro) : null; }
 function fmtNum(n){ return n==null ? "—" : Number(n).toLocaleString(); }
 function fmtDur(ms){ if(ms==null) return "—"; const s=Math.round(ms/1000);
   if(s<60) return s+"s"; const m=Math.floor(s/60); return m+"m"+String(s%60).padStart(2,"0")+"s"; }
@@ -1187,7 +1188,7 @@ function openLink(path, text, title){
 function suppViews(){
   const hasRun = !!(IX.plan.slots || IX.plan.recent || IX.plan.accounting);
   const v=[];
-  if(hasRun) v.push(["journal","Journal"],["slots","Slots"],["cost","Cost"]);
+  if(hasRun) v.push(["cost","Cost"],["journal","Journal"],["slots","Slots"]);
   v.push(["gantt","Gantt"],["cube","Cube"],["sankey","Sankey"]);
   if(hasRun || (IX.plan.links&&IX.plan.links.length)) v.push(["links","Links"]);
   return v;
@@ -1237,10 +1238,11 @@ function suppCost(body){
   if(a){ body.appendChild(el("h3",{text:"run total"}));
     const g=el("div",{class:"acct-grid"});
     const add=(k,v)=>{ g.appendChild(el("div",{class:"k",text:k})); g.appendChild(el("div",{class:"v",text:v})); };
-    add("cost", fmtCost(a.cost_micro, a.currency));
+    add("cost", fmtCost(costVal(a), a.currency));
     add("input tokens", fmtNum(dimVal(a.input_total)));
+    add("input cached", fmtNum(dimVal(a.input_cached_read)));
     add("output tokens", fmtNum(dimVal(a.output_total)));
-    add("cached read", fmtNum(dimVal(a.input_cached_read)));
+    add("output cached", fmtNum(dimVal(a.output_cached_read)));
     add("invocations", fmtNum(a.invocation_count));
     add("coverage", a.coverage||"—");
     body.appendChild(g);
@@ -1249,11 +1251,14 @@ function suppCost(body){
   const rows=IX.top.filter(id=>tr[id]&&tr[id].accounting);
   if(rows.length){ body.appendChild(el("h3",{text:"by top-level task"}));
     const tbl=el("table",{class:"stable"});
-    const h=el("tr"); ["task","direct","subtree"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i?"num":""}))); tbl.appendChild(h);
+    const h=el("tr"); ["task","direct","subtree","input","input cached","output"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i?"num":""}))); tbl.appendChild(h);
     for(const id of rows){ const acc=tr[id].accounting, row=el("tr");
       const tt=el("td"); const a2=el("a",{href:"#",text:id}); a2.addEventListener("click",e=>{e.preventDefault();select(id);}); tt.appendChild(a2); row.appendChild(tt);
-      row.appendChild(el("td",{class:"num",text:acc.direct?fmtCost(acc.direct.cost_micro,acc.direct.currency):"—"}));
-      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtCost(acc.subtree.cost_micro,acc.subtree.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.direct?fmtCost(costVal(acc.direct),acc.direct.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtCost(costVal(acc.subtree),acc.subtree.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.input_total)):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.input_cached_read)):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.output_total)):"—"}));
       tbl.appendChild(row); }
     body.appendChild(tbl);
   }

@@ -473,14 +473,12 @@ pub(super) fn render_cost(f: &mut Frame, area: Rect, state: &UiState) {
     let total = run_rollup(&state.invocations);
     let header = Line::from(vec![Span::styled(
         format!(
-            "run total {}   in {}  out {}  cache {}  cov {}",
+            "run total {}   in {}  in_cached {}  out {}  out_cached {}  cov {}",
             total.cost_micro.map(format_cost_micro).unwrap_or_else(|| "—".to_string()),
             format_tokens(total.input_tokens),
+            format_tokens(total.input_cached_read_tokens),
             format_tokens(total.output_tokens),
-            total
-                .cache_ratio()
-                .map(|r| format!("{:.0}%", r * 100.0))
-                .unwrap_or_else(|| "—".to_string()),
+            format_tokens(total.output_cached_read_tokens),
             total.coverage_glyph(),
         ),
         Style::default().add_modifier(Modifier::BOLD),
@@ -489,8 +487,8 @@ pub(super) fn render_cost(f: &mut Frame, area: Rect, state: &UiState) {
     // Column header.
     let col_header = Line::from(Span::styled(
         format!(
-            "{:<28} {:>10} {:>9} {:>9} {:>6} {:>4}",
-            "key", "cost", "in", "out", "cache", "cov"
+            "{:<24} {:>10} {:>9} {:>9} {:>9} {:>9} {:>4}",
+            "key", "cost", "in", "in cache", "out", "out cache", "cov"
         ),
         Style::default().fg(theme.dim()),
     ));
@@ -516,20 +514,25 @@ pub(super) fn render_cost(f: &mut Frame, area: Rect, state: &UiState) {
 
 fn cost_row_line(theme: &super::theme::Theme, key: &str, roll: &CostRollup) -> Line<'static> {
     let cost = roll.cost_micro.map(format_cost_micro).unwrap_or_else(|| "—".to_string());
-    let cache =
-        roll.cache_ratio().map(|r| format!("{:.0}%", r * 100.0)).unwrap_or_else(|| "—".to_string());
     Line::from(vec![
-        Span::raw(format!("{:<28} ", truncate_chars(key, 28))),
+        Span::raw(format!("{:<24} ", truncate_chars(key, 24))),
         Span::raw(format!("{cost:>10} ")),
         Span::styled(
             format!("{:>9} ", format_tokens(roll.input_tokens)),
             Style::default().fg(theme.dim()),
         ),
         Span::styled(
+            format!("{:>9} ", format_tokens(roll.input_cached_read_tokens)),
+            Style::default().fg(theme.dim()),
+        ),
+        Span::styled(
             format!("{:>9} ", format_tokens(roll.output_tokens)),
             Style::default().fg(theme.dim()),
         ),
-        Span::styled(format!("{cache:>6} "), Style::default().fg(theme.dim())),
+        Span::styled(
+            format!("{:>9} ", format_tokens(roll.output_cached_read_tokens)),
+            Style::default().fg(theme.dim()),
+        ),
         Span::raw(format!("{:>4}", roll.coverage_glyph())),
     ])
 }

@@ -369,34 +369,36 @@ When no accounting artifacts exist, `rhei cost` exits 0 and prints:
 The TUI header shows a compact run-level strip when accounting is available:
 
 ```text
-Cost $1.23 | In 2.4M | Out 180k | Cache 61% | Coverage 92%
+Cost: $1.23  in=2.4M  in_cached=1.5M  out=180k  out_cached=-  coverage=Partial
 ```
 
-`Cache <percent>` means:
+The header uses absolute token totals rather than a cache percentage so cached
+input and cached output remain separate. Unavailable dimensions render as `-`.
+When `UsageReported` arrives after slot release, the TUI updates the run-level
+header and journal summary; it does not keep a completed-slot accounting history
+in the terminal UI.
 
-```text
-input_cached_read / input_total
-```
+The end-of-run console summary and durable run report include the same run-level
+accounting strip. Task rows may show a compact direct task cost only; the direct
+task cost is the sum of usage reported for all agent states spawned for that
+task in the run. §FS-rhei-run-report
 
-Only measured input dimensions are included. If either side is unavailable or
-partial, the display marks the ratio approximate or omits it.
-
-Each active slot shows the latest known accounting for its invocation below
-elapsed time. In compact-list mode, the slot row shows only cost and coverage.
-If usage arrives after slot release, the completed slot history and journal
-summary update when `UsageReported` arrives.
-
-The browser dashboard adds a **Cost** tab before **Journal**. It shows:
+The browser dashboard adds a **Cost** tab before **Journal**. Its live summary
+shows:
 
 - run totals and coverage;
-- grouped totals by agent, provider, model, and state;
-- highest-cost task nodes by subtree cost;
-- per-invocation drill-down with token dimensions and pricing status.
+- top-level task direct and subtree costs;
+- top-level task subtree input, cached input, and output totals.
 
-The **Tasks** tab adds direct cost, subtree cost, input, output, cached input,
-cached output, and coverage columns when accounting data exists. The **Cube**
-view can switch from state color to subtree-cost heatmap. The **Sankey** view
-can use cost as ribbon width. §FS-rhei-viz
+The dashboard serves per-invocation details from `/accounting/invocations` so a
+future drill-down can show token dimensions and pricing status without bloating
+the frequently polled `/snapshot` payload.
+
+Task accounting rollups are carried in `task_runtime` so dashboard views can add
+direct cost, subtree cost, input, output, cached input, cached output, and
+coverage where that density fits. The current Cost tab exposes the compact
+top-level task table; future Cube and Sankey modes may use subtree cost as
+heatmap color or ribbon width. §FS-rhei-viz
 
 ## 10. Dashboard Data
 
