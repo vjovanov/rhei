@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add Codex token accounting from `turn.completed` JSON usage, persisted runtime
+  accounting artifacts, and live/run surfaces in the TUI, Flow dashboard, run
+  report, and `rhei cost`. PR #44 §FS-rhei-cost-accounting.1
+  §FS-rhei-cost-accounting.2 §FS-rhei-cost-accounting.4
 - Run program states in the same live `--parallel` worker pool as agent states,
   so a long-running program consumes one slot while other ready independent work
   continues to be scheduled. PR #43 §FS-rhei-run.5 §FS-rhei-programs.6.3
