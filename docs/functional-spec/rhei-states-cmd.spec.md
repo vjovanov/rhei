@@ -92,6 +92,8 @@ Text output includes:
 
 - State machine name and version.
 - Model list when present.
+- Prompt-template list when present, including which prompt fields each
+  template defines.
 - Profile initial states and allowed state sets.
 - Node policy when present.
 - Each state with description and flags such as `final`, `gating`, and
@@ -99,6 +101,7 @@ Text output includes:
 - Per-state execution details such as visits, polling, targets, models, agent,
   agent mode, timeouts, program presence, MCP servers, skills, snapshots,
   inputs, outputs, personality, and instructions.
+- Per-state prompt-template reference when present.
 - Declared transitions and annotations for callbacks, conditions, and timeouts.
 
 ## 5. JSON Output
@@ -109,6 +112,7 @@ Text output includes:
 {
   "name": "default",
   "models": [],
+  "prompt_templates": {},
   "profiles": null,
   "node_policy": null,
   "version": 1,
