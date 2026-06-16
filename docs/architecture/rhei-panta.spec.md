@@ -67,20 +67,35 @@ source map records, for each node, the rhei (and file) that defines it, so
 targeted rewrites during transitions still target the owning file — the same
 contract `task_sources` provides for workspace task files.
 
-The target model is that a bare rhei loaded directly (a `.rhei.md` file or a
-workspace with no enclosing `index.panta.md`) is treated as the single rhei of an
-implicit Panta, so every load path yields a Panta-rooted graph. In the current
-staged implementation a bare rhei still loads through the existing single-file or
-Directory Workspace path and is *not* wrapped in a synthetic Panta; only a
-directory containing `index.panta.md` loads as a Panta project. Unifying the bare
-rhei load path under an implicit Panta is deferred (§FS-rhei-panta.6, roadmap).
+Every load path yields a Panta-rooted graph. A bare rhei loaded directly — a
+`.rhei.md` file or a Directory Workspace with no enclosing `index.panta.md` — is
+treated as the single rhei of an **implicit Panta**: the loader synthesizes the
+virtual `panta` root and attaches that one rhei as its sole level-1 child, so the
+in-memory graph has the same shape whether or not an `index.panta.md` exists. The
+implicit Panta has no manifest, so the project default state machine is the
+built-in `rhei` machine and the project directory is the source location from
+which an inherited declaration would resolve; the single rhei still resolves its
+own `**States:**` from its own source (§4).
+
+The implicit Panta's one rhei is not anonymous: it has a derived id (§3), and its
+tickets are project-qualified exactly as in a multi-rhei project, so a bare
+`auth.rhei.md` exposes ticket ids `auth.1`, artifact paths
+`runtime/results/auth.1.md`, and CLI targets `rhei complete auth.1`. The only
+structural difference between an implicit and an explicit Panta is the number of
+rheis and the presence of a manifest; there is one loader and one graph shape.
 
 ## 3. Identity and id namespacing
 
 Ids are dotted paths rooted at Panta. A rhei contributes its id as the prefix for
 its tickets:
 
-- A rhei has a single-segment id (`auth`, `billing`).
+- A rhei has a single-segment id (`auth`, `billing`). The id is derived from the
+  rhei's source location: the file stem for a single-file rhei (`auth.rhei.md` ->
+  `auth`) and the directory name for a Directory Workspace rhei (`billing/` ->
+  `billing`). This rule is the same for an explicit Panta and for the implicit
+  Panta wrapping a bare rhei (§2), so loading `auth.rhei.md` directly yields the
+  rhei id `auth`. A derived id that is not a valid single-segment rhei id, or that
+  collides with another rhei or the reserved `basin`, is a load/validation error.
 - A ticket's project-wide id is its rhei id joined with its rhei-local id:
   rhei-local `1` under rhei `auth` is the project id `auth.1`; rhei-local `1.2`
   is `auth.1.2`.
@@ -113,6 +128,17 @@ rhei redeclares `**States:**`. Validation and execution share this one resolver
 and surface the resolved source in diagnostics — CLI override path, rhei-local
 declaration, inherited `index.panta.md` declaration, or built-in `rhei`
 fallback.
+
+Inheritance of the default and *composition* are distinct. Omitting `**States:**`
+uses the project default wholesale (no merge). A rhei that declares its own
+machine may opt into composition with a top-level `extends:`, layering states,
+transitions, profiles, and node-policy keys on a named base by whole-entity
+override (§FS-rhei-states.12, §DA-state-machine-composition); without `extends` a
+declared machine fully replaces the default. Ownership across a composed override
+is fixed: the **Panta project root** always resolves `node_policy.root` from the
+**project default machine** — a rhei cannot redefine the shared root above itself
+— while the **rhei node and its tickets** resolve through that rhei's effective
+(composed) machine.
 
 The state-machine profile that previously resolved the level-0 `rhei` root now
 resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node
