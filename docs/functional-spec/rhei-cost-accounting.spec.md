@@ -48,14 +48,17 @@ Rhei stores accounting under the workspace:
 ```text
 runtime/accounting/
   invocations/<invocation_file_id>.json
+  captures/<capture_file_id>.jsonl
   tasks/<task_file_id>.json
   summary.json
   prices.json
 ```
 
-`invocations/` is authoritative. `tasks/` and `summary.json` are derived
-indexes and may be regenerated from invocation records and the current plan
-tree.
+`invocations/` is authoritative for completed agent processes. `captures/`
+stores normalized per-turn usage events while an agent is running; invocation
+records are produced from those capture streams when the process exits.
+`tasks/` and `summary.json` are derived indexes and may be regenerated from
+invocation records and the current plan tree.
 
 `invocation_id` is the logical identity inside the JSON record. It may contain
 task ids, states, target slugs, and visit numbers. File names must use
@@ -184,11 +187,13 @@ For each agent invocation:
    capture contract sets `RHEI_ACCOUNTING_USAGE_PATH` and
    `RHEI_ACCOUNTING_USAGE_SCHEMA=rhei.accounting.usage.v1`.
 2. `rhei run` spawns the agent normally.
-3. The agent exits and Rhei drains stdout/stderr.
-4. Rhei evaluates completion and selects the outgoing transition.
-5. Rhei extracts usage and writes the invocation record.
-6. Rhei emits `UsageReported`.
-7. Rhei applies normal snapshot side effects and task transition behavior.
+3. The extractor observes structured usage as it is produced and appends
+   normalized usage events to `runtime/accounting/captures/*.jsonl`.
+4. The agent exits and Rhei drains stdout/stderr.
+5. Rhei evaluates completion and selects the outgoing transition.
+6. Rhei sums the capture stream and writes the invocation record.
+7. Rhei emits `UsageReported`.
+8. Rhei applies normal snapshot side effects and task transition behavior.
 
 Extraction failures affect accounting coverage only. They do not change the
 agent exit code, completion condition, selected transition, or callbacks.
@@ -198,7 +203,7 @@ Built-in extractor requirements:
 | Agent | Requirement |
 | --- | --- |
 | `claude-code` | Use the most structured usage output available from Claude Code. |
-| `codex` | Use the most structured usage output from `codex exec` or its runtime transcript. Do not depend on Codex snapshot support. |
+| `codex` | Run `codex exec --json`; extract `turn.completed.usage` from JSONL stdout and normalize it into `runtime/accounting/captures/*.jsonl`. Do not depend on Codex snapshot support. |
 | `pi` | Parse Pi JSONL/session usage when available. Accounting-only session data belongs under `runtime/accounting/`, not snapshot cache paths. |
 
 If an upstream CLI changes format, the extractor records `extractor-failed`
@@ -339,8 +344,10 @@ pub enum RunEvent {
 }
 ```
 
-`UsageReported` may arrive after `SlotReleased`; frontends must update task,
-slot history, and run totals without assuming the slot is still active. §FS-rhei-run-tui
+`UsageReported` may arrive repeatedly for the same invocation id as a streaming
+extractor observes additional turns, and may also arrive after `SlotReleased`;
+frontends must upsert by invocation id and update task, slot history, and run
+totals without assuming the slot is still active. §FS-rhei-run-tui
 
 `RunSummary.accounting` contains an optional `AccountingRunSummary` with the
 same dimension, cost, currency, coverage, and pricing-status shape as

@@ -53,6 +53,7 @@ fn spawn_agent_output_reader<R>(
     sink: Arc<dyn rhei_tui::EventSink>,
     slot: rhei_tui::Slot,
     task_id: String,
+    usage_capture: Option<AgentUsageCapture>,
 ) -> std::thread::JoinHandle<std::io::Result<()>>
 where
     R: Read + Send + 'static,
@@ -72,11 +73,14 @@ where
                 f.flush()
             })?;
 
+            let raw_line = output_line(&buf);
+            capture_agent_output_usage(usage_capture.as_ref(), stream, &raw_line, &sink);
+            let line = display_agent_output_line(usage_capture.as_ref(), stream, &raw_line);
             sink.emit(rhei_tui::RunEvent::AgentOutput {
                 slot,
                 task: task_id.clone(),
                 stream,
-                line: output_line(&buf),
+                line,
                 wall_clock: std::time::SystemTime::now(),
             });
         }
@@ -212,6 +216,14 @@ fn spawn_and_wait_agent(
     if let Some(parent) = usage_capture_path.as_ref().and_then(|path| path.parent()) {
         let _ = fs::create_dir_all(parent);
     }
+    let usage_capture = usage_capture_for_spawn(
+        resolved,
+        usage_capture_path.as_deref(),
+        task_id,
+        state_name,
+        visit_count,
+        slot,
+    );
 
     let mut cmd = build_agent_command(
         resolved,
@@ -252,6 +264,7 @@ fn spawn_and_wait_agent(
             sink.clone(),
             slot,
             task_id.to_string(),
+            usage_capture.clone(),
         )
     });
     let stderr_handle = child.stderr.take().map(|stderr| {
@@ -262,6 +275,7 @@ fn spawn_and_wait_agent(
             sink.clone(),
             slot,
             task_id.to_string(),
+            None,
         )
     });
 

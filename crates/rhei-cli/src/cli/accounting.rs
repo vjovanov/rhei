@@ -169,6 +169,24 @@ enum ExtractedUsageStatus {
     ExtractorFailed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgentUsageExtractor {
+    StructuredCapture,
+    CodexJson,
+}
+
+#[derive(Clone, Debug)]
+struct AgentUsageCapture {
+    extractor: AgentUsageExtractor,
+    path: PathBuf,
+    invocation_id: String,
+    task_id: String,
+    agent: String,
+    provider: Option<String>,
+    model: Option<String>,
+    slot: rhei_tui::Slot,
+}
+
 #[derive(Clone, Debug)]
 struct CostInspection {
     summary: Option<rhei_tui::AccountingRunSummary>,
@@ -229,12 +247,11 @@ fn record_agent_accounting_invocation(
         invocation.resolved.model_name.clone().or_else(|| invocation.resolved.model.clone());
     let pricing = price_tokens(provider.as_deref(), model.as_deref(), &tokens);
     let target_slug = resolved_agent_target_slug(invocation.resolved);
-    let invocation_id = format!(
-        "{}::{}::{}::visit-{}",
-        invocation.task.id,
+    let invocation_id = accounting_invocation_id(
+        &invocation.task.id.to_string(),
         invocation.state,
-        target_slug.as_deref().unwrap_or(invocation.resolved.agent.id()),
-        invocation.visit
+        invocation.resolved,
+        invocation.visit,
     );
     let record = AccountingInvocationRecord {
         schema: ACCOUNTING_INVOCATION_SCHEMA.to_string(),
@@ -731,6 +748,43 @@ fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::U
     }
 }
 
+fn usage_summary_from_extracted_usage(
+    invocation_id: &str,
+    agent: &str,
+    provider: Option<String>,
+    model: Option<String>,
+    usage: ExtractedUsage,
+) -> rhei_tui::UsageSummary {
+    let tokens = tokens_from_usage(usage);
+    let pricing = price_tokens(provider.as_deref(), model.as_deref(), &tokens);
+    let pricing_status = match pricing.status.as_str() {
+        "priced" => rhei_tui::PricingStatus::Priced,
+        "partial-price" => rhei_tui::PricingStatus::PartialPrice,
+        "unpriced" => rhei_tui::PricingStatus::Unpriced,
+        _ => rhei_tui::PricingStatus::NotApplicable,
+    };
+    let status = rhei_tui::UsageStatus::Measured;
+    rhei_tui::UsageSummary {
+        invocation_id: invocation_id.to_string(),
+        agent: agent.to_string(),
+        provider,
+        model,
+        total: dimension_summary(&tokens.total),
+        input_total: dimension_summary(&tokens.input.total),
+        input_cached_read: dimension_summary(&tokens.input.cached_read),
+        input_cache_write: dimension_summary(&tokens.input.cache_write),
+        output_total: dimension_summary(&tokens.output.total),
+        output_cached_read: dimension_summary(&tokens.output.cached_read),
+        output_cache_write: dimension_summary(&tokens.output.cache_write),
+        cost_micro: pricing.amount_micro,
+        priced_cost_micro: pricing.priced_amount_micro.or(pricing.amount_micro),
+        currency: pricing.currency,
+        coverage: usage_coverage(status, pricing_status),
+        status,
+        pricing_status,
+    }
+}
+
 fn usage_coverage(
     status: rhei_tui::UsageStatus,
     pricing_status: rhei_tui::PricingStatus,
@@ -766,7 +820,15 @@ fn dimension_summary(dimension: &AccountingTokenDimension) -> rhei_tui::Dimensio
 
 fn agent_has_accounting_extractor(agent: &str) -> bool {
     // §FS-rhei-cost-accounting.4: v1 supports claude-code, codex, and pi.
-    matches!(agent, "claude-code" | "codex" | "pi")
+    agent_usage_extractor(agent).is_some()
+}
+
+fn agent_usage_extractor(agent: &str) -> Option<AgentUsageExtractor> {
+    match agent {
+        "codex" => Some(AgentUsageExtractor::CodexJson),
+        "claude-code" | "pi" => Some(AgentUsageExtractor::StructuredCapture),
+        _ => None,
+    }
 }
 
 fn accounting_capture_path_for_spawn(
@@ -795,12 +857,211 @@ fn accounting_capture_path_for_spawn(
     )))
 }
 
+fn accounting_invocation_id(
+    task_id: &str,
+    state: &str,
+    resolved: &ResolvedAgent,
+    visit: u64,
+) -> String {
+    let target_slug = resolved_agent_target_slug(resolved);
+    format!(
+        "{}::{}::{}::visit-{}",
+        task_id,
+        state,
+        target_slug.as_deref().unwrap_or(resolved.agent.id()),
+        visit
+    )
+}
+
+fn usage_capture_for_spawn(
+    resolved: &ResolvedAgent,
+    capture_path: Option<&Path>,
+    task_id: &str,
+    state: &str,
+    visit: u64,
+    slot: rhei_tui::Slot,
+) -> Option<AgentUsageCapture> {
+    let extractor = agent_usage_extractor(resolved.agent.id())?;
+    Some(AgentUsageCapture {
+        extractor,
+        path: capture_path?.to_path_buf(),
+        invocation_id: accounting_invocation_id(task_id, state, resolved, visit),
+        task_id: task_id.to_string(),
+        agent: resolved.agent.id().to_string(),
+        provider: resolved.model_provider.clone(),
+        model: resolved.model_name.clone().or_else(|| resolved.model.clone()),
+        slot,
+    })
+}
+
+fn configure_agent_accounting_args(cmd: &mut std::process::Command, resolved: &ResolvedAgent) {
+    if agent_usage_extractor(resolved.agent.id()) == Some(AgentUsageExtractor::CodexJson) {
+        // §FS-rhei-cost-accounting.4: Codex usage is extracted from JSONL turn events.
+        cmd.arg("--json");
+    }
+}
+
 fn configure_accounting_capture(cmd: &mut std::process::Command, capture_path: Option<&Path>) {
     if let Some(path) = capture_path {
         // §FS-rhei-cost-accounting.4: Declare the structured usage capture path before spawn.
         cmd.env("RHEI_ACCOUNTING_USAGE_PATH", path);
         cmd.env("RHEI_ACCOUNTING_USAGE_SCHEMA", ACCOUNTING_USAGE_EVENT_SCHEMA);
     }
+}
+
+fn capture_agent_output_usage(
+    capture: Option<&AgentUsageCapture>,
+    stream: rhei_tui::AgentStream,
+    line: &str,
+    sink: &Arc<dyn rhei_tui::EventSink>,
+) {
+    let Some(capture) = capture else { return };
+    if stream != rhei_tui::AgentStream::Stdout {
+        return;
+    }
+    let Some(usage) = extract_usage_from_output_line(capture.extractor, line) else {
+        return;
+    };
+    if append_usage_capture_event(&capture.path, usage).is_err() {
+        return;
+    }
+    if let ExtractedUsageStatus::Measured(aggregate) = extract_usage_from_capture(Some(&capture.path))
+    {
+        let usage = usage_summary_from_extracted_usage(
+            &capture.invocation_id,
+            &capture.agent,
+            capture.provider.clone(),
+            capture.model.clone(),
+            aggregate,
+        );
+        sink.emit(rhei_tui::RunEvent::UsageReported {
+            slot: Some(capture.slot),
+            task: capture.task_id.clone(),
+            invocation_id: capture.invocation_id.clone(),
+            usage,
+        });
+    }
+}
+
+fn display_agent_output_line(
+    capture: Option<&AgentUsageCapture>,
+    stream: rhei_tui::AgentStream,
+    line: &str,
+) -> String {
+    if stream == rhei_tui::AgentStream::Stdout {
+        if let Some(capture) = capture {
+            if let Some(display) = display_output_line(capture.extractor, line) {
+                return display;
+            }
+        }
+    }
+    line.to_string()
+}
+
+fn extract_usage_from_output_line(
+    extractor: AgentUsageExtractor,
+    line: &str,
+) -> Option<ExtractedUsage> {
+    match extractor {
+        AgentUsageExtractor::CodexJson => extract_codex_json_usage(line),
+        AgentUsageExtractor::StructuredCapture => None,
+    }
+}
+
+fn display_output_line(extractor: AgentUsageExtractor, line: &str) -> Option<String> {
+    match extractor {
+        AgentUsageExtractor::CodexJson => display_codex_json_line(line),
+        AgentUsageExtractor::StructuredCapture => None,
+    }
+}
+
+fn extract_codex_json_usage(line: &str) -> Option<ExtractedUsage> {
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("type").and_then(serde_json::Value::as_str) != Some("turn.completed") {
+        return None;
+    }
+    object.get("usage").and_then(usage_from_json_payload)
+}
+
+fn display_codex_json_line(line: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let object = value.as_object()?;
+    match object.get("type").and_then(serde_json::Value::as_str)? {
+        "thread.started" => object
+            .get("thread_id")
+            .and_then(serde_json::Value::as_str)
+            .map(|id| format!("codex thread started: {id}")),
+        "turn.started" => Some("codex turn started".to_string()),
+        "turn.completed" => extract_codex_json_usage(line).map(|usage| {
+            format!(
+                "codex turn completed: total={} input={} cached_input={} output={}",
+                usage
+                    .total
+                    .or_else(|| sum_optional_pair(usage.input_total, usage.output_total))
+                    .map(format_plain_u64)
+                    .unwrap_or_else(|| "-".to_string()),
+                usage.input_total.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+                usage.input_cached_read
+                    .map(format_plain_u64)
+                    .unwrap_or_else(|| "-".to_string()),
+                usage.output_total.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+            )
+        }),
+        "item.completed" => object
+            .get("item")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|item| {
+                if item.get("type").and_then(serde_json::Value::as_str) == Some("agent_message") {
+                    item.get("text").and_then(serde_json::Value::as_str).map(str::to_string)
+                } else {
+                    None
+                }
+            }),
+        "error" => object
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .map(|message| format!("codex error: {message}")),
+        _ => None,
+    }
+}
+
+fn format_plain_u64(value: u64) -> String {
+    value.to_string()
+}
+
+fn append_usage_capture_event(path: &Path, usage: ExtractedUsage) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut usage_object = serde_json::Map::new();
+    if let Some(value) = usage.total {
+        usage_object.insert("total_tokens".to_string(), serde_json::Value::from(value));
+    }
+    if let Some(value) = usage.input_total {
+        usage_object.insert("input_tokens".to_string(), serde_json::Value::from(value));
+    }
+    if let Some(value) = usage.input_cached_read {
+        usage_object.insert("cached_input_tokens".to_string(), serde_json::Value::from(value));
+    }
+    if let Some(value) = usage.input_cache_write {
+        usage_object.insert("cache_write_input_tokens".to_string(), serde_json::Value::from(value));
+    }
+    if let Some(value) = usage.output_total {
+        usage_object.insert("output_tokens".to_string(), serde_json::Value::from(value));
+    }
+    if let Some(value) = usage.output_cached_read {
+        usage_object.insert("cached_output_tokens".to_string(), serde_json::Value::from(value));
+    }
+    if let Some(value) = usage.output_cache_write {
+        usage_object.insert("output_cache_write".to_string(), serde_json::Value::from(value));
+    }
+    let event = serde_json::json!({
+        "schema": ACCOUNTING_USAGE_EVENT_SCHEMA,
+        "usage": serde_json::Value::Object(usage_object),
+    });
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{}", event)
 }
 
 fn extract_usage(capture_path: Option<&Path>, log_path: Option<&Path>) -> ExtractedUsageStatus {

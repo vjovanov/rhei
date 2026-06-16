@@ -223,12 +223,19 @@ impl DashboardState {
             }
             RunEvent::UsageReported { slot, task, invocation_id, usage } => {
                 // §FS-rhei-cost-accounting.7: Usage updates task, slot, and run totals.
-                self.invocations.push(DashboardUsageRecord {
+                let record = DashboardUsageRecord {
                     slot: *slot,
                     task: task.clone(),
                     invocation_id: invocation_id.clone(),
                     usage: usage.clone(),
-                });
+                };
+                if let Some(existing) =
+                    self.invocations.iter_mut().find(|entry| entry.invocation_id == *invocation_id)
+                {
+                    *existing = record;
+                } else {
+                    self.invocations.push(record);
+                }
                 self.accounting =
                     summarize_usage(self.invocations.iter().map(|entry| &entry.usage));
                 if let Some(slot) = slot {

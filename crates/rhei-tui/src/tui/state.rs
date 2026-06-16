@@ -538,8 +538,17 @@ impl UiState {
                 }
                 self.push_journal(MessageLevel::Info, format!("{label}: {url}"));
             }
-            RunEvent::UsageReported { slot, task, usage, .. } => {
-                self.invocations.push(UsageRecord { task: task.clone(), usage: usage.clone() });
+            RunEvent::UsageReported { slot, task, invocation_id, usage, .. } => {
+                if let Some(existing) = self
+                    .invocations
+                    .iter_mut()
+                    .find(|record| record.usage.invocation_id == *invocation_id)
+                {
+                    existing.task = task.clone();
+                    existing.usage = usage.clone();
+                } else {
+                    self.invocations.push(UsageRecord { task: task.clone(), usage: usage.clone() });
+                }
                 self.accounting =
                     summarize_usage_summaries(self.invocations.iter().map(|r| &r.usage));
                 if let Some(slot) = slot {
