@@ -720,6 +720,15 @@ states:
       The PR body must include the issue link, spec-fit summary, implementation
       summary, validation evidence, validation gaps to disclose, review
       readiness, and any remaining human follow-up.
+      - Include a GitHub closing keyword for the source issue when the PR is
+        intended to fully resolve it: `Fixes #<issue-number>` for issues in
+        `{{repo}}`, or `Fixes <owner>/<repo>#<issue-number>` if the issue link
+        needs the fully-qualified form. Put this in the PR body, not only in
+        the title or commit message, so GitHub can auto-close the issue on
+        merge.
+      - If the PR is intentionally partial, exploratory, or only a docs/triage
+        follow-up that should not close the issue, use `Refs #<issue-number>`
+        instead and explain what remains.
 
       Resolve configured PR labels before applying them: `{{pr_labels}}`.
       Check the target repository's existing labels with `gh label list` or the
