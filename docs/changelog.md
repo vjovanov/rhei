@@ -13,6 +13,13 @@
 - Add a prototype `github-issue-fix` template for routing one GitHub issue
   through worktree setup, repository-rule discovery, spec-fit analysis,
   validation, review, and optional PR publication.
+- Make `github-issue-fix` route aggregate review blockers back through a
+  deterministic repair loop before publication, with a bounded fix-attempt cap.
+- Keep `github-issue-fix` repair cycles from reusing stale review artifacts by
+  requiring per-visit validation, review, aggregate, and repair outputs.
+- Make `github-issue-fix` use focused issue-specific validation by default and
+  disclose expensive broad validation gaps in draft PRs instead of blocking
+  publication by themselves.
 - Run program states in the same live `--parallel` worker pool as agent states,
   so a long-running program consumes one slot while other ready independent work
   continues to be scheduled. PR #43 §FS-rhei-run.5 §FS-rhei-programs.6.3

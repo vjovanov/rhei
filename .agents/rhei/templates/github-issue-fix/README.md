@@ -24,10 +24,11 @@ validation, focused review cycles, and optional PR publication.
 | `pr_push_remote` | string | empty | Writable git remote for pushing the issue branch. |
 | `pr_head_owner` | string | empty | GitHub owner/login for PR heads. |
 | `pr_labels` | array<string> | `rhei` | Labels to apply to the PR when they already exist on the target repository. |
-| `validation_commands` | array<string> | empty | Extra validation commands in addition to repo-discovered commands. |
+| `validation_commands` | array<string> | empty | Explicit validation commands that must run; otherwise validation defaults to focused issue-specific checks plus cheap targeted repo checks. |
 | `implementation_target` | string | `codex[yolo]:openai:gpt-5.5` | Agent for intake, implementation, validation fixes, and publication. |
 | `review_target` | string | `codex[yolo]:openai:gpt-5.5` | Agent for focused requirements, spec, implementation, and validation reviews. |
-| `review_passes` | number | `2` | Number of focused review cycles before publication. |
+| `review_passes` | number | `2` | Minimum number of focused review cycles before publication. |
+| `review_fix_attempts` | number | `2` | Additional review/fix cycles allowed when aggregate review finds blocking issues. |
 | `plan_title` | string | `GitHub Issue Fix` | Rendered workspace title. |
 | `extra_context` | string | empty | Extra project-specific guidance. |
 
@@ -36,7 +37,8 @@ validation, focused review cycles, and optional PR publication.
 | Path | States |
 |---|---|
 | Intake | `issue-intake -> completed` after writing artifacts and one follow-up task. |
-| Compatible issue | `implement-fix -> validate-fix -> requirements-review -> spec-review -> implementation-review -> validation-review -> aggregate-review -> address-review -> validate-fix -> ... -> publish-pr -> completed` |
+| Compatible issue | `implement-fix -> validate-fix -> requirements-review -> spec-review -> implementation-review -> validation-review -> aggregate-review -> review-dispatch -> address-review -> validate-fix -> ... -> publish-pr -> completed` |
+| Exhausted review repair | `review-dispatch -> record-blocked-publication -> completed` |
 | Human gate | `human-review -> implement-fix` or `human-review -> github-handoff` or `human-review -> cancelled` |
 | Blocked or unclear issue | `github-handoff -> completed` |
 
@@ -56,12 +58,21 @@ The state-machine diagram is documented at the top of `states.yaml`.
 6. Implemented fixes are validated, then reviewed through separate requirements,
    spec/grund, implementation-quality, and validation-readiness reviews. An
    aggregate review turns those focused findings into one PR-readiness decision.
-7. If more focused review cycles remain, the workflow fixes only blocking
-   findings, validates again, and repeats the focused reviews. After the final
-   cycle it publishes or records local-only status according to
-   `publication_mode`. `no-pr` performs no external GitHub writes. Published
-   PRs apply configured labels such as `rhei` only when those labels already
-   exist on the target repository; the workflow does not create labels.
+   Validation defaults to focused checks for the changed behavior plus cheap
+   targeted repo checks. Expensive full suites, exact CI matrices, full builds,
+   and documentation renders are recorded as validation gaps unless explicitly
+   configured or required by the change.
+7. `review-dispatch` reads the aggregate review's machine-readable readiness
+   markers. Ready fixes publish only after the required `review_passes`. Draft
+   PRs may publish with disclosed broad validation gaps when requirements,
+   spec/grund, implementation, and focused validation are clean. Not-ready fixes
+   route back through `address-review` while `review_fix_attempts` remain. When
+   attempts are exhausted, `record-blocked-publication` records a blocked local
+   result instead of pushing an unsafe PR.
+8. Publication follows `publication_mode`. `no-pr` performs no external GitHub
+   writes. Published PRs apply configured labels such as `rhei` only when those
+   labels already exist on the target repository; the workflow does not create
+   labels.
 
 ## Usage
 

@@ -3,9 +3,11 @@
 This is a rendered smoke example for the `github-issue-fix` template.
 It includes the issue-adequacy routing behavior: unclear issues should route to
 GitHub handoff for a clarification request instead of implementation.
-Implemented fixes use two focused review cycles. Each cycle separates
-requirements, spec/grund, implementation, and validation review before the
-aggregate PR-readiness decision.
+Implemented fixes use focused review cycles separated by requirements,
+spec/grund, implementation, and validation review. Aggregate review blockers
+route through a bounded repair loop before publication. Focused validation is
+the default; broad validation gaps are disclosed for draft publication instead
+of blocking by themselves.
 
 ## Values
 
@@ -17,6 +19,7 @@ aggregate PR-readiness decision.
 | `publication_mode` | `no-pr` |
 | `base_branch` | `main` |
 | `review_passes` | `2` |
+| `review_fix_attempts` | `2` |
 | `pr_labels` | `["rhei"]` |
 | `plan_title` | `GitHub Issue Fix Example` |
 
@@ -33,6 +36,8 @@ cargo run -p rhei-cli -- instantiate github-issue-fix 1234 \
   --set repo_checkout=. \
   --set publication_mode=no-pr \
   --set base_branch=main \
+  --set review_passes=2 \
+  --set review_fix_attempts=2 \
   --set 'plan_title=GitHub Issue Fix Example' \
   --output examples/github-issue-fix-example
 ```

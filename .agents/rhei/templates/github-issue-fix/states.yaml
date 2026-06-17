@@ -19,23 +19,32 @@
 #        +--> github-handoff ---------------------+
 #                                                 |
 #                                                 v
-#   completed [final] <--- publish-pr <--- aggregate-review <--- validation-review
-#                                ^               |                    ^
-#                                |               v                    |
-#                                +------- address-review -------------+
-#                                                ^
-#                                                |
+#   completed [final] <--- publish-pr <--- review-dispatch [program] <--- aggregate-review <--- validation-review
+#          ^                     ^                   |                         |                    ^
+#          |                     |                   | ready too early         |                    |
+#          |                     |                   v                         |                    |
+#          |                     +------------- validate-fix                   |
+#          |                                         ^                         |
+#          |                                         |                         |
+#          +--- record-blocked-publication <-- address-review <---------------+
+#                                                not ready and attempts remain
 #   implement-fix -> validate-fix -> requirements-review -> spec-review
 #                                             -> implementation-review -> validation-review
 #
 # Review loop:
 #   implement-fix -> validate-fix -> four focused reviews -> aggregate-review cycle 1
 #   aggregate-review cycle 1 -> address-review -> validate-fix -> focused reviews -> aggregate-review cycle 2
-#   aggregate-review cycle N -> publish-pr when visitCount >= visits
+#   aggregate-review -> review-dispatch checks `Ready to publish: yes/no`
+#   review-dispatch -> publish-pr only when ready and required review passes are complete.
+#                      In draft/no-pr mode, disclosed broad validation gaps do
+#                      not block publication when focused validation passed.
+#   review-dispatch -> validate-fix when ready but required review passes remain
+#   review-dispatch -> address-review when not ready and repair attempts remain
+#   review-dispatch -> record-blocked-publication when not ready and repair attempts are exhausted
 #
 # Per-task paths:
 #   issue-intake: issue-intake -> completed
-#   compatible follow-up: implement-fix -> validate-fix -> focused review cycle -> publish-pr -> completed
+#   compatible follow-up: implement-fix -> validate-fix -> focused review cycle -> review-dispatch -> publish-pr -> completed
 #   gated follow-up: human-review -> implement-fix OR github-handoff OR cancelled
 #   blocked/unclear follow-up: github-handoff -> completed
 #
@@ -108,20 +117,25 @@ states:
         `underspecified`, `conflicts-with-spec`, `insufficient-information`, or
         `external-owner-required`.
 
-      Step 5: route and write exactly one follow-up task file under `tasks/`.
+      Step 5: route and write exactly one follow-up task file under
+      `$RHEI_ROOT/tasks/`.
       - Write `{output.routing.path}` with the selected start state and why.
 {% if require_human_spec_review %}
-      - If the verdict is `compatible`, create `tasks/02-issue-work.md` with
-        `**State:** human-review` because `require_human_spec_review` is true.
+      - If the verdict is `compatible`, create
+        `$RHEI_ROOT/tasks/02-issue-work.md` with `**State:** human-review`
+        because `require_human_spec_review` is true.
 {% else %}
-      - If the verdict is `compatible`, create `tasks/02-issue-work.md` with
-        `**State:** implement-fix` because `require_human_spec_review` is false.
+      - If the verdict is `compatible`, create
+        `$RHEI_ROOT/tasks/02-issue-work.md` with `**State:** implement-fix`
+        because `require_human_spec_review` is false.
 {% endif %}
       - If the verdict is `compatible-but-human-review-required`, create
-        `tasks/02-issue-work.md` with `**State:** human-review`.
+        `$RHEI_ROOT/tasks/02-issue-work.md` with `**State:** human-review`.
       - If the verdict is `underspecified`, `insufficient-information`,
         `conflicts-with-spec`, or `external-owner-required`, create
-        `tasks/02-issue-work.md` with `**State:** github-handoff`.
+        `$RHEI_ROOT/tasks/02-issue-work.md` with `**State:** github-handoff`.
+      - Do not create follow-up task files under `runtime/`; Rhei only
+        discovers runnable task files from the workspace task directory.
 
       The generated task must have this shape:
 
@@ -258,6 +272,7 @@ states:
   validate-fix:
     description: Run grund and repository validation for the issue fix.
     target: "{{implementation_target}}"
+    visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -274,25 +289,49 @@ states:
     instructions: |
       Validate the issue fix for Task {task_id}: {task_title}.
 
-      Work inside the recorded worktree and run the narrowest meaningful checks
-      from the target repo's `AGENTS.md` and repo-rules artifact. If `grund` is
-      configured, run `grund check` from the appropriate repo root. Also run
-      the explicit configured commands when present: `{{validation_commands}}`.
+      Work inside the recorded worktree. Focused validation is the default:
+      run the smallest meaningful checks that directly exercise the changed
+      behavior, plus cheap targeted hygiene checks from the target repo's
+      `AGENTS.md` and repo-rules artifact. Prefer focused tests, affected
+      module checks, targeted lint/style checks, targeted documentation/spec
+      checks, and `git diff --check` over repository-wide suites.
 
-      If a command is too expensive or unavailable, record why and what narrower
-      check was run instead. Do not hide failures.
+      If `grund` is configured, run the narrowest applicable grounding check
+      first. Run full `grund check` when it is cheap and compatible with the
+      checkout/tooling; otherwise record the tooling/version blocker and run
+      targeted citation/format checks where possible.
 
-      Write `{output.validation-note.path}` with every command, working
+      Always run the explicit configured commands when present:
+      `{{validation_commands}}`.
+
+      Do not run full repository builds, full functional suites, exact CI
+      matrices, or documentation renders by default when they are expensive or
+      unrelated to the focused issue behavior. Record them as validation gaps
+      instead, with the narrower checks that were run. Run broad checks only
+      when the change is broad, the repo rules make them mandatory for the
+      touched area, the user supplied them via `validation_commands`, or no
+      focused validation path exists.
+
+      Do not hide failures. A failing focused check is a validation blocker.
+      A skipped broad check is a disclosed gap, not a blocker by itself.
+
+      Write `{output.validation-note.path}` and
+      `{output.validation-note-visit.path}` with every command, working
       directory, exit result, important output summary, and remaining validation
-      gaps.
+      gaps. The stable file is the latest validation note; the visit file is a
+      durable per-cycle record.
     outputs:
       - name: validation-note
         path: runtime/github-issue-fix/{task_id}/validation.md
         description: Validation commands and results.
+      - name: validation-note-visit
+        path: runtime/github-issue-fix/{task_id}/validation-{visit_count}.md
+        description: Per-cycle validation commands and results.
 
   requirements-review:
     description: Review whether the implementation satisfies the GitHub issue requirements.
     target: "{{review_target}}"
+    visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -324,14 +363,21 @@ states:
       - blocking findings, or `none`
       - non-blocking follow-ups, or `none`
       - `Requirements ready: yes` or `Requirements ready: no`
+
+      Also write the same content to `{output.requirements-review-visit.path}`
+      as the per-cycle review record.
     outputs:
       - name: requirements-review
         path: runtime/github-issue-fix/{task_id}/review-requirements.md
         description: Requirements-focused review findings.
+      - name: requirements-review-visit
+        path: runtime/github-issue-fix/{task_id}/review-requirements-{visit_count}.md
+        description: Per-cycle requirements-focused review findings.
 
   spec-review:
     description: Review goals, non-goals, grund citations, and spec compatibility.
     target: "{{review_target}}"
+    visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -365,14 +411,21 @@ states:
       - blocking findings, or `none`
       - non-blocking follow-ups, or `none`
       - `Spec ready: yes` or `Spec ready: no`
+
+      Also write the same content to `{output.spec-review-visit.path}` as the
+      per-cycle review record.
     outputs:
       - name: spec-review
         path: runtime/github-issue-fix/{task_id}/review-spec.md
         description: Spec, goals, non-goals, and grounding review findings.
+      - name: spec-review-visit
+        path: runtime/github-issue-fix/{task_id}/review-spec-{visit_count}.md
+        description: Per-cycle spec, goals, non-goals, and grounding review findings.
 
   implementation-review:
     description: Review code quality, scope, maintainability, and edge cases.
     target: "{{review_target}}"
+    visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -408,14 +461,21 @@ states:
       - blocking findings, or `none`
       - non-blocking follow-ups, or `none`
       - `Implementation ready: yes` or `Implementation ready: no`
+
+      Also write the same content to `{output.implementation-review-visit.path}`
+      as the per-cycle review record.
     outputs:
       - name: implementation-review
         path: runtime/github-issue-fix/{task_id}/review-implementation.md
         description: Implementation-quality review findings.
+      - name: implementation-review-visit
+        path: runtime/github-issue-fix/{task_id}/review-implementation-{visit_count}.md
+        description: Per-cycle implementation-quality review findings.
 
   validation-review:
     description: Review validation coverage, command choice, failures, and CI risk.
     target: "{{review_target}}"
+    visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -450,19 +510,31 @@ states:
 
       Write `{output.validation-review.path}` with:
       - evidence checked
-      - blocking findings, or `none`
+      - blocking validation failures, or `none`
       - non-blocking follow-ups, or `none`
-      - validation gaps, or `none`
-      - `Validation ready: yes` or `Validation ready: no`
+      - validation gaps to disclose, or `none`
+      - `Validation blocking: yes` only when focused checks failed, required
+        configured validation failed, changed code cannot be shown to compile
+        in the affected area, or no credible focused validation path was run;
+        otherwise `Validation blocking: no`
+      - `Validation ready: yes` when no validation-blocking failure remains.
+        Missing broad/full-suite validation may still be listed as a disclosure
+        gap, especially for draft PRs.
+
+      Also write the same content to `{output.validation-review-visit.path}` as
+      the per-cycle review record.
     outputs:
       - name: validation-review
         path: runtime/github-issue-fix/{task_id}/review-validation.md
         description: Validation-focused review findings.
+      - name: validation-review-visit
+        path: runtime/github-issue-fix/{task_id}/review-validation-{visit_count}.md
+        description: Per-cycle validation-focused review findings.
 
   aggregate-review:
     description: Combine focused reviews into one PR-readiness decision for this cycle.
     target: "{{review_target}}"
-    visits: {{review_passes}}
+    visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -489,27 +561,85 @@ states:
       Aggregate focused review cycle {visit_count} of {visits} for Task
       {task_id}: {task_title}.
 
+      Publication needs at least {{review_passes}} focused review cycle(s).
+      If blockers are found after the required review cycle count, mark them
+      clearly instead of treating publication as ready.
+
       Read the requirements, spec, implementation, and validation review
       artifacts. Do not introduce new broad review themes here; reconcile the
       focused findings into a single action list for the implementer.
+
+      Readiness policy:
+      - Requirements, spec/grund, and implementation blockers always block
+        publication.
+      - Validation failures in focused checks, explicitly configured
+        validation commands, or affected-area compile/test checks block
+        publication.
+      - Missing full repository builds, full functional suites, exact CI
+        matrices, or documentation renders are validation gaps to disclose, not
+        blockers by themselves, when focused validation for the issue behavior
+        passed or was credibly covered by a narrower check.
+      - For `publication_mode=draft`, publishable means suitable for maintainer
+        review with honest validation disclosure. Do not block a draft PR only
+        because expensive broad validation was not run.
+      - For `publication_mode=ready`, broad validation gaps may block when they
+        are important enough that the PR should not be marked ready for review.
+      - For `publication_mode=no-pr`, use the same readiness judgment, but the
+        publication state records local-only output instead of pushing.
 
       Write `{output.review-summary.path}` with:
       - review cycle number
       - requirements blockers, or `none`
       - spec/grund blockers, or `none`
       - implementation blockers, or `none`
-      - validation blockers or gaps, or `none`
+      - validation blockers, or `none`
+      - validation gaps to disclose, or `none`
       - non-blocking follow-ups, or `none`
-      - `Ready to publish: yes` only when all focused reviews are ready and no
-        important validation gaps remain; otherwise `Ready to publish: no`
+      - `Fixable blockers: yes` when the implementation agent can address the
+        blockers in the issue worktree; otherwise `Fixable blockers: no`
+      - `External blockers: yes` when the blocker needs unavailable
+        credentials, missing external infrastructure, maintainer/product
+        decisions, or user information; otherwise `External blockers: no`
+      - `Ready to publish: yes` when requirements/spec/implementation are ready
+        and no validation blocker remains under the readiness policy above;
+        otherwise `Ready to publish: no`
+
+      Also write the same content to `{output.review-summary-visit.path}` as the
+      per-cycle aggregate record.
     outputs:
       - name: review-summary
         path: runtime/github-issue-fix/{task_id}/review-summary.md
         description: Aggregated focused-review findings and PR readiness.
+      - name: review-summary-visit
+        path: runtime/github-issue-fix/{task_id}/review-summary-{visit_count}.md
+        description: Per-cycle aggregated focused-review findings and PR readiness.
+
+  review-dispatch:
+    description: Deterministically route the aggregate review verdict to publication, repair, or handoff.
+    visits: {{review_passes + review_fix_attempts}}
+    program:
+      command:
+        - bash
+        - -lc
+        - |
+          set -eu
+          summary="runtime/github-issue-fix/{task_id}/review-summary.md"
+          if grep -Eiq '^Ready to publish:[[:space:]]*yes[[:space:]]*$' "$summary"; then
+            exit 0
+          fi
+          if grep -Eiq '^External blockers:[[:space:]]*yes[[:space:]]*$' "$summary"; then
+            exit 2
+          fi
+          exit 1
+    program_timeout: 30s
+    inputs:
+      - name: review-summary
+        path: runtime/github-issue-fix/{task_id}/review-summary.md
 
   address-review:
     description: Address blocking findings from the latest focused review cycle.
     target: "{{implementation_target}}"
+    visits: {{review_fix_attempts}}
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -531,12 +661,17 @@ states:
       a no-op. Otherwise, fix only the blocking findings inside the recorded
       worktree. Preserve the issue scope and do not broaden the PR.
 
-      Write `{output.review-fix-note.path}` with findings addressed, files
-      changed, and any validation that should be rerun.
+      Write `{output.review-fix-note.path}` and
+      `{output.review-fix-note-visit.path}` with findings addressed, files
+      changed, and any validation that should be rerun. The stable file is the
+      latest repair note; the visit file is a durable per-cycle record.
     outputs:
       - name: review-fix-note
         path: runtime/github-issue-fix/{task_id}/review-fix.md
         description: Summary of fixes applied after review.
+      - name: review-fix-note-visit
+        path: runtime/github-issue-fix/{task_id}/review-fix-{visit_count}.md
+        description: Per-cycle summary of fixes applied after review.
 
   publish-pr:
     description: Push the reviewed branch and open or update the issue PR.
@@ -555,9 +690,11 @@ states:
     instructions: |
       Publish the issue fix for Task {task_id}: {task_title}.
 
-      First inspect `{input.review-summary.path}`. If it has blocking findings,
-      important validation gaps, or `Ready to publish: no`, do not publish.
-      Write the publication note as blocked and leave the branch local.
+      First inspect `{input.review-summary.path}`. If it has blocking findings
+      or `Ready to publish: no`, do not publish. Write the publication note as
+      blocked and leave the branch local. Do not override `Ready to publish:
+      yes` merely because the summary lists validation gaps to disclose; those
+      gaps belong in the PR body.
 
       Publication mode is `{{publication_mode}}`:
       - `no-pr`: do not perform any external GitHub writes. Do not push, open
@@ -581,8 +718,8 @@ states:
       ambiguous remote.
 
       The PR body must include the issue link, spec-fit summary, implementation
-      summary, validation evidence, review readiness, and any remaining human
-      follow-up.
+      summary, validation evidence, validation gaps to disclose, review
+      readiness, and any remaining human follow-up.
 
       Resolve configured PR labels before applying them: `{{pr_labels}}`.
       Check the target repository's existing labels with `gh label list` or the
@@ -598,6 +735,36 @@ states:
       - name: publication-note
         path: runtime/github-issue-fix/{task_id}/publication.md
         description: PR publication or local-only result.
+
+  record-blocked-publication:
+    description: Record that review blockers prevented safe PR publication.
+    target: "{{implementation_target}}"
+    inputs:
+      - name: worktree-ref
+        path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
+      - name: spec-fit
+        path: runtime/github-issue-fix/issue-intake/spec-fit.md
+      - name: validation-note
+        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: review-summary
+        path: runtime/github-issue-fix/{task_id}/review-summary.md
+    instructions: |
+      Record blocked publication for Task {task_id}: {task_title}.
+
+      The bounded review/fix loop is exhausted and `{input.review-summary.path}`
+      still reports blockers or `Ready to publish: no`.
+      Do not push, open or update a PR, apply labels, request reviewers, or post
+      issue comments, regardless of publication mode. Leave the branch local.
+
+      Write `{output.publication-note.path}` with local-only blocked status,
+      branch, commit SHA when available, the remaining review blockers,
+      validation evidence, and remaining human action.
+    outputs:
+      - name: publication-note
+        path: runtime/github-issue-fix/{task_id}/publication.md
+        description: Local-only result explaining why publication was blocked.
 
   completed:
     description: Issue workflow is complete.
@@ -654,22 +821,49 @@ transitions:
     description: Focused reviews are ready for aggregation.
 
   - from: aggregate-review
+    to: review-dispatch
+    description: Aggregate review summary is ready for deterministic routing.
+
+  - from: review-dispatch
+    to: publish-pr
+    exit_code: 0
+    condition: visitCount >= {{review_passes}}
+    description: The aggregate review is ready and required focused review cycles are complete.
+
+  - from: review-dispatch
+    to: validate-fix
+    exit_code: 0
+    condition: visitCount < {{review_passes}}
+    description: The aggregate review is ready, but required focused review cycles remain.
+
+  - from: review-dispatch
     to: address-review
-    condition: visitCount < visits
-    description: More focused review cycles remain; address findings before the next validation.
+    exit_code: 1
+    condition: visitCount <= {{review_fix_attempts}}
+    description: The aggregate review is not ready and fix attempts remain.
+
+  - from: review-dispatch
+    to: record-blocked-publication
+    exit_code: 1
+    condition: visitCount > {{review_fix_attempts}}
+    description: The aggregate review is not ready and fix attempts are exhausted; record blocked publication.
+
+  - from: review-dispatch
+    to: github-handoff
+    exit_code: 2
+    description: The aggregate review found an external or human-only blocker.
 
   - from: address-review
     to: validate-fix
     description: Review findings were addressed; validate again.
 
-  - from: aggregate-review
-    to: publish-pr
-    condition: visitCount >= visits
-    description: Required focused review cycles are complete; publish or report local-only status.
-
   - from: publish-pr
     to: completed
     description: Publication result was recorded.
+
+  - from: record-blocked-publication
+    to: completed
+    description: Blocked publication result was recorded.
 
   - from: "*"
     to: cancelled
