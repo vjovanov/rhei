@@ -1,6 +1,6 @@
 
 /// Execute the `complete` subcommand: transition a task to a terminal state,
-/// write the result to `runtime/results/<task-id>.md`, link it from the task
+/// write the central state ledger and result artifact, link it from the task
 /// body, and remove the assignee.
 ///
 /// The target terminal state is chosen automatically: the first non-cancelled

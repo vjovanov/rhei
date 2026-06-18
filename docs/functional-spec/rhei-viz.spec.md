@@ -170,6 +170,17 @@ the selected task or subtask it shows, top to bottom:
 - **Head** — glyph, id, title, the state pill, and flags (`initial`/`terminal`/
   `gating` from the machine, plus `root task` or `depth N`), followed by the
   state's description.
+- **Last state** — always shown as its own section for the selected node. The
+  collapsed row is labeled `last state` and shows the state immediately before
+  the current persisted state. Expanding the row shows the ordered earlier
+  states derived from the command-written central state-transition ledger at
+  `runtime/state-transitions.log`. Each ledger line is deterministic and
+  timestamp-free: `<task-id> <from>@<to>`. New commands write state history to
+  that central ledger. The live and static renderers may combine the central
+  ledger with `runtime/transitions.log` to repair older or partially written run
+  histories; legacy per-task result headings are used only when no central
+  history exists for that task. If no last state or earlier state is recorded,
+  the expanded row says so instead of hiding the section.
 - **Dependencies** — two columns: **depends on (Prior)** with each prerequisite as
   a chip marked satisfied when terminal, and **unblocks** with the nodes waiting
   on this one. Unresolved external priors render as flat chips. A "waiting on"
@@ -340,7 +351,7 @@ type Snapshot = {
   plan_state?: string;          // derived, §9
   about?: string;               // plan overview prose, shown above the machine
   accounting?: AccountingRunSummary;
-  tasks: TaskRow[];             // id, title, parent, depth, state, visit_count?, prior
+  tasks: TaskRow[];             // id, title, parent, depth, state, visit_count?, prior, history?
   machine: Machine;             // the resolved state machine, flattened (below)
   capabilities?: Capabilities;   // live-only mutation affordances
   // plus existing run, slot, journal, ready/deferred, and link fields
@@ -348,6 +359,11 @@ type Snapshot = {
 
 type Capabilities = {
   gate_transition?: boolean;     // true only when POST /transition-gate is wired
+};
+
+type StateHistoryEntry = {
+  from: string;                  // parsed from `<task-id> <from>@<to>`
+  to: string;
 };
 
 type Machine = {

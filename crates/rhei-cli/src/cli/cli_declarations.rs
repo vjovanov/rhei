@@ -80,7 +80,7 @@ Execution:
   cost        Inspect run token and cost accounting artifacts
   snapshot    Inspect, prune, or continue from session snapshots
   next        Transition the next ready task to the next state
-  complete    Complete a task: transition to terminal state, write result file,\n              link it from the task, and remove the assignee
+  complete    Complete a task: transition to terminal state, write ledger/result,\n              link it from the task, and remove the assignee
   reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
 Setup:
@@ -386,8 +386,8 @@ enum Commands {
         #[arg(long)]
         peek: bool,
     },
-    /// Complete a task: transition to terminal state, write result file,
-    /// link it from the task, and remove the assignee.
+    /// Complete a task: transition to terminal state, write the state ledger and
+    /// result artifact, link it from the task, and remove the assignee.
     Complete {
         /// Path to the markdown plan file (.rhei.md)
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]

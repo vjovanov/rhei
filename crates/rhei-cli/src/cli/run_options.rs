@@ -404,7 +404,12 @@ fn load_plan_for_dashboard(
     machine: &rhei_validator::StateMachine,
 ) -> Option<rhei_viz_model::VizModel> {
     let loaded = load_plan(plan_path).ok()?;
-    Some(rhei_viz::build(&loaded.rhei, machine))
+    let workspace_root = if workspace::is_workspace(plan_path) {
+        plan_path
+    } else {
+        plan_path.parent().unwrap_or_else(|| Path::new("."))
+    };
+    Some(rhei_viz::build_with_history(&loaded.rhei, machine, workspace_root))
 }
 
 impl

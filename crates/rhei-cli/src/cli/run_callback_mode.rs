@@ -227,6 +227,13 @@ fn run_callback_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
+                    append_transition_audit_entry(
+                        input,
+                        &task_file,
+                        &task_id_str,
+                        &current_state,
+                        &effective_to,
+                    )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,

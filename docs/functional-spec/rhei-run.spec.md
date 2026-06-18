@@ -99,8 +99,10 @@ from silently completing fresh tasks without executing them.
    self-loop attempts do not emit because the selected transition is known;
    terminal poll exits may emit. See
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
-8. Apply the selected transition. The subprocess **must not** call
-   `rhei transition` or `rhei complete`; the orchestrator owns the transition.
+8. Apply the selected transition and append one central state-transition entry
+   to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. The
+   subprocess **must not** call `rhei transition` or `rhei complete`; the
+   orchestrator owns the transition.
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
@@ -151,7 +153,8 @@ No file lock is acquired, no markdown is rewritten, and no runtime artifacts are
 With `--parallel N`, up to `N` subprocesses run concurrently. The orchestrator:
 
 - Assigns each spawn a slot index.
-- Writes one line to `runtime/transitions.log` per `SlotAssigned` and one per `SlotReleased`; see [Run TUI Specification — Transition Journal](rhei-run-tui.spec.md#17-journal-format).
+- Writes one line to `runtime/transitions.log` per `SlotAssigned` and one per
+  `SlotReleased`; see [Run TUI Specification — Run Event Journal](rhei-run-tui.spec.md#17-journal-format).
 - Serializes every state write through its own file lock, so two agents completing at once cannot corrupt the plan.
 - Refills freed slots immediately: after any subprocess exits and its result is
   processed, the orchestrator re-reads the plan, recomputes the ready set, and

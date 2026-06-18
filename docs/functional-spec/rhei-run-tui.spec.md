@@ -1,13 +1,13 @@
-# FS-rhei-run-tui: `rhei run` TUI and Transition Journal
+# FS-rhei-run-tui: `rhei run` TUI and Run Event Journal
 
-This document specifies a live visualization layer for parallel agent execution under `rhei run` and the persistent transition journal that backs it. The design extracts a reusable frontend crate (`rhei-tui`) that can be driven by any parallel `rhei` subcommand — not only `rhei run` — and preserves the current plain-stdout behavior for non-interactive use.
+This document specifies a live visualization layer for parallel agent execution under `rhei run` and the persistent run-event journal that backs it. The design extracts a reusable frontend crate (`rhei-tui`) that can be driven by any parallel `rhei` subcommand — not only `rhei run` — and preserves the current plain-stdout behavior for non-interactive use.
 
 For the surrounding `rhei run` behavior see [Rhei Usage](rhei-usage.spec.md) and [Agents Specification](rhei-agents.spec.md).
 
 ## Goals
 
 1. **Navigate the whole plan, lead with live work.** When `rhei run` is running in an interactive terminal, the user sees the whole plan as a navigable list and can select any task — running or not — to inspect its surroundings, while live work is foregrounded. Each live task shows its current state, elapsed time, captured agent output, and cost. The terminal surface mirrors the browser Flow view (§FS-rhei-viz) under one visual language (§FS-rhei-viz-ux).
-2. **Keep a light transition log.** Each state transition produces exactly one line in a persistent journal. Every line carries both the transition (`from → to`) and the absolute path to the detailed log for that state.
+2. **Keep a light run-event log.** Each task slot assignment/release produces one line in a persistent journal. State-transition history is centralized separately in `runtime/state-transitions.log` and is surfaced in the Flow surroundings inspector. §FS-rhei-viz.4
 3. **Remain CI-friendly.** When stdout is not a TTY (piped, redirected, CI runners), `rhei run` produces the same line-oriented output as today. The journal is written identically in both modes.
 4. **Be reusable.** Any future parallel `rhei` subcommand reuses the same event surface and frontend.
 
@@ -211,7 +211,7 @@ active. §FS-rhei-cost-accounting
 
 `TasksDeferred` is emitted when tasks were ready in the current pass but not scheduled because another task in the same non-`concurrent` state consumed the available same-state slot. Deferred tasks remain eligible for later passes.
 
-`Message` carries human-oriented engine diagnostics with `info`, `warn`, or `error` severity. `RunLink` carries URLs or file links produced by the run process, such as dashboard links or callback-emitted artifacts. Frontends may render both in a journal pane; they do not represent task state changes.
+`Message` carries human-oriented engine diagnostics with `info`, `warn`, or `error` severity. `RunLink` carries URLs or file links produced by the run process, such as dashboard links or callback-emitted artifacts. Terminal frontends render messages in the Journal view and links in the shared links strip; neither represents a task state change.
 
 `RunFinished` is emitted once with aggregate counts for spawned agents, spawned programs, terminal tasks, total tasks, and accounting totals when available.
 
@@ -233,7 +233,7 @@ The TUI keeps a bounded recent traffic buffer per active slot and may drop displ
 
 ### 1.3. Sink Implementations
 
-- **`JournalSink`** — opens `runtime/transitions.log` in append mode at construction and writes one line per `SlotAssigned` and one line per `SlotReleased`. Line format is fixed-column and tail-friendly (see below). The journal is always written, in every mode.
+- **`JournalSink`** — opens `runtime/transitions.log` in append mode at construction and writes one line per `SlotAssigned` and one line per `SlotReleased`. Line format is fixed-column and tail-friendly (see below). The journal is always written, in every mode. State transitions themselves are recorded by command paths in `runtime/state-transitions.log`. §FS-rhei-viz.4
 - **`StdoutSink`** — reproduces the current `println!` output exactly. It is the default frontend when stdout is not a TTY.
 - **`TuiSink`** — owns a bounded `crossbeam_channel` and a render thread. It implements `EventSink` by pushing events onto the channel; the render thread consumes events and updates the UI. The render thread maintains the shared run model — plan rows and the resolved machine supplied by the host, overlaid with runtime state from the event stream — and draws the Flow surface defined in §1.5.
 
@@ -270,20 +270,21 @@ The terminal surface diverges from the browser in three deliberate ways:
   disjoint workflow, with a state-detail panel, rather than a layered graph.
 - **Running-now and per-slot worker output fold into Flow.** The browser's
   running-now panel and Slots surface (§FS-rhei-viz.5) are not separate terminal
-  views; live workers are marked in the plan list and their captured output
-  appears in the selected task's inspector.
+  views; live workers are marked in the plan list, agent processes use the live
+  spinner, program processes use a yellow dot, and captured output appears in
+  the selected task's inspector.
 
 #### 1.5.1. Shell and shared chrome
 
-Every view shares one frame: a header, tab bar, active body, optional journal
+Every view shares one frame: a header, tab bar, active body, persistent links
 strip, and action bar. The header shows the plan title, derived `plan_state`,
 category counts, running count, compact run cost when usage exists, and the live
-dashboard URL when available (§FS-rhei-viz.1.2 §FS-rhei-viz.9
-§FS-rhei-cost-accounting). The tab bar exposes the terminal views, the journal
-strip previews recent transition lines except in the full Journal view, and the
-action bar shows only keys that currently apply.
+run status (§FS-rhei-viz.1.2 §FS-rhei-viz.9 §FS-rhei-cost-accounting). The tab
+bar exposes the terminal views, the links strip shows the dashboard URL,
+workspace, and run-emitted links, and the action bar shows only keys that
+currently apply. Run-event lines are shown only in the dedicated Journal view.
 
-A single selected task is shared across views: Flow and Tasks move it, Machine
+A single selected task is shared across views: Flow and Cost move it, Machine
 marks its current state, and Cost highlights its rollup. State category, glyph,
 and color come from the same map as scrollback and the browser
 (§FS-rhei-viz.1.1, §FS-rhei-viz-ux.3.2).
@@ -296,23 +297,27 @@ Selection is two-level: the selected task is global, while local focus belongs t
 the active view. The selected task is tracked by id and survives refreshes and
 reordering without scroll jumps (§FS-rhei-viz-ux.4).
 
-Flow has local focus for the outline or inspector. `Enter` on an inspector chip
-selects a neighbor task or marks a target state in Machine, matching the
+Flow has local focus for the outline or inspector. Inspector focus lands on
+section headers first so small terminals can scroll by `depends on / unblocks`,
+`state history`, `next states`, `prompt`, live agent, artifacts, and children.
+`Enter` opens a section's items; opening `prompt` gives the prompt the full
+surroundings pane until `Esc` returns to section headers. `Enter` on a navigable
+item selects a neighbor task or marks a target state in Machine, matching the
 surroundings model of §FS-rhei-viz.4.
 
 | Key | Action |
 | --- | --- |
 | `j` / `k`, `↓` / `↑` | move focus down / up in the active view |
-| `1`–`5` | jump to Flow, Machine, Cost, Journal, Tasks |
+| `1`–`4` | jump to Flow, Machine, Cost, Journal |
 | `h` / `l`, `←` / `→` | previous / next view |
 | `Tab` | (Flow) toggle focus between outline and inspector |
 | `PgUp` / `PgDn` | scroll the focused pane |
-| `Enter` | (Tasks) select row and return to Flow; (inspector chip) follow it; (Flow outline on gating task) open gate choices |
-| `/` | filter the active view (`Flow`/`Tasks`/task-cost rows by id, title, or state; `Machine` by state/task text; `Journal` by line text); `Esc` clears |
+| `Enter` | (inspector header) open its items; (inspector item) activate it; (Flow outline on gating task) open gate choices |
+| `Esc` | close an open inspector section or clear the active modal/filter |
+| `/` | filter the active view (`Flow`/task-cost rows by id, title, or state; `Machine` by state/task text; `Journal` by line text); `Esc` clears |
 | `g` | (Cost) cycle grouping: task → agent → model → state |
-| `s` | (Tasks) cycle sort: id → state → cost |
-| `f` | (Journal) cycle severity/kind filter; (Tasks) cycle state filter |
-| `m` | open the intervene composer for the selected live task (§1.5.5) |
+| `f` | (Journal) cycle severity/kind filter |
+| `m` | message the selected running agent when an intervention channel is available (§1.5.5) |
 | `?` | toggle the key-help overlay |
 | `q` | quit once the run has finished; during a live run, stop with `Ctrl+C` |
 | `Ctrl+C` | restore the terminal and re-raise `SIGINT` (§1.8) |
@@ -322,27 +327,28 @@ surroundings model of §FS-rhei-viz.4.
 Flow is the default view. It renders the plan outline and the selected task's
 surroundings inspector using the browser Flow content order (§FS-rhei-viz.2
 §FS-rhei-viz.4). Running tasks are marked live even if their persisted state is
-idle, and the selected live task shows captured output, elapsed time, and latest
-usage/cost in the inspector (§FS-rhei-viz.5 §FS-rhei-cost-accounting).
+idle: agent processes use the animated live marker, while program processes use
+a static yellow dot. The selected live task shows captured output, elapsed time,
+and latest usage/cost in the inspector (§FS-rhei-viz.5 §FS-rhei-cost-accounting).
 
 On load, the TUI auto-selects the first running task, then the first
 state-derived active task, then the first task. The only animated element is the
 live spinner, which becomes static under reduced motion (§FS-rhei-viz-ux.4).
 
-#### 1.5.4. Machine, Cost, Journal, and Tasks views
+#### 1.5.4. Machine, Cost, and Journal views
 
-Beyond Flow, the tab bar offers four compact views over the same model:
+Beyond Flow, the tab bar offers three compact views over the same model:
 
 - **Machine** — grouped state list plus the focused state's details; the selected
-  task's current state is marked (§FS-rhei-viz.6).
+  task's current state is labeled separately from the keyboard focus row, and
+  authored agent/program process kind colors the state glyph and state name
+  directly. A global Machine legend explains focus, selected-task, process-kind,
+  and state-category markers (§FS-rhei-viz.6).
 - **Cost** — run totals and grouped rollups by task, agent, model, or state;
   coverage gaps carry a glyph, never color alone (§FS-rhei-cost-accounting).
-- **Journal** — full transition journal with severity and text filtering plus
-  dashboard/workspace/run links (§1.7).
-- **Tasks** — flat table of every task with state, current slot, agent,
-  prerequisites, and readiness. Readiness uses the resolved machine's terminal
-  states, so custom terminal states satisfy prerequisites. Pressing Enter returns
-  to Flow with that task selected (§FS-rhei-viz.1.2).
+- **Journal** — full run-event journal with severity and text filtering (§1.7).
+  Links remain in the shared links strip rather than consuming Journal body
+  space.
 
 #### 1.5.5. Live actions: intervene and human gate
 
@@ -425,17 +431,16 @@ lightweight. §FS-rhei-cost-accounting
 
 ### 1.7. Journal Format
 
-`runtime/transitions.log` is a UTF-8, append-only, newline-delimited text file. Each line is one event. Columns are space-separated; columns 1–3 are fixed-width, column 4 is a path, and optional trailing fields are comma-separated key=value pairs.
+`runtime/transitions.log` is a UTF-8, append-only, newline-delimited text file. Each line is one run event. Columns are space-separated; columns 1–3 are fixed-width, column 4 is a path, and optional trailing fields are comma-separated key=value pairs.
 
 ```
-2026-04-21T14:03:22Z  task-042  draft→pending           runtime/logs/task-042-pending.log
-2026-04-21T14:03:22Z  task-042  pending→agent-review    runtime/logs/task-042-agent-review.log
-2026-04-21T14:07:11Z  task-042  agent-review→completed  runtime/logs/task-042-agent-review.log  exit=0,duration=3m49s
+2026-04-21T14:03:22Z  task-042  start@pending           runtime/logs/task-042-pending.log
+2026-04-21T14:07:11Z  task-042  end@pending             runtime/logs/task-042-pending.log  exit=0,duration=3m49s,outcome=completed
 ```
 
 Rules:
 - Timestamps are UTC, RFC 3339, second precision.
-- The transition column uses the UTF-8 arrow `→` (U+2192).
+- The event column uses `start@<state>` for `SlotAssigned` and `end@<state>` for `SlotReleased`.
 - Paths are workspace-relative if inside the workspace, otherwise absolute.
 - Trailing metadata is only added on `SlotReleased` events (`exit`, `duration`, `outcome`).
 - The file is safe to `tail -f` from other shells while `rhei run` is active.

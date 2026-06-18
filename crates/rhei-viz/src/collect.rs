@@ -12,7 +12,7 @@ use rhei_core::{parse, workspace};
 use rhei_validator::StateMachine;
 use rhei_viz_model::VizModel;
 
-use crate::build;
+use crate::build_with_history;
 
 /// A keyed bundle of plans in the shape `rhei-viz-model::render_static` inlines
 /// and the asset's plan selector reads.
@@ -54,7 +54,7 @@ pub fn collect_plans(
             )
         })?;
         let machine = resolve_machine(path, machine_override, &loaded.rhei)?;
-        plans.insert(key.to_string(), build(&loaded.rhei, &machine));
+        plans.insert(key.to_string(), build_with_history(&loaded.rhei, &machine, path));
     }
 
     for plan_path in standalone_plan_files(path)? {
@@ -78,7 +78,8 @@ fn load_plan_file(path: &Path, machine_override: Option<&Path>) -> io::Result<Vi
         )
     })?;
     let machine = resolve_machine(path, machine_override, &rhei)?;
-    Ok(build(&rhei, &machine))
+    let workspace_root = path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(build_with_history(&rhei, &machine, workspace_root))
 }
 
 /// Resolve the state machine for a plan: an explicit `--states` override wins,

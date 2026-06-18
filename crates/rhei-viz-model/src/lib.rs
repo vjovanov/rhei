@@ -56,6 +56,17 @@ pub struct TaskRow {
     /// Prerequisite task ids (`**Prior:**`).
     #[serde(default)]
     pub prior: Vec<String>,
+    /// Durable state-transition history parsed from the central runtime ledger.
+    /// The renderer collapses this to an always-visible last-state section whose
+    /// disclosure shows states earlier than the last one. §FS-rhei-viz.4 §FS-rhei-viz.8
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<StateHistoryEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StateHistoryEntry {
+    pub from: String,
+    pub to: String,
 }
 
 /// The resolved state machine, flattened so the surface can show, per state,
@@ -212,6 +223,7 @@ mod tests {
                 state: "in-progress".into(),
                 visit_count: None,
                 prior: vec![],
+                history: vec![],
             }],
             machine: Machine { name: "rhei".into(), states: vec![] },
         }
