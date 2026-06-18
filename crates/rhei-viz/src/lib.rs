@@ -3,11 +3,14 @@
 //! state, classification), shared by the static and live paths. §AR-rhei-viz-flow.8
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
 
 use rhei_core::ast::{Rhei, Task as AstTask};
 use rhei_validator::{parse_execution_target, parse_task_state, StateArtifactDef, StateMachine};
 use rhei_viz_model::{
-    Artifact, Machine, MachineState, TaskRow, TemplateContext, Transition, VizModel,
+    Artifact, Machine, MachineState, StateHistoryEntry, TaskRow, TemplateContext, Transition,
+    VizModel,
 };
 
 mod collect;
@@ -33,9 +36,19 @@ pub enum Category {
 /// descendants — each carrying its tree `depth` (`0` for a top-level task) and
 /// `parent` id. The asset renders the outline and graph from this list.
 pub fn build(rhei: &Rhei, machine: &StateMachine) -> VizModel {
+    build_inner(rhei, machine, None)
+}
+
+/// Build a [`VizModel`] and attach best-effort per-task state history from the
+/// central `runtime/state-transitions.log` ledger. §FS-rhei-viz.4
+pub fn build_with_history(rhei: &Rhei, machine: &StateMachine, workspace_root: &Path) -> VizModel {
+    build_inner(rhei, machine, Some(workspace_root))
+}
+
+fn build_inner(rhei: &Rhei, machine: &StateMachine, workspace_root: Option<&Path>) -> VizModel {
     let mut tasks = Vec::new();
     for task in &rhei.tasks {
-        collect_task(task, 0, None, machine, &mut tasks);
+        collect_task(task, 0, None, machine, workspace_root, &mut tasks);
     }
     let plan_state = derive_plan_state(&tasks, machine);
     let about = rhei
@@ -59,10 +72,12 @@ fn collect_task(
     depth: u8,
     parent: Option<String>,
     machine: &StateMachine,
+    workspace_root: Option<&Path>,
     out: &mut Vec<TaskRow>,
 ) {
     let id = task.id.to_string();
     let parsed = parse_task_state(&task.state, machine);
+    let history = workspace_root.map(|root| load_task_history(root, &id)).unwrap_or_default();
     out.push(TaskRow {
         id: id.clone(),
         title: task.title.clone(),
@@ -71,10 +86,159 @@ fn collect_task(
         state: parsed.state,
         visit_count: parsed.visit,
         prior: task.prior.iter().map(ToString::to_string).collect(),
+        history,
     });
     for child in &task.children {
-        collect_task(child, depth + 1, Some(id.clone()), machine, out);
+        collect_task(child, depth + 1, Some(id.clone()), machine, workspace_root, out);
     }
+}
+
+fn load_task_history(workspace_root: &Path, task_id: &str) -> Vec<StateHistoryEntry> {
+    let central_history = load_central_transition_history(workspace_root, task_id);
+    let journal_history = load_task_journal_history(workspace_root, task_id);
+    if !central_history.is_empty() {
+        if journal_history.is_empty() {
+            return central_history;
+        }
+        return merge_history_sources(vec![journal_history, central_history]);
+    }
+    let path = workspace_root.join("runtime").join("results").join(format!("{task_id}.md"));
+    let result_history =
+        fs::read_to_string(path).map(|raw| parse_result_history(&raw)).unwrap_or_default();
+    merge_history_sources(vec![journal_history, result_history])
+}
+
+fn load_central_transition_history(workspace_root: &Path, task_id: &str) -> Vec<StateHistoryEntry> {
+    let path = workspace_root.join("runtime").join("state-transitions.log");
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    parse_central_transition_history(&raw, task_id)
+}
+
+fn parse_central_transition_history(raw: &str, task_id: &str) -> Vec<StateHistoryEntry> {
+    raw.lines()
+        .filter_map(|line| {
+            let (id, movement) = line.trim().split_once(char::is_whitespace)?;
+            if id != task_id {
+                return None;
+            }
+            let (from, to) = movement.trim().split_once('@')?;
+            let from = from.trim();
+            let to = to.trim();
+            if from.is_empty() || to.is_empty() {
+                return None;
+            }
+            Some(StateHistoryEntry { from: from.to_string(), to: to.to_string() })
+        })
+        .collect()
+}
+
+fn parse_result_history(raw: &str) -> Vec<StateHistoryEntry> {
+    raw.lines()
+        .filter_map(|line| {
+            let heading = line.trim().strip_prefix("## ")?;
+            let (from, to) = heading.split_once('\u{2192}').or_else(|| heading.split_once("->"))?;
+            let from = from.trim();
+            let to = to.trim();
+            if from.is_empty() || to.is_empty() {
+                return None;
+            }
+            Some(StateHistoryEntry { from: from.to_string(), to: to.to_string() })
+        })
+        .collect()
+}
+
+fn load_task_journal_history(workspace_root: &Path, task_id: &str) -> Vec<StateHistoryEntry> {
+    let path = workspace_root.join("runtime").join("transitions.log");
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let states = parse_journal_state_path(&raw, task_id);
+    states
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [from, to] if from != to => {
+                Some(StateHistoryEntry { from: from.clone(), to: to.clone() })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn merge_history_sources(sources: Vec<Vec<StateHistoryEntry>>) -> Vec<StateHistoryEntry> {
+    let mut states = Vec::new();
+    for source in sources {
+        let source_states = history_to_states(&source);
+        append_state_path(&mut states, &source_states);
+    }
+    states_to_history(states)
+}
+
+fn history_to_states(history: &[StateHistoryEntry]) -> Vec<String> {
+    let mut states = Vec::new();
+    for entry in history {
+        push_history_state(&mut states, &entry.from);
+        push_history_state(&mut states, &entry.to);
+    }
+    states
+}
+
+fn append_state_path(states: &mut Vec<String>, next: &[String]) {
+    if next.is_empty() {
+        return;
+    }
+    let max_overlap = states.len().min(next.len());
+    let overlap = (1..=max_overlap)
+        .rev()
+        .find(|&len| states[states.len() - len..] == next[..len])
+        .unwrap_or(0);
+    for state in &next[overlap..] {
+        push_history_state(states, state);
+    }
+}
+
+fn states_to_history(states: Vec<String>) -> Vec<StateHistoryEntry> {
+    states
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [from, to] if from != to => {
+                Some(StateHistoryEntry { from: from.clone(), to: to.clone() })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn parse_journal_state_path(raw: &str, task_id: &str) -> Vec<String> {
+    let mut states = Vec::new();
+    for line in raw.lines() {
+        let parts = line.split("  ").collect::<Vec<_>>();
+        if parts.len() < 3 || parts[1] != task_id {
+            continue;
+        }
+        let movement = parts[2];
+        if let Some(state) =
+            movement.strip_prefix("start@").or_else(|| movement.strip_prefix("end@"))
+        {
+            push_history_state(&mut states, state);
+        } else if let Some((from, to)) = movement.split_once('\u{2192}') {
+            push_history_state(&mut states, from.trim());
+            push_history_state(&mut states, to.trim());
+        } else if let Some((from, to)) = movement.split_once("->") {
+            push_history_state(&mut states, from.trim());
+            push_history_state(&mut states, to.trim());
+        }
+    }
+    states
+}
+
+fn push_history_state(states: &mut Vec<String>, state: &str) {
+    let state = state.trim();
+    if state.is_empty() || states.last().is_some_and(|last| last == state) {
+        return;
+    }
+    states.push(state.to_string());
 }
 
 /// Normalize a raw `**State:**` value through the machine (e.g. resolving the

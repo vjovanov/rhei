@@ -225,6 +225,12 @@ Persistence ownership is normative:
   `**Prior:**`, `**Assignee:**`, and `> **Result:**`. In a
   Directory Workspace, those fields are persisted in the workspace task file
   that contains the task.
+- After initial authoring, task state changes must be performed through Rhei
+  commands (`rhei transition`, `rhei complete`, `rhei run`, or another command
+  that explicitly owns state transitions). Operators and agents must not edit
+  `**State:**` lines directly, because direct edits bypass transition
+  validation, compare-and-swap conflict checks, callbacks, artifact checks,
+  counted-visit metadata, and the result-file audit trail.
 - YAML frontmatter under `metadata.tasks.<id>.*` stores auxiliary per-task
   metadata only, such as `stateVisits` counters and custom callback data. It
   must not become a second source of truth for state, dependencies, assignee,
@@ -932,7 +938,7 @@ This section is canonical for artifact enforcement order across commands:
 | Command | Enforced artifacts | Ordering |
 |---------|--------------------|----------|
 | `rhei next` | Current-state `inputs` only | Before a task is claimable, resolve the current state's inputs. Required inputs must exist; optional inputs are resolved and exposed but missing optional inputs do not block. Claim mode re-checks under the file lock immediately before writing `**Assignee:**`. `next --peek` does not check outputs, run callbacks, write state, or write result files; claim mode may auto-advance non-runnable initial states as defined in the next-command spec. |
-| `rhei transition` | Source-state `outputs`; target-state `inputs` | After the compare-and-swap guard and edge validation, execute `on_leave` unless skipped. Then check required source outputs, resolve target inputs for the final target state, and reject before the state write if any required artifact is missing. Optional target inputs are skipped for blocking but still resolved. Write the target state, execute `on_enter` unless skipped, append the transition audit entry to the result file, then atomically persist the task file. |
+| `rhei transition` | Source-state `outputs`; target-state `inputs` | After the compare-and-swap guard and edge validation, execute `on_leave` unless skipped. Then check required source outputs, resolve target inputs for the final target state, and reject before the state write if any required artifact is missing. Optional target inputs are skipped for blocking but still resolved. Write the target state, execute `on_enter` unless skipped, atomically persist the task file, then append the transition audit entry to `runtime/state-transitions.log`. |
 | `rhei complete` | Source-state `outputs`; completion-target `inputs` | Select the non-cancelled terminal completion target first. Then use the same transition artifact order as `rhei transition`: `on_leave`, source outputs, target inputs, state write, `on_enter`. After the transition succeeds, append the result-file entry, remove `**Assignee:**`, add or preserve the result block, and atomically persist the task file. |
 | `rhei run` | Current-state `inputs`; source-state `outputs` for successful work; target-state `inputs` | Before spawning work, the ready-set scan checks current-state required inputs and skips missing optional inputs for blocking. After a subprocess exits `0`, required source outputs are part of the completion condition; if any are missing, no transition fires and the task stays in its current state. Non-zero, timeout, and tooling-failure routes select error transitions as specified by `rhei run` and do not require normal source outputs. For any selected target transition, required target inputs are checked before the state write and optional target inputs do not block. A successful-work transition also re-checks source outputs after `on_leave` and before the state write. Result-file writes, if any, happen only after the transition succeeds. |
 

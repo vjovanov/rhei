@@ -685,6 +685,7 @@ fn try_auto_advance_task(
         &to_state,
         no_callbacks,
     )?;
+    append_transition_audit_entry(input, &task_file, task_id_str, current_state, &effective_to)?;
 
     Ok(Some(effective_to))
 }

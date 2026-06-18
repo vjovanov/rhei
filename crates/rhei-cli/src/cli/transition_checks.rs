@@ -180,3 +180,16 @@ fn execute_transition(
         TransitionOrigin::default(),
     )
 }
+
+/// Append the command-owned central audit entry for a state change that was
+/// already applied by the run orchestrator. §FS-rhei-run.3 §FS-rhei-complete.3.1
+fn append_transition_audit_entry(
+    input: &Path,
+    task_file: &Path,
+    task_id_str: &str,
+    from: &str,
+    to: &str,
+) -> MietteResult<()> {
+    let root = result_workspace_root(input, task_file);
+    append_result_entry(&root, task_id_str, from, to, None)
+}

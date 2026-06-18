@@ -34,22 +34,43 @@ before child nodes):
 
 This keeps task files concise — the result detail lives in a separate artifact under `runtime/`, consistent with how other runtime outputs (findings, verifications, fixes) are stored in directory workspaces.
 
-### 3.1. Result File Format
+### 3.1. State Transition Ledger
 
-The result file contains one entry per state transition, appended by both `rhei transition` and `rhei complete`. Each entry is a markdown heading with the transition arrow followed by the message (if any):
+Every task state transition is appended to one central file:
+
+```text
+runtime/state-transitions.log
+```
+
+Each line is deterministic and timestamp-free:
+
+```text
+<task-id> <from>@<to>
+```
+
+This file is the source of truth for task state history across `rhei
+transition`, `rhei complete`, `rhei run`, callbacks, system transitions, and
+human-gate dashboard transitions.
+
+### 3.2. Result File Format
+
+The result file stores completion result detail. Each completion appends a
+message entry:
 
 ```markdown
-## <from> → <to>
+## Result
 
 <message>
 ```
 
-`rhei transition` appends an entry with no message body. `rhei complete` appends an entry with the mandatory `--result` message. This gives every task a complete, ordered audit trail of its state transitions.
+`rhei complete` appends the mandatory `--result` message to the task result
+file. The ordered audit trail of state transitions lives in
+`runtime/state-transitions.log`.
 
-Example result file after a task goes `pending → completed`:
+Example result file after a task completes:
 
 ```markdown
-## pending → completed
+## Result
 
 Added avatar_url column and migration 0042
 ```
@@ -66,12 +87,15 @@ Added avatar_url column and migration 0042
 6. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
 7. Execute the state transition directly (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks, source `outputs:` checks, and completion-target `inputs:` checks) using the artifact order defined in [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts). This is performed inline — `rhei complete` does **not** delegate to `rhei transition`, so only one result entry is appended per invocation.
 8. If callbacks redirect the transition, the effective target must still be a non-cancelled terminal completion state. If it is non-terminal or `cancelled`, the command fails without writing completion result artifacts or removing the assignee.
-9. Append a `## <from> → <to>` entry with the `--result` message to `runtime/results/<task-id>.md` (create directories as needed).
+9. Append `<task-id> <from>@<to>` to `runtime/state-transitions.log` and append
+   the `--result` message to `runtime/results/<task-id>.md` (create directories
+   as needed).
 10. Remove the `**Assignee:**` line from the task (no-op if absent).
 11. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
 12. Write the task file atomically (temp file + rename).
 
-`rhei transition` also appends a `## <from> → <to>` entry (with no message body) to the same result file. This means the result file accumulates the full transition history regardless of which command performed each transition.
+`rhei transition` writes only the central state-transition ledger; it does not
+need a per-task result file when there is no result message.
 
 **Note on child nodes:** In the current hierarchical node model, child nodes
 are full stateful task nodes. `rhei complete` must therefore inspect all

@@ -31,7 +31,7 @@ fn execute_system_timeout_transition(
     to: &str,
     timeout_label: &str,
     no_callbacks: bool,
-) -> MietteResult<()> {
+) -> MietteResult<String> {
     let mut data = serde_json::Map::new();
     data.insert("timeout".to_string(), serde_json::Value::String(timeout_label.to_string()));
     execute_transition_with_origin(
@@ -48,7 +48,6 @@ fn execute_system_timeout_transition(
             skip_source_outputs: true,
         },
     )
-    .map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -62,7 +61,7 @@ fn execute_system_tooling_transition(
     kind: ToolingKind,
     unavailable: &[String],
     no_callbacks: bool,
-) -> MietteResult<()> {
+) -> MietteResult<String> {
     let mut data = serde_json::Map::new();
     data.insert(
         "unavailable".to_string(),
@@ -85,7 +84,6 @@ fn execute_system_tooling_transition(
             skip_source_outputs: true,
         },
     )
-    .map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -98,7 +96,7 @@ fn execute_system_program_exit_transition(
     to: &str,
     exit_code: i32,
     no_callbacks: bool,
-) -> MietteResult<()> {
+) -> MietteResult<String> {
     let mut data = serde_json::Map::new();
     data.insert("exitCode".to_string(), serde_json::Value::from(exit_code));
     execute_transition_with_origin(
@@ -115,5 +113,4 @@ fn execute_system_program_exit_transition(
             skip_source_outputs: exit_code != 0,
         },
     )
-    .map(|_| ())
 }

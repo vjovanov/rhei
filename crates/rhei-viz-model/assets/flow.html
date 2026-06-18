@@ -406,14 +406,14 @@ function nodeGlyph(n){ return GLYPH[nodeCategory(n)]; }
 // ---- index the plan into a navigable node graph -----------------------------
 function idDepth(id){ return id.split(".").length - 1; }
 function parentId(id){ const s=id.split("."); return s.length>1 ? s.slice(0,-1).join(".") : null; }
-// The model is a flat TaskRow[] (id, title, parent, depth, state, prior) in
+// The model is a flat TaskRow[] (id, title, parent, depth, state, prior, history) in
 // source order — top-level tasks and their descendants. §FS-rhei-viz §8
 function indexPlan(plan){
   const byId={}, nodes=[], order=[];
   const add=n=>{ n.children=[]; n.dependents=[]; byId[n.id]=n; nodes.push(n); order.push(n.id); };
   for(const t of (plan.tasks||[])){
     const depth = (typeof t.depth==="number") ? t.depth : idDepth(t.id);
-    add({ id:t.id, title:t.title, state:t.state, prior:t.prior||[],
+    add({ id:t.id, title:t.title, state:t.state, prior:t.prior||[], history:t.history||[],
           visit_count:t.visit_count,
           kind: depth===0?"task":"sub", depth,
           parent: (t.parent!=null ? t.parent : parentId(t.id)) });
@@ -565,20 +565,22 @@ function renderSurroundings(){
   if(n.prior.some(p=>IX.byId[p]&&!isTerminal(IX.byId[p].state)))
     frag.appendChild(el("div",{class:"none", text:"waiting on: "+n.prior.filter(p=>IX.byId[p]&&!isTerminal(IX.byId[p].state)).join(", ")}));
 
-  // came from (incoming transitions) — which states this one can be entered from
-  frag.appendChild(el("h3",{text:"came from"}));
-  const fc=el("div",{class:"chips"});
-  const inc=incomingFor(n.state);
-  for(const e of inc.explicit){ const chip=el("span",{class:"chip"});
-    chip.appendChild(dot(stateColor(e.from)));
-    chip.appendChild(document.createTextNode(e.from+" →"));
-    if(e.condition) chip.appendChild(el("span",{class:"cond",text:"["+e.condition+"]"}));
-    chip.addEventListener("click",()=>highlightState(e.from));
-    fc.appendChild(chip); }
-  if(inc.wildcard) fc.appendChild(el("span",{class:"chip flat",text:"(from any · *)"}));
-  if(!inc.explicit.length && !inc.wildcard)
-    fc.appendChild(el("span",{class:"none",text: ms&&ms.initial?"— initial state":"—"}));
-  frag.appendChild(fc);
+  // state history — task-specific durable history, capped to the last three
+  frag.appendChild(el("h3",{text:"state history"}));
+  const pc=el("div",{class:"chips"});
+  const prev=previousStates(n);
+  if(prev.length){
+    for(const s of prev){
+      const chip=el("span",{class:"chip flat"});
+      chip.appendChild(dot(stateColor(s)));
+      chip.appendChild(document.createTextNode(s));
+      chip.addEventListener("click",()=>highlightState(s));
+      pc.appendChild(chip);
+    }
+  } else {
+    pc.appendChild(el("span",{class:"none",text:"— no state history recorded"}));
+  }
+  frag.appendChild(pc);
 
   // next state (outgoing transitions)
   frag.appendChild(el("h3",{text:"next state"}));
@@ -766,14 +768,12 @@ function renderGateTransition(node, ms){
   box.appendChild(row);
   return box;
 }
-function incomingFor(stateName){
-  const out={ explicit:[], wildcard:false };
-  const states=(IX.plan.machine&&IX.plan.machine.states)||[];
-  for(const s of states) for(const t of s.transitions){
-    if(t.to!==stateName) continue;
-    if(t.wildcard) out.wildcard=true; else out.explicit.push({ from:s.name, condition:t.condition });
-  }
-  return out;
+function previousStates(node){
+  return (node.history||[])
+    .map(h=>h&&h.from)
+    .filter(Boolean)
+    .reverse()
+    .slice(0,3);
 }
 // ANSI 16-color palette (dark terminal) used to render the agent's own coloring.
 const TERM_COLOR = {

@@ -396,7 +396,7 @@ fn next_command(
         let to_state = find_next_transition(task, &loaded.rhei, &machine)?.ok_or_else(|| {
             miette!("no forward transition available from state '{}'", current_state_raw)
         })?;
-        execute_transition(
+        let effective_to = execute_transition(
             TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
             &callback_paths,
             &machine,
@@ -404,7 +404,15 @@ fn next_command(
             &current_state,
             &to_state,
             no_callbacks,
-        )?
+        )?;
+        append_transition_audit_entry(
+            input,
+            &task_file,
+            &task_id_str,
+            &current_state,
+            &effective_to,
+        )?;
+        effective_to
     } else {
         current_state.clone()
     };

@@ -31,8 +31,10 @@ State values passed to `--from` and `--to` follow the state-value rendering rule
 8. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
 9. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
 10. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
-11. Append a `## <from> → <to>` entry (with no message body) to `runtime/results/<task-id>.md`, creating the directory if needed. This keeps the transition audit trail consistent with entries written by `rhei complete`.
-12. Write the task file atomically (temp file + rename) and release the lock.
+11. Write the task file atomically (temp file + rename) and release the lock.
+12. Append one state-transition entry to `runtime/state-transitions.log` as
+    `<task-id> <from>@<to>`, creating the `runtime/` directory if needed. The
+    file is the central, deterministic audit trail for all task state changes.
 
 `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment and unassignment are owned by `rhei next` and `rhei complete` respectively.
 

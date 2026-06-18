@@ -267,10 +267,11 @@ fn result_workspace_root(input: &Path, task_file: &Path) -> PathBuf {
     }
 }
 
-/// Append a state-transition entry to `runtime/results/<task-id>.md`.
+/// Append a state-transition entry to the central transition ledger and, when a
+/// completion message is present, to `runtime/results/<task-id>.md`.
 ///
-/// Each entry is a markdown heading (`## from → to`) optionally followed by
-/// a message body.  The file is created (with directories) on the first call.
+/// State history is centralized in `runtime/state-transitions.log`. Result
+/// files are task-specific completion artifacts, not the state-history source.
 fn append_result_entry(
     workspace_root: &Path,
     task_id: &str,
@@ -278,6 +279,12 @@ fn append_result_entry(
     to: &str,
     message: Option<&str>,
 ) -> MietteResult<()> {
+    append_state_transition_log_entry(workspace_root, task_id, from, to)?;
+
+    let Some(msg) = message else {
+        return Ok(());
+    };
+
     let results_dir = workspace_root.join("runtime").join("results");
     fs::create_dir_all(&results_dir)
         .map_err(|err| miette!("failed to create runtime/results directory: {err}"))?;
@@ -290,13 +297,37 @@ fn append_result_entry(
         .open(&result_file)
         .map_err(|err| miette!("failed to open result file: {err}"))?;
 
-    writeln!(file, "## {} \u{2192} {}", from, to)
+    writeln!(file, "## Result")
         .map_err(|err| miette!("failed to write result entry: {err}"))?;
-    if let Some(msg) = message {
-        writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
-        writeln!(file, "{}", msg).map_err(|err| miette!("failed to write result entry: {err}"))?;
-    }
     writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
+    writeln!(file, "{}", msg).map_err(|err| miette!("failed to write result entry: {err}"))?;
+    writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
+
+    Ok(())
+}
+
+/// Append one timestamp-free `<task-id> <source>@<destination>` transition line.
+/// §FS-rhei-viz.4 §FS-rhei-run.3
+fn append_state_transition_log_entry(
+    workspace_root: &Path,
+    task_id: &str,
+    from: &str,
+    to: &str,
+) -> MietteResult<()> {
+    let runtime_dir = workspace_root.join("runtime");
+    fs::create_dir_all(&runtime_dir)
+        .map_err(|err| miette!("failed to create runtime directory: {err}"))?;
+    let transitions_file = runtime_dir.join("state-transitions.log");
+
+    use std::fs::OpenOptions;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&transitions_file)
+        .map_err(|err| miette!("failed to open state transition log: {err}"))?;
+
+    writeln!(file, "{} {}@{}", task_id, from, to)
+        .map_err(|err| miette!("failed to write state transition log entry: {err}"))?;
 
     Ok(())
 }

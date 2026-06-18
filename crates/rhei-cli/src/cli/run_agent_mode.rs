@@ -1676,6 +1676,13 @@ fn run_agent_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
+                    append_transition_audit_entry(
+                        input,
+                        &task_file,
+                        task_id_str,
+                        current_state,
+                        &effective_to,
+                    )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
@@ -1952,7 +1959,7 @@ fn run_agent_mode(
                             } else {
                                 task_file.clone()
                             };
-                            execute_system_program_exit_transition(
+                            let effective_to = execute_system_program_exit_transition(
                                 TransitionFiles {
                                     task_file: &task_file,
                                     metadata_file: &metadata_file,
@@ -1965,11 +1972,18 @@ fn run_agent_mode(
                                 exit_code,
                                 opts.no_callbacks(),
                             )?;
+                            append_transition_audit_entry(
+                                input,
+                                &task_file,
+                                task_id_str,
+                                current_state,
+                                &effective_to,
+                            )?;
                             run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
                                 task_id_str,
                                 current_state,
-                                to_state
+                                effective_to
                             );
                             advanced_any = true;
                         } else if program_outcome.status.success() {

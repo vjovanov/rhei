@@ -37,6 +37,7 @@ fn task_row(id: &str, title: &str, state: &str, parent: Option<&str>, depth: u8)
         state: state.to_string(),
         visit_count: None,
         prior: Vec::new(),
+        history: Vec::new(),
     }
 }
 
