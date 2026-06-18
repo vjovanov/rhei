@@ -253,6 +253,12 @@ states:
       grund, preserve its citation rules. If the implementation needs spec or
       documentation updates, include them in this same change set and cite the
       most-specific relevant `§` IDs according to the target repo's rules.
+      Do not add internal grund `§...` citations to public user-facing
+      documentation such as docs pages, README files, guides, tutorials,
+      changelogs, or release notes unless that file already uses public-facing
+      grund citations or repository instructions explicitly require them. Use
+      citations in specs, source comments, and tests where repo rules require
+      them.
 
       Apply the smallest fix that addresses the issue and stays consistent with
       the spec-fit analysis. Do not broaden the scope into unrelated cleanup.
@@ -310,6 +316,23 @@ states:
 
       Do not hide failures. A failing focused check is a validation blocker.
       A skipped broad check is a disclosed gap, not a blocker by itself.
+
+      Always check whether the diff adds internal grund citations to public
+      user-facing documentation. A command like this should produce no output:
+
+        git diff --unified=0 --diff-filter=ACMRT -- '*.adoc' '*.md' '*.rst' \
+          ':(exclude).agents/**' \
+          ':(exclude)docs/functional-spec/**' \
+          ':(exclude)docs/architecture/**' \
+          ':(exclude)docs/decisions/**' \
+          ':(exclude)docs/adr/**' \
+          | grep -E '^\+[^+].*§[A-Za-z0-9_./-]+'
+
+      If that command reports newly added `§...` markers in public docs, treat
+      it as a validation blocker unless repository instructions explicitly
+      require public-facing grund citations or the touched file already uses
+      them for readers. Remove the public-doc citations during the review-fix
+      loop when they are not required.
 
       Write `{output.validation-note.path}` and
       `{output.validation-note-visit.path}` with every command, working
@@ -401,6 +424,8 @@ states:
       - grund declaration and citation requirements when configured
       - whether spec or documentation updates are required for the behavior
       - whether the change adds product surface outside the accepted scope
+      - whether internal `§...` citations were added to public user-facing
+        documentation without explicit repository guidance requiring them
 
       Write `{output.spec-review.path}` with:
       - evidence checked
@@ -503,6 +528,8 @@ states:
       - whether skipped commands are justified with credible narrower checks
       - whether likely CI-only failures were considered
       - whether the PR body can honestly report validation evidence
+      - whether the public-doc `§...` citation check was run when public docs
+        changed, and whether any newly added internal citations remain
 
       Write `{output.validation-review.path}` with:
       - evidence checked
@@ -571,6 +598,10 @@ states:
       - Validation failures in focused checks, explicitly configured
         validation commands, or affected-area compile/test checks block
         publication.
+      - Newly added internal `§...` citations in public user-facing
+        documentation block publication unless repository instructions
+        explicitly require them or the touched file already uses them for
+        readers.
       - Missing full repository builds, full functional suites, exact CI
         matrices, or documentation renders are validation gaps to disclose, not
         blockers by themselves, when focused validation for the issue behavior

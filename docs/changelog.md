@@ -23,6 +23,8 @@
 - Make `github-issue-fix` review dispatch accept Markdown-bulleted readiness
   markers so `- Ready to publish: yes` routes to publication instead of being
   misread as a failed review.
+- Make `github-issue-fix` block newly added internal grund citations in public
+  user-facing docs unless the target repository explicitly requires them.
 - Run program states in the same live `--parallel` worker pool as agent states,
   so a long-running program consumes one slot while other ready independent work
   continues to be scheduled. PR #43 §FS-rhei-run.5 §FS-rhei-programs.6.3
