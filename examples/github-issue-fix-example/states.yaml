@@ -263,6 +263,10 @@ states:
       Apply the smallest fix that addresses the issue and stays consistent with
       the spec-fit analysis. Do not broaden the scope into unrelated cleanup.
       Do not push or open a PR in this state.
+      Keep annotations visually attached to the declaration they annotate. When
+      adding comments near annotations, put explanatory comments before the
+      annotation block, then place annotations immediately above the method,
+      class, or field with no intervening comments.
 
       Write `{output.implementation-note.path}` with files changed, rationale,
       spec/doc updates, tests added or changed, and known risks.
@@ -476,6 +480,8 @@ states:
       - error handling, edge cases, and compatibility risks
       - test placement and whether changed behavior is covered in code
       - whether unrelated cleanup or broad refactoring slipped in
+      - whether comments were inserted between annotations and the declarations
+        they annotate; comments should precede the annotation block instead
 
       Write `{output.implementation-review.path}` with:
       - evidence checked
