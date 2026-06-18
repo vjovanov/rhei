@@ -624,10 +624,10 @@ states:
         - |
           set -eu
           summary="runtime/github-issue-fix/{task_id}/review-summary.md"
-          if grep -Eiq '^Ready to publish:[[:space:]]*yes[[:space:]]*$' "$summary"; then
+          if grep -Eiq '^[[:space:]]*(-[[:space:]]*)?Ready to publish:[[:space:]]*yes[[:space:]]*$' "$summary"; then
             exit 0
           fi
-          if grep -Eiq '^External blockers:[[:space:]]*yes[[:space:]]*$' "$summary"; then
+          if grep -Eiq '^[[:space:]]*(-[[:space:]]*)?External blockers:[[:space:]]*yes[[:space:]]*$' "$summary"; then
             exit 2
           fi
           exit 1

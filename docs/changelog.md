@@ -20,6 +20,9 @@
 - Make `github-issue-fix` use focused issue-specific validation by default and
   disclose expensive broad validation gaps in draft PRs instead of blocking
   publication by themselves.
+- Make `github-issue-fix` review dispatch accept Markdown-bulleted readiness
+  markers so `- Ready to publish: yes` routes to publication instead of being
+  misread as a failed review.
 - Run program states in the same live `--parallel` worker pool as agent states,
   so a long-running program consumes one slot while other ready independent work
   continues to be scheduled. PR #43 §FS-rhei-run.5 §FS-rhei-programs.6.3
