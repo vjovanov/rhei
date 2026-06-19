@@ -383,7 +383,7 @@ fn observed_snapshot_target(
     if let Some((provider, model)) = pi_jsonl_observed_target(transcript_source) {
         return (provider, model);
     }
-    eprintln!(
+    diag_warn!(
         "warning: pi snapshot transcript '{}' has no parseable provider/model header; falling back to declared target {}:{}",
         transcript_source.display(),
         declared_provider,

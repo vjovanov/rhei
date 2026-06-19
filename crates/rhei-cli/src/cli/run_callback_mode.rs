@@ -49,6 +49,10 @@ fn run_callback_mode(
         machine,
     );
     let sink = frontend.sink.clone();
+    // Route leaf-helper diagnostics through the frontend for the run's duration
+    // instead of letting them write straight to the terminal and corrupt the
+    // TUI. §FS-rhei-run-tui.1.8
+    let diag_guard = RunDiagGuard::install(sink.clone());
     // Held past the frontend drop so the end-of-run summary can read activity
     // after the TUI restores the terminal. §FS-rhei-run-report.3
     let summary_sink = frontend.summary.clone();
@@ -95,12 +99,27 @@ fn run_callback_mode(
     let mut transitions_made = 0u32;
     let mut pass = 0u32;
     let mut visited_ready_states = BTreeSet::<(String, String)>::new();
+    // One-time notice so the gate-wait below does not spam the journal each tick.
+    let mut awaiting_gate_announced = false;
 
     loop {
         let loaded = load_plan(input)?;
         let ready = find_runnable_tasks(&loaded.rhei, machine, &workspace_root);
         if ready.is_empty() {
             if !opts.dry_run() {
+                // Callback-only interactive TUI runs use the same human-gate
+                // surface as agent mode; keep it alive only when gates are the
+                // remaining blocker. §FS-rhei-run-tui.1.5.5
+                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, machine) {
+                    if !awaiting_gate_announced {
+                        run_info!(
+                            "Waiting for human gate decisions — resolve a gate in the UI, or press Ctrl+C to stop."
+                        );
+                        awaiting_gate_announced = true;
+                    }
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
                 if let Some(deadline) = earliest_pending_poll_deadline(&loaded.rhei, machine) {
                     let sleep_secs = deadline.saturating_sub(current_unix_secs()).max(1);
                     run_info!(
@@ -113,6 +132,8 @@ fn run_callback_mode(
             }
             break;
         }
+        // Made progress this pass; re-arm the gate-wait notice for any later gate.
+        awaiting_gate_announced = false;
 
         pass += 1;
         let terminal_count = terminal_task_count(&loaded.rhei, machine);
@@ -287,6 +308,7 @@ fn run_callback_mode(
         },
     });
     frontend.write_frozen_dashboard();
+    drop(diag_guard);
     drop(sink);
     drop(frontend);
 

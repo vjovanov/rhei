@@ -1,12 +1,3 @@
-use crate::event::AgentStream;
-
-pub(super) fn stream_label(stream: AgentStream) -> &'static str {
-    match stream {
-        AgentStream::Stdout => "stdout",
-        AgentStream::Stderr => "stderr",
-    }
-}
-
 pub(super) fn truncate_chars(value: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();

@@ -369,6 +369,142 @@
     }
 
     #[test]
+    fn run_readiness_excludes_gating_tasks() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Gate
+
+## Tasks
+
+### Task 1: Review
+**State:** human-review
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: human-review\n    to: done\n",
+        );
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        // §FS-rhei-run-tui.1.5.7: gate-only runs reach the empty-ready wait path.
+        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
+    }
+
+    #[test]
+    fn human_gate_wait_requires_gates_to_be_the_remaining_blocker() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Mixed Stuck
+
+## Tasks
+
+### Task 1: Human review
+**State:** human-review
+
+### Task 2: Missing input
+**State:** work
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: needs input
+    inputs:
+      - name: brief
+        path: runtime/brief.md
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
+        assert!(has_pending_human_gate(&rhei, &machine));
+        assert!(!should_wait_for_human_gate(&rhei, &machine));
+    }
+
+    #[test]
+    fn human_gate_wait_allows_gate_blocked_remaining_work() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Gate Blocked
+
+## Tasks
+
+### Task 1: Human review
+**State:** human-review
+
+### Task 2: After approval
+**State:** work
+**Prior:** Task 1
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
+        assert!(should_wait_for_human_gate(&rhei, &machine));
+    }
+
+    #[test]
+    fn human_gate_wait_ignores_terminal_gating_states() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Terminal Gate
+
+## Tasks
+
+### Task 1: Already approved
+**State:** approved
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  approved:
+    description: terminal gate
+    gating: true
+    final: true
+transitions: []
+"#,
+        );
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
+        assert!(!has_pending_human_gate(&rhei, &machine));
+        assert!(!should_wait_for_human_gate(&rhei, &machine));
+    }
+
+    #[test]
     fn defaults_only_agent_mode_selects_agent_mode_for_effective_agents() {
         let rhei = rhei_core::parse(
             "# Rhei: Test\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n\nDo work.\n",

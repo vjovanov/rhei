@@ -201,7 +201,7 @@ fn write_mcp_config_file(
 ) -> Option<PathBuf> {
     let tmp_dir = runtime_dir.join("tmp");
     if let Err(err) = fs::create_dir_all(&tmp_dir) {
-        eprintln!("warning: failed to create MCP config tmp dir '{}': {err}", tmp_dir.display());
+        diag_warn!("warning: failed to create MCP config tmp dir '{}': {err}", tmp_dir.display());
         return None;
     }
     let safe_agent = env_id_segment(agent_id).to_lowercase();
@@ -244,12 +244,12 @@ fn write_mcp_config_file(
         Ok(text) => match fs::write(&path, text) {
             Ok(()) => Some(path),
             Err(err) => {
-                eprintln!("warning: failed to write MCP config '{}': {err}", path.display());
+                diag_warn!("warning: failed to write MCP config '{}': {err}", path.display());
                 None
             }
         },
         Err(err) => {
-            eprintln!("warning: failed to serialize MCP config: {err}");
+            diag_warn!("warning: failed to serialize MCP config: {err}");
             None
         }
     }

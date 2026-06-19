@@ -680,6 +680,7 @@ fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::U
     let coverage = usage_coverage(status, pricing_status);
     rhei_tui::UsageSummary {
         invocation_id: record.invocation_id.clone(),
+        state: record.state.clone(),
         agent: record.agent.clone(),
         provider: record.provider.clone(),
         model: record.model.clone(),

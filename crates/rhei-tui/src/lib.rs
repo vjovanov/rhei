@@ -18,4 +18,4 @@ pub use event::{
 pub use frontend::{select_frontend, Frontend, FrontendKind};
 pub use journal::JournalSink;
 pub use stdout::StdoutSink;
-pub use tui::TuiSink;
+pub use tui::{TuiContext, TuiSink};

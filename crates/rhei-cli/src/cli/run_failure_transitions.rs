@@ -69,7 +69,7 @@ fn fire_tooling_unavailable_transition(
         no_callbacks,
     ) {
         Ok(()) => {
-            println!(
+            diag_info!(
                 "  Tooling-unavailable transition: Task {} '{}' -> '{}' ({} unavailable: {})",
                 task_id_str,
                 from_state,
@@ -80,7 +80,7 @@ fn fire_tooling_unavailable_transition(
             TimeoutTransitionOutcome::Fired
         }
         Err(err) => {
-            eprintln!(
+            diag_warn!(
                 "  warning: failed to fire tooling-unavailable transition for Task {}: {}",
                 task_id_str, err
             );
@@ -177,14 +177,14 @@ fn fire_selected_timeout_transition(
         no_callbacks,
     ) {
         Ok(()) => {
-            println!(
+            diag_info!(
                 "  Timeout transition: Task {} '{}' -> '{}' (timeout {})",
                 task_id_str, from_state, to_state, timeout_label
             );
             TimeoutTransitionOutcome::Fired
         }
         Err(err) => {
-            eprintln!(
+            diag_warn!(
                 "  warning: failed to fire timeout transition for Task {}: {}",
                 task_id_str, err
             );
@@ -225,14 +225,14 @@ fn fire_agent_exit_transition(
         no_callbacks,
     ) {
         Ok(()) => {
-            println!(
+            diag_info!(
                 "  Error transition: Task {} '{}' -> '{}' (exit {})",
                 task_id_str, from_state, to_state, exit_code
             );
             TimeoutTransitionOutcome::Fired
         }
         Err(err) => {
-            eprintln!(
+            diag_warn!(
                 "  warning: failed to fire error transition for Task {}: {}",
                 task_id_str, err
             );
@@ -346,6 +346,33 @@ fn earliest_pending_poll_deadline(
         .min()
 }
 
+/// Whether any non-terminal task sits in a gating state — work the run cannot
+/// advance without a human decision. Lets an interactive run stay alive so the
+/// gate stays resolvable in the UI. §FS-rhei-run-tui.1.5.5
+fn has_pending_human_gate(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> bool {
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    tasks.iter().any(|task| {
+        let state = normalized_state_name(task.state.as_str(), machine);
+        machine
+            .states
+            .get(&state)
+            .map(|def| def.gating && !def.terminal)
+            .unwrap_or(false)
+    })
+}
+
+fn should_wait_for_human_gate(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+) -> bool {
+    has_pending_human_gate(rhei, machine)
+        && remaining_work_is_only_gating_or_poll_blocked(rhei, machine)
+}
+
 fn remaining_work_is_only_gating_or_poll_blocked(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
@@ -371,7 +398,11 @@ fn remaining_work_is_only_gating_or_poll_blocked(
             let Some(dep_state) = state_map.get(dep_id) else {
                 return false;
             };
-            let dep_is_gate = machine.states.get(dep_state).map(|def| def.gating).unwrap_or(false);
+            let dep_is_gate = machine
+                .states
+                .get(dep_state)
+                .map(|def| def.gating && !def.terminal)
+                .unwrap_or(false);
             if dep_is_gate {
                 return true;
             }

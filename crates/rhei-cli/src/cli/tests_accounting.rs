@@ -38,6 +38,7 @@ fn accounting_usage(
     };
     rhei_tui::UsageSummary {
         invocation_id: format!("{pricing_status:?}-{coverage:?}"),
+        state: "work".to_string(),
         agent: "codex".to_string(),
         provider: Some("openai".to_string()),
         model: Some("gpt-test".to_string()),

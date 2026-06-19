@@ -93,7 +93,7 @@ fn preload_snapshot_inherit_before_spawn(
         ));
     }
     if compat == "none" && !opts.override_inherit() {
-        eprintln!("info: snapshot preload disabled by compat: none");
+        diag_warn!("info: snapshot preload disabled by compat: none");
         return Ok(preload);
     }
 
@@ -146,7 +146,7 @@ fn preload_snapshot_inherit_before_spawn(
                 inherit.name
             ));
         }
-        eprintln!("warning: no snapshot found for inherit: {}; running cold", inherit.name);
+        diag_warn!("warning: no snapshot found for inherit: {}; running cold", inherit.name);
         return Ok(preload);
     };
     if source.completion == "timeout" && !opts.override_inherit() {
@@ -156,7 +156,7 @@ fn preload_snapshot_inherit_before_spawn(
                 source.display_ref()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "warning: timed-out snapshot {} is not preloadable; running cold",
             source.display_ref()
         );
@@ -173,7 +173,7 @@ fn preload_snapshot_inherit_before_spawn(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "warning: preload skipped: incompatible agent for {}; running cold",
             source.display_ref()
         );
@@ -186,7 +186,7 @@ fn preload_snapshot_inherit_before_spawn(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "warning: agent '{}' has no supported snapshot preload strategy; running cold",
             resolved.agent.id()
         );
@@ -199,14 +199,14 @@ fn preload_snapshot_inherit_before_spawn(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "warning: agent '{}' has no supported snapshot preload strategy; running cold",
             resolved.agent.id()
         );
         return Ok(preload);
     }
     if let Some(reason) = snapshot_cache_benefit_reason(&source, resolved) {
-        eprintln!(
+        diag_warn!(
             "info: snapshot {} is native-compatible but may not be cache-beneficial: {}",
             source.display_ref(),
             reason

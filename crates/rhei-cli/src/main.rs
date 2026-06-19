@@ -26,6 +26,7 @@ include!("cli/settings_load_validate.rs");
 include!("cli/tooling_resolution.rs");
 include!("cli/agent_resolution.rs");
 include!("cli/run_helpers.rs");
+include!("cli/run_diag.rs");
 include!("cli/run_git_consistency.rs");
 include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");

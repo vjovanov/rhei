@@ -100,6 +100,7 @@ pub enum PricingStatus {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct UsageSummary {
     pub invocation_id: String,
+    pub state: String,
     pub agent: String,
     pub provider: Option<String>,
     pub model: Option<String>,

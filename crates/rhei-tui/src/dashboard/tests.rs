@@ -671,6 +671,7 @@ fn dashboard_usage(
     };
     UsageSummary {
         invocation_id: invocation_id.to_string(),
+        state: "work".to_string(),
         agent: "codex".to_string(),
         provider: Some("openai".to_string()),
         model: Some("gpt-test".to_string()),
