@@ -6,7 +6,7 @@ For the surrounding `rhei run` behavior see [Rhei Usage](rhei-usage.spec.md) and
 
 ## Goals
 
-1. **Visualize parallel agent activity.** When `rhei run --parallel N` is running in an interactive terminal, the user sees a live view of up to N agents, each with its task id, current state, elapsed time, and a short tail of its log.
+1. **Navigate the whole plan, lead with live work.** When `rhei run` is running in an interactive terminal, the user sees the whole plan as a navigable list and can select any task — running or not — to inspect its surroundings, while live work is foregrounded. Each live task shows its current state, elapsed time, captured agent output, and cost. The terminal surface mirrors the browser Flow view (§FS-rhei-viz) under one visual language (§FS-rhei-viz-ux).
 2. **Keep a light transition log.** Each state transition produces exactly one line in a persistent journal. Every line carries both the transition (`from → to`) and the absolute path to the detailed log for that state.
 3. **Remain CI-friendly.** When stdout is not a TTY (piped, redirected, CI runners), `rhei run` produces the same line-oriented output as today. The journal is written identically in both modes.
 4. **Be reusable.** Any future parallel `rhei` subcommand reuses the same event surface and frontend.
@@ -23,14 +23,14 @@ A single `rhei run` process decomposes into three concerns:
 
 1. **Execution engine** — the existing `run_agent_mode` / `run_callback_mode` logic, refactored to emit events through an `EventSink` instead of calling `println!` directly.
 2. **Sinks** — implementations of `EventSink` that consume events. The engine always writes through a `Tee` that fans out to a journal sink and a frontend sink.
-3. **Frontend** — either a plain stdout writer (non-TTY) or a TUI renderer (TTY). Frontend selection is decided once at startup based on `stdout.is_terminal()`, with `--tui` and `--no-tui` overrides.
+3. **Frontend** — either a plain stdout writer (non-TTY) or a TUI renderer (TTY). Frontend selection is decided once at startup based on `stdout.is_terminal()`, with `--tui` and `--no-tui` overrides. The TUI renderer is the terminal sibling of the browser dashboard: both render one run model (§FS-rhei-viz.8) — plan rows, the resolved machine, and the runtime overlay — so either surface is recognizable from the other (§FS-rhei-viz-ux).
 
 ```
 engine ──► Tee ──┬──► JournalSink   (runtime/transitions.log, always on)
                  └──► FrontendSink  (TuiSink if TTY, else StdoutSink)
 ```
 
-Slot-oriented events (see below) mean the renderer updates exactly one tile per event. The engine assigns a `Slot` when it spawns an agent or program and releases it when that invocation exits. `Slot` is a `u16`, not a byte-sized value, so very large `--parallel` values cannot silently collide after slot 255.
+Slot-oriented events (see below) mean the renderer updates exactly one slot per event. The engine assigns a `Slot` when it spawns an agent or program and releases it when that invocation exits. `Slot` is a `u16`, not a byte-sized value, so very large `--parallel` values cannot silently collide after slot 255.
 
 ### 1.1. Event Surface
 
@@ -103,6 +103,7 @@ pub enum PricingStatus {
 
 pub struct UsageSummary {
     pub invocation_id: String,
+    pub state: String,
     pub agent: String,
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -197,7 +198,7 @@ grandchild task nodes, not only root tasks. `PassStarted` and `PassEnded`
 bracket each scheduler pass; `PassStarted.ready` is the current ready set in
 source-order task ids.
 
-`SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right tile without reconciliation. Both events also carry `from` and `to`: when `from == to`, the worker started or ended in the same autonomous state and renderers must not present that as a real self-transition.
+`SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right slot without reconciliation. Both events also carry `from` and `to`: when `from == to`, the worker started or ended in the same autonomous state and renderers must not present that as a real self-transition.
 
 `SlotAssigned.agent` identifies the resolved agent or target label when the invocation is agent-backed; it is `None` for program-backed work. `SlotReleased.exit_code` is the subprocess exit status when one is available, and `duration_ms` is the invocation duration in milliseconds.
 
@@ -234,7 +235,7 @@ The TUI keeps a bounded recent traffic buffer per active slot and may drop displ
 
 - **`JournalSink`** — opens `runtime/transitions.log` in append mode at construction and writes one line per `SlotAssigned` and one line per `SlotReleased`. Line format is fixed-column and tail-friendly (see below). The journal is always written, in every mode.
 - **`StdoutSink`** — reproduces the current `println!` output exactly. It is the default frontend when stdout is not a TTY.
-- **`TuiSink`** — owns a bounded `crossbeam_channel` and a render thread. It implements `EventSink` by pushing events onto the channel; the render thread consumes events and updates the UI.
+- **`TuiSink`** — owns a bounded `crossbeam_channel` and a render thread. It implements `EventSink` by pushing events onto the channel; the render thread consumes events and updates the UI. The render thread maintains the shared run model — plan rows and the resolved machine supplied by the host, overlaid with runtime state from the event stream — and draws the Flow surface defined in §1.5.
 
 ### 1.4. Frontend Selection
 
@@ -248,33 +249,138 @@ At the entry of `run_plan`, the frontend is decided once:
 
 Auto-detection uses `std::io::IsTerminal`. The `--tui` override exists for edge cases where detection is wrong (nested shells, certain tmux configurations). The `--no-tui` override is for scripted demos and debugging.
 
-### 1.5. Layout Rules (TuiSink)
+### 1.5. TUI Surface
 
-The renderer allocates a fixed pool of N slots matching `--parallel N`. Slots are reused as tasks complete — the grid does not grow unbounded.
+The TUI is the terminal renderer of the same Flow model the browser dashboard
+serves (§FS-rhei-viz.8): plan task rows, the resolved state machine, and the
+runtime overlay. It is a tabbed, keyboard-first console surface whose default
+view leads with live work while letting the operator select and inspect *any*
+task, running or not. The TUI and the dashboard are two renderers of one model
+under one visual language, so recognition transfers between them
+(§FS-rhei-viz-ux). This section defines the terminal realization; the view
+*content* is defined once in §FS-rhei-viz and is not repeated here.
 
-| N    | Terminal constraint                | Layout                                    |
-|------|------------------------------------|-------------------------------------------|
-| 1    | any                                | Single full-width pane with log tail      |
-| 2–4  | rows-per-tile ≥ 6                  | 2×2 grid with log tail                    |
-| 5–9  | rows-per-tile ≥ 6                  | 3×3 grid, shorter tiles, log tail         |
-| any  | rows-per-tile < 6                  | Compact list: one row per slot, no tail   |
-| ≥ 10 | any                                | Compact list mode                         |
+The terminal surface diverges from the browser in three deliberate ways:
 
-A persistent journal pane at the bottom shows the most recent transitions regardless of mode. Layout is recomputed on terminal resize (`crossterm::event::Event::Resize`).
+- **No dependency-graph (DAG) mode.** The prerequisite graph (§FS-rhei-viz.3) is
+  not drawn in the terminal; per-task prerequisites remain visible in the
+  inspector (§FS-rhei-viz.4).
+- **The state machine renders as a grouped list, not a drawn graph.** The Machine
+  view presents the resolved machine (§FS-rhei-viz.6) as a state list grouped by
+  disjoint workflow, with a state-detail panel, rather than a layered graph.
+- **Running-now and per-slot worker output fold into Flow.** The browser's
+  running-now panel and Slots surface (§FS-rhei-viz.5) are not separate terminal
+  views; live workers are marked in the plan list and their captured output
+  appears in the selected task's inspector.
 
-Each tile shows:
-- task id + short title
-- current state (the `to` field of its `SlotAssigned` event)
-- elapsed time (updated once per second)
-- latest known invocation cost, input/output tokens, cached tokens, and
-  accounting coverage when available
-- last 5 lines of the log file at `log_path`, tailed via the `notify` crate with a bounded 50-line ring buffer
+#### 1.5.1. Shell and shared chrome
 
-Idle slots show `— idle —`.
+Every view shares one frame: a header, tab bar, active body, optional journal
+strip, and action bar. The header shows the plan title, derived `plan_state`,
+category counts, running count, compact run cost when usage exists, and the live
+dashboard URL when available (§FS-rhei-viz.1.2 §FS-rhei-viz.9
+§FS-rhei-cost-accounting). The tab bar exposes the terminal views, the journal
+strip previews recent transition lines except in the full Journal view, and the
+action bar shows only keys that currently apply.
 
-When any accounting data is available, the TUI header includes a compact
-run-level cost strip with total cost, input tokens, output tokens, cache-hit
-ratio, and accounting coverage. §FS-rhei-cost-accounting
+A single selected task is shared across views: Flow and Tasks move it, Machine
+marks its current state, and Cost highlights its rollup. State category, glyph,
+and color come from the same map as scrollback and the browser
+(§FS-rhei-viz.1.1, §FS-rhei-viz-ux.3.2).
+
+#### 1.5.2. Navigation, selection, and keys
+
+The surface is keyboard-driven and does not capture the mouse, so terminal text
+selection still works on ids, paths, and journal lines (§FS-rhei-viz-ux.7).
+Selection is two-level: the selected task is global, while local focus belongs to
+the active view. The selected task is tracked by id and survives refreshes and
+reordering without scroll jumps (§FS-rhei-viz-ux.4).
+
+Flow has local focus for the outline or inspector. `Enter` on an inspector chip
+selects a neighbor task or marks a target state in Machine, matching the
+surroundings model of §FS-rhei-viz.4.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k`, `↓` / `↑` | move focus down / up in the active view |
+| `1`–`5` | jump to Flow, Machine, Cost, Journal, Tasks |
+| `h` / `l`, `←` / `→` | previous / next view |
+| `Tab` | (Flow) toggle focus between outline and inspector |
+| `PgUp` / `PgDn` | scroll the focused pane |
+| `Enter` | (Tasks) select row and return to Flow; (inspector chip) follow it; (Flow outline on gating task) open gate choices |
+| `/` | filter the active view (`Flow`/`Tasks`/task-cost rows by id, title, or state; `Machine` by state/task text; `Journal` by line text); `Esc` clears |
+| `g` | (Cost) cycle grouping: task → agent → model → state |
+| `s` | (Tasks) cycle sort: id → state → cost |
+| `f` | (Journal) cycle severity/kind filter; (Tasks) cycle state filter |
+| `m` | open the intervene composer for the selected live task (§1.5.5) |
+| `?` | toggle the key-help overlay |
+| `q` | quit once the run has finished; during a live run, stop with `Ctrl+C` |
+| `Ctrl+C` | restore the terminal and re-raise `SIGINT` (§1.8) |
+
+#### 1.5.3. Flow view (default)
+
+Flow is the default view. It renders the plan outline and the selected task's
+surroundings inspector using the browser Flow content order (§FS-rhei-viz.2
+§FS-rhei-viz.4). Running tasks are marked live even if their persisted state is
+idle, and the selected live task shows captured output, elapsed time, and latest
+usage/cost in the inspector (§FS-rhei-viz.5 §FS-rhei-cost-accounting).
+
+On load, the TUI auto-selects the first running task, then the first
+state-derived active task, then the first task. The only animated element is the
+live spinner, which becomes static under reduced motion (§FS-rhei-viz-ux.4).
+
+#### 1.5.4. Machine, Cost, Journal, and Tasks views
+
+Beyond Flow, the tab bar offers four compact views over the same model:
+
+- **Machine** — grouped state list plus the focused state's details; the selected
+  task's current state is marked (§FS-rhei-viz.6).
+- **Cost** — run totals and grouped rollups by task, agent, model, or state;
+  coverage gaps carry a glyph, never color alone (§FS-rhei-cost-accounting).
+- **Journal** — full transition journal with severity and text filtering plus
+  dashboard/workspace/run links (§1.7).
+- **Tasks** — flat table of every task with state, current slot, agent,
+  prerequisites, and readiness. Readiness uses the resolved machine's terminal
+  states, so custom terminal states satisfy prerequisites. Pressing Enter returns
+  to Flow with that task selected (§FS-rhei-viz.1.2).
+
+#### 1.5.5. Live actions: intervene and human gate
+
+The TUI exposes the dashboard's live actions through the same sinks as the
+browser, not separate mutation paths (§FS-rhei-viz.5 §AR-rhei-viz-flow.7).
+
+- **Intervene** — `m` opens a one-line composer only for a selected live task
+  whose agent is reachable through the intervention sink. `Enter` sends, `Esc`
+  cancels, and delivery/failure is echoed in the journal. Intervene never edits
+  or transitions the plan.
+- **Human gate** — `Enter` on a selected live task in a `gating` state opens the
+  state's explicit outgoing transitions as digit choices and submits the selected
+  `from`/`to` transition through the gate sink. Frozen/static surfaces offer no
+  working controls. Interactive runs stay alive for non-terminal human gates
+  when the remaining work is gate-blocked or poll-blocked; a pending gate remains
+  responsive instead of being hidden behind a later poll deadline.
+
+#### 1.5.6. Responsive degradation
+
+Layout is recomputed on resize and degrades from side-by-side Flow panes, to
+stacked panes, to a compact one-line task list when the terminal is too small
+(§FS-rhei-viz-ux.8). Empty views render quiet monochrome placeholders, never a
+blank panel or crash (§FS-rhei-viz-ux.7).
+
+#### 1.5.7. Liveness, color, and lifecycle
+
+The render thread redraws on a periodic tick so elapsed timers, output, and
+counts advance without input, and a failed plan reload keeps the last-good model
+visible (§FS-rhei-viz-ux.4 §FS-rhei-viz.7.1). `NO_COLOR` makes chrome and state
+markers monochrome and also selects reduced motion; meaning always rides on
+glyphs and labels, not color alone (§FS-rhei-viz-ux.3.3).
+
+Interactive TUI runs stay live for a pending human gate only when gates, or work
+blocked by those gates or future poll deadlines, are the remaining blockers. The
+operator can resolve the gate in the UI or stop with `Ctrl+C`. Non-interactive
+runs do not wait. After `RunFinished`, live actions are disabled but the final
+surface remains navigable until `q`; non-TTY and `--no-tui` output remains
+line-oriented (§1.4, §3).
 
 ### 1.6. Browser Dashboard
 
@@ -293,7 +399,8 @@ with the work running now, presents plan shape as a navigable list or dependency
 graph, opens any node's surroundings (dependencies, transitions, prompt,
 artifacts, children), and draws the resolved state machine as one graph per
 disjoint workflow. A live task exposes its streaming agent output and a way to
-intervene. §FS-rhei-viz §FS-rhei-viz.5
+intervene. §FS-rhei-viz §FS-rhei-viz.5 The TUI renders this same Flow surface and
+a terminal-appropriate subset of these views (§1.5).
 
 Supplementary surfaces share the same `/snapshot` data and console-first
 language:
@@ -339,7 +446,7 @@ A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second 
 
 - **Panic in the execution engine** — a panic hook registered by `TuiSink` calls `ratatui::restore()` before re-raising, so the terminal is never left in raw mode.
 - **Ctrl+C** — because the TUI runs the terminal in raw mode, Ctrl+C arrives as a key event rather than an automatic `SIGINT`. `TuiSink` restores the terminal, explicitly re-raises `SIGINT` for the process, and then exits its render loop.
-- **Terminal too small for any tile** — auto-degrade to compact list mode; never crash.
+- **Terminal too small for two panes** — auto-degrade to the compact list of §1.5.6; never crash.
 - **Slow log file growth** — the log tailer uses a bounded 50-line ring buffer and never blocks the engine thread.
 - **Journal write failure** — log a warning to stderr and continue; journal errors never abort a run.
 
@@ -374,6 +481,8 @@ Existing flags (`--parallel`, `--dry-run`, `--continue-on-error`, `--agent`, etc
 - Without `--tui` and in any non-TTY context, output matches the current line-oriented format byte-for-byte. Existing integration tests that grep stdout continue to pass.
 - The journal file is new. Runs that never produced a journal before will now produce one at `runtime/transitions.log`. This file is additive and does not alter plan state.
 - No existing flags change meaning.
+- The interactive TUI now stays open after the run finishes until the operator
+  quits (§1.5.7); non-TTY and `--no-tui` runs still return when the run ends.
 
 ## 4. Implementation Surface
 

@@ -58,9 +58,10 @@ Preserving that decoupling is a recorded decision (§10).
                  │  rhei-tui  │                    │  rhei-cli / xtask           │
                  │ (UI host)  │                    │  • `rhei viz` (static cmd)  │
                  │ serves `/` │                    │  • run wiring (machine +    │
-                 │ builds the │                    │    loader into dashboard)   │
+                 │ builds the │                    │    loader into UI hosts)    │
                  │ SUPERSET   │                    │  • xtask dogfood (thin)     │
-                 │ /snapshot  │                    └─────────────────────────────┘
+                 │ /snapshot; │                    └─────────────────────────────┘
+                 │ renders TUI│
                  └────────────┘
 ```
 
@@ -83,7 +84,7 @@ The architecture rests on three "exactly once" invariants:
 |---|---|---|
 | `rhei-viz-model` (new) | §8 serde structs, the HTML/CSS/JS asset, `render_static` | none (pure) |
 | `rhei-viz` (new) | builder from `(plan, resolved machine)`; flattening; derivation (§8/§9/§1.1) | `rhei-core`, `rhei-validator`, `rhei-viz-model` |
-| `rhei-tui` | serves the asset at `/`; builds the superset `/snapshot`; owns `/open`, `/log`, `/intervene` | `rhei-viz-model` only |
+| `rhei-tui` | serves the asset at `/`; builds the superset `/snapshot`; renders the terminal TUI from the same model plus runtime events; owns `/open`, `/log`, `/intervene`, and gate/intervene sinks | `rhei-viz-model` only |
 | `rhei-cli` | `rhei viz` static command; wires the resolved machine + plan loader into the dashboard | `rhei-viz`, `rhei-tui` |
 | `xtask` | dogfood static renderer (thin wrapper over `rhei-viz`) | `rhei-viz` |
 
@@ -92,6 +93,12 @@ pure-struct dependency it needs to serialize the payload and serve the asset, an
 the host (`rhei-cli`) still builds the model and feeds it through the existing
 closure pattern. `rhei-tui` never learns to parse plans or resolve state
 machines.
+
+The browser dashboard and terminal TUI are two hosts over that same contract.
+Both receive the host-built `VizModel`; live-only state is an overlay from
+`RunEvent`s. Rendering may differ to fit the medium, but lookup, readiness, and
+mutation boundaries stay in the shared UI model rather than in individual view
+renderers. §FS-rhei-run-tui.1.5
 
 ## 4. The data contract: static base + runtime overlay
 

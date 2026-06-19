@@ -152,8 +152,14 @@ request shell. Dashboard parts live under `crates/rhei-tui/src/dashboard/`:
 `crates/rhei-tui/src/tui.rs` is only the terminal lifecycle, channel, and
 input loop shell. Terminal UI parts live under `crates/rhei-tui/src/tui/`:
 
-- `state` contains event reduction and snapshot construction.
-- `render` contains ratatui layout and widget rendering.
+- `state` contains event reduction, lookup/readiness rules, and keyboard-visible
+  UI state.
+- `derive` contains pure rollups and navigation chips shared by input and views.
+- `input` contains keyboard handling and live action composers.
+- `render` contains the shared ratatui frame, chrome, and overlays.
+- `views` contains the Flow, Machine, Cost, Journal, Tasks, and minimal body
+  renderers.
+- `theme` contains state category glyph/color mapping.
 - `text` contains stream labels, truncation, and terminal-text sanitization.
 - `tests` contains terminal input, state, rendering-line, and text tests.
 

@@ -169,6 +169,10 @@ impl RunOptions {
 
 struct ActiveRunFrontend {
     sink: Arc<dyn rhei_tui::EventSink>,
+    /// True when an interactive TUI is the active frontend. The run loop uses
+    /// this to keep itself alive while a human gate is pending, so the operator
+    /// can resolve the gate in the UI and have the run continue (§FS-rhei-run-tui.1.5.5).
+    is_tui: bool,
     dashboard: Option<Arc<rhei_tui::DashboardSink>>,
     /// Accumulates per-task driver/duration for the end-of-run console summary.
     /// §FS-rhei-run-report.3
@@ -252,6 +256,7 @@ fn start_run_frontend(
     if opts.dry_run() {
         return ActiveRunFrontend {
             sink: Arc::new(rhei_tui::StdoutSink::new()),
+            is_tui: false,
             dashboard: None,
             summary: Arc::new(SummarySink::new()),
             intervene: None,
@@ -259,38 +264,46 @@ fn start_run_frontend(
         };
     }
 
-    let frontend =
-        rhei_tui::select_frontend(workspace_root, opts.frontend_kind(), parallel, total_tasks);
-    let mut intervene: Option<Arc<RunInterveneSink>> = None;
+    // The loader re-reads the plan and builds the full `VizModel` via `rhei-viz`,
+    // so the TUI render thread and dashboard share one run model and the same
+    // intervene/gate boundaries; neither parses plans itself. §FS-rhei-run-tui.1.5
+    let plan_path = plan_input.to_path_buf();
+    let loader_machine = machine.clone();
+    let loader: rhei_tui::PlanLoader =
+        Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machine));
+    // AR §7: the intervene registry the run loop registers agents into.
+    let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
+    let gate = Arc::new(RunGateTransitionSink::new(
+        plan_input.to_path_buf(),
+        machine.clone(),
+        callback_paths.clone(),
+        opts.no_callbacks(),
+    ));
+
+    let tui_context = rhei_tui::TuiContext {
+        workspace: workspace_root.to_path_buf(),
+        plan_loader: Some(loader.clone()),
+        intervene: Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
+        gate: Some(gate.clone() as Arc<dyn rhei_tui::GateTransitionSink>),
+    };
+    let frontend = rhei_tui::select_frontend(
+        workspace_root,
+        opts.frontend_kind(),
+        parallel,
+        total_tasks,
+        tui_context,
+    );
+
     let dashboard = if opts.dashboard_enabled(frontend.is_tui) {
-        let plan_path = plan_input.to_path_buf();
-        // The loader re-reads the plan and builds the full `VizModel` (flatten
-        // machine, derive state) via `rhei-viz`, so the dashboard never parses
-        // plans or resolves machines itself. AR §3, §5.2.
-        let loader_machine = machine.clone();
-        let gate_machine = machine.clone();
-        let loader: rhei_tui::PlanLoader =
-            Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machine));
-        // AR §7: the intervene registry the run loop registers agents into.
-        let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
-        let gate = Arc::new(RunGateTransitionSink::new(
-            plan_input.to_path_buf(),
-            gate_machine,
-            callback_paths.clone(),
-            opts.no_callbacks(),
-        ));
         match rhei_tui::DashboardSink::start_with_plan_intervene_and_gate(
             workspace_root.to_path_buf(),
             parallel,
             total_tasks,
-            Some(loader),
+            Some(loader.clone()),
             Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
-            Some(gate as Arc<dyn rhei_tui::GateTransitionSink>),
+            Some(gate.clone() as Arc<dyn rhei_tui::GateTransitionSink>),
         ) {
-            Ok(sink) => {
-                intervene = Some(registry);
-                Some(Arc::new(sink))
-            }
+            Ok(sink) => Some(Arc::new(sink)),
             Err(err) => {
                 frontend.sink.emit(rhei_tui::RunEvent::Message {
                     level: rhei_tui::MessageLevel::Warn,
@@ -303,6 +316,12 @@ fn start_run_frontend(
         None
     };
 
+    // The run loop registers running agents' stdin into the registry so both the
+    // TUI composer and the dashboard `/intervene` can reach them. Wire it
+    // whenever a live surface is present.
+    let intervene: Option<Arc<RunInterveneSink>> =
+        (frontend.is_tui || dashboard.is_some()).then(|| registry.clone());
+
     // The summary sink is always teed in so the end-of-run console summary can
     // render per-task driver/duration regardless of dashboard state.
     // §FS-rhei-run-report.3
@@ -314,7 +333,8 @@ fn start_run_frontend(
     }
     let sink: Arc<dyn rhei_tui::EventSink> = Arc::new(rhei_tui::Tee::new(inner));
 
-    ActiveRunFrontend { sink, dashboard, summary, intervene, _frontend: Some(frontend) }
+    let is_tui = frontend.is_tui;
+    ActiveRunFrontend { sink, is_tui, dashboard, summary, intervene, _frontend: Some(frontend) }
 }
 
 fn transition_dashboard_gate(

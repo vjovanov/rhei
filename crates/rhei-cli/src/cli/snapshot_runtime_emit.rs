@@ -68,7 +68,7 @@ fn emit_snapshots_after_agent_exit(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "info: auto snapshot skipped for state '{}' because agent '{}' does not resolve provider and model",
             current_state,
             resolved.agent.id()
@@ -94,7 +94,7 @@ fn emit_snapshots_after_agent_exit(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "info: auto snapshot skipped for state '{}' because agent '{}' has no supported snapshot session layout",
             current_state,
             resolved.agent.id()
@@ -109,7 +109,7 @@ fn emit_snapshots_after_agent_exit(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "info: auto snapshot skipped for state '{}' because agent '{}' has no supported snapshot session layout",
             current_state,
             resolved.agent.id()
@@ -132,7 +132,7 @@ fn emit_snapshots_after_agent_exit(
                 resolved.agent.id()
             ));
         }
-        eprintln!(
+        diag_warn!(
             "info: auto snapshot skipped for state '{}' because agent '{}' did not produce a supported native session transcript",
             current_state,
             resolved.agent.id()

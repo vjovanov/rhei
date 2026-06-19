@@ -54,7 +54,7 @@
         if filter.includes(TemplateSource::Project) {
             roots.push((
                 TemplateSource::Project,
-                find_project_root()?.join(".agents").join("rhei").join("templates"),
+                project_template_root()?,
             ));
         }
         if filter.includes(TemplateSource::User) {
@@ -65,6 +65,29 @@
         }
 
         Ok(roots)
+    }
+
+    fn project_template_root() -> MietteResult<PathBuf> {
+        // §FS-rhei-templates.1: project-local templates live under the nearest
+        // `.agents/rhei/templates`, even when an unrelated parent has VCS markers.
+        if let Some(root) = nearest_project_template_root()? {
+            return Ok(root);
+        }
+        Ok(find_project_root()?.join(".agents").join("rhei").join("templates"))
+    }
+
+    fn nearest_project_template_root() -> MietteResult<Option<PathBuf>> {
+        let cwd = std::env::current_dir()
+            .map_err(|e| miette!("failed to determine working directory: {e}"))?;
+        let mut dir = Some(cwd.as_path());
+        while let Some(current) = dir {
+            let candidate = current.join(".agents").join("rhei").join("templates");
+            if candidate.is_dir() {
+                return Ok(Some(candidate));
+            }
+            dir = current.parent();
+        }
+        Ok(None)
     }
 
     fn resolve_template_reference(reference: &str) -> MietteResult<PathBuf> {

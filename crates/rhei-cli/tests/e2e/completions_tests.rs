@@ -264,6 +264,26 @@ fn dynamic_completion_filters_instantiate_templates_by_prefix() {
 }
 
 #[test]
+fn dynamic_completion_uses_nearest_project_template_root() {
+    let home = unique_temp_dir("completions-template-nearest-home");
+    let outer = unique_temp_dir("completions-template-nearest-outer");
+    fs::create_dir_all(outer.join(".git")).expect("create outer marker");
+    let dir = outer.join("project");
+    fs::create_dir_all(&dir).expect("create nested project");
+    write_project_template(&dir, "alpha-review", "Alpha review template");
+
+    let result = run_dynamic_completion(&dir, &home, "fish", &["--", "rhei", "instantiate", ""]);
+
+    assert!(
+        result.status.success(),
+        "template completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(result.stdout.contains("alpha-review\tAlpha review template"));
+}
+
+#[test]
 fn dynamic_completion_lists_template_input_assignments() {
     let home = unique_temp_dir("completions-template-input-home");
     let dir = unique_temp_dir("completions-template-input-project");

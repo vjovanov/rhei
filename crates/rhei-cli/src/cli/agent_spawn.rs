@@ -203,7 +203,7 @@ fn spawn_and_wait_agent(
     // §FS-rhei-agents.1.1.5 §FS-rhei-agents.6: Spawn-time tooling warnings.
     for warning in collect_unsupported_tooling_warnings(resolved, tooling) {
         let _ = with_agent_log(&log_file, |f| writeln!(f, "{warning}"));
-        eprintln!("{warning}");
+        diag_warn!("{warning}");
     }
 
     // §FS-rhei-cost-accounting.4: Usage capture is declared before the agent starts.

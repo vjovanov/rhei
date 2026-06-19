@@ -1367,6 +1367,10 @@ fn run_agent_mode(
         machine,
     );
     let sink = frontend.sink.clone();
+    // Route leaf-helper diagnostics through the frontend for the run's duration
+    // instead of letting them write straight to the terminal and corrupt the
+    // TUI. §FS-rhei-run-tui.1.8
+    let diag_guard = RunDiagGuard::install(sink.clone());
     // Held past the frontend drop so the end-of-run summary can read per-task
     // activity after the TUI restores the terminal. §FS-rhei-run-report.3
     let summary_sink = frontend.summary.clone();
@@ -1424,12 +1428,27 @@ fn run_agent_mode(
     let mut programs_spawned = 0u32;
     let mut callback_transitions_made = 0u32;
     let mut pass = 0u32;
+    // One-time notice so the gate-wait below does not spam the journal each tick.
+    let mut awaiting_gate_announced = false;
 
     loop {
         let loaded = load_plan(input)?;
         let ready = find_runnable_tasks(&loaded.rhei, machine, &workspace_root);
         if ready.is_empty() {
             if !opts.dry_run() {
+                // Interactive TUI: stay alive only when human gates are the
+                // remaining blocker, so unrelated stuck work still reaches the
+                // normal halt/error path. §FS-rhei-run-tui.1.5.5
+                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, machine) {
+                    if !awaiting_gate_announced {
+                        run_info!(
+                            "Waiting for human gate decisions — resolve a gate in the UI, or press Ctrl+C to stop."
+                        );
+                        awaiting_gate_announced = true;
+                    }
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
                 if let Some(deadline) = earliest_pending_poll_deadline(&loaded.rhei, machine) {
                     let sleep_secs = deadline.saturating_sub(current_unix_secs()).max(1);
                     run_info!(
@@ -1442,6 +1461,8 @@ fn run_agent_mode(
             }
             break;
         }
+        // Made progress this pass; re-arm the gate-wait notice for any later gate.
+        awaiting_gate_announced = false;
 
         pass += 1;
         let terminal_count = terminal_task_count(&loaded.rhei, machine);
@@ -3320,6 +3341,7 @@ fn run_agent_mode(
         },
     });
     frontend.write_frozen_dashboard();
+    drop(diag_guard);
     drop(sink);
     drop(frontend);
 

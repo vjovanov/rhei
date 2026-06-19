@@ -309,6 +309,7 @@ After the invocation record is written, Rhei emits:
 ```rust
 pub struct UsageSummary {
     pub invocation_id: String,
+    pub state: String,
     pub agent: String,
     pub provider: Option<String>,
     pub model: Option<String>,

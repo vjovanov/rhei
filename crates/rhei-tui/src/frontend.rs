@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::event::{EventSink, NullSink, Tee};
 use crate::journal::JournalSink;
 use crate::stdout::StdoutSink;
-use crate::tui::TuiSink;
+use crate::tui::{TuiContext, TuiSink};
 
 /// Caller-selected frontend override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +41,7 @@ pub fn select_frontend(
     kind: FrontendKind,
     parallel: u16,
     total_tasks: usize,
+    tui_context: TuiContext,
 ) -> Frontend {
     let want_tui = match kind {
         FrontendKind::Tui => true,
@@ -61,7 +62,7 @@ pub fn select_frontend(
     };
 
     if want_tui {
-        match TuiSink::start(parallel.max(1), total_tasks) {
+        match TuiSink::start(parallel.max(1), total_tasks, tui_context) {
             Ok(tui) => {
                 let tui = Arc::new(tui);
                 let frontend: Arc<dyn EventSink> = tui.clone();

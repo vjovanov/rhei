@@ -10,7 +10,9 @@
     "mock-agent": {
       "command": [
         "bash",
-        "./bin/mock-agent.sh"
+        "-c",
+        "exec bash \"$RHEI_ROOT/bin/mock-agent.sh\" \"$@\"",
+        "mock-agent"
       ],
       "prompt_flag": "--prompt",
       "model_flag": "--model",

@@ -37,7 +37,7 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
     tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
     tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
 
-    let _ = file.unlock();
+    let _ = fs2::FileExt::unlock(&file);
     Ok(())
 }
 
@@ -73,7 +73,7 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
     tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
     tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
 
-    let _ = file.unlock();
+    let _ = fs2::FileExt::unlock(&file);
     Ok(())
 }
 
@@ -335,7 +335,7 @@ fn write_task_assignee(
     let task = parse_claim_task_from_raw(&raw, task_file, &target, task_id)?;
     let current_state = normalized_state_name(task.state.as_str(), machine);
     if current_state != expected_state {
-        let _ = handle.unlock();
+        let _ = fs2::FileExt::unlock(&handle);
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
             task_id,
@@ -344,7 +344,7 @@ fn write_task_assignee(
         ));
     }
     if let Some(existing) = task.assignee.as_deref() {
-        let _ = handle.unlock();
+        let _ = fs2::FileExt::unlock(&handle);
         return Err(miette!("Task {} is already assigned to {}", task_id, existing));
     }
     ensure_state_inputs_exist_for_transition(
@@ -374,7 +374,7 @@ fn write_task_assignee(
         .map_err(|err| miette!("failed to write temp file: {err}"))?;
     tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
 
-    let _ = handle.unlock();
+    let _ = fs2::FileExt::unlock(&handle);
     Ok(())
 }
 
