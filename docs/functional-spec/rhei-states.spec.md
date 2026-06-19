@@ -15,7 +15,7 @@ The state-machine surface also permits these optional fields for richer workflow
 
 - Per-state `personality: <string>` to inject role framing into `rhei next` for that specific state (supports template variables)
 - Template variables in `instructions` and `personality` fields, resolved by `rhei next` at output time
-- A sibling `prompt-templates.yaml` file to define reusable `personality` / `instructions` prompt text, and per-state `prompt_template:` references with concrete placeholder values
+- A sibling `prompt_templates/` directory to define reusable Markdown prompt files, and per-state `prompt_template:` references with concrete placeholder values
 - Top-level `models: [<model-id>, ...]` to declare the model profile identifiers available to the machine
 - Per-state `target: <selector>` to bind a state to one inline execution target
 - Per-state `all_targets: [<selector>, ...]` to fan a state out across multiple execution targets
@@ -79,7 +79,7 @@ can start in different states within the same state machine.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `prompt_template` | string or object | No | Reusable prompt selected from sibling `prompt-templates.yaml`. String form is the template id. Object form is `{name, values}` where `values` supplies concrete scalar values for placeholders in that template. |
+| `prompt_template` | string or object | No | Reusable prompt selected from sibling `prompt_templates/<id>.md`. String form is the template id. Object form is `{name, values}` where `values` supplies concrete scalar values for placeholders in that template. |
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
 | `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
@@ -107,12 +107,14 @@ can start in different states within the same state machine.
   (a state name) and `allowed` (a list of state names). See
   [Profiles](#8-profiles) for per-profile validation.
 - `states.yaml` must not declare a top-level `prompt_templates` block.
-  Reusable prompt definitions live in sibling `prompt-templates.yaml`.
-- When `prompt-templates.yaml` is present, every top-level key in that file
-  must be non-empty. Each prompt template must define at least one non-empty
-  prompt field: `personality` or `instructions`.
+  Reusable prompt definitions live as Markdown files in sibling
+  `prompt_templates/`.
+- When `prompt_templates/` is present, every `.md` file directly inside that
+  directory declares one reusable prompt template. The template id is the file
+  stem, so `prompt_templates/artifact-review.md` declares
+  `artifact-review`. Each prompt file must contain non-empty Markdown text.
 - A state's `prompt_template` must reference a prompt template declared in
-  sibling `prompt-templates.yaml`. Object form must declare a non-empty `name`,
+  sibling `prompt_templates/`. Object form must declare a non-empty `name`,
   and every `values` entry must use a non-empty identifier key and a scalar YAML
   value. Arrays and objects are rejected as prompt-template values.
 - Prompt-template placeholders use identifier-shaped `{placeholder}` syntax.
@@ -534,23 +536,21 @@ Recommended authoring pattern for heterogeneous multi-target runs:
 ### 4.4. Prompt Templates
 
 Prompt templates let one state machine define reusable prompt text once and
-reuse it across states with state-specific values. They live in a sibling
-`prompt-templates.yaml` file next to `states.yaml` and are loaded with that
-state machine. They are resolved before the normal runtime variables in
+reuse it across states with state-specific values. They live as `.md` files in a
+sibling `prompt_templates/` directory next to `states.yaml` and are loaded with
+that state machine. They are resolved before the normal runtime variables in
 [Variable Namespace](#41-variable-namespace). The template body uses
 prompt-template placeholders only; values may contain runtime variables such as
 `{task_title}` or `{output.findings.path}`.
 
-`prompt-templates.yaml`:
+`prompt_templates/artifact-review.md`:
 
-```yaml
-artifact-review:
-  personality: |
-    You are a {review_role}. Review only the requested scope.
-  instructions: |
-    Review Task {task_id}: {task_title}.
+```markdown
+You are a {review_role}. Review only the requested scope.
 
-    Focus on {focus_area}. Write findings to `{findings_path}`.
+Review Task {task_id}: {task_title}.
+
+Focus on {focus_area}. Write findings to `{findings_path}`.
 ```
 
 `states.yaml`:
@@ -590,9 +590,8 @@ states:
 
 Resolution rules:
 
-- `<id>.personality` and `<id>.instructions` entries in the loaded
-  `prompt-templates.yaml` are reusable prompt fragments. Each template must
-  define at least one of them.
+- Each `prompt_templates/<id>.md` file is one reusable prompt fragment, loaded
+  as the template's instructions text.
 - `prompt_template: <id>` selects a template with no custom values.
 - `prompt_template: { name: <id>, values: { ... } }` selects a template and
   supplies concrete placeholder values for that state.

@@ -12,17 +12,17 @@ A **template** is a directory containing:
 
 1. A **manifest** (`template.yaml`) declaring the template's name, description, and typed input parameters.
 2. A **state machine** (`states.yaml`) — optional; when absent, instantiation and validation fall back to the built-in `rhei` default.
-3. **Prompt templates** (`prompt-templates.yaml`) — optional; when present next
-   to `states.yaml`, it declares reusable state prompt fragments referenced by
-   state-level `prompt_template` fields.
+3. **Prompt templates** (`prompt_templates/*.md`) — optional; when present next
+   to `states.yaml`, the directory declares reusable state prompt fragments
+   referenced by state-level `prompt_template` fields.
 4. A **plan skeleton** — either a single-file plan (`plan.rhei.md`) or a directory-workspace layout (`index.rhei.md` + `tasks/`).
 5. **Additional files** — any non-manifest files bundled with the template. Text files are rendered with a restricted MiniJinja template environment; binary files are copied verbatim into the output.
 
 Materialized template files may contain **instantiation templates** (`{{ ... }}`, `{% ... %}`) that are resolved at instantiation time from user-supplied inputs. These are distinct from the single-brace **runtime variables** (`{name}`) defined by the state-machine and plan specifications. Rendering is ordered: first resolve MiniJinja templates across template files during `rhei instantiate`, then let later `rhei` commands resolve runtime `{...}` variables against the instantiated workspace. The manifest (`template.yaml`) is parsed before rendering and is never itself templated.
 
 State-machine prompt templates are runtime prompt fragments, not instantiation
-templates. When a template bundles `prompt-templates.yaml` next to
-`states.yaml`, its single-brace placeholders are preserved through
+templates. When a template bundles `prompt_templates/*.md` next to
+`states.yaml`, their single-brace placeholders are preserved through
 `rhei instantiate`, substituted from each state's `prompt_template.values`, and
 any runtime variables inside those values are then resolved during `rhei next`
 or `rhei run`. Inline state `personality` and `instructions` remain valid.
@@ -50,7 +50,8 @@ Discovery errors are handled per command:
 <name>/
 ├── template.yaml          # Manifest (required)
 ├── states.yaml            # State machine (optional)
-├── prompt-templates.yaml  # Reusable state prompt fragments (optional; requires states.yaml)
+├── prompt_templates/      # Reusable state prompt fragments (optional; requires states.yaml)
+│   └── review.md
 ├── settings.json          # Template-shipped project settings (optional)
 ├── plan.rhei.md           # Single-file plan skeleton
 │   ── OR ──
@@ -415,7 +416,8 @@ When discovery encounters an invalid template directory, `rhei templates` skips 
 ~/.agents/rhei/templates/code-review/
 ├── template.yaml
 ├── states.yaml
-├── prompt-templates.yaml
+├── prompt_templates/
+│   └── review.md
 ├── index.rhei.md
 ├── tasks/
 │   └── 01-review.md
@@ -443,6 +445,14 @@ inputs:
   - name: model
     description: Model to use for review
     default: claude
+```
+
+#### `prompt_templates/review.md`
+
+```markdown
+Review pass {visit_count} of {visits} for Task {task_id}: {task_title}.
+Focus on `{{target}}`.
+Write findings to `{review_notes_path}`.
 ```
 
 #### `index.rhei.md`
@@ -474,10 +484,14 @@ version: 1.0.0
 states:
   review:
     description: Review pass
-    instructions: |
-      Review pass {visit_count} of {visits} for Task {task_id}: {task_title}.
-      Focus on `{{target}}`.
-      Write findings to `{output.review-notes.path}`.
+    prompt_template:
+      name: review
+      values:
+        visit_count: "{visit_count}"
+        visits: "{visits}"
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        review_notes_path: "{output.review-notes.path}"
     visits: {{review_passes}}
     outputs:
       - name: review-notes
@@ -572,7 +586,7 @@ All `{{...}}` are resolved during instantiation. All `{...}` remain for runtime.
 | Feature | Interaction |
 |---------|-------------|
 | **Runtime variables** (`{task_id}`, etc.) | Pass through instantiation untouched. Resolved later by `rhei next`. |
-| **State machines** | A template may bundle its own `states.yaml` at the output root. If present, `rhei instantiate`, `rhei validate`, `rhei run`, `rhei next`, and related commands that operate on the instantiated workspace use that sibling/root `states.yaml` by default when `--state-machine` is not supplied; otherwise they fall back to the built-in default. When the rendered plan declares `**States:** <name>`, that declaration participates in lookup: the auto-discovered `states.yaml` is the active configuration and its `name` must match `<name>`. `--state-machine <path>` overrides the auto-discovered file. If a sibling `prompt-templates.yaml` exists next to the active `states.yaml`, it is loaded with that state machine. Templates that rely on non-default state names should therefore bundle `states.yaml`. |
+| **State machines** | A template may bundle its own `states.yaml` at the output root. If present, `rhei instantiate`, `rhei validate`, `rhei run`, `rhei next`, and related commands that operate on the instantiated workspace use that sibling/root `states.yaml` by default when `--state-machine` is not supplied; otherwise they fall back to the built-in default. When the rendered plan declares `**States:** <name>`, that declaration participates in lookup: the auto-discovered `states.yaml` is the active configuration and its `name` must match `<name>`. `--state-machine <path>` overrides the auto-discovered file. If a sibling `prompt_templates/` directory exists next to the active `states.yaml`, its direct `.md` files are loaded with that state machine. Templates that rely on non-default state names should therefore bundle `states.yaml`. |
 | **Directory workspaces** | Templates can produce directory workspaces. The `tasks/` directory and `index.rhei.md` are resolved like any other template file. |
 | **`rhei validate`** | Runs automatically post-instantiation. Template authors can validate their templates with `rhei instantiate --dry-run`. |
 | **Program states** | Program states (`program` field) work in templates. Instantiation variables resolve in `program` strings, `program.command` arrays, `program.env` values, and `program.working_directory`. Runtime variables in those fields pass through to `rhei run`. |

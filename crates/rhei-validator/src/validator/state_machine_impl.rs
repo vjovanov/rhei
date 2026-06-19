@@ -12,18 +12,6 @@ impl StateMachine {
         sm.validate()
     }
 
-    /// Load a StateMachine from YAML string contents plus prompt-template file contents.
-    pub fn from_yaml_and_prompt_templates_str(
-        yaml: &str,
-        prompt_templates_yaml: &str,
-    ) -> Result<Self, StateMachineLoadError> {
-        reject_explicit_empty_all_targets(yaml)?;
-        reject_inline_prompt_templates(yaml)?;
-        let mut sm: Self = serde_yaml::from_str(yaml)?;
-        sm.prompt_templates = parse_prompt_templates_yaml(prompt_templates_yaml)?;
-        sm.validate()
-    }
-
     fn validate(self) -> Result<Self, StateMachineLoadError> {
         self.validate_model_configuration()?;
         self.validate_prompt_templates()?;
@@ -58,20 +46,16 @@ impl StateMachine {
         for (template_name, template) in &self.prompt_templates {
             if template_name.trim().is_empty() {
                 return Err(StateMachineLoadError::Invalid(
-                    "prompt-templates.yaml contains an empty template id".to_string(),
+                    "prompt_templates contains an empty template id".to_string(),
                 ));
             }
-            let has_personality = template
-                .personality
-                .as_deref()
-                .is_some_and(|text| !text.trim().is_empty());
             let has_instructions = template
                 .instructions
                 .as_deref()
                 .is_some_and(|text| !text.trim().is_empty());
-            if !has_personality && !has_instructions {
+            if !has_instructions {
                 return Err(StateMachineLoadError::Invalid(format!(
-                    "prompt template '{template_name}' must declare non-empty 'personality' or 'instructions'"
+                    "prompt template '{template_name}' must contain non-empty Markdown prompt text"
                 )));
             }
         }
@@ -170,11 +154,9 @@ impl StateMachine {
         reject_explicit_empty_all_targets(&text)?;
         reject_inline_prompt_templates(&text)?;
         let mut sm: Self = serde_yaml::from_str(&text)?;
-        let prompt_templates_path = prompt_templates_path_for_state_machine(path);
-        if prompt_templates_path.exists() {
-            let prompt_templates_text = std::fs::read_to_string(&prompt_templates_path)?;
-            sm.prompt_templates = parse_prompt_templates_yaml(&prompt_templates_text)?;
-        }
+        reject_legacy_prompt_templates_file(path)?;
+        let prompt_templates_dir = prompt_templates_dir_for_state_machine(path);
+        sm.prompt_templates = load_prompt_templates_dir(&prompt_templates_dir)?;
         sm.validate()
     }
 
@@ -399,23 +381,83 @@ fn reject_inline_prompt_templates(yaml: &str) -> Result<(), StateMachineLoadErro
     let raw: serde_yaml::Value = serde_yaml::from_str(yaml)?;
     if raw.get("prompt_templates").is_some() {
         return Err(StateMachineLoadError::Invalid(
-            "'prompt_templates' must be defined in sibling 'prompt-templates.yaml', not in 'states.yaml'"
+            "'prompt_templates' must be defined as a sibling directory of Markdown files, not as a top-level field in 'states.yaml'"
                 .to_string(),
         ));
     }
     Ok(())
 }
 
-fn prompt_templates_path_for_state_machine(path: &Path) -> PathBuf {
-    path.parent()
+fn reject_legacy_prompt_templates_file(path: &Path) -> Result<(), StateMachineLoadError> {
+    let legacy_path = path
+        .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("prompt-templates.yaml")
+        .join("prompt-templates.yaml");
+    if legacy_path.exists() {
+        return Err(StateMachineLoadError::Invalid(
+            "'prompt-templates.yaml' is no longer supported; place prompt Markdown files in sibling 'prompt_templates/'"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
-fn parse_prompt_templates_yaml(
-    yaml: &str,
+fn prompt_templates_dir_for_state_machine(path: &Path) -> PathBuf {
+    path.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("prompt_templates")
+}
+
+fn load_prompt_templates_dir(
+    path: &Path,
 ) -> Result<IndexMap<String, PromptTemplateDef>, StateMachineLoadError> {
-    let templates: IndexMap<String, PromptTemplateDef> = serde_yaml::from_str(yaml)?;
+    let mut templates = IndexMap::new();
+    if !path.exists() {
+        return Ok(templates);
+    }
+    if !path.is_dir() {
+        return Err(StateMachineLoadError::Invalid(format!(
+            "prompt_templates path '{}' must be a directory",
+            path.display()
+        )));
+    }
+
+    let mut entries = std::fs::read_dir(path)?.collect::<Result<Vec<_>, std::io::Error>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let file_type = entry.file_type()?;
+        if !file_type.is_file() {
+            continue;
+        }
+        let prompt_path = entry.path();
+        if prompt_path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            continue;
+        }
+        let template_name = prompt_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(str::trim)
+            .filter(|stem| !stem.is_empty())
+            .ok_or_else(|| {
+                StateMachineLoadError::Invalid(format!(
+                    "prompt template file '{}' must have a non-empty UTF-8 file stem",
+                    prompt_path.display()
+                ))
+            })?
+            .to_string();
+        if templates.contains_key(&template_name) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "prompt_templates contains duplicate prompt template id '{template_name}'"
+            )));
+        }
+        let text = std::fs::read_to_string(&prompt_path)?;
+        templates.insert(
+            template_name,
+            PromptTemplateDef { personality: None, instructions: Some(text) },
+        );
+    }
+
     Ok(templates)
 }
 

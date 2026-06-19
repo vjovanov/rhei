@@ -685,8 +685,8 @@ fn validation_watch_plan(input: &Path, state_machine: Option<&Path>) -> Validati
         watch_auto_state_machine_path(input)
     };
     targets.push(WatchTarget::Exact(canonical_watch_path(&watched_state_machine_path)));
-    targets.push(WatchTarget::Exact(canonical_watch_path(
-        &prompt_templates_path_for_state_machine_path(&watched_state_machine_path),
+    targets.push(WatchTarget::Descendant(canonical_watch_path(
+        &prompt_templates_dir_for_state_machine_path(&watched_state_machine_path),
     )));
 
     let mut roots = Vec::new();
@@ -744,18 +744,18 @@ fn watch_auto_state_machine_path(input: &Path) -> PathBuf {
     }
 }
 
-fn prompt_templates_path_for_state_machine_path(path: &Path) -> PathBuf {
+fn prompt_templates_dir_for_state_machine_path(path: &Path) -> PathBuf {
     path.parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("prompt-templates.yaml")
+        .join("prompt_templates")
 }
 
 #[cfg(test)]
 fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarget> {
     let mut targets = plan_watch_targets(input);
     targets.push(WatchTarget::Exact(canonical_watch_path(state_machine)));
-    targets.push(WatchTarget::Exact(canonical_watch_path(
-        &prompt_templates_path_for_state_machine_path(state_machine),
+    targets.push(WatchTarget::Descendant(canonical_watch_path(
+        &prompt_templates_dir_for_state_machine_path(state_machine),
     )));
     targets
 }

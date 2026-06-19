@@ -349,7 +349,7 @@ pub struct StateMachine {
     #[serde(default)]
     pub models: Vec<String>,
     /// Reusable prompt definitions keyed by prompt-template id.
-    // §FS-rhei-states.4.4: prompt-templates.yaml is normalized into this map.
+    // §FS-rhei-states.4.4: prompt_templates/*.md is normalized into this map.
     #[serde(default)]
     pub prompt_templates: IndexMap<String, PromptTemplateDef>,
     /// YAML version field as provided by the source file.
