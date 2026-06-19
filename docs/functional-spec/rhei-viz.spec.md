@@ -133,8 +133,9 @@ match the running process.
 
 The strip shows total top-level tasks and category counts for active, blocked,
 gate, done, and failed. When a runtime overlay is present, it also shows how many
-top-level tasks are currently assigned to a running slot. Counts and legend
-update in place on refresh (§7).
+slots are currently active — the count of live work, including nested subtasks
+that occupy a slot — so the running indicator never reads zero while work is
+visibly underway. Counts and legend update in place on refresh (§7).
 
 ## 2. List Mode (Outline)
 
