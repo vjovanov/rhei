@@ -692,7 +692,7 @@ fn write_snapshot_generation_atomic(
                         &nonce,
                     )?;
                 }
-                let _ = lock.unlock();
+                let _ = fs2::FileExt::unlock(&lock);
                 return snapshot_record_from_manifest(
                     cache_root,
                     &generation_dir.join("manifest.json"),
@@ -711,7 +711,7 @@ fn write_snapshot_generation_atomic(
             }
             Err(err) => {
                 let _ = fs::remove_dir_all(&tmp_dir);
-                let _ = lock.unlock();
+                let _ = fs2::FileExt::unlock(&lock);
                 return Err(file_io_report(
                     &generation_dir,
                     "failed to finalize snapshot generation",

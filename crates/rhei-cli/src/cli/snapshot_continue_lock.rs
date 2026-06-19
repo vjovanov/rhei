@@ -622,6 +622,6 @@ fn open_run_lock_file(workspace_root: &Path) -> MietteResult<fs::File> {
 
 impl Drop for HeldRunLock {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        let _ = fs2::FileExt::unlock(&self.file);
     }
 }

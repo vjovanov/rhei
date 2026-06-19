@@ -125,9 +125,9 @@ fn execute_transition_with_origin(
     // less informative "transition not allowed" error.
     if current_state != from {
         if let Some(task_handle) = &task_handle {
-            let _ = task_handle.unlock();
+            let _ = fs2::FileExt::unlock(task_handle);
         }
-        let _ = metadata_handle.unlock();
+        let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
             task_id_str,
@@ -143,9 +143,9 @@ fn execute_transition_with_origin(
         to,
     ) {
         if let Some(task_handle) = &task_handle {
-            let _ = task_handle.unlock();
+            let _ = fs2::FileExt::unlock(task_handle);
         }
-        let _ = metadata_handle.unlock();
+        let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(err);
     }
 
@@ -157,9 +157,9 @@ fn execute_transition_with_origin(
         );
     let Some(matching_rule) = matching_rule else {
         if let Some(task_handle) = &task_handle {
-            let _ = task_handle.unlock();
+            let _ = fs2::FileExt::unlock(task_handle);
         }
-        let _ = metadata_handle.unlock();
+        let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
             "transition from '{}' to '{}' is not allowed by the state machine",
             from,
@@ -185,9 +185,9 @@ fn execute_transition_with_origin(
         &current_state_raw,
     )? {
         if let Some(task_handle) = &task_handle {
-            let _ = task_handle.unlock();
+            let _ = fs2::FileExt::unlock(task_handle);
         }
-        let _ = metadata_handle.unlock();
+        let _ = fs2::FileExt::unlock(&metadata_handle);
         let reason = describe_blocked_transition(
             matching_rule,
             machine,
@@ -282,9 +282,9 @@ fn execute_transition_with_origin(
                 let result = executor.execute(cb, &ctx).map_err(|e| miette!("{e}"))?;
                 if !result.success {
                     if let Some(task_handle) = &task_handle {
-                        let _ = task_handle.unlock();
+                        let _ = fs2::FileExt::unlock(task_handle);
                     }
-                    let _ = metadata_handle.unlock();
+                    let _ = fs2::FileExt::unlock(&metadata_handle);
                     let message = result
                         .error
                         .clone()
@@ -314,9 +314,9 @@ fn execute_transition_with_origin(
             (to.to_string(), matching_rule)
         } else if !machine.is_valid_state(redirect) {
             if let Some(task_handle) = &task_handle {
-                let _ = task_handle.unlock();
+                let _ = fs2::FileExt::unlock(task_handle);
             }
-            let _ = metadata_handle.unlock();
+            let _ = fs2::FileExt::unlock(&metadata_handle);
             return Err(miette!("on_leave callback redirected to unknown state '{}'", redirect));
         } else if let Err(err) = ensure_task_profile_allows_state(
             machine,
@@ -326,9 +326,9 @@ fn execute_transition_with_origin(
             redirect,
         ) {
             if let Some(task_handle) = &task_handle {
-                let _ = task_handle.unlock();
+                let _ = fs2::FileExt::unlock(task_handle);
             }
-            let _ = metadata_handle.unlock();
+            let _ = fs2::FileExt::unlock(&metadata_handle);
             return Err(err);
         } else if let Some(rule) =
             machine.transitions().iter().find(|r| r.from.0 == from && r.to.0 == redirect).or_else(
@@ -338,9 +338,9 @@ fn execute_transition_with_origin(
             (redirect.to_string(), rule)
         } else {
             if let Some(task_handle) = &task_handle {
-                let _ = task_handle.unlock();
+                let _ = fs2::FileExt::unlock(task_handle);
             }
-            let _ = metadata_handle.unlock();
+            let _ = fs2::FileExt::unlock(&metadata_handle);
             return Err(miette!(
                 "on_leave callback redirected to '{}', but no transition from '{}' to '{}' is declared",
                 redirect,
@@ -473,9 +473,9 @@ fn execute_transition_with_origin(
                     None
                 };
                 if let Some(task_handle) = &task_handle {
-                    let _ = task_handle.unlock();
+                    let _ = fs2::FileExt::unlock(task_handle);
                 }
-                let _ = metadata_handle.unlock();
+                let _ = fs2::FileExt::unlock(&metadata_handle);
                 let message =
                     result.error.clone().unwrap_or_else(|| "on_enter callback failed".to_string());
                 if rollback_err.is_some() || task_rollback_err.is_some() {
@@ -490,9 +490,9 @@ fn execute_transition_with_origin(
     }
 
     if let Some(task_handle) = task_handle {
-        let _ = task_handle.unlock();
+        let _ = fs2::FileExt::unlock(&task_handle);
     }
-    let _ = metadata_handle.unlock();
+    let _ = fs2::FileExt::unlock(&metadata_handle);
     Ok(to.to_string())
 }
 
