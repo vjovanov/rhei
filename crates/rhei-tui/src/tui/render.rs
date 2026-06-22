@@ -205,10 +205,6 @@ fn cost_strip_line(state: &UiState) -> Line<'static> {
         ),
         Style::default().fg(theme.dim()),
     ));
-    spans.push(Span::styled(
-        format!("  cov {}", roll.coverage_glyph()),
-        Style::default().fg(theme.dim()),
-    ));
     Line::from(spans)
 }
 
