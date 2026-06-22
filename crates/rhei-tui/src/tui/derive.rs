@@ -147,7 +147,6 @@ pub(super) struct CostRollup {
     pub(super) input_tokens: u64,
     pub(super) input_cached_read_tokens: u64,
     pub(super) output_tokens: u64,
-    pub(super) output_cached_read_tokens: u64,
     pub(super) invocations: u64,
 }
 
@@ -162,7 +161,6 @@ impl CostRollup {
         self.input_tokens += usage.input_total.value.unwrap_or(0);
         self.input_cached_read_tokens += usage.input_cached_read.value.unwrap_or(0);
         self.output_tokens += usage.output_total.value.unwrap_or(0);
-        self.output_cached_read_tokens += usage.output_cached_read.value.unwrap_or(0);
     }
 
     /// A coverage glyph — meaning never rides color alone (§FS-rhei-cost-accounting).

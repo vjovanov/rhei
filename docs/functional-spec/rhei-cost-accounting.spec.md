@@ -378,11 +378,11 @@ When no accounting artifacts exist, `rhei cost` exits 0 and prints:
 The TUI header shows a compact run-level strip when accounting is available:
 
 ```text
-Cost: $1.23  in=2.4M  in_cached=1.5M  out=180k  out_cached=-  coverage=Partial
+Cost: $1.23  total=2.6M  in=2.4M  in_cached=1.5M  out=180k  coverage=Partial
 ```
 
 The header uses absolute token totals rather than a cache percentage so cached
-input and cached output remain separate. Unavailable dimensions render as `-`.
+input stays visible as its own dimension. Unavailable dimensions render as `-`.
 Each active TUI slot line shows the current direct accounting reported for that
 task next to its elapsed running time. When an agent only reports a final total
 token count, the compact slot line shows `total` and leaves input/cache/output

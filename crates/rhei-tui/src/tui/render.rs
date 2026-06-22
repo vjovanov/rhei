@@ -197,12 +197,11 @@ fn cost_strip_line(state: &UiState) -> Line<'static> {
     spans.push(Span::styled(cost, Style::default().fg(theme.accent())));
     spans.push(Span::styled(
         format!(
-            "  total {}  in {}  in_cached {}  out {}  out_cached {}",
+            "  total {}  in {}  in_cached {}  out {}",
             format_tokens(roll.total_tokens),
             format_tokens(roll.input_tokens),
             format_tokens(roll.input_cached_read_tokens),
-            format_tokens(roll.output_tokens),
-            format_tokens(roll.output_cached_read_tokens)
+            format_tokens(roll.output_tokens)
         ),
         Style::default().fg(theme.dim()),
     ));
