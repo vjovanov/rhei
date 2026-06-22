@@ -472,8 +472,8 @@ pub(super) fn render_cost(f: &mut Frame, area: Rect, state: &UiState) {
     let theme = &state.theme;
     let col_header = Line::from(Span::styled(
         format!(
-            "{:<20} {:>10} {:>9} {:>9} {:>9} {:>9} {:>9} {:>4}",
-            "key", "cost", "total", "in", "in cache", "out", "out cache", "cov"
+            "{:<20} {:>10} {:>9} {:>9} {:>9} {:>9} {:>9}",
+            "key", "cost", "total", "in", "in cache", "out", "out cache"
         ),
         Style::default().fg(theme.dim()),
     ));
@@ -522,7 +522,6 @@ fn cost_row_line(theme: &super::theme::Theme, key: &str, roll: &CostRollup) -> L
             format!("{:>9} ", format_tokens(roll.output_cached_read_tokens)),
             Style::default().fg(theme.dim()),
         ),
-        Span::raw(format!("{:>4}", roll.coverage_glyph())),
     ])
 }
 
