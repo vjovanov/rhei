@@ -9,8 +9,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use super::derive::{
-    has_children, inspector_chips, machine_groups, run_rollup, subtree_progress, task_direct,
-    task_subtree, ChipAction, CostRollup,
+    has_children, inspector_chips, machine_groups, subtree_progress, task_direct, task_subtree,
+    ChipAction, CostRollup,
 };
 use super::render::{format_cost_micro, format_tokens, render_list, state_pill};
 use super::state::{FlowFocus, JournalEntry, TaskRow, UiState};
@@ -470,37 +470,20 @@ pub(super) fn render_cost(f: &mut Frame, area: Rect, state: &UiState) {
     }
 
     let theme = &state.theme;
-    let total = run_rollup(&state.invocations);
-    let header = Line::from(vec![Span::styled(
-        format!(
-            "run total {}   in {}  out {}  cache {}  cov {}",
-            total.cost_micro.map(format_cost_micro).unwrap_or_else(|| "—".to_string()),
-            format_tokens(total.input_tokens),
-            format_tokens(total.output_tokens),
-            total
-                .cache_ratio()
-                .map(|r| format!("{:.0}%", r * 100.0))
-                .unwrap_or_else(|| "—".to_string()),
-            total.coverage_glyph(),
-        ),
-        Style::default().add_modifier(Modifier::BOLD),
-    )]);
-
-    // Column header.
     let col_header = Line::from(Span::styled(
         format!(
-            "{:<28} {:>10} {:>9} {:>9} {:>6} {:>4}",
-            "key", "cost", "in", "out", "cache", "cov"
+            "{:<20} {:>10} {:>9} {:>9} {:>9} {:>9}",
+            "key", "cost", "total", "in", "in cache", "out"
         ),
         Style::default().fg(theme.dim()),
     ));
 
     let rows = cost_rows(state);
-    let mut lines: Vec<(bool, Line)> = vec![(false, header), (false, col_header)];
+    let mut lines: Vec<(bool, Line)> = vec![(false, col_header)];
     for (key, roll, selected) in rows {
         lines.push((selected, cost_row_line(theme, &key, &roll)));
     }
-    if lines.len() == 2 {
+    if lines.len() == 1 {
         // Empty cost table reads like a bug unless it says why. After the run
         // finishes with nothing recorded, the agents simply reported no usage
         // (e.g. mock or non-metered agents); before then, data streams in live.
@@ -516,21 +499,25 @@ pub(super) fn render_cost(f: &mut Frame, area: Rect, state: &UiState) {
 
 fn cost_row_line(theme: &super::theme::Theme, key: &str, roll: &CostRollup) -> Line<'static> {
     let cost = roll.cost_micro.map(format_cost_micro).unwrap_or_else(|| "—".to_string());
-    let cache =
-        roll.cache_ratio().map(|r| format!("{:.0}%", r * 100.0)).unwrap_or_else(|| "—".to_string());
     Line::from(vec![
-        Span::raw(format!("{:<28} ", truncate_chars(key, 28))),
+        Span::raw(format!("{:<20} ", truncate_chars(key, 20))),
         Span::raw(format!("{cost:>10} ")),
         Span::styled(
+            format!("{:>9} ", format_tokens(roll.total_tokens)),
+            Style::default().fg(theme.dim()),
+        ),
+        Span::styled(
             format!("{:>9} ", format_tokens(roll.input_tokens)),
+            Style::default().fg(theme.dim()),
+        ),
+        Span::styled(
+            format!("{:>9} ", format_tokens(roll.input_cached_read_tokens)),
             Style::default().fg(theme.dim()),
         ),
         Span::styled(
             format!("{:>9} ", format_tokens(roll.output_tokens)),
             Style::default().fg(theme.dim()),
         ),
-        Span::styled(format!("{cache:>6} "), Style::default().fg(theme.dim())),
-        Span::raw(format!("{:>4}", roll.coverage_glyph())),
     ])
 }
 

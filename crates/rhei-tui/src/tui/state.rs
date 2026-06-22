@@ -12,7 +12,8 @@ pub(super) use rhei_viz_model::{Machine, TaskRow};
 
 use crate::dashboard::{GateTransitionSink, InterveneSink, PlanLoader};
 use crate::event::{
-    AccountingRunSummary, AgentStream, MessageLevel, RunEvent, Slot, TaskOutcome, UsageSummary,
+    summarize_usage_summaries, AccountingRunSummary, AgentStream, MessageLevel, RunEvent, Slot,
+    TaskOutcome, UsageSummary,
 };
 
 use super::text::sanitize_terminal_text;
@@ -426,6 +427,9 @@ impl UiState {
                 self.parallel = (*parallel).max(1);
                 self.total_tasks = *total_tasks;
                 self.slots = vec![SlotState::default(); self.parallel as usize];
+                self.invocations.clear();
+                self.accounting = None;
+                self.dashboard_url = None;
                 self.push_journal(
                     MessageLevel::Info,
                     format!("run started — parallel={} total={}", self.parallel, self.total_tasks),
@@ -505,9 +509,9 @@ impl UiState {
             }
             RunEvent::RunFinished { summary } => {
                 self.finished = true;
-                if summary.accounting.is_some() {
-                    self.accounting = summary.accounting.clone();
-                }
+                self.accounting = summary.accounting.clone().or_else(|| {
+                    summarize_usage_summaries(self.invocations.iter().map(|r| &r.usage))
+                });
                 self.composer = None;
                 self.gate_active = false;
                 self.push_journal(
@@ -533,8 +537,19 @@ impl UiState {
                 }
                 self.push_journal(MessageLevel::Info, format!("{label}: {url}"));
             }
-            RunEvent::UsageReported { slot, task, usage, .. } => {
-                self.invocations.push(UsageRecord { task: task.clone(), usage: usage.clone() });
+            RunEvent::UsageReported { slot, task, invocation_id, usage, .. } => {
+                if let Some(existing) = self
+                    .invocations
+                    .iter_mut()
+                    .find(|record| record.usage.invocation_id == *invocation_id)
+                {
+                    existing.task = task.clone();
+                    existing.usage = usage.clone();
+                } else {
+                    self.invocations.push(UsageRecord { task: task.clone(), usage: usage.clone() });
+                }
+                self.accounting =
+                    summarize_usage_summaries(self.invocations.iter().map(|r| &r.usage));
                 if let Some(slot) = slot {
                     if let Some(s) = self.slot_mut(*slot) {
                         s.usage = Some(usage.clone());

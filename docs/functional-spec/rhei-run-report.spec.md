@@ -40,6 +40,8 @@ The report layout is optimized for scan-first reading:
 2. **Outcome Strip** - small summary table for final task states, transitions,
    spawned agents, spawned programs, callback-only advances, reused-output
    advances, dry-run transitions, terminal-at-start tasks, and blocked tasks.
+   When accounting exists, the strip also shows run cost, input tokens, cached
+   input tokens, output tokens, cached output tokens, and coverage.
 3. **Attention** - the shortest path to action: blocked tasks, gating tasks, and
    halted tasks with the exact reason.
 4. **Transition Ledger** - one row per transition attempt or no-op observation,
@@ -51,6 +53,9 @@ The report layout is optimized for scan-first reading:
 7. **Invocations** - spawned agents/programs with command labels, targets,
    models, exit status, duration, logs, accounting record if present, and output
    paths.
+8. **Task Costs** - direct task cost and token totals when accounting was
+   reported. The task cost is the sum of agent states spawned directly for that
+   task; subtree accounting remains available through `rhei cost`. §FS-rhei-cost-accounting
 
 The top of the report must expose reuse counts and blocked counts without
 scrolling. A run that performs no spawned work because every required output
@@ -105,6 +110,7 @@ Run Report  Rhei UI Canonical Test                       9f24c6 · 12m04s
 
   States    █████████ ██ █████ █     9 completed · 2 human-gate · 5 blocked · 1 cancelled
   Work      7 agents · 15 programs · 0 reused · 0 callback-only · 2 terminal-at-start
+  Cost      $1.23 · In 2.4M · In cached 1.5M · Out 180k · Out cached - · Coverage partial
 
 Attention  3 gated · 4 blocked
   ! full-pipeline              human-gate  counted fix loop finished

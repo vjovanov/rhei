@@ -42,6 +42,7 @@ fn accounting_usage(
         agent: "codex".to_string(),
         provider: Some("openai".to_string()),
         model: Some("gpt-test".to_string()),
+        total: measured.clone(),
         input_total: measured.clone(),
         input_cached_read: measured.clone(),
         input_cache_write: measured.clone(),
@@ -90,7 +91,7 @@ fn accounting_mixed_priced_and_unpriced_rollup_is_partial() {
         None,
     );
 
-    let summary = summarize_usage_summaries([&priced, &unpriced]).expect("summary");
+    let summary = rhei_tui::summarize_usage_summaries([&priced, &unpriced]).expect("summary");
 
     assert_eq!(summary.coverage, rhei_tui::UsageCoverage::Partial);
     assert_eq!(summary.pricing_status, rhei_tui::PricingStatus::PartialPrice);

@@ -48,14 +48,17 @@ Rhei stores accounting under the workspace:
 ```text
 runtime/accounting/
   invocations/<invocation_file_id>.json
+  captures/<capture_file_id>.jsonl
   tasks/<task_file_id>.json
   summary.json
   prices.json
 ```
 
-`invocations/` is authoritative. `tasks/` and `summary.json` are derived
-indexes and may be regenerated from invocation records and the current plan
-tree.
+`invocations/` is authoritative for completed agent processes. `captures/`
+stores normalized per-turn usage events while an agent is running; invocation
+records are produced from those capture streams when the process exits.
+`tasks/` and `summary.json` are derived indexes and may be regenerated from
+invocation records and the current plan tree.
 
 `invocation_id` is the logical identity inside the JSON record. It may contain
 task ids, states, target slugs, and visit numbers. File names must use
@@ -86,6 +89,7 @@ Each supported agent spawn writes one JSON object:
   "extraction_status": "measured",
   "scope": "aggregate-agent-process",
   "tokens": {
+    "total": { "value": 14645, "source": "agent-usage-capture" },
     "input": {
       "total": { "value": 12345, "source": "agent-usage-capture" },
       "cached_read": { "value": 9000, "source": "agent-usage-capture" },
@@ -110,6 +114,7 @@ Each supported agent spawn writes one JSON object:
 
 | Dimension | Meaning |
 | --- | --- |
+| `total` | Total tokens when the agent reports an aggregate count, or input plus output when those dimensions are available. |
 | `input.total` | Total input tokens reported by the agent/provider. |
 | `input.cached_read` | Input tokens served from cache. |
 | `input.cache_write` | Input tokens written into cache. |
@@ -182,11 +187,13 @@ For each agent invocation:
    capture contract sets `RHEI_ACCOUNTING_USAGE_PATH` and
    `RHEI_ACCOUNTING_USAGE_SCHEMA=rhei.accounting.usage.v1`.
 2. `rhei run` spawns the agent normally.
-3. The agent exits and Rhei drains stdout/stderr.
-4. Rhei evaluates completion and selects the outgoing transition.
-5. Rhei extracts usage and writes the invocation record.
-6. Rhei emits `UsageReported`.
-7. Rhei applies normal snapshot side effects and task transition behavior.
+3. The extractor observes structured usage as it is produced and appends
+   normalized usage events to `runtime/accounting/captures/*.jsonl`.
+4. The agent exits and Rhei drains stdout/stderr.
+5. Rhei evaluates completion and selects the outgoing transition.
+6. Rhei sums the capture stream and writes the invocation record.
+7. Rhei emits `UsageReported`.
+8. Rhei applies normal snapshot side effects and task transition behavior.
 
 Extraction failures affect accounting coverage only. They do not change the
 agent exit code, completion condition, selected transition, or callbacks.
@@ -196,7 +203,7 @@ Built-in extractor requirements:
 | Agent | Requirement |
 | --- | --- |
 | `claude-code` | Use the most structured usage output available from Claude Code. |
-| `codex` | Use the most structured usage output from `codex exec` or its runtime transcript. Do not depend on Codex snapshot support. |
+| `codex` | Run `codex exec --json`; extract `turn.completed.usage` from JSONL stdout and normalize it into `runtime/accounting/captures/*.jsonl`. Do not depend on Codex snapshot support. |
 | `pi` | Parse Pi JSONL/session usage when available. Accounting-only session data belongs under `runtime/accounting/`, not snapshot cache paths. |
 
 If an upstream CLI changes format, the extractor records `extractor-failed`
@@ -337,8 +344,10 @@ pub enum RunEvent {
 }
 ```
 
-`UsageReported` may arrive after `SlotReleased`; frontends must update task,
-slot history, and run totals without assuming the slot is still active. §FS-rhei-run-tui
+`UsageReported` may arrive repeatedly for the same invocation id as a streaming
+extractor observes additional turns, and may also arrive after `SlotReleased`;
+frontends must upsert by invocation id and update task, slot history, and run
+totals without assuming the slot is still active. §FS-rhei-run-tui
 
 `RunSummary.accounting` contains an optional `AccountingRunSummary` with the
 same dimension, cost, currency, coverage, and pricing-status shape as
@@ -369,34 +378,49 @@ When no accounting artifacts exist, `rhei cost` exits 0 and prints:
 The TUI header shows a compact run-level strip when accounting is available:
 
 ```text
-Cost $1.23 | In 2.4M | Out 180k | Cache 61% | Coverage 92%
+Cost: $1.23  total=2.6M  in=2.4M  in_cached=1.5M  out=180k
 ```
 
-`Cache <percent>` means:
+The header uses absolute token totals rather than a cache percentage so cached
+input stays visible as its own dimension. Unavailable dimensions render as `-`.
+Each active TUI slot line shows the current direct accounting reported for that
+task next to its elapsed running time. When an agent only reports a final total
+token count, the compact slot line shows `total` and leaves input/cache/output
+dimensions unavailable rather than misclassifying the total as input or output.
+The slots pane also shows a current
+run-level token/cost total below the slot rows, even before the first usage
+report arrives; unavailable dimensions render as `-`.
 
-```text
-input_cached_read / input_total
-```
+When `UsageReported` arrives after slot release, the TUI updates the run-level
+header, slot-pane total, and journal summary. Active task lines update while the
+same task remains in a slot; completed-slot history is not kept in the terminal
+UI.
 
-Only measured input dimensions are included. If either side is unavailable or
-partial, the display marks the ratio approximate or omits it.
+The end-of-run console summary and durable run report include the same run-level
+accounting strip. Task rows may show a compact direct task cost only; the direct
+task cost is the sum of usage reported for all agent states spawned for that
+task in the run. §FS-rhei-run-report
 
-Each active slot shows the latest known accounting for its invocation below
-elapsed time. In compact-list mode, the slot row shows only cost and coverage.
-If usage arrives after slot release, the completed slot history and journal
-summary update when `UsageReported` arrives.
+The browser dashboard adds a **Cost** tab before **Journal**. Its live summary
+shows:
 
-The browser dashboard adds a **Cost** tab before **Journal**. It shows:
+- run totals;
+- top-level task direct and subtree costs;
+- top-level task subtree input, cached input, and output totals.
 
-- run totals and coverage;
-- grouped totals by agent, provider, model, and state;
-- highest-cost task nodes by subtree cost;
-- per-invocation drill-down with token dimensions and pricing status.
+The dashboard serves per-invocation details from `/accounting/invocations` so a
+future drill-down can show token dimensions and pricing status without bloating
+the frequently polled `/snapshot` payload.
 
-The **Tasks** tab adds direct cost, subtree cost, input, output, cached input,
-cached output, and coverage columns when accounting data exists. The **Cube**
-view can switch from state color to subtree-cost heatmap. The **Sankey** view
-can use cost as ribbon width. §FS-rhei-viz
+Task accounting rollups are carried in `task_runtime` so dashboard views can add
+direct cost, subtree cost, input, output, and cached input where that density
+fits. The current Cost tab exposes the compact top-level task table. The
+selected-task surroundings panel includes a token section with direct and
+subtree rollups for the clicked task, and live refreshes that section when
+`/snapshot` reports updated accounting. The dashboard Slots view shows per-slot
+task accounting columns and a current run total below the slot table. Future
+Cube and Sankey modes may use subtree cost as heatmap color or ribbon width.
+§FS-rhei-viz
 
 ## 10. Dashboard Data
 

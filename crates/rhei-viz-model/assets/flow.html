@@ -545,6 +545,7 @@ function renderSurroundings(){
   head.appendChild(copy);
   frag.appendChild(head);
   if(ms&&ms.description) frag.appendChild(el("div",{class:"desc",text:ms.description}));
+  frag.appendChild(renderTokenSection(n));
 
   // dependencies
   const deps=el("div",{class:"deps"});
@@ -1169,12 +1170,59 @@ let SUPP="none";
 function emptyNote(t){ return el("div",{class:"none",text:t}); }
 function fmtCost(micro, currency){ if(micro==null) return "—";
   const v=micro/1e6; return (currency==="USD"||!currency) ? "$"+v.toFixed(4) : v.toFixed(4)+" "+currency; }
+function costVal(a){ return a ? (a.cost_micro ?? a.priced_cost_micro) : null; }
 function fmtNum(n){ return n==null ? "—" : Number(n).toLocaleString(); }
 function fmtDur(ms){ if(ms==null) return "—"; const s=Math.round(ms/1000);
   if(s<60) return s+"s"; const m=Math.floor(s/60); return m+"m"+String(s%60).padStart(2,"0")+"s"; }
 function fmtTime(ms){ if(!ms) return ""; const d=new Date(ms);
   return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,"0")).join(":"); }
 function dimVal(d){ return d && d.value!=null ? d.value : null; }
+function taskAccounting(id){
+  const rt=runtimeFor(id);
+  return rt&&rt.accounting ? rt.accounting : null;
+}
+function directAccounting(id){
+  const acc=taskAccounting(id);
+  return acc&&acc.direct ? acc.direct : null;
+}
+function accountingRow(label, a){
+  const row=el("tr");
+  row.appendChild(el("td",{text:label}));
+  row.appendChild(el("td",{class:"num",text:a?fmtCost(costVal(a),a.currency):"—"}));
+  row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.total)):"—"}));
+  row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.input_total)):"—"}));
+  row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.input_cached_read)):"—"}));
+  row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.output_total)):"—"}));
+  return row;
+}
+function renderAccountingGrid(a){
+  const g=el("div",{class:"acct-grid"});
+  const add=(k,v)=>{ g.appendChild(el("div",{class:"k",text:k})); g.appendChild(el("div",{class:"v",text:v})); };
+  add("cost", a?fmtCost(costVal(a), a.currency):"—");
+  add("total tokens", a?fmtNum(dimVal(a.total)):"—");
+  add("input tokens", a?fmtNum(dimVal(a.input_total)):"—");
+  add("input cached", a?fmtNum(dimVal(a.input_cached_read)):"—");
+  add("output tokens", a?fmtNum(dimVal(a.output_total)):"—");
+  return g;
+}
+function renderTokenSection(n){
+  const frag=document.createDocumentFragment();
+  frag.appendChild(el("h3",{text:"tokens"}));
+  const acc=taskAccounting(n.id);
+  if(!acc){
+    frag.appendChild(emptyNote("No token data reported yet."));
+    return frag;
+  }
+  // §FS-rhei-cost-accounting.9: selected tasks show direct and subtree token rollups.
+  const tbl=el("table",{class:"stable"});
+  const h=el("tr");
+  ["scope","cost","total","input","input cached","output"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i>0?"num":""})));
+  tbl.appendChild(h);
+  tbl.appendChild(accountingRow("direct", acc.direct));
+  tbl.appendChild(accountingRow("subtree", acc.subtree));
+  frag.appendChild(tbl);
+  return frag;
+}
 // In a live render, an artifact/log path opens in the operator's editor via the
 // loopback /open route (§FS-rhei-viz §11); in a static render the link is
 // illustrative and points at the (relative) path directly.
@@ -1187,7 +1235,7 @@ function openLink(path, text, title){
 function suppViews(){
   const hasRun = !!(IX.plan.slots || IX.plan.recent || IX.plan.accounting);
   const v=[];
-  if(hasRun) v.push(["journal","Journal"],["slots","Slots"],["cost","Cost"]);
+  if(hasRun) v.push(["cost","Cost"],["journal","Journal"],["slots","Slots"]);
   v.push(["gantt","Gantt"],["cube","Cube"],["sankey","Sankey"]);
   if(hasRun || (IX.plan.links&&IX.plan.links.length)) v.push(["links","Links"]);
   return v;
@@ -1221,39 +1269,55 @@ function suppSlots(body){
   const slots=IX.plan.slots||[];
   if(!slots.length){ body.appendChild(emptyNote("No slots.")); return; }
   const tbl=el("table",{class:"stable"});
-  const head=el("tr"); ["#","task","state","agent","dur","outcome"].forEach((h,i)=>head.appendChild(el("th",{text:h,class:i===4?"num":""}))); tbl.appendChild(head);
+  const head=el("tr");
+  ["#","task","state","agent","dur","cost","total","input","input cached","output","outcome"]
+    .forEach((h,i)=>head.appendChild(el("th",{text:h,class:i>=4&&i<=9?"num":""})));
+  tbl.appendChild(head);
   slots.forEach((s,i)=>{ const tr=el("tr");
     tr.appendChild(el("td",{text:String(i)}));
     const tt=el("td"); if(s.task&&IX.byId[s.task]){ const a=el("a",{href:"#",text:s.task}); a.addEventListener("click",e=>{e.preventDefault();select(s.task);}); tt.appendChild(a);} else tt.textContent=s.task||"—"; tr.appendChild(tt);
     tr.appendChild(el("td",{text:s.state||"—"}));
     tr.appendChild(el("td",{text:s.agent||"—"}));
     tr.appendChild(el("td",{class:"num",text:fmtDur(s.duration_ms)}));
+    const acc=s.task ? directAccounting(s.task) : null;
+    // §FS-rhei-cost-accounting.9: slot rows expose the task's current direct tokens.
+    tr.appendChild(el("td",{class:"num",text:acc?fmtCost(costVal(acc),acc.currency):"—"}));
+    tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.total)):"—"}));
+    tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.input_total)):"—"}));
+    tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.input_cached_read)):"—"}));
+    tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.output_total)):"—"}));
     tr.appendChild(el("td",{text:s.outcome||(s.active?"running":"—")}));
     tbl.appendChild(tr); });
   body.appendChild(tbl);
+  body.appendChild(el("h3",{text:"current total"}));
+  body.appendChild(renderAccountingGrid(IX.plan.accounting||null));
 }
 function suppCost(body){
   const a=IX.plan.accounting;
   if(a){ body.appendChild(el("h3",{text:"run total"}));
     const g=el("div",{class:"acct-grid"});
     const add=(k,v)=>{ g.appendChild(el("div",{class:"k",text:k})); g.appendChild(el("div",{class:"v",text:v})); };
-    add("cost", fmtCost(a.cost_micro, a.currency));
+    add("cost", fmtCost(costVal(a), a.currency));
+    add("total tokens", fmtNum(dimVal(a.total)));
     add("input tokens", fmtNum(dimVal(a.input_total)));
+    add("input cached", fmtNum(dimVal(a.input_cached_read)));
     add("output tokens", fmtNum(dimVal(a.output_total)));
-    add("cached read", fmtNum(dimVal(a.input_cached_read)));
     add("invocations", fmtNum(a.invocation_count));
-    add("coverage", a.coverage||"—");
     body.appendChild(g);
   }
   const tr=IX.plan.task_runtime||{};
   const rows=IX.top.filter(id=>tr[id]&&tr[id].accounting);
   if(rows.length){ body.appendChild(el("h3",{text:"by top-level task"}));
     const tbl=el("table",{class:"stable"});
-    const h=el("tr"); ["task","direct","subtree"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i?"num":""}))); tbl.appendChild(h);
+    const h=el("tr"); ["task","direct","subtree","total","input","input cached","output"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i?"num":""}))); tbl.appendChild(h);
     for(const id of rows){ const acc=tr[id].accounting, row=el("tr");
       const tt=el("td"); const a2=el("a",{href:"#",text:id}); a2.addEventListener("click",e=>{e.preventDefault();select(id);}); tt.appendChild(a2); row.appendChild(tt);
-      row.appendChild(el("td",{class:"num",text:acc.direct?fmtCost(acc.direct.cost_micro,acc.direct.currency):"—"}));
-      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtCost(acc.subtree.cost_micro,acc.subtree.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.direct?fmtCost(costVal(acc.direct),acc.direct.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtCost(costVal(acc.subtree),acc.subtree.currency):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.total)):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.input_total)):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.input_cached_read)):"—"}));
+      row.appendChild(el("td",{class:"num",text:acc.subtree?fmtNum(dimVal(acc.subtree.output_total)):"—"}));
       tbl.appendChild(row); }
     body.appendChild(tbl);
   }
@@ -1389,6 +1453,12 @@ function applyLive(snap){
   }
   const y=window.scrollY, prevSel=SEL, changed={};
   const prevCat = (prevSel && IX.byId[prevSel]) ? nodeCategory(IX.byId[prevSel]) : null;
+  const prevAccounting = prevSel
+    ? JSON.stringify((((IX.plan.task_runtime||{})[prevSel]||{}).accounting)||null)
+    : null;
+  const nextAccounting = prevSel
+    ? JSON.stringify((((snap.task_runtime||{})[prevSel]||{}).accounting)||null)
+    : null;
   for(const t of (snap.tasks||[])){ const n=IX.byId[t.id];
     if(n && n.state!==t.state){ changed[t.id]=true; n.state=t.state; } }
   IX.plan = snap;                        // refresh machine / about / accounting
@@ -1399,7 +1469,8 @@ function applyLive(snap){
   const supScroll = (document.querySelector(".sbody")||{}).scrollTop || 0;
   renderSupp();
   const sb=document.querySelector(".sbody"); if(sb) sb.scrollTop=supScroll;
-  if(prevSel && (changed[prevSel] || prevCat!==nextCat)){
+  if(prevSel && (changed[prevSel] || prevCat!==nextCat || prevAccounting!==nextAccounting)){
+    // §FS-rhei-cost-accounting.9: selected-task token rollups live-refresh from /snapshot.
     renderSurroundings(); showStateDetail(IX.byId[prevSel].state);
   }
   applySelectionVisual();

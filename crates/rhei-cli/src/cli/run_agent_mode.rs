@@ -575,7 +575,7 @@ fn spawn_parallel_agent_work_item(
                 task: tid_for_event,
                 from: from_for_thread,
                 to: to_for_thread,
-                log_path: log_for_thread,
+                log_path: log_for_thread.clone(),
                 outcome,
                 finished_at: std::time::Instant::now(),
                 wall_clock: finished_wall,
@@ -594,6 +594,7 @@ fn spawn_parallel_agent_work_item(
                 ended_at: finished_wall,
                 slot: Some(slot),
                 usage_capture_path: usage_capture_path.map(PathBuf::as_path),
+                log_path: Some(&log_for_thread),
                 sink: &sink_for_thread,
             });
             let (accounting_recorded, accounting_warning) = match accounting_result {
@@ -2332,6 +2333,7 @@ fn run_agent_mode(
                     .as_ref()
                     .ok()
                     .and_then(|outcome| outcome.usage_capture_path.as_deref()),
+                log_path: Some(&log),
                 sink: &sink,
             }) {
                 Ok(Some(_)) => {

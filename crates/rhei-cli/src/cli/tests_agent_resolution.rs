@@ -488,6 +488,7 @@
             sink,
             3,
             "task-live".to_string(),
+            None,
         );
 
         drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout).expect("reader drains");

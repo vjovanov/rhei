@@ -96,6 +96,7 @@ fn build_agent_command(
     for arg in &resolved.autonomous_args {
         cmd.arg(arg);
     }
+    configure_agent_accounting_args(&mut cmd, resolved);
 
     if profile.stdin_prompt || profile.intervene_stdin {
         cmd.stdin(std::process::Stdio::piped());
