@@ -1193,8 +1193,6 @@ function accountingRow(label, a){
   row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.input_total)):"—"}));
   row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.input_cached_read)):"—"}));
   row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.output_total)):"—"}));
-  row.appendChild(el("td",{class:"num",text:a?fmtNum(dimVal(a.output_cached_read)):"—"}));
-  row.appendChild(el("td",{text:a?(a.coverage||"—"):"—"}));
   return row;
 }
 function renderAccountingGrid(a){
@@ -1205,8 +1203,6 @@ function renderAccountingGrid(a){
   add("input tokens", a?fmtNum(dimVal(a.input_total)):"—");
   add("input cached", a?fmtNum(dimVal(a.input_cached_read)):"—");
   add("output tokens", a?fmtNum(dimVal(a.output_total)):"—");
-  add("output cached", a?fmtNum(dimVal(a.output_cached_read)):"—");
-  add("coverage", a?(a.coverage||"—"):"—");
   return g;
 }
 function renderTokenSection(n){
@@ -1220,7 +1216,7 @@ function renderTokenSection(n){
   // §FS-rhei-cost-accounting.9: selected tasks show direct and subtree token rollups.
   const tbl=el("table",{class:"stable"});
   const h=el("tr");
-  ["scope","cost","total","input","input cached","output","output cached","coverage"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i>0&&i<7?"num":""})));
+  ["scope","cost","total","input","input cached","output"].forEach((t,i)=>h.appendChild(el("th",{text:t,class:i>0?"num":""})));
   tbl.appendChild(h);
   tbl.appendChild(accountingRow("direct", acc.direct));
   tbl.appendChild(accountingRow("subtree", acc.subtree));
@@ -1274,8 +1270,8 @@ function suppSlots(body){
   if(!slots.length){ body.appendChild(emptyNote("No slots.")); return; }
   const tbl=el("table",{class:"stable"});
   const head=el("tr");
-  ["#","task","state","agent","dur","cost","total","input","input cached","output","output cached","outcome"]
-    .forEach((h,i)=>head.appendChild(el("th",{text:h,class:i>=4&&i<=10?"num":""})));
+  ["#","task","state","agent","dur","cost","total","input","input cached","output","outcome"]
+    .forEach((h,i)=>head.appendChild(el("th",{text:h,class:i>=4&&i<=9?"num":""})));
   tbl.appendChild(head);
   slots.forEach((s,i)=>{ const tr=el("tr");
     tr.appendChild(el("td",{text:String(i)}));
@@ -1290,7 +1286,6 @@ function suppSlots(body){
     tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.input_total)):"—"}));
     tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.input_cached_read)):"—"}));
     tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.output_total)):"—"}));
-    tr.appendChild(el("td",{class:"num",text:acc?fmtNum(dimVal(acc.output_cached_read)):"—"}));
     tr.appendChild(el("td",{text:s.outcome||(s.active?"running":"—")}));
     tbl.appendChild(tr); });
   body.appendChild(tbl);
@@ -1307,9 +1302,7 @@ function suppCost(body){
     add("input tokens", fmtNum(dimVal(a.input_total)));
     add("input cached", fmtNum(dimVal(a.input_cached_read)));
     add("output tokens", fmtNum(dimVal(a.output_total)));
-    add("output cached", fmtNum(dimVal(a.output_cached_read)));
     add("invocations", fmtNum(a.invocation_count));
-    add("coverage", a.coverage||"—");
     body.appendChild(g);
   }
   const tr=IX.plan.task_runtime||{};

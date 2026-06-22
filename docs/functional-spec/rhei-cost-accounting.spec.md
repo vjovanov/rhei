@@ -404,7 +404,7 @@ task in the run. §FS-rhei-run-report
 The browser dashboard adds a **Cost** tab before **Journal**. Its live summary
 shows:
 
-- run totals and coverage;
+- run totals;
 - top-level task direct and subtree costs;
 - top-level task subtree input, cached input, and output totals.
 
@@ -413,14 +413,14 @@ future drill-down can show token dimensions and pricing status without bloating
 the frequently polled `/snapshot` payload.
 
 Task accounting rollups are carried in `task_runtime` so dashboard views can add
-direct cost, subtree cost, input, output, cached input, cached output, and
-coverage where that density fits. The current Cost tab exposes the compact
-top-level task table. The selected-task surroundings panel includes a token
-section with direct and subtree rollups for the clicked task, and live refreshes
-that section when `/snapshot` reports updated accounting. The dashboard Slots
-view shows per-slot task accounting columns and a current run total below the
-slot table. Future Cube and Sankey modes may use subtree cost as heatmap color
-or ribbon width. §FS-rhei-viz
+direct cost, subtree cost, input, output, and cached input where that density
+fits. The current Cost tab exposes the compact top-level task table. The
+selected-task surroundings panel includes a token section with direct and
+subtree rollups for the clicked task, and live refreshes that section when
+`/snapshot` reports updated accounting. The dashboard Slots view shows per-slot
+task accounting columns and a current run total below the slot table. Future
+Cube and Sankey modes may use subtree cost as heatmap color or ribbon width.
+§FS-rhei-viz
 
 ## 10. Dashboard Data
 
