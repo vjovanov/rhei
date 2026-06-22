@@ -509,10 +509,9 @@ impl UiState {
             }
             RunEvent::RunFinished { summary } => {
                 self.finished = true;
-                self.accounting = summary
-                    .accounting
-                    .clone()
-                    .or_else(|| summarize_usage_summaries(self.invocations.iter().map(|r| &r.usage)));
+                self.accounting = summary.accounting.clone().or_else(|| {
+                    summarize_usage_summaries(self.invocations.iter().map(|r| &r.usage))
+                });
                 self.composer = None;
                 self.gate_active = false;
                 self.push_journal(

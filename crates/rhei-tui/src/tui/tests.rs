@@ -378,6 +378,7 @@ fn demo_usage() -> UsageSummary {
         agent: "claude-code".into(),
         provider: Some("anthropic".into()),
         model: Some("claude".into()),
+        total: measured(1200),
         input_total: measured(1000),
         input_cached_read: measured(400),
         input_cache_write: measured(0),

@@ -181,6 +181,7 @@ struct AgentUsageCapture {
     path: PathBuf,
     invocation_id: String,
     task_id: String,
+    state: String,
     agent: String,
     provider: Option<String>,
     model: Option<String>,
@@ -750,6 +751,7 @@ fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::U
 
 fn usage_summary_from_extracted_usage(
     invocation_id: &str,
+    state: &str,
     agent: &str,
     provider: Option<String>,
     model: Option<String>,
@@ -766,6 +768,7 @@ fn usage_summary_from_extracted_usage(
     let status = rhei_tui::UsageStatus::Measured;
     rhei_tui::UsageSummary {
         invocation_id: invocation_id.to_string(),
+        state: state.to_string(),
         agent: agent.to_string(),
         provider,
         model,
@@ -887,6 +890,7 @@ fn usage_capture_for_spawn(
         path: capture_path?.to_path_buf(),
         invocation_id: accounting_invocation_id(task_id, state, resolved, visit),
         task_id: task_id.to_string(),
+        state: state.to_string(),
         agent: resolved.agent.id().to_string(),
         provider: resolved.model_provider.clone(),
         model: resolved.model_name.clone().or_else(|| resolved.model.clone()),
@@ -929,6 +933,7 @@ fn capture_agent_output_usage(
     {
         let usage = usage_summary_from_extracted_usage(
             &capture.invocation_id,
+            &capture.state,
             &capture.agent,
             capture.provider.clone(),
             capture.model.clone(),
