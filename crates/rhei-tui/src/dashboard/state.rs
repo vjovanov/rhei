@@ -4,9 +4,8 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::event::{
-    AccountingRunSummary, AgentStream, DimensionStatus, DimensionSummary, MessageLevel,
-    PricingStatus, RunEvent, RunSummary, Slot, TaskOutcome, UsageCoverage, UsageStatus,
-    UsageSummary,
+    summarize_usage_summaries, AccountingRunSummary, AgentStream, MessageLevel, RunEvent,
+    RunSummary, Slot, TaskOutcome, UsageSummary,
 };
 
 use super::{now_ms, system_time_ms, RECENT_LIMIT, SLOT_TRAFFIC_LIMIT};
@@ -237,7 +236,7 @@ impl DashboardState {
                     self.invocations.push(record);
                 }
                 self.accounting =
-                    summarize_usage(self.invocations.iter().map(|entry| &entry.usage));
+                    summarize_usage_summaries(self.invocations.iter().map(|entry| &entry.usage));
                 if let Some(slot) = slot {
                     let slot_state = self.slot_mut(*slot);
                     slot_state.usage = Some(usage.clone());
@@ -370,7 +369,7 @@ pub(super) fn task_accounting_for_tasks(
     let mut out = std::collections::BTreeMap::new();
     for task in tasks {
         let direct_summary =
-            direct.get(&task.id).and_then(|items| summarize_usage(items.iter().copied()));
+            direct.get(&task.id).and_then(|items| summarize_usage_summaries(items.iter().copied()));
         let mut subtree_items: Vec<&UsageSummary> =
             direct.get(&task.id).into_iter().flatten().copied().collect();
         if let Some(children) = descendants.get(&task.id) {
@@ -380,7 +379,7 @@ pub(super) fn task_accounting_for_tasks(
                 }
             }
         }
-        let subtree_summary = summarize_usage(subtree_items.into_iter());
+        let subtree_summary = summarize_usage_summaries(subtree_items.into_iter());
         if direct_summary.is_some() || subtree_summary.is_some() {
             out.insert(
                 task.id.clone(),
@@ -389,147 +388,4 @@ pub(super) fn task_accounting_for_tasks(
         }
     }
     out
-}
-
-fn summarize_usage<'a>(
-    usages: impl IntoIterator<Item = &'a UsageSummary>,
-) -> Option<AccountingRunSummary> {
-    let usages: Vec<&UsageSummary> = usages.into_iter().collect();
-    if usages.is_empty() {
-        return None;
-    }
-
-    let measured_invocation_count =
-        usages.iter().filter(|usage| usage.status == UsageStatus::Measured).count() as u64;
-    let missing_invocation_count = usages.len() as u64 - measured_invocation_count;
-    let priced_cost_micro = sum_options(usages.iter().map(|usage| usage.priced_cost_micro));
-    let cost_micro = if usages.iter().all(|usage| usage.cost_micro.is_some()) {
-        Some(usages.iter().filter_map(|usage| usage.cost_micro).sum())
-    } else {
-        None
-    };
-    let currency = usages.iter().find_map(|usage| usage.currency.clone());
-    let pricing_status = summarize_pricing_status(&usages);
-    let coverage = summarize_coverage(&usages, cost_micro, priced_cost_micro);
-
-    Some(AccountingRunSummary {
-        total: summarize_dimension(usages.iter().map(|usage| &usage.total)),
-        input_total: summarize_dimension(usages.iter().map(|usage| &usage.input_total)),
-        input_cached_read: summarize_dimension(usages.iter().map(|usage| &usage.input_cached_read)),
-        input_cache_write: summarize_dimension(usages.iter().map(|usage| &usage.input_cache_write)),
-        output_total: summarize_dimension(usages.iter().map(|usage| &usage.output_total)),
-        output_cached_read: summarize_dimension(
-            usages.iter().map(|usage| &usage.output_cached_read),
-        ),
-        output_cache_write: summarize_dimension(
-            usages.iter().map(|usage| &usage.output_cache_write),
-        ),
-        cost_micro,
-        priced_cost_micro,
-        currency,
-        coverage,
-        pricing_status,
-        invocation_count: usages.len() as u64,
-        measured_invocation_count,
-        missing_invocation_count,
-    })
-}
-
-fn summarize_dimension<'a>(
-    dimensions: impl IntoIterator<Item = &'a DimensionSummary>,
-) -> DimensionSummary {
-    let mut value = 0u64;
-    let mut saw_value = false;
-    let mut missing_count = 0u64;
-    let mut measured_count = 0u64;
-    let mut unavailable_status = None;
-
-    for dimension in dimensions {
-        if let Some(v) = dimension.value {
-            value = value.saturating_add(v);
-            saw_value = true;
-        }
-        measured_count = measured_count.saturating_add(dimension.measured_count);
-        missing_count = missing_count.saturating_add(dimension.missing_count);
-        if dimension.status != DimensionStatus::Measured {
-            unavailable_status = Some(dimension.status);
-        }
-    }
-
-    let status = if saw_value && missing_count == 0 {
-        DimensionStatus::Measured
-    } else if saw_value {
-        DimensionStatus::Partial
-    } else {
-        unavailable_status.unwrap_or(DimensionStatus::Unknown)
-    };
-
-    DimensionSummary { value: saw_value.then_some(value), status, missing_count, measured_count }
-}
-
-fn sum_options(values: impl IntoIterator<Item = Option<u64>>) -> Option<u64> {
-    let mut total = 0u64;
-    let mut saw = false;
-    for value in values.into_iter().flatten() {
-        total = total.saturating_add(value);
-        saw = true;
-    }
-    saw.then_some(total)
-}
-
-fn summarize_pricing_status(usages: &[&UsageSummary]) -> PricingStatus {
-    let mut saw_priced = false;
-    let mut saw_partial = false;
-    let mut saw_unpriced = false;
-    let mut saw_applicable = false;
-    for usage in usages {
-        match usage.pricing_status {
-            PricingStatus::Priced => {
-                saw_priced = true;
-                saw_applicable = true;
-            }
-            PricingStatus::PartialPrice => {
-                saw_partial = true;
-                saw_applicable = true;
-            }
-            PricingStatus::Unpriced => {
-                saw_unpriced = true;
-                saw_applicable = true;
-            }
-            PricingStatus::NotApplicable => {}
-        }
-    }
-    if !saw_applicable {
-        PricingStatus::NotApplicable
-    } else if saw_partial || (saw_priced && saw_unpriced) {
-        PricingStatus::PartialPrice
-    } else if saw_priced {
-        PricingStatus::Priced
-    } else {
-        PricingStatus::Unpriced
-    }
-}
-
-fn summarize_coverage(
-    usages: &[&UsageSummary],
-    cost_micro: Option<u64>,
-    priced_cost_micro: Option<u64>,
-) -> UsageCoverage {
-    if usages.iter().all(|usage| usage.coverage == UsageCoverage::None) {
-        return UsageCoverage::None;
-    }
-    if usages.iter().any(|usage| {
-        matches!(usage.coverage, UsageCoverage::Partial) || usage.status != UsageStatus::Measured
-    }) {
-        return UsageCoverage::Partial;
-    }
-    if cost_micro.is_some() {
-        UsageCoverage::Complete
-    } else if priced_cost_micro.is_some() {
-        UsageCoverage::Partial
-    } else if usages.iter().any(|usage| usage.coverage == UsageCoverage::Unpriced) {
-        UsageCoverage::Unpriced
-    } else {
-        UsageCoverage::None
-    }
 }

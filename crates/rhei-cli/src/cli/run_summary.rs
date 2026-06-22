@@ -97,7 +97,10 @@ impl SummarySink {
             .lock()
             .ok()
             .and_then(|state| {
-                state.accounting.clone().or_else(|| summarize_usage_summaries(state.usages.iter()))
+                state
+                    .accounting
+                    .clone()
+                    .or_else(|| rhei_tui::summarize_usage_summaries(state.usages.iter()))
             })
     }
 }
@@ -159,14 +162,14 @@ impl rhei_tui::EventSink for SummarySink {
                 let accounting = state
                     .usage_by_task
                     .get(&task)
-                    .and_then(|usages| summarize_usage_summaries(usages.iter()));
+                    .and_then(|usages| rhei_tui::summarize_usage_summaries(usages.iter()));
                 if let Some(accounting) = accounting {
                     state.tasks.entry(task).or_default().accounting = Some(accounting);
                 }
             }
             rhei_tui::RunEvent::RunFinished { summary } => {
                 state.accounting = summary.accounting.clone().or_else(|| {
-                    summarize_usage_summaries(state.usages.iter())
+                    rhei_tui::summarize_usage_summaries(state.usages.iter())
                 });
             }
             _ => {}

@@ -91,7 +91,7 @@ fn accounting_mixed_priced_and_unpriced_rollup_is_partial() {
         None,
     );
 
-    let summary = summarize_usage_summaries([&priced, &unpriced]).expect("summary");
+    let summary = rhei_tui::summarize_usage_summaries([&priced, &unpriced]).expect("summary");
 
     assert_eq!(summary.coverage, rhei_tui::UsageCoverage::Partial);
     assert_eq!(summary.pricing_status, rhei_tui::PricingStatus::PartialPrice);
