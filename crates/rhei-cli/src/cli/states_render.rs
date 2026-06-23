@@ -613,7 +613,9 @@ fn path_matches(path: &Path, targets: &[WatchTarget]) -> bool {
     }
     targets.iter().any(|target| match target {
         WatchTarget::Exact(watched) => paths_equivalent(path, watched),
-        WatchTarget::Descendant(root) => path_is_under(path, root),
+        WatchTarget::Descendant(root) | WatchTarget::OptionalDescendant(root) => {
+            path_is_under(path, root)
+        }
         WatchTarget::ExcludedDir(_) => false,
     })
 }
@@ -659,6 +661,7 @@ struct ValidationWatchPlan {
 enum WatchTarget {
     Exact(PathBuf),
     Descendant(PathBuf),
+    OptionalDescendant(PathBuf),
     /// Ignore any event whose path passes through a directory with this name,
     /// at any depth (e.g. a `runtime/` artifact tree the tools write into —
     /// including the per-rhei `runtime/` trees nested under workspace rheis).
@@ -685,7 +688,7 @@ fn validation_watch_plan(input: &Path, state_machine: Option<&Path>) -> Validati
         watch_auto_state_machine_path(input)
     };
     targets.push(WatchTarget::Exact(canonical_watch_path(&watched_state_machine_path)));
-    targets.push(WatchTarget::Descendant(canonical_watch_path(
+    targets.push(WatchTarget::OptionalDescendant(canonical_watch_path(
         &prompt_templates_dir_for_state_machine_path(&watched_state_machine_path),
     )));
 
@@ -754,7 +757,7 @@ fn prompt_templates_dir_for_state_machine_path(path: &Path) -> PathBuf {
 fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarget> {
     let mut targets = plan_watch_targets(input);
     targets.push(WatchTarget::Exact(canonical_watch_path(state_machine)));
-    targets.push(WatchTarget::Descendant(canonical_watch_path(
+    targets.push(WatchTarget::OptionalDescendant(canonical_watch_path(
         &prompt_templates_dir_for_state_machine_path(state_machine),
     )));
     targets
@@ -774,6 +777,14 @@ fn add_watch_root_for_target(roots: &mut Vec<WatchRoot>, target: &WatchTarget) {
             } else {
                 let root = path.parent().unwrap_or_else(|| Path::new("."));
                 (canonical_watch_path(root), RecursiveMode::Recursive)
+            }
+        }
+        WatchTarget::OptionalDescendant(path) => {
+            if path.is_dir() {
+                (canonical_watch_path(path), RecursiveMode::Recursive)
+            } else {
+                let root = path.parent().unwrap_or_else(|| Path::new("."));
+                (canonical_watch_path(root), RecursiveMode::NonRecursive)
             }
         }
     };
