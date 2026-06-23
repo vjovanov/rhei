@@ -60,21 +60,29 @@ would otherwise make them ready.
    transition before rendering. Otherwise keep the task in its current state.
 8. Set `**Assignee:** <current-agent>` on the task, where `<current-agent>` is the agent id resolved for the rendered state via the [agent resolution order](rhei-agents.spec.md) (state `agent:` field → project settings → global settings). When no agent is configured, write the reserved assignee value `manual` so the task still leaves the claimable set durably and concurrent `rhei next` calls cannot claim it twice.
 9. Write the task file atomically (temp file + rename), release lock.
-10. Resolve template variables in the state's `instructions` and `personality`
-   fields (see [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)).
+10. Build the state's effective prompt text from its selected
+   `prompt_template`, if any, plus inline `instructions` and `personality`,
+   then resolve runtime template variables (see
+   [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)
+   and [Prompt Templates](rhei-states.spec.md#44-prompt-templates)).
 11. Print the task id, title, current state, and resolved instructions to stdout.
 
 If no claimable task exists, print a status summary (see [No Tasks Ready](#5-no-tasks-ready)).
 
 ### 3.2. Output (claim mode)
 
-Template variables in `instructions` and `personality` are resolved before output. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) for the full variable namespace and resolution rules.
+Prompt templates are expanded from `prompt_template.values` before runtime
+variables, and inline `instructions` / `personality` are appended after
+selected template text. Runtime variables in the effective prompt are resolved
+before output. See
+[Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)
+for the full variable namespace and resolution rules.
 
 ```text
 Task <ID>: <title>
 State: <current-state>
 
-<resolved instructions from state definition>
+<resolved effective instructions from state definition and selected prompt template>
 ```
 
 ### 3.3. Missing Artifact Error

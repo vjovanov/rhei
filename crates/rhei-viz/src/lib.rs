@@ -5,7 +5,10 @@
 use std::collections::HashSet;
 
 use rhei_core::ast::{Rhei, Task as AstTask};
-use rhei_validator::{parse_execution_target, parse_task_state, StateArtifactDef, StateMachine};
+use rhei_validator::{
+    parse_execution_target, parse_task_state, PromptTemplateDef, StateArtifactDef, StateDef,
+    StateMachine,
+};
 use rhei_viz_model::{
     Artifact, Machine, MachineState, TaskRow, TemplateContext, Transition, VizModel,
 };
@@ -147,7 +150,7 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
             MachineState {
                 name: name.clone(),
                 description: def.description.clone(),
-                instructions: def.instructions.clone(),
+                instructions: state_instructions(machine, def),
                 visits: def.visits,
                 initial: initials.contains(name),
                 terminal: def.terminal,
@@ -162,6 +165,78 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
         .collect();
 
     Machine { name: machine.name.clone(), states }
+}
+
+fn substitute_prompt_template_values(
+    text: &str,
+    reference: &rhei_validator::StatePromptTemplateRef,
+) -> String {
+    let mut rendered = String::with_capacity(text.len());
+    let mut idx = 0usize;
+
+    while idx < text.len() {
+        if text[idx..].starts_with("\\{") || text[idx..].starts_with("\\}") {
+            rendered.push_str(&text[idx..idx + 2]);
+            idx += 2;
+            continue;
+        }
+        if !text[idx..].starts_with('{') {
+            let ch = text[idx..].chars().next().expect("substring should have a char");
+            rendered.push(ch);
+            idx += ch.len_utf8();
+            continue;
+        }
+        let start = idx;
+        let token_start = start + 1;
+        let Some(end_offset) = text[token_start..].find('}') else {
+            rendered.push_str(&text[idx..]);
+            break;
+        };
+        let end = token_start + end_offset;
+        rendered.push_str(&text[idx..start]);
+        let token = &text[token_start..end];
+        if let Some(value) = reference.scalar_value(token) {
+            rendered.push_str(&value);
+        } else {
+            rendered.push_str(&text[start..=end]);
+        }
+        idx = end + 1;
+    }
+
+    rendered
+}
+
+fn join_prompt_parts(parts: Vec<String>) -> Option<String> {
+    let text = parts
+        .into_iter()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn state_prompt_template_field(
+    machine: &StateMachine,
+    state: &StateDef,
+    field: fn(&PromptTemplateDef) -> Option<&String>,
+) -> Option<String> {
+    let reference = state.prompt_template.as_ref()?;
+    let template = machine.prompt_templates.get(reference.name().trim())?;
+    let text = field(template)?;
+    Some(substitute_prompt_template_values(text, reference))
+}
+
+fn state_instructions(machine: &StateMachine, state: &StateDef) -> Option<String> {
+    join_prompt_parts(vec![
+        state_prompt_template_field(machine, state, |template| template.instructions.as_ref())
+            .unwrap_or_default(),
+        state.instructions.as_deref().unwrap_or("").to_string(),
+    ])
 }
 
 fn target_template_context(target: rhei_validator::ExecutionTarget) -> TemplateContext {

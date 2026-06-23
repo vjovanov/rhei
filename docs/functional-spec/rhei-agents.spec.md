@@ -530,11 +530,11 @@ When `rhei run` spawns an agent for a task, it composes a prompt from the state 
 
 ## State: {state}
 
-{resolved personality, if present}
+{resolved personality from the state definition or selected prompt template, if present}
 
 ## Instructions
 
-{resolved instructions from state definition}
+{resolved instructions from the state definition or selected prompt template}
 
 ## Task Content
 
@@ -558,9 +558,16 @@ via resolved `{output.<name>.path}` variables in the state's `instructions`,
 and every supported agent exits deterministically after one turn in its native
 headless mode.
 
-Template variables (`{task_id}`, `{model}`, `{model.provider}`,
+Reusable prompt templates are expanded from each state's
+`prompt_template.values` before runtime template variables. Inline state
+`personality` and `instructions` are then appended after the selected
+prompt-template text, preserving direct per-state prompt definitions while
+allowing shared prompt fragments. Runtime template variables in values and
+inline prompt text (`{task_id}`, `{model}`, `{model.provider}`,
 `{model.name}`, `{visit_count}`, etc.) are resolved before the prompt is sent,
-using the same resolution rules as `rhei next`. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality).
+using the same resolution rules as `rhei next`. See
+[Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)
+and [Prompt Templates](rhei-states.spec.md#44-prompt-templates).
 
 The prompt is delivered to the agent via its configured prompt delivery mechanism (flag or stdin).
 

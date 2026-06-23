@@ -224,12 +224,26 @@ impl StateMachine {
     /// - `skill.<id>.available` — same rule for the `skills` list.
     fn validate_template_conditions(&self) -> Result<(), StateMachineLoadError> {
         for (state_name, state) in &self.states {
-            for (field_name, text) in [
-                ("instructions", state.instructions.as_deref()),
-                ("personality", state.personality.as_deref()),
-            ] {
-                let Some(text) = text else { continue };
-                validate_no_nested_conditionals(state_name, field_name, text)?;
+            let mut fields = Vec::new();
+            if let Some(reference) = state.prompt_template.as_ref() {
+                if let Some(template) = self.prompt_templates.get(reference.name().trim()) {
+                    if let Some(text) = template.personality.as_deref() {
+                        fields.push(("prompt_template.personality".to_string(), text));
+                    }
+                    if let Some(text) = template.instructions.as_deref() {
+                        fields.push(("prompt_template.instructions".to_string(), text));
+                    }
+                }
+            }
+            if let Some(text) = state.personality.as_deref() {
+                fields.push(("personality".to_string(), text));
+            }
+            if let Some(text) = state.instructions.as_deref() {
+                fields.push(("instructions".to_string(), text));
+            }
+
+            for (field_name, text) in fields {
+                validate_no_nested_conditionals(state_name, field_name.as_str(), text)?;
                 for condition in extract_if_conditions(text) {
                     if let Some(input_name) =
                         condition.strip_prefix("input.").and_then(|s| s.strip_suffix(".exists"))
