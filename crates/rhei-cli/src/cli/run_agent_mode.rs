@@ -438,7 +438,7 @@ fn spawn_parallel_agent_work_item(
         agent_mode: item.resolved.mode.as_deref(),
         tooling: Some(&tooling),
     };
-    let prompt = compose_agent_prompt(&render_context);
+    let prompt = compose_agent_prompt(&render_context)?;
     let visit_count = render_visit_count(
         loaded.rhei.metadata.as_ref(),
         &task.id,
@@ -1676,6 +1676,16 @@ fn run_agent_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
+                    let root = result_workspace_root(input, &task_file);
+                    record_transition_result(
+                        &root,
+                        &task_file,
+                        machine,
+                        task_id_str,
+                        current_state,
+                        &effective_to,
+                        None,
+                    )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
@@ -2210,7 +2220,7 @@ fn run_agent_mode(
                 agent_mode: resolved.mode.as_deref(),
                 tooling: Some(&tooling),
             };
-            let prompt = compose_agent_prompt(&render_context);
+            let prompt = compose_agent_prompt(&render_context)?;
             let visit_count = render_visit_count(
                 loaded.rhei.metadata.as_ref(),
                 &task.id,
