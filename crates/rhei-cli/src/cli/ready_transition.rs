@@ -930,7 +930,7 @@ fn try_auto_advance_task(
         &to_state,
         no_callbacks,
     )?;
-    append_transition_audit_entry(&route.execution_root, task_id_str, current_state, &effective_to)?;
+    append_transition_audit_entry(&route, machine, task_id_str, current_state, &effective_to)?;
 
     Ok(Some(effective_to))
 }

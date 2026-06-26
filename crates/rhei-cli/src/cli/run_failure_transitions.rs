@@ -68,7 +68,7 @@ fn fire_tooling_unavailable_transition(
     ) {
         Ok(effective_to) => {
             if let Err(err) =
-                append_transition_audit_entry(&route.execution_root, task_id_str, from_state, &effective_to)
+                append_transition_audit_entry(&route, machine, task_id_str, from_state, &effective_to)
             {
                 diag_warn!(
                     "  warning: failed to append tooling-unavailable transition audit for Task {}: {}",
@@ -181,7 +181,7 @@ fn fire_selected_timeout_transition(
     ) {
         Ok(effective_to) => {
             if let Err(err) =
-                append_transition_audit_entry(&route.execution_root, task_id_str, from_state, &effective_to)
+                append_transition_audit_entry(&route, machine, task_id_str, from_state, &effective_to)
             {
                 diag_warn!(
                     "  warning: failed to append timeout transition audit for Task {}: {}",
@@ -235,7 +235,7 @@ fn fire_agent_exit_transition(
     ) {
         Ok(effective_to) => {
             if let Err(err) =
-                append_transition_audit_entry(&route.execution_root, task_id_str, from_state, &effective_to)
+                append_transition_audit_entry(&route, machine, task_id_str, from_state, &effective_to)
             {
                 diag_warn!(
                     "  warning: failed to append error transition audit for Task {}: {}",

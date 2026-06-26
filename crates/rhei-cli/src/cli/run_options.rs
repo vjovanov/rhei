@@ -420,7 +420,7 @@ fn transition_dashboard_gate(
         to,
         no_callbacks,
     )?;
-    append_result_entry(&route.execution_root, task_id_str, from, &effective_to, None)?;
+    record_transition_result(&route, machine, task_id_str, from, &effective_to, None)?;
     Ok(effective_to)
 }
 

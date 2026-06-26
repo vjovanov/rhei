@@ -403,6 +403,47 @@ fn append_state_transition_log_entry(
     Ok(())
 }
 
+/// Record one applied transition: history for every move, plus the terminal
+/// result finalization when the destination is `final: true`.
+///
+/// Finalization is the same work `rhei complete` performs by hand — the result
+/// file exists, the assignee is dropped, and the task body links the result —
+/// so cancellation, failure, timeout, and custom terminal states leave the same
+/// artifacts behind as a successful completion.
+// §FS-rhei-complete.3: every terminal path writes the result artifacts.
+fn record_transition_result(
+    route: &TaskRoute,
+    machine: &rhei_validator::StateMachine,
+    task_id: &str,
+    from: &str,
+    to: &str,
+    message: Option<&str>,
+) -> MietteResult<()> {
+    let root = &route.execution_root;
+    append_result_entry(root, task_id, from, to, message)?;
+    if is_terminal_state(to, machine) {
+        // A message already created the file; a message-free terminal move must
+        // not link a path that does not exist.
+        ensure_result_file(root, task_id)?;
+        let result_link = format!("runtime/results/{}.md", task_id);
+        rewrite_task_completion(&route.task_file, &route.local_id, task_id, &result_link, true)?;
+    }
+    Ok(())
+}
+
+/// Create an empty `runtime/results/<task-id>.md` when the task has none yet.
+fn ensure_result_file(workspace_root: &Path, task_id: &str) -> MietteResult<()> {
+    let results_dir = workspace_root.join("runtime").join("results");
+    fs::create_dir_all(&results_dir)
+        .map_err(|err| miette!("failed to create runtime/results directory: {err}"))?;
+    let result_file = results_dir.join(format!("{}.md", task_id));
+    if result_file.exists() {
+        return Ok(());
+    }
+    fs::write(&result_file, "")
+        .map_err(|err| file_io_report(&result_file, "failed to create result file", err))
+}
+
 /// Write `**Assignee:** <value>` into the given task's metadata block on disk.
 ///
 /// The rewrite is atomic (temp file + rename) and holds an exclusive lock on

@@ -229,14 +229,18 @@ help = "finish the blocking priors first, or move this ticket deliberately with:
     }
 
     // Append the completion entry to the result file in the owning rhei's
-    // runtime, keyed by the project-qualified id. §AR-rhei-panta.2
-    let root = &route.execution_root;
+    // runtime, keyed by the project-qualified id, then finalize the task.
+    // §AR-rhei-panta.2
+    record_transition_result(
+        &route,
+        &machine,
+        task_id_str,
+        current_state_raw,
+        &effective_to,
+        Some(result_msg),
+    )?;
+
     let result_link = format!("runtime/results/{}.md", task_id_str);
-    append_result_entry(root, task_id_str, current_state_raw, &effective_to, Some(result_msg))?;
-
-    // Post-transition: remove assignee and link the result file (first time only).
-    rewrite_task_completion(&route.task_file, &route.local_id, task_id_str, &result_link, true)?;
-
     println!(
         "Task {} completed: '{}' → '{}' ({})",
         task_id_str, current_state_raw, effective_to, result_link

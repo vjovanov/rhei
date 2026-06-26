@@ -492,7 +492,8 @@ fn next_command(
             no_callbacks,
         )?;
         append_transition_audit_entry(
-            &route.execution_root,
+            &route,
+            machine,
             &task_id_str,
             &current_state,
             &effective_to,

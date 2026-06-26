@@ -144,8 +144,18 @@ Added avatar_url column and migration 0042
 12. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
 13. Write the task file atomically (temp file + rename).
 
-`rhei transition` writes only the central state-transition ledger; it does not
-need a per-task result file when there is no result message.
+Every transition path that enters a `final: true` state performs the same
+terminal result finalization as `rhei complete`: it ensures
+`runtime/results/<task-id>.md` exists, removes `**Assignee:**`, and links the
+result file from the task body. This applies to successful completion,
+cancellation, failure, and custom terminal states alike. `rhei complete`
+remains the manual command that supplies a mandatory result message; other
+transition paths finalize with an empty result file unless their caller
+provides a message.
+
+State history itself stays in the central ledger: a non-terminal `rhei
+transition` writes only `runtime/state-transitions.log` and creates no per-task
+result file when there is no result message.
 
 **Note on child nodes:** In the current hierarchical node model, child nodes
 are full stateful task nodes. `rhei complete` must therefore inspect all

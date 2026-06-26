@@ -681,7 +681,7 @@ states:
             agent_mode: None,
             tooling: Some(&gate.tooling),
         };
-        let prompt = compose_agent_prompt(&render_context);
+        let prompt = compose_agent_prompt(&render_context).expect("prompt");
         assert!(prompt.contains("mcp=false skill=false"), "{prompt}");
 
         let runtime_dir = tempfile::tempdir().expect("tmpdir");
