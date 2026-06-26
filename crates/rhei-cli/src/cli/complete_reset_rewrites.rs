@@ -301,6 +301,24 @@ fn append_result_entry(
     Ok(())
 }
 
+fn record_transition_result(
+    workspace_root: &Path,
+    task_file: &Path,
+    machine: &rhei_validator::StateMachine,
+    task_id: &str,
+    from: &str,
+    to: &str,
+    message: Option<&str>,
+) -> MietteResult<()> {
+    // §FS-rhei-complete.3: every transition records history; final states link task results.
+    append_result_entry(workspace_root, task_id, from, to, message)?;
+    if is_terminal_state(to, machine) {
+        let result_link = format!("runtime/results/{}.md", task_id);
+        rewrite_task_completion(task_file, task_id, task_id, &result_link, true)?;
+    }
+    Ok(())
+}
+
 /// Write `**Assignee:** <value>` into the given task's metadata block on disk.
 ///
 /// The rewrite is atomic (temp file + rename) and holds an exclusive lock on

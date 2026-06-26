@@ -34,7 +34,7 @@ fn execute_system_timeout_transition(
 ) -> MietteResult<()> {
     let mut data = serde_json::Map::new();
     data.insert("timeout".to_string(), serde_json::Value::String(timeout_label.to_string()));
-    execute_transition_with_origin(
+    let effective_to = execute_transition_with_origin(
         files,
         callback_paths,
         machine,
@@ -47,8 +47,17 @@ fn execute_system_timeout_transition(
             seed_data: Some(serde_json::Value::Object(data)),
             skip_source_outputs: true,
         },
+    )?;
+    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    record_transition_result(
+        &workspace_root,
+        files.task_file,
+        machine,
+        task_id_str,
+        from,
+        &effective_to,
+        None,
     )
-    .map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -71,7 +80,7 @@ fn execute_system_tooling_transition(
         ),
     );
     data.insert("kind".to_string(), serde_json::Value::String(kind.as_str().to_string()));
-    execute_transition_with_origin(
+    let effective_to = execute_transition_with_origin(
         files,
         callback_paths,
         machine,
@@ -84,8 +93,17 @@ fn execute_system_tooling_transition(
             seed_data: Some(serde_json::Value::Object(data)),
             skip_source_outputs: true,
         },
+    )?;
+    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    record_transition_result(
+        &workspace_root,
+        files.task_file,
+        machine,
+        task_id_str,
+        from,
+        &effective_to,
+        None,
     )
-    .map(|_| ())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -101,7 +119,7 @@ fn execute_system_program_exit_transition(
 ) -> MietteResult<()> {
     let mut data = serde_json::Map::new();
     data.insert("exitCode".to_string(), serde_json::Value::from(exit_code));
-    execute_transition_with_origin(
+    let effective_to = execute_transition_with_origin(
         files,
         callback_paths,
         machine,
@@ -114,6 +132,15 @@ fn execute_system_program_exit_transition(
             seed_data: Some(serde_json::Value::Object(data)),
             skip_source_outputs: exit_code != 0,
         },
+    )?;
+    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    record_transition_result(
+        &workspace_root,
+        files.task_file,
+        machine,
+        task_id_str,
+        from,
+        &effective_to,
+        None,
     )
-    .map(|_| ())
 }

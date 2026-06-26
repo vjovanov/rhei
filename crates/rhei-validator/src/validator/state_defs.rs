@@ -43,6 +43,12 @@ pub struct StateDef {
     // §FS-rhei-snapshots.11: Snapshot validation rules.
     #[serde(default)]
     pub snapshot: Option<StateSnapshotConfig>,
+    /// Same-task state handoff prompt inheritance. Handoff artifacts are
+    /// declared as `outputs` with `kind: handoff`; this field controls which
+    /// previous-state handoffs are injected into the successor prompt.
+    // §FS-rhei-states.3.2: State handoff inheritance grammar.
+    #[serde(default)]
+    pub handoff: Option<StateHandoffConfig>,
     /// Inline execution target selector for one run of the state.
     #[serde(default)]
     pub target: Option<String>,
@@ -151,6 +157,28 @@ pub struct SnapshotInheritSelectConfig {
     pub visit: Option<serde_yaml::Value>,
     #[serde(default)]
     pub generation: Option<serde_yaml::Value>,
+}
+
+/// Per-state handoff inheritance declaration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StateHandoffConfig {
+    #[serde(default)]
+    pub inherit: Vec<HandoffInheritConfig>,
+}
+
+/// One inherited handoff source.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandoffInheritConfig {
+    #[serde(rename = "from")]
+    pub from_axis: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub merge: Option<String>,
 }
 
 fn validate_snapshot_name(

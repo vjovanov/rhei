@@ -71,6 +71,15 @@ Added avatar_url column and migration 0042
 11. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
 12. Write the task file atomically (temp file + rename).
 
+Every transition path that enters a `final: true` state performs the same
+terminal result finalization as `rhei complete`: it ensures
+`runtime/results/<task-id>.md` exists, appends the effective transition entry,
+removes `**Assignee:**`, and links the result file from the task body. This
+applies to successful completion, cancellation, failure, and custom terminal
+states alike. `rhei complete` remains the manual command that supplies a
+mandatory result message; other transition paths append an empty transition
+entry unless their caller provides a message.
+
 `rhei transition` also appends a `## <from> → <to>` entry (with no message body) to the same result file. This means the result file accumulates the full transition history regardless of which command performed each transition.
 
 **Note on child nodes:** In the current hierarchical node model, child nodes

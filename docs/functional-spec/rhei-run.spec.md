@@ -101,6 +101,8 @@ from silently completing fresh tasks without executing them.
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
 8. Apply the selected transition. The subprocess **must not** call
    `rhei transition` or `rhei complete`; the orchestrator owns the transition.
+   When the effective target is `final: true`, terminal result finalization is
+   performed as defined in [Complete Command — Result File](rhei-complete.spec.md#3-result-file).
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.

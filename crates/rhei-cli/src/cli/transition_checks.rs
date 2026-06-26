@@ -143,7 +143,7 @@ fn transition_command(
     )?;
 
     let root = result_workspace_root(input, &task_file);
-    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
+    record_transition_result(&root, &task_file, &machine, task_id_str, from, &effective_to, None)?;
 
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);
     Ok(())
