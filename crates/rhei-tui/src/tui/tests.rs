@@ -23,6 +23,7 @@ fn machine_state(name: &str, gating: bool, transitions: Vec<&str>) -> MachineSta
         initial: name == "draft",
         terminal: matches!(name, "completed" | "done" | "cancelled"),
         gating,
+        process: None,
         transitions: transitions
             .into_iter()
             .map(|to| Transition { to: to.to_string(), condition: None, wildcard: false })
@@ -48,6 +49,7 @@ fn demo_model() -> VizModel {
                 state: "in-progress".into(),
                 visit_count: None,
                 prior: vec![],
+                history: vec![],
             },
             TaskRow {
                 id: "2".into(),
@@ -57,6 +59,7 @@ fn demo_model() -> VizModel {
                 state: "human-review".into(),
                 visit_count: None,
                 prior: vec!["1".into()],
+                history: vec![],
             },
         ],
         machine: Machine {
@@ -102,8 +105,8 @@ fn number_keys_switch_views() {
     let mut state = state_with_plan();
     press(&mut state, KeyCode::Char('2'));
     assert!(state.view == View::Machine);
-    press(&mut state, KeyCode::Char('5'));
-    assert!(state.view == View::Tasks);
+    press(&mut state, KeyCode::Char('4'));
+    assert!(state.view == View::Journal);
     press(&mut state, KeyCode::Char('1'));
     assert!(state.view == View::Flow);
 }
@@ -180,47 +183,6 @@ fn filter_narrows_journal_lines() {
 
     let filtered = state.filtered_journal().iter().map(|e| e.text.as_str()).collect::<Vec<_>>();
     assert_eq!(filtered, vec!["beta warning"]);
-}
-
-#[test]
-fn tasks_state_filter_cycles_from_selected_state() {
-    let mut state = state_with_plan();
-    press(&mut state, KeyCode::Char('5'));
-
-    assert_eq!(state.tasks_state_filter_label(), "all");
-    assert_eq!(
-        state
-            .tasks_view_order()
-            .iter()
-            .map(|i| state.plan.tasks[*i].id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["1", "2"]
-    );
-
-    press(&mut state, KeyCode::Char('f'));
-    assert_eq!(state.tasks_state_filter_label(), "in-progress");
-    assert_eq!(
-        state
-            .tasks_view_order()
-            .iter()
-            .map(|i| state.plan.tasks[*i].id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["1"]
-    );
-
-    press(&mut state, KeyCode::Char('f'));
-    assert_eq!(state.tasks_state_filter_label(), "human-review");
-    assert_eq!(
-        state
-            .tasks_view_order()
-            .iter()
-            .map(|i| state.plan.tasks[*i].id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["2"]
-    );
-
-    press(&mut state, KeyCode::Char('f'));
-    assert_eq!(state.tasks_state_filter_label(), "all");
 }
 
 #[test]
@@ -434,6 +396,7 @@ fn task_readiness_uses_machine_terminal_priors() {
             state: "done".into(),
             visit_count: None,
             prior: vec![],
+            history: vec![],
         },
         TaskRow {
             id: "2".into(),
@@ -443,6 +406,7 @@ fn task_readiness_uses_machine_terminal_priors() {
             state: "draft".into(),
             visit_count: None,
             prior: vec!["1".into()],
+            history: vec![],
         },
     ];
     state.plan.machine.states.push(machine_state("done", false, vec![]));
@@ -464,6 +428,7 @@ fn cancelled_terminal_priors_do_not_unblock_tasks() {
             state: "cancelled".into(),
             visit_count: None,
             prior: vec![],
+            history: vec![],
         },
         TaskRow {
             id: "2".into(),
@@ -473,6 +438,7 @@ fn cancelled_terminal_priors_do_not_unblock_tasks() {
             state: "draft".into(),
             visit_count: None,
             prior: vec!["1".into()],
+            history: vec![],
         },
     ];
     state.plan.machine.states.push(machine_state("cancelled", false, vec![]));

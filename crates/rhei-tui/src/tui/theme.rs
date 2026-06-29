@@ -109,6 +109,14 @@ impl Theme {
         }
     }
 
+    pub(super) fn program_color(&self) -> Color {
+        if self.color {
+            Color::Yellow
+        } else {
+            Color::Reset
+        }
+    }
+
     pub(super) fn accent(&self) -> Color {
         if self.color {
             Color::Cyan

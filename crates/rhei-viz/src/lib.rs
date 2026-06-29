@@ -9,8 +9,8 @@ use std::path::Path;
 use rhei_core::ast::{Rhei, Task as AstTask};
 use rhei_validator::{parse_execution_target, parse_task_state, StateArtifactDef, StateMachine};
 use rhei_viz_model::{
-    Artifact, Machine, MachineState, StateHistoryEntry, TaskRow, TemplateContext, Transition,
-    VizModel,
+    Artifact, Machine, MachineProcessKind, MachineState, StateHistoryEntry, TaskRow,
+    TemplateContext, Transition, VizModel,
 };
 
 mod collect;
@@ -316,6 +316,7 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
                 initial: initials.contains(name),
                 terminal: def.terminal,
                 gating: def.gating,
+                process: state_process_kind(def),
                 transitions,
                 inputs: to_artifacts(&def.inputs),
                 outputs: to_artifacts(&def.outputs),
@@ -326,6 +327,21 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
         .collect();
 
     Machine { name: machine.name.clone(), states }
+}
+
+fn state_process_kind(def: &rhei_validator::StateDef) -> Option<MachineProcessKind> {
+    if def.program.is_some() {
+        Some(MachineProcessKind::Program)
+    } else if def.agent.is_some()
+        || def.model.is_some()
+        || def.target.is_some()
+        || !def.all_models.is_empty()
+        || !def.all_targets.is_empty()
+    {
+        Some(MachineProcessKind::Agent)
+    } else {
+        None
+    }
 }
 
 fn target_template_context(target: rhei_validator::ExecutionTarget) -> TemplateContext {
