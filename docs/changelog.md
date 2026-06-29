@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add durable task state history to Flow/dashboard and the `rhei run` TUI,
+  including the `state history` surroundings section, prompt-focused inspector
+  navigation, a global Machine legend with process-kind styling, and links-only
+  shared chrome. PR #48 §FS-rhei-viz.4 §FS-rhei-run-tui.1.5
 - Add Codex token accounting from `turn.completed` JSON usage, persisted runtime
   accounting artifacts, and live/run surfaces in the TUI, Flow dashboard, run
   report, and `rhei cost`. PR #44 §FS-rhei-cost-accounting.1
