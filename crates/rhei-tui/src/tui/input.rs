@@ -6,7 +6,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::event::MessageLevel;
 
-use super::derive::{inspector_chips, ChipAction};
+use super::derive::{inspector_sections, ChipAction};
 use super::state::{Composer, FlowFocus, UiState, View};
 
 /// What the render loop should do after a key event.
@@ -57,7 +57,6 @@ pub(super) fn handle_key_event(
         KeyCode::Char('2') => switch_view(state, View::Machine),
         KeyCode::Char('3') => switch_view(state, View::Cost),
         KeyCode::Char('4') => switch_view(state, View::Journal),
-        KeyCode::Char('5') => switch_view(state, View::Tasks),
         KeyCode::Char('h') | KeyCode::Left => cycle_view(state, -1),
         KeyCode::Char('l') | KeyCode::Right => cycle_view(state, 1),
         KeyCode::Char('j') | KeyCode::Down => move_focus(state, 1),
@@ -68,8 +67,19 @@ pub(super) fn handle_key_event(
             if state.view == View::Flow {
                 state.flow_focus = match state.flow_focus {
                     FlowFocus::Outline => FlowFocus::Inspector,
-                    FlowFocus::Inspector => FlowFocus::Outline,
+                    FlowFocus::Inspector => {
+                        state.inspector_item = None;
+                        FlowFocus::Outline
+                    }
                 };
+            }
+        }
+        KeyCode::Esc => {
+            if state.view == View::Flow
+                && state.flow_focus == FlowFocus::Inspector
+                && state.inspector_item.is_some()
+            {
+                state.inspector_item = None;
             }
         }
         KeyCode::Enter => handle_enter(state),
@@ -83,19 +93,12 @@ pub(super) fn handle_key_event(
                 state.cost_cursor = 0;
             }
         }
-        KeyCode::Char('s') => {
-            if state.view == View::Tasks {
-                state.tasks_sort = state.tasks_sort.next();
-            }
-        }
-        KeyCode::Char('f') => match state.view {
-            View::Journal => {
+        KeyCode::Char('f') => {
+            if state.view == View::Journal {
                 state.journal_filter = state.journal_filter.next();
                 state.journal_scroll = 0;
             }
-            View::Tasks => state.cycle_tasks_state_filter(),
-            _ => {}
-        },
+        }
         KeyCode::Char('m') => open_composer(state),
         _ => {}
     }
@@ -125,17 +128,28 @@ fn move_focus(state: &mut UiState, delta: isize) {
                 state.move_selected_in(&order, delta);
             }
             FlowFocus::Inspector => {
-                let chips = state
+                let sections = state
                     .selected
                     .clone()
-                    .map(|id| inspector_chips(state, &id))
+                    .map(|id| inspector_sections(state, &id))
                     .unwrap_or_default();
-                if chips.is_empty() {
-                    state.inspector_scroll = clamp_scroll(state.inspector_scroll, delta);
+                if sections.is_empty() {
+                    return;
+                }
+                state.inspector_section =
+                    state.inspector_section.min(sections.len().saturating_sub(1));
+                if let Some(item) = state.inspector_item {
+                    let item_count = sections[state.inspector_section].items.len();
+                    if item_count == 0 {
+                        state.inspector_item = None;
+                    } else {
+                        let next = (item as isize + delta).clamp(0, item_count as isize - 1);
+                        state.inspector_item = Some(next as usize);
+                    }
                 } else {
-                    let cur = state.inspector_chip as isize;
-                    state.inspector_chip =
-                        (cur + delta).clamp(0, chips.len() as isize - 1) as usize;
+                    let cur = state.inspector_section as isize;
+                    state.inspector_section =
+                        (cur + delta).clamp(0, sections.len() as isize - 1) as usize;
                 }
             }
         },
@@ -155,10 +169,6 @@ fn move_focus(state: &mut UiState, delta: isize) {
                 state.cost_cursor = (state.cost_cursor as isize + delta).max(0) as usize;
             }
         }
-        View::Tasks => {
-            let order = state.tasks_view_order();
-            state.move_selected_in(&order, delta);
-        }
         View::Journal => {
             state.journal_scroll = clamp_scroll(state.journal_scroll, delta);
         }
@@ -171,33 +181,43 @@ fn clamp_scroll(current: u16, delta: isize) -> u16 {
 
 fn handle_enter(state: &mut UiState) {
     match state.view {
-        View::Tasks => {
-            // Enter on a row returns to Flow with that task selected.
-            switch_view(state, View::Flow);
-        }
         View::Flow if state.flow_focus == FlowFocus::Outline => {
             // Enter on a gating task opens the human-gate chooser (§1.5.5).
             open_gate(state);
         }
         View::Flow => {
             let Some(id) = state.selected.clone() else { return };
-            let chips = inspector_chips(state, &id);
-            if let Some(chip) = chips.get(state.inspector_chip) {
-                match &chip.action {
-                    ChipAction::SelectTask(target) => {
-                        state.select_task(target);
-                    }
-                    ChipAction::MarkState(target) => {
-                        // Mark the target state in the Machine view, keeping the
-                        // selected task in context.
-                        if let Some(pos) =
-                            state.plan.machine.states.iter().position(|s| &s.name == target)
-                        {
-                            state.machine_focus = pos;
-                            switch_view(state, View::Machine);
-                        }
+            let sections = inspector_sections(state, &id);
+            if sections.is_empty() {
+                return;
+            }
+            state.inspector_section = state.inspector_section.min(sections.len() - 1);
+            let section = &sections[state.inspector_section];
+            let Some(item) = state.inspector_item else {
+                if !section.items.is_empty() {
+                    state.inspector_item = Some(0);
+                }
+                return;
+            };
+            let Some(chip) = section.items.get(item) else {
+                state.inspector_item = None;
+                return;
+            };
+            match &chip.action {
+                ChipAction::SelectTask(target) => {
+                    state.select_task(target);
+                }
+                ChipAction::MarkState(target) => {
+                    // Mark the target state in the Machine view, keeping the
+                    // selected task in context.
+                    if let Some(pos) =
+                        state.plan.machine.states.iter().position(|s| &s.name == target)
+                    {
+                        state.machine_focus = pos;
+                        switch_view(state, View::Machine);
                     }
                 }
+                ChipAction::None => {}
             }
         }
         _ => {}

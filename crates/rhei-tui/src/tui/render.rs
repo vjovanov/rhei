@@ -1,4 +1,4 @@
-//! The Flow surface frame: shared chrome (header, tab bar, journal strip, action
+//! The Flow surface frame: shared chrome (header, tab bar, links strip, action
 //! bar), responsive layout, the active view, and the modal overlays.
 //! §FS-rhei-run-tui.1.5.1 §FS-rhei-run-tui.1.5.6
 
@@ -57,12 +57,11 @@ pub(super) fn draw(f: &mut Frame, state: &UiState) {
     }
 
     // Minimal: below the room for two regions, collapse to a compact list +
-    // journal strip (§1.5.6).
+    // links strip (§1.5.6).
     let minimal = area.width < 60 || area.height < 14;
 
     let header_height = header_height(state);
-    let journal_strip =
-        if state.view == View::Journal || minimal && area.height < 18 { 0 } else { 4 };
+    let links_strip = if minimal && area.height < 18 { 0 } else { links_height(state) };
     let action_height = 1u16;
 
     let chunks = Layout::default()
@@ -71,7 +70,7 @@ pub(super) fn draw(f: &mut Frame, state: &UiState) {
             Constraint::Length(header_height),
             Constraint::Length(1), // tab bar
             Constraint::Min(3),    // body
-            Constraint::Length(journal_strip),
+            Constraint::Length(links_strip),
             Constraint::Length(action_height),
         ])
         .split(area);
@@ -83,8 +82,8 @@ pub(super) fn draw(f: &mut Frame, state: &UiState) {
     } else {
         render_body(f, chunks[2], state);
     }
-    if journal_strip > 0 {
-        render_journal_strip(f, chunks[3], state);
+    if links_strip > 0 {
+        render_links_strip(f, chunks[3], state);
     }
     render_action_bar(f, chunks[4], state);
 
@@ -103,9 +102,6 @@ pub(super) fn draw(f: &mut Frame, state: &UiState) {
 fn header_height(state: &UiState) -> u16 {
     let mut h = 2; // title line + counts line
     if has_accounting(state) {
-        h += 1;
-    }
-    if state.dashboard_url.is_some() {
         h += 1;
     }
     h
@@ -136,12 +132,6 @@ fn render_header(f: &mut Frame, area: Rect, state: &UiState) {
 
     if has_accounting(state) {
         lines.push(cost_strip_line(state));
-    }
-    if let Some(url) = &state.dashboard_url {
-        lines.push(Line::from(vec![
-            Span::styled("Dashboard: ", Style::default().fg(theme.accent())),
-            Span::raw(url.clone()),
-        ]));
     }
 
     let block = Block::default().borders(Borders::BOTTOM);
@@ -246,22 +236,39 @@ fn render_body(f: &mut Frame, area: Rect, state: &UiState) {
         View::Machine => views::render_machine(f, area, state),
         View::Cost => views::render_cost(f, area, state),
         View::Journal => views::render_journal(f, area, state),
-        View::Tasks => views::render_tasks(f, area, state),
     }
 }
 
-fn render_journal_strip(f: &mut Frame, area: Rect, state: &UiState) {
-    let block = Block::default().title(" journal ").borders(Borders::TOP);
+fn render_links_strip(f: &mut Frame, area: Rect, state: &UiState) {
+    let block = Block::default().title(" links ").borders(Borders::ALL);
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.height == 0 {
         return;
     }
-    let height = inner.height as usize;
-    let entries = state.filtered_journal();
-    let lines: Vec<Line> =
-        entries.iter().rev().take(height).rev().map(|e| views::journal_line(state, e)).collect();
+    let mut lines: Vec<Line> = Vec::new();
+    if let Some(url) = &state.dashboard_url {
+        lines.push(Line::from(format!("Dashboard  {url}")));
+    }
+    lines.push(Line::from(format!("Workspace  {}", state.workspace.display())));
+    for link in &state.links {
+        if Some(&link.url) == state.dashboard_url.as_ref() {
+            continue;
+        }
+        lines.push(Line::from(format!("{}  {}", link.label, link.url)));
+    }
+    lines.truncate(inner.height as usize);
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn links_height(state: &UiState) -> u16 {
+    let mut rows = 1; // workspace
+    if state.dashboard_url.is_some() {
+        rows += 1;
+    }
+    rows +=
+        state.links.iter().filter(|link| Some(&link.url) != state.dashboard_url.as_ref()).count();
+    (rows as u16 + 2).min(6)
 }
 
 fn render_action_bar(f: &mut Frame, area: Rect, state: &UiState) {
@@ -280,19 +287,20 @@ fn render_action_bar(f: &mut Frame, area: Rect, state: &UiState) {
 
     let mut hints: Vec<String> = Vec::new();
     if intervene_available(state) {
-        hints.push("m intervene".to_string());
+        hints.push("m message agent".to_string());
     }
     if !gate_choices(state).is_empty() && !state.finished && state.gate.is_some() {
         hints.push("⏎ gate".to_string());
     }
     match state.view {
         View::Cost => hints.push(format!("g group:{}", state.cost_group.label())),
-        View::Tasks => {
-            hints.push(format!("s sort:{}", state.tasks_sort.label()));
-            hints.push(format!("f state:{}", state.tasks_state_filter_label()));
-        }
         View::Journal => hints.push(format!("f {}", state.journal_filter.label())),
-        View::Flow => hints.push("Tab focus".to_string()),
+        View::Flow => {
+            hints.push("Tab focus".to_string());
+            if state.inspector_item.is_some() {
+                hints.push("Esc back to sections".to_string());
+            }
+        }
         View::Machine => {}
     }
     hints.push("/ filter".to_string());
@@ -309,16 +317,16 @@ fn render_help(f: &mut Frame, area: Rect, state: &UiState) {
     let lines = vec![
         Line::from("Keys"),
         Line::from("  j/k ↓/↑     move focus in the active view"),
-        Line::from("  1–5         Flow · Machine · Cost · Journal · Tasks"),
+        Line::from("  1–4         Flow · Machine · Cost · Journal"),
         Line::from("  h/l ←/→     previous / next view"),
         Line::from("  Tab         (Flow) outline ⇄ inspector"),
-        Line::from("  Enter       follow inspector chip / select task / gate"),
+        Line::from("  Enter       open inspector section / activate item / gate"),
+        Line::from("  Esc         return from inspector item view to section headers"),
         Line::from("  PgUp/PgDn   scroll the focused pane"),
         Line::from("  /           filter the active view (Esc clears)"),
         Line::from("  g           (Cost) cycle grouping"),
-        Line::from("  s           (Tasks) cycle sort"),
-        Line::from("  f           (Journal) cycle severity filter; (Tasks) cycle state filter"),
-        Line::from("  m           intervene on the selected live task"),
+        Line::from("  f           (Journal) cycle severity filter"),
+        Line::from("  m           send a message to the selected running agent"),
         Line::from("  ?           toggle this help"),
         Line::from("  q           quit (after the run finishes)"),
         Line::from("  Ctrl+C      stop the run"),

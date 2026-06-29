@@ -20,19 +20,17 @@ use super::text::sanitize_terminal_text;
 use super::theme::{category, Category, Theme};
 use super::{JOURNAL_BUFFER, SLOT_TRAFFIC_BUFFER};
 
-/// The five terminal views (§FS-rhei-run-tui.1.5.4). Flow leads.
+/// The terminal views (§FS-rhei-run-tui.1.5.4). Flow leads.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum View {
     Flow,
     Machine,
     Cost,
     Journal,
-    Tasks,
 }
 
 impl View {
-    pub(super) const ORDER: [View; 5] =
-        [View::Flow, View::Machine, View::Cost, View::Journal, View::Tasks];
+    pub(super) const ORDER: [View; 4] = [View::Flow, View::Machine, View::Cost, View::Journal];
 
     pub(super) fn index(self) -> usize {
         Self::ORDER.iter().position(|v| *v == self).unwrap_or(0)
@@ -44,7 +42,6 @@ impl View {
             View::Machine => "Machine",
             View::Cost => "Cost",
             View::Journal => "Journal",
-            View::Tasks => "Tasks",
         }
     }
 }
@@ -82,32 +79,6 @@ impl CostGroup {
             CostGroup::Agent => "agent",
             CostGroup::Model => "model",
             CostGroup::State => "state",
-        }
-    }
-}
-
-/// Tasks sort, cyclable with `s` (§FS-rhei-run-tui.1.5.2).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum TasksSort {
-    Id,
-    State,
-    Cost,
-}
-
-impl TasksSort {
-    pub(super) fn next(self) -> Self {
-        match self {
-            TasksSort::Id => TasksSort::State,
-            TasksSort::State => TasksSort::Cost,
-            TasksSort::Cost => TasksSort::Id,
-        }
-    }
-
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            TasksSort::Id => "id",
-            TasksSort::State => "state",
-            TasksSort::Cost => "cost",
         }
     }
 }
@@ -154,6 +125,12 @@ pub(super) struct TrafficLine {
 }
 
 /// The runtime overlay for one worker slot.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProcessKind {
+    Agent,
+    Program,
+}
+
 #[derive(Clone, Default)]
 pub(super) struct SlotState {
     pub(super) active: bool,
@@ -164,6 +141,19 @@ pub(super) struct SlotState {
     pub(super) log_path: Option<PathBuf>,
     pub(super) traffic: VecDeque<TrafficLine>,
     pub(super) usage: Option<UsageSummary>,
+}
+
+impl SlotState {
+    pub(super) fn process_kind(&self) -> Option<ProcessKind> {
+        if !self.active {
+            return None;
+        }
+        if self.agent.is_some() {
+            Some(ProcessKind::Agent)
+        } else {
+            Some(ProcessKind::Program)
+        }
+    }
 }
 
 /// A durably written invocation accounting record, mirrored for the Cost view.
@@ -221,12 +211,11 @@ pub(super) struct UiState {
     pub(super) selected: Option<String>,
     auto_selected: bool,
     pub(super) flow_focus: FlowFocus,
-    pub(super) inspector_chip: usize,
+    pub(super) inspector_section: usize,
+    pub(super) inspector_item: Option<usize>,
     pub(super) machine_focus: usize,
     pub(super) cost_group: CostGroup,
-    pub(super) tasks_sort: TasksSort,
     pub(super) journal_filter: JournalFilter,
-    pub(super) tasks_state_filter: Option<String>,
     pub(super) filter: Option<String>,
     pub(super) filter_editing: bool,
     pub(super) composer: Option<Composer>,
@@ -273,12 +262,11 @@ impl UiState {
             selected: None,
             auto_selected: false,
             flow_focus: FlowFocus::Outline,
-            inspector_chip: 0,
+            inspector_section: 0,
+            inspector_item: None,
             machine_focus: 0,
             cost_group: CostGroup::Task,
-            tasks_sort: TasksSort::Id,
             journal_filter: JournalFilter::All,
-            tasks_state_filter: None,
             filter: None,
             filter_editing: false,
             composer: None,
@@ -360,6 +348,10 @@ impl UiState {
 
     pub(super) fn is_live(&self, task: &str) -> bool {
         self.running_slot(task).is_some()
+    }
+
+    pub(super) fn running_process_kind(&self, task: &str) -> Option<ProcessKind> {
+        self.running_slot(task).and_then(|(_, slot)| slot.process_kind())
     }
 
     pub(super) fn task(&self, id: &str) -> Option<&TaskRow> {
@@ -620,92 +612,6 @@ impl UiState {
             })
     }
 
-    /// Plan task indices in the Tasks view's current sort, after the active
-    /// text and state filters.
-    pub(super) fn tasks_view_order(&self) -> Vec<usize> {
-        let mut idx: Vec<usize> = self
-            .visible_task_indices()
-            .into_iter()
-            .filter(|i| self.task_matches_tasks_state_filter(*i))
-            .collect();
-        match self.tasks_sort {
-            TasksSort::Id => {}
-            TasksSort::State => {
-                idx.sort_by(|a, b| {
-                    self.plan.tasks[*a]
-                        .state
-                        .cmp(&self.plan.tasks[*b].state)
-                        .then_with(|| self.plan.tasks[*a].id.cmp(&self.plan.tasks[*b].id))
-                });
-            }
-            TasksSort::Cost => {
-                let cost = |i: usize| {
-                    super::derive::task_direct(&self.invocations, &self.plan.tasks[i].id)
-                        .cost_micro
-                        .unwrap_or(0)
-                };
-                idx.sort_by(|a, b| {
-                    cost(*b)
-                        .cmp(&cost(*a))
-                        .then_with(|| self.plan.tasks[*a].id.cmp(&self.plan.tasks[*b].id))
-                });
-            }
-        }
-        idx
-    }
-
-    fn task_matches_tasks_state_filter(&self, idx: usize) -> bool {
-        self.tasks_state_filter.as_ref().is_none_or(|state| self.plan.tasks[idx].state == *state)
-    }
-
-    pub(super) fn tasks_state_filter_label(&self) -> &str {
-        self.tasks_state_filter.as_deref().unwrap_or("all")
-    }
-
-    /// Cycle the Tasks view's state filter through the states present in the
-    /// current plan, beginning with the selected task's state when possible.
-    /// §FS-rhei-run-tui.1.5.2
-    pub(super) fn cycle_tasks_state_filter(&mut self) {
-        let states = self.task_states_in_source_order();
-        if states.is_empty() {
-            self.tasks_state_filter = None;
-            return;
-        }
-
-        let next = match &self.tasks_state_filter {
-            None => self
-                .selected
-                .as_ref()
-                .and_then(|id| self.task(id))
-                .map(|task| task.state.clone())
-                .filter(|state| states.contains(state))
-                .unwrap_or_else(|| states[0].clone()),
-            Some(current) => states
-                .iter()
-                .position(|state| state == current)
-                .and_then(|pos| states.get(pos + 1).cloned())
-                .unwrap_or_default(),
-        };
-
-        self.tasks_state_filter = if next.is_empty() { None } else { Some(next) };
-
-        let order = self.tasks_view_order();
-        if !order.iter().any(|i| self.selected.as_deref() == Some(self.plan.tasks[*i].id.as_str()))
-        {
-            self.selected = order.first().map(|i| self.plan.tasks[*i].id.clone());
-        }
-    }
-
-    fn task_states_in_source_order(&self) -> Vec<String> {
-        let mut states = Vec::new();
-        for task in &self.plan.tasks {
-            if !states.contains(&task.state) {
-                states.push(task.state.clone());
-            }
-        }
-        states
-    }
-
     /// Keep local cursors on a visible row after the active `/` filter changes.
     pub(super) fn reconcile_filter_focus(&mut self) {
         match self.view {
@@ -717,12 +623,8 @@ impl UiState {
                     }
                 }
             }
-            View::Flow | View::Tasks | View::Cost => {
-                let order = if self.view == View::Tasks {
-                    self.tasks_view_order()
-                } else {
-                    self.visible_task_indices()
-                };
+            View::Flow | View::Cost => {
+                let order = self.visible_task_indices();
                 if !order
                     .iter()
                     .any(|i| self.selected.as_deref() == Some(self.plan.tasks[*i].id.as_str()))
@@ -746,7 +648,8 @@ impl UiState {
             .unwrap_or(0);
         let next = (current as isize + delta).clamp(0, order.len() as isize - 1) as usize;
         self.selected = Some(self.plan.tasks[order[next]].id.clone());
-        self.inspector_chip = 0;
+        self.inspector_section = 0;
+        self.inspector_item = None;
         self.inspector_scroll = 0;
     }
 
@@ -754,7 +657,8 @@ impl UiState {
     pub(super) fn select_task(&mut self, id: &str) -> bool {
         if self.task(id).is_some() {
             self.selected = Some(id.to_string());
-            self.inspector_chip = 0;
+            self.inspector_section = 0;
+            self.inspector_item = None;
             self.inspector_scroll = 0;
             true
         } else {

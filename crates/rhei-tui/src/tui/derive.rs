@@ -1,6 +1,6 @@
-//! Pure derivations over the run model: the inspector's followable chips, the
+//! Pure derivations over the run model: the inspector's navigable sections, the
 //! machine's disjoint-workflow grouping, and cost rollups — shared by input and
-//! rendering so a chip navigates exactly where it is drawn. §FS-rhei-run-tui.1.5
+//! rendering so focus navigates exactly where it is drawn. §FS-rhei-run-tui.1.5
 
 use rhei_viz_model::{Machine, TaskRow, VizModel};
 
@@ -12,6 +12,7 @@ use super::state::{UiState, UsageRecord};
 pub(super) enum ChipAction {
     SelectTask(String),
     MarkState(String),
+    None,
 }
 
 #[derive(Clone)]
@@ -20,53 +21,155 @@ pub(super) struct Chip {
     pub(super) action: ChipAction,
 }
 
-/// The followable chips of the selected task's surroundings inspector, in
-/// inspector order: depends-on, unblocks, came-from, next-state
-/// (§FS-rhei-viz.4). Walking from a node to a neighbor costs one keystroke.
-pub(super) fn inspector_chips(state: &UiState, task_id: &str) -> Vec<Chip> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum InspectorSectionKind {
+    Dependencies,
+    PreviousStates,
+    NextState,
+    Prompt,
+    LiveAgent,
+    Artifacts,
+    Children,
+}
+
+#[derive(Clone)]
+pub(super) struct InspectorSection {
+    pub(super) kind: InspectorSectionKind,
+    pub(super) title: String,
+    pub(super) items: Vec<Chip>,
+}
+
+/// The navigable sections of the selected task's surroundings inspector. Header
+/// order follows §FS-rhei-viz.4; each section's item order matches rendering.
+pub(super) fn inspector_sections(state: &UiState, task_id: &str) -> Vec<InspectorSection> {
     let plan = &state.plan;
     let Some(task) = state.task(task_id) else {
         return Vec::new();
     };
-    let mut chips = Vec::new();
+    let mut sections = Vec::new();
 
-    // Depends on (Prior).
+    let mut dependency_items = Vec::new();
     for prior in &task.prior {
-        chips.push(Chip {
+        dependency_items.push(Chip {
             label: format!("◂ {prior}"),
             action: ChipAction::SelectTask(prior.clone()),
         });
     }
-    // Unblocks: tasks waiting on this one.
     for other in &plan.tasks {
         if other.prior.iter().any(|p| p == task_id) {
-            chips.push(Chip {
+            dependency_items.push(Chip {
                 label: format!("▸ {}", other.id),
                 action: ChipAction::SelectTask(other.id.clone()),
             });
         }
     }
+    sections.push(InspectorSection {
+        kind: InspectorSectionKind::Dependencies,
+        title: "depends on / unblocks".to_string(),
+        items: dependency_items,
+    });
+
+    sections.push(InspectorSection {
+        kind: InspectorSectionKind::PreviousStates,
+        title: "state history".to_string(),
+        items: previous_state_names(task)
+            .into_iter()
+            .map(|state| Chip { label: state.clone(), action: ChipAction::MarkState(state) })
+            .collect(),
+    });
 
     if let Some(machine_state) = state.machine_state(&task.state) {
-        // Came from: states that can transition into this state.
-        for st in &plan.machine.states {
-            if st.transitions.iter().any(|t| t.to == machine_state.name) {
-                chips.push(Chip {
-                    label: format!("⮜ {}", st.name),
-                    action: ChipAction::MarkState(st.name.clone()),
-                });
-            }
-        }
-        // Next state: this state's outgoing transitions.
-        for tr in &machine_state.transitions {
-            chips.push(Chip {
-                label: format!("⮞ {}", tr.to),
-                action: ChipAction::MarkState(tr.to.clone()),
+        sections.push(InspectorSection {
+            kind: InspectorSectionKind::NextState,
+            title: "next states".to_string(),
+            items: machine_state
+                .transitions
+                .iter()
+                .map(|tr| Chip {
+                    label: format!("⮞ {}", tr.to),
+                    action: ChipAction::MarkState(tr.to.clone()),
+                })
+                .collect(),
+        });
+
+        if let Some(prompt) = &machine_state.instructions {
+            sections.push(InspectorSection {
+                kind: InspectorSectionKind::Prompt,
+                title: "prompt".to_string(),
+                items: prompt
+                    .lines()
+                    .map(|line| Chip { label: line.to_string(), action: ChipAction::None })
+                    .collect(),
             });
         }
     }
 
-    chips
+    if let Some((_, slot_state)) = state.running_slot(&task.id) {
+        let title = if slot_state.agent.is_some() { "live agent" } else { "live program" };
+        sections.push(InspectorSection {
+            kind: InspectorSectionKind::LiveAgent,
+            title: title.to_string(),
+            items: Vec::new(),
+        });
+    }
+
+    if let Some(machine_state) = state.machine_state(&task.state) {
+        if !machine_state.inputs.is_empty() || !machine_state.outputs.is_empty() {
+            let inputs = machine_state.inputs.iter().map(|artifact| Chip {
+                label: format!("in ◂ {}", artifact.name),
+                action: ChipAction::None,
+            });
+            let outputs = machine_state.outputs.iter().map(|artifact| Chip {
+                label: format!("out ▸ {}", artifact.name),
+                action: ChipAction::None,
+            });
+            sections.push(InspectorSection {
+                kind: InspectorSectionKind::Artifacts,
+                title: "artifacts".to_string(),
+                items: inputs.chain(outputs).collect(),
+            });
+        }
+    }
+
+    let children: Vec<Chip> = state
+        .plan
+        .tasks
+        .iter()
+        .filter(|candidate| candidate.parent.as_deref() == Some(task.id.as_str()))
+        .map(|child| Chip {
+            label: child.id.clone(),
+            action: ChipAction::SelectTask(child.id.clone()),
+        })
+        .collect();
+    if !children.is_empty() {
+        let title = match subtree_progress(&state.plan, task) {
+            Some((done, total)) => format!("children  {done}/{total} ✓"),
+            None => "children".to_string(),
+        };
+        sections.push(InspectorSection {
+            kind: InspectorSectionKind::Children,
+            title,
+            items: children,
+        });
+    }
+
+    sections
+}
+
+fn previous_state_names(task: &TaskRow) -> Vec<String> {
+    task.history
+        .iter()
+        .rev()
+        .filter_map(|entry| {
+            let from = entry.from.trim();
+            if from.is_empty() {
+                None
+            } else {
+                Some(from.to_string())
+            }
+        })
+        .take(3)
+        .collect()
 }
 
 /// Group machine states into disjoint workflows: connected components over

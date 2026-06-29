@@ -57,8 +57,8 @@ pub struct TaskRow {
     #[serde(default)]
     pub prior: Vec<String>,
     /// Durable state-transition history parsed from the central runtime ledger.
-    /// The renderer collapses this to an always-visible last-state section whose
-    /// disclosure shows states earlier than the last one. §FS-rhei-viz.4 §FS-rhei-viz.8
+    /// Renderers use it for the selected task's bounded previous-states section.
+    /// §FS-rhei-viz.4 §FS-rhei-viz.8
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<StateHistoryEntry>,
 }
@@ -93,6 +93,10 @@ pub struct MachineState {
     pub initial: bool,
     pub terminal: bool,
     pub gating: bool,
+    /// Authored autonomous process kind for this state, when the state machine
+    /// declares one. Renderers use this to distinguish agent and program states.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process: Option<MachineProcessKind>,
     /// Allowed outgoing transitions: explicit edges first, then `from: "*"`
     /// wildcard edges that apply to this non-terminal state.
     pub transitions: Vec<Transition>,
@@ -107,6 +111,13 @@ pub struct MachineState {
     /// invocation that actually owns the task. §FS-rhei-viz.8
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub template_contexts: Vec<TemplateContext>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MachineProcessKind {
+    Agent,
+    Program,
 }
 
 /// Static template values the renderer may resolve without guessing. Ambiguous
