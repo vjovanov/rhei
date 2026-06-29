@@ -47,14 +47,14 @@ transitions:
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "rejected");
 
-    let result_log =
-        fs::read_to_string(dir.join("runtime/results/1.md")).expect("read transition result log");
+    let result_log = fs::read_to_string(dir.join("runtime/state-transitions.log"))
+        .expect("read state transition log");
     assert!(
-        result_log.contains("## pending \u{2192} rejected"),
+        result_log.contains("1 pending@rejected"),
         "audit should record redirected target; got:\n{result_log}"
     );
     assert!(
-        !result_log.contains("## pending \u{2192} in-progress"),
+        !result_log.contains("1 pending@in-progress"),
         "audit should not record original target after redirect; got:\n{result_log}"
     );
 

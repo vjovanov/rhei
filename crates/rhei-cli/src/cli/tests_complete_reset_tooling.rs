@@ -265,8 +265,9 @@ transitions:
         assert_eq!(effective, "completed");
         let updated = fs::read_to_string(&plan).expect("read plan");
         assert!(updated.contains("**State:** completed"));
-        let result = fs::read_to_string(dir.path().join("runtime/results/1.md")).expect("result");
-        assert!(result.contains("## human-review → completed"));
+        let history =
+            fs::read_to_string(dir.path().join("runtime/state-transitions.log")).expect("history");
+        assert!(history.contains("1 human-review@completed"));
     }
 
     #[test]
