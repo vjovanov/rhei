@@ -71,6 +71,7 @@ Inspection:
 
 Templates:
   templates   List available templates
+  add         Add a template directory to the reusable library
   instantiate Instantiate a template into a concrete plan or workspace
 
 Execution:
@@ -362,6 +363,25 @@ enum Commands {
             add = ArgValueCompleter::new(templates::complete_template_input_arg)
         )]
         input_args: Vec<String>,
+    },
+    /// Add a template directory to the reusable template library
+    ///
+    /// Registers a template under the user library (`~/.agents/rhei/templates/`)
+    /// or the project library so it can be instantiated by name with
+    /// `rhei instantiate <name>`.
+    Add {
+        /// Path to the template directory to register
+        #[arg(value_name = "TEMPLATE_DIR", add = ArgValueCompleter::new(complete_any_path))]
+        source: String,
+        /// Register under the project library instead of the user library
+        #[arg(long)]
+        project: bool,
+        /// Symlink the source instead of copying it
+        #[arg(long)]
+        link: bool,
+        /// Overwrite an existing library entry with the same name
+        #[arg(long)]
+        force: bool,
     },
     /// Transition the next ready task to the next state
     ///

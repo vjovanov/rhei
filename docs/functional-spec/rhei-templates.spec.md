@@ -2,6 +2,10 @@
 
 This document specifies **Rhei Templates** — parameterized, reusable plan+state-machine bundles that can be instantiated with concrete inputs to produce ready-to-execute workspaces.
 
+For the template authoring checklist and the catalog of templates this project
+actually ships — one entry per template with its description, required inputs,
+and example — see §FS-rhei-template-authoring.
+
 ## Motivation
 
 Rhei plans and state machines today are authored from scratch or copied manually. Common patterns — code review loops, release checklists, onboarding workflows — are recreated each time. Templates let users capture a proven workflow once and instantiate it with project-specific inputs, removing boilerplate and enforcing consistency.
@@ -395,6 +399,54 @@ Options:
 Prints a table of discovered templates with name, version, description, source path, and required input count.
 
 When discovery encounters an invalid template directory, `rhei templates` skips it and prints a warning instead of failing the entire listing.
+
+### 6.3. `rhei add`
+
+Register an existing template directory into the reusable template library so it
+can later be instantiated by name with `rhei instantiate <name>`. This is a
+convenience over manually copying a directory into a library root: discovery,
+listing, and instantiation already resolve any template living under those roots
+(§FS-rhei-templates.4).
+
+```
+rhei add <template-dir> [options]
+
+Arguments:
+  <template-dir>               Path to the template directory to register
+
+Options:
+  --project                    Register under the project library
+                                 (<project>/.agents/rhei/templates/) instead of
+                                 the user library (~/.agents/rhei/templates/)
+  --link                       Symlink the source instead of copying it
+  --force                      Overwrite an existing library entry of the same name
+```
+
+Behavior:
+
+1. **Validate the source.** The path must be a directory that loads as a valid
+   template: its `template.yaml` manifest must parse and its plan layout
+   (single-file `plan.rhei.md` or directory-workspace `index.rhei.md`) must be
+   detectable. Otherwise `rhei add` fails without writing anything.
+2. **Resolve the registered name.** The library entry is registered under the
+   manifest `name`, which is also the template's directory name (the manifest
+   `name` must match its directory). This is the identity used by discovery and
+   instantiation, so it cannot be renamed at add time.
+3. **Resolve the destination root.** The user library by default, or the project
+   library with `--project`. The destination is `<root>/<name>`.
+4. **Refuse to clobber.** If an entry with that name already exists and does not
+   already point at this exact source, `rhei add` fails unless `--force` is
+   passed; with `--force` the existing entry is replaced. Re-adding a source that
+   the entry already resolves to is reported as a no-op error.
+5. **Materialize.** By default the source directory is copied. With `--link` an
+   absolute symlink to the source is created so the library entry tracks the live
+   source. Copy is durable but goes stale when the source changes; `--link` stays
+   live but breaks if the source moves.
+6. **Confirm.** Prints the registered name, scope, destination path, and the
+   `rhei instantiate <name>` command to run next.
+
+`rhei add` registers the template verbatim; instantiation-time rendering and
+validation still happen later at `rhei instantiate` time, not at add time.
 
 ## Example
 

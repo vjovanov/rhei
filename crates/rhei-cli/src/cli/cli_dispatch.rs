@@ -301,6 +301,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             keep_on_error,
             list_inputs,
         ),
+        Commands::Add { source, project, link, force } => {
+            templates::add_template_command(&source, project, link, force)
+        }
         Commands::Next { input, task, json, no_callbacks, peek } => next_command(
             &input,
             cli.state_machine.as_deref(),

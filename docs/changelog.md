@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `rhei add <template-dir>`, which registers an existing template directory
+  into the reusable template library (user `~/.agents/rhei/templates/` by default,
+  or the project library with `--project`) so it can later be instantiated by name
+  with `rhei instantiate <name>`. Copies by default or symlinks with `--link`,
+  refuses to clobber an existing entry without `--force`, and validates the source
+  is a real template before registering. §FS-rhei-templates.6.3
 - Clear stale Flow dashboard running indicators after the live loopback server
   stops answering, so closed runs do not leave browser tabs spinning forever.
   PR #31

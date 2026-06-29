@@ -838,3 +838,63 @@ inputs:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn add_registers_template_into_project_library() {
+    let dir = unique_temp_dir("templates-add");
+    // Pin find_project_root to `dir` with a marker file.
+    fs::create_dir_all(dir.join(".git")).expect("create marker");
+
+    // The template source directory name must match the manifest `name`.
+    let src = dir.join("greeter");
+    fs::create_dir_all(&src).expect("create source dir");
+    write_fixture_file(
+        &src,
+        "template.yaml",
+        "name: greeter\nversion: 1.0.0\ndescription: Greeting template\n",
+    );
+    write_fixture_file(
+        &src,
+        "plan.rhei.md",
+        "# Rhei: Greet\n\n## Tasks\n\n### Task 1: Greet\n**State:** pending\n",
+    );
+    let src_arg = src.to_str().expect("source path");
+
+    // Register into the project library.
+    let added = run_raw(&["add", src_arg, "--project"], &dir);
+    assert_success(&added);
+    assert!(
+        dir.join(".agents/rhei/templates/greeter/template.yaml").exists(),
+        "expected registered template; stdout:\n{}",
+        added.stdout
+    );
+
+    // It is now discoverable by name.
+    let listed = run_raw(&["templates", "--source", "project"], &dir);
+    assert_success(&listed);
+    assert!(listed.stdout.contains("greeter"), "expected greeter in listing:\n{}", listed.stdout);
+
+    // Re-adding without --force is refused.
+    let dup = run_raw(&["add", src_arg, "--project"], &dir);
+    assert!(
+        !dup.status.success(),
+        "re-add should fail without --force; stdout:\n{}\nstderr:\n{}",
+        dup.stdout,
+        dup.stderr
+    );
+
+    // Re-adding with --force replaces the entry.
+    let forced = run_raw(&["add", src_arg, "--project", "--force"], &dir);
+    assert_success(&forced);
+
+    // A directory without a valid manifest is rejected.
+    let bad = run_raw(&["add", dir.join(".git").to_str().expect("path"), "--project"], &dir);
+    assert!(
+        !bad.status.success(),
+        "non-template add should fail; stdout:\n{}\nstderr:\n{}",
+        bad.stdout,
+        bad.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
