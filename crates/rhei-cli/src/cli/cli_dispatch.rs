@@ -1,3 +1,26 @@
+/// Panta project recipe commands. §FS-rhei-panta.7
+#[derive(Subcommand, Debug)]
+enum PantaCommand {
+    /// Append a rhei entry to the project recipe
+    Add {
+        /// Stable, unique rhei id for the new recipe entry
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Template to instantiate (resolved like `rhei instantiate`)
+        #[arg(long, value_name = "NAME", add = ArgValueCompleter::new(templates::complete_template_reference))]
+        template: String,
+        /// Set a template input value (repeatable)
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set_values: Vec<String>,
+        /// Declare a dependency on an existing recipe entry (repeatable)
+        #[arg(long = "depends-on", value_name = "ID")]
+        depends_on: Vec<String>,
+        /// Panta project directory (defaults to the current project)
+        #[arg(long, value_name = "DIR", add = ArgValueCompleter::new(complete_any_path))]
+        project: Option<PathBuf>,
+    },
+}
+
 /// Snapshot cache maintenance commands.
 #[derive(Subcommand, Debug)]
 enum SnapshotCommand {
@@ -304,6 +327,22 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Add { source, project, link, force } => {
             templates::add_template_command(&source, project, link, force)
         }
+        Commands::Panta { only, dry_run, project, command } => match command {
+            None => panta_run_command(&only, dry_run, project.as_deref()),
+            Some(PantaCommand::Add {
+                id,
+                template,
+                set_values,
+                depends_on,
+                project: add_project,
+            }) => panta_add_command(
+                &id,
+                &template,
+                &set_values,
+                &depends_on,
+                add_project.as_deref(),
+            ),
+        },
         Commands::Next { input, task, json, no_callbacks, peek } => next_command(
             &input,
             cli.state_machine.as_deref(),

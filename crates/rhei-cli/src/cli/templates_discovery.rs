@@ -67,7 +67,7 @@
         Ok(roots)
     }
 
-    fn resolve_template_reference(reference: &str) -> MietteResult<PathBuf> {
+    pub(super) fn resolve_template_reference(reference: &str) -> MietteResult<PathBuf> {
         if template_reference_is_path(reference) {
             let path = PathBuf::from(reference);
             if !path.is_dir() {

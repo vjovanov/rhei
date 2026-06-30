@@ -383,6 +383,23 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Run a Panta project's rhei recipe (or manage it with a subcommand)
+    ///
+    /// With no subcommand, instantiates and runs the recipe in dependency order.
+    /// Use `rhei panta add` to append a rhei to the recipe.
+    Panta {
+        /// Restrict the run to the named rhei(s) and their transitive dependencies (repeatable)
+        #[arg(long = "rhei", value_name = "ID")]
+        only: Vec<String>,
+        /// Instantiate and validate each rhei without executing agents
+        #[arg(long)]
+        dry_run: bool,
+        /// Panta project directory (defaults to the current project)
+        #[arg(long, value_name = "DIR", add = ArgValueCompleter::new(complete_any_path))]
+        project: Option<PathBuf>,
+        #[command(subcommand)]
+        command: Option<PantaCommand>,
+    },
     /// Transition the next ready task to the next state
     ///
     /// Finds the first task whose prerequisites are satisfied, transitions it

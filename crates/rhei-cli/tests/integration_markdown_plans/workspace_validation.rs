@@ -132,9 +132,57 @@ fn create_panta_project(
 }
 
 #[test]
-fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
+fn panta_project_qualifies_local_priors_within_a_rhei() {
     let project = create_panta_project(
         "panta-valid",
+        "# Panta: Product Suite\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** completed\n",
+            ),
+            (
+                "billing/index.rhei.md",
+                "# Rhei: Billing\n\n## Notes\nBilling context.\n",
+            ),
+            (
+                "billing/tasks/invoice.md",
+                "### Task 1: Invoice\n**State:** pending\n### Task 2: Send\n**State:** pending\n**Prior:** Task 1\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("load panta project");
+    assert_eq!(loaded.rhei.title, "Product Suite");
+    assert_eq!(loaded.rhei_ids, vec!["auth", "billing"]);
+    assert!(loaded.task_sources.contains_key("auth.1"));
+    assert!(loaded.task_sources.contains_key("billing.1"));
+    assert!(loaded.task_sources.contains_key("billing.2"));
+    // The rhei-local prior `Task 1` qualifies to `billing.1`, within the rhei.
+    assert_eq!(loaded.rhei.tasks[2].prior[0].to_string(), "billing.1");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "validate should succeed for panta project\nstdout: {}\nstderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Validation succeeded"));
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_project_rejects_cross_rhei_priors() {
+    let project = create_panta_project(
+        "panta-cross-rhei",
         "# Panta: Product Suite\n**States:** workspace-test-machine\n",
         &[
             (
@@ -153,43 +201,24 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let loaded = workspace::load_panta_project(&project).expect("load panta project");
-    assert_eq!(loaded.rhei.title, "Product Suite");
-    assert_eq!(loaded.rhei_ids, vec!["auth", "billing"]);
-    assert!(loaded.task_sources.contains_key("auth.1"));
-    assert!(loaded.task_sources.contains_key("billing.1"));
-    assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
-    assert_eq!(loaded.rhei.tasks[1].id.to_string(), "billing.1");
-    assert_eq!(loaded.rhei.tasks[1].prior[0].to_string(), "auth.1");
+    // A ticket **Prior:** that crosses a rhei boundary is rejected. §FS-rhei-panta.7.2
+    let err = workspace::load_panta_project(&project).expect_err("cross-rhei prior should fail");
+    assert!(
+        err.message.contains("cross-rhei"),
+        "error should explain the cross-rhei dependency; got: {}",
+        err.message
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("validate")
         .arg(&project)
         .output()
         .expect("validate command should run");
-    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        output.status.success(),
-        "validate should succeed for panta project\nstdout: {}\nstderr: {}",
-        stdout,
-        String::from_utf8_lossy(&output.stderr)
+        !output.status.success(),
+        "validate should fail for a cross-rhei prior\nstdout: {}",
+        String::from_utf8_lossy(&output.stdout)
     );
-    assert!(stdout.contains("Validation succeeded"));
-
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
-        .arg("list")
-        .arg(project.join("index.panta.md"))
-        .output()
-        .expect("list command should run");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success(),
-        "list should succeed for panta manifest path\nstdout: {}\nstderr: {}",
-        stdout,
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(stdout.contains("Task auth.1: Login [completed]"));
-    assert!(stdout.contains("Task billing.1: Invoice [pending] (prior: auth.1)"));
 
     fs::remove_dir_all(project).expect("cleanup");
 }

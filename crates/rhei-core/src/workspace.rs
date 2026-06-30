@@ -256,7 +256,7 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
             content_section_roots.push(root.clone());
         }
         let local_ids = collect_task_ids(&rhei.tasks);
-        qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids, &local_ids);
+        qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids, &local_ids)?;
         for task in &rhei.tasks {
             let source = source_for_task(&sources, task)?;
             collect_task_sources(task, source.as_path(), &mut task_sources)?;
@@ -481,24 +481,47 @@ fn qualify_tasks(
     rhei_id: &str,
     rhei_ids: &[String],
     local_ids: &HashSet<TaskId>,
-) {
+) -> parser::Result<()> {
     for task in tasks {
-        qualify_task(task, rhei_id, rhei_ids, local_ids);
+        qualify_task(task, rhei_id, rhei_ids, local_ids)?;
     }
+    Ok(())
 }
 
-fn qualify_task(task: &mut Task, rhei_id: &str, rhei_ids: &[String], local_ids: &HashSet<TaskId>) {
-    task.id = qualify_local_id(&task.id, rhei_id);
+fn qualify_task(
+    task: &mut Task,
+    rhei_id: &str,
+    rhei_ids: &[String],
+    local_ids: &HashSet<TaskId>,
+) -> parser::Result<()> {
+    let qualified_self = qualify_local_id(&task.id, rhei_id);
+    task.id = qualified_self.clone();
     task.profile_depth_offset = task.profile_depth_offset.saturating_add(1);
     for prior in &mut task.prior {
         // Rhei-local prior ids win when they are ambiguous with project-qualified ids. §AR-rhei-panta.3
         if local_ids.contains(prior) || !is_project_qualified(prior, rhei_ids) {
             *prior = qualify_local_id(prior, rhei_id);
+        } else if !prior_targets_rhei(prior, rhei_id) {
+            // A `**Prior:**` that resolves to another rhei is forbidden; cross-rhei
+            // sequencing is expressed with a rhei-level dependency. §FS-rhei-panta.7.2
+            return Err(ParseError::new(
+                format!(
+                    "task '{}' declares a cross-rhei dependency on '{}'; ticket **Prior:** must stay within its rhei. Express cross-rhei ordering with a rhei-level `depends-on` in the project recipe.",
+                    qualified_self, prior
+                ),
+                None,
+            ));
         }
     }
     for child in &mut task.children {
-        qualify_task(child, rhei_id, rhei_ids, local_ids);
+        qualify_task(child, rhei_id, rhei_ids, local_ids)?;
     }
+    Ok(())
+}
+
+/// Whether a project-qualified prior id targets the given rhei (its own rhei).
+fn prior_targets_rhei(id: &TaskId, rhei_id: &str) -> bool {
+    matches!(id.segments.first(), Some(TaskIdSegment::Named(first)) if first == rhei_id)
 }
 
 fn qualify_local_id(id: &TaskId, rhei_id: &str) -> TaskId {
