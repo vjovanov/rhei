@@ -59,8 +59,10 @@ Loading a Panta produces one graph rooted at the virtual `panta` node:
    their execution root.
 4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
    synthetic basin rhei, as a level-1 child.
-5. Merge into one task graph and resolve `**Prior:**` across the whole project,
-   exactly as workspace task files merge today.
+5. Merge into one task graph. `**Prior:**` references resolve **within each
+   rhei**; a prior that resolves to a task in another rhei is a load/validation
+   error (§FS-rhei-panta.7.2). Cross-rhei sequencing is expressed with a
+   rhei-level `depends-on` in the project recipe, not with ticket priors.
 
 The virtual root is materialized in memory only; it is never written back. A
 source map records, for each node, the rhei (and file) that defines it, so
@@ -98,8 +100,9 @@ Within a rhei, tickets are authored and validated exactly as today
 (§FS-rhei-plan-language.3.4): the rhei-local id space is unchanged, including
 `structure.maxLevels` (1–4) counted from the rhei-local level 1. The Panta prefix
 is applied at merge time and is not authored into the rhei's task headings.
-`**Prior:**` references may be written as project ids to point across rheis;
-within a rhei, rhei-local references continue to resolve locally.
+`**Prior:**` references resolve only within the authoring rhei; a prior that
+qualifies to a different rhei is rejected at load time (§FS-rhei-panta.7.2).
+Cross-rhei ordering is expressed with a rhei-level `depends-on` in the recipe.
 
 ## 4. State-machine binding
 
@@ -151,20 +154,16 @@ accounting in one `runtime/`.
 
 ## 6. Command scope mechanics
 
-`rhei run` resolves and caches one state machine per rhei in scope and applies a
-ticket's machine when transitioning it; cross-rhei dependency readiness consults
-the prior ticket's own machine and requires a successful terminal state
-(`final: true` and a normalized state name other than `cancelled`). This is the
-same predicate normal in-rhei scheduling uses; implementations may share one
-predicate, resolve the prior directly, or read an exported/cached readiness
-result, but only when that result is behaviorally equivalent and fresh. A
-dependency fails closed — the dependent stays blocked — whenever the prior
-state, the prior's state-machine meaning, or a cached readiness result cannot be
-resolved reliably. The ready-set
-scan, claim selection, and rollup all walk the single merged graph (§2), so
-project-wide is the natural default and `--rhei` is a filter applied to candidate
-nodes after the merge. Mutating commands report the resolved scope and the set of
-rheis they will touch before acting (§FS-rhei-panta.6).
+Ticket readiness is **rhei-local**: each rhei resolves its own `**Prior:**`
+graph against its own state machine, and a prior may not cross a rhei boundary
+(§FS-rhei-panta.7.2). Cross-rhei sequencing is handled one level up, by the
+recipe: `rhei panta run` orders rheis topologically by `depends-on` and runs a
+rhei only after its dependency rheis reach a terminal rollup (§FS-rhei-panta.7.4).
+A dependency rhei counts as satisfied when all its tickets are terminal and not
+cancelled. Read-only scans (`list`, `validate`, `viz`) walk the single merged
+graph (§2), so project-wide is the natural default and `--rhei` is a filter
+applied after the merge. `rhei panta run` reports the resolved scope and the set
+of rheis it will touch before acting (§FS-rhei-panta.6).
 
 ## 7. Invisibility surface
 
