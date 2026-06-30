@@ -67,9 +67,10 @@ graph rather than as many disconnected plans:
 
 - **Status rolls up** Panta ← rheis ← tickets through one tree. Panta's status is
   always derived from its rheis and is never stored.
-- **Dependencies resolve across rheis.** A ticket in one rhei may declare a
-  `**Prior:**` on a ticket in another rhei; the reference resolves against the
-  whole project graph. §AR-rhei-panta
+- **Dependencies are rhei-level.** A rhei may depend on another rhei (§7.2);
+  the project executes rheis in dependency order. Ticket-level `**Prior:**`
+  resolves only *within* a rhei — a `**Prior:**` that crosses a rhei boundary is
+  a validation error (§7.2). §AR-rhei-panta
 - **Listing and monitoring** treat the set of rheis as the top level, so an
   operator sees the whole project from a single root.
 
@@ -107,19 +108,19 @@ command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
 file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
 (repeatable) narrows a project-scoped invocation to named rheis.
 
-Within a project, read-only commands operate **project-wide by default**. The
-current Panta implementation supports loading, validation, listing, rendering,
-and visualization over the merged project graph. Mutating commands are staged:
-until project-wide rewrites can route every state, assignee, result, and runtime
-artifact back to the owning rhei with that rhei's state machine, `rhei run`,
-`rhei next`, `rhei transition`, `rhei complete`, and `rhei reset` must reject
-project-scoped Panta inputs with an actionable message. Operators can still
-target an individual rhei directly when they need mutation.
+Within a project, read-only commands operate **project-wide by default**:
+loading, validation, listing, rendering, and visualization run over the merged
+project graph.
 
-The target behavior for full Panta execution remains project-wide mutation: the
-project is the unit an operator drives. Because a future mutating invocation can
-fan out across every rhei, any command that spawns work or destroys runtime
-state must report its scope and the affected rheis before acting.
+Project-wide **execution** is performed by a dedicated command, `rhei panta run`
+(§7), rather than by overloading the single-rhei mutating commands. `rhei panta
+run` does not rewrite recipe entries or rhei files in place; it instantiates each
+rhei into an isolated per-run directory and drives it there (§7.4, §7.5). The
+in-place single-rhei mutating commands (`rhei next`, `rhei transition`, `rhei
+complete`, `rhei reset`, `rhei run <rhei>`) continue to target an individual rhei;
+pointed at a Panta project directory they reject the input and point at the
+project-scoped command instead. Because project execution fans out across every
+rhei, `rhei panta run` reports its scope and the affected rheis before acting.
 
 Each rhei may declare its own state machine via `**States:**`; the
 `index.panta.md` manifest supplies the project default for rheis that do not.
@@ -127,31 +128,26 @@ Commands resolve and apply the correct machine per rhei (§AR-rhei-panta).
 
 ### 6.1. Readiness and `rhei next`
 
-Readiness is **project-global**. A ticket is ready when it is a claimable leaf
-and every `**Prior:**` is terminal-and-not-cancelled, resolved across the whole
-project graph — a ticket in one rhei may be blocked by a ticket in another. Each
-prior's terminal status is judged against *that prior's own* rhei state machine.
-Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
-the candidate tickets but never narrows where their priors resolve: a candidate
-may still be blocked by a prior outside the named rheis.
+Within a single rhei, ticket readiness is unchanged: a ticket is ready when it is
+a claimable leaf and every `**Prior:**` is terminal-and-not-cancelled, resolved
+against that rhei's own graph. Because ticket-level `**Prior:**` never crosses a
+rhei boundary (§7.2), ticket readiness is always rhei-local.
 
-Project-scoped `rhei next` follows the staged mutation boundary above: the
-readiness model is specified here so future execution is deterministic, but the
-current CLI must reject Panta project inputs for claim mode rather than writing
-assignments into child rhei files.
+Cross-rhei sequencing is expressed at the **rhei** level, not the ticket level:
+a rhei becomes ready to execute when all the rheis it `depends-on` are terminal
+(§7.2). Project-scoped execution and that readiness model are specified under
+[Panta orchestration](#7-panta-orchestration).
 
-### 6.2. `rhei run`
+### 6.2. `rhei run` and `rhei panta run`
 
-At project scope, `rhei run` orchestrates ready tickets across all in-scope rheis
-under one loop, applying each ticket's own rhei state machine. It drives tickets
-to terminal states; it never writes state to a rhei or Panta node. Concurrency
-across rheis is bounded, and each spawned unit is attributed to its rhei in logs
-and accounting. The loop stops when no eligible ticket remains in scope or a
-gating state requires a human.
+`rhei run <rhei>` drives a single rhei to terminal states using that rhei's own
+state machine, exactly as for a standalone plan.
 
-This is the intended project-wide execution behavior. Until the staged mutation
-boundary is lifted, the current CLI must reject `rhei run <panta-project>` and
-ask the operator to use read-only project commands or target one child rhei.
+Project-scoped execution is performed by `rhei panta run`, which instantiates and
+runs the project's rheis in dependency order. It is specified in full under
+[Panta orchestration](#7-panta-orchestration). `rhei run` pointed directly at a
+Panta project directory is rejected with a message pointing at `rhei panta run`,
+because project execution has its own command and run-isolation model.
 
 ### 6.3. Completion and rollup
 
@@ -171,9 +167,12 @@ up automatically.
   affected rheis before acting. `--rhei` narrows it. Under the current staged
   mutation boundary, project-scoped reset must reject Panta inputs instead of
   deleting child rhei runtime state.
-- `rhei validate` always checks the whole project graph: cross-rhei dependency
-  resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
-  `panta`/`rhei` kinds.
+- `rhei validate` always checks the whole project graph: project-qualified id
+  uniqueness, rhei-id validity, the reserved `panta`/`rhei` kinds, that every
+  ticket `**Prior:**` resolves *within its own rhei* (cross-rhei ticket priors
+  are errors, §7.2), and — when a recipe is present — recipe integrity: unique
+  recipe ids, resolvable `template` references, `depends-on` targets that exist,
+  and an acyclic rhei dependency graph (§7).
 - `rhei list` is project-wide with rheis as the top level; existing filters
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
   `--rhei` filters to a rhei. The `basin` rhei is ordered last and de-emphasized
@@ -185,6 +184,150 @@ up automatically.
   the implicit canvas (never a drawn root box), rheis as top-level groups, and
   cross-rhei dependency edges between them; the `basin` group is placed last and
   de-emphasized (§4).
+
+## 7. Panta orchestration
+
+Panta is not only a read-only view over rheis; it is a **singleton orchestrator**
+that stores a project's rheis as a recipe and runs the ready ones in dependency
+order. This is the concrete realization of "everything flows": one project file
+declares the rheis, and one command executes them.
+
+### 7.1. The rhei recipe manifest
+
+The `index.panta.md` frontmatter carries an ordered `rheis:` list — the project
+**recipe**. Each entry declares one rhei to instantiate and run:
+
+```yaml
+---
+rheis:
+  - id: auth
+    template: spec-review
+    inputs:
+      spec: docs/auth.spec.md
+    depends-on: []
+  - id: billing
+    template: code-review
+    inputs:
+      target: src/billing
+    depends-on: [auth]
+---
+# Panta: Release 2.0
+**States:** rhei
+```
+
+Entry fields:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | Stable, unique rhei id — the identity used by `depends-on` and runtime paths. Must be a valid rhei id and not the reserved `basin` or `panta`. |
+| `template` | yes | A template name resolved against the library, or a path to a template directory — the same resolution as `rhei instantiate`. |
+| `inputs` | no | A map of template input values, equivalent to `rhei instantiate --set key=value`. |
+| `depends-on` | no | A list of other recipe `id`s that must be terminal before this rhei runs. |
+
+The recipe is a **durable definition, never run state**. `rhei panta run` never
+writes back to it; the manifest changes only by hand-editing or `rhei panta add`.
+This is the "manifest = recipe, each run = instance" model.
+
+### 7.2. Dependencies are rhei-level only
+
+The recipe's `depends-on` is the **only** cross-rhei dependency mechanism. A rhei
+is **ready** when every rhei listed in its `depends-on` has reached a terminal
+rollup — that is, all of that rhei's tickets are terminal in its own state
+machine (terminal-and-not-cancelled counts as satisfied; a cancelled dependency
+does not unblock dependents).
+
+Ticket-level `**Prior:**` is strictly **rhei-local**: a ticket may only depend on
+tickets within its own rhei. A `**Prior:**` whose target resolves outside the
+ticket's rhei is a **validation error**, with a message directing the author to
+express the relationship as a rhei-level `depends-on` instead.
+
+The dependency graph over recipe entries must be **acyclic**; a cycle is a
+validation error.
+
+### 7.3. `rhei panta add`
+
+Append a rhei entry to the recipe manifest of the current project.
+
+```
+rhei panta add <id> --template <name> [options]
+
+Arguments:
+  <id>                         Stable, unique rhei id for the new recipe entry
+
+Options:
+  --template <name|path>       Template to instantiate (resolved like
+                                 `rhei instantiate`)
+  --set <key>=<value>          Set a template input value (repeatable)
+  --depends-on <id>            Declare a dependency on an existing recipe entry
+                                 (repeatable)
+```
+
+Behavior:
+
+1. Resolve the project (`index.panta.md` in or above the cwd, or `--project`).
+2. Reject a duplicate or invalid `<id>`, an unresolvable `--template`, a
+   `--depends-on` target that is not already in the recipe, and any edit that
+   would introduce a dependency cycle — before writing.
+3. Append the new entry to the `rheis:` frontmatter list, preserving the rest of
+   the manifest (body, other entries, ordering).
+
+`rhei panta add` only edits the recipe; it does not instantiate or run anything.
+
+### 7.4. `rhei panta run`
+
+Execute the recipe: instantiate and run every rhei in dependency order.
+
+```
+rhei panta run [options]
+
+Options:
+  --max <n>                    Cap concurrent rhei runs (default: unbounded —
+                                 all ready rheis launch together)
+  --rhei <id>                  Restrict the run to the named rhei(s) and their
+                                 dependencies (repeatable)
+```
+
+1. **Allocate a run.** Choose a fresh monotonic run id `panta-<n>` and create
+   `runtime/panta-<n>/` under the project root.
+2. **Report scope.** Before spawning, print the run id and the rheis that will
+   execute (§6).
+3. **Schedule by readiness.** A rhei is ready when all its `depends-on` rheis are
+   terminal (§7.2). Launch all ready rheis at once, capped by `--max`.
+4. **Instantiate + run each rhei.** For a ready rhei `<id>`, instantiate its
+   `template` with its `inputs` into `runtime/panta-<n>/<id>/`, then run that
+   workspace with its own state machine via the standard per-rhei run path.
+5. **Release dependents.** As each rhei reaches a terminal rollup, re-evaluate
+   readiness and start newly-unblocked rheis.
+6. **Stop** when every in-scope rhei is terminal, or when progress halts because
+   the remaining rheis are blocked only by a human gate inside a running rhei.
+
+A `panta-<n>` directory is a **self-contained, durable record** of one execution:
+the instantiated workspaces and their runtime artifacts. Re-running the recipe
+produces `panta-<n+1>/`, so run history accumulates rather than overwriting.
+Tracking follows the same convention as a standalone rhei — instantiated plan
+files and `runtime/results` are durable/tracked, caches are ignored — and each
+instance runs through the standard execution loop (§FS-rhei-run.3). Each spawned
+unit is attributed to its owning rhei in logs and accounting.
+
+### 7.5. Runtime layout
+
+```
+<project>/
+├── index.panta.md            # recipe (durable, tracked)
+├── states.yaml               # project default state machine
+└── runtime/
+    ├── panta-1/              # first execution
+    │   ├── auth/             # instantiated + run rhei instance
+    │   │   ├── index.rhei.md
+    │   │   └── runtime/      # that instance's results, logs, reports
+    │   └── billing/
+    └── panta-2/              # second execution (re-run)
+        └── ...
+```
+
+Each `runtime/panta-<n>/<id>/` is an ordinary instantiated rhei workspace; every
+`rhei` command (`run`, `next`, `list`, `validate`, `viz`) works on it directly,
+so a past run can be inspected exactly like any hand-instantiated workspace.
 
 ## Related Specifications
 
