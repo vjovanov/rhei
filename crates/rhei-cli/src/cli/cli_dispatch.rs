@@ -19,18 +19,6 @@ enum PantaCommand {
         #[arg(long, value_name = "DIR", add = ArgValueCompleter::new(complete_any_path))]
         project: Option<PathBuf>,
     },
-    /// Instantiate and run the recipe in dependency order
-    Run {
-        /// Restrict the run to the named rhei(s) and their dependencies (repeatable)
-        #[arg(long = "rhei", value_name = "ID")]
-        only: Vec<String>,
-        /// Instantiate and validate each rhei without executing agents
-        #[arg(long)]
-        dry_run: bool,
-        /// Panta project directory (defaults to the current project)
-        #[arg(long, value_name = "DIR", add = ArgValueCompleter::new(complete_any_path))]
-        project: Option<PathBuf>,
-    },
 }
 
 /// Snapshot cache maintenance commands.
@@ -339,13 +327,21 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Add { source, project, link, force } => {
             templates::add_template_command(&source, project, link, force)
         }
-        Commands::Panta { command } => match command {
-            PantaCommand::Add { id, template, set_values, depends_on, project } => {
-                panta_add_command(&id, &template, &set_values, &depends_on, project.as_deref())
-            }
-            PantaCommand::Run { only, dry_run, project } => {
-                panta_run_command(&only, dry_run, project.as_deref())
-            }
+        Commands::Panta { only, dry_run, project, command } => match command {
+            None => panta_run_command(&only, dry_run, project.as_deref()),
+            Some(PantaCommand::Add {
+                id,
+                template,
+                set_values,
+                depends_on,
+                project: add_project,
+            }) => panta_add_command(
+                &id,
+                &template,
+                &set_values,
+                &depends_on,
+                add_project.as_deref(),
+            ),
         },
         Commands::Next { input, task, json, no_callbacks, peek } => next_command(
             &input,

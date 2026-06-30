@@ -13,7 +13,7 @@ fn run_command(
     // A Panta project has its own execution command. §FS-rhei-panta.6.2
     if workspace::panta_project_dir(input).is_some() {
         return Err(miette!(
-            "'{}' is a Panta project. Use `rhei panta run` to instantiate and run its rheis, or target an individual rhei.",
+            "'{}' is a Panta project. Use `rhei panta` to instantiate and run its rheis, or target an individual rhei.",
             input.display()
         ));
     }

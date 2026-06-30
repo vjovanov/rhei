@@ -269,7 +269,7 @@ pub(crate) fn panta_add_command(
     }
     println!();
     println!("Run the project with:");
-    println!("  rhei panta run");
+    println!("  rhei panta");
     Ok(())
 }
 
@@ -394,7 +394,7 @@ fn instance_entrypoint(instance_dir: &Path) -> MietteResult<PathBuf> {
     ))
 }
 
-/// `rhei panta run` — instantiate and run the recipe in dependency order.
+/// `rhei panta` — instantiate and run the recipe in dependency order.
 /// §FS-rhei-panta.7.4
 pub(crate) fn panta_run_command(
     only: &[String],

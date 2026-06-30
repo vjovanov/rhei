@@ -121,7 +121,7 @@ fn panta_run_dry_run_instantiates_in_dependency_order() {
         &proj,
     ));
 
-    let run = run_in(&["panta", "run", "--dry-run"], &proj);
+    let run = run_in(&["panta", "--dry-run"], &proj);
     assert_success(&run);
 
     // Each rhei is instantiated into runtime/panta-1/<id>/ with inputs rendered.
@@ -138,7 +138,7 @@ fn panta_run_dry_run_instantiates_in_dependency_order() {
     assert!(auth_at < billing_at, "auth should run before billing:\n{}", run.stdout);
 
     // Re-running allocates a fresh run directory.
-    assert_success(&run_in(&["panta", "run", "--dry-run"], &proj));
+    assert_success(&run_in(&["panta", "--dry-run"], &proj));
     assert!(proj.join("runtime/panta-2").exists(), "second run allocates panta-2");
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -155,8 +155,8 @@ fn rhei_run_rejects_a_panta_project() {
     let result = run_in(&["run", proj.to_str().expect("path")], &dir);
     assert!(!result.status.success(), "rhei run on a panta project should fail");
     assert!(
-        result.stderr.contains("panta run"),
-        "error should point at `rhei panta run`; got:\n{}",
+        result.stderr.contains("rhei panta"),
+        "error should point at `rhei panta`; got:\n{}",
         result.stderr
     );
 

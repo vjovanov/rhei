@@ -112,15 +112,15 @@ Within a project, read-only commands operate **project-wide by default**:
 loading, validation, listing, rendering, and visualization run over the merged
 project graph.
 
-Project-wide **execution** is performed by a dedicated command, `rhei panta run`
-(§7), rather than by overloading the single-rhei mutating commands. `rhei panta
-run` does not rewrite recipe entries or rhei files in place; it instantiates each
+Project-wide **execution** is performed by a dedicated command, `rhei panta`
+(§7), rather than by overloading the single-rhei mutating commands. `rhei panta`
+does not rewrite recipe entries or rhei files in place; it instantiates each
 rhei into an isolated per-run directory and drives it there (§7.4, §7.5). The
 in-place single-rhei mutating commands (`rhei next`, `rhei transition`, `rhei
 complete`, `rhei reset`, `rhei run <rhei>`) continue to target an individual rhei;
 pointed at a Panta project directory they reject the input and point at the
 project-scoped command instead. Because project execution fans out across every
-rhei, `rhei panta run` reports its scope and the affected rheis before acting.
+rhei, `rhei panta` reports its scope and the affected rheis before acting.
 
 Each rhei may declare its own state machine via `**States:**`; the
 `index.panta.md` manifest supplies the project default for rheis that do not.
@@ -138,15 +138,15 @@ a rhei becomes ready to execute when all the rheis it `depends-on` are terminal
 (§7.2). Project-scoped execution and that readiness model are specified under
 [Panta orchestration](#7-panta-orchestration).
 
-### 6.2. `rhei run` and `rhei panta run`
+### 6.2. `rhei run` and `rhei panta`
 
 `rhei run <rhei>` drives a single rhei to terminal states using that rhei's own
 state machine, exactly as for a standalone plan.
 
-Project-scoped execution is performed by `rhei panta run`, which instantiates and
+Project-scoped execution is performed by `rhei panta`, which instantiates and
 runs the project's rheis in dependency order. It is specified in full under
 [Panta orchestration](#7-panta-orchestration). `rhei run` pointed directly at a
-Panta project directory is rejected with a message pointing at `rhei panta run`,
+Panta project directory is rejected with a message pointing at `rhei panta`,
 because project execution has its own command and run-isolation model.
 
 ### 6.3. Completion and rollup
@@ -224,7 +224,7 @@ Entry fields:
 | `inputs` | no | A map of template input values, equivalent to `rhei instantiate --set key=value`. |
 | `depends-on` | no | A list of other recipe `id`s that must be terminal before this rhei runs. |
 
-The recipe is a **durable definition, never run state**. `rhei panta run` never
+The recipe is a **durable definition, never run state**. `rhei panta` never
 writes back to it; the manifest changes only by hand-editing or `rhei panta add`.
 This is the "manifest = recipe, each run = instance" model.
 
@@ -273,12 +273,12 @@ Behavior:
 
 `rhei panta add` only edits the recipe; it does not instantiate or run anything.
 
-### 7.4. `rhei panta run`
+### 7.4. `rhei panta`
 
 Execute the recipe: instantiate and run every rhei in dependency order.
 
 ```
-rhei panta run [options]
+rhei panta [options]
 
 Options:
   --rhei <id>                  Restrict the run to the named rhei(s) and their
