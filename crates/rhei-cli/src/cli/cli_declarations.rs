@@ -383,6 +383,11 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Manage and run a Panta project's rhei recipe
+    Panta {
+        #[command(subcommand)]
+        command: PantaCommand,
+    },
     /// Transition the next ready task to the next state
     ///
     /// Finds the first task whose prerequisites are satisfied, transitions it

@@ -281,25 +281,29 @@ Execute the recipe: instantiate and run every rhei in dependency order.
 rhei panta run [options]
 
 Options:
-  --max <n>                    Cap concurrent rhei runs (default: unbounded —
-                                 all ready rheis launch together)
   --rhei <id>                  Restrict the run to the named rhei(s) and their
-                                 dependencies (repeatable)
+                                 transitive dependencies (repeatable)
+  --dry-run                    Instantiate and validate each rhei without
+                                 executing agents
 ```
 
 1. **Allocate a run.** Choose a fresh monotonic run id `panta-<n>` and create
    `runtime/panta-<n>/` under the project root.
-2. **Report scope.** Before spawning, print the run id and the rheis that will
-   execute (§6).
-3. **Schedule by readiness.** A rhei is ready when all its `depends-on` rheis are
-   terminal (§7.2). Launch all ready rheis at once, capped by `--max`.
-4. **Instantiate + run each rhei.** For a ready rhei `<id>`, instantiate its
+2. **Report scope.** Before doing work, print the run id and the rheis that will
+   execute, with each rhei's dependencies (§6).
+3. **Order by dependency.** Rheis execute in a topological order of the
+   `depends-on` graph (§7.2), so a rhei always runs after the rheis it depends
+   on. `--rhei` restricts the set to the named rheis and their transitive
+   dependencies.
+4. **Instantiate + run each rhei.** For each rhei `<id>` in order, instantiate its
    `template` with its `inputs` into `runtime/panta-<n>/<id>/`, then run that
-   workspace with its own state machine via the standard per-rhei run path.
-5. **Release dependents.** As each rhei reaches a terminal rollup, re-evaluate
-   readiness and start newly-unblocked rheis.
-6. **Stop** when every in-scope rhei is terminal, or when progress halts because
-   the remaining rheis are blocked only by a human gate inside a running rhei.
+   workspace with its own state machine via the standard per-rhei run path. With
+   `--dry-run`, each rhei is instantiated and validated but no agents run.
+
+Rheis currently execute **sequentially** in dependency order. Concurrent
+execution of independent rheis (launching all ready rheis at once, with a
+configurable cap) is a planned enhancement; sequential dependency-ordered
+execution is the correct subset and the foundation for it.
 
 A `panta-<n>` directory is a **self-contained, durable record** of one execution:
 the instantiated workspaces and their runtime artifacts. Re-running the recipe
