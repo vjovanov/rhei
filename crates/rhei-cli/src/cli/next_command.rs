@@ -493,10 +493,8 @@ fn next_command(
     let personality = machine
         .states
         .get(final_state.as_str())
-        .and_then(|def| def.personality.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|text| resolve_runtime_template_text(text, &render_context));
+        .and_then(|_| state_personality(&machine, &final_state))
+        .map(|text| resolve_runtime_template_text(text.as_str(), &render_context));
 
     print_next_output(NextOutput {
         as_json,

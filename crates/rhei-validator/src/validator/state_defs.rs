@@ -3,6 +3,10 @@
 pub struct StateDef {
     /// Optional descriptive text; the current schema intentionally keeps this permissive.
     pub description: Option<String>,
+    /// Optional reusable prompt-template reference with state-specific values.
+    // §FS-rhei-states.4.4: States may select reusable prompt templates.
+    #[serde(default)]
+    pub prompt_template: Option<StatePromptTemplateRef>,
     /// Optional agent-facing instructions for what to do while a task is in this state.
     #[serde(default)]
     pub instructions: Option<String>,
@@ -92,6 +96,57 @@ pub struct StateDef {
     /// Agent skills enabled for this state. Same tri-state semantics as `mcp_servers`.
     #[serde(default)]
     pub skills: Option<Vec<StateSkillEntry>>,
+}
+
+/// Reusable agent prompt defined at the state-machine level.
+// §FS-rhei-states.4.4: Prompt templates provide reusable prompt fragments.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PromptTemplateDef {
+    /// Optional reusable persona/instructions that frame how an agent approaches work.
+    #[serde(default)]
+    pub personality: Option<String>,
+    /// Optional reusable agent-facing instructions.
+    #[serde(default)]
+    pub instructions: Option<String>,
+}
+
+/// Per-state reference to a reusable prompt template.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum StatePromptTemplateRef {
+    Name(String),
+    WithValues {
+        name: String,
+        #[serde(default)]
+        values: IndexMap<String, serde_yaml::Value>,
+    },
+}
+
+impl StatePromptTemplateRef {
+    pub fn name(&self) -> &str {
+        match self {
+            StatePromptTemplateRef::Name(name) => name,
+            StatePromptTemplateRef::WithValues { name, .. } => name,
+        }
+    }
+
+    pub fn values(&self) -> Option<&IndexMap<String, serde_yaml::Value>> {
+        match self {
+            StatePromptTemplateRef::Name(_) => None,
+            StatePromptTemplateRef::WithValues { values, .. } => Some(values),
+        }
+    }
+
+    pub fn scalar_value(&self, key: &str) -> Option<String> {
+        let value = self.values()?.get(key)?;
+        match value {
+            serde_yaml::Value::Null => Some(String::new()),
+            serde_yaml::Value::Bool(value) => Some(value.to_string()),
+            serde_yaml::Value::Number(value) => Some(value.to_string()),
+            serde_yaml::Value::String(value) => Some(value.clone()),
+            _ => None,
+        }
+    }
 }
 
 /// §FS-rhei-states.2.1: Per-state polling configuration shape.
@@ -293,6 +348,10 @@ pub struct StateMachine {
     /// Optional declared model identifiers available to states in this machine.
     #[serde(default)]
     pub models: Vec<String>,
+    /// Reusable prompt definitions keyed by prompt-template id.
+    // §FS-rhei-states.4.4: prompt_templates/*.md is normalized into this map.
+    #[serde(default)]
+    pub prompt_templates: IndexMap<String, PromptTemplateDef>,
     /// YAML version field as provided by the source file.
     pub version: serde_yaml::Value,
     /// Allowed states keyed by their exact textual names, preserving YAML order.

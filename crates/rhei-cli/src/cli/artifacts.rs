@@ -422,6 +422,16 @@ fn resolve_runtime_template_text(text: &str, context: &RuntimeTemplateContext<'_
     let mut idx = 0usize;
 
     while idx < text.len() {
+        if text[idx..].starts_with("\\{") {
+            rendered.push('{');
+            idx += 2;
+            continue;
+        }
+        if text[idx..].starts_with("\\}") {
+            rendered.push('}');
+            idx += 2;
+            continue;
+        }
         if !text[idx..].starts_with('{') {
             let ch = text[idx..].chars().next().expect("substring should have a char");
             rendered.push(ch);

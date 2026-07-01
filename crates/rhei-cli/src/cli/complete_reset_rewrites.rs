@@ -503,13 +503,90 @@ fn rewrite_task_completion(
     Ok(())
 }
 
-/// Get the instructions text for a given state from the state machine.
+fn substitute_prompt_template_values(
+    text: &str,
+    reference: &rhei_validator::StatePromptTemplateRef,
+) -> String {
+    let mut rendered = String::with_capacity(text.len());
+    let mut idx = 0usize;
+
+    while idx < text.len() {
+        if text[idx..].starts_with("\\{") || text[idx..].starts_with("\\}") {
+            rendered.push_str(&text[idx..idx + 2]);
+            idx += 2;
+            continue;
+        }
+        if !text[idx..].starts_with('{') {
+            let ch = text[idx..].chars().next().expect("substring should have a char");
+            rendered.push(ch);
+            idx += ch.len_utf8();
+            continue;
+        }
+        let start = idx;
+        let token_start = start + 1;
+        let Some(end_offset) = text[token_start..].find('}') else {
+            rendered.push_str(&text[idx..]);
+            break;
+        };
+        let end = token_start + end_offset;
+        rendered.push_str(&text[idx..start]);
+        let token = &text[token_start..end];
+        if let Some(value) = reference.scalar_value(token) {
+            rendered.push_str(&value);
+        } else {
+            rendered.push_str(&text[start..=end]);
+        }
+        idx = end + 1;
+    }
+
+    rendered
+}
+
+fn join_prompt_parts(parts: Vec<String>) -> String {
+    parts
+        .into_iter()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn state_prompt_template_field(
+    machine: &rhei_validator::StateMachine,
+    state: &rhei_validator::StateDef,
+    field: fn(&rhei_validator::PromptTemplateDef) -> Option<&String>,
+) -> Option<String> {
+    let reference = state.prompt_template.as_ref()?;
+    let template = machine.prompt_templates.get(reference.name().trim())?;
+    let text = field(template)?;
+    Some(substitute_prompt_template_values(text, reference))
+}
+
+/// Get the effective instructions text for a state from reusable and inline prompts.
+// §FS-rhei-states.4.4: Template prompt text is emitted before inline state text.
 fn state_instructions(machine: &rhei_validator::StateMachine, state: &str) -> String {
-    machine
-        .states
-        .get(state)
-        .and_then(|def| def.instructions.as_deref())
-        .unwrap_or("")
-        .trim()
-        .to_string()
+    let Some(def) = machine.states.get(state) else {
+        return String::new();
+    };
+    join_prompt_parts(vec![
+        state_prompt_template_field(machine, def, |template| template.instructions.as_ref())
+            .unwrap_or_default(),
+        def.instructions.as_deref().unwrap_or("").to_string(),
+    ])
+}
+
+/// Get the effective personality text for a state from reusable and inline prompts.
+// §FS-rhei-states.4.4: Template prompt text is emitted before inline state text.
+fn state_personality(machine: &rhei_validator::StateMachine, state: &str) -> Option<String> {
+    let def = machine.states.get(state)?;
+    let text = join_prompt_parts(vec![
+        state_prompt_template_field(machine, def, |template| template.personality.as_ref())
+            .unwrap_or_default(),
+        def.personality.as_deref().unwrap_or("").to_string(),
+    ]);
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }

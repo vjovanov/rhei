@@ -190,11 +190,12 @@ the selected task or subtask it shows, top to bottom:
   applies; an initial state says so.
 - **Next state** — the outgoing transitions: the states this one may move to, with
   guard conditions and a `(from *)` marker on wildcard-derived edges.
-- **Prompt** — the state's agent instructions **instantiated for this node**:
-  scalar template variables (`{task_id}`, `{task_title}`, `{visit_count}`,
-  `{visits}`, `{model}`, …) resolved inline and highlighted, and
-  `{input/output.<name>.path}` rendered as artifact links. Shown only when the
-  state declares instructions.
+- **Prompt** — the state's effective agent instructions **instantiated for this
+  node**: selected prompt-template instructions first, inline state
+  instructions after that, scalar template variables (`{task_id}`,
+  `{task_title}`, `{visit_count}`, `{visits}`, `{model}`, …) resolved inline and
+  highlighted, and `{input/output.<name>.path}` rendered as artifact links.
+  Shown only when the state declares prompt-template or inline instructions.
 - **Intervene / output** — for nodes assigned to a runtime slot, the streaming
   agent terminal and capability-gated message composer; for offline active-state
   previews, a representative transcript with delivery disabled (§5).
@@ -374,7 +375,7 @@ type Machine = {
 type MachineState = {
   name: string;
   description?: string;
-  instructions?: string;        // the agent prompt template, variables unresolved
+  instructions?: string;        // effective prompt template, variables unresolved
   visits?: number;              // counted-loop budget when declared
   initial: boolean;             // entry state of at least one profile (§FS-rhei-states; initiality is per-profile)
   terminal: boolean;
