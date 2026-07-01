@@ -227,12 +227,15 @@ fn run_callback_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
-                    append_transition_audit_entry(
-                        input,
+                    let root = result_workspace_root(input, &task_file);
+                    record_transition_result(
+                        &root,
                         &task_file,
+                        machine,
                         &task_id_str,
                         &current_state,
                         &effective_to,
+                        None,
                     )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",

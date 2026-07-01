@@ -685,7 +685,16 @@ fn try_auto_advance_task(
         &to_state,
         no_callbacks,
     )?;
-    append_transition_audit_entry(input, &task_file, task_id_str, current_state, &effective_to)?;
+    let root = result_workspace_root(input, &task_file);
+    record_transition_result(
+        &root,
+        &task_file,
+        machine,
+        task_id_str,
+        current_state,
+        &effective_to,
+        None,
+    )?;
 
     Ok(Some(effective_to))
 }

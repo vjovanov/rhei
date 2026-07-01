@@ -102,7 +102,9 @@ from silently completing fresh tasks without executing them.
 8. Apply the selected transition and append one central state-transition entry
    to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. The
    subprocess **must not** call `rhei transition` or `rhei complete`; the
-   orchestrator owns the transition.
+   orchestrator owns the transition. When the effective target is `final: true`,
+   terminal result finalization is performed as defined in
+   [Complete Command — Result File](rhei-complete.spec.md#3-result-file).
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.

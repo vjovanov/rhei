@@ -408,6 +408,18 @@ fn validate_artifact_definitions(
                 "state '{state_name}' artifact '{name}' in 'outputs' may not be marked 'optional'; only inputs may be optional"
             )));
         }
+        if let Some(kind) = artifact.kind.as_deref() {
+            if kind != "handoff" {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' artifact '{name}' in '{field_name}' has unsupported kind '{kind}'; expected 'handoff'"
+                )));
+            }
+            if field_name != "outputs" {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' artifact '{name}' in '{field_name}' may not use kind 'handoff'; handoffs are output artifacts"
+                )));
+            }
+        }
         if Path::new(path).is_absolute() {
             return Err(StateMachineLoadError::Invalid(format!(
                 "state '{state_name}' artifact '{name}' in '{field_name}' must use a relative path, got '{path}'"
@@ -420,6 +432,37 @@ fn validate_artifact_definitions(
         }
     }
 
+    Ok(())
+}
+
+fn validate_handoff_definitions(
+    state_name: &str,
+    state: &StateDef,
+) -> Result<(), StateMachineLoadError> {
+    // §FS-rhei-states.3.2: v1 supports transition.previous with optional name or merge: all.
+    let Some(handoff) = state.handoff.as_ref() else {
+        return Ok(());
+    };
+    for inherit in &handoff.inherit {
+        if inherit.from_axis != "transition.previous" {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' handoff.inherit uses unsupported from '{}'; expected 'transition.previous'",
+                inherit.from_axis
+            )));
+        }
+        if inherit.name.as_deref().is_some_and(|name| name.trim().is_empty()) {
+            return Err(StateMachineLoadError::Invalid(format!(
+                "state '{state_name}' handoff.inherit contains an empty name"
+            )));
+        }
+        if let Some(merge) = inherit.merge.as_deref() {
+            if merge != "all" {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' handoff.inherit uses unsupported merge '{merge}'; expected 'all'"
+                )));
+            }
+        }
+    }
     Ok(())
 }
 

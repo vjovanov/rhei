@@ -253,6 +253,7 @@ impl StateMachine {
 
             validate_artifact_definitions(state_name, "inputs", &state.inputs)?;
             validate_artifact_definitions(state_name, "outputs", &state.outputs)?;
+            validate_handoff_definitions(state_name, state)?;
 
             // Agent validation.
             if let Some(agent) = &state.agent {

@@ -511,7 +511,7 @@ transitions:
             tooling: None,
         };
 
-        let prompt = compose_agent_prompt(&context);
+        let prompt = compose_agent_prompt(&context).expect("prompt");
 
         // New Rhei Commands section replaces Workflow Notes.
         assert!(prompt.contains("## Rhei Commands"));
