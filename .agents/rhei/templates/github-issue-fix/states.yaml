@@ -608,6 +608,14 @@ states:
       - Validation failures in focused checks, explicitly configured
         validation commands, or affected-area compile/test checks block
         publication.
+      - The planned PR description must be understandable to a maintainer from
+        a user-facing perspective. If the change cannot yet be explained
+        clearly in terms of behavior, value, and concrete validation, do not
+        mark publication ready.
+      - A publishable PR description must be organized around user-facing
+        sections rather than workflow bookkeeping. Treat missing required
+        sections, overly internal wording, or the absence of a concrete example
+        when one is reasonably possible as publication blockers.
       - Newly added internal `§...` citations in public user-facing
         documentation block publication unless repository instructions
         explicitly require them or the touched file already uses them for
@@ -754,9 +762,30 @@ states:
       Fail clearly in the publication artifact rather than pushing to an
       ambiguous remote.
 
-      The PR body must include the issue link, spec-fit summary, implementation
-      summary, validation evidence, validation gaps to disclose, review
-      readiness, and any remaining human follow-up.
+      Write the PR body for a maintainer reading the PR on GitHub, not for the
+      workflow. It must be user-facing, concrete, and easy to understand
+      without reading the code first.
+      - Prefer user-visible behavior, practical impact, and concrete examples
+        over process or bookkeeping language.
+      - Do not include sections or phrasing such as spec-fit summary, review
+        readiness, validation gaps to disclose, remaining human follow-up,
+        aggregate review, or similar workflow status text.
+      - Do not hard-wrap ordinary prose paragraphs mid-sentence.
+      - The PR body must include these sections in this order:
+        `## What changed`, `## Why`, `## Example`, `## Implementation summary`,
+        and `## Validation`.
+      - `## What changed` should explain the visible change in plain language.
+      - `## Why` should explain why the change matters or what problem it
+        removes for the user or maintainer.
+      - `## Example` should show a concrete usage, output, configuration, or
+        behavior example whenever one is reasonably possible for the change.
+        Only omit it when no meaningful example exists.
+      - `## Implementation summary` is required. Keep it concise and concrete.
+        Summarize the main changes in behavior-first terms rather than leading
+        with file names or internal workflow narration.
+      - `## Validation` must list the exact commands, tests, or checks that
+        were run. Use precise evidence rather than vague statements like
+        "validated locally".
       - Include a GitHub closing keyword for the source issue when the PR is
         intended to fully resolve it: `Fixes #<issue-number>` for issues in
         `{{repo}}`, or `Fixes <owner>/<repo>#<issue-number>` if the issue link

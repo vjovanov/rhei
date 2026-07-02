@@ -72,7 +72,11 @@ The state-machine diagram is documented at the top of `states.yaml`.
 8. Publication follows `publication_mode`. `no-pr` performs no external GitHub
    writes. Published PRs apply configured labels such as `rhei` only when those
    labels already exist on the target repository; the workflow does not create
-   labels.
+   labels. Published PR descriptions are written in a user-facing format with
+   `## What changed`, `## Why`, `## Example` when meaningful, `## Implementation
+   summary`, and `## Validation`. The workflow avoids internal review sections
+   such as spec-fit summaries, review readiness, or validation-gap bookkeeping
+   in the PR body itself.
 
 ## Usage
 
