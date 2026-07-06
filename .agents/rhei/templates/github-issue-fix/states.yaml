@@ -33,7 +33,7 @@
 #
 # Review loop:
 #   implement-fix -> validate-fix -> four focused reviews -> aggregate-review cycle 1
-#   aggregate-review cycle 1 -> address-review -> validate-fix -> focused reviews -> aggregate-review cycle 2
+#   blockers -> address-review -> validate-fix -> focused reviews -> another aggregate-review cycle
 #   aggregate-review -> review-dispatch checks `Ready to publish: yes/no`
 #   review-dispatch -> publish-pr only when ready and required review passes are complete.
 #                      In draft/no-pr mode, disclosed broad validation gaps do
@@ -566,7 +566,7 @@ states:
 
   aggregate-review:
     description: Combine focused reviews into one PR-readiness decision for this cycle.
-    target: "{{review_target}}"
+    target: "{{aggregate_review_target}}"
     visits: {{review_passes + review_fix_attempts}}
     inputs:
       - name: worktree-ref

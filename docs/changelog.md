@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Use GPT-5.6 Terra for implementation work, Luna for focused reviews, and Sol
+  for aggregate review in the `github-issue-fix` template.
+- Default `github-issue-fix` to one focused review cycle; callers can still
+  require additional cycles with `review_passes`.
 - Add durable task state history to Flow/dashboard and the `rhei run` TUI,
   including the `state history` surroundings section, prompt-focused inspector
   navigation, a global Machine legend with process-kind styling, and links-only

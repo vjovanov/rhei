@@ -18,7 +18,10 @@ of blocking by themselves.
 | `repo_checkout` | `.` |
 | `publication_mode` | `no-pr` |
 | `base_branch` | `main` |
-| `review_passes` | `2` |
+| `implementation_target` | `codex[yolo]:openai:gpt-5.6-terra` |
+| `review_target` | `codex[yolo]:openai:gpt-5.6-luna` |
+| `aggregate_review_target` | `codex[yolo]:openai:gpt-5.6-sol` |
+| `review_passes` | `1` |
 | `review_fix_attempts` | `2` |
 | `pr_labels` | `["rhei"]` |
 | `plan_title` | `GitHub Issue Fix Example` |
@@ -36,7 +39,7 @@ cargo run -p rhei-cli -- instantiate github-issue-fix 1234 \
   --set repo_checkout=. \
   --set publication_mode=no-pr \
   --set base_branch=main \
-  --set review_passes=2 \
+  --set review_passes=1 \
   --set review_fix_attempts=2 \
   --set 'plan_title=GitHub Issue Fix Example' \
   --output examples/github-issue-fix-example
