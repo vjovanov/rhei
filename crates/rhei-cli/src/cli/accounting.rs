@@ -173,6 +173,7 @@ enum ExtractedUsageStatus {
 enum AgentUsageExtractor {
     StructuredCapture,
     CodexJson,
+    PiJson,
 }
 
 #[derive(Clone, Debug)]
@@ -690,7 +691,8 @@ fn agent_has_accounting_extractor(agent: &str) -> bool {
 fn agent_usage_extractor(agent: &str) -> Option<AgentUsageExtractor> {
     match agent {
         "codex" => Some(AgentUsageExtractor::CodexJson),
-        "claude-code" | "pi" => Some(AgentUsageExtractor::StructuredCapture),
+        "pi" => Some(AgentUsageExtractor::PiJson),
+        "claude-code" => Some(AgentUsageExtractor::StructuredCapture),
         _ => None,
     }
 }
@@ -760,9 +762,15 @@ fn usage_capture_for_spawn(
 }
 
 fn configure_agent_accounting_args(cmd: &mut std::process::Command, resolved: &ResolvedAgent) {
-    if agent_usage_extractor(resolved.agent.id()) == Some(AgentUsageExtractor::CodexJson) {
-        // §FS-rhei-cost-accounting.4: Codex usage is extracted from JSONL turn events.
-        cmd.arg("--json");
+    match agent_usage_extractor(resolved.agent.id()) {
+        // §FS-rhei-cost-accounting.4: Agent usage is extracted from JSONL events.
+        Some(AgentUsageExtractor::CodexJson) => {
+            cmd.arg("--json");
+        }
+        Some(AgentUsageExtractor::PiJson) => {
+            cmd.args(["--mode", "json"]);
+        }
+        _ => {}
     }
 }
 
@@ -809,19 +817,27 @@ fn capture_agent_output_usage(
     }
 }
 
+enum AgentOutputLine {
+    Passthrough,
+    Replace(String),
+    Suppress,
+}
+
 fn display_agent_output_line(
     capture: Option<&AgentUsageCapture>,
     stream: rhei_tui::AgentStream,
     line: &str,
-) -> String {
+) -> Option<String> {
     if stream == rhei_tui::AgentStream::Stdout {
         if let Some(capture) = capture {
-            if let Some(display) = display_output_line(capture.extractor, line) {
-                return display;
-            }
+            return match display_output_line(capture.extractor, line) {
+                AgentOutputLine::Passthrough => Some(line.to_string()),
+                AgentOutputLine::Replace(display) => Some(display),
+                AgentOutputLine::Suppress => None,
+            };
         }
     }
-    line.to_string()
+    Some(line.to_string())
 }
 
 fn extract_usage_from_output_line(
@@ -830,14 +846,18 @@ fn extract_usage_from_output_line(
 ) -> Option<ExtractedUsage> {
     match extractor {
         AgentUsageExtractor::CodexJson => extract_codex_json_usage(line),
+        AgentUsageExtractor::PiJson => extract_pi_json_usage(line),
         AgentUsageExtractor::StructuredCapture => None,
     }
 }
 
-fn display_output_line(extractor: AgentUsageExtractor, line: &str) -> Option<String> {
+fn display_output_line(extractor: AgentUsageExtractor, line: &str) -> AgentOutputLine {
     match extractor {
-        AgentUsageExtractor::CodexJson => display_codex_json_line(line),
-        AgentUsageExtractor::StructuredCapture => None,
+        AgentUsageExtractor::CodexJson => display_codex_json_line(line)
+            .map(AgentOutputLine::Replace)
+            .unwrap_or(AgentOutputLine::Passthrough),
+        AgentUsageExtractor::PiJson => display_pi_json_line(line),
+        AgentUsageExtractor::StructuredCapture => AgentOutputLine::Passthrough,
     }
 }
 
@@ -848,6 +868,109 @@ fn extract_codex_json_usage(line: &str) -> Option<ExtractedUsage> {
         return None;
     }
     object.get("usage").and_then(usage_from_json_payload)
+}
+
+fn extract_pi_json_usage(line: &str) -> Option<ExtractedUsage> {
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    extract_pi_usage_from_value(&value)
+}
+
+fn extract_pi_usage_from_value(value: &serde_json::Value) -> Option<ExtractedUsage> {
+    let object = value.as_object()?;
+    if object.get("type").and_then(serde_json::Value::as_str) != Some("message_end") {
+        return None;
+    }
+    let message = object.get("message")?.as_object()?;
+    if message.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let usage = message.get("usage")?.as_object()?;
+    let extracted = ExtractedUsage {
+        total: dimension_u64(usage.get("totalTokens")),
+        input_total: dimension_u64(usage.get("input")),
+        input_cached_read: dimension_u64(usage.get("cacheRead")),
+        input_cache_write: dimension_u64(usage.get("cacheWrite")),
+        output_total: dimension_u64(usage.get("output")),
+        ..ExtractedUsage::default()
+    };
+    extracted.has_total().then_some(extracted)
+}
+
+fn display_pi_json_line(line: &str) -> AgentOutputLine {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return AgentOutputLine::Passthrough;
+    };
+    let Some(object) = value.as_object() else {
+        return AgentOutputLine::Passthrough;
+    };
+    let Some(event_type) = object.get("type").and_then(serde_json::Value::as_str) else {
+        return AgentOutputLine::Passthrough;
+    };
+    match event_type {
+        "session" => object
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(|id| AgentOutputLine::Replace(format!("pi session started: {id}")))
+            .unwrap_or(AgentOutputLine::Suppress),
+        "agent_start" => AgentOutputLine::Replace("pi agent started".to_string()),
+        "agent_end" => AgentOutputLine::Replace("pi agent completed".to_string()),
+        "message_end" => display_pi_message_end(&value),
+        _ => AgentOutputLine::Suppress,
+    }
+}
+
+fn display_pi_message_end(value: &serde_json::Value) -> AgentOutputLine {
+    let Some(message) = value
+        .get("message")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return AgentOutputLine::Suppress;
+    };
+    if message.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
+        return AgentOutputLine::Suppress;
+    }
+    let mut display = Vec::new();
+    if let Some(content) = message.get("content").and_then(serde_json::Value::as_array) {
+        let text = content
+            .iter()
+            .filter_map(serde_json::Value::as_object)
+            .filter(|item| item.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+            .filter_map(|item| item.get("text").and_then(serde_json::Value::as_str))
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !text.is_empty() {
+            display.push(text);
+        }
+    }
+    if let Some(error) = message.get("errorMessage").and_then(serde_json::Value::as_str) {
+        display.push(format!("pi error: {error}"));
+    }
+    if let Some(usage) = extract_pi_usage_from_value(value) {
+        display.push(format!(
+            "pi message completed: total={} input={} cached_input={} cache_write_input={} output={}",
+            usage
+                .total
+                .or_else(|| sum_optional_pair(usage.input_total, usage.output_total))
+                .map(format_plain_u64)
+                .unwrap_or_else(|| "-".to_string()),
+            usage.input_total.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+            usage
+                .input_cached_read
+                .map(format_plain_u64)
+                .unwrap_or_else(|| "-".to_string()),
+            usage
+                .input_cache_write
+                .map(format_plain_u64)
+                .unwrap_or_else(|| "-".to_string()),
+            usage.output_total.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+        ));
+    }
+    if display.is_empty() {
+        AgentOutputLine::Suppress
+    } else {
+        AgentOutputLine::Replace(display.join("\n"))
+    }
 }
 
 fn display_codex_json_line(line: &str) -> Option<String> {

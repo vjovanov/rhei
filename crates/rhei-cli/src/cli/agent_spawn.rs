@@ -75,14 +75,17 @@ where
 
             let raw_line = output_line(&buf);
             capture_agent_output_usage(usage_capture.as_ref(), stream, &raw_line, &sink);
-            let line = display_agent_output_line(usage_capture.as_ref(), stream, &raw_line);
-            sink.emit(rhei_tui::RunEvent::AgentOutput {
-                slot,
-                task: task_id.clone(),
-                stream,
-                line,
-                wall_clock: std::time::SystemTime::now(),
-            });
+            if let Some(line) =
+                display_agent_output_line(usage_capture.as_ref(), stream, &raw_line)
+            {
+                sink.emit(rhei_tui::RunEvent::AgentOutput {
+                    slot,
+                    task: task_id.clone(),
+                    stream,
+                    line,
+                    wall_clock: std::time::SystemTime::now(),
+                });
+            }
         }
         Ok(())
     })
