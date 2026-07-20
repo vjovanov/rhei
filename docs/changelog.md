@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make `github-issue-fix` require added or changed behavioral tests to carry
+  the most-specific applicable spec reference when the target repository has a
+  citation convention, with enforcement in spec and implementation reviews.
 - Keep `github-issue-fix` handoffs local instead of posting internal blocked
   workflow evidence as GitHub issue comments.
 - Route a blocked `github-issue-fix` implementation through a durable handoff

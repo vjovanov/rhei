@@ -250,6 +250,13 @@ states:
       grund, preserve its citation rules. If the implementation needs spec or
       documentation updates, include them in this same change set and cite the
       most-specific relevant `§` IDs according to the target repo's rules.
+      When the target repository has a specification citation or reference
+      convention, add the most-specific relevant spec reference to every added
+      or changed test that directly asserts user-visible behavior. Test helpers,
+      fixtures, and infrastructure-only tests are exempt when they do not
+      directly assert specified behavior. Do not invent a reference when the
+      repository has no applicable convention or spec point; record that absence
+      in the implementation note instead.
       Do not add internal grund `§...` citations to public user-facing
       documentation such as docs pages, README files, guides, tutorials,
       changelogs, or release notes unless that file already uses public-facing
@@ -269,7 +276,8 @@ states:
       of these exact markers:
       - `Implementation status: ready` when a coherent fix is complete and can
         proceed to validation. Include files changed, rationale, spec/doc
-        updates, tests added or changed, and known risks.
+        updates, tests added or changed, behavioral-test spec references or
+        justified exemptions/absence, and known risks.
       - `Implementation status: blocked` when implementation cannot proceed
         safely. Do not claim completion, do not push, and do not open a PR.
         Record the blocker, evidence gathered, any remaining human decision,
@@ -452,6 +460,12 @@ states:
       - `AGENTS.md` instructions and nested repo guidance
       - goals, non-goals, decisions, and spec-fit verdict
       - grund declaration and citation requirements when configured
+      - whether every added or changed test that directly asserts user-visible
+        behavior carries the most-specific applicable spec reference when the
+        repository has a citation/reference convention; missing, inapplicable,
+        or overly broad required references are blocking findings
+      - whether any claimed exemption is limited to helpers, fixtures, or
+        infrastructure-only tests that do not directly assert specified behavior
       - whether spec or documentation updates are required for the behavior
       - whether the change adds product surface outside the accepted scope
       - whether internal `§...` citations were added to public user-facing
@@ -505,6 +519,8 @@ states:
       - minimal scope and maintainability
       - error handling, edge cases, and compatibility risks
       - test placement and whether changed behavior is covered in code
+      - whether behavioral tests with spec references actually exercise the
+        cited behavior rather than merely carrying a syntactic reference
       - whether unrelated cleanup or broad refactoring slipped in
       - whether comments were inserted between annotations and the declarations
         they annotate; comments should precede the annotation block instead
@@ -630,10 +646,23 @@ states:
       - Validation failures in focused checks, explicitly configured
         validation commands, or affected-area compile/test checks block
         publication.
+      - The planned PR description must be understandable to a maintainer from
+        a user-facing perspective. If the change cannot yet be explained
+        clearly in terms of behavior, value, and concrete validation, do not
+        mark publication ready.
+      - A publishable PR description must be organized around user-facing
+        sections rather than workflow bookkeeping. Treat missing required
+        sections, overly internal wording, or the absence of a concrete example
+        when one is reasonably possible as publication blockers.
       - Newly added internal `§...` citations in public user-facing
         documentation block publication unless repository instructions
         explicitly require them or the touched file already uses them for
         readers.
+      - Missing, inapplicable, or overly broad spec references on added or
+        changed behavioral tests block publication when the target repository
+        has a citation/reference convention. Helpers, fixtures, and
+        infrastructure-only tests are exempt only when they do not directly
+        assert specified behavior.
       - Missing full repository builds, full functional suites, exact CI
         matrices, or documentation renders are validation gaps to disclose, not
         blockers by themselves, when focused validation for the issue behavior
@@ -772,9 +801,30 @@ states:
       Fail clearly in the publication artifact rather than pushing to an
       ambiguous remote.
 
-      The PR body must include the issue link, spec-fit summary, implementation
-      summary, validation evidence, validation gaps to disclose, review
-      readiness, and any remaining human follow-up.
+      Write the PR body for a maintainer reading the PR on GitHub, not for the
+      workflow. It must be user-facing, concrete, and easy to understand
+      without reading the code first.
+      - Prefer user-visible behavior, practical impact, and concrete examples
+        over process or bookkeeping language.
+      - Do not include sections or phrasing such as spec-fit summary, review
+        readiness, validation gaps to disclose, remaining human follow-up,
+        aggregate review, or similar workflow status text.
+      - Do not hard-wrap ordinary prose paragraphs mid-sentence.
+      - The PR body must include these sections in this order:
+        `## What changed`, `## Why`, `## Example`, `## Implementation summary`,
+        and `## Validation`.
+      - `## What changed` should explain the visible change in plain language.
+      - `## Why` should explain why the change matters or what problem it
+        removes for the user or maintainer.
+      - `## Example` should show a concrete usage, output, configuration, or
+        behavior example whenever one is reasonably possible for the change.
+        Only omit it when no meaningful example exists.
+      - `## Implementation summary` is required. Keep it concise and concrete.
+        Summarize the main changes in behavior-first terms rather than leading
+        with file names or internal workflow narration.
+      - `## Validation` must list the exact commands, tests, or checks that
+        were run. Use precise evidence rather than vague statements like
+        "validated locally".
       - Include a GitHub closing keyword for the source issue when the PR is
         intended to fully resolve it: `Fixes #<issue-number>` for issues in
         `vjovanov/rhei`, or `Fixes <owner>/<repo>#<issue-number>` if the issue link

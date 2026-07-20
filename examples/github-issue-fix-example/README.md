@@ -9,6 +9,11 @@ route through a bounded repair loop before publication. Focused validation is
 the default; broad validation gaps are disclosed for draft publication instead
 of blocking by themselves.
 
+When the target repository has a spec reference convention, the workflow also
+requires added or changed behavioral tests to cite the most-specific applicable
+spec point, checks citation compliance in spec review, and checks behavioral
+alignment in implementation review.
+
 ## Values
 
 | Input | Value |
