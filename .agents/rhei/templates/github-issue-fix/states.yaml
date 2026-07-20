@@ -32,7 +32,7 @@
 #                                             -> implementation-review -> validation-review
 #
 # Review loop:
-#   implement-fix -> validate-fix -> four focused reviews -> aggregate-review cycle 1
+#   implement-fix -> implementation-dispatch -> validate-fix -> four focused reviews -> aggregate-review cycle 1
 #   blockers -> address-review -> validate-fix -> focused reviews -> another aggregate-review cycle
 #   aggregate-review -> review-dispatch checks `Ready to publish: yes/no`
 #   review-dispatch -> publish-pr only when ready and required review passes are complete.
@@ -194,7 +194,7 @@ states:
       `github-handoff`. If it should be abandoned, transition to `cancelled`.
 
   github-handoff:
-    description: Prepare or publish a GitHub issue handoff when implementation should not proceed.
+    description: Record a local handoff when implementation should not proceed.
     target: "{{implementation_target}}"
     inputs:
       - name: issue-snapshot
@@ -205,32 +205,29 @@ states:
         path: runtime/github-issue-fix/issue-intake/spec-fit.md
       - name: routing
         path: runtime/github-issue-fix/issue-intake/routing.md
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
+        optional: true
     instructions: |
-      Prepare the GitHub handoff for Task {task_id}: {task_title}.
+      Prepare a local handoff for Task {task_id}: {task_title}.
 
       Read the issue snapshot, repo rules, spec-fit report, and routing note.
+      When `{input.implementation-note.path}` exists, include the recorded
+      implementation blocker and any remaining human decision in the handoff.
       Do not edit code.
 
-      Publication mode is `{{publication_mode}}`:
-      - `no-pr`: do not perform any external GitHub writes. Do not post or
-        update issue comments, push branches, or open/update PRs. Write a local
-        draft handoff only, with `Posted URL: Not posted (publication_mode=no-pr)`.
-      - `draft` or `ready`: draft a concise issue comment in `{{repo}}`
-        explaining why implementation is blocked, what evidence was checked,
-        and what human information or decision is needed. If the verdict is
-        `underspecified` or `insufficient-information`, ask targeted
-        clarification questions for the missing details instead of proposing a
-        speculative implementation. Avoid duplicate comments: if an equivalent
-        recent handoff or clarification request already exists, record its URL
-        instead of posting another one. Otherwise, post the comment and record
-        the posted URL.
+      Do not perform external GitHub writes in this state, regardless of
+      publication mode: do not post or update issue comments, push branches,
+      or open/update PRs. Blocked and unclear outcomes are internal workflow
+      evidence, not issue-reporter action items.
 
-      Write `{output.github-handoff.path}` with the comment body, posted URL if
-      posted, and any remaining human action.
+      Write `{output.github-handoff.path}` with a concise suggested issue
+      comment only when a human may choose to post one, `Posted URL: Not posted
+      (handoff is local-only)`, and any remaining human action.
     outputs:
       - name: github-handoff
         path: runtime/github-issue-fix/{task_id}/github-handoff.md
-        description: GitHub handoff result or draft.
+        description: Local handoff record and optional suggested issue comment.
 
   implement-fix:
     description: Implement the issue fix in the isolated worktree.
@@ -272,12 +269,41 @@ states:
       annotation block, then place annotations immediately above the method,
       class, or field with no intervening comments.
 
-      Write `{output.implementation-note.path}` with files changed, rationale,
-      spec/doc updates, tests added or changed, and known risks.
+      Always write `{output.implementation-note.path}` before exiting, using one
+      of these exact markers:
+      - `Implementation status: ready` when a coherent fix is complete and can
+        proceed to validation. Include files changed, rationale, spec/doc
+        updates, tests added or changed, and known risks.
+      - `Implementation status: blocked` when implementation cannot proceed
+        safely. Do not claim completion, do not push, and do not open a PR.
+        Record the blocker, evidence gathered, any remaining human decision,
+        and the status of exploratory worktree edits.
     outputs:
       - name: implementation-note
         path: runtime/github-issue-fix/{task_id}/implementation.md
         description: Summary of the implementation change.
+
+  implementation-dispatch:
+    description: Deterministically route a completed implementation or a documented implementation blocker.
+    program:
+      command:
+        - bash
+        - -lc
+        - |
+          set -eu
+          note="runtime/github-issue-fix/{task_id}/implementation.md"
+          if grep -Eiq '^[[:space:]]*(-[[:space:]]*)?Implementation status:[[:space:]]*ready[[:space:]]*$' "$note"; then
+            exit 0
+          fi
+          if grep -Eiq '^[[:space:]]*(-[[:space:]]*)?Implementation status:[[:space:]]*blocked[[:space:]]*$' "$note"; then
+            exit 2
+          fi
+          echo "implementation note must declare Implementation status: ready or blocked" >&2
+          exit 1
+    program_timeout: 30s
+    inputs:
+      - name: implementation-note
+        path: runtime/github-issue-fix/{task_id}/implementation.md
 
   validate-fix:
     description: Run grund and repository validation for the issue fix.
@@ -872,8 +898,18 @@ transitions:
     description: GitHub handoff was recorded.
 
   - from: implement-fix
+    to: implementation-dispatch
+    description: Implementation result was recorded for deterministic routing.
+
+  - from: implementation-dispatch
     to: validate-fix
+    exit_code: 0
     description: Implementation is ready for validation.
+
+  - from: implementation-dispatch
+    to: github-handoff
+    exit_code: 2
+    description: Implementation is blocked and requires a documented handoff.
 
   - from: validate-fix
     to: requirements-review

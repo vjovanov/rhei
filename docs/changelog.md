@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep `github-issue-fix` handoffs local instead of posting internal blocked
+  workflow evidence as GitHub issue comments.
+- Route a blocked `github-issue-fix` implementation through a durable handoff
+  instead of leaving the workflow waiting on a missing implementation artifact.
 - Use GPT-5.6 Terra for implementation work, Luna for focused reviews, and Sol
   for aggregate review in the `github-issue-fix` template.
 - Default `github-issue-fix` to one focused review cycle; callers can still

@@ -38,10 +38,10 @@ validation, focused review cycles, and optional PR publication.
 | Path | States |
 |---|---|
 | Intake | `issue-intake -> completed` after writing artifacts and one follow-up task. |
-| Compatible issue | `implement-fix -> validate-fix -> requirements-review -> spec-review -> implementation-review -> validation-review -> aggregate-review -> review-dispatch -> address-review -> validate-fix -> ... -> publish-pr -> completed` |
+| Compatible issue | `implement-fix -> implementation-dispatch -> validate-fix -> requirements-review -> spec-review -> implementation-review -> validation-review -> aggregate-review -> review-dispatch -> address-review -> validate-fix -> ... -> publish-pr -> completed` |
 | Exhausted review repair | `review-dispatch -> record-blocked-publication -> completed` |
 | Human gate | `human-review -> implement-fix` or `human-review -> github-handoff` or `human-review -> cancelled` |
-| Blocked or unclear issue | `github-handoff -> completed` |
+| Blocked or unclear issue | `github-handoff -> completed` locally, without issue comments or PR publication. |
 
 The state-machine diagram is documented at the top of `states.yaml`.
 
@@ -53,10 +53,12 @@ The state-machine diagram is documented at the top of `states.yaml`.
    grund configuration when present.
 4. It writes an adequacy/spec-fit verdict and routing note. Issues without
    enough detail to name the likely change and validation path are routed to
-   GitHub handoff for clarification.
+   a local handoff for clarification.
 5. It creates one follow-up task in `implement-fix`, `human-review`, or
    `github-handoff`.
-6. Implemented fixes are validated, then reviewed through separate requirements,
+6. Implementation writes a durable `ready` or `blocked` result. Ready fixes are
+   validated; blocked implementations route to GitHub handoff without review or
+   publication. Ready fixes are then reviewed through separate requirements,
    spec/grund, implementation-quality, and validation-readiness reviews. An
    aggregate review turns those focused findings into one PR-readiness decision.
    Validation defaults to focused checks for the changed behavior plus cheap
