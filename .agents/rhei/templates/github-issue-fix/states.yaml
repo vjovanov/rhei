@@ -195,7 +195,7 @@ states:
 
   github-handoff:
     description: Record a local handoff when implementation should not proceed.
-    target: "{{implementation_target}}"
+    target: "{{operations_target}}"
     inputs:
       - name: issue-snapshot
         path: runtime/github-issue-fix/issue-intake/issue.md
@@ -746,7 +746,7 @@ states:
 
   publish-pr:
     description: Push the reviewed branch and open or update the issue PR.
-    target: "{{implementation_target}}"
+    target: "{{operations_target}}"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -839,7 +839,7 @@ states:
 
   record-blocked-publication:
     description: Record that review blockers prevented safe PR publication.
-    target: "{{implementation_target}}"
+    target: "{{operations_target}}"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml

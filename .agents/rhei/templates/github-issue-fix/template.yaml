@@ -77,14 +77,19 @@ inputs:
     default: []
 
   - name: implementation_target
-    description: Agent target that performs issue analysis, implementation, validation fixes, and publication.
+    description: Agent target that performs issue analysis, implementation, validation fixes, and review repairs.
     type: string
-    default: codex[yolo]:openai:gpt-5.6-terra
+    default: codex[yolo]:openai:gpt-5.6-sol
+
+  - name: operations_target
+    description: Agent target that performs procedural handoffs and publication records.
+    type: string
+    default: codex[yolo]:openai:gpt-5.6-luna
 
   - name: review_target
     description: Agent target that performs focused requirements, spec, implementation, and validation reviews.
     type: string
-    default: codex[yolo]:openai:gpt-5.6-luna
+    default: codex[yolo]:openai:gpt-5.6-terra
 
   - name: aggregate_review_target
     description: Agent target that combines focused reviews into a publication-readiness decision.

@@ -18,8 +18,9 @@ of blocking by themselves.
 | `repo_checkout` | `.` |
 | `publication_mode` | `no-pr` |
 | `base_branch` | `main` |
-| `implementation_target` | `codex[yolo]:openai:gpt-5.6-terra` |
-| `review_target` | `codex[yolo]:openai:gpt-5.6-luna` |
+| `implementation_target` | `codex[yolo]:openai:gpt-5.6-sol` |
+| `operations_target` | `codex[yolo]:openai:gpt-5.6-luna` |
+| `review_target` | `codex[yolo]:openai:gpt-5.6-terra` |
 | `aggregate_review_target` | `codex[yolo]:openai:gpt-5.6-sol` |
 | `review_passes` | `1` |
 | `review_fix_attempts` | `2` |

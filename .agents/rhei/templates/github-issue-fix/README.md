@@ -25,8 +25,9 @@ validation, focused review cycles, and optional PR publication.
 | `pr_head_owner` | string | empty | GitHub owner/login for PR heads. |
 | `pr_labels` | array<string> | `rhei` | Labels to apply to the PR when they already exist on the target repository. |
 | `validation_commands` | array<string> | empty | Explicit validation commands that must run; otherwise validation defaults to focused issue-specific checks plus cheap targeted repo checks. |
-| `implementation_target` | string | `codex[yolo]:openai:gpt-5.6-terra` | Agent for intake, implementation, validation fixes, and publication. |
-| `review_target` | string | `codex[yolo]:openai:gpt-5.6-luna` | Agent for focused requirements, spec, implementation, and validation reviews. |
+| `implementation_target` | string | `codex[yolo]:openai:gpt-5.6-sol` | Agent for intake, implementation, validation fixes, and review repairs. |
+| `operations_target` | string | `codex[yolo]:openai:gpt-5.6-luna` | Agent for procedural GitHub handoffs and publication records. |
+| `review_target` | string | `codex[yolo]:openai:gpt-5.6-terra` | Agent for focused requirements, spec, implementation, and validation reviews. |
 | `aggregate_review_target` | string | `codex[yolo]:openai:gpt-5.6-sol` | Agent that combines focused review results into a publication-readiness decision. |
 | `review_passes` | number | `1` | Minimum number of focused review cycles before publication; override it for additional clean review cycles. |
 | `review_fix_attempts` | number | `2` | Additional review/fix cycles allowed when aggregate review finds blocking issues. |
