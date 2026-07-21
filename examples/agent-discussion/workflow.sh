@@ -177,7 +177,7 @@ Respond with a short markdown position (4-6 sentences)."
             printf '%s' "$prompt" | claude -p --output-format text --permission-mode bypassPermissions > "$out"
             ;;
         codex)
-            printf '%s' "$prompt" | codex exec --sandbox danger-full-access --skip-git-repo-check --cd "$workspace_root" --output-last-message "$out" -
+            printf '%s' "$prompt" | codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --cd "$workspace_root" --output-last-message "$out" -
             ;;
         gemini)
             printf '%s' "$prompt" | gemini --prompt - --yolo > "$out"

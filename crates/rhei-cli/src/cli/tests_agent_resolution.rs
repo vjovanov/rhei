@@ -423,9 +423,8 @@
     }
 
     #[test]
-    fn built_in_codex_yolo_includes_approval_never() {
-        // The known-agent profile pins codex yolo to a non-interactive approval mode.
-        // §FS-rhei-agents.2: Built-in codex yolo is non-interactive.
+    fn built_in_codex_yolo_uses_dedicated_bypass_flag() {
+        // §FS-rhei-agents.2: Built-in codex yolo uses Codex's dedicated bypass mode.
         let profile = built_in_agents().remove("codex").expect("built-in codex");
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("codex"),
@@ -457,9 +456,10 @@
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
 
-        assert!(args.windows(2).any(|pair| pair == ["--sandbox", "danger-full-access"]));
+        assert!(args.iter().any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox"));
         assert!(args.iter().any(|arg| arg == "--skip-git-repo-check"));
-        assert!(args.windows(2).any(|pair| pair == ["-c", "approval_policy=\"never\""]));
+        assert!(!args.iter().any(|arg| arg == "--sandbox"));
+        assert!(!args.iter().any(|arg| arg == "approval_policy=\"never\""));
     }
 
     #[derive(Default)]
