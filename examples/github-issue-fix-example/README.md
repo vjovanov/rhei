@@ -22,10 +22,12 @@ spec point, checks citation compliance in spec review, and checks behavioral
 alignment in implementation review.
 
 Published PR descriptions end with a collapsible `## AI workflow` section that
-links to Rhei and records each executed agent step, its resolved model, available
-total/input/cached/output token metrics, aggregate usage, review-cycle counts,
-and accounting coverage. The active publication step is explicitly marked as
-not finalized when its own accounting record is not yet available.
+links to Rhei and records each executed agent step, its resolved model, reasoning
+effort, available total/input/cached/output token metrics, aggregate usage,
+review-cycle counts, and accounting coverage. An effort unavailable from durable
+execution evidence is shown as `not reported`. The active publication step is
+explicitly marked as not finalized when its own accounting record is not yet
+available.
 
 ## Values
 
@@ -36,10 +38,10 @@ not finalized when its own accounting record is not yet available.
 | `repo_checkout` | `.` |
 | `publication_mode` | `no-pr` |
 | `base_branch` | `main` |
-| `implementation_target` | `codex[yolo]:openai:gpt-5.6-sol` |
-| `operations_target` | `codex[yolo]:openai:gpt-5.6-luna` |
-| `review_target` | `codex[yolo]:openai:gpt-5.6-terra` |
-| `aggregate_review_target` | `codex[yolo]:openai:gpt-5.6-sol` |
+| `implementation_target` | `codex[medium]:openai:gpt-5.6-sol` |
+| `operations_target` | `codex[medium]:openai:gpt-5.6-luna` |
+| `review_target` | `codex[medium]:openai:gpt-5.6-terra` |
+| `aggregate_review_target` | `codex[medium]:openai:gpt-5.6-sol` |
 | `review_passes` | `1` |
 | `review_fix_attempts` | `2` |
 | `pr_labels` | `["rhei"]` |

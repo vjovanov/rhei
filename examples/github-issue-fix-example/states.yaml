@@ -59,7 +59,7 @@ states:
   issue-intake:
     description: Prepare the issue worktree, fetch the issue, discover repo rules, analyze issue adequacy and spec fit, and write one routed follow-up task.
     initial: true
-    target: "codex[yolo]:openai:gpt-5.6-sol"
+    target: "codex[medium]:openai:gpt-5.6-sol"
     instructions: |
       Intake GitHub issue `1234` in `vjovanov/rhei` for Task {task_id}: {task_title}.
 
@@ -213,7 +213,7 @@ states:
 
   github-handoff:
     description: Record a local handoff when implementation should not proceed.
-    target: "codex[yolo]:openai:gpt-5.6-luna"
+    target: "codex[medium]:openai:gpt-5.6-luna"
     inputs:
       - name: issue-snapshot
         path: runtime/github-issue-fix/issue-intake/issue.md
@@ -249,7 +249,7 @@ states:
 
   implement-fix:
     description: Implement the issue fix in the isolated worktree.
-    target: "codex[yolo]:openai:gpt-5.6-sol"
+    target: "codex[medium]:openai:gpt-5.6-sol"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -333,7 +333,7 @@ states:
 
   validate-fix:
     description: Run grund and repository validation for the issue fix.
-    target: "codex[yolo]:openai:gpt-5.6-sol"
+    target: "codex[medium]:openai:gpt-5.6-sol"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -434,7 +434,7 @@ states:
 
   requirements-review:
     description: Review whether the implementation satisfies the GitHub issue requirements.
-    target: "codex[yolo]:openai:gpt-5.6-terra"
+    target: "codex[medium]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -475,7 +475,7 @@ states:
 
   spec-review:
     description: Review goals, non-goals, grund citations, and spec compatibility.
-    target: "codex[yolo]:openai:gpt-5.6-terra"
+    target: "codex[medium]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -526,7 +526,7 @@ states:
 
   implementation-review:
     description: Review code quality, scope, maintainability, and edge cases.
-    target: "codex[yolo]:openai:gpt-5.6-terra"
+    target: "codex[medium]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -571,7 +571,7 @@ states:
 
   validation-review:
     description: Review validation coverage, command choice, failures, and CI risk.
-    target: "codex[yolo]:openai:gpt-5.6-terra"
+    target: "codex[medium]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -620,7 +620,7 @@ states:
 
   aggregate-review:
     description: Combine focused reviews into one PR-readiness decision for this cycle.
-    target: "codex[yolo]:openai:gpt-5.6-sol"
+    target: "codex[medium]:openai:gpt-5.6-sol"
     visits: 3
     inputs:
       - name: review-brief
@@ -662,8 +662,9 @@ states:
         when one is reasonably possible as publication blockers.
       - The final `## AI workflow` section is required provenance and is the
         only workflow-oriented exception to the user-facing section rule. It
-        must be collapsible, use runtime accounting rather than estimated token
-        counts, and remain last in the PR body.
+        must be collapsible, identify each model's reasoning effort, use runtime
+        accounting rather than estimated token counts, and remain last in the
+        PR body.
       - Newly added internal `§...` citations in public user-facing
         documentation block publication unless repository instructions
         explicitly require them or the touched file already uses them for
@@ -736,7 +737,7 @@ states:
 
   address-review:
     description: Address blocking findings from the latest focused review cycle.
-    target: "codex[yolo]:openai:gpt-5.6-sol"
+    target: "codex[medium]:openai:gpt-5.6-sol"
     visits: 2
     inputs:
       - name: worktree-ref
@@ -766,7 +767,7 @@ states:
 
   publish-pr:
     description: Push the reviewed branch and open or update the issue PR.
-    target: "codex[yolo]:openai:gpt-5.6-luna"
+    target: "codex[medium]:openai:gpt-5.6-luna"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -844,12 +845,18 @@ states:
         use the latest record for the completed-step list and disclose the
         superseded attempt count in the accounting note.
       - Give every agent step a numbered explanatory title, its resolved
-        `<provider>:<model>` and agent, one concise sentence explaining what it
-        did, and this exact metrics layout:
+        `<provider>:<model>` and agent, its reasoning effort, one concise
+        sentence explaining what it did, and these exact metadata and metrics
+        layouts:
+        `Model: <provider>:<model> · Agent: <agent> · Reasoning effort: <effort>`
         `Tokens: <total> total · <input> input (<cached-read> cached) · <output> output`.
         Use the recorded numeric value or recorded status such as `unsupported`,
-        `omitted`, or `unknown`; never estimate missing usage. Do not expose the
-        agent execution mode.
+        `omitted`, or `unknown`; never estimate missing usage. Resolve reasoning
+        effort from the invocation's durable agent-log header and the selected
+        mode's explicit `model_reasoning_effort` configuration in the rendered
+        `.agents/rhei/settings.json`. If that execution evidence does not expose
+        an effort, write `not reported`; do not infer it from the model name or
+        a current ambient configuration. Do not expose the agent execution mode.
       - Counted review and validation visits must be distinct entries labeled
         with their cycle number. Include `address-review` entries when the
         workflow repaired findings. If `runtime/state-transitions.log` shows a
@@ -858,9 +865,11 @@ states:
         assigning it token usage.
       - Include the current `publish-pr` step as the final numbered agent step,
         using the resolved operations target and an explanation of PR
-        publication. Because its accounting record is finalized only after this
-        agent exits, write `Tokens: not finalized at PR creation` when complete
-        metrics are not yet available; do not estimate them.
+        publication. Resolve its reasoning effort from the configured operations
+        target and rendered settings using the same rule as completed steps.
+        Because its accounting record is finalized only after this agent exits,
+        write `Tokens: not finalized at PR creation` when complete metrics are
+        not yet available; do not estimate them.
       - After all numbered steps, add `**Aggregate token usage:**` using the
         latest values from `runtime/accounting/summary.json` in the same total,
         input, cached-read, and output order. State in the accounting note when
@@ -899,7 +908,7 @@ states:
 
   record-blocked-publication:
     description: Record that review blockers prevented safe PR publication.
-    target: "codex[yolo]:openai:gpt-5.6-luna"
+    target: "codex[medium]:openai:gpt-5.6-luna"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Include each model's resolved reasoning effort in the `github-issue-fix` PR
+  description's `AI workflow` provenance, with an explicit `not reported`
+  fallback when durable execution evidence does not expose it.
 - Make `github-issue-fix` validation produce a compact per-cycle review brief,
   give each focused reviewer only its specialist evidence, and reserve the full
   four-review context for aggregation so review prompts do not grow cumulatively.

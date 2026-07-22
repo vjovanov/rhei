@@ -32,10 +32,10 @@ may be actively hostile.
 | `pr_head_owner` | string | empty | GitHub owner/login for PR heads. |
 | `pr_labels` | array<string> | `rhei` | Labels to apply to the PR when they already exist on the target repository. |
 | `validation_commands` | array<string> | empty | Explicit validation commands that must run; otherwise validation defaults to focused issue-specific checks plus cheap targeted repo checks. |
-| `implementation_target` | string | `codex[yolo]:openai:gpt-5.6-sol` | Agent for intake, implementation, validation fixes, and review repairs. |
-| `operations_target` | string | `codex[yolo]:openai:gpt-5.6-luna` | Agent for procedural GitHub handoffs and publication records. |
-| `review_target` | string | `codex[yolo]:openai:gpt-5.6-terra` | Agent for focused requirements, spec, implementation, and validation reviews. |
-| `aggregate_review_target` | string | `codex[yolo]:openai:gpt-5.6-sol` | Agent that combines focused review results into a publication-readiness decision. |
+| `implementation_target` | string | `codex[medium]:openai:gpt-5.6-sol` | Agent for intake, implementation, validation fixes, and review repairs. |
+| `operations_target` | string | `codex[medium]:openai:gpt-5.6-luna` | Agent for procedural GitHub handoffs and publication records. |
+| `review_target` | string | `codex[medium]:openai:gpt-5.6-terra` | Agent for focused requirements, spec, implementation, and validation reviews. |
+| `aggregate_review_target` | string | `codex[medium]:openai:gpt-5.6-sol` | Agent that combines focused review results into a publication-readiness decision. |
 | `review_passes` | number | `1` | Minimum number of focused review cycles before publication; override it for additional clean review cycles. |
 | `review_fix_attempts` | number | `2` | Additional review/fix cycles allowed when aggregate review finds blocking issues. |
 | `plan_title` | string | `GitHub Issue Fix` | Rendered workspace title. |
@@ -100,11 +100,13 @@ The state-machine diagram is documented at the top of `states.yaml`.
    `## What changed`, `## Why`, `## Example` when meaningful, `## Implementation
    summary`, and `## Validation`, followed by a final collapsible `## AI
    workflow` provenance section. That section links to Rhei, lists every
-   executed agent step with its resolved model and available total/input/cached/
-   output token metrics, and places aggregate usage after the steps. The active
-   publication step is marked as not finalized when its own token record is not
-   yet available. Other internal review details such as spec-fit summaries,
-   review readiness, or validation-gap bookkeeping stay out of the PR body.
+   executed agent step with its resolved model, reasoning effort, and available
+   total/input/cached/output token metrics, and places aggregate usage after the
+   steps. An effort that is not exposed by durable execution evidence is shown
+   as `not reported`, never guessed. The active publication step is marked as
+   not finalized when its own token record is not yet available. Other internal
+   review details such as spec-fit summaries, review readiness, or
+   validation-gap bookkeeping stay out of the PR body.
 
 ## Usage
 
