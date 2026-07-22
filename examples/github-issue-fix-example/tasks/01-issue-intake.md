@@ -23,4 +23,3 @@ The follow-up task must start in one of these states:
 Use the configured publication mode `no-pr`. Do not perform any
 external GitHub writes when it is `no-pr`: do not push, open or update a PR, or
 post or update issue comments.
-

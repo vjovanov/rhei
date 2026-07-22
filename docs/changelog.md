@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make `github-issue-fix` validation produce a compact per-cycle review brief,
+  give each focused reviewer only its specialist evidence, and reserve the full
+  four-review context for aggregation so review prompts do not grow cumulatively.
 - Make `github-issue-fix` intake treat issue-controlled content as untrusted
   evidence, prohibit issue-supplied commands and external writes, and record
   suspected prompt injection as a spec-fit risk.

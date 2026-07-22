@@ -68,9 +68,14 @@ The state-machine diagram is documented at the top of `states.yaml`.
    `github-handoff`.
 6. Implementation writes a durable `ready` or `blocked` result. Ready fixes are
    validated; blocked implementations route to GitHub handoff without review or
-   publication. Ready fixes are then reviewed through separate requirements,
-   spec/grund, implementation-quality, and validation-readiness reviews. An
-   aggregate review turns those focused findings into one PR-readiness decision.
+   publication. Validation also writes a compact, current-cycle review brief
+   containing shared scope, change, rule, and validation evidence without review
+   conclusions. Ready fixes are then reviewed through separate requirements,
+   spec/grund, implementation-quality, and validation-readiness reviews. Each
+   focused reviewer reads the shared brief plus only its authoritative specialist
+   evidence, without consuming earlier focused-review conclusions. The aggregate
+   review alone reads all four focused findings and turns them into one
+   PR-readiness decision.
    When the target repository has a spec citation/reference convention, added
    or changed behavioral tests must carry the most-specific applicable spec
    reference. Spec review blocks missing or unsuitable references, while

@@ -338,6 +338,8 @@ states:
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
+      - name: issue-snapshot
+        path: runtime/github-issue-fix/issue-intake/issue.md
       - name: repo-rules
         path: runtime/github-issue-fix/issue-intake/repo-rules.md
       - name: spec-fit
@@ -399,6 +401,23 @@ states:
       directory, exit result, important output summary, and remaining validation
       gaps. The stable file is the latest validation note; the visit file is a
       durable per-cycle record.
+
+      Also write `{output.review-brief.path}` and
+      `{output.review-brief-visit.path}` as a compact evidence packet for the
+      focused reviewers. Keep it under 800 words and summarize rather than copy
+      the source artifacts. Include:
+      - accepted issue behavior and scope
+      - applicable repository rules and the most-specific relevant spec IDs
+      - implementation status, rationale, latest review-fix context when present,
+        changed files, and a concise diff summary
+      - focused validation outcomes, blockers, and disclosed gaps
+      - paths to the full issue, rules, spec-fit, implementation, and validation
+        artifacts for reviewers that need specialist evidence
+      - no review conclusions or publication-readiness judgment
+
+      The stable review brief is the latest cycle's packet; the visit file is a
+      durable per-cycle record. Rewrite the stable brief from current evidence
+      on every visit so repaired findings do not leave stale context behind.
     outputs:
       - name: validation-note
         path: runtime/github-issue-fix/{task_id}/validation.md
@@ -406,6 +425,12 @@ states:
       - name: validation-note-visit
         path: runtime/github-issue-fix/{task_id}/validation-{visit_count}.md
         description: Per-cycle validation commands and results.
+      - name: review-brief
+        path: runtime/github-issue-fix/{task_id}/review-brief.md
+        description: Compact current-cycle evidence packet shared by focused reviewers.
+      - name: review-brief-visit
+        path: runtime/github-issue-fix/{task_id}/review-brief-{visit_count}.md
+        description: Per-cycle focused-review evidence packet.
 
   requirements-review:
     description: Review whether the implementation satisfies the GitHub issue requirements.
@@ -416,21 +441,16 @@ states:
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
       - name: issue-snapshot
         path: runtime/github-issue-fix/issue-intake/issue.md
-      - name: repo-rules
-        path: runtime/github-issue-fix/issue-intake/repo-rules.md
-      - name: spec-fit
-        path: runtime/github-issue-fix/issue-intake/spec-fit.md
-      - name: implementation-note
-        path: runtime/github-issue-fix/{task_id}/implementation.md
-        optional: true
-      - name: validation-note
-        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: review-brief
+        path: runtime/github-issue-fix/{task_id}/review-brief.md
     instructions: |
       Review issue requirements for Task {task_id}: {task_title}.
 
-      Inspect the current diff in the recorded worktree and the intake,
-      implementation, and validation artifacts. Focus only on whether the
-      implementation solves the issue that was actually reported:
+      Inspect the current diff in the recorded worktree, the compact review
+      brief, and the full issue snapshot. Treat the brief as shared orientation
+      and the issue snapshot as the authoritative specialist evidence. Do not
+      read other focused-review outputs. Focus only on whether the implementation
+      solves the issue that was actually reported:
       - requested behavior, bug, or acceptance criteria
       - reproduction evidence and expected outcome
       - affected component and user-facing behavior
@@ -460,25 +480,20 @@ states:
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
-      - name: issue-snapshot
-        path: runtime/github-issue-fix/issue-intake/issue.md
       - name: repo-rules
         path: runtime/github-issue-fix/issue-intake/repo-rules.md
       - name: spec-fit
         path: runtime/github-issue-fix/issue-intake/spec-fit.md
-      - name: implementation-note
-        path: runtime/github-issue-fix/{task_id}/implementation.md
-        optional: true
-      - name: validation-note
-        path: runtime/github-issue-fix/{task_id}/validation.md
-      - name: requirements-review
-        path: runtime/github-issue-fix/{task_id}/review-requirements.md
+      - name: review-brief
+        path: runtime/github-issue-fix/{task_id}/review-brief.md
     instructions: |
       Review spec and repo-rule fit for Task {task_id}: {task_title}.
 
-      Inspect the current diff in the recorded worktree and the intake,
-      implementation, validation, and requirements-review artifacts. Focus only
-      on whether the change fits the target repository's rules:
+      Inspect the current diff in the recorded worktree, the compact review
+      brief, and the full repository-rules and spec-fit artifacts. Treat the
+      latter two as the authoritative specialist evidence. Do not read other
+      focused-review outputs. Focus only on whether the change fits the target
+      repository's rules:
       - `AGENTS.md` instructions and nested repo guidance
       - goals, non-goals, decisions, and spec-fit verdict
       - grund declaration and citation requirements when configured
@@ -516,27 +531,18 @@ states:
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
-      - name: issue-snapshot
-        path: runtime/github-issue-fix/issue-intake/issue.md
-      - name: repo-rules
-        path: runtime/github-issue-fix/issue-intake/repo-rules.md
-      - name: spec-fit
-        path: runtime/github-issue-fix/issue-intake/spec-fit.md
       - name: implementation-note
         path: runtime/github-issue-fix/{task_id}/implementation.md
         optional: true
-      - name: validation-note
-        path: runtime/github-issue-fix/{task_id}/validation.md
-      - name: requirements-review
-        path: runtime/github-issue-fix/{task_id}/review-requirements.md
-      - name: spec-review
-        path: runtime/github-issue-fix/{task_id}/review-spec.md
+      - name: review-brief
+        path: runtime/github-issue-fix/{task_id}/review-brief.md
     instructions: |
       Review implementation quality for Task {task_id}: {task_title}.
 
-      Inspect the current diff in the recorded worktree and the intake,
-      implementation, validation, requirements-review, and spec-review
-      artifacts. Focus only on engineering quality:
+      Inspect the current diff in the recorded worktree, the compact review
+      brief, and the implementation note. Treat the implementation note as the
+      authoritative specialist evidence. Do not read other focused-review
+      outputs. Focus only on engineering quality:
       - local patterns and API boundaries
       - minimal scope and maintainability
       - error handling, edge cases, and compatibility risks
@@ -570,29 +576,17 @@ states:
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
-      - name: issue-snapshot
-        path: runtime/github-issue-fix/issue-intake/issue.md
-      - name: repo-rules
-        path: runtime/github-issue-fix/issue-intake/repo-rules.md
-      - name: spec-fit
-        path: runtime/github-issue-fix/issue-intake/spec-fit.md
-      - name: implementation-note
-        path: runtime/github-issue-fix/{task_id}/implementation.md
-        optional: true
       - name: validation-note
         path: runtime/github-issue-fix/{task_id}/validation.md
-      - name: requirements-review
-        path: runtime/github-issue-fix/{task_id}/review-requirements.md
-      - name: spec-review
-        path: runtime/github-issue-fix/{task_id}/review-spec.md
-      - name: implementation-review
-        path: runtime/github-issue-fix/{task_id}/review-implementation.md
+      - name: review-brief
+        path: runtime/github-issue-fix/{task_id}/review-brief.md
     instructions: |
       Review validation readiness for Task {task_id}: {task_title}.
 
-      Inspect the current diff in the recorded worktree and the intake,
-      implementation, validation, requirements-review, spec-review, and
-      implementation-review artifacts. Focus only on validation quality:
+      Inspect the current diff in the recorded worktree, the compact review
+      brief, and the full validation note. Treat the validation note as the
+      authoritative specialist evidence. Do not read other focused-review
+      outputs. Focus only on validation quality:
       - whether commands match the affected files and repo instructions
       - whether failures were fixed or explicitly remain blocking
       - whether skipped commands are justified with credible narrower checks
@@ -629,19 +623,8 @@ states:
     target: "codex[yolo]:openai:gpt-5.6-sol"
     visits: 3
     inputs:
-      - name: worktree-ref
-        path: runtime/github-issue-fix/issue-intake/worktree.yaml
-      - name: issue-snapshot
-        path: runtime/github-issue-fix/issue-intake/issue.md
-      - name: repo-rules
-        path: runtime/github-issue-fix/issue-intake/repo-rules.md
-      - name: spec-fit
-        path: runtime/github-issue-fix/issue-intake/spec-fit.md
-      - name: implementation-note
-        path: runtime/github-issue-fix/{task_id}/implementation.md
-        optional: true
-      - name: validation-note
-        path: runtime/github-issue-fix/{task_id}/validation.md
+      - name: review-brief
+        path: runtime/github-issue-fix/{task_id}/review-brief.md
       - name: requirements-review
         path: runtime/github-issue-fix/{task_id}/review-requirements.md
       - name: spec-review
@@ -658,9 +641,10 @@ states:
       If blockers are found after the required review cycle count, mark them
       clearly instead of treating publication as ready.
 
-      Read the requirements, spec, implementation, and validation review
-      artifacts. Do not introduce new broad review themes here; reconcile the
-      focused findings into a single action list for the implementer.
+      Read the compact review brief plus the requirements, spec, implementation,
+      and validation review artifacts. Do not reopen their specialist source
+      artifacts or introduce new broad review themes here; reconcile the focused
+      findings into a single action list for the implementer.
 
       Readiness policy:
       - Requirements, spec/grund, and implementation blockers always block
@@ -759,21 +743,14 @@ states:
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
       - name: review-summary
         path: runtime/github-issue-fix/{task_id}/review-summary.md
-      - name: requirements-review
-        path: runtime/github-issue-fix/{task_id}/review-requirements.md
-      - name: spec-review
-        path: runtime/github-issue-fix/{task_id}/review-spec.md
-      - name: implementation-review
-        path: runtime/github-issue-fix/{task_id}/review-implementation.md
-      - name: validation-review
-        path: runtime/github-issue-fix/{task_id}/review-validation.md
     instructions: |
       Address review findings for Task {task_id}: {task_title}.
 
-      Read `{input.review-summary.path}` and the four focused review artifacts.
-      If the summary has no blocking findings, make no code changes and record
-      a no-op. Otherwise, fix only the blocking findings inside the recorded
-      worktree. Preserve the issue scope and do not broaden the PR.
+      Read `{input.review-summary.path}`, which is the authoritative reconciled
+      action list from the four focused reviews. If the summary has no blocking
+      findings, make no code changes and record a no-op. Otherwise, fix only the
+      blocking findings inside the recorded worktree. Preserve the issue scope
+      and do not broaden the PR.
 
       Write `{output.review-fix-note.path}` and
       `{output.review-fix-note-visit.path}` with findings addressed, files
