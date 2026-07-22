@@ -14,6 +14,12 @@ requires added or changed behavioral tests to cite the most-specific applicable
 spec point, checks citation compliance in spec review, and checks behavioral
 alignment in implementation review.
 
+Published PR descriptions end with a collapsible `## AI workflow` section that
+links to Rhei and records each executed agent step, its resolved model, available
+total/input/cached/output token metrics, aggregate usage, review-cycle counts,
+and accounting coverage. The active publication step is explicitly marked as
+not finalized when its own accounting record is not yet available.
+
 ## Values
 
 | Input | Value |

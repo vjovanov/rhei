@@ -84,9 +84,13 @@ The state-machine diagram is documented at the top of `states.yaml`.
    labels already exist on the target repository; the workflow does not create
    labels. Published PR descriptions are written in a user-facing format with
    `## What changed`, `## Why`, `## Example` when meaningful, `## Implementation
-   summary`, and `## Validation`. The workflow avoids internal review sections
-   such as spec-fit summaries, review readiness, or validation-gap bookkeeping
-   in the PR body itself.
+   summary`, and `## Validation`, followed by a final collapsible `## AI
+   workflow` provenance section. That section links to Rhei, lists every
+   executed agent step with its resolved model and available total/input/cached/
+   output token metrics, and places aggregate usage after the steps. The active
+   publication step is marked as not finalized when its own token record is not
+   yet available. Other internal review details such as spec-fit summaries,
+   review readiness, or validation-gap bookkeeping stay out of the PR body.
 
 ## Usage
 
