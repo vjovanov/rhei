@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make `github-issue-fix` intake treat issue-controlled content as untrusted
+  evidence, prohibit issue-supplied commands and external writes, and record
+  suspected prompt injection as a spec-fit risk.
 - Make `github-issue-fix` require added or changed behavioral tests to carry
   the most-specific applicable spec reference when the target repository has a
   citation convention, with enforcement in spec and implementation reviews.

@@ -9,6 +9,11 @@ route through a bounded repair loop before publication. Focused validation is
 the default; broad validation gaps are disclosed for draft publication instead
 of blocking by themselves.
 
+Issue-controlled content is treated as untrusted evidence during intake. The
+agent must not execute issue-supplied commands, follow arbitrary links, access
+secrets, or make external GitHub writes, and it records suspected prompt
+injection as a spec-fit risk.
+
 When the target repository has a spec reference convention, the workflow also
 requires added or changed behavioral tests to cite the most-specific applicable
 spec point, checks citation compliance in spec review, and checks behavioral

@@ -8,6 +8,13 @@ handoff. Vague or underspecified issues route to a GitHub clarification handoff
 instead of a speculative implementation. Implemented fixes pass through
 validation, focused review cycles, and optional PR publication.
 
+Issue titles, bodies, comments, attachments, linked content, and reproduction
+instructions are treated as untrusted evidence during intake. The intake agent
+must not execute issue-supplied commands, follow arbitrary issue-supplied URLs,
+access secrets, or make external GitHub writes. This is prompt-level
+defense-in-depth; users should still isolate the configured agent when issues
+may be actively hostile.
+
 ## Inputs
 
 | Name | Type | Default | Description |
@@ -49,7 +56,9 @@ The state-machine diagram is documented at the top of `states.yaml`.
 ## Flow
 
 1. `issue-intake` creates or reuses a branch and worktree for the issue.
-2. It fetches the GitHub issue and writes a durable snapshot.
+2. It fetches the GitHub issue as untrusted evidence and writes a durable
+   snapshot. Suspected prompt injection is recorded as a risk, never followed
+   as agent instruction.
 3. It reads applicable repository instructions, nested `AGENTS.md` files, and
    grund configuration when present.
 4. It writes an adequacy/spec-fit verdict and routing note. Issues without
