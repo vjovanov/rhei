@@ -59,7 +59,7 @@ states:
   issue-intake:
     description: Prepare the issue worktree, fetch the issue, discover repo rules, analyze issue adequacy and spec fit, and write one routed follow-up task.
     initial: true
-    target: "codex[medium]:openai:gpt-5.6-sol"
+    target: "codex[yolo]:openai:gpt-5.6-sol"
     instructions: |
       Intake GitHub issue `1234` in `vjovanov/rhei` for Task {task_id}: {task_title}.
 
@@ -213,7 +213,7 @@ states:
 
   github-handoff:
     description: Record a local handoff when implementation should not proceed.
-    target: "codex[medium]:openai:gpt-5.6-luna"
+    target: "codex[yolo]:openai:gpt-5.6-luna"
     inputs:
       - name: issue-snapshot
         path: runtime/github-issue-fix/issue-intake/issue.md
@@ -249,7 +249,7 @@ states:
 
   implement-fix:
     description: Implement the issue fix in the isolated worktree.
-    target: "codex[medium]:openai:gpt-5.6-sol"
+    target: "codex[yolo]:openai:gpt-5.6-sol"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -333,7 +333,7 @@ states:
 
   validate-fix:
     description: Run grund and repository validation for the issue fix.
-    target: "codex[medium]:openai:gpt-5.6-sol"
+    target: "codex[yolo]:openai:gpt-5.6-sol"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -434,7 +434,7 @@ states:
 
   requirements-review:
     description: Review whether the implementation satisfies the GitHub issue requirements.
-    target: "codex[medium]:openai:gpt-5.6-terra"
+    target: "codex[yolo]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -475,7 +475,7 @@ states:
 
   spec-review:
     description: Review goals, non-goals, grund citations, and spec compatibility.
-    target: "codex[medium]:openai:gpt-5.6-terra"
+    target: "codex[yolo]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -526,7 +526,7 @@ states:
 
   implementation-review:
     description: Review code quality, scope, maintainability, and edge cases.
-    target: "codex[medium]:openai:gpt-5.6-terra"
+    target: "codex[yolo]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -571,7 +571,7 @@ states:
 
   validation-review:
     description: Review validation coverage, command choice, failures, and CI risk.
-    target: "codex[medium]:openai:gpt-5.6-terra"
+    target: "codex[yolo]:openai:gpt-5.6-terra"
     visits: 3
     inputs:
       - name: worktree-ref
@@ -620,7 +620,7 @@ states:
 
   aggregate-review:
     description: Combine focused reviews into one PR-readiness decision for this cycle.
-    target: "codex[medium]:openai:gpt-5.6-sol"
+    target: "codex[yolo]:openai:gpt-5.6-sol"
     visits: 3
     inputs:
       - name: review-brief
@@ -737,7 +737,7 @@ states:
 
   address-review:
     description: Address blocking findings from the latest focused review cycle.
-    target: "codex[medium]:openai:gpt-5.6-sol"
+    target: "codex[yolo]:openai:gpt-5.6-sol"
     visits: 2
     inputs:
       - name: worktree-ref
@@ -767,7 +767,7 @@ states:
 
   publish-pr:
     description: Push the reviewed branch and open or update the issue PR.
-    target: "codex[medium]:openai:gpt-5.6-luna"
+    target: "codex[yolo]:openai:gpt-5.6-luna"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
@@ -908,7 +908,7 @@ states:
 
   record-blocked-publication:
     description: Record that review blockers prevented safe PR publication.
-    target: "codex[medium]:openai:gpt-5.6-luna"
+    target: "codex[yolo]:openai:gpt-5.6-luna"
     inputs:
       - name: worktree-ref
         path: runtime/github-issue-fix/issue-intake/worktree.yaml
