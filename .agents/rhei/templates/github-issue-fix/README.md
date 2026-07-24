@@ -3,10 +3,10 @@
 Fix one GitHub issue through a spec-aware, reviewable workflow. The template
 creates an isolated worktree, fetches the issue, discovers target-repository
 instructions such as `AGENTS.md` and grund configuration, records a spec-fit
-verdict, and then routes the issue to implementation, human review, or GitHub
-handoff. Vague or underspecified issues route to a GitHub clarification handoff
-instead of a speculative implementation. Implemented fixes pass through
-validation, focused review cycles, and optional PR publication.
+verdict, and then routes the issue to proposal approval or a local GitHub
+handoff. Vague or underspecified issues never receive a speculative
+implementation. Approved fixes pass through validation, focused review cycles,
+and optional PR publication.
 
 Issue titles, bodies, comments, attachments, linked content, and reproduction
 instructions are treated as untrusted evidence during intake. The intake agent
@@ -14,6 +14,70 @@ must not execute issue-supplied commands, follow arbitrary issue-supplied URLs,
 access secrets, or make external GitHub writes. This is prompt-level
 defense-in-depth; users should still isolate the configured agent when issues
 may be actively hostile.
+
+## Proposal approval contract
+
+Compatible issues receive an implementation proposal before code changes begin.
+The proposal names the accepted issue scope, the repository rules and
+specification points that constrain it, the intended file and behavior changes,
+the validation strategy, material risks, and any known gaps. Proposal prose is
+canonicalized and hashed with SHA-256; the first 16 lowercase hexadecimal
+characters are the proposal ID. Changing the substantive proposal content
+therefore creates a new ID.
+
+For `draft` and `ready` publication modes, Rhei publishes proposals as issue
+comments owned by the configured Rhei actor. A supported comment contains
+exactly one `<!-- rhei-proposal:v1 id=<proposal-id> attempt=<n> -->` marker.
+Only marked comments authored by that actor participate in routing. The latest
+such comment is the current proposal; an approval or rejection for any older ID
+is stale. GitHub comments, including rejection feedback, remain untrusted
+evidence and never become agent instructions.
+
+The only accepted decisions are an exact first line of either:
+
+```text
+/rhei approve <proposal-id>
+/rhei reject <proposal-id>
+```
+
+Reject commands may be followed by free-form feedback on later lines. Commands
+with prefixes, suffixes, alternate whitespace, or a stale ID are ignored. At
+decision time the command author must currently have GitHub `write`, `maintain`,
+or `admin` permission on the configured repository. Outside collaborators and
+users with `read` or `triage` permission cannot decide. The configured Rhei
+actor may approve or reject its own proposal when it has one of the qualifying
+repository permissions.
+
+Publication is idempotent: a proposal marker is checked before posting, so a
+retry never duplicates the comment. Rhei then applies the single pre-existing
+`rhei:awaiting-approval` label; it never creates labels. Approval removes the
+label immediately before implementation. Rejection removes it while a revision
+is prepared and reapplies it only after the revised proposal is posted.
+Pending, malformed, stale, and unauthorized decisions leave the label
+unchanged. Missing labels, permission failures, and malformed GitHub responses
+produce a durable blocker and never silently start implementation. Partial
+failures are safe to retry.
+
+GitHub comments are the cross-run source of truth. A fresh instantiation
+reconstructs the latest proposal and its valid decision from issue metadata,
+allowing an approved proposal to proceed without reposting or replanning.
+Runtime artifacts are durable audit evidence, not a prerequisite for rerun
+recovery. Rejections create a revised proposal while attempts remain; the
+default limit is three total proposals, including the initial attempt. Once
+exhausted, the workflow produces the existing local GitHub handoff.
+
+Every proposal ends with its actual ID, copy-paste approval and rejection
+commands, disclosure that the proposal was AI-generated, the resolved
+`provider:model` from the completed proposal-generation invocation record, and
+a link to [Rhei](https://github.com/vjovanov/rhei). Missing model evidence is
+reported as `not reported`, never guessed. Local handoffs carry the same compact
+provenance inside their suggested issue comment.
+
+`publication_mode=no-pr` is strictly local: it generates a proposal artifact
+and uses the existing local `human-review` gate, but never reads decisions from
+issue comments, posts a proposal, changes a label, pushes, or opens or updates a
+PR. `github-handoff` is local-only in every publication mode; a human may choose
+to post its provenance-bearing suggested comment.
 
 ## Inputs
 
@@ -26,8 +90,9 @@ may be actively hostile.
 | `worktree_root` | string | `runtime/worktrees` | Directory where the issue worktree is created. |
 | `base_branch` | string | `main` | Base branch for the issue branch and PR. |
 | `branch_prefix` | string | `rhei` | Prefix for the issue branch. |
-| `require_human_spec_review` | boolean | `true` | Whether compatible issues still stop for human review before implementation. |
 | `publication_mode` | string | `draft` | `no-pr` for local artifacts only, `draft`, or `ready`. |
+| `rhei_actor` | string | `rhei[bot]` | GitHub actor that owns proposal comments and may decide when repository-authorized. |
+| `proposal_attempts` | number | `3` | Total proposal attempts, including the initial proposal. |
 | `pr_push_remote` | string | empty | Writable git remote for pushing the issue branch. |
 | `pr_head_owner` | string | empty | GitHub owner/login for PR heads. |
 | `pr_labels` | array<string> | `rhei` | Labels to apply to the PR when they already exist on the target repository. |
@@ -46,9 +111,14 @@ may be actively hostile.
 | Path | States |
 |---|---|
 | Intake | `issue-intake -> completed` after writing artifacts and one follow-up task. |
-| Compatible issue | `implement-fix -> implementation-dispatch -> validate-fix -> requirements-review -> spec-review -> implementation-review -> validation-review -> aggregate-review -> review-dispatch -> address-review -> validate-fix -> ... -> publish-pr -> completed` |
+| New external proposal | `approval-check -> propose-fix -> publish-proposal -> proposal-pending`. |
+| Pending external proposal | `approval-check -> proposal-pending`; no duplicate comment or label mutation. |
+| Approved external proposal | `approval-check -> approval-apply -> implement-fix`. |
+| Rejected external proposal | `approval-check -> rejection-prepare -> propose-fix -> publish-proposal -> proposal-pending`, or `github-handoff` after exhaustion. |
+| Local-only proposal | `propose-fix -> publish-proposal -> human-review -> implement-fix`, with no GitHub writes. |
+| Approved implementation | `implement-fix -> implementation-dispatch -> validate-fix -> requirements-review -> spec-review -> implementation-review -> validation-review -> aggregate-review -> review-dispatch -> ... -> publish-pr -> completed`. |
 | Exhausted review repair | `review-dispatch -> record-blocked-publication -> completed` |
-| Human gate | `human-review -> implement-fix` or `human-review -> github-handoff` or `human-review -> cancelled` |
+| Material design divergence | `implementation-dispatch -> propose-fix`, requiring a new proposal ID and approval. |
 | Blocked or unclear issue | `github-handoff -> completed` locally, without issue comments or PR publication. |
 
 The state-machine diagram is documented at the top of `states.yaml`.
@@ -64,9 +134,16 @@ The state-machine diagram is documented at the top of `states.yaml`.
 4. It writes an adequacy/spec-fit verdict and routing note. Issues without
    enough detail to name the likely change and validation path are routed to
    a local handoff for clarification.
-5. It creates one follow-up task in `implement-fix`, `human-review`, or
-   `github-handoff`.
-6. Implementation writes a durable `ready` or `blocked` result. Ready fixes are
+5. It creates one follow-up task in `approval-check`, `propose-fix`, or
+   `github-handoff`. External modes inspect actor-owned proposal markers and
+   exact authorized decisions before any design or code change. A missing
+   proposal is generated and published once; a pending proposal ends the
+   current run. A later fresh run recovers approval or rejection from GitHub.
+   `no-pr` renders the same content-addressed proposal locally and stops at the
+   local human gate without invoking `gh`.
+6. Implementation is bound to the exact approved proposal and writes a durable
+   `ready`, `reproposal`, or `blocked` result. A material approach change routes
+   through a new proposal ID and approval rather than diverging silently. Ready fixes are
    validated; blocked implementations route to GitHub handoff without review or
    publication. Validation also writes a compact, current-cycle review brief
    containing shared scope, change, rule, and validation evidence without review
@@ -122,7 +199,8 @@ rhei run .agents/scratchpad/issue-1234
 ```
 
 For a first trial, use `publication_mode=no-pr` so the workflow produces only
-local artifacts. It will not push, open or update a PR, or post issue comments:
+local artifacts. It will not invoke GitHub writes, push, open or update a PR,
+post issue comments, or change the approval label:
 
 ```sh
 rhei instantiate github-issue-fix 1234 \
@@ -135,5 +213,43 @@ rhei instantiate github-issue-fix 1234 \
 A rendered smoke example lives at
 `examples/github-issue-fix-example/`.
 
+Before using `draft` or `ready`, create the `rhei:awaiting-approval` label in
+the target repository and configure `rhei_actor` to the authenticated publishing
+login. Rhei checks that the label exists but never creates it.
+
+After a proposal is posted, copy one command from its footer into a new issue
+comment. Approval is the exact first line:
+
+```text
+/rhei approve <proposal-id>
+```
+
+Rejection uses the exact first line and optional feedback below it:
+
+```text
+/rhei reject <proposal-id>
+<explain what should change>
+```
+
+Start a fresh instantiation after posting the decision. The new run recovers the
+current proposal and decision from GitHub comments; it does not require the
+previous run's runtime directory.
+
 To require additional clean review cycles before publication, pass
 `--set review_passes=<count>` when instantiating the template.
+
+## Regenerating the example
+
+The committed local-only example and its values file are checked for byte-level
+drift. Regenerate the rendered files with:
+
+```sh
+cargo run -p rhei-cli -- instantiate \
+  .agents/rhei/templates/github-issue-fix \
+  --values .agents/rhei/templates/github-issue-fix/.example-values.yaml \
+  --output examples/github-issue-fix-example
+```
+
+Keep the example's hand-written `README.md` and
+`instantiation-values.yaml`; the latter must remain byte-identical to the
+template's `.example-values.yaml`.

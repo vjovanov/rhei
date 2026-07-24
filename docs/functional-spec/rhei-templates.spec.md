@@ -600,6 +600,34 @@ Each `inputs[]` entry is a YAML mapping with these fields:
 
 Template manifest files use the `.yaml` extension. Template plan entry points are exactly `plan.rhei.md` or `index.rhei.md`. In directory-workspace templates, files under `tasks/` may use `.md` consistent with standard Rhei workspaces.
 
+## 11. Shipped Workflow Template Contracts
+
+### 11.1. GitHub issue-fix approval
+
+The project-local `github-issue-fix` template must bind implementation to the
+latest content-addressed proposal comment published by its configured Rhei
+actor. An approval or rejection is valid only when its exact first line names
+that proposal's current ID and its author currently has `write`, `maintain`, or
+`admin` permission on the target repository.
+
+The configured Rhei actor is not excluded from this permission rule. When that
+actor has a qualifying repository permission, it may approve or reject the
+proposal it published. Read, triage, missing, stale, malformed, and
+permission-check-failing decisions must not route implementation.
+
+### 11.2. GitHub issue-fix proposal inputs
+
+The `github-issue-fix` proposal-generation state must accept the absence of a
+prior local proposal so a `no-proposal` inspection can generate attempt one.
+When revising within the same workspace, the prior local proposal is optional
+revision evidence. When reconstructing a rejection in a fresh workspace, the
+proposal comment recovered by approval inspection is optional revision
+evidence instead.
+
+Neither prior-proposal artifact may be required to enter proposal generation.
+The issue snapshot, repository rules, spec-fit analysis, and routing decision
+remain required.
+
 ## Related Specifications
 
 - [Plan Language Specification](rhei-plan-language.spec.md) — Grammar and semantics of the output format

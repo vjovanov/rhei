@@ -1,5 +1,6 @@
 mod completions_tests;
 mod examples_tests;
+mod github_issue_fix_template_tests;
 mod install_skills_tests;
 mod next_tests;
 mod run_tests;

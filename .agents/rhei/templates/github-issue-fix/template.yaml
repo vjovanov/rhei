@@ -40,16 +40,23 @@ inputs:
     type: string
     default: rhei
 
-  - name: require_human_spec_review
-    description: Whether compatible issues still stop for human review after spec-fit analysis before implementation.
-    type: boolean
-    default: true
-
   - name: publication_mode
     description: External publication behavior. Use no-pr for local artifacts only, draft for a draft PR, or ready for a ready-for-review PR.
     type: string
     default: draft
     validate: "^(no-pr|draft|ready)$"
+
+  - name: rhei_actor
+    description: GitHub login used by Rhei to publish proposals and permitted to decide when it has repository write access.
+    type: string
+    default: "rhei[bot]"
+    validate: "[A-Za-z0-9_.\\[\\]-]+"
+
+  - name: proposal_attempts
+    description: Total proposal attempts allowed, including the initial proposal.
+    type: number
+    default: 3
+    validate: "[1-9][0-9]*"
 
   - name: pr_push_remote
     description: Writable git remote used when pushing the issue branch. Leave empty to infer a non-origin fork remote.

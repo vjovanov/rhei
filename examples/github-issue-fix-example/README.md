@@ -1,9 +1,22 @@
 # github-issue-fix example
 
-This is a rendered smoke example for the `github-issue-fix` template.
-It includes the issue-adequacy routing behavior: unclear issues should route to
-GitHub handoff for a clarification request instead of implementation.
-Implemented fixes use focused review cycles separated by requirements,
+This is the reproducibly rendered, local-only smoke example for the
+`github-issue-fix` template. Compatible issues receive a content-addressed
+implementation proposal before code changes begin. Because this example uses
+`publication_mode=no-pr`, the proposal is rendered locally and stops at the
+human gate: it never posts a comment, reads an approval command, changes the
+`rhei:awaiting-approval` label, pushes, or opens or updates a PR.
+
+External `draft` and `ready` instantiations instead publish one proposal comment,
+apply the pre-existing approval label, and accept only an exact
+`/rhei approve <proposal-id>` or `/rhei reject <proposal-id>` first line from a
+current repository member with write, maintain, or admin permission, including
+the configured publishing actor. A fresh run recovers the latest actor-owned
+proposal and decision from GitHub comments. Rejections revise the proposal up
+to the configured total attempt limit.
+
+Unclear issues route to a local GitHub handoff instead of implementation.
+Approved fixes use focused review cycles separated by requirements,
 spec/grund, implementation, and validation review. Aggregate review blockers
 route through a bounded repair loop before publication. Focused validation is
 the default; broad validation gaps are disclosed for draft publication instead
@@ -35,9 +48,11 @@ available.
 |---|---|
 | `issue` | `1234` |
 | `repo` | `vjovanov/rhei` |
-| `repo_checkout` | `.` |
+| `repo_checkout` | `/tmp` |
 | `publication_mode` | `no-pr` |
 | `base_branch` | `main` |
+| `rhei_actor` | `rhei[bot]` |
+| `proposal_attempts` | `3` |
 | `implementation_target` | `codex[yolo]:openai:gpt-5.6-sol` |
 | `operations_target` | `codex[yolo]:openai:gpt-5.6-luna` |
 | `review_target` | `codex[yolo]:openai:gpt-5.6-terra` |
@@ -47,22 +62,15 @@ available.
 | `pr_labels` | `["rhei"]` |
 | `plan_title` | `GitHub Issue Fix Example` |
 
-`publication_mode=no-pr` keeps the smoke example local-only if it is ever run:
-it must not push, open or update PRs, or post issue comments. The issue number
-is intentionally just example data; validation checks the rendered workspace
-shape, not GitHub reachability.
+The issue number is intentionally just example data; validation checks the
+rendered workspace shape and helper behavior, not GitHub reachability.
 
 ## Regenerate
 
 ```sh
-cargo run -p rhei-cli -- instantiate github-issue-fix 1234 \
-  --set repo=vjovanov/rhei \
-  --set repo_checkout=. \
-  --set publication_mode=no-pr \
-  --set base_branch=main \
-  --set review_passes=1 \
-  --set review_fix_attempts=2 \
-  --set 'plan_title=GitHub Issue Fix Example' \
+cargo run -p rhei-cli -- instantiate \
+  .agents/rhei/templates/github-issue-fix \
+  --values .agents/rhei/templates/github-issue-fix/.example-values.yaml \
   --output examples/github-issue-fix-example
 ```
 

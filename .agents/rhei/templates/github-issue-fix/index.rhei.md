@@ -8,11 +8,14 @@ This workspace fixes one GitHub issue from `{{repo}}`: `{{issue}}`.
 The first task creates or reuses an isolated worktree from `{{repo_checkout}}`,
 fetches the issue, discovers repository instructions and grounding configuration,
 records a spec-fit artifact, and writes exactly one follow-up task. The follow-up
-task starts in implementation, human review, or GitHub handoff according to the
-recorded verdict. Compatible issues proceed through validation, review/fix
-cycles with separate requirements, spec, implementation, and validation reviews,
-and PR publication; blocked, incompatible, or unclear issues stop for a human
-gate or GitHub handoff instead of producing a speculative implementation PR.
+task starts in proposal approval inspection, local proposal generation, or
+GitHub handoff according to the recorded verdict and publication mode.
+Compatible externally published issues recover or publish a content-addressed
+proposal and require an authorized exact GitHub approval before implementation.
+`no-pr` uses a local proposal and human gate with zero GitHub writes. Approved
+work proceeds through validation, focused review/fix cycles, and optional PR
+publication; blocked, incompatible, unclear, or attempt-exhausted work produces
+a local handoff.
 
 ## Source
 
@@ -25,8 +28,9 @@ gate or GitHub handoff instead of producing a speculative implementation PR.
 | Worktree root | `{{worktree_root}}` |
 | Base branch | `{{base_branch}}` |
 | Branch prefix | `{{branch_prefix}}` |
-| Require human spec review | `{{require_human_spec_review}}` |
 | Publication mode | `{{publication_mode}}` |
+| Rhei GitHub actor | `{{rhei_actor}}` |
+| Proposal attempt limit | `{{proposal_attempts}}` |
 | PR push remote | `{% if pr_push_remote %}{{pr_push_remote}}{% else %}<infer>{% endif %}` |
 | PR head owner | `{% if pr_head_owner %}{{pr_head_owner}}{% else %}<infer>{% endif %}` |
 | PR labels | `{{pr_labels}}` |

@@ -1,0 +1,12 @@
+issue: "1234"
+repo: vjovanov/rhei
+repo_checkout: /tmp
+publication_mode: no-pr
+base_branch: main
+rhei_actor: "rhei[bot]"
+proposal_attempts: 3
+review_passes: 1
+review_fix_attempts: 2
+pr_labels:
+  - rhei
+plan_title: GitHub Issue Fix Example

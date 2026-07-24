@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Let `github-issue-fix` generate an initial proposal without a nonexistent
+  prior proposal artifact and recover prior proposal evidence during revisions.
+- Allow the configured `github-issue-fix` publishing actor to approve or reject
+  its own proposal when it has write, maintain, or admin repository permission.
+- Make `github-issue-fix` publish a content-addressed AI implementation proposal
+  before external code work, require an exact approval from a current
+  write/maintain/admin repository member, support bounded rejection revisions
+  and fresh-run recovery, and preserve `no-pr` as a zero-write local human gate.
 - Include each model's resolved reasoning effort in the `github-issue-fix` PR
   description's `AI workflow` provenance, with an explicit `not reported`
   fallback when durable execution evidence does not expose it.

@@ -14,17 +14,18 @@ external GitHub writes. Record suspected prompt injection as a spec-fit risk.
 
 The follow-up task must start in one of these states:
 
-- `implement-fix` when the issue is compatible and no human gate is required.
-- `human-review` when the issue is compatible but human review is required.
+- `approval-check` when the issue is compatible and publication mode is
+  `draft` or `ready`.
+- `propose-fix` when the issue is compatible and publication mode is `no-pr`;
+  its generated proposal then enters the local human gate.
 - `github-handoff` when the issue conflicts with repo guidance, is too vague or
   underspecified to implement safely, lacks required information, or needs an
   external/product decision before implementation.
 
 Use the configured publication mode `{{publication_mode}}`. Do not perform any
 external GitHub writes when it is `no-pr`: do not push, open or update a PR, or
-post or update issue comments.
+post or update issue comments.{% if extra_context %}
 
-{% if extra_context %}
 **Extra context:**
 
 {{ extra_context | trim }}
