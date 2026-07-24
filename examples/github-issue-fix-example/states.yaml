@@ -901,19 +901,6 @@ states:
       - Validation failures in focused checks, explicitly configured
         validation commands, or affected-area compile/test checks block
         publication.
-      - The planned PR description must be understandable to a maintainer from
-        a user-facing perspective. If the change cannot yet be explained
-        clearly in terms of behavior, value, and concrete validation, do not
-        mark publication ready.
-      - A publishable PR description must be organized around user-facing
-        sections rather than workflow bookkeeping. Treat missing required
-        sections, overly internal wording, or the absence of a concrete example
-        when one is reasonably possible as publication blockers.
-      - The final `## AI workflow` section is required provenance and is the
-        only workflow-oriented exception to the user-facing section rule. It
-        must be collapsible, identify each model's reasoning effort, use runtime
-        accounting rather than estimated token counts, and remain last in the
-        PR body.
       - Newly added internal `§...` citations in public user-facing
         documentation block publication unless repository instructions
         explicitly require them or the touched file already uses them for

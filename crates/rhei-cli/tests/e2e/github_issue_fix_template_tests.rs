@@ -423,6 +423,20 @@ fn rendered_modes_validate_the_complete_approval_state_graph() {
             .contains("added or modified test source file, including test helpers, fixtures, and"));
         assert!(states
             .contains("infrastructure-only test sources. Apply this file-level rule even when"));
+        // Aggregate review judges the change; publication creates the PR body afterward.
+        // §FS-rhei-templates.11.4.
+        let aggregate_review = states
+            .split("  aggregate-review:")
+            .nth(1)
+            .unwrap()
+            .split("  review-dispatch:")
+            .next()
+            .unwrap();
+        assert!(!aggregate_review.contains("The planned PR description"));
+        assert!(!aggregate_review.contains("A publishable PR description"));
+        let publish_pr = states.split("  publish-pr:").nth(1).unwrap();
+        assert!(publish_pr.contains("Write the PR body for a maintainer"));
+        assert!(publish_pr.contains("The PR body must include these sections in this order"));
         for required in [
             "from: approval-check",
             "to: approval-apply",

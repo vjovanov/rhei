@@ -169,11 +169,13 @@ The state-machine diagram is documented at the top of `states.yaml`.
    spec/grund, implementation, and focused validation are clean. Not-ready fixes
    route back through `address-review` while `review_fix_attempts` remain. When
    attempts are exhausted, `record-blocked-publication` records a blocked local
-   result instead of pushing an unsafe PR.
+   result instead of pushing an unsafe PR. Aggregate review does not require or
+   review a planned PR description. §FS-rhei-templates.11.4.
 8. Publication follows `publication_mode`. `no-pr` performs no external GitHub
    writes. Published PRs apply configured labels such as `rhei` only when those
    labels already exist on the target repository; the workflow does not create
-   labels. Published PR descriptions are written in a user-facing format with
+   labels. Only after the aggregate review is green, the publication state
+   creates a user-facing PR description with
    `## What changed`, `## Why`, `## Example` when meaningful, `## Implementation
    summary`, and `## Validation`, followed by a final collapsible `## AI
    workflow` provenance section. That section links to Rhei, lists every

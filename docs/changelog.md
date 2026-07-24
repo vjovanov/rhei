@@ -23,6 +23,9 @@
   including helpers, fixtures, and infrastructure-only tests, to carry the
   most-specific applicable spec reference when the target repository has a
   citation convention.
+- Make `github-issue-fix` create and format the PR description only after
+  aggregate review is green, instead of requiring an unavailable planned
+  description during review.
 - Keep `github-issue-fix` handoffs local instead of posting internal blocked
   workflow evidence as GitHub issue comments.
 - Route a blocked `github-issue-fix` implementation through a durable handoff

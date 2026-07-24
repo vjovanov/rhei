@@ -23,6 +23,8 @@ the default; broad validation gaps are disclosed for draft publication instead
 of blocking by themselves. Validation also produces a compact per-cycle review
 brief. Each focused reviewer reads that shared brief plus only its specialist
 evidence, while aggregate review alone consumes all four focused findings.
+Aggregate review does not require or review a planned PR description;
+publication creates that description only after the change is ready.
 
 Issue-controlled content is treated as untrusted evidence during intake. The
 agent must not execute issue-supplied commands, follow arbitrary links, access
@@ -35,13 +37,13 @@ applicable spec point, including helpers, fixtures, and infrastructure-only
 test sources. Spec review checks citation compliance, and implementation review
 checks that each reference applies to the test file.
 
-Published PR descriptions end with a collapsible `## AI workflow` section that
-links to Rhei and records each executed agent step, its resolved model, reasoning
-effort, available total/input/cached/output token metrics, aggregate usage,
-review-cycle counts, and accounting coverage. An effort unavailable from durable
-execution evidence is shown as `not reported`. The active publication step is
-explicitly marked as not finalized when its own accounting record is not yet
-available.
+After review is green, published PR descriptions end with a collapsible
+`## AI workflow` section that links to Rhei and records each executed agent
+step, its resolved model, reasoning effort, available
+total/input/cached/output token metrics, aggregate usage, review-cycle counts,
+and accounting coverage. An effort unavailable from durable execution evidence
+is shown as `not reported`. The active publication step is explicitly marked as
+not finalized when its own accounting record is not yet available.
 
 ## Values
 

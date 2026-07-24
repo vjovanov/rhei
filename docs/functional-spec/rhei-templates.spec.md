@@ -643,6 +643,21 @@ absence instead of inventing a reference.
 This keeps repeated issue-fix implementation behavior explicit and predictable.
 [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals).
 
+### 11.4. GitHub issue-fix publication sequencing
+
+The `github-issue-fix` aggregate review must decide publication readiness from
+the approved scope, implementation, specification compliance, and validation
+evidence. It must not require or review a planned pull-request description.
+
+Only after aggregate review reports that the change is ready may the
+publication state create the pull-request description and open or update the
+pull request. The publication state remains responsible for enforcing the
+description's user-facing structure and required provenance.
+
+This keeps review and publication ordering predictable and prevents absent
+future publication artifacts from causing a redundant repair cycle.
+[§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals).
+
 ## Related Specifications
 
 - [Plan Language Specification](rhei-plan-language.spec.md) — Grammar and semantics of the output format
