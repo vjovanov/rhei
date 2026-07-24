@@ -19,9 +19,10 @@
 - Make `github-issue-fix` intake treat issue-controlled content as untrusted
   evidence, prohibit issue-supplied commands and external writes, and record
   suspected prompt injection as a spec-fit risk.
-- Make `github-issue-fix` require added or changed behavioral tests to carry
-  the most-specific applicable spec reference when the target repository has a
-  citation convention, with enforcement in spec and implementation reviews.
+- Make `github-issue-fix` require every added or modified test source file,
+  including helpers, fixtures, and infrastructure-only tests, to carry the
+  most-specific applicable spec reference when the target repository has a
+  citation convention.
 - Keep `github-issue-fix` handoffs local instead of posting internal blocked
   workflow evidence as GitHub issue comments.
 - Route a blocked `github-issue-fix` implementation through a durable handoff

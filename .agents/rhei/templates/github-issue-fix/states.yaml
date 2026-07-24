@@ -515,12 +515,13 @@ states:
       documentation updates, include them in this same change set and cite the
       most-specific relevant `§` IDs according to the target repo's rules.
       When the target repository has a specification citation or reference
-      convention, add the most-specific relevant spec reference to every added
-      or changed test that directly asserts user-visible behavior. Test helpers,
-      fixtures, and infrastructure-only tests are exempt when they do not
-      directly assert specified behavior. Do not invent a reference when the
-      repository has no applicable convention or spec point; record that absence
-      in the implementation note instead.
+      convention, add the most-specific applicable spec reference to every
+      added or modified test source file, including test helpers, fixtures, and
+      infrastructure-only test sources. Apply this file-level rule even when
+      the changed lines do not directly assert user-visible behavior.
+      §FS-rhei-templates.11.3. Do not invent a reference when the repository has
+      no applicable convention or spec point; record that absence in the
+      implementation note instead.
       Do not add internal grund `§...` citations to public user-facing
       documentation such as docs pages, README files, guides, tutorials,
       changelogs, or release notes unless that file already uses public-facing
@@ -540,8 +541,8 @@ states:
       of these exact markers:
       - `Implementation status: ready` when a coherent fix is complete and can
         proceed to validation. Include files changed, rationale, spec/doc
-        updates, tests added or changed, behavioral-test spec references or
-        justified exemptions/absence, known risks, and `Proposal ID: <id>`.
+        updates, tests added or changed, test-source spec references or
+        justified absence, known risks, and `Proposal ID: <id>`.
       - `Implementation status: reproposal` when new evidence makes a materially
         different approach necessary. Stop implementation, record the current
         proposal ID, the evidence and reason for divergence, the proposed scope
@@ -757,12 +758,11 @@ states:
       - `AGENTS.md` instructions and nested repo guidance
       - goals, non-goals, decisions, and spec-fit verdict
       - grund declaration and citation requirements when configured
-      - whether every added or changed test that directly asserts user-visible
-        behavior carries the most-specific applicable spec reference when the
-        repository has a citation/reference convention; missing, inapplicable,
-        or overly broad required references are blocking findings
-      - whether any claimed exemption is limited to helpers, fixtures, or
-        infrastructure-only tests that do not directly assert specified behavior
+      - whether every added or modified test source file carries the
+        most-specific applicable spec reference when the repository has a
+        citation/reference convention, including helpers, fixtures, and
+        infrastructure-only test sources; missing, inapplicable, or overly
+        broad required references are blocking findings
       - whether spec or documentation updates are required for the behavior
       - whether the change adds product surface outside the accepted scope
       - whether internal `§...` citations were added to public user-facing
@@ -808,8 +808,8 @@ states:
       - minimal scope and maintainability
       - error handling, edge cases, and compatibility risks
       - test placement and whether changed behavior is covered in code
-      - whether behavioral tests with spec references actually exercise the
-        cited behavior rather than merely carrying a syntactic reference
+      - whether test-source spec references are applicable to the role and
+        behavior of each cited test file rather than merely syntactic
       - whether unrelated cleanup or broad refactoring slipped in
       - whether comments were inserted between annotations and the declarations
         they annotate; comments should precede the annotation block instead
@@ -934,11 +934,10 @@ states:
         documentation block publication unless repository instructions
         explicitly require them or the touched file already uses them for
         readers.
-      - Missing, inapplicable, or overly broad spec references on added or
-        changed behavioral tests block publication when the target repository
-        has a citation/reference convention. Helpers, fixtures, and
-        infrastructure-only tests are exempt only when they do not directly
-        assert specified behavior.
+      - Missing, inapplicable, or overly broad spec references on any added or
+        modified test source file block publication when the target repository
+        has a citation/reference convention. This includes helpers, fixtures,
+        and infrastructure-only test sources. §FS-rhei-templates.11.3.
       - Missing full repository builds, full functional suites, exact CI
         matrices, or documentation renders are validation gaps to disclose, not
         blockers by themselves, when focused validation for the issue behavior

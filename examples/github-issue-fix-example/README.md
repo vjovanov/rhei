@@ -29,10 +29,11 @@ agent must not execute issue-supplied commands, follow arbitrary links, access
 secrets, or make external GitHub writes, and it records suspected prompt
 injection as a spec-fit risk.
 
-When the target repository has a spec reference convention, the workflow also
-requires added or changed behavioral tests to cite the most-specific applicable
-spec point, checks citation compliance in spec review, and checks behavioral
-alignment in implementation review.
+When the target repository has a spec reference convention, the workflow
+requires every added or modified test source file to cite the most-specific
+applicable spec point, including helpers, fixtures, and infrastructure-only
+test sources. Spec review checks citation compliance, and implementation review
+checks that each reference applies to the test file.
 
 Published PR descriptions end with a collapsible `## AI workflow` section that
 links to Rhei and records each executed agent step, its resolved model, reasoning

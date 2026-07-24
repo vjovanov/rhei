@@ -417,6 +417,12 @@ fn rendered_modes_validate_the_complete_approval_state_graph() {
             String::from_utf8_lossy(&result.stderr)
         );
         let states = fs::read_to_string(output.join("states.yaml")).unwrap();
+        // Every test source touched by implementation is cited, without fixture exemptions.
+        // §FS-rhei-templates.11.3.
+        assert!(states
+            .contains("added or modified test source file, including test helpers, fixtures, and"));
+        assert!(states
+            .contains("infrastructure-only test sources. Apply this file-level rule even when"));
         for required in [
             "from: approval-check",
             "to: approval-apply",

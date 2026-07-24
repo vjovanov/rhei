@@ -153,12 +153,12 @@ The state-machine diagram is documented at the top of `states.yaml`.
    evidence, without consuming earlier focused-review conclusions. The aggregate
    review alone reads all four focused findings and turns them into one
    PR-readiness decision.
-   When the target repository has a spec citation/reference convention, added
-   or changed behavioral tests must carry the most-specific applicable spec
-   reference. Spec review blocks missing or unsuitable references, while
-   implementation review checks that referenced tests exercise the cited
-   behavior. Helpers, fixtures, and infrastructure-only tests are exempt when
-   they do not directly assert specified behavior.
+   When the target repository has a spec citation/reference convention, every
+   added or modified test source file must carry the most-specific applicable
+   spec reference, including helpers, fixtures, and infrastructure-only test
+   sources. Spec review blocks missing or unsuitable references, while
+   implementation review checks that each reference is applicable to the test
+   file.
    Validation defaults to focused checks for the changed behavior plus cheap
    targeted repo checks. Expensive full suites, exact CI matrices, full builds,
    and documentation renders are recorded as validation gaps unless explicitly

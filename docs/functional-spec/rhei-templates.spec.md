@@ -628,6 +628,21 @@ Neither prior-proposal artifact may be required to enter proposal generation.
 The issue snapshot, repository rules, spec-fit analysis, and routing decision
 remain required.
 
+### 11.3. GitHub issue-fix test citations
+
+When the target repository has a specification citation or reference
+convention, the `github-issue-fix` implementation state must add the
+most-specific applicable reference to every added or modified test source file.
+This file-level requirement includes test helpers, fixtures, and
+infrastructure-only test sources; it does not depend on whether the changed
+lines directly assert user-visible behavior.
+
+When no applicable specification point exists, implementation must record that
+absence instead of inventing a reference.
+
+This keeps repeated issue-fix implementation behavior explicit and predictable.
+[§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals).
+
 ## Related Specifications
 
 - [Plan Language Specification](rhei-plan-language.spec.md) — Grammar and semantics of the output format
