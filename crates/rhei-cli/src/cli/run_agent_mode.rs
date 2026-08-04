@@ -1239,20 +1239,15 @@ fn handle_parallel_program_completion(
                         program_spawned: true,
                     });
                 }
-                let task_file = reloaded.task_file(&task_id_str, input);
-                let metadata_file = if workspace::is_workspace(input) {
-                    input.join("index.rhei.md")
-                } else {
-                    task_file.clone()
-                };
+                let route = reloaded.task_route(&task_id_str, input);
                 execute_system_program_exit_transition(
                     TransitionFiles {
-                        task_file: &task_file,
-                        metadata_file: &metadata_file,
+                        task_file: &route.task_file,
+                        metadata_file: &route.metadata_file,
                     },
                     callback_paths,
                     machine,
-                    &task_id_str,
+                    &route.local_id,
                     &state_name,
                     &to_state,
                     exit_code,
@@ -1660,25 +1655,19 @@ fn run_agent_mode(
 
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
-            let task_file = loaded.task_file(task_id_str, input);
-            let metadata_file = if workspace::is_workspace(input) {
-                input.join("index.rhei.md")
-            } else {
-                task_file.clone()
-            };
+            let route = loaded.task_route(task_id_str, input);
             match execute_transition(
-                TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
                 callback_paths,
                 machine,
-                task_id_str,
+                &route.local_id,
                 current_state,
                 &to_state,
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
                     append_transition_audit_entry(
-                        input,
-                        &task_file,
+                        &route.execution_root,
                         task_id_str,
                         current_state,
                         &effective_to,
@@ -1953,28 +1942,22 @@ fn run_agent_mode(
                                 advanced_any = true;
                                 continue;
                             }
-                            let task_file = loaded.task_file(task_id_str, input);
-                            let metadata_file = if workspace::is_workspace(input) {
-                                input.join("index.rhei.md")
-                            } else {
-                                task_file.clone()
-                            };
+                            let route = loaded.task_route(task_id_str, input);
                             let effective_to = execute_system_program_exit_transition(
                                 TransitionFiles {
-                                    task_file: &task_file,
-                                    metadata_file: &metadata_file,
+                                    task_file: &route.task_file,
+                                    metadata_file: &route.metadata_file,
                                 },
                                 callback_paths,
                                 machine,
-                                task_id_str,
+                                &route.local_id,
                                 current_state,
                                 &to_state,
                                 exit_code,
                                 opts.no_callbacks(),
                             )?;
                             append_transition_audit_entry(
-                                input,
-                                &task_file,
+                                &route.execution_root,
                                 task_id_str,
                                 current_state,
                                 &effective_to,

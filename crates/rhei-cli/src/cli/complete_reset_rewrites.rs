@@ -258,15 +258,6 @@ fn title_case_kind(kind: &str) -> String {
     out
 }
 
-/// Resolve the workspace root for result file placement.
-fn result_workspace_root(input: &Path, task_file: &Path) -> PathBuf {
-    if workspace::is_workspace(input) {
-        input.to_path_buf()
-    } else {
-        task_file.parent().unwrap_or(Path::new(".")).to_path_buf()
-    }
-}
-
 /// Append a state-transition entry to the central transition ledger and, when a
 /// completion message is present, to `runtime/results/<task-id>.md`.
 ///

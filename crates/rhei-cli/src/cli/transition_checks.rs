@@ -121,29 +121,19 @@ fn transition_command(
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
 
-    let task_file = if workspace::is_workspace(input) {
-        loaded.task_file(task_id_str, input)
-    } else {
-        input.to_path_buf()
-    };
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
         &callback_paths,
         &machine,
-        task_id_str,
+        &route.local_id,
         from,
         to,
         no_callbacks,
     )?;
 
-    let root = result_workspace_root(input, &task_file);
-    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
+    append_result_entry(&route.execution_root, task_id_str, from, &effective_to, None)?;
 
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);
     Ok(())
@@ -182,14 +172,13 @@ fn execute_transition(
 }
 
 /// Append the command-owned central audit entry for a state change that was
-/// already applied by the run orchestrator. §FS-rhei-run.3 §FS-rhei-complete.3.1
+/// already applied by the run orchestrator, into the owning rhei's runtime
+/// ledger. §FS-rhei-run.3 §FS-rhei-complete.3.1
 fn append_transition_audit_entry(
-    input: &Path,
-    task_file: &Path,
+    execution_root: &Path,
     task_id_str: &str,
     from: &str,
     to: &str,
 ) -> MietteResult<()> {
-    let root = result_workspace_root(input, task_file);
-    append_result_entry(&root, task_id_str, from, to, None)
+    append_result_entry(execution_root, task_id_str, from, to, None)
 }

@@ -70,17 +70,12 @@ fn complete_command(
     })?;
 
     // Execute the state transition (compare-and-swap, callbacks, atomic write).
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
         &callback_paths,
         &machine,
-        task_id_str,
+        &route.local_id,
         &current_state,
         &to_state,
         no_callbacks,
@@ -93,13 +88,14 @@ fn complete_command(
         ));
     }
 
-    // Append the completion entry to the result file.
-    let root = result_workspace_root(input, &task_file);
+    // Append the completion entry to the result file in the owning rhei's
+    // runtime, keyed by the project-qualified id. §AR-rhei-panta.2
+    let root = &route.execution_root;
     let result_link = format!("runtime/results/{}.md", task_id_str);
-    append_result_entry(&root, task_id_str, current_state_raw, &effective_to, Some(result_msg))?;
+    append_result_entry(root, task_id_str, current_state_raw, &effective_to, Some(result_msg))?;
 
     // Post-transition: remove assignee and link the result file (first time only).
-    rewrite_task_completion(&task_file, task_id_str, task_id_str, &result_link, true)?;
+    rewrite_task_completion(&route.task_file, &route.local_id, task_id_str, &result_link, true)?;
 
     println!(
         "Task {} completed: '{}' → '{}' ({})",

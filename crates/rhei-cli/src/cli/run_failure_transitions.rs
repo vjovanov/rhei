@@ -51,17 +51,12 @@ fn fire_tooling_unavailable_transition(
         Ok(l) => l,
         Err(_) => return TimeoutTransitionOutcome::Failed,
     };
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
     match execute_system_tooling_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
         callback_paths,
         machine,
-        task_id_str,
+        &route.local_id,
         from_state,
         &rule.to.0,
         kind,
@@ -70,7 +65,7 @@ fn fire_tooling_unavailable_transition(
     ) {
         Ok(effective_to) => {
             if let Err(err) =
-                append_transition_audit_entry(input, &task_file, task_id_str, from_state, &effective_to)
+                append_transition_audit_entry(&route.execution_root, task_id_str, from_state, &effective_to)
             {
                 diag_warn!(
                     "  warning: failed to append tooling-unavailable transition audit for Task {}: {}",
@@ -154,12 +149,7 @@ fn fire_selected_timeout_transition(
         Ok(l) => l,
         Err(_) => return TimeoutTransitionOutcome::Failed,
     };
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
     let timeout_label = timeout_secs
         .map(format_duration_human)
         .or_else(|| {
@@ -175,10 +165,10 @@ fn fire_selected_timeout_transition(
         })
         .unwrap_or_default();
     match execute_system_timeout_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
         callback_paths,
         machine,
-        task_id_str,
+        &route.local_id,
         from_state,
         to_state,
         &timeout_label,
@@ -186,7 +176,7 @@ fn fire_selected_timeout_transition(
     ) {
         Ok(effective_to) => {
             if let Err(err) =
-                append_transition_audit_entry(input, &task_file, task_id_str, from_state, &effective_to)
+                append_transition_audit_entry(&route.execution_root, task_id_str, from_state, &effective_to)
             {
                 diag_warn!(
                     "  warning: failed to append timeout transition audit for Task {}: {}",
@@ -224,17 +214,12 @@ fn fire_agent_exit_transition(
         Ok(l) => l,
         Err(_) => return TimeoutTransitionOutcome::Failed,
     };
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
     match execute_system_program_exit_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
         callback_paths,
         machine,
-        task_id_str,
+        &route.local_id,
         from_state,
         to_state,
         exit_code,
@@ -242,7 +227,7 @@ fn fire_agent_exit_transition(
     ) {
         Ok(effective_to) => {
             if let Err(err) =
-                append_transition_audit_entry(input, &task_file, task_id_str, from_state, &effective_to)
+                append_transition_audit_entry(&route.execution_root, task_id_str, from_state, &effective_to)
             {
                 diag_warn!(
                     "  warning: failed to append error transition audit for Task {}: {}",

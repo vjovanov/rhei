@@ -251,6 +251,62 @@ impl LoadedPlan {
     fn is_panta_project(&self) -> bool {
         self.kind == LoadedPlanKind::PantaProject
     }
+
+    /// Resolve where a merged-graph ticket's rewrites must land: the file that
+    /// owns its heading, the file that owns its runtime metadata, the id as
+    /// written inside that file, and the owning rhei's execution root for
+    /// `runtime/` artifacts. Routing sends every state, assignee, result, and
+    /// runtime rewrite to the owning rhei with that rhei's id space.
+    /// §FS-rhei-panta.6.1
+    fn task_route(&self, task_id: &str, input: &Path) -> TaskRoute {
+        match self.kind {
+            LoadedPlanKind::SingleFile => {
+                let task_file = self.task_file(task_id, input);
+                TaskRoute {
+                    metadata_file: task_file.clone(),
+                    execution_root: input.parent().unwrap_or(Path::new(".")).to_path_buf(),
+                    local_id: task_id.to_string(),
+                    task_file,
+                }
+            }
+            LoadedPlanKind::Workspace => TaskRoute {
+                task_file: self.task_file(task_id, input),
+                metadata_file: input.join("index.rhei.md"),
+                local_id: task_id.to_string(),
+                execution_root: input.to_path_buf(),
+            },
+            LoadedPlanKind::PantaProject => {
+                let task_file = self.task_file(task_id, input);
+                let execution_root = self.task_root(task_id, input);
+                // A workspace child keeps ticket metadata in its own index;
+                // a single-file child keeps it in the rhei file itself.
+                let metadata_file = if workspace::is_workspace(&execution_root) {
+                    execution_root.join("index.rhei.md")
+                } else {
+                    task_file.clone()
+                };
+                // Ticket headings inside the owning file are rhei-local: strip
+                // the project-qualifying rhei id segment. §AR-rhei-panta.3
+                let local_id = task_id
+                    .split_once('.')
+                    .map(|(_, rest)| rest.to_string())
+                    .unwrap_or_else(|| task_id.to_string());
+                TaskRoute { task_file, metadata_file, local_id, execution_root }
+            }
+        }
+    }
+}
+
+/// Resolved write routing for one ticket; see [`LoadedPlan::task_route`].
+struct TaskRoute {
+    /// File whose headings contain the ticket.
+    task_file: PathBuf,
+    /// File whose frontmatter owns the ticket's runtime metadata.
+    metadata_file: PathBuf,
+    /// The ticket id as written inside `task_file`.
+    local_id: String,
+    /// Root directory for the owning rhei's `runtime/` artifacts.
+    execution_root: PathBuf,
 }
 
 fn reject_panta_mutation(loaded: &LoadedPlan, command: &str) -> MietteResult<()> {
