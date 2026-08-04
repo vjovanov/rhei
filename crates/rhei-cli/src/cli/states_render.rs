@@ -258,41 +258,54 @@ impl LoadedPlan {
     /// metadata file, in-file id, and the owning rhei's execution root.
     /// §FS-rhei-panta.6.1 routes every rewrite to the owning rhei.
     fn task_route(&self, task_id: &str, input: &Path) -> TaskRoute {
-        match self.kind {
+        let task_file = self.task_file(task_id, input);
+        let fallback_root = match self.kind {
             LoadedPlanKind::SingleFile => {
-                let task_file = self.task_file(task_id, input);
-                TaskRoute {
-                    metadata_file: task_file.clone(),
-                    execution_root: input.parent().unwrap_or(Path::new(".")).to_path_buf(),
-                    local_id: task_id.to_string(),
-                    task_file,
-                }
+                input.parent().unwrap_or(Path::new(".")).to_path_buf()
             }
-            LoadedPlanKind::Workspace => TaskRoute {
-                task_file: self.task_file(task_id, input),
-                metadata_file: input.join("index.rhei.md"),
-                local_id: task_id.to_string(),
-                execution_root: input.to_path_buf(),
-            },
-            LoadedPlanKind::PantaProject => {
-                let task_file = self.task_file(task_id, input);
-                let execution_root = self.task_root(task_id, input);
-                // A workspace child keeps ticket metadata in its own index;
-                // a single-file child keeps it in the rhei file itself.
-                let metadata_file = if workspace::is_workspace(&execution_root) {
-                    execution_root.join("index.rhei.md")
-                } else {
-                    task_file.clone()
-                };
-                // Ticket headings inside the owning file are rhei-local: strip
-                // the project-qualifying rhei id segment. §AR-rhei-panta.3
-                let local_id = task_id
-                    .split_once('.')
-                    .map(|(_, rest)| rest.to_string())
-                    .unwrap_or_else(|| task_id.to_string());
-                TaskRoute { task_file, metadata_file, local_id, execution_root }
-            }
-        }
+            _ => input.to_path_buf(),
+        };
+        let execution_root = self.task_root(task_id, &fallback_root);
+        // A workspace-shaped rhei keeps ticket metadata in its own index; a
+        // single-file rhei keeps it in the rhei file itself.
+        let metadata_file = if workspace::is_workspace(&execution_root) {
+            execution_root.join("index.rhei.md")
+        } else {
+            task_file.clone()
+        };
+        // Ticket headings inside the owning file are rhei-local: strip the
+        // project-qualifying rhei id segment. §AR-rhei-panta.3
+        let local_id = task_id
+            .split_once('.')
+            .map(|(_, rest)| rest.to_string())
+            .unwrap_or_else(|| task_id.to_string());
+        TaskRoute { task_file, metadata_file, local_id, execution_root }
+    }
+}
+
+/// Resolve a CLI ticket target to its project-qualified id: the qualified id
+/// itself, or an unambiguous rhei-local shorthand. §FS-rhei-panta.6
+fn resolve_cli_task_id(loaded: &LoadedPlan, task_id_str: &str) -> MietteResult<String> {
+    let target = parse_task_id(task_id_str);
+    if find_task_by_id(&loaded.rhei.tasks, &target).is_some() {
+        return Ok(task_id_str.to_string());
+    }
+    let candidates: Vec<String> = loaded
+        .rhei_ids
+        .iter()
+        .map(|rhei_id| format!("{rhei_id}.{task_id_str}"))
+        .filter(|qualified| {
+            find_task_by_id(&loaded.rhei.tasks, &parse_task_id(qualified)).is_some()
+        })
+        .collect();
+    match candidates.len() {
+        0 => Err(miette!("task '{}' not found in the plan", task_id_str)),
+        1 => Ok(candidates.into_iter().next().expect("one candidate")),
+        _ => Err(miette!(
+            "task id '{}' is ambiguous across rheis; use a qualified id: {}",
+            task_id_str,
+            candidates.join(", ")
+        )),
     }
 }
 
@@ -309,9 +322,10 @@ struct TaskRoute {
 }
 
 /// Report the resolved scope before a command spawns work or destroys runtime
-/// state across a project. §FS-rhei-panta.6.4
+/// state across a project. A bare one-rhei implicit Panta stays quiet — the
+/// report exists for multi-rhei fan-out. §FS-rhei-panta.6.4
 fn report_panta_scope(loaded: &LoadedPlan, command: &str) {
-    if loaded.is_panta_project() {
+    if loaded.is_panta_project() || loaded.rhei_ids.len() > 1 {
         println!(
             "Scope: `rhei {}` operates project-wide across {} rhei(s): {}",
             command,
@@ -335,26 +349,36 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             rhei_ids: project.rhei_ids,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
+        // §AR-rhei-panta.2: a bare Directory Workspace is the single rhei of
+        // an implicit Panta; the graph shape matches an explicit project.
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
-        Ok(LoadedPlan {
-            rhei: ws.rhei,
-            kind: LoadedPlanKind::Workspace,
-            task_sources: ws.task_sources,
-            task_roots: HashMap::new(),
-            content_section_roots: Vec::new(),
-            rhei_ids: Vec::new(),
-        })
+        let project = workspace::wrap_rhei_as_implicit_panta(ws, &ws_dir)
+            .map_err(|err| miette!("{}", err.message))?;
+        Ok(implicit_loaded_plan(project, LoadedPlanKind::Workspace))
     } else {
         let input = read_input_file(path)?;
         let rhei = rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))?;
-        Ok(LoadedPlan {
-            rhei,
-            kind: LoadedPlanKind::SingleFile,
-            task_sources: HashMap::new(),
-            task_roots: HashMap::new(),
-            content_section_roots: Vec::new(),
-            rhei_ids: Vec::new(),
-        })
+        // §AR-rhei-panta.2/.3: a bare rhei file wraps as an implicit Panta
+        // with its id derived from the file stem.
+        let project = workspace::implicit_panta_from_file_rhei(rhei, path)
+            .map_err(|err| miette!("{}", err.message))?;
+        Ok(implicit_loaded_plan(project, LoadedPlanKind::SingleFile))
+    }
+}
+
+/// Build a [`LoadedPlan`] from an implicit-Panta wrap, keeping the original
+/// input shape in `kind` for shape-specific behavior (labels, parallel gating).
+fn implicit_loaded_plan(
+    project: rhei_core::workspace::PantaProject,
+    kind: LoadedPlanKind,
+) -> LoadedPlan {
+    LoadedPlan {
+        rhei: project.rhei,
+        kind,
+        task_sources: project.task_sources,
+        task_roots: project.task_roots,
+        content_section_roots: project.content_section_roots,
+        rhei_ids: project.rhei_ids,
     }
 }
 
@@ -381,14 +405,11 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
     let raw = read_input_file(path)?;
     let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
     match (maybe_rhei, errs.is_empty()) {
-        (Some(rhei), true) => Ok(LoadedPlan {
-            rhei,
-            kind: LoadedPlanKind::SingleFile,
-            task_sources: HashMap::new(),
-            task_roots: HashMap::new(),
-            content_section_roots: Vec::new(),
-            rhei_ids: Vec::new(),
-        }),
+        (Some(rhei), true) => {
+            let project = workspace::implicit_panta_from_file_rhei(rhei, path)
+                .map_err(|err| miette!("{}", err.message))?;
+            Ok(implicit_loaded_plan(project, LoadedPlanKind::SingleFile))
+        }
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
     }
 }
@@ -447,7 +468,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         return Err(miette!("workspace contains no tasks (tasks/ directory is empty or missing)"));
     }
 
-    Ok(LoadedPlan {
+    let ws = rhei_core::workspace::Workspace {
         rhei: rhei_core::ast::Rhei {
             title: index.title,
             states: index.states,
@@ -457,12 +478,11 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
             content_sections: index.content_sections,
             tasks: all_tasks,
         },
-        kind: LoadedPlanKind::Workspace,
         task_sources,
-        task_roots: HashMap::new(),
-        content_section_roots: Vec::new(),
-        rhei_ids: Vec::new(),
-    })
+    };
+    let project = workspace::wrap_rhei_as_implicit_panta(ws, ws_dir)
+        .map_err(|err| miette!("{}", err.message))?;
+    Ok(implicit_loaded_plan(project, LoadedPlanKind::Workspace))
 }
 
 fn collect_workspace_task_sources(

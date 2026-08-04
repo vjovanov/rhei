@@ -544,3 +544,52 @@ transitions:
     }
 
     // ---- profiles / node_policy ----
+
+    // §FS-rhei-panta.6.3: a plan authored before ticket ids gained their rhei
+    // prefix keeps validating; the qualified form stays canonical.
+    #[test]
+    fn result_block_accepts_legacy_rhei_local_link_and_qualified_link() {
+        fn qualified_plan(link: &str) -> rhei_core::ast::Rhei {
+            let input = format!(
+                "# Rhei: Legacy\n\n## Tasks\n\n### Task 1: Old work\n**State:** completed\n\n> **Result:** {link}\n"
+            );
+            let rhei = parse(&input).expect("parse ok");
+            let workspace = rhei_core::workspace::implicit_panta_from_file_rhei(
+                rhei,
+                std::path::Path::new("legacy.rhei.md"),
+            )
+            .expect("wrap as implicit panta");
+            workspace.rhei
+        }
+
+        let machine = sample_machine();
+
+        // Legacy rhei-local link is accepted.
+        let report = validate_with_machine(
+            &qualified_plan("[1](runtime/results/1.md)"),
+            &machine,
+        );
+        let link_errors: Vec<_> =
+            report.errors.iter().filter(|err| err.contains("result block")).collect();
+        assert!(link_errors.is_empty(), "legacy link should validate: {link_errors:?}");
+
+        // Canonical qualified link is accepted.
+        let report = validate_with_machine(
+            &qualified_plan("[legacy.1](runtime/results/legacy.1.md)"),
+            &machine,
+        );
+        let link_errors: Vec<_> =
+            report.errors.iter().filter(|err| err.contains("result block")).collect();
+        assert!(link_errors.is_empty(), "qualified link should validate: {link_errors:?}");
+
+        // An unrelated id is still rejected.
+        let report = validate_with_machine(
+            &qualified_plan("[other.9](runtime/results/other.9.md)"),
+            &machine,
+        );
+        assert!(
+            report.errors.iter().any(|err| err.contains("result block link text")),
+            "unrelated link must still error: {:?}",
+            report.errors
+        );
+    }

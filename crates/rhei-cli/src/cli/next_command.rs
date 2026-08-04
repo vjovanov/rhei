@@ -271,8 +271,12 @@ fn next_command(
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
     }
 
-    // Find the target task to claim.
-    let (task_id_str, current_state_raw, current_state, task_workspace_root) = if let Some(tid) = task_id_filter {
+    // Find the target task to claim. §FS-rhei-panta.6: accept the qualified
+    // id or an unambiguous rhei-local shorthand.
+    let resolved_filter = task_id_filter
+        .map(|tid| resolve_cli_task_id(&loaded, tid))
+        .transpose()?;
+    let (task_id_str, current_state_raw, current_state, task_workspace_root) = if let Some(tid) = resolved_filter.as_deref() {
         let target_id = parse_task_id(tid);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
@@ -391,7 +395,7 @@ fn next_command(
             miette!("no forward transition available from state '{}'", current_state_raw)
         })?;
         let effective_to = execute_transition(
-            TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
+            TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: &task_id_str },
             &callback_paths,
             &machine,
             &route.local_id,

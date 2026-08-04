@@ -121,6 +121,13 @@ The project is the unit an operator drives. Because a mutating invocation can fa
 out across every rhei, any command that spawns work or destroys runtime state
 must report its resolved scope and the affected rheis before acting.
 
+A ticket target passed to a command (`rhei complete <id>`, `rhei transition
+--task <id>`, …) is either the project-qualified id (`auth.1`) or a rhei-local
+shorthand (`1`). A rhei-local target resolves only when exactly one in-scope
+rhei contains that ticket; ambiguity across rheis is an error that names the
+qualified candidates. Output, artifacts, and ledgers always use the qualified
+id regardless of how the target was written.
+
 Each rhei may declare its own state machine via `**States:**`; the
 `index.panta.md` manifest supplies the project default for rheis that do not.
 Commands resolve and apply the correct machine per rhei (§AR-rhei-panta).
@@ -153,6 +160,16 @@ touch (§6). A bare rhei runs as the single rhei of its implicit Panta, so the
 project-wide loop is the only execution path.
 
 ### 6.3. Completion and rollup
+
+Result artifacts and their in-plan links are keyed by the **project-qualified**
+ticket id: completing `auth.1` writes `runtime/results/auth.1.md` under the
+owning rhei's execution root and links it as `[auth.1](runtime/results/auth.1.md)`.
+Because every ticket gained its rhei prefix when bare rheis became implicit
+Pantas, a plan authored earlier carries the rhei-local link
+(`[1](runtime/results/1.md)`). Validation **accepts that legacy form** so
+existing plans keep validating; commands only ever write the qualified form, so
+a plan migrates the next time its ticket is completed. Only these two forms are
+accepted — any other link text or target is an error.
 
 `rhei complete` finishes a leaf ticket. A rhei is done when all its tickets are
 terminal, and Panta when all rheis are done, but this status is **derived, not

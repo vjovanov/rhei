@@ -9,6 +9,11 @@ struct CallbackPaths {
 struct TransitionFiles<'a> {
     task_file: &'a Path,
     metadata_file: &'a Path,
+    /// Owning rhei's execution root for artifact resolution. §FS-rhei-panta.6.2
+    artifact_root: &'a Path,
+    /// Project-qualified ticket id rendered into `{task_id}` artifact
+    /// templates and gate messages. §AR-rhei-panta.2
+    artifact_id: &'a str,
 }
 
 fn resolve_callback_paths(
@@ -241,21 +246,9 @@ fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
     Ok(())
 }
 
-fn write_plan_metadata(input: &Path, metadata: &Metadata) -> MietteResult<()> {
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        input.to_path_buf()
-    };
-    let raw = fs::read_to_string(&metadata_file)
-        .map_err(|err| file_io_report(&metadata_file, "failed to read plan metadata file", err))?;
-    let updated = rewrite_frontmatter(&raw, metadata)?;
-    write_file_atomic(&metadata_file, &updated)
-}
-
 fn record_poll_self_loop_if_needed(
+    loaded: &LoadedPlan,
     input: &Path,
-    metadata: Option<&Metadata>,
     machine: &rhei_validator::StateMachine,
     task: &rhei_core::ast::Task,
     current_state: &str,
@@ -268,18 +261,48 @@ fn record_poll_self_loop_if_needed(
         return Ok(false);
     };
     let interval = rhei_validator::parse_duration_secs(&poll.interval).unwrap_or(0);
-    let next_attempt_count =
-        current_state_visit_count(metadata, &task.id, current_state, task.state.as_str(), machine)
-            .saturating_add(1);
-    let metadata = set_poll_next_attempt_metadata(
-        metadata,
+    // The attempt count reads from the merged graph (qualified keys).
+    let next_attempt_count = current_state_visit_count(
+        loaded.rhei.metadata.as_ref(),
         &task.id,
+        current_state,
+        task.state.as_str(),
+        machine,
+    )
+    .saturating_add(1);
+    // §FS-rhei-panta.6.1: the write lands in the owning rhei's metadata file
+    // under the rhei-local id — the same on-disk key space the exit-time
+    // clear_poll_state_metadata removes.
+    let route = loaded.task_route(&task.id.to_string(), input);
+    let local_id = parse_task_id(&route.local_id);
+    let raw = fs::read_to_string(&route.metadata_file).map_err(|err| {
+        file_io_report(&route.metadata_file, "failed to read plan metadata file", err)
+    })?;
+    let on_disk = parse_metadata_from_raw(&route.metadata_file, &raw)?;
+    let updated = set_poll_next_attempt_metadata(
+        on_disk.as_ref(),
+        &local_id,
         current_state,
         current_unix_secs().saturating_add(interval),
         next_attempt_count,
     );
-    write_plan_metadata(input, &metadata)?;
+    let rewritten = rewrite_frontmatter(&raw, &updated)?;
+    write_file_atomic(&route.metadata_file, &rewritten)?;
     Ok(true)
+}
+
+/// Parse the frontmatter metadata mapping from a metadata file (a workspace
+/// `index.rhei.md` manifest or a single-file plan). Keys are rhei-local.
+fn parse_metadata_from_raw(path: &Path, raw: &str) -> MietteResult<Option<Metadata>> {
+    if path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
+        let index = rhei_core::parser::parse_workspace_index(raw)
+            .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
+        Ok(index.metadata)
+    } else {
+        let rhei = rhei_core::parse(raw)
+            .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
+        Ok(rhei.metadata)
+    }
 }
 
 /// Merge `src` object keys into `dst` (last write wins). Non-object `src`

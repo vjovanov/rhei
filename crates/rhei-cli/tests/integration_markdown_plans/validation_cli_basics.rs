@@ -124,7 +124,7 @@ fn invalid_plan_reports_cross_component_validation_failures() {
 #[test]
 fn cli_validate_and_render_use_real_fixture_files() {
     let temp_dir = unique_temp_dir("integration-cli");
-    let plan_path = write_fixture_file(&temp_dir, "valid-plan.md", CLI_VALID_PLAN);
+    let plan_path = write_fixture_file(&temp_dir, "valid-plan.rhei.md", CLI_VALID_PLAN);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let validate = Command::new(env!("CARGO_BIN_EXE_rhei"))
@@ -169,7 +169,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
 #[test]
 fn cli_validate_surfaces_validation_errors_for_fixture() {
     let temp_dir = unique_temp_dir("integration-cli-invalid");
-    let plan_path = write_fixture_file(&temp_dir, "invalid-plan.md", fixtures::INVALID_PLAN);
+    let plan_path = write_fixture_file(&temp_dir, "invalid-plan.rhei.md", fixtures::INVALID_PLAN);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))

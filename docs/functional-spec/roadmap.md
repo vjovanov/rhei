@@ -80,22 +80,29 @@ Status: completed. `rhei validate` now accumulates recoverable parse errors for
 single-file plans and Directory Workspace task files so authors can fix a batch
 of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-language §FS-rhei-validate
 
+## Completed: Panta Default Execution Model
+
+Status: completed. Every load path yields a Panta-rooted graph: a bare rhei is
+the single rhei of an implicit Panta with its id derived from the source
+location, mutation is project-wide with rewrites routed to each owning rhei,
+and state machines compose via explicit `extends` onto the built-in base.
+Remaining follow-ups live below. §FS-rhei-panta §AR-rhei-panta §FS-rhei-states.12
+
 ## Planned: CLI UX and Release Polish
 
 Status: planned. This section is the canonical home for useful follow-up work
 from the April 2026 PM review and the product-management pre-release pass. The
 old notes are historical; this roadmap owns the remaining backlog.
 
-- Graduate Panta from read-only project loading to project-wide mutation:
-  route state, assignee, result, runtime, and artifact rewrites to each owning
-  rhei; resolve per-rhei state machines during execution; and replace the
-  current mutating-command rejection with scoped project execution. §FS-rhei-panta §AR-rhei-panta
+- Resolve per-rhei state machines during execution so heterogeneous rheis can
+  run under their own composed machines; today a multi-rhei project still
+  requires one project-wide machine, and `extends` bases beyond the built-in
+  `rhei` machine are unresolvable. §AR-rhei-panta.4 §FS-rhei-states.12
+- Add `--rhei <id>` narrowing for project-scoped invocations. §FS-rhei-panta.6
 - Validate child-rhei content-section links under Panta: carry a per-section
   link base so a rhei's own content sections resolve against that rhei's
   execution root, not the project root. Today only task-content links are
   checked per rhei; rhei-level content sections are dropped at merge. §FS-rhei-plan-language.3.6 §AR-rhei-panta.5
-- Treat a bare rhei as the single rhei of an implicit Panta so every load path
-  yields a Panta-rooted graph, matching the target load model. §AR-rhei-panta
 - Make failed `rhei complete` attempts from loop states explain the exact
   blocked transition condition and the currently available next transitions. §FS-rhei-complete §FS-rhei-transitions
 - Decide and normalize `rhei transition` result-file behavior: either stop

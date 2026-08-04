@@ -381,11 +381,14 @@ fn execute_transition_with_origin(
         .map(|meta| task_visit_count(Some(meta), &target_id, to))
         .filter(|count| *count > 0);
 
+    // §AR-rhei-panta.2: artifact templates render the project-qualified id
+    // against the owning rhei's execution root, matching the paths agents and
+    // ready-checks were shown.
     if !origin.skip_source_outputs {
         ensure_state_outputs_exist_for_transition(
-            &workspace_root,
+            files.artifact_root,
             Some(&task_info.task),
-            task_id_str,
+            files.artifact_id,
             from,
             from_state_def,
             from_visit_count,
@@ -394,15 +397,15 @@ fn execute_transition_with_origin(
         )?;
     }
     ensure_state_inputs_exist_for_transition(
-        &workspace_root,
+        files.artifact_root,
         Some(&task_info.task),
-        task_id_str,
+        files.artifact_id,
         to,
         to_state_def,
         to_visit_count,
         machine,
         &settings,
-        &format!("Task {} cannot enter state {}.", task_id_str, to),
+        &format!("Task {} cannot enter state {}.", files.artifact_id, to),
     )?;
 
     let rendered_to_state = format_task_state_value(to, to_visit_count, machine);

@@ -300,12 +300,32 @@ pub fn assert_task_state(plan_path: &Path, machine_path: &Path, task_id: &str, e
     let task = tasks
         .iter()
         .find(|t| {
-            // JSON id now has shape { "path": "...", "segments": [...] }.
-            t["id"]["path"].as_str() == Some(task_id)
+            // JSON id now has shape { "path": "...", "segments": [...] }, with the
+            // path qualified by the implicit Panta rhei id (e.g. "plan.1"). Match
+            // either the exact path or the local id after the rhei qualifier.
+            t["id"]["path"].as_str().is_some_and(|path| {
+                path == task_id
+                    || path.split_once('.').is_some_and(|(_, local)| local == task_id)
+            })
         })
         .unwrap_or_else(|| panic!("Task {} not found in rendered JSON", task_id));
     let state = task["state"].as_str().expect("state field");
     assert_eq!(state, expected, "Task {} should be '{}', got '{}'", task_id, expected, state);
+}
+
+/// Assert that stderr contains `expected`, ignoring miette line wrapping and
+/// decoration. Both sides are collapsed to their ASCII-graphic characters so
+/// wraps inside hyphenated words (e.g. `human-review`) cannot break matches.
+pub fn assert_stderr_contains(result: &CliRun, expected: &str) {
+    fn collapse(text: &str) -> String {
+        text.chars().filter(|c| c.is_ascii_graphic()).collect()
+    }
+    assert!(
+        collapse(&result.stderr).contains(&collapse(expected)),
+        "expected stderr to contain {:?}; got:\n{}",
+        expected,
+        result.stderr
+    );
 }
 
 pub fn assert_success(result: &CliRun) {

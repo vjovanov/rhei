@@ -178,7 +178,7 @@ fn cli_validate_reports_invalid_state_as_semantic_failure() {
     assert_validation_failure(
         &result,
         &[
-            &["Task 1", "has invalid state", "blocked", "Allowed:"],
+            &["Task plan.1", "has invalid state", "blocked", "Allowed:"],
             &["completed"],
             &["pending"],
             &["in-", "progress"],
@@ -197,7 +197,7 @@ fn cli_validate_reports_missing_dependency_as_semantic_failure() {
 
     assert_validation_failure(
         &result,
-        &[&["Task 1", "depends on missing Task 99"]],
+        &[&["Task plan.1", "depends on missing Task plan.99"]],
         &["failed to parse", "Malformed task heading"],
     );
 }
@@ -212,7 +212,7 @@ fn cli_validate_reports_parent_as_prior_as_semantic_failure() {
 
     assert_validation_failure(
         &result,
-        &[&["Task fetch-prs.ci-failure-5227", "cannot list ancestor Task fetch-prs", "Prior"]],
+        &[&["Task plan.fetch-prs.ci-failure-5227", "cannot list ancestor", "plan.fetch-prs", "Prior"]],
         &["failed to parse", "Malformed task heading"],
     );
 }

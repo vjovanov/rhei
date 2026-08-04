@@ -251,11 +251,13 @@ transitions:
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
         let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
 
+        // The dashboard passes ids from the loaded graph, which implicit Panta
+        // qualifies with the rhei id derived from the plan file stem (`plan`).
         let effective = transition_dashboard_gate(
             &plan,
             &machine,
             &callback_paths,
-            "1",
+            "plan.1",
             "human-review",
             "completed",
             true,
@@ -267,7 +269,7 @@ transitions:
         assert!(updated.contains("**State:** completed"));
         let history =
             fs::read_to_string(dir.path().join("runtime/state-transitions.log")).expect("history");
-        assert!(history.contains("1 human-review@completed"));
+        assert!(history.contains("plan.1 human-review@completed"));
     }
 
     #[test]

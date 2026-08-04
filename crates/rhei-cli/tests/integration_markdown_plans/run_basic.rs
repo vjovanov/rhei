@@ -272,7 +272,7 @@ fn run_dry_run_shows_transitions_without_changes() {
     );
 
     assert!(
-        result.stdout.contains("would transition: Task 1  pending -> in-progress"),
+        result.stdout.contains("would transition: Task plan.1  pending -> in-progress"),
         "should show what would be transitioned; got:\n{}",
         result.stdout
     );
@@ -331,14 +331,14 @@ transitions:
     assert!(
         result
             .stdout
-            .contains("would transition: Task 1  review -> completed [target=codex-yolo-openai-gpt-5.5]"),
+            .contains("would transition: Task plan.1  review -> completed [target=codex-yolo-openai-gpt-5.5]"),
         "should label the first fanout target; got:\n{}",
         result.stdout
     );
     assert!(
         result
             .stdout
-            .contains("would transition: Task 1  review -> completed [target=codex-yolo-openai-gpt-5.4]"),
+            .contains("would transition: Task plan.1  review -> completed [target=codex-yolo-openai-gpt-5.4]"),
         "should label the second fanout target; got:\n{}",
         result.stdout
     );

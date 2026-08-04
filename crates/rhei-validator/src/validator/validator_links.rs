@@ -95,6 +95,23 @@ fn validate_one_markdown_link(
     }
 }
 
+/// The ticket id as it reads inside its own rhei file: the project-qualified
+/// id with the rhei-prefix segments removed. `None` when the task carries no
+/// prefix (already rhei-local). §AR-rhei-panta.3
+fn rhei_local_task_id(task: &Task) -> Option<String> {
+    let prefix = task.profile_depth_offset as usize;
+    if prefix == 0 || task.id.segments.len() <= prefix {
+        return None;
+    }
+    Some(
+        task.id.segments[prefix..]
+            .iter()
+            .map(|segment| segment.to_string())
+            .collect::<Vec<_>>()
+            .join("."),
+    )
+}
+
 fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
     let re = Regex::new(r"^> \*\*Result:\*\* \[([^\]]*)\]\(([^)]+)\)\s*$")
         .expect("valid result block regex");
@@ -148,14 +165,18 @@ fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut Vali
 
         let expected_text = task.id.to_string();
         let expected_target = format!("runtime/results/{}.md", task.id);
+        // §FS-rhei-panta.6.3 keeps the qualified id canonical while accepting
+        // the pre-prefix rhei-local link on read; writes are always qualified.
+        let legacy_text = rhei_local_task_id(task);
+        let legacy_target = legacy_text.as_ref().map(|id| format!("runtime/results/{id}.md"));
         for (display, target) in valid_blocks {
-            if display != expected_text {
+            if display != expected_text && Some(display.as_str()) != legacy_text.as_deref() {
                 report.errors.push(format!(
                     "{} result block link text must be '{}', got '{}'",
                     label, expected_text, display
                 ));
             }
-            if target != expected_target {
+            if target != expected_target && Some(target.as_str()) != legacy_target.as_deref() {
                 report.errors.push(format!(
                     "{} result block target must be '{}', got '{}'",
                     label, expected_target, target

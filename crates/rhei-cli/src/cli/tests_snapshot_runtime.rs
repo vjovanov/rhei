@@ -445,7 +445,7 @@ transitions:
         );
         let settings = RheiSettings { agents, ..Default::default() };
         let identity = SnapshotIdentity {
-            task_id: "1".to_string(),
+            task_id: "plan.1".to_string(),
             snapshot_name: "impl".to_string(),
             emitting_state: "source".to_string(),
             visit: 1,
@@ -506,7 +506,7 @@ transitions:
             (
                 "name mismatch",
                 "        name: impl\n        required: true\n        select:\n          state: source\n          target: same\n",
-                "1:other:source@1:claude-code-anthropic-model/g1",
+                "plan.1:other:source@1:claude-code-anthropic-model/g1",
                 "other",
                 "source",
                 "claude-code-anthropic-model",
@@ -516,7 +516,7 @@ transitions:
             (
                 "state mismatch",
                 "        name: impl\n        required: true\n        select:\n          state: source\n          target: same\n",
-                "1:impl:review@1:claude-code-anthropic-model/g1",
+                "plan.1:impl:review@1:claude-code-anthropic-model/g1",
                 "impl",
                 "review",
                 "claude-code-anthropic-model",
@@ -526,7 +526,7 @@ transitions:
             (
                 "target mismatch",
                 "        name: impl\n        required: true\n        select:\n          state: source\n          target: same\n",
-                "1:impl:source@1:other-target/g1",
+                "plan.1:impl:source@1:other-target/g1",
                 "impl",
                 "source",
                 "other-target",
@@ -536,7 +536,7 @@ transitions:
             (
                 "generation mismatch",
                 "        name: impl\n        required: true\n        select:\n          state: source\n          target: same\n          generation: 2\n",
-                "1:impl:source@1:claude-code-anthropic-model/g1",
+                "plan.1:impl:source@1:claude-code-anthropic-model/g1",
                 "impl",
                 "source",
                 "claude-code-anthropic-model",
@@ -561,7 +561,7 @@ transitions:
             let settings = snapshot_preload_settings();
             write_snapshot_generation(
                 &snapshot_cache_dir(&settings, dir.path()),
-                "1",
+                "plan.1",
                 snapshot_name,
                 emitting_state,
                 1,
@@ -572,7 +572,7 @@ transitions:
             refresh_current_links(
                 &snapshot_cache_dir(&settings, dir.path()),
                 [SnapshotIdentity {
-                    task_id: "1".to_string(),
+                    task_id: "plan.1".to_string(),
                     snapshot_name: snapshot_name.to_string(),
                     emitting_state: emitting_state.to_string(),
                     visit: 1,
@@ -619,7 +619,7 @@ transitions:
         let settings = snapshot_preload_settings();
         write_snapshot_generation(
             &snapshot_cache_dir(&settings, dir.path()),
-            "1",
+            "plan.1",
             "impl",
             "source",
             1,
@@ -630,7 +630,7 @@ transitions:
         refresh_current_links(
             &snapshot_cache_dir(&settings, dir.path()),
             [SnapshotIdentity {
-                task_id: "1".to_string(),
+                task_id: "plan.1".to_string(),
                 snapshot_name: "impl".to_string(),
                 emitting_state: "source".to_string(),
                 visit: 1,
@@ -643,7 +643,7 @@ transitions:
         let (loaded, machine, resolved) = snapshot_preload_parts(dir.path(), &settings);
         let task = loaded.rhei.tasks.first().expect("task");
         let opts =
-            snapshot_override_options("1:impl:source@1:claude-code-anthropic-model/g1", false);
+            snapshot_override_options("plan.1:impl:source@1:claude-code-anthropic-model/g1", false);
 
         let err = preload_snapshot_inherit_before_spawn(
             dir.path(),
@@ -671,7 +671,7 @@ transitions:
         let settings = snapshot_preload_settings();
         write_snapshot_generation(
             &snapshot_cache_dir(&settings, dir.path()),
-            "1",
+            "plan.1",
             "impl",
             "review",
             1,
@@ -682,7 +682,7 @@ transitions:
         refresh_current_links(
             &snapshot_cache_dir(&settings, dir.path()),
             [SnapshotIdentity {
-                task_id: "1".to_string(),
+                task_id: "plan.1".to_string(),
                 snapshot_name: "impl".to_string(),
                 emitting_state: "review".to_string(),
                 visit: 1,
@@ -695,7 +695,7 @@ transitions:
         let (loaded, machine, resolved) = snapshot_preload_parts(dir.path(), &settings);
         let task = loaded.rhei.tasks.first().expect("task");
         let opts =
-            snapshot_override_options("1:impl:review@1:claude-code-anthropic-model/g1", true);
+            snapshot_override_options("plan.1:impl:review@1:claude-code-anthropic-model/g1", true);
 
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
@@ -732,7 +732,7 @@ transitions:
         let cache_root = snapshot_cache_dir(&settings, dir.path());
         write_snapshot_generation(
             &cache_root,
-            "1",
+            "plan.1",
             "impl",
             "source",
             1,
@@ -742,7 +742,7 @@ transitions:
         );
         write_snapshot_staging_generation(
             &cache_root,
-            "1",
+            "plan.1",
             "impl",
             "source",
             1,
@@ -753,7 +753,7 @@ transitions:
         refresh_current_links(
             &cache_root,
             [SnapshotIdentity {
-                task_id: "1".to_string(),
+                task_id: "plan.1".to_string(),
                 snapshot_name: "impl".to_string(),
                 emitting_state: "source".to_string(),
                 visit: 1,
@@ -769,7 +769,7 @@ transitions:
         assert_eq!(records[0].generation, 1);
 
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
-        let shown = resolve_snapshot_ref(&ctx, "1:impl:source", None, None).expect("show ref");
+        let shown = resolve_snapshot_ref(&ctx, "plan.1:impl:source", None, None).expect("show ref");
         assert_eq!(shown.generation, 1);
 
         let (loaded, machine, _resolved) = snapshot_preload_parts(dir.path(), &settings);
@@ -844,7 +844,7 @@ transitions:
         for slug in [&slug_a, &slug_b] {
             write_snapshot_generation(
                 &cache_root,
-                "1",
+                "plan.1",
                 "impl",
                 "source",
                 1,
@@ -858,7 +858,7 @@ transitions:
             [slug_a.clone(), slug_b.clone()]
                 .into_iter()
                 .map(|target_slug| SnapshotIdentity {
-                    task_id: "1".to_string(),
+                    task_id: "plan.1".to_string(),
                     snapshot_name: "impl".to_string(),
                     emitting_state: "source".to_string(),
                     visit: 1,
@@ -872,7 +872,7 @@ transitions:
             .cloned()
             .map(|resolved| {
                 (
-                    "1".to_string(),
+                    "plan.1".to_string(),
                     "pending".to_string(),
                     "pending".to_string(),
                     resolved,
@@ -880,21 +880,21 @@ transitions:
             })
             .collect::<Vec<_>>();
         let mut opts = snapshot_override_options(
-            &format!("1:impl:source@1:{slug_a}/g1"),
+            &format!("plan.1:impl:source@1:{slug_a}/g1"),
             false,
         );
         let err = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
             .expect_err("ambiguous run invocation is rejected");
         let msg = err.to_string();
         assert!(msg.contains("ambiguous"));
-        assert!(msg.contains(&format!("task=1 target={slug_a}")));
-        assert!(msg.contains(&format!("task=1 target={slug_b}")));
+        assert!(msg.contains(&format!("task=plan.1 target={slug_a}")));
+        assert!(msg.contains(&format!("task=plan.1 target={slug_b}")));
 
         opts.snapshot.snapshot_target = Some(slug_a.clone());
         let selection = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
             .expect("selected")
             .expect("selection");
-        assert_eq!(selection.task_id, "1");
+        assert_eq!(selection.task_id, "plan.1");
         assert_eq!(selection.target_slug, slug_a);
 
         let preload_a = preload_snapshot_inherit_before_spawn(
@@ -997,7 +997,7 @@ transitions:
         let cache_root = snapshot_cache_dir(&settings, dir.path());
         write_snapshot_generation(
             &cache_root,
-            "1",
+            "plan.1",
             "impl",
             "source",
             1,
@@ -1008,7 +1008,7 @@ transitions:
         refresh_current_links(
             &cache_root,
             [SnapshotIdentity {
-                task_id: "1".to_string(),
+                task_id: "plan.1".to_string(),
                 snapshot_name: "impl".to_string(),
                 emitting_state: "source".to_string(),
                 visit: 1,
@@ -1024,14 +1024,14 @@ transitions:
             .cloned()
             .map(|resolved| {
                 (
-                    "1".to_string(),
+                    "plan.1".to_string(),
                     "pending".to_string(),
                     "pending".to_string(),
                     resolved,
                 )
             })
             .collect::<Vec<_>>();
-        let mut opts = snapshot_override_options("1:impl:source@1/g1", false);
+        let mut opts = snapshot_override_options("plan.1:impl:source@1/g1", false);
         opts.snapshot.snapshot_target = Some(selected_run_slug.to_string());
         let selection = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
             .expect("selected")
@@ -1456,7 +1456,7 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         };
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -1464,7 +1464,7 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
             1,
             "orchestrator",
         );
-        let record = resolve_snapshot_ref(&ctx, "1:impl:pending/g1", None, None)
+        let record = resolve_snapshot_ref(&ctx, "plan.1:impl:pending/g1", None, None)
             .expect("resolve source snapshot");
         let resolved = resolve_snapshot_continue_agent(&ctx, &record).expect("resolve agent");
         let session = resolved.profile.session.as_ref().expect("session");
@@ -1481,7 +1481,7 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         )
         .expect_err("unchanged staged source must not be captured");
         assert!(err.to_string().contains("did not produce a supported native session transcript"));
-        assert!(resolve_snapshot_ref(&ctx, "1:impl:pending/g2", None, None).is_err());
+        assert!(resolve_snapshot_ref(&ctx, "plan.1:impl:pending/g2", None, None).is_err());
     }
 
     #[test]
@@ -1507,7 +1507,7 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         };
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -1516,7 +1516,7 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
             "orchestrator",
         );
 
-        let err = snapshot_continue_command(&ctx, "1:impl:pending/g1", None, None, true)
+        let err = snapshot_continue_command(&ctx, "plan.1:impl:pending/g1", None, None, true)
             .expect_err("layout-incompatible snapshot should not continue");
 
         assert!(err.to_string().contains("incompatible-snapshot"));
@@ -1698,8 +1698,27 @@ transitions:
         path
     }
 
-    fn snapshot_workspace() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().expect("tmpdir");
+    /// Workspace fixture for snapshot tests. Implicit Panta derives the rhei
+    /// id from the workspace directory name, so the plan lives in a
+    /// validly-named `plan/` subdirectory of the tempdir (tempdir names like
+    /// `.tmpXYZ` are not valid identifiers). Loaded task ids are therefore
+    /// qualified as `plan.1`, `plan.1.1`, ...
+    struct SnapshotWorkspace {
+        _tmp: tempfile::TempDir,
+        root: PathBuf,
+    }
+
+    impl SnapshotWorkspace {
+        fn path(&self) -> &Path {
+            &self.root
+        }
+    }
+
+    fn snapshot_workspace() -> SnapshotWorkspace {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let root = tmp.path().join("plan");
+        fs::create_dir_all(&root).expect("plan root");
+        let dir = SnapshotWorkspace { _tmp: tmp, root };
         fs::write(
             dir.path().join("index.rhei.md"),
             "# Rhei: Snapshot Test\n**States:** snapshot-test\n\n## Notes\n",

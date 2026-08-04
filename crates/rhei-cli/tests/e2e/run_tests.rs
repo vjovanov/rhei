@@ -21,13 +21,9 @@ fn run_builtin_default_refuses_manual_pending_tasks() {
         result.stdout,
         result.stderr
     );
-    assert!(
-        result.stderr.contains("manual-only initial state 'pending'")
-            && result.stderr.contains("rhei next")
-            && result.stderr.contains("rhei complete"),
-        "expected manual workflow diagnostic; got:\n{}",
-        result.stderr
-    );
+    assert_stderr_contains(&result, "Task plan.1 is in manual-only initial state 'pending'");
+    assert_stderr_contains(&result, "rhei next");
+    assert_stderr_contains(&result, "rhei complete");
     let content = fs::read_to_string(&plan_path).expect("read plan after failed run");
     assert!(
         content.contains("**State:** pending") && !content.contains("**State:** completed"),
@@ -387,14 +383,14 @@ transitions:
         fs::read_to_string(dir.join("runtime/logs/override-agent.log")).expect("read override log");
     assert!(
         log.contains(
-            "task=model-override model=special-model target=mock[yolo]:mock:special-model mode=yolo agent=mock provider=mock name=special-model"
+            "task=plan.model-override model=special-model target=mock[yolo]:mock:special-model mode=yolo agent=mock provider=mock name=special-model"
         ),
         "model override did not preserve state target identity with swapped model; log:\n{}",
         log
     );
     assert!(
         log.contains(
-            "task=target-override model=target-model target=mock[slow]:mock:target-model mode=slow agent=mock provider=mock name=target-model"
+            "task=plan.target-override model=target-model target=mock[slow]:mock:target-model mode=slow agent=mock provider=mock name=target-model"
         ),
         "target override did not replace full identity; log:\n{}",
         log
@@ -437,7 +433,7 @@ states:
     );
     let normalized_stderr = result.stderr.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        normalized_stderr.contains("Task 1 declares a task execution override")
+        normalized_stderr.contains("Task plan.1 declares a task execution override")
             && normalized_stderr.contains("fanout state"),
         "expected fanout validation error; got:\n{}",
         result.stderr
@@ -851,12 +847,12 @@ transitions:
     assert_task_state(&plan_path, &machine_path, "2", "completed");
     assert_task_state(&plan_path, &machine_path, "3", "work");
     assert!(
-        !result.stdout.contains("Task 1 transitioned: 'human-review' → 'completed'"),
+        !result.stdout.contains("Task plan.1 transitioned: 'human-review' → 'completed'"),
         "gating task must not advance autonomously; got:\n{}",
         result.stdout
     );
     assert!(
-        result.stdout.contains("Task 2 transitioned: 'work' → 'completed'"),
+        result.stdout.contains("Task plan.2 transitioned: 'work' → 'completed'"),
         "independent non-gating work should still complete before the run halts; got:\n{}",
         result.stdout
     );

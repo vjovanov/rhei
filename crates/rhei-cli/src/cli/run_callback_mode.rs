@@ -192,8 +192,8 @@ fn run_callback_mode(
 
             visited_ready_states.insert(visit_key);
             if record_poll_self_loop_if_needed(
+                &loaded,
                 input,
-                loaded.rhei.metadata.as_ref(),
                 machine,
                 task,
                 &current_state,
@@ -213,7 +213,7 @@ fn run_callback_mode(
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let route = loaded.task_route(&task_id_str, input);
             match execute_transition(
-                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
+                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: &task_id_str },
                 callback_paths,
                 machine,
                 &route.local_id,

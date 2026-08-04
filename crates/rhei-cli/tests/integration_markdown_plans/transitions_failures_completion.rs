@@ -248,7 +248,7 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
         result.stderr
     );
     assert!(
-        normalized.contains("Task 1.1"),
+        normalized.contains("Task plan.1.1"),
         "expected offending child task id in stderr, got:\n{}",
         result.stderr
     );
@@ -299,7 +299,7 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
     assert_eq!(task.state.as_str(), "completed");
     assert_eq!(task.children[0].state.as_str(), "completed");
     assert!(
-        updated.contains("> **Result:** [1](runtime/results/1.md)"),
+        updated.contains("> **Result:** [plan.1](runtime/results/plan.1.md)"),
         "expected result link in updated plan:\n{}",
         updated
     );

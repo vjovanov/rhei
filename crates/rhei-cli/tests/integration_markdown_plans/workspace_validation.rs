@@ -767,7 +767,7 @@ fn validate_and_list_accept_workspace_index_file_path() {
         stdout,
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("Task 1: Alpha"));
+    assert!(stdout.contains("Task workspace.1: Alpha"));
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }

@@ -131,7 +131,7 @@ struct CliRun {
 
 fn run_validate(plan: &str, machine: &str, prefix: &str) -> CliRun {
     let temp_dir = unique_temp_dir(prefix);
-    let plan_path = write_fixture_file(&temp_dir, "plan.md", plan);
+    let plan_path = write_fixture_file(&temp_dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", machine);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))

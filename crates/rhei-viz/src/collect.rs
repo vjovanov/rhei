@@ -39,6 +39,7 @@ pub fn collect_plans(
         plans.insert(key.to_string(), model);
         return Ok(plans);
     }
+
     if !path.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -47,7 +48,9 @@ pub fn collect_plans(
     }
 
     if workspace::is_workspace(path) {
-        let loaded = workspace::load_workspace(path).map_err(|err| {
+        // §AR-rhei-panta.2: viz renders the same implicit-Panta id space as
+        // the CLI, so workspace tickets carry their qualified ids.
+        let loaded = workspace::load_implicit_panta(path).map_err(|err| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("failed to load workspace {}: {}", path.display(), err.message),
@@ -77,6 +80,15 @@ fn load_plan_file(path: &Path, machine_override: Option<&Path>) -> io::Result<Vi
             format!("failed to parse {}: {}", path.display(), err.message),
         )
     })?;
+    // §AR-rhei-panta.2: viz renders the implicit-Panta id space (`auth.1`).
+    let rhei = workspace::implicit_panta_from_file_rhei(rhei, path)
+        .map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to load {}: {}", path.display(), err.message),
+            )
+        })?
+        .rhei;
     let machine = resolve_machine(path, machine_override, &rhei)?;
     let workspace_root = path.parent().unwrap_or_else(|| Path::new("."));
     Ok(build_with_history(&rhei, &machine, workspace_root))

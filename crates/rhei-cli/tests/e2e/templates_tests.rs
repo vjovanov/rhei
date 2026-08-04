@@ -279,7 +279,7 @@ Body for step 6.
         result.stdout
     );
     assert!(
-        result.stdout.contains("Task tree:\n  - Task 1: Step 1 [pending]"),
+        result.stdout.contains("Task tree:\n  - Task plan.1: Step 1 [pending]"),
         "expected task tree in instantiate output; got:\n{}",
         result.stdout
     );
@@ -292,16 +292,18 @@ Body for step 6.
             panic!("expected Recent task definitions section; got:\n{}", result.stdout)
         });
     assert!(
-        last_tasks.contains("--- Task 2: Step 2 [pending] ---")
-            && last_tasks.contains("### Task 2: Step 2\n**State:** pending\n\nBody for step 2.")
-            && last_tasks.contains("--- Task 6: Step 6 [pending] ---")
-            && last_tasks.contains("### Task 6: Step 6\n**State:** pending\n\nBody for step 6.")
-            && !last_tasks.contains("Task 1: Step 1 [pending]"),
+        last_tasks.contains("--- Task plan.2: Step 2 [pending] ---")
+            && last_tasks
+                .contains("#### Task plan.2: Step 2\n**State:** pending\n\nBody for step 2.")
+            && last_tasks.contains("--- Task plan.6: Step 6 [pending] ---")
+            && last_tasks
+                .contains("#### Task plan.6: Step 6\n**State:** pending\n\nBody for step 6.")
+            && !last_tasks.contains("Task plan.1: Step 1 [pending]"),
         "expected the last five rendered task definitions, excluding task 1; got:\n{}",
         last_tasks
     );
     assert!(
-        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task 1: Step 1 [pending]."),
+        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task plan.1: Step 1 [pending]."),
         "expected stop reason in instantiate output; got:\n{}",
         result.stdout
     );
@@ -334,17 +336,17 @@ fn instantiate_project_hourly_human_intervention_template_prints_summary() {
             && result.stdout.contains(".agents/")
             && result.stdout.contains("Task tree:")
             && result.stdout.contains(
-                "Task fetch-issues: Fetch and classify human-intervention issues [fetch]"
+                "Task hourly.fetch-issues: Fetch and classify human-intervention issues [fetch]"
             )
             && result.stdout.contains("Recent task definitions:")
             && result.stdout.contains(
-                "### Task fetch-prs: Fetch and classify human-intervention pull requests"
+                "### Task hourly.fetch-prs: Fetch and classify human-intervention pull requests"
             )
             && result.stdout.contains(
-                "Task fetch-prs: Fetch and classify human-intervention pull requests [fetch]"
+                "Task hourly.fetch-prs: Fetch and classify human-intervention pull requests [fetch]"
             )
             && result.stdout.contains(
-                "Task follow-up-rhei-prs: Follow up on RHEI pull requests [rhei-pr-follow-up]"
+                "Task hourly.follow-up-rhei-prs: Follow up on RHEI pull requests [rhei-pr-follow-up]"
             )
             && result.stdout.contains("Stopped:"),
         "expected hourly template instantiation summary; got:\n{}",

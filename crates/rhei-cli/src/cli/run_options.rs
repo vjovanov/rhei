@@ -377,7 +377,7 @@ fn transition_dashboard_gate(
 
     let route = loaded.task_route(task_id_str, input);
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
         &route.local_id,

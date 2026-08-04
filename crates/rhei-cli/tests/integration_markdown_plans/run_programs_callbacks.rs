@@ -494,7 +494,7 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
         result.stderr
     );
     assert!(
-        result.stdout.contains("Task 1 transitioned: 'pending' → 'completed'"),
+        result.stdout.contains("Task release-automation.1 transitioned: 'pending' → 'completed'"),
         "expected transition output; got:\n{}",
         result.stdout
     );

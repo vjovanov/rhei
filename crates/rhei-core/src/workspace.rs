@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::ast::{ContentSection, Rhei, Structure, Task, TaskId, TaskIdSegment};
+use crate::ast::{ContentSection, Metadata, Rhei, Structure, Task, TaskId, TaskIdSegment};
 use crate::parser::{self, ParseError};
 
 pub const PANTA_INDEX_FILE: &str = "index.panta.md";
@@ -239,9 +239,16 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
     let mut task_sources = HashMap::new();
     let mut task_roots = HashMap::new();
     let mut merged_structure = manifest.structure.clone();
+    let mut merged_metadata = manifest.metadata.clone();
     let mut content_sections = manifest.content_sections.clone();
     let mut content_section_roots = vec![dir.to_path_buf(); content_sections.len()];
     for (rhei_id, mut rhei, sources, root) in rheis {
+        // Child runtime metadata joins the merged graph under qualified keys
+        // so counted loops and poll timers resolve project-wide. §AR-rhei-panta.2
+        merge_task_metadata(
+            &mut merged_metadata,
+            qualify_task_metadata(rhei.metadata.take(), &rhei_id),
+        );
         merge_structure(&mut merged_structure, &rhei.structure);
         content_sections.push(ContentSection {
             title: format!("Rhei {rhei_id}: {}", rhei.title),
@@ -278,7 +285,7 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
             states: manifest.states,
             states_declared: manifest.states_declared,
             structure: merged_structure,
-            metadata: manifest.metadata,
+            metadata: merged_metadata,
             content_sections,
             tasks: all_tasks,
         },
@@ -292,6 +299,132 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
 fn rhei_execution_root(path: &Path) -> PathBuf {
     workspace_dir(path)
         .unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf())
+}
+
+/// Load a bare rhei (single `.rhei.md` file or Directory Workspace) as the
+/// single rhei of an implicit Panta: same graph shape as an explicit project,
+/// no manifest, ids derived from the source location. §AR-rhei-panta.2
+pub fn load_implicit_panta(path: &Path) -> parser::Result<PantaProject> {
+    let entry = workspace_dir(path).unwrap_or_else(|| path.to_path_buf());
+    let loaded = load_rhei_entry(&entry)?;
+    wrap_rhei_as_implicit_panta(loaded, &entry)
+}
+
+/// Wrap a parsed single-file rhei as its implicit Panta. §AR-rhei-panta.2
+pub fn implicit_panta_from_file_rhei(rhei: Rhei, file: &Path) -> parser::Result<PantaProject> {
+    let mut task_sources = HashMap::new();
+    for task in &rhei.tasks {
+        collect_task_sources(task, file, &mut task_sources)?;
+    }
+    wrap_rhei_as_implicit_panta(Workspace { rhei, task_sources }, file)
+}
+
+/// Wrap an already-loaded bare rhei as its implicit Panta. §AR-rhei-panta.2:
+/// the rhei is the sole level-1 child; §AR-rhei-panta.3: its id derives from
+/// the file stem or directory name and project-qualifies every ticket.
+pub fn wrap_rhei_as_implicit_panta(
+    loaded: Workspace,
+    entry: &Path,
+) -> parser::Result<PantaProject> {
+    let id = rhei_id_for_entry(entry)?;
+    validate_rhei_id(&id, entry)?;
+    if id == BASIN_RHEI_ID {
+        return Err(ParseError::new(
+            format!(
+                "`{}` is reserved for the synthetic basin rhei and cannot be used by {}",
+                BASIN_RHEI_ID,
+                entry.display()
+            ),
+            None,
+        ));
+    }
+    let root = rhei_execution_root(entry);
+    let mut rhei = loaded.rhei;
+    let rhei_ids = vec![id.clone()];
+    let local_ids = collect_task_ids(&rhei.tasks);
+    qualify_tasks(&mut rhei.tasks, &id, &rhei_ids, &local_ids);
+    // On-disk frontmatter keys stay rhei-local; merged-graph reads resolve
+    // through project-qualified keys. §AR-rhei-panta.2
+    rhei.metadata = qualify_task_metadata(rhei.metadata.take(), &id);
+    let mut task_sources = HashMap::new();
+    let mut task_roots = HashMap::new();
+    for task in &rhei.tasks {
+        let source = source_for_task(&loaded.task_sources, task)?;
+        collect_task_sources(task, source.as_path(), &mut task_sources)?;
+        collect_task_roots(task, &root, &mut task_roots)?;
+    }
+    let content_section_roots = vec![root; rhei.content_sections.len()];
+    // The implicit Panta has no manifest: the single rhei's own `**States:**`
+    // declaration is the project's effective machine. §AR-rhei-panta.2
+    Ok(PantaProject {
+        rhei,
+        task_sources,
+        task_roots,
+        content_section_roots,
+        rhei_ids,
+    })
+}
+
+/// Runtime task metadata lives at `metadata.tasks` inside the frontmatter
+/// root mapping. Returns the `tasks` mapping, if present.
+fn frontmatter_tasks(metadata: &Metadata) -> Option<Metadata> {
+    let section = metadata.get(serde_yaml::Value::String("metadata".to_string()))?;
+    match section.get("tasks") {
+        Some(serde_yaml::Value::Mapping(tasks)) => Some(tasks.clone()),
+        _ => None,
+    }
+}
+
+/// Store a `tasks` mapping back at `metadata.tasks` in the frontmatter root.
+fn set_frontmatter_tasks(metadata: &mut Metadata, tasks: Metadata) {
+    let metadata_key = serde_yaml::Value::String("metadata".to_string());
+    let mut section = match metadata.get(&metadata_key).cloned() {
+        Some(serde_yaml::Value::Mapping(section)) => section,
+        _ => Metadata::new(),
+    };
+    section.insert(
+        serde_yaml::Value::String("tasks".to_string()),
+        serde_yaml::Value::Mapping(tasks),
+    );
+    metadata.insert(metadata_key, serde_yaml::Value::Mapping(section));
+}
+
+/// Merge one rhei's qualified `metadata.tasks` metadata into the project metadata.
+fn merge_task_metadata(project: &mut Option<Metadata>, child: Option<Metadata>) {
+    let Some(child) = child else { return };
+    let Some(child_tasks) = frontmatter_tasks(&child) else { return };
+    if child_tasks.is_empty() {
+        return;
+    }
+    let project = project.get_or_insert_with(Metadata::new);
+    let mut merged = frontmatter_tasks(project).unwrap_or_default();
+    for (key, value) in child_tasks {
+        merged.insert(key, value);
+    }
+    set_frontmatter_tasks(project, merged);
+}
+
+/// Re-key a rhei's frontmatter `metadata.tasks` entries under project-qualified
+/// ids so merged-graph reads resolve; write-back stays rhei-local. §AR-rhei-panta.2
+fn qualify_task_metadata(metadata: Option<Metadata>, rhei_id: &str) -> Option<Metadata> {
+    let mut metadata = metadata?;
+    if let Some(tasks) = frontmatter_tasks(&metadata) {
+        let mut qualified = Metadata::new();
+        for (key, value) in tasks {
+            let local = match &key {
+                serde_yaml::Value::String(s) => s.clone(),
+                serde_yaml::Value::Number(n) => n.to_string(),
+                _ => {
+                    qualified.insert(key, value);
+                    continue;
+                }
+            };
+            qualified
+                .insert(serde_yaml::Value::String(format!("{rhei_id}.{local}")), value);
+        }
+        set_frontmatter_tasks(&mut metadata, qualified);
+    }
+    Some(metadata)
 }
 
 fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {

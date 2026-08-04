@@ -116,6 +116,7 @@ fn transition_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
+    let task_id_str = &resolve_cli_task_id(&loaded, task_id_str)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -123,7 +124,7 @@ fn transition_command(
     let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
         &callback_paths,
         &machine,
         &route.local_id,
