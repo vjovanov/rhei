@@ -1145,7 +1145,9 @@ transitions:
         result.stderr
     );
     assert!(
-        result.stderr.contains("Missing required input artifact: findings (runtime/findings/plan.1.md)"),
+        result
+            .stderr
+            .contains("Missing required input artifact: findings (runtime/findings/plan.1.md)"),
         "expected missing artifact detail; got:\n{}",
         result.stderr
     );

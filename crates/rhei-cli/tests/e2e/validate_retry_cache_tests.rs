@@ -208,7 +208,8 @@ fi
     // The retry RESUMED the prior visit's session: identical prompt prefix, so
     // the input tokens are served from cache. The first attempt is cold.
     let cold = agent_log.lines().filter(|l| l.trim_end().ends_with("resume=")).count();
-    let warm = agent_log.lines().filter(|l| l.contains("resume=plan.1-build-fake-acme-model-a")).count();
+    let warm =
+        agent_log.lines().filter(|l| l.contains("resume=plan.1-build-fake-acme-model-a")).count();
     assert_eq!(cold, 1, "the first build attempt must be a cold start; got:\n{agent_log}");
     assert_eq!(warm, 1, "the retry must resume the prior build session; got:\n{agent_log}");
 
@@ -266,7 +267,8 @@ printf '{"success": true, "nextState": "build"}\n'
     // resumed the prior session.
     let agent_log =
         fs::read_to_string(dir.join("runtime/retry-agent.log")).expect("retry agent log");
-    let warm = agent_log.lines().filter(|l| l.contains("resume=plan.1-build-fake-acme-model-a")).count();
+    let warm =
+        agent_log.lines().filter(|l| l.contains("resume=plan.1-build-fake-acme-model-a")).count();
     assert!(warm >= 1, "retries should resume the prior session; got:\n{agent_log}");
 
     fs::remove_dir_all(dir).expect("cleanup");

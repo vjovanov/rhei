@@ -304,8 +304,7 @@ pub fn assert_task_state(plan_path: &Path, machine_path: &Path, task_id: &str, e
             // path qualified by the implicit Panta rhei id (e.g. "plan.1"). Match
             // either the exact path or the local id after the rhei qualifier.
             t["id"]["path"].as_str().is_some_and(|path| {
-                path == task_id
-                    || path.split_once('.').is_some_and(|(_, local)| local == task_id)
+                path == task_id || path.split_once('.').is_some_and(|(_, local)| local == task_id)
             })
         })
         .unwrap_or_else(|| panic!("Task {} not found in rendered JSON", task_id));

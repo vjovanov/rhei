@@ -356,13 +356,7 @@ pub fn wrap_rhei_as_implicit_panta(
     let content_section_roots = vec![root; rhei.content_sections.len()];
     // The implicit Panta has no manifest: the single rhei's own `**States:**`
     // declaration is the project's effective machine. §AR-rhei-panta.2
-    Ok(PantaProject {
-        rhei,
-        task_sources,
-        task_roots,
-        content_section_roots,
-        rhei_ids,
-    })
+    Ok(PantaProject { rhei, task_sources, task_roots, content_section_roots, rhei_ids })
 }
 
 /// Runtime task metadata lives at `metadata.tasks` inside the frontmatter
@@ -382,10 +376,8 @@ fn set_frontmatter_tasks(metadata: &mut Metadata, tasks: Metadata) {
         Some(serde_yaml::Value::Mapping(section)) => section,
         _ => Metadata::new(),
     };
-    section.insert(
-        serde_yaml::Value::String("tasks".to_string()),
-        serde_yaml::Value::Mapping(tasks),
-    );
+    section
+        .insert(serde_yaml::Value::String("tasks".to_string()), serde_yaml::Value::Mapping(tasks));
     metadata.insert(metadata_key, serde_yaml::Value::Mapping(section));
 }
 
@@ -419,8 +411,7 @@ fn qualify_task_metadata(metadata: Option<Metadata>, rhei_id: &str) -> Option<Me
                     continue;
                 }
             };
-            qualified
-                .insert(serde_yaml::Value::String(format!("{rhei_id}.{local}")), value);
+            qualified.insert(serde_yaml::Value::String(format!("{rhei_id}.{local}")), value);
         }
         set_frontmatter_tasks(&mut metadata, qualified);
     }
