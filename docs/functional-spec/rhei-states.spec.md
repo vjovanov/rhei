@@ -66,6 +66,7 @@ Examples:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `extends` | string | No | Name of a base machine this machine composes on top of. When present, the effective machine is the union of the base chain with this machine layered on top (whole-entity override). When absent, this machine fully replaces any inherited default. See [Machine Composition](#12-machine-composition-extends). |
+| `remove` | array of `{from, to}` | No | Only valid alongside `extends`. Each entry names an inherited transition pair-group to drop from the composed machine. See [Machine Composition — Merge rules](#12-machine-composition-extends). |
 | `models` | string array | No | The complete set of model profile identifiers available to the machine |
 | `profiles` | map of name to `{initial, allowed}` | Yes | Named, reusable state profiles. Each profile declares the `initial` state and the `allowed` state subset for any node assigned to it. Referenced by `node_policy`. |
 | `node_policy` | object | Yes | Maps nodes to profiles. Must define `root` (the Panta project root) and `default`. Optionally defines `rhei` (the rhei tier), `by_type`, and `overrides`. See [Node Policy](#9-node-policy). |
@@ -108,6 +109,14 @@ can start in different states within the same state machine.
   list each machine at most once. All other schema rules are validated against
   the **merged** machine, not the declaring layer alone. See
   [Machine Composition](#12-machine-composition-extends).
+- `remove`, when present, requires `extends`; declaring `remove` without
+  `extends` is a validation error. Each entry must be an object with string
+  `from` and `to` fields naming a transition pair-group declared by a lower
+  layer of the chain; an entry that matches no inherited transition is a
+  validation error. A layer must not both `remove` a pair and declare a
+  transition with that same pair — restating replaces, removing deletes, and
+  asking for both is a validation error. See
+  [Machine Composition — Merge rules](#122-merge-rules).
 - `profiles` must be present and non-empty in the **merged** machine. Each entry
   must declare `initial` (a state name) and `allowed` (a list of state names).
   See [Profiles](#8-profiles) for per-profile validation.
@@ -958,10 +967,22 @@ each collection a higher layer composes with the accumulated lower layers:
 
 - **`states`** — union by state name. A name present in a higher layer replaces
   the lower-layer state **as a whole entity** (§12.3); a new name is added.
-- **`transitions`** — union keyed by the `(from, to)` pair. A higher-layer
-  transition with the same pair replaces the lower one as a whole; a new pair is
-  added. A higher layer removes an inherited transition with an explicit
-  `remove: [{from, to}, ...]` directive.
+- **`transitions`** — union keyed by the `(from, to)` pair, where the atomic
+  unit is the **pair-group**: every transition sharing one `(from, to)` pair (a
+  machine may declare several, distinguished by trigger — `condition`,
+  `timeout`, `exit_code`, …). A higher layer that declares any transition with
+  pair `P` replaces the *entire* inherited group for `P` with its own group; a
+  new pair is added. A higher layer deletes an inherited group with an explicit
+  `remove: [{from, to}, ...]` directive (validated per §1.3); `remove` applies
+  to the inherited accumulation only, never to pairs the same layer declares.
+  The wildcard `"*"` is a literal key segment: `("*", X)` is its own pair,
+  distinct from every specific `(A, X)`, so replacing or removing a wildcard
+  group never affects specific pairs and vice versa.
+- **Transition order** — matching is first-wins in declaration order, so the
+  merged order is semantics, not presentation. Folding preserves base order: a
+  replacing group occupies the position of the first inherited transition it
+  replaces; transitions with new pairs append after all inherited transitions,
+  in the declaring layer's order; a removed group vacates its position.
 - **`profiles`** — union by profile name; a same-named profile replaces the
   lower one wholesale, consistent with the "profiles are never merged" rule
   (§8). `allowed` is never element-merged.
@@ -974,9 +995,9 @@ each collection a higher layer composes with the accumulated lower layers:
 
 ### 12.3. Whole-entity override
 
-The atomic unit of override is the **named entity** — one state, one transition,
-one profile — never an individual field. To change a single field of an
-inherited state, a higher layer restates that whole state; the lower-layer
+The atomic unit of override is the **named entity** — one state, one transition
+pair-group, one profile — never an individual field. To change a single field of
+an inherited state, a higher layer restates that whole state; the lower-layer
 definition is discarded, not field-merged. This keeps the effective definition of
 any state readable in one place and matches the wholesale-by-name philosophy the
 profiles model already uses (§8).

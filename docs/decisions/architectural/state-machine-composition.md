@@ -28,11 +28,14 @@ machine layered on top. Without `extends`, a declared machine fully replaces the
 inherited default exactly as before — composition never happens implicitly.
 §FS-rhei-states.12
 
-The atomic unit of override is the **named entity** — one state, one transition,
-one profile — never an individual field. A higher layer adds new entities and
-replaces same-named ones wholesale; collections (`states`, `transitions`,
-`profiles`, `node_policy` keys, `models`) compose by union. Validation runs on
-the merged machine, and diagnostics report each entity's provenance.
+The atomic unit of override is the **named entity** — one state, one transition
+pair-group (every transition sharing one `(from, to)` pair), one profile — never
+an individual field. A higher layer adds new entities and replaces same-named
+ones wholesale; collections (`states`, `transitions`, `profiles`, `node_policy`
+keys, `models`) compose by union. Because transition matching is first-wins in
+declaration order, folding preserves base order: a replacing group takes the
+replaced group's position and new pairs append. Validation runs on the merged
+machine, and diagnostics report each entity's provenance.
 
 Ownership is fixed so the project keeps the shared rollup: the Panta root always
 resolves `node_policy.root` from the project default machine; a rhei's node and
