@@ -380,15 +380,8 @@ struct TaskRoute {
     execution_root: PathBuf,
 }
 
-/// Report the resolved scope before a command spawns work or destroys runtime
-/// state across a project. A bare one-rhei implicit Panta stays quiet — the
-/// report exists for multi-rhei fan-out. §FS-rhei-panta.6.4
-fn report_panta_scope(loaded: &LoadedPlan, command: &str) {
-    report_panta_scope_narrowed(loaded, command, &None);
-}
-
-/// Scope report for an invocation that may be narrowed with `--rhei`. Names the
-/// rheis that will actually be touched. §FS-rhei-panta.6 §FS-rhei-panta.6.4
+/// Name the rheis a fan-out invocation will touch, per §FS-rhei-panta.6.4.
+/// A one-rhei implicit Panta stays quiet.
 fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiScope) {
     if !(loaded.is_panta_project() || loaded.rhei_ids.len() > 1) {
         return;
