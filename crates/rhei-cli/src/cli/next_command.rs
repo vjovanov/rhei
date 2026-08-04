@@ -252,10 +252,12 @@ fn next_command(
     as_json: bool,
     no_callbacks: bool,
     peek: bool,
+    rhei_scope: &[String],
 ) -> MietteResult<()> {
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
+    let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -330,7 +332,11 @@ fn next_command(
         )?;
         (tid.to_string(), task.state.as_str().to_string(), state_name, task_workspace_root)
     } else {
-        let ready = find_claimable_tasks(&loaded.rhei, &machine, &workspace_root, &loaded.task_roots);
+        // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+        let ready = narrow_to_rhei_scope(
+            find_claimable_tasks(&loaded.rhei, &machine, &workspace_root, &loaded.task_roots),
+            &scope,
+        );
         if ready.is_empty() {
             return Err(miette!(
                 "{}",

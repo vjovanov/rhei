@@ -184,7 +184,12 @@ fn collect_ready_agent_work_items(
     let mut state_claimant: HashMap<String, String> = HashMap::new();
     let mut deferred: BTreeSet<String> = BTreeSet::new();
 
-    for task in find_runnable_tasks(&loaded.rhei, machine, workspace_root) {
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(&loaded.rhei, machine, workspace_root),
+        &rhei_scope,
+    ) {
         let task_id_str = task.id.to_string();
         if active_task_ids.contains(&task_id_str) {
             continue;
@@ -286,7 +291,12 @@ fn collect_ready_program_work_items(
     let mut state_claimant: HashMap<String, String> = HashMap::new();
     let mut deferred: BTreeSet<String> = BTreeSet::new();
 
-    for task in find_runnable_tasks(&loaded.rhei, machine, workspace_root) {
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(&loaded.rhei, machine, workspace_root),
+        &rhei_scope,
+    ) {
         let task_id_str = task.id.to_string();
         if active_task_ids.contains(&task_id_str) {
             continue;

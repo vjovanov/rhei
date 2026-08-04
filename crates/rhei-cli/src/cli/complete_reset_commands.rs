@@ -110,30 +110,47 @@ fn complete_command(
 ///
 /// For directory workspaces, this also removes the generated `runtime/`
 /// directory so logs and artifacts do not survive the reset.
-fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResult<()> {
+fn reset_command(
+    input: &Path,
+    state_machine_path: Option<&Path>,
+    rhei_scope: &[String],
+) -> MietteResult<()> {
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    report_panta_scope(&loaded, "reset");
+    let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
+    report_panta_scope_narrowed(&loaded, "reset", &scope);
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let reset_summary = reset_initial_summary(&loaded.rhei, &resolved.machine)?;
 
     fn count_nodes(task: &rhei_core::ast::Task) -> usize {
         1 + task.children.iter().map(count_nodes).sum::<usize>()
     }
-    let task_count = loaded.rhei.tasks.len();
-    let total_nodes: usize = loaded.rhei.tasks.iter().map(count_nodes).sum();
+    let in_scope: Vec<&rhei_core::ast::Task> = loaded
+        .rhei
+        .tasks
+        .iter()
+        .filter(|task| task_in_rhei_scope(&scope, &task.id.to_string()))
+        .collect();
+    let task_count = in_scope.len();
+    let total_nodes: usize = in_scope.iter().map(|task| count_nodes(task)).sum();
     let descendant_count = total_nodes.saturating_sub(task_count);
 
-    for file in reset_target_files(&loaded, input) {
+    for file in reset_target_files(&loaded, input, &scope) {
         reset_plan_file_states(&file, &resolved.machine)?;
     }
     if workspace::is_workspace(input) {
         clear_runtime_metadata_in_file(&input.join("index.rhei.md"), true)?;
     }
 
-    // §FS-rhei-panta.6.4: reset destroys runtime state in every in-scope rhei,
-    // so fan out over the owning rhei roots (plus the project root).
+    // §FS-rhei-panta.6.4: a narrowed reset removes per-ticket artifacts, never
+    // whole `runtime/` trees — sibling rheis share one execution root.
+    if scope.is_some() {
+        let removed = remove_scoped_runtime_artifacts(&loaded, input, &scope)?;
+        report_reset_summary(task_count, descendant_count, &reset_summary, removed);
+        return Ok(());
+    }
+
     let mut runtime_dirs: Vec<PathBuf> = Vec::new();
     if loaded.is_panta_project() {
         let mut roots: BTreeSet<PathBuf> = loaded.task_roots.values().cloned().collect();
@@ -160,6 +177,16 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
         }
     }
 
+    report_reset_summary(task_count, descendant_count, &reset_summary, removed_runtime);
+    Ok(())
+}
+
+fn report_reset_summary(
+    task_count: usize,
+    descendant_count: usize,
+    reset_summary: &str,
+    removed_runtime: bool,
+) {
     if descendant_count == 0 {
         println!("Reset {} task(s) {}.", task_count, reset_summary);
     } else {
@@ -173,8 +200,61 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
     } else {
         println!("No runtime output was present.");
     }
+}
 
-    Ok(())
+/// Remove runtime artifacts owned by the in-scope tickets only, leaving every
+/// other rhei's state intact. Sibling single-file rheis share one execution
+/// root, so a narrowed reset must never delete the whole tree. §FS-rhei-panta.6.4
+fn remove_scoped_runtime_artifacts(
+    loaded: &LoadedPlan,
+    input: &Path,
+    scope: &RheiScope,
+) -> MietteResult<bool> {
+    let mut removed = false;
+    let mut task_ids: Vec<String> = Vec::new();
+    fn collect(task: &rhei_core::ast::Task, out: &mut Vec<String>) {
+        out.push(task.id.to_string());
+        for child in &task.children {
+            collect(child, out);
+        }
+    }
+    for task in &loaded.rhei.tasks {
+        collect(task, &mut task_ids);
+    }
+
+    for task_id in task_ids.iter().filter(|id| task_in_rhei_scope(scope, id)) {
+        let root = loaded.task_root(task_id, input);
+        let runtime = root.join("runtime");
+        if !runtime.exists() {
+            continue;
+        }
+        let result_file = runtime.join("results").join(format!("{task_id}.md"));
+        if result_file.exists() {
+            fs::remove_file(&result_file).map_err(|err| {
+                file_io_report(&result_file, "failed to remove result file", err)
+            })?;
+            removed = true;
+        }
+        // Logs are named `task-<id>-<state>[-<suffix>].log`.
+        let logs = runtime.join("logs");
+        if logs.is_dir() {
+            let prefix = format!("task-{task_id}-");
+            for entry in fs::read_dir(&logs)
+                .map_err(|err| file_io_report(&logs, "failed to read runtime logs", err))?
+                .flatten()
+            {
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                if name.starts_with(&prefix) {
+                    fs::remove_file(entry.path()).map_err(|err| {
+                        file_io_report(&entry.path(), "failed to remove runtime log", err)
+                    })?;
+                    removed = true;
+                }
+            }
+        }
+    }
+    Ok(removed)
 }
 
 fn reset_initial_summary(

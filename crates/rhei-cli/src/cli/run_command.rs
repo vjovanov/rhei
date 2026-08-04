@@ -13,7 +13,8 @@ fn run_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    report_panta_scope(&loaded, "run");
+    let rhei_scope = resolve_rhei_scope(&loaded, opts.rhei_scope())?;
+    report_panta_scope_narrowed(&loaded, "run", &rhei_scope);
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -74,7 +75,10 @@ fn should_use_agent_mode(
         return Ok(true);
     }
 
-    for task in find_runnable_tasks(rhei, machine, workspace_root) {
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(rhei, machine, workspace_root),
+        &rhei_scope_set(opts.rhei_scope()),
+    ) {
         let state_name = normalized_state_name(task.state.as_str(), machine);
         let Some(def) = machine.states.get(&state_name) else {
             continue;

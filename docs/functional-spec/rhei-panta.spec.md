@@ -184,7 +184,10 @@ up automatically.
 
 - `rhei reset` is project-wide by default; because it destroys runtime state
   across every in-scope rhei, it surfaces the scope and the affected rheis before
-  acting. `--rhei` narrows it.
+  acting. `--rhei` narrows it. A narrowed reset removes only the runtime
+  artifacts owned by in-scope tickets rather than whole `runtime/` trees:
+  sibling single-file rheis share one execution root, so removing the tree
+  would destroy an out-of-scope rhei's state.
 - `rhei validate` always checks the whole project graph: cross-rhei dependency
   resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
   `panta`/`rhei` kinds.

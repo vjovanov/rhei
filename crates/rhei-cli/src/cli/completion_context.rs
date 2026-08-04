@@ -268,6 +268,8 @@ fn states_command(state_machine: Option<&Path>, as_json: bool) -> MietteResult<(
 
 /// Filter set for the `list` subcommand. See `Commands::List` for flag docs.
 struct ListFilters {
+    /// Narrow to named rheis; empty is the whole project. §FS-rhei-panta.6.4
+    rhei: Vec<String>,
     states: Vec<String>,
     assignee: Option<String>,
     no_assignee: bool,
@@ -293,6 +295,7 @@ fn list_command(
     as_json: bool,
 ) -> MietteResult<()> {
     let loaded = load_plan(input)?;
+    let rhei_scope = resolve_rhei_scope(&loaded, &filters.rhei)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
 
@@ -337,6 +340,11 @@ fn list_command(
     let mut matches: Vec<&(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();
     for entry in &flat {
         let (task, parent_id) = entry;
+
+        // §FS-rhei-panta.6.4: `--rhei` filters the listing to named rheis.
+        if !task_in_rhei_scope(&rhei_scope, &task.id.to_string()) {
+            continue;
+        }
 
         if !state_filter.is_empty() {
             let task_state = normalized_state_name(task.state.as_str(), &machine);

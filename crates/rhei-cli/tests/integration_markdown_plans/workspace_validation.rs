@@ -1000,3 +1000,103 @@ fn workspace_transition_updates_correct_task_file() {
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
+
+#[test]
+fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
+    let project = create_panta_project(
+        "panta-narrow",
+        "# Panta: Narrow\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    // An unknown rhei is rejected and names what is available. §FS-rhei-panta.6
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(&project)
+        .arg("--rhei")
+        .arg("nope")
+        .output()
+        .expect("list runs");
+    assert!(!output.status.success(), "unknown rhei must fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown rhei 'nope'") && stderr.contains("auth, billing"),
+        "error should name available rheis: {stderr}"
+    );
+
+    // `--rhei` narrows the listing to the named rhei.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(&project)
+        .arg("--rhei")
+        .arg("auth")
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("auth.1"), "auth ticket should be listed: {stdout}");
+    assert!(!stdout.contains("billing.1"), "billing ticket should be filtered out: {stdout}");
+
+    // Complete one ticket in each rhei so both own runtime artifacts. The
+    // fixture machine reaches a terminal state via `in-progress`.
+    for task in ["auth.1", "billing.1"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("transition")
+            .arg(&project)
+            .args(["--task", task, "--from", "pending", "--to", "in-progress", "--no-callbacks"])
+            .output()
+            .expect("transition runs");
+        assert!(output.status.success(), "transition {task} should succeed");
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("complete")
+            .arg(&project)
+            .args(["--task", task, "--result", "done", "--no-callbacks"])
+            .output()
+            .expect("complete runs");
+        assert!(
+            output.status.success(),
+            "complete {task} should succeed\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // A narrowed reset must not destroy the other rhei's runtime state — these
+    // sibling single-file rheis share one execution root. §FS-rhei-panta.6.4
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&project)
+        .arg("--rhei")
+        .arg("auth")
+        .output()
+        .expect("reset runs");
+    assert!(
+        output.status.success(),
+        "narrowed reset should succeed\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("narrowed to 1 rhei(s): auth"),
+        "reset should report the narrowed scope"
+    );
+
+    assert!(
+        !project.join("runtime/results/auth.1.md").exists(),
+        "in-scope result artifact should be removed"
+    );
+    assert!(
+        project.join("runtime/results/billing.1.md").exists(),
+        "out-of-scope rhei must keep its result artifact"
+    );
+    let billing = fs::read_to_string(project.join("billing.rhei.md")).expect("read billing");
+    assert!(billing.contains("**State:** completed"), "billing must stay completed: {billing}");
+    let auth = fs::read_to_string(project.join("auth.rhei.md")).expect("read auth");
+    assert!(auth.contains("**State:** pending"), "auth must be reset: {auth}");
+
+    fs::remove_dir_all(project).expect("cleanup");
+}

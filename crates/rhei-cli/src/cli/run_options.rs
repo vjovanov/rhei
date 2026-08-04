@@ -15,6 +15,9 @@ struct StandaloneExecutionFlags {
     /// Maximum number of agents to run concurrently (0 = unlimited)
     #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
     parallel: usize,
+    /// Narrow a project-scoped invocation to named rheis (repeatable)
+    #[arg(long = "rhei", value_name = "RHEI_ID")]
+    rhei: Vec<String>,
     /// Force TUI mode even when stdout is not detected as a TTY
     #[arg(long, conflicts_with = "no_tui")]
     tui: bool,
@@ -104,6 +107,12 @@ impl RunOptions {
 
     fn parallel(&self) -> usize {
         self.standalone.parallel
+    }
+
+    /// Rhei ids this invocation is narrowed to; empty means the whole project.
+    /// §FS-rhei-panta.6
+    fn rhei_scope(&self) -> &[String] {
+        &self.standalone.rhei
     }
 
     fn frontend_kind(&self) -> rhei_tui::FrontendKind {

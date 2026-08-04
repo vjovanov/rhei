@@ -104,7 +104,10 @@ fn run_callback_mode(
 
     loop {
         let loaded = load_plan(input)?;
-        let ready = find_runnable_tasks(&loaded.rhei, machine, &workspace_root);
+        let ready = narrow_to_rhei_scope(
+            find_runnable_tasks(&loaded.rhei, machine, &workspace_root),
+            &rhei_scope_set(opts.rhei_scope()),
+        );
         if ready.is_empty() {
             if !opts.dry_run() {
                 // Callback-only interactive TUI runs use the same human-gate

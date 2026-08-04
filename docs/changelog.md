@@ -11,7 +11,9 @@
   project-qualified from the source-derived rhei id; project-wide mutation
   replaces the staged boundary, routing every state, assignee, result, and
   runtime rewrite to the owning rhei; CLI targets accept unambiguous
-  rhei-local shorthand; and state machines compose via explicit `extends`
+  rhei-local shorthand; `--rhei <id>` (repeatable) narrows project-scoped
+  `run`, `next`, `reset`, and `list` to named rheis, selecting candidates
+  without narrowing where their priors resolve; and state machines compose via explicit `extends`
   with whole-entity override and pair-group transition merging. Ticket ids in
   output, result artifacts, ledgers, and logs are now qualified (`auth.1`);
   plan files keep rhei-local headings, and result links authored in the old

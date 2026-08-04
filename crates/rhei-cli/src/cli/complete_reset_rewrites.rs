@@ -1,9 +1,15 @@
-fn reset_target_files(loaded: &LoadedPlan, input: &Path) -> Vec<PathBuf> {
+fn reset_target_files(loaded: &LoadedPlan, input: &Path, scope: &RheiScope) -> Vec<PathBuf> {
     if loaded.task_sources.is_empty() {
         return vec![input.to_path_buf()];
     }
 
-    let mut files = loaded.task_sources.values().cloned().collect::<Vec<_>>();
+    // §FS-rhei-panta.6.4: `--rhei` narrows which rheis are reset.
+    let mut files = loaded
+        .task_sources
+        .iter()
+        .filter(|(task_id, _)| task_in_rhei_scope(scope, task_id))
+        .map(|(_, path)| path.clone())
+        .collect::<Vec<_>>();
     files.sort();
     files.dedup();
     files

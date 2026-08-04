@@ -283,6 +283,65 @@ impl LoadedPlan {
     }
 }
 
+/// The set of rhei ids a project-scoped invocation is narrowed to. `None` is
+/// the whole project. §FS-rhei-panta.6
+type RheiScope = Option<BTreeSet<String>>;
+
+/// Validate a `--rhei` selection against the loaded project and resolve it into
+/// a scope. An unknown id is an error that names the available rheis; an empty
+/// selection leaves the invocation project-wide. §FS-rhei-panta.6
+fn resolve_rhei_scope(loaded: &LoadedPlan, selected: &[String]) -> MietteResult<RheiScope> {
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let available: BTreeSet<&str> = loaded.rhei_ids.iter().map(String::as_str).collect();
+    let mut scope = BTreeSet::new();
+    for name in selected {
+        let name = name.trim();
+        if !available.contains(name) {
+            return Err(miette!(
+                "unknown rhei '{}'; this project has: {}",
+                name,
+                loaded.rhei_ids.join(", ")
+            ));
+        }
+        scope.insert(name.to_string());
+    }
+    Ok(Some(scope))
+}
+
+/// True when a project-qualified ticket id belongs to an in-scope rhei.
+/// Narrowing selects candidate tickets only — prior resolution still spans the
+/// whole project. §FS-rhei-panta.6.1
+fn task_in_rhei_scope(scope: &RheiScope, task_id: &str) -> bool {
+    let Some(scope) = scope else { return true };
+    let owner = task_id.split_once('.').map(|(head, _)| head).unwrap_or(task_id);
+    scope.contains(owner)
+}
+
+/// Build a scope set from an already-validated `--rhei` selection. Validation
+/// against the project's rhei ids happens once at command entry.
+fn rhei_scope_set(selected: &[String]) -> RheiScope {
+    if selected.is_empty() {
+        None
+    } else {
+        Some(selected.iter().map(|id| id.trim().to_string()).collect())
+    }
+}
+
+/// Drop candidate tickets outside the invocation's `--rhei` scope. Applied to
+/// the readiness result so priors still resolve across the whole project.
+/// §FS-rhei-panta.6.1
+fn narrow_to_rhei_scope<'a>(
+    tasks: Vec<&'a rhei_core::ast::Task>,
+    scope: &RheiScope,
+) -> Vec<&'a rhei_core::ast::Task> {
+    if scope.is_none() {
+        return tasks;
+    }
+    tasks.into_iter().filter(|task| task_in_rhei_scope(scope, &task.id.to_string())).collect()
+}
+
 /// Resolve a CLI ticket target to its project-qualified id: the qualified id
 /// itself, or an unambiguous rhei-local shorthand. §FS-rhei-panta.6
 fn resolve_cli_task_id(loaded: &LoadedPlan, task_id_str: &str) -> MietteResult<String> {
@@ -325,14 +384,29 @@ struct TaskRoute {
 /// state across a project. A bare one-rhei implicit Panta stays quiet — the
 /// report exists for multi-rhei fan-out. §FS-rhei-panta.6.4
 fn report_panta_scope(loaded: &LoadedPlan, command: &str) {
-    if loaded.is_panta_project() || loaded.rhei_ids.len() > 1 {
-        println!(
-            "Scope: `rhei {}` operates project-wide across {} rhei(s): {}",
-            command,
-            loaded.rhei_ids.len(),
-            loaded.rhei_ids.join(", ")
-        );
+    report_panta_scope_narrowed(loaded, command, &None);
+}
+
+/// Scope report for an invocation that may be narrowed with `--rhei`. Names the
+/// rheis that will actually be touched. §FS-rhei-panta.6 §FS-rhei-panta.6.4
+fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiScope) {
+    if !(loaded.is_panta_project() || loaded.rhei_ids.len() > 1) {
+        return;
     }
+    let affected: Vec<&str> = loaded
+        .rhei_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| scope.as_ref().is_none_or(|scope| scope.contains(*id)))
+        .collect();
+    let qualifier = if scope.is_some() { "narrowed to" } else { "operates project-wide across" };
+    println!(
+        "Scope: `rhei {}` {} {} rhei(s): {}",
+        command,
+        qualifier,
+        affected.len(),
+        affected.join(", ")
+    );
 }
 
 /// Load a plan from a file or directory workspace.

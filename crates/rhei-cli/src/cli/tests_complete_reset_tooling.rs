@@ -150,7 +150,7 @@
         let cli = Cli::try_parse_from(["rhei", "reset", "workspace"]).expect("cli should parse");
 
         match cli.command {
-            Commands::Reset { input } => {
+            Commands::Reset { input, .. } => {
                 assert_eq!(input, PathBuf::from("workspace"));
             }
             other => panic!("expected reset command, got {other:?}"),

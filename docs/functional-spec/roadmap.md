@@ -85,7 +85,8 @@ of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-langua
 Status: completed. Every load path yields a Panta-rooted graph: a bare rhei is
 the single rhei of an implicit Panta with its id derived from the source
 location, mutation is project-wide with rewrites routed to each owning rhei,
-and state machines compose via explicit `extends` onto the built-in base.
+`--rhei` narrows project-scoped invocations, and state machines compose via
+explicit `extends` onto the built-in base.
 Remaining follow-ups live below. §FS-rhei-panta §AR-rhei-panta §FS-rhei-states.12
 
 ## Planned: CLI UX and Release Polish
@@ -98,7 +99,6 @@ old notes are historical; this roadmap owns the remaining backlog.
   run under their own composed machines; today a multi-rhei project still
   requires one project-wide machine, and `extends` bases beyond the built-in
   `rhei` machine are unresolvable. §AR-rhei-panta.4 §FS-rhei-states.12
-- Add `--rhei <id>` narrowing for project-scoped invocations. §FS-rhei-panta.6
 - Validate child-rhei content-section links under Panta: carry a per-section
   link base so a rhei's own content sections resolve against that rhei's
   execution root, not the project root. Today only task-content links are

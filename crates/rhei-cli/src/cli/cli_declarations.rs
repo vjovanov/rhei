@@ -156,6 +156,9 @@ enum Commands {
         /// Path to the markdown plan file (.rhei.md)
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
+        /// Narrow a project-scoped invocation to named rheis (repeatable)
+        #[arg(long = "rhei", value_name = "RHEI_ID")]
+        rhei: Vec<String>,
         /// Filter by state (repeatable; comma-separated list also accepted)
         #[arg(
             long,
@@ -375,6 +378,9 @@ enum Commands {
         /// Target a specific task instead of auto-selecting
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
+        /// Narrow a project-scoped invocation to named rheis (repeatable)
+        #[arg(long = "rhei", value_name = "RHEI_ID")]
+        rhei: Vec<String>,
         /// Emit output as JSON for machine consumption
         #[arg(long)]
         json: bool,
@@ -407,6 +413,9 @@ enum Commands {
         /// Path to the markdown plan file (.rhei.md) or workspace directory
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
+        /// Narrow a project-scoped invocation to named rheis (repeatable)
+        #[arg(long = "rhei", value_name = "RHEI_ID")]
+        rhei: Vec<String>,
     },
     /// Print versions for the CLI and related crates
     Version,

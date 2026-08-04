@@ -221,6 +221,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::States { json } => states_command(cli.state_machine.as_deref(), json),
         Commands::List {
             input,
+            rhei,
             state,
             assignee,
             no_assignee,
@@ -239,6 +240,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             &input,
             cli.state_machine.as_deref(),
             ListFilters {
+                rhei,
                 states: state,
                 assignee,
                 no_assignee,
@@ -301,18 +303,21 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             keep_on_error,
             list_inputs,
         ),
-        Commands::Next { input, task, json, no_callbacks, peek } => next_command(
+        Commands::Next { input, task, json, no_callbacks, peek, rhei } => next_command(
             &input,
             cli.state_machine.as_deref(),
             task.as_deref(),
             json,
             no_callbacks,
             peek,
+            &rhei,
         ),
         Commands::Complete { input, task, result, no_callbacks } => {
             complete_command(&input, cli.state_machine.as_deref(), &task, &result, no_callbacks)
         }
-        Commands::Reset { input } => reset_command(&input, cli.state_machine.as_deref()),
+        Commands::Reset { input, rhei } => {
+            reset_command(&input, cli.state_machine.as_deref(), &rhei)
+        }
         Commands::Version => {
             print_versions();
             Ok(())
