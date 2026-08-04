@@ -256,10 +256,6 @@ fn next_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    // Only claim mode mutates child rhei files; `--peek` is read-only and works
-    // project-wide like `list`/`validate`/`viz`. §FS-rhei-panta.6.1
-    if !peek {
-    }
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
