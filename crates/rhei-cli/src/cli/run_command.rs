@@ -13,7 +13,7 @@ fn run_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    reject_panta_mutation(&loaded, "run")?;
+    report_panta_scope(&loaded, "run");
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -25,8 +25,8 @@ fn run_command(
         RunGitConsistencyGuard::capture(&workspace_root, input, !opts.dry_run());
 
     // Warn if --parallel > 1 on single-file plans.
-    let is_workspace = workspace::is_workspace(input);
-    let effective_parallel = if opts.parallel() > 1 && !is_workspace {
+    let multi_file = workspace::is_workspace(input) || loaded.is_panta_project();
+    let effective_parallel = if opts.parallel() > 1 && !multi_file {
         eprintln!(
             "warning: --parallel > 1 is not supported for single-file plans (risk of \
              conflicting edits). Falling back to sequential execution."

@@ -235,6 +235,8 @@ struct LoadedPlan {
     task_roots: HashMap<String, PathBuf>,
     /// For Panta projects: link bases for merged content sections, in section order.
     content_section_roots: Vec<PathBuf>,
+    /// For Panta projects: rhei ids in load order (`basin` last when present).
+    rhei_ids: Vec<String>,
 }
 
 impl LoadedPlan {
@@ -309,14 +311,17 @@ struct TaskRoute {
     execution_root: PathBuf,
 }
 
-fn reject_panta_mutation(loaded: &LoadedPlan, command: &str) -> MietteResult<()> {
+/// Report the resolved scope before a command spawns work or destroys runtime
+/// state across a project. §FS-rhei-panta.6.4
+fn report_panta_scope(loaded: &LoadedPlan, command: &str) {
     if loaded.is_panta_project() {
-        return Err(miette!(
-            "Panta projects are currently read-only for `rhei {}`. Use `rhei validate`, `rhei list`, or target an individual rhei until project-wide mutation supports per-rhei rewrites and state machines.",
-            command
-        ));
+        println!(
+            "Scope: `rhei {}` operates project-wide across {} rhei(s): {}",
+            command,
+            loaded.rhei_ids.len(),
+            loaded.rhei_ids.join(", ")
+        );
     }
-    Ok(())
 }
 
 /// Load a plan from a file or directory workspace.
@@ -330,6 +335,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             task_sources: project.task_sources,
             task_roots: project.task_roots,
             content_section_roots: project.content_section_roots,
+            rhei_ids: project.rhei_ids,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
@@ -339,6 +345,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             task_sources: ws.task_sources,
             task_roots: HashMap::new(),
             content_section_roots: Vec::new(),
+            rhei_ids: Vec::new(),
         })
     } else {
         let input = read_input_file(path)?;
@@ -349,6 +356,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             task_sources: HashMap::new(),
             task_roots: HashMap::new(),
             content_section_roots: Vec::new(),
+            rhei_ids: Vec::new(),
         })
     }
 }
@@ -365,6 +373,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             task_sources: project.task_sources,
             task_roots: project.task_roots,
             content_section_roots: project.content_section_roots,
+            rhei_ids: project.rhei_ids,
         });
     }
 
@@ -381,6 +390,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             task_sources: HashMap::new(),
             task_roots: HashMap::new(),
             content_section_roots: Vec::new(),
+            rhei_ids: Vec::new(),
         }),
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
     }
@@ -454,6 +464,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         task_sources,
         task_roots: HashMap::new(),
         content_section_roots: Vec::new(),
+        rhei_ids: Vec::new(),
     })
 }
 

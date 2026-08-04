@@ -16,7 +16,6 @@ fn complete_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    reject_panta_mutation(&loaded, "complete")?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
@@ -114,7 +113,7 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    reject_panta_mutation(&loaded, "reset")?;
+    report_panta_scope(&loaded, "reset");
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let reset_summary = reset_initial_summary(&loaded.rhei, &resolved.machine)?;
 
@@ -132,13 +131,26 @@ fn reset_command(input: &Path, state_machine_path: Option<&Path>) -> MietteResul
         clear_runtime_metadata_in_file(&input.join("index.rhei.md"), true)?;
     }
 
+    // §FS-rhei-panta.6.4: reset destroys runtime state in every in-scope rhei,
+    // so fan out over the owning rhei roots (plus the project root).
+    let mut runtime_dirs: Vec<PathBuf> = Vec::new();
+    if loaded.is_panta_project() {
+        let mut roots: BTreeSet<PathBuf> = loaded.task_roots.values().cloned().collect();
+        roots.insert(input.to_path_buf());
+        for root in roots {
+            if workspace::is_workspace(&root) {
+                clear_runtime_metadata_in_file(&root.join("index.rhei.md"), true)?;
+            }
+            runtime_dirs.push(root.join("runtime"));
+        }
+    } else if workspace::is_workspace(input) {
+        runtime_dirs.push(input.join("runtime"));
+    } else if let Some(parent) = input.parent() {
+        runtime_dirs.push(parent.join("runtime"));
+    }
+
     let mut removed_runtime = false;
-    let runtime_dir = if workspace::is_workspace(input) {
-        Some(input.join("runtime"))
-    } else {
-        input.parent().map(|p| p.join("runtime"))
-    };
-    if let Some(runtime_dir) = runtime_dir {
+    for runtime_dir in runtime_dirs {
         if runtime_dir.exists() {
             fs::remove_dir_all(&runtime_dir).map_err(|err| {
                 file_io_report(&runtime_dir, "failed to remove runtime directory", err)

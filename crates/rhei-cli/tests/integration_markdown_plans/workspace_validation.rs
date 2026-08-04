@@ -516,10 +516,10 @@ fn panta_profile_resolution_uses_rhei_local_task_depth() {
 }
 
 #[test]
-fn panta_mutating_commands_are_rejected_until_project_rewrites_are_supported() {
+fn panta_transition_routes_rewrite_to_owning_rhei_file() {
     let project = create_panta_project(
-        "panta-read-only",
-        "# Panta: Read Only\n**States:** workspace-test-machine\n",
+        "panta-mutate",
+        "# Panta: Mutable\n**States:** workspace-test-machine\n",
         &[(
             "auth.rhei.md",
             "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
@@ -527,6 +527,8 @@ fn panta_mutating_commands_are_rejected_until_project_rewrites_are_supported() {
         WORKSPACE_STATE_MACHINE,
     );
 
+    // Project-scoped mutation targets the qualified ticket id and rewrites the
+    // owning rhei file with its rhei-local heading. §FS-rhei-panta.6.1
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("transition")
         .arg(&project)
@@ -539,18 +541,34 @@ fn panta_mutating_commands_are_rejected_until_project_rewrites_are_supported() {
         .arg("--no-callbacks")
         .output()
         .expect("transition command should run");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "transition should fail for Panta projects");
     assert!(
-        stderr.contains("Panta projects are currently read-only for `rhei transition`"),
-        "unexpected stderr: {stderr}"
+        output.status.success(),
+        "transition should succeed for Panta projects\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let rewritten =
+        fs::read_to_string(project.join("auth.rhei.md")).expect("read child rhei file");
+    assert!(
+        rewritten.contains("### Task 1: Login\n**State:** in-progress"),
+        "child rhei file should carry the new state under its local heading: {rewritten}"
+    );
+
+    // The transition ledger lands in the owning rhei's runtime, keyed by the
+    // project-qualified id. §AR-rhei-panta.2
+    let ledger = fs::read_to_string(project.join("runtime/state-transitions.log"))
+        .expect("read transition ledger");
+    assert!(
+        ledger.contains("auth.1 pending@in-progress"),
+        "ledger should record the qualified ticket id: {ledger}"
     );
 
     fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
-fn panta_next_peek_is_read_only_and_claim_is_rejected() {
+fn panta_next_peek_reads_and_claim_writes_owning_rhei() {
     let project = create_panta_project(
         "panta-next-peek",
         "# Panta: Peek\n**States:** workspace-test-machine\n",
@@ -578,18 +596,25 @@ fn panta_next_peek_is_read_only_and_claim_is_rejected() {
     );
     assert!(stdout.contains("auth.1"), "peek should report the claimable ticket: {stdout}");
 
-    // Claim mode would write `**Assignee:**` into a child rhei file, so it is rejected.
+    // Claim mode writes `**Assignee:**` into the owning rhei's file, resolved
+    // through the source map. §FS-rhei-panta.6.1
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("next")
         .arg(&project)
         .arg("--no-callbacks")
         .output()
         .expect("next claim command should run");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "next claim should fail for Panta projects");
     assert!(
-        stderr.contains("Panta projects are currently read-only for `rhei next`"),
-        "unexpected stderr: {stderr}"
+        output.status.success(),
+        "next claim should succeed for Panta projects\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let rewritten =
+        fs::read_to_string(project.join("auth.rhei.md")).expect("read child rhei file");
+    assert!(
+        rewritten.contains("**Assignee:**"),
+        "claim should write the assignee into the owning rhei file: {rewritten}"
     );
 
     fs::remove_dir_all(project).expect("cleanup");

@@ -364,6 +364,11 @@ fn spawn_parallel_agent_work_item(
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
     let Some(task) = task else { return Ok(ParallelAgentSpawnOutcome::Skipped) };
 
+    // Attribute the spawned unit to its owning rhei: prompts, logs, and
+    // artifacts resolve against that rhei's execution root. §FS-rhei-panta.6.2
+    let task_workspace_root = loaded.task_root(&item.task_id_str, workspace_root);
+    let workspace_root = task_workspace_root.as_path();
+
     let tooling = resolve_tooling(machine, &item.current_state, settings);
     let gate = gate_tooling_for_agent(&item.resolved, &tooling);
     for warning in &gate.warnings {
@@ -646,6 +651,10 @@ fn spawn_parallel_program_work_item(
     let target_id = parse_task_id(&item.task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
     let Some(task) = task else { return Ok(ParallelProgramSpawnOutcome::Skipped) };
+
+    // Programs run against the owning rhei's execution root. §FS-rhei-panta.6.2
+    let task_workspace_root = loaded.task_root(&item.task_id_str, workspace_root);
+    let workspace_root = task_workspace_root.as_path();
 
     let log = program_log_path(runtime_dir, &item.task_id_str, &item.current_state);
     emit_run_message(
@@ -1764,9 +1773,11 @@ fn run_agent_mode(
                 let target_id = parse_task_id(task_id_str);
                 let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
                 let Some(task) = task else { continue };
+                // §FS-rhei-panta.6.2: programs run against the owning rhei's root.
+                let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
                 let render_context = RuntimeTemplateContext {
-                    workspace_root: &workspace_root,
-                    checkout_root: &workspace_root,
+                    workspace_root: &task_workspace_root,
+                    checkout_root: &task_workspace_root,
                     plan_path: &callback_paths.plan_path,
                     state_machine_path: callback_paths.state_machine_path.as_deref(),
                     plan_title: &plan_title,
@@ -2187,9 +2198,11 @@ fn run_agent_mode(
                 continue;
             }
             let tooling = gate.tooling;
-            let checkout_root = resolve_agent_checkout_root(&workspace_root, task_id_str)?;
+            // §FS-rhei-panta.6.2: the agent works in the owning rhei's root.
+            let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
+            let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
             let render_context = RuntimeTemplateContext {
-                workspace_root: &workspace_root,
+                workspace_root: &task_workspace_root,
                 checkout_root: &checkout_root.path,
                 plan_path: &callback_paths.plan_path,
                 state_machine_path: callback_paths.state_machine_path.as_deref(),
@@ -2241,7 +2254,7 @@ fn run_agent_mode(
             // orchestration ordering is encoded in code.
             let snapshot_preload = preload_snapshot_inherit_before_spawn(
                 input,
-                &workspace_root,
+                &task_workspace_root,
                 machine,
                 task,
                 current_state,
@@ -2269,7 +2282,7 @@ fn run_agent_mode(
             let spawn_result = spawn_and_wait_agent(
                 resolved,
                 &prompt,
-                &workspace_root,
+                &task_workspace_root,
                 &checkout_root.path,
                 checkout_root.worktree_root.as_deref(),
                 &callback_paths.plan_path,
@@ -2318,7 +2331,7 @@ fn run_agent_mode(
             });
             // §FS-rhei-cost-accounting.4: Extraction happens after agent exit.
             match record_agent_accounting_invocation(AgentAccountingInvocation {
-                workspace_root: &workspace_root,
+                workspace_root: &task_workspace_root,
                 task,
                 state: current_state,
                 resolved,

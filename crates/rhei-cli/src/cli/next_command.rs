@@ -259,7 +259,6 @@ fn next_command(
     // Only claim mode mutates child rhei files; `--peek` is read-only and works
     // project-wide like `list`/`validate`/`viz`. §FS-rhei-panta.6.1
     if !peek {
-        reject_panta_mutation(&loaded, "next")?;
     }
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
