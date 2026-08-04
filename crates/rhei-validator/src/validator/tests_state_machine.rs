@@ -573,3 +573,134 @@ states:
             joined
         );
     }
+
+    // §FS-rhei-states.12: machine composition via explicit `extends`.
+
+    fn overlay_machine(yaml: &str) -> StateMachine {
+        StateMachine::from_yaml_str(yaml).expect("overlay layer loads")
+    }
+
+    #[test]
+    fn extends_layer_defers_completeness_validation_until_folding() {
+        // A layer with no terminal state loads (validation runs on the merged
+        // machine, not the layer alone). §FS-rhei-states.1.3
+        let layer = overlay_machine(
+            "name: overlay\nextends: rhei\nversion: 1\nstates:\n  security-review:\n    description: extra phase\n",
+        );
+        assert_eq!(layer.extends.as_deref(), Some("rhei"));
+
+        let effective = layer.into_effective().expect("folds onto builtin");
+        assert!(effective.extends.is_none());
+        assert!(effective.states.contains_key("security-review"));
+        // Inherited builtin states survive the union.
+        assert!(effective.states.len() > 1, "builtin states should be inherited");
+        effective.validate_complete().expect("merged machine is complete");
+    }
+
+    #[test]
+    fn remove_without_extends_is_rejected() {
+        let err = StateMachine::from_yaml_str(
+            "name: bad\nversion: 1\nstates:\n  done: { description: d, final: true }\nremove:\n  - { from: a, to: b }\n",
+        )
+        .expect_err("remove requires extends");
+        assert!(err.to_string().contains("`remove` without `extends`"), "got: {err}");
+    }
+
+    #[test]
+    fn remove_must_name_an_inherited_pair_group() {
+        let layer = overlay_machine(
+            "name: overlay\nextends: rhei\nversion: 1\nstates: {}\nremove:\n  - { from: nowhere, to: nothing }\n",
+        );
+        let err = layer.into_effective().expect_err("unmatched remove is rejected");
+        assert!(
+            err.to_string().contains("(nowhere -> nothing) that no lower layer declares"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn remove_and_restate_of_same_pair_is_rejected() {
+        let builtin = StateMachine::builtin_default();
+        let first = builtin.transitions.first().expect("builtin has transitions");
+        let (from, to) = (first.from.0.clone(), first.to.0.clone());
+        let yaml = format!(
+            "name: overlay\nextends: rhei\nversion: 1\nstates: {{}}\ntransitions:\n  - from: {from}\n    to: {to}\nremove:\n  - {{ from: {from}, to: {to} }}\n",
+        );
+        let err = overlay_machine(&yaml).into_effective().expect_err("remove+restate is ambiguous");
+        assert!(err.to_string().contains("both removes and declares"), "got: {err}");
+    }
+
+    #[test]
+    fn compose_replaces_pair_group_in_place_and_appends_new_pairs() {
+        let base = overlay_machine(
+            "name: base\nversion: 1\nstates:\n  a: { description: a }\n  b: { description: b }\n  c: { description: c, final: true }\ntransitions:\n  - from: a\n    to: b\n  - from: b\n    to: c\n",
+        );
+        let overlay = overlay_machine(
+            "name: child\nextends: base\nversion: 1\nstates:\n  d: { description: d }\ntransitions:\n  - from: a\n    to: b\n    condition: visitCount >= 1\n  - from: a\n    to: d\n",
+        );
+        let merged = StateMachine::compose(&base, &overlay).expect("compose");
+        let pairs: Vec<(String, String)> =
+            merged.transitions.iter().map(|t| (t.from.0.clone(), t.to.0.clone())).collect();
+        // Replacement keeps the first slot; the new pair appends after
+        // inherited transitions. §FS-rhei-states.12.2
+        assert_eq!(
+            pairs,
+            vec![
+                ("a".to_string(), "b".to_string()),
+                ("b".to_string(), "c".to_string()),
+                ("a".to_string(), "d".to_string()),
+            ]
+        );
+        assert_eq!(
+            merged.transitions[0].condition.as_deref(),
+            Some("visitCount >= 1"),
+            "replacing transition must override the inherited group wholesale"
+        );
+        assert_eq!(merged.name, "child");
+    }
+
+    #[test]
+    fn compose_removes_inherited_pair_group() {
+        let base = overlay_machine(
+            "name: base\nversion: 1\nstates:\n  a: { description: a }\n  b: { description: b }\n  c: { description: c, final: true }\ntransitions:\n  - from: a\n    to: b\n  - from: b\n    to: c\n",
+        );
+        let overlay = overlay_machine(
+            "name: child\nextends: base\nversion: 1\nstates: {}\ntransitions:\n  - from: a\n    to: c\nremove:\n  - { from: a, to: b }\n",
+        );
+        let merged = StateMachine::compose(&base, &overlay).expect("compose");
+        let pairs: Vec<(String, String)> =
+            merged.transitions.iter().map(|t| (t.from.0.clone(), t.to.0.clone())).collect();
+        assert_eq!(
+            pairs,
+            vec![("b".to_string(), "c".to_string()), ("a".to_string(), "c".to_string())]
+        );
+    }
+
+    #[test]
+    fn compose_overrides_profiles_wholesale_and_unions_models() {
+        let base = overlay_machine(
+            "name: base\nversion: 1\nmodels: [m1, m2]\nstates:\n  a: { description: a }\n  z: { description: z, final: true }\ntransitions:\n  - from: a\n    to: z\nprofiles:\n  ticket:\n    initial: a\n    allowed: [a, z]\n  extra:\n    initial: a\n    allowed: [a, z]\nnode_policy:\n  root: ticket\n  default: ticket\n",
+        );
+        let overlay = overlay_machine(
+            "name: child\nextends: base\nversion: 1\nmodels: [m2, m3]\nstates: {}\nprofiles:\n  ticket:\n    initial: z\n    allowed: [z]\n",
+        );
+        let merged = StateMachine::compose(&base, &overlay).expect("compose");
+        let profiles = merged.profiles.expect("profiles present");
+        assert_eq!(profiles.get("ticket").expect("ticket").initial, "z");
+        assert_eq!(profiles.get("ticket").expect("ticket").allowed, vec!["z"]);
+        assert!(profiles.contains_key("extra"), "unrelated base profiles are inherited");
+        assert_eq!(merged.models, vec!["m1", "m2", "m3"]);
+        // node_policy inherited from the base when the overlay omits it.
+        assert_eq!(merged.node_policy.expect("policy").root, "ticket");
+    }
+
+    #[test]
+    fn into_effective_rejects_self_extension_and_unknown_base() {
+        let self_cycle = overlay_machine("name: loopy\nextends: loopy\nversion: 1\nstates: {}\n");
+        let err = self_cycle.into_effective().expect_err("self-extension is a cycle");
+        assert!(err.to_string().contains("extends itself"), "got: {err}");
+
+        let unknown = overlay_machine("name: child\nextends: missing-base\nversion: 1\nstates: {}\n");
+        let err = unknown.into_effective().expect_err("unknown base");
+        assert!(err.to_string().contains("cannot be resolved"), "got: {err}");
+    }

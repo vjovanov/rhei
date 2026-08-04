@@ -290,6 +290,15 @@ impl NodePolicyMatch {
 pub struct StateMachine {
     /// Human-readable states definition name.
     pub name: String,
+    /// §FS-rhei-states.12: optional base machine this machine composes onto.
+    /// When present the effective machine is the folded base chain with this
+    /// machine layered on top; when absent the machine is self-contained.
+    #[serde(default)]
+    pub extends: Option<String>,
+    /// §FS-rhei-states.12.2: inherited transition pair-groups to drop from the
+    /// composed machine. Only valid alongside `extends`.
+    #[serde(default)]
+    pub remove: Vec<TransitionRemove>,
     /// Optional declared model identifiers available to states in this machine.
     #[serde(default)]
     pub models: Vec<String>,
@@ -311,6 +320,17 @@ pub struct StateMachine {
     /// §FS-rhei-states.9: Node-policy block that binds nodes to profiles.
     #[serde(default)]
     pub node_policy: Option<NodePolicy>,
+}
+
+/// §FS-rhei-states.12.2: names one inherited transition pair-group to remove
+/// during composition. The wildcard `"*"` is a literal key segment.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TransitionRemove {
+    /// Source state name of the removed pair-group.
+    pub from: String,
+    /// Target state name of the removed pair-group.
+    pub to: String,
 }
 
 /// The built-in default states YAML shipped with rhei.

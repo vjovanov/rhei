@@ -127,12 +127,15 @@ fn resolve_machine(
 }
 
 fn load_machine(machine_path: &Path) -> io::Result<StateMachine> {
-    StateMachine::from_yaml_file(machine_path).map_err(|err| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("failed to load state machine {}: {err}", machine_path.display()),
-        )
-    })
+    StateMachine::from_yaml_file(machine_path)
+        // §FS-rhei-states.12: viz renders the effective (folded) machine.
+        .and_then(StateMachine::into_effective)
+        .map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to load state machine {}: {err}", machine_path.display()),
+            )
+        })
 }
 
 fn standalone_plan_files(dir: &Path) -> io::Result<Vec<PathBuf>> {

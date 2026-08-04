@@ -254,12 +254,9 @@ impl LoadedPlan {
         self.kind == LoadedPlanKind::PantaProject
     }
 
-    /// Resolve where a merged-graph ticket's rewrites must land: the file that
-    /// owns its heading, the file that owns its runtime metadata, the id as
-    /// written inside that file, and the owning rhei's execution root for
-    /// `runtime/` artifacts. Routing sends every state, assignee, result, and
-    /// runtime rewrite to the owning rhei with that rhei's id space.
-    /// §FS-rhei-panta.6.1
+    /// Resolve where a merged-graph ticket's rewrites land: heading file,
+    /// metadata file, in-file id, and the owning rhei's execution root.
+    /// §FS-rhei-panta.6.1 routes every rewrite to the owning rhei.
     fn task_route(&self, task_id: &str, input: &Path) -> TaskRoute {
         match self.kind {
             LoadedPlanKind::SingleFile => {
