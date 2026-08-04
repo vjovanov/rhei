@@ -6,7 +6,13 @@
   `$SHELL` when omitted, and on detection failure list the supported shells
   with a copy-pasteable example instead of clap's bare missing-argument
   error. PR #58 §FS-rhei-completions.2
-
+- Specify Panta as the default execution model: every load yields a
+  Panta-rooted graph with bare rheis wrapped in an implicit Panta, rhei ids
+  derived from source location, project-wide mutation replacing the staged
+  boundary, and explicit `extends` state-machine composition with whole-entity
+  override. Spec only; code follows in later phases. PR #45 §AR-rhei-panta.2
+  §AR-rhei-panta.3 §FS-rhei-panta.6 §FS-rhei-states.12
+  §DA-state-machine-composition
 - Add durable task state history to Flow/dashboard and the `rhei run` TUI,
   including the `state history` surroundings section, prompt-focused inspector
   navigation, a global Machine legend with process-kind styling, and links-only
