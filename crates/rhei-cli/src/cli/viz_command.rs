@@ -15,6 +15,8 @@ fn viz_command(
         .unwrap_or("plan")
         .to_string();
 
+    warn_if_panta_project(input);
+
     let plans = rhei_viz::collect_plans(input, &key, state_machine)
         .map_err(|err| miette!("failed to collect plans from {}: {err}", input.display()))?;
     if plans.is_empty() {
@@ -34,6 +36,22 @@ fn viz_command(
         open_in_browser(&out)?;
     }
     Ok(())
+}
+
+/// A project renders as one disconnected plan per `*.rhei.md`, not the merged
+/// graph the rest of the CLI operates on, so state the limit at the point of
+/// use rather than advertising a project rendering. §FS-rhei-viz.7.3
+fn warn_if_panta_project(input: &Path) {
+    if workspace::panta_project_dir(input).is_none() {
+        return;
+    }
+    eprintln!(
+        "Warning: `rhei viz` is not Panta-aware yet. {} is a Panta project, so this renders \
+         one disconnected plan per `*.rhei.md` — not the merged project graph. Cross-rhei \
+         dependency edges are not drawn and Directory Workspace rheis are skipped. \
+         Point `rhei viz` at a single rhei for an accurate view.",
+        input.display()
+    );
 }
 
 /// Default output under the workspace's `runtime/` directory (the run-end freeze

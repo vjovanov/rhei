@@ -419,7 +419,10 @@ target_selector = { ANY_CHAR - NEWLINE }+ ;
 (* Result block links a terminal task to its runtime result/audit file.
    It is inserted by the `complete` command after task content and before child
    tasks. The link text is the task id itself, and the target is always
-   runtime/results/<task-id>.md. *)
+   runtime/results/<task-id>.md. The grammar is form-agnostic: `complete`
+   writes the project-qualified id, and the legacy rhei-local id still parses
+   in plans completed before ticket ids gained their rhei prefix. Text and
+   target must agree — see section 3.8. *)
 result_block    = "> **Result:** ", "[", task_id, "](", result_path, ")", NEWLINE ;
 
 result_path     = "runtime/results/", task_id, ".md" ;
@@ -852,11 +855,21 @@ structure:
 ### 3.8. Result Block Consistency
 
 When a task contains a `> **Result:**` block, that block must describe the
-enclosing task itself:
+enclosing task itself. Text and target are validated **as a pair**: both name
+the same ticket, in the same form.
 
-- The link text must equal the enclosing task's `task_id`.
-- The target path must be exactly `runtime/results/<task-id>.md` using that
-  same id.
+- The link text must equal the enclosing task's `task_id`, and the target path
+  must be `runtime/results/<task-id>.md` using that same id.
+- Because every ticket gained a rhei prefix when bare rheis became implicit
+  Pantas (§FS-rhei-panta.6.3), the id may be written in either form: the
+  project-qualified id (`[auth.1](runtime/results/auth.1.md)`) that commands
+  write from here on, or the **legacy rhei-local** id
+  (`[1](runtime/results/1.md)`) left in plans completed before that change.
+  Both validate; there is no migration pass and no command rewrites an existing
+  result link.
+- A link that **mixes** the two forms (`[auth.1](runtime/results/1.md)`), or
+  names any other id, is an error — it would point at an artifact that does not
+  hold this ticket's result.
 
 A result block is optional syntax, but it has a lifecycle invariant:
 
@@ -873,14 +886,24 @@ A result block is optional syntax, but it has a lifecycle invariant:
 
 Example:
 
+In a rhei whose id is `web` (from `web.rhei.md` or the directory `web/`):
+
 ```markdown
 ### Task api: Build API
 **State:** completed
-> **Result:** [api](runtime/results/api.md)    ← Valid
+> **Result:** [web.api](runtime/results/web.api.md)  ← Valid (qualified)
 
 ### Task ui: Build UI
 **State:** completed
-> **Result:** [api](runtime/results/api.md)    ← ERROR: references a different task id
+> **Result:** [ui](runtime/results/ui.md)            ← Valid (legacy rhei-local)
+
+### Task docs: Write docs
+**State:** completed
+> **Result:** [web.docs](runtime/results/docs.md)    ← ERROR: mixes the two forms
+
+### Task cli: Build CLI
+**State:** completed
+> **Result:** [web.api](runtime/results/web.api.md)  ← ERROR: references a different task id
 ```
 
 `result_block` is validated by this task-local rule rather than by the general

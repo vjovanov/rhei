@@ -5,14 +5,40 @@ Select and optionally claim the next eligible task from a plan.
 ## 1. Usage
 
 ```bash
-rhei next <RHEI_PLAN> [--peek]
+rhei next <RHEI_PLAN> [--peek] [--task <ID>] [--rhei <RHEI_ID>]
 ```
 
 ## 2. Options
 
-| Flag     | Required | Default | Description                                            |
-|----------|----------|---------|--------------------------------------------------------|
-| `--peek` | No       | false   | Print the next claimable task without transitioning it |
+| Flag               | Required | Default | Description                                                        |
+|--------------------|----------|---------|--------------------------------------------------------------------|
+| `--peek`           | No       | false   | Print the next claimable task without transitioning it             |
+| `--task <ID>`      | No       |         | Target a specific ticket instead of auto-selecting. See §2.1.      |
+| `--rhei <RHEI_ID>` | No       | all     | Narrow candidate selection to the named rheis (repeatable). §2.2.  |
+
+### 2.1. Ticket Targets
+
+`--task` accepts either the project-qualified ticket id (`auth.1`) or a
+rhei-local shorthand (`1`). A shorthand resolves only when exactly one in-scope
+rhei contains that ticket; when more than one does, the error names the
+qualified candidates. Output, artifacts, and ledgers always use the qualified
+id regardless of how the target was written (§FS-rhei-panta.6).
+
+A ticket named explicitly with `--task` must itself be in scope: targeting a
+ticket outside `--rhei` is an error rather than a silent widening.
+
+### 2.2. Project Scope (`--rhei`)
+
+`rhei next` reads the whole project by default, since every load yields a
+Panta-rooted graph and a bare rhei is the single rhei of its implicit Panta.
+`--rhei <RHEI_ID>` is repeatable and narrows which tickets are **candidates**;
+it never narrows where their priors resolve, so a candidate may still be
+blocked by a prior in a rhei outside the scope. The no-work diagnostic names
+the scope and marks such a prior as out of scope (§FS-rhei-panta.6.1).
+
+An id that names no rhei in the project is an error listing the available rhei
+ids. Claim mode writes `**Assignee:**` into the owning rhei's file, resolved
+through the source map.
 
 ## 3. Default Behavior (Claim Mode)
 
@@ -165,7 +191,7 @@ from JSON output when no agent or model is configured.
 In text output mode, the agent is shown after the state line:
 
 ```text
-Task 3: Implement caching layer
+Task auth.3: Implement caching layer
 State: pending
 Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 

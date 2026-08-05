@@ -259,7 +259,8 @@ Each artifact definition has this shape:
 
 Supported path template variables:
 
-- `{task_id}` - the current task id as rendered in the plan
+- `{task_id}` - the current ticket's **project-qualified** id (`auth.3`), not
+  the rhei-local id its heading carries in the plan file (§AR-rhei-panta.3)
 - `{state}` - the canonical unsuffixed state name
 - `{visit_count}` - the current visit number for counted-loop states (only available when the state declares `visits`)
 - `{target}` - the current execution target selector (only available when the state declares `target` or `all_targets`)
@@ -382,7 +383,7 @@ The `instructions` and `personality` fields support template variable substituti
 
 | Variable | Source | Description | Example Value |
 |----------|--------|-------------|---------------|
-| `{task_id}` | claimed task | Task identifier as rendered in the plan | `3`, `setup` |
+| `{task_id}` | claimed task | Ticket's project-qualified id — the rhei id joined with the rhei-local id, not the plain heading id | `auth.3`, `auth.setup` |
 | `{task_title}` | claimed task | Task title text | `Implement caching layer` |
 | `{state}` | state machine | Canonical unsuffixed state name | `review` |
 | `{visit_count}` | runtime counter | Current visit number for counted-loop states | `2` |

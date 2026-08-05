@@ -104,7 +104,8 @@ old notes are historical; this roadmap owns the remaining backlog.
 - Make `rhei viz` Panta-aware: render a project directory as one merged graph
   with rheis as top-level groups and cross-rhei dependency edges, instead of one
   disconnected plan per `*.rhei.md`. Directory Workspace rheis inside a project
-  are currently skipped entirely. §FS-rhei-panta.6.4
+  are currently skipped entirely; until this lands the CLI warns when it is
+  pointed at a project. §FS-rhei-viz.7.3 §FS-rhei-panta.6.4
 - Validate child-rhei content-section links under Panta: carry a per-section
   link base so a rhei's own content sections resolve against that rhei's
   execution root, not the project root. Today only task-content links are

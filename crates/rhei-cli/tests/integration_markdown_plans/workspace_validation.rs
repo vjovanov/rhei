@@ -16,6 +16,33 @@ transitions:
     to: completed
 "#;
 
+/// A machine that declares an artifact contract, so a reset can be checked
+/// against the paths a ticket actually writes. §FS-rhei-states.6
+const ARTIFACT_CONTRACT_STATE_MACHINE: &str = r#"name: workspace-test-machine
+version: 1
+states:
+  pending:
+    description: Task not yet started
+    initial: true
+    outputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+  in-progress:
+    description: Task currently being worked on
+    inputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+        optional: true
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
+"#;
+
 const PANTA_PROFILE_STATE_MACHINE: &str = r#"name: panta-profile-machine
 version: 3.0
 states:
@@ -1120,6 +1147,135 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
     assert!(billing.contains("**State:** completed"), "billing must stay completed: {billing}");
     let auth = fs::read_to_string(project.join("auth.rhei.md")).expect("read auth");
     assert!(auth.contains("**State:** pending"), "auth must be reset: {auth}");
+
+    // A reset ticket's ledger history goes with it, so the recorded history
+    // cannot claim a completion the plan no longer holds. §FS-rhei-panta.6.4
+    let ledger = fs::read_to_string(project.join("runtime/state-transitions.log"))
+        .expect("read transition ledger");
+    assert!(!ledger.contains("auth.1 "), "reset ticket's ledger lines should be pruned: {ledger}");
+    assert!(
+        ledger.contains("billing.1 "),
+        "out-of-scope ticket must keep its ledger lines: {ledger}"
+    );
+
+    // The operator is told what a narrowed reset cannot speak for, rather than
+    // discovering a silent partial reset later. §FS-rhei-panta.6.4
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Kept run-scoped output"),
+        "narrowed reset should name what it kept"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+/// A narrowed reset removes every artifact keyed by an in-scope ticket —
+/// including declared artifact contracts, whose stale outputs would satisfy a
+/// required input on the next run — and nothing else. §FS-rhei-reset.2.1
+#[test]
+fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings() {
+    let project = create_panta_project(
+        "panta-narrow-artifacts",
+        "# Panta: Narrow Artifacts\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        ARTIFACT_CONTRACT_STATE_MACHINE,
+    );
+
+    // Runtime artifacts as the run surfaces write them. `auth.10` guards the
+    // prefix match: it must survive a reset narrowed to `auth.1`'s rhei only
+    // because it belongs to no in-scope ticket id.
+    let runtime = project.join("runtime");
+    for dir in ["logs", "results", "worktree-refs", "accounting/tasks", "notes"] {
+        fs::create_dir_all(runtime.join(dir)).expect("create runtime dir");
+    }
+    fs::create_dir_all(runtime.join("snapshot-sessions/auth.1-pending-slug-7"))
+        .expect("create snapshot session");
+    for file in [
+        "logs/task-auth.1-pending.log",
+        "logs/task-auth.10-pending.log",
+        "logs/task-billing.1-pending.log",
+        "results/auth.1.md",
+        "results/billing.1.md",
+        "worktree-refs/auth.1.yaml",
+        "accounting/tasks/auth.1.json",
+        "notes/auth.1.md",
+        "notes/billing.1.md",
+    ] {
+        fs::write(runtime.join(file), "x").expect("seed runtime artifact");
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&project)
+        .args(["--rhei", "auth"])
+        .output()
+        .expect("reset runs");
+    assert!(
+        output.status.success(),
+        "narrowed reset should succeed\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    for gone in [
+        "logs/task-auth.1-pending.log",
+        "results/auth.1.md",
+        "worktree-refs/auth.1.yaml",
+        "accounting/tasks/auth.1.json",
+        "notes/auth.1.md",
+        "snapshot-sessions/auth.1-pending-slug-7",
+    ] {
+        assert!(!runtime.join(gone).exists(), "{gone} is owned by auth.1 and should be removed");
+    }
+    for kept in [
+        "logs/task-auth.10-pending.log",
+        "logs/task-billing.1-pending.log",
+        "results/billing.1.md",
+        "notes/billing.1.md",
+    ] {
+        assert!(runtime.join(kept).exists(), "{kept} is not owned by an in-scope ticket");
+    }
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+/// `--rhei` narrows candidates but never prior resolution, so the diagnostic
+/// must name the out-of-scope prior rather than report the out-of-scope ticket
+/// as work in progress. §FS-rhei-panta.6.1
+#[test]
+fn panta_narrowed_next_explains_a_prior_outside_the_scope() {
+    let project = create_panta_project(
+        "panta-narrow-blocked",
+        "# Panta: Narrow Blocked\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n\
+                 **Prior:** Task auth.1\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(&project)
+        .args(["--rhei", "billing", "--no-callbacks"])
+        .output()
+        .expect("next runs");
+    assert!(!output.status.success(), "the only candidate is blocked");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--rhei scope (billing)")
+            && stderr.contains("billing.1")
+            && stderr.contains("outside the --rhei scope"),
+        "diagnostic should name the scope and the blocking prior outside it: {stderr}"
+    );
 
     fs::remove_dir_all(project).expect("cleanup");
 }

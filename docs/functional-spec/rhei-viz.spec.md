@@ -340,6 +340,23 @@ directory — the same location the run-end freeze (§7.1) writes to, so generat
 a view never drops an HTML file beside a checked-in plan. `--output <FILE>`
 overrides the location.
 
+Tickets carry the same project-qualified ids the rest of the CLI uses
+(`auth.1`), including for a bare rhei rendered directly (§AR-rhei-panta.2).
+
+### 7.3. Panta projects are not yet rendered as one graph
+
+`rhei viz` renders a **single rhei**. It is not Panta-aware: pointed at a
+project directory it renders each `*.rhei.md` as a separate plan rather than
+one merged graph, draws no cross-rhei dependency edges, and skips Directory
+Workspace rheis inside the project entirely.
+
+Because that page is not the graph the rest of the CLI operates on, a project
+input must never be *advertised* as rendering one. `rhei viz` accepts the input
+and prints a warning to stderr naming the limitation and pointing the operator
+at a single rhei. Panta-aware rendering — Panta as the implicit canvas, rheis
+as top-level groups, cross-rhei dependency edges, `basin` last and
+de-emphasized — is tracked on the roadmap (§FS-rhei-panta.6.4).
+
 ## 8. Data Contract
 
 Both modes consume one model. The live `/snapshot` payload is a superset of the

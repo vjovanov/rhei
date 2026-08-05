@@ -12,12 +12,25 @@ rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 
 | Flag             | Required | Default | Description                                                                 |
 |------------------|----------|---------|-----------------------------------------------------------------------------|
-| `--task <ID>`    | Yes      |         | Task identifier (number or name)                                            |
+| `--task <ID>`    | Yes      |         | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
 | `--from <STATE>` | Yes      |         | Expected current state (compare-and-swap guard)                             |
 | `--to <STATE>`   | Yes      |         | Target state                                                                |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave` / `on_enter` callbacks registered on the edge  |
 
 State values passed to `--from` and `--to` follow the state-value rendering rules in the [main spec](rhei-plan-language.spec.md#32-state-validity): bare for names that match `IDENTIFIER`, backtick-wrapped otherwise.
+
+### 2.1. Ticket Targets
+
+`--task` accepts either the project-qualified ticket id (`auth.1`, numbers or
+names in either segment) or a rhei-local shorthand (`1`). A shorthand resolves
+only when exactly one rhei in the project contains that ticket; when more than
+one does, the error names the qualified candidates. Output, the result file,
+and the ledger entry always use the qualified id regardless of how the target
+was written (§FS-rhei-panta.6).
+
+`rhei transition` takes no `--rhei` flag: the explicit ticket target already
+names the scope. The rewrite is routed to the file of the rhei that owns the
+ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 
 ## 3. Behavior
 

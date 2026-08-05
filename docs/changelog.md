@@ -28,16 +28,29 @@ where its id comes from. PR #45
   candidates when more than one does. §FS-rhei-panta.6
 - Add `--rhei <id>` (repeatable) to narrow `run`, `next`, `reset`, and `list` to
   named rheis. It selects candidates without narrowing where their priors
-  resolve, so a candidate may still be blocked by a prior outside the scope.
-  `run` and `reset` report their resolved scope before acting, and a narrowed
-  reset removes only in-scope tickets' artifacts rather than whole `runtime/`
-  trees. §FS-rhei-panta.6 §FS-rhei-panta.6.1 §FS-rhei-panta.6.4
+  resolve, so a candidate may still be blocked by a prior outside the scope —
+  and the no-work diagnostic now names that prior as out of scope instead of
+  reporting out-of-scope work. `run` and `reset` report their resolved scope
+  before acting; a one-rhei project has no fan-out to report and stays quiet.
+  §FS-rhei-panta.6 §FS-rhei-panta.6.1 §FS-rhei-panta.6.4 §FS-rhei-run.2.5
+  §FS-rhei-next.2.2 §FS-rhei-list.2 §FS-rhei-reset.1.1
+- Scope a narrowed `rhei reset` to everything keyed by an in-scope ticket —
+  result file, logs, declared artifact-contract paths, snapshot sessions,
+  worktree refs, accounting captures, and its lines in the transition ledger —
+  instead of results and logs alone, and report the run-scoped output it
+  deliberately keeps. A stale declared output could otherwise satisfy a
+  required input on the next run. §FS-rhei-reset.2.1 §FS-rhei-panta.6.4
 - Validate result links as a pair: link text and target must describe the same
   ticket, both qualified or both rhei-local. §FS-rhei-panta.6.3
+  §FS-rhei-plan-language.3.8
+- Warn when `rhei viz` is pointed at a Panta project: it is not Panta-aware, so
+  the page is one disconnected plan per `*.rhei.md`, not the merged project
+  graph. §FS-rhei-viz.7.3
 
-  One state machine still governs a whole project — a rhei declaring a machine
-  different from the project default is a load error. Per-rhei machines and a
-  Panta-aware `rhei viz` remain on the roadmap.
+Two limits ship with this change, both tracked on the roadmap: one state
+machine still governs a whole project — a rhei declaring a machine different
+from the project default is a load error — and `rhei viz` is not yet
+Panta-aware.
 - Add durable task state history to Flow/dashboard and the `rhei run` TUI,
   including the `state history` surroundings section, prompt-focused inspector
   navigation, a global Machine legend with process-kind styling, and links-only

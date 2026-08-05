@@ -22,6 +22,7 @@ Flags are grouped by concern:
 | `--no-callbacks`         | false   | Skip execution of `on_leave` / `on_enter` callbacks                        |
 | `--continue-on-error`    | false   | Continue to the next task when an agent or program exits non-zero          |
 | `--parallel <N>`         | 1       | Maximum number of agents or programs to run concurrently (0 = unlimited)   |
+| `--rhei <RHEI_ID>`       | all     | Narrow this run to the named rheis (repeatable). See §2.5.                  |
 | `--tui`                  | auto    | Force TUI mode even when stdout is not detected as a TTY                   |
 | `--no-tui`               | auto    | Force plain stdout output even when stdout is a TTY                        |
 | `--dashboard`            | auto    | Serve the loopback browser dashboard for this run                          |
@@ -51,6 +52,23 @@ Flags are grouped by concern:
 |--------------------------------|----------------------------------------------------------------------------------|
 | `--no-program`                 | Disable program spawning; use callback-only advancement for program states       |
 | `--program-timeout <DURATION>` | Override the program timeout for this run (applied per program state)            |
+
+### 2.5. Project Scope (`--rhei`)
+
+`rhei run` drives a whole project by default: every load yields a Panta-rooted
+graph, and a bare rhei is simply the single rhei of its implicit Panta
+(§FS-rhei-panta.6.2). `--rhei <RHEI_ID>` is repeatable and narrows the run to
+the named rheis.
+
+- An id that names no rhei in the project is an error listing the available
+  rhei ids.
+- Narrowing selects **candidate** tickets only; it never narrows where their
+  priors resolve. A candidate may still be blocked by a prior in a rhei outside
+  the scope, and the no-work diagnostic names that prior as out of scope
+  (§FS-rhei-panta.6.1).
+- Before spawning, `rhei run` reports its resolved scope and the rheis it will
+  touch. A one-rhei project has no fan-out to report and stays quiet
+  (§FS-rhei-panta.6).
 
 ## 3. Execution Loop
 

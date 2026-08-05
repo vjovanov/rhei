@@ -119,7 +119,13 @@ to named rheis.
 
 The project is the unit an operator drives. Because they fan out across every
 in-scope rhei, `rhei run` and `rhei reset` report their resolved scope and the
-affected rheis before acting.
+affected rheis before acting. The report exists for fan-out, so a one-rhei
+project — the implicit Panta wrapping a bare rhei — has nothing to disambiguate
+and stays quiet: no `Scope:` line is printed unless the invocation reaches more
+than one rhei or the target is an explicit Panta project.
+
+An id passed to `--rhei` that names no rhei in the project is an error listing
+the available rhei ids, rather than a silently empty scope.
 
 A ticket target passed to a command (`rhei complete <id>`, `rhei transition
 --task <id>`, …) is either the project-qualified id (`auth.1`) or a rhei-local
@@ -145,6 +151,13 @@ the candidate tickets but never narrows where their priors resolve: a candidate
 may still be blocked by a prior outside the named rheis. A ticket named
 explicitly with `--task` must itself be in scope; targeting a ticket outside the
 named rheis is an error rather than a silent widening.
+
+Because that is the one interaction a narrowed invocation cannot show in its
+own scope, the no-work diagnostic must explain it rather than describe
+out-of-scope work: under `--rhei` it names the scope, reports only in-scope
+tickets, and marks a blocking prior that lives outside the scope as such
+(`Task auth.1 (pending, outside the --rhei scope)`). Reporting an out-of-scope
+ticket as the work in progress is wrong — it reads as a bug in narrowing.
 
 Claim mode writes the `**Assignee:**` into the owning rhei's file, resolved
 through the source map (§AR-rhei-panta.2). `--peek` is read-only and never
@@ -198,7 +211,15 @@ up automatically.
   acting. `--rhei` narrows it. A narrowed reset removes only the runtime
   artifacts owned by in-scope tickets rather than whole `runtime/` trees:
   sibling single-file rheis share one execution root, so removing the tree
-  would destroy an out-of-scope rhei's state.
+  would destroy an out-of-scope rhei's state. "Owned" means keyed by an
+  in-scope ticket id — its result file, logs, declared artifact-contract paths,
+  snapshot sessions, worktree refs, accounting captures and task index, and its
+  lines in the transition ledger. Leaving any of those behind would be a silent
+  partial reset: a stale declared output can satisfy a required input on the
+  next run, and a stale ledger line claims a completion the plan no longer
+  holds. Run-scoped output — the run report, the dashboard, accounting rollups —
+  is not ticket-owned; a narrowed reset keeps it and **says so**, rather than
+  letting the operator discover the difference (§FS-rhei-reset.2.1).
 - `rhei validate` always checks the whole project graph: cross-rhei dependency
   resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
   `panta`/`rhei` kinds.
@@ -210,9 +231,12 @@ up automatically.
   Workspace — in the same id space the CLI uses, so its tickets carry their
   qualified ids (`auth.1`). It is **not yet Panta-aware**: pointed at a project
   directory it renders each `*.rhei.md` as a separate plan rather than one
-  merged graph, and Directory Workspace rheis inside the project are skipped.
-  Project inputs must not be advertised as rendering a merged project graph
-  until that path exists. The intended rendering remains Panta as the implicit
+  merged graph, draws no cross-rhei dependency edges, and skips Directory
+  Workspace rheis inside the project. Project inputs must not be advertised as
+  rendering a merged project graph until that path exists: `rhei viz` accepts a
+  project directory but warns on stderr that the page is not the merged graph
+  and points the operator at a single rhei (§FS-rhei-viz.7.3). The intended
+  rendering remains Panta as the implicit
   canvas (never a drawn root box), rheis as top-level groups, and cross-rhei
   dependency edges between them; the `basin` group is placed last and
   de-emphasized (§4). Tracked on the roadmap.

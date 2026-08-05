@@ -179,10 +179,19 @@ fn first_blocking_prior(
     task: &rhei_core::ast::Task,
     state_map: &std::collections::HashMap<&TaskId, String>,
     machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
 ) -> Option<String> {
     task.prior.iter().find_map(|dep_id| match state_map.get(dep_id) {
         Some(state) if !dependency_is_satisfied(state, machine) => {
-            Some(format!("Task {} ({})", dep_id, state))
+            // §FS-rhei-panta.6.1: `--rhei` narrows candidates, never prior
+            // resolution, so name the prior that sits outside the scope
+            // rather than leaving the operator to guess why nothing ran.
+            let outside = if task_in_rhei_scope(scope, &dep_id.to_string()) {
+                ""
+            } else {
+                ", outside the --rhei scope"
+            };
+            Some(format!("Task {} ({}{})", dep_id, state, outside))
         }
         None => Some(format!("Task {} (missing)", dep_id)),
         _ => None,
@@ -262,30 +271,49 @@ fn transition_command_lines(
 }
 
 /// Build an actionable error message for `rhei next` when no task can be
-/// auto-claimed.
+/// auto-claimed. Priors resolve project-wide even under `--rhei`, so only the
+/// reported categories narrow — never the state map. §FS-rhei-panta.6.1
 fn diagnose_no_claimable(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     plan_path: &Path,
     state_machine_path: Option<&Path>,
+    scope: &RheiScope,
 ) -> String {
-    let mut all = Vec::new();
-    collect_plan_tasks(&rhei.tasks, &mut all);
+    let mut project = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut project);
+
+    let state_map = plan_state_map(&project, machine);
+
+    let all: Vec<&rhei_core::ast::Task> = project
+        .iter()
+        .copied()
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .collect();
+
+    let scope_suffix = match scope {
+        Some(_) => format!(" in the --rhei scope ({})", scope_label(scope)),
+        None => String::new(),
+    };
 
     if all.is_empty() {
-        return "no tasks are ready to claim (plan has no tasks)".to_string();
+        return match scope {
+            Some(_) => format!("no tasks are ready to claim{scope_suffix} (no tasks in scope)"),
+            None => "no tasks are ready to claim (plan has no tasks)".to_string(),
+        };
     }
-
-    let state_map = plan_state_map(&all, machine);
 
     let non_terminal: Vec<&rhei_core::ast::Task> =
         all.iter().copied().filter(|t| !is_terminal_state(t.state.as_str(), machine)).collect();
 
     if non_terminal.is_empty() {
-        return format!(
-            "Plan complete. All {} task(s) are in terminal states.",
-            all.len()
-        );
+        return match scope {
+            Some(_) => format!(
+                "Scope complete. All {} task(s){scope_suffix} are in terminal states.",
+                all.len()
+            ),
+            None => format!("Plan complete. All {} task(s) are in terminal states.", all.len()),
+        };
     }
 
     let leaf_tasks: Vec<&rhei_core::ast::Task> =
@@ -391,7 +419,8 @@ fn diagnose_no_claimable(
             String::new()
         };
         return format!(
-            "No tasks available to claim. {} task(s) are currently in progress: {}{}.",
+            "No tasks available to claim{}. {} task(s) are currently in progress: {}{}.",
+            scope_suffix,
             assigned_ready.len(),
             items.join(", "),
             suffix
@@ -446,7 +475,7 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                if let Some(prior) = first_blocking_prior(task, &state_map, machine) {
+                if let Some(prior) = first_blocking_prior(task, &state_map, machine, scope) {
                     format!("Task {} waiting on {}", task.id, prior)
                 } else {
                     format!("Task {}", task.id)
@@ -459,7 +488,9 @@ fn diagnose_no_claimable(
             String::new()
         };
         return format!(
-            "no tasks are ready to claim: {} blocked by incomplete prerequisites{}.",
+            "no tasks are ready to claim{}: {} task(s) blocked by incomplete prerequisites: {}{}.",
+            scope_suffix,
+            blocked.len(),
             ids.join(", "),
             suffix
         );
@@ -467,7 +498,7 @@ fn diagnose_no_claimable(
 
     // Fallback: we found non-terminal tasks with priors satisfied but no
     // other category matched. Keep the legacy phrasing for this edge case.
-    "no tasks are ready to claim".to_string()
+    format!("no tasks are ready to claim{scope_suffix}")
 }
 
 /// Check whether a state is terminal (final) in the state machine.

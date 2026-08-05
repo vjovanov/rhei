@@ -12,13 +12,22 @@ rhei complete <RHEI_PLAN> --task <TASK_ID> --result <MESSAGE>
 
 | Flag             | Required | Default | Description                                       |
 |------------------|----------|---------|---------------------------------------------------|
-| `--task <ID>`    | Yes      |         | Task identifier (number or name)                  |
+| `--task <ID>`    | Yes      |         | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
 | `--result <MSG>` | Yes      |         | Result message for the task                       |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave`/`on_enter` callbacks |
 
+### 2.1. Ticket Targets
+
+`--task` accepts either the project-qualified ticket id (`auth.1`) or a
+rhei-local shorthand (`1`). A shorthand resolves only when exactly one rhei in
+the project contains that ticket; when more than one does, the error names the
+qualified candidates. There is no `--rhei` flag — the explicit ticket target is
+the scope (§FS-rhei-panta.6).
+
 ## 3. Result File
 
-Each task has a result file at a fixed path:
+Each task has a result file at a fixed path, keyed by the **project-qualified**
+ticket id under the owning rhei's execution root:
 
 ```text
 runtime/results/<task-id>.md
@@ -31,6 +40,12 @@ before child nodes):
 ```markdown
 > **Result:** [<task-id>](runtime/results/<task-id>.md)
 ```
+
+`<task-id>` here is the qualified id (`auth.1`), even though the task heading in
+the plan file keeps its rhei-local form (`### Task 1:`). Plans completed before
+ticket ids gained their rhei prefix keep their rhei-local link and artifact —
+no command rewrites an existing result link, and both forms validate
+(§FS-rhei-panta.6.3, §FS-rhei-plan-language.3.8).
 
 This keeps task files concise — the result detail lives in a separate artifact under `runtime/`, consistent with how other runtime outputs (findings, verifications, fixes) are stored in directory workspaces.
 
@@ -130,12 +145,14 @@ rhei complete plan.rhei.md --task 3 \
 # Result: runtime/results/plan.3.md
 # Assignee: removed
 
-# Worker in a living workspace completes a review-seed task
+# Worker in a living workspace completes a review-seed task. The Directory
+# Workspace `my-workspace/` is the rhei `my-workspace`, so the ticket is
+# `my-workspace.review-seed` however the target was written.
 rhei complete ./my-workspace --task review-seed \
   --result "Wrote 4 findings to runtime/findings/consolidated.md"
 # State: pending -> completed
-# Result: ./my-workspace/runtime/results/review-seed.md
-# Task body: > **Result:** [review-seed](runtime/results/review-seed.md)
+# Result: ./my-workspace/runtime/results/my-workspace.review-seed.md
+# Task body: > **Result:** [my-workspace.review-seed](runtime/results/my-workspace.review-seed.md)
 ```
 
 ## Relationship to Other Commands

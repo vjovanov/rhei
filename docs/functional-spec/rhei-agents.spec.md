@@ -1058,14 +1058,14 @@ missing line means the state declared no entries of that kind.
 Pass 1: 2 ready, 0 terminal, 5 total.
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
-  Task 1: Set up database schema [draft -> pending]
+  Task app.1: Set up database schema [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
-  Log: runtime/logs/task-1-pending.log
+  Log: runtime/logs/task-app.1-pending.log
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
-  Task 3: Write frontend components [draft -> pending]
+  Task app.3: Write frontend components [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
-  Log: runtime/logs/task-3-pending.log
+  Log: runtime/logs/task-app.3-pending.log
 
 Dry run complete - no agents were spawned.
 ```

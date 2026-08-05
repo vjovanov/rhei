@@ -8,15 +8,18 @@ timestamps).
 ## 1. Usage
 
 ```bash
-rhei list <RHEI_PLAN> [FILTERS] [--limit N] [--json]
+rhei list <RHEI_PLAN> [FILTERS] [--rhei <RHEI_ID>] [--limit N] [--json]
 ```
 
-`<RHEI_PLAN>` is a single-file plan or a Directory Workspace path.
+`<RHEI_PLAN>` is a single-file plan, a Directory Workspace, or a Panta project
+directory. Listing is project-wide: filters apply across every rhei, and
+`--rhei` narrows the listing to named rheis (§FS-rhei-panta.6.4).
 
 ## 2. Options
 
 | Flag                     | Description                                                                       |
 |--------------------------|-----------------------------------------------------------------------------------|
+| `--rhei <RHEI_ID>`       | Only tickets in the named rheis. Repeatable. An id that names no rhei in the project is an error listing the available ids. §FS-rhei-panta.6.4 |
 | `--state <STATE>`        | Filter by state. Repeatable; comma-separated also accepted. Aliases are normalized through the resolved state machine. |
 | `--assignee <ASSIGNEE>`  | Exact `**Assignee:**` match. Mutually exclusive with `--no-assignee`.            |
 | `--no-assignee`          | Only tasks with no `**Assignee:**` field.                                         |
@@ -54,11 +57,15 @@ Filters combine with logical AND. Empty result sets are not an error.
 One task per line, indented two spaces per depth level, in source order:
 
 ```text
-Task 1: Define pipeline contracts [pending]
-  Task 1.1: Capture deployment events [pending]
-Task 2: Bootstrap environments [pending] (prior: 1)
-Task 3: Roll out release bot [in-progress] (prior: 1, 2) @claude-code
+Task release.1: Define pipeline contracts [pending]
+  Task release.1.1: Capture deployment events [pending]
+Task release.2: Bootstrap environments [pending] (prior: release.1)
+Task release.3: Roll out release bot [in-progress] (prior: release.1, release.2) @claude-code
 ```
+
+Ticket ids are project-qualified, including for a bare rhei loaded directly:
+`release.rhei.md` is the single rhei of an implicit Panta with the id `release`
+(§FS-rhei-panta.6, §AR-rhei-panta.3).
 
 The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 `@<assignee>` suffix is omitted when the task is unclaimed.

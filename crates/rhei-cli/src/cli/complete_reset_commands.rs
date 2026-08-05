@@ -147,8 +147,16 @@ fn reset_command(
     // §FS-rhei-panta.6.4: a narrowed reset removes per-ticket artifacts, never
     // whole `runtime/` trees — sibling rheis share one execution root.
     if scope.is_some() {
-        let removed = remove_scoped_runtime_artifacts(&loaded, input, &scope)?;
+        let removed =
+            remove_scoped_runtime_artifacts(&loaded, input, &scope, &resolved.machine)?;
         report_reset_summary(task_count, descendant_count, &reset_summary, removed);
+        // A narrowed reset can only speak for ticket-owned artifacts; run-scoped
+        // rollups belong to the run, not the ticket. Say so rather than leaving
+        // the operator to discover the difference. §FS-rhei-panta.6.4
+        println!(
+            "Kept run-scoped output not owned by any ticket (run report, dashboard, \
+             accounting rollups). Reset without `--rhei` to clear it."
+        );
         return Ok(());
     }
 
@@ -203,13 +211,23 @@ fn report_reset_summary(
     }
 }
 
-/// Remove runtime artifacts owned by the in-scope tickets only, leaving every
-/// other rhei's state intact. Sibling single-file rheis share one execution
-/// root, so a narrowed reset must never delete the whole tree. §FS-rhei-panta.6.4
+/// One runtime path a narrowed reset removes for a ticket: either a fully
+/// resolved path, or a literal prefix within a directory when the artifact
+/// template still carries run-time placeholders (`{state}`, `{visit_count}`,
+/// `{model}`, …) that a reset cannot resolve.
+enum ScopedTarget {
+    Exact(PathBuf),
+    Prefixed { dir: PathBuf, prefix: String },
+}
+
+/// Remove everything keyed by an in-scope ticket id — results, logs, declared
+/// artifacts, snapshots, worktree refs, accounting, ledger lines — and nothing
+/// else: sibling rheis share one execution root. §FS-rhei-reset.2.1
 fn remove_scoped_runtime_artifacts(
     loaded: &LoadedPlan,
     input: &Path,
     scope: &RheiScope,
+    machine: &rhei_validator::StateMachine,
 ) -> MietteResult<bool> {
     let mut removed = false;
     let mut task_ids: Vec<String> = Vec::new();
@@ -223,39 +241,159 @@ fn remove_scoped_runtime_artifacts(
         collect(task, &mut task_ids);
     }
 
+    // Ledger lines are pruned per execution root, once, after the per-ticket
+    // sweep: sibling rheis share one `state-transitions.log`.
+    let mut ledger_roots: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
+
     for task_id in task_ids.iter().filter(|id| task_in_rhei_scope(scope, id)) {
         let root = loaded.task_root(task_id, input);
         let runtime = root.join("runtime");
+        ledger_roots.entry(root).or_default().insert(task_id.clone());
         if !runtime.exists() {
             continue;
         }
-        let result_file = runtime.join("results").join(format!("{task_id}.md"));
-        if result_file.exists() {
-            fs::remove_file(&result_file).map_err(|err| {
-                file_io_report(&result_file, "failed to remove result file", err)
-            })?;
-            removed = true;
+        for target in scoped_runtime_targets(&runtime, task_id, machine) {
+            removed |= remove_scoped_target(&target)?;
         }
-        // Logs are named `task-<id>-<state>[-<suffix>].log`.
-        let logs = runtime.join("logs");
-        if logs.is_dir() {
-            let prefix = format!("task-{task_id}-");
-            for entry in fs::read_dir(&logs)
-                .map_err(|err| file_io_report(&logs, "failed to read runtime logs", err))?
+    }
+
+    for (root, ids) in ledger_roots {
+        removed |= prune_transition_ledger(&root, &ids)?;
+    }
+    Ok(removed)
+}
+
+/// Every runtime path keyed by `task_id` under one execution root's `runtime/`.
+fn scoped_runtime_targets(
+    runtime: &Path,
+    task_id: &str,
+    machine: &rhei_validator::StateMachine,
+) -> Vec<ScopedTarget> {
+    let accounting_id = safe_accounting_file_segment(task_id);
+    let mut targets = vec![
+        // §FS-rhei-complete.4: the completion result file.
+        ScopedTarget::Exact(runtime.join("results").join(format!("{task_id}.md"))),
+        // §FS-rhei-agents.9 / §FS-rhei-programs.5: `task-<id>-<state>[-…].log`.
+        ScopedTarget::Prefixed {
+            dir: runtime.join("logs"),
+            prefix: format!("task-{task_id}-"),
+        },
+        // §FS-rhei-snapshots.4: `<id>-<state>-<slug>-<nonce>/` session dirs.
+        ScopedTarget::Prefixed {
+            dir: runtime.join("snapshot-sessions"),
+            prefix: format!("{task_id}-"),
+        },
+        ScopedTarget::Exact(runtime.join("worktree-refs").join(format!("{task_id}.yaml"))),
+        // §FS-rhei-cost-accounting.2: per-ticket captures and task index.
+        ScopedTarget::Prefixed {
+            dir: runtime.join("accounting").join("captures"),
+            prefix: format!("{accounting_id}-"),
+        },
+        ScopedTarget::Exact(
+            runtime.join("accounting").join("tasks").join(format!("{accounting_id}.json")),
+        ),
+    ];
+
+    // §FS-rhei-states.6: artifact contracts are the machine's own declaration
+    // of what a ticket writes, so a reset that leaves them behind would let a
+    // stale output satisfy a required input on the next run.
+    let root = runtime.parent().unwrap_or(runtime);
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for state in machine.states.values() {
+        for artifact in state.inputs.iter().chain(state.outputs.iter()) {
+            if !artifact.path.contains("{task_id}") || !seen.insert(artifact.path.clone()) {
+                continue;
+            }
+            let resolved = artifact.path.replace("{task_id}", task_id);
+            match resolved.split_once('{') {
+                // A template with placeholders a reset cannot resolve becomes a
+                // literal prefix; the text between `{task_id}` and the next
+                // placeholder keeps `auth.1` from matching `auth.10`.
+                Some((literal, _)) => {
+                    let literal = root.join(literal);
+                    let Some(dir) = literal.parent().map(Path::to_path_buf) else { continue };
+                    let Some(prefix) =
+                        literal.file_name().and_then(|name| name.to_str()).map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    if !prefix.is_empty() {
+                        targets.push(ScopedTarget::Prefixed { dir, prefix });
+                    }
+                }
+                None => targets.push(ScopedTarget::Exact(root.join(resolved))),
+            }
+        }
+    }
+    targets
+}
+
+fn remove_scoped_target(target: &ScopedTarget) -> MietteResult<bool> {
+    match target {
+        ScopedTarget::Exact(path) => remove_runtime_path(path),
+        ScopedTarget::Prefixed { dir, prefix } => {
+            if !dir.is_dir() {
+                return Ok(false);
+            }
+            let mut removed = false;
+            for entry in fs::read_dir(dir)
+                .map_err(|err| file_io_report(dir, "failed to read runtime directory", err))?
                 .flatten()
             {
                 let name = entry.file_name();
                 let Some(name) = name.to_str() else { continue };
-                if name.starts_with(&prefix) {
-                    fs::remove_file(entry.path()).map_err(|err| {
-                        file_io_report(&entry.path(), "failed to remove runtime log", err)
-                    })?;
-                    removed = true;
+                if name.starts_with(prefix.as_str()) {
+                    removed |= remove_runtime_path(&entry.path())?;
                 }
             }
+            Ok(removed)
         }
     }
-    Ok(removed)
+}
+
+fn remove_runtime_path(path: &Path) -> MietteResult<bool> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+            .map_err(|err| file_io_report(path, "failed to remove runtime directory", err))?;
+        return Ok(true);
+    }
+    if path.exists() {
+        fs::remove_file(path)
+            .map_err(|err| file_io_report(path, "failed to remove runtime artifact", err))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Drop the in-scope tickets' lines from one execution root's transition
+/// ledger, so a reset ticket's recorded history matches its plan state.
+/// Lines read `<task-id> <from>@<to>`. §FS-rhei-panta.6.4
+fn prune_transition_ledger(root: &Path, task_ids: &BTreeSet<String>) -> MietteResult<bool> {
+    let ledger = root.join("runtime").join("state-transitions.log");
+    if !ledger.is_file() {
+        return Ok(false);
+    }
+    let raw = fs::read_to_string(&ledger)
+        .map_err(|err| file_io_report(&ledger, "failed to read state transition log", err))?;
+    let kept: Vec<&str> = raw
+        .lines()
+        .filter(|line| {
+            let id = line.split_whitespace().next().unwrap_or_default();
+            !task_ids.contains(id)
+        })
+        .collect();
+    if kept.len() == raw.lines().count() {
+        return Ok(false);
+    }
+    if kept.is_empty() {
+        fs::remove_file(&ledger)
+            .map_err(|err| file_io_report(&ledger, "failed to remove state transition log", err))?;
+        return Ok(true);
+    }
+    let mut content = kept.join("\n");
+    content.push('\n');
+    write_file_atomic(&ledger, &content)?;
+    Ok(true)
 }
 
 fn reset_initial_summary(

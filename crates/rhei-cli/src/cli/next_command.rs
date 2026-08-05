@@ -297,7 +297,7 @@ fn next_command(
                 state_map.get(dep_id).map(|s| dependency_is_satisfied(s, &machine)).unwrap_or(false)
             });
             if !all_priors_done {
-                let detail = first_blocking_prior(task, &state_map, &machine)
+                let detail = first_blocking_prior(task, &state_map, &machine, &scope)
                     .map(|prior| format!("; waiting on {}", prior))
                     .unwrap_or_default();
                 return Err(miette!(
@@ -340,7 +340,13 @@ fn next_command(
         if ready.is_empty() {
             return Err(miette!(
                 "{}",
-                diagnose_no_claimable(&loaded.rhei, &machine, input, resolved.path.as_deref())
+                diagnose_no_claimable(
+                    &loaded.rhei,
+                    &machine,
+                    input,
+                    resolved.path.as_deref(),
+                    &scope
+                )
             ));
         }
         let task = ready.into_iter().next().unwrap();
