@@ -108,18 +108,18 @@ file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>
 (repeatable) narrows a project-scoped invocation to named rheis.
 
 Within a project, every command — read-only and mutating alike — operates
-**project-wide by default**. Loading, validation, listing, rendering, and
-visualization read the merged project graph; `rhei run`, `rhei next`,
-`rhei transition`, `rhei complete`, and `rhei reset` mutate it, routing every
-state, assignee, result, and runtime-artifact rewrite back to the owning rhei
-file and applying that rhei's own state machine. Because a single rhei loaded
-directly is the sole rhei of an implicit Panta (§AR-rhei-panta.2), there is no
-separate "bare rhei" command path: targeting one rhei is simply a one-rhei
-project, and `--rhei <id>` narrows a multi-rhei project to named rheis.
+**project-wide by default**. Loading, validation, listing, and rendering read
+the merged project graph; `rhei run`, `rhei next`, `rhei transition`,
+`rhei complete`, and `rhei reset` mutate it, routing every state, assignee,
+result, and runtime-artifact rewrite back to the owning rhei file. Because a
+single rhei loaded directly is the sole rhei of an implicit Panta
+(§AR-rhei-panta.2), there is no separate "bare rhei" command path: targeting one
+rhei is simply a one-rhei project, and `--rhei <id>` narrows a multi-rhei project
+to named rheis.
 
-The project is the unit an operator drives. Because a mutating invocation can fan
-out across every rhei, any command that spawns work or destroys runtime state
-must report its resolved scope and the affected rheis before acting.
+The project is the unit an operator drives. Because they fan out across every
+in-scope rhei, `rhei run` and `rhei reset` report their resolved scope and the
+affected rheis before acting.
 
 A ticket target passed to a command (`rhei complete <id>`, `rhei transition
 --task <id>`, …) is either the project-qualified id (`auth.1`) or a rhei-local
@@ -128,19 +128,23 @@ rhei contains that ticket; ambiguity across rheis is an error that names the
 qualified candidates. Output, artifacts, and ledgers always use the qualified
 id regardless of how the target was written.
 
-Each rhei may declare its own state machine via `**States:**`; the
-`index.panta.md` manifest supplies the project default for rheis that do not.
-Commands resolve and apply the correct machine per rhei (§AR-rhei-panta).
+One state machine governs the whole project: the `index.panta.md` declaration,
+or the built-in `rhei` machine when the manifest declares none. A rhei may
+restate that machine in its own `**States:**`, but declaring a *different*
+machine is a load error (§AR-rhei-panta.4). Per-rhei machines are a deferred
+capability, tracked on the roadmap.
 
 ### 6.1. Readiness and `rhei next`
 
 Readiness is **project-global**. A ticket is ready when it is a claimable leaf
 and every `**Prior:**` is terminal-and-not-cancelled, resolved across the whole
-project graph — a ticket in one rhei may be blocked by a ticket in another. Each
-prior's terminal status is judged against *that prior's own* rhei state machine.
+project graph — a ticket in one rhei may be blocked by a ticket in another.
+Terminal status is judged against the project state machine (§AR-rhei-panta.4).
 Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
 the candidate tickets but never narrows where their priors resolve: a candidate
-may still be blocked by a prior outside the named rheis.
+may still be blocked by a prior outside the named rheis. A ticket named
+explicitly with `--task` must itself be in scope; targeting a ticket outside the
+named rheis is an error rather than a silent widening.
 
 Claim mode writes the `**Assignee:**` into the owning rhei's file, resolved
 through the source map (§AR-rhei-panta.2). `--peek` is read-only and never
@@ -149,8 +153,8 @@ writes.
 ### 6.2. `rhei run`
 
 At project scope, `rhei run` orchestrates ready tickets across all in-scope rheis
-under one loop, applying each ticket's own rhei state machine. It drives tickets
-to terminal states; it never writes state to a rhei or Panta node. Concurrency
+under one loop, applying the project state machine (§AR-rhei-panta.4). It drives
+tickets to terminal states; it never writes state to a rhei or Panta node. Concurrency
 across rheis is bounded, and each spawned unit is attributed to its rhei in logs
 and accounting. The loop stops when no eligible ticket remains in scope or a
 gating state requires a human.
@@ -165,11 +169,18 @@ Result artifacts and their in-plan links are keyed by the **project-qualified**
 ticket id: completing `auth.1` writes `runtime/results/auth.1.md` under the
 owning rhei's execution root and links it as `[auth.1](runtime/results/auth.1.md)`.
 Because every ticket gained its rhei prefix when bare rheis became implicit
-Pantas, a plan authored earlier carries the rhei-local link
-(`[1](runtime/results/1.md)`). Validation **accepts that legacy form** so
-existing plans keep validating; commands only ever write the qualified form, so
-a plan migrates the next time its ticket is completed. Only these two forms are
-accepted — any other link text or target is an error.
+Pantas, a plan completed before that change carries the rhei-local link
+(`[1](runtime/results/1.md)`) beside a rhei-local artifact. Validation **accepts
+that legacy form** so existing plans keep validating, and **no command rewrites
+an existing result link** — an already-completed ticket keeps pointing at the
+artifact that actually holds its result. There is no migration pass: commands
+write the qualified form for completions from here on, and the two forms coexist
+in a long-lived plan.
+
+A result link is validated as a **pair**: text and target must describe the same
+ticket id, both qualified (`[auth.1](runtime/results/auth.1.md)`) or both
+rhei-local (`[1](runtime/results/1.md)`). A link that mixes the two forms, or
+names any other id, is an error.
 
 `rhei complete` finishes a leaf ticket. A rhei is done when all its tickets are
 terminal, and Panta when all rheis are done, but this status is **derived, not
@@ -195,13 +206,16 @@ up automatically.
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
   `--rhei` filters to a rhei. The `basin` rhei is ordered last and de-emphasized
   in default output (§4).
-- Panta-aware `rhei viz` is planned but not part of the current staged CLI
-  boundary: the existing visualization path is not yet wired to the Panta loader,
-  so Panta project inputs must not be advertised as rendering a merged project
-  graph until that path is implemented. The intended rendering remains Panta as
-  the implicit canvas (never a drawn root box), rheis as top-level groups, and
-  cross-rhei dependency edges between them; the `basin` group is placed last and
-  de-emphasized (§4).
+- `rhei viz` renders a **single rhei** — a `.rhei.md` file or a Directory
+  Workspace — in the same id space the CLI uses, so its tickets carry their
+  qualified ids (`auth.1`). It is **not yet Panta-aware**: pointed at a project
+  directory it renders each `*.rhei.md` as a separate plan rather than one
+  merged graph, and Directory Workspace rheis inside the project are skipped.
+  Project inputs must not be advertised as rendering a merged project graph
+  until that path exists. The intended rendering remains Panta as the implicit
+  canvas (never a drawn root box), rheis as top-level groups, and cross-rhei
+  dependency edges between them; the `basin` group is placed last and
+  de-emphasized (§4). Tracked on the roadmap.
 
 ## Related Specifications
 

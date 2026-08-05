@@ -84,10 +84,12 @@ of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-langua
 
 Status: completed. Every load path yields a Panta-rooted graph: a bare rhei is
 the single rhei of an implicit Panta with its id derived from the source
-location, mutation is project-wide with rewrites routed to each owning rhei,
-`--rhei` narrows project-scoped invocations, and state machines compose via
-explicit `extends` onto the built-in base.
-Remaining follow-ups live below. §FS-rhei-panta §AR-rhei-panta §FS-rhei-states.12
+location, mutation is project-wide with rewrites routed to each owning rhei, and
+`--rhei` narrows project-scoped invocations.
+
+Delivered with two deliberate limits, both tracked below: one state machine
+governs a whole project, and `rhei viz` is not yet Panta-aware.
+§FS-rhei-panta §AR-rhei-panta
 
 ## Planned: CLI UX and Release Polish
 
@@ -96,9 +98,13 @@ from the April 2026 PM review and the product-management pre-release pass. The
 old notes are historical; this roadmap owns the remaining backlog.
 
 - Resolve per-rhei state machines during execution so heterogeneous rheis can
-  run under their own composed machines; today a multi-rhei project still
-  requires one project-wide machine, and `extends` bases beyond the built-in
-  `rhei` machine are unresolvable. §AR-rhei-panta.4 §FS-rhei-states.12
+  run under their own machines, with each cross-rhei prior judged against the
+  prior's own machine. Today one machine governs a whole project and a rhei
+  declaring a different one is a load error. §AR-rhei-panta.4 §FS-rhei-panta.6
+- Make `rhei viz` Panta-aware: render a project directory as one merged graph
+  with rheis as top-level groups and cross-rhei dependency edges, instead of one
+  disconnected plan per `*.rhei.md`. Directory Workspace rheis inside a project
+  are currently skipped entirely. §FS-rhei-panta.6.4
 - Validate child-rhei content-section links under Panta: carry a per-section
   link base so a rhei's own content sections resolve against that rhei's
   execution root, not the project root. Today only task-content links are

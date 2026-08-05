@@ -123,11 +123,11 @@ Task <ID> completed: '<from>' -> '<to>' (runtime/results/<ID>.md)
 ## Examples
 
 ```bash
-# Agent finishes work on task 3
+# Agent finishes work on task 3 of the `plan` rhei
 rhei complete plan.rhei.md --task 3 \
   --result "Added avatar_url column and migration 0042"
 # State: pending -> completed
-# Result: runtime/results/3.md
+# Result: runtime/results/plan.3.md
 # Assignee: removed
 
 # Worker in a living workspace completes a review-seed task

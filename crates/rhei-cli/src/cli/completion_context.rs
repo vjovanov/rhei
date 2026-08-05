@@ -136,28 +136,13 @@ fn xdg_config_home() -> MietteResult<PathBuf> {
 }
 
 /// Load a [`rhei_validator::StateMachine`] from the user-provided path, or fall back to the
-/// built-in default when no path was given. A machine that declares `extends`
-/// is folded into its effective machine before use. §FS-rhei-states.12
+/// built-in default when no path was given.
 fn load_state_machine(path: Option<&Path>) -> MietteResult<rhei_validator::StateMachine> {
     match path {
-        Some(p) => {
-            let machine = rhei_validator::StateMachine::from_yaml_file(p)
-                .map_err(|err| file_io_report(p, "failed to load states", err))?;
-            fold_state_machine_extends(machine, p)
-        }
+        Some(p) => rhei_validator::StateMachine::from_yaml_file(p)
+            .map_err(|err| file_io_report(p, "failed to load states", err)),
         None => Ok(rhei_validator::StateMachine::builtin_default()),
     }
-}
-
-/// Fold a machine's `extends` chain into its effective machine, attributing
-/// failures to the source file. §FS-rhei-states.12
-fn fold_state_machine_extends(
-    machine: rhei_validator::StateMachine,
-    source: &Path,
-) -> MietteResult<rhei_validator::StateMachine> {
-    machine
-        .into_effective()
-        .map_err(|err| file_io_report(source, "failed to compose states", err))
 }
 
 struct ResolvedStateMachine {

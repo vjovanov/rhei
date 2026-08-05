@@ -382,6 +382,28 @@ fn panta_explicit_max_levels_one_is_not_raised_to_default() {
     fs::remove_dir_all(project).expect("cleanup");
 }
 
+// §AR-rhei-panta.4: one machine governs a whole project, so a rhei that
+// restates the project machine loads. The divergent case is rejected by
+// `panta_rejects_child_rhei_state_machine_declaration_that_differs_from_project`.
+#[test]
+fn panta_rhei_may_restate_the_project_state_machine() {
+    let project = create_panta_project(
+        "panta-rhei-states-match",
+        "# Panta: Product Suite\n**States:** workspace-test-machine\n",
+        &[(
+            "auth.rhei.md",
+            "# Rhei: Auth\n**States:** workspace-test-machine\n\n## Tasks\n\n\
+             ### Task 1: Login\n**State:** pending\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("restating the default loads");
+    assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
 #[test]
 fn panta_basin_loads_as_reserved_last_rhei() {
     let project = create_panta_project(
@@ -480,8 +502,9 @@ fn panta_rejects_child_rhei_state_machine_declaration_that_differs_from_project(
     let err = workspace::load_panta_project(&project).expect_err("mixed machines should fail");
     assert!(
         err.message.contains("declares state machine 'child-flow'")
-            && err.message.contains("project-wide state machine 'workspace-test-machine'"),
-        "unexpected error: {}",
+            && err.message.contains("project state machine is 'workspace-test-machine'")
+            && err.message.contains("not supported yet"),
+        "message should name both machines and the limitation: {}",
         err.message
     );
 

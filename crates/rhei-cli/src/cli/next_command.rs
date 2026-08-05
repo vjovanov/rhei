@@ -272,7 +272,7 @@ fn next_command(
     // Find the target task to claim. §FS-rhei-panta.6: accept the qualified
     // id or an unambiguous rhei-local shorthand.
     let resolved_filter = task_id_filter
-        .map(|tid| resolve_cli_task_id(&loaded, tid))
+        .map(|tid| resolve_cli_task_id(&loaded, tid, &scope))
         .transpose()?;
     let (task_id_str, current_state_raw, current_state, task_workspace_root) = if let Some(tid) = resolved_filter.as_deref() {
         let target_id = parse_task_id(tid);

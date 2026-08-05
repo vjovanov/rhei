@@ -118,27 +118,21 @@ within a rhei, rhei-local references continue to resolve locally.
 
 ## 4. State-machine binding
 
-`index.panta.md` supplies a default state-machine declaration for any rhei that
-omits its own `**States:**`. That inherited declaration resolves from the Panta
-project root; a rhei-local declaration still resolves from the rhei's own source
-location (§FS-rhei-plan-language.1.3). Panta inheritance is a default, not a
-merge: an inherited declaration is used only when the rhei omits `**States:**`,
-and a child rhei-local `states.yaml` never shadows the project default unless the
-rhei redeclares `**States:**`. Validation and execution share this one resolver
-and surface the resolved source in diagnostics — CLI override path, rhei-local
-declaration, inherited `index.panta.md` declaration, or built-in `rhei`
-fallback.
+One machine governs a whole project. `index.panta.md` supplies the project
+default state machine; when the manifest declares none, the built-in `rhei`
+machine is the default. Every rhei, every ticket, and the Panta root resolve
+through that one machine, so a project has a single state vocabulary and a
+single set of legal transitions. The resolved source is surfaced in diagnostics
+— CLI override path, `index.panta.md` declaration, or built-in `rhei` fallback.
 
-Inheritance of the default and *composition* are distinct. Omitting `**States:**`
-uses the project default wholesale (no merge). A rhei that declares its own
-machine may opt into composition with a top-level `extends:`, layering states,
-transitions, profiles, and node-policy keys on a named base by whole-entity
-override (§FS-rhei-states.12, §DA-state-machine-composition); without `extends` a
-declared machine fully replaces the default. Ownership across a composed override
-is fixed: the **Panta project root** always resolves `node_policy.root` from the
-**project default machine** — a rhei cannot redefine the shared root above itself
-— while the **rhei node and its tickets** resolve through that rhei's effective
-(composed) machine.
+A rhei may still carry a `**States:**` line, but it must name the project's
+effective machine; a rhei that declares a *different* machine is rejected at load
+with the conflicting names and the project default. Per-rhei divergence — letting
+each rhei run under its own machine, with cross-rhei priors judged against the
+prior's own machine — is a deferred capability tracked on the roadmap, not
+current behavior. Inheritance stays a default, never a merge: a rhei that omits
+`**States:**` takes the project default wholesale, and a child rhei-local
+`states.yaml` never shadows it.
 
 The state-machine profile that previously resolved the level-0 `rhei` root now
 resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node

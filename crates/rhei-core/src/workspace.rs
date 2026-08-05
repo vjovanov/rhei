@@ -534,10 +534,17 @@ fn validate_panta_rhei_states(
     if rhei.states.trim() == effective_project_states {
         return Ok(());
     }
+    // §AR-rhei-panta.4: one machine governs a whole project. A rhei may restate
+    // the project machine, but declaring a different one is a load error until
+    // per-rhei machines land.
     Err(ParseError::new(
         format!(
-            "Panta rhei '{id}' declares state machine '{}', but the current flattened loader supports only the project-wide state machine '{}'",
+            "rhei '{id}' declares state machine '{}', but the project state machine is '{}'. \
+             One state machine governs a whole Panta project: either declare '{}' in this rhei \
+             or change the project default in index.panta.md. Per-rhei state machines are not \
+             supported yet.",
             rhei.states.trim(),
+            effective_project_states,
             effective_project_states
         ),
         None,
@@ -556,8 +563,17 @@ fn rhei_id_for_entry(path: &Path) -> parser::Result<String> {
     let name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
         ParseError::new(format!("invalid rhei filename {}", path.display()), None)
     })?;
+    // §AR-rhei-panta.3: the rhei id is the file stem, so a single-file rhei
+    // must carry the `.rhei.md` suffix for its id to exist.
     let Some(stem) = name.strip_suffix(".rhei.md") else {
-        return Err(ParseError::new(format!("invalid rhei filename {}", path.display()), None));
+        return Err(ParseError::new(
+            format!(
+                "'{}' is not a rhei plan file: a single-file rhei must be named `<id>.rhei.md`, \
+                 because the id every ticket is prefixed with comes from the file stem",
+                path.display()
+            ),
+            None,
+        ));
     };
     Ok(stem.to_string())
 }

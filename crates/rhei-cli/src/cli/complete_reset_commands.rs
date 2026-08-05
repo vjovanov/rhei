@@ -16,7 +16,8 @@ fn complete_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    let task_id_str = &resolve_cli_task_id(&loaded, task_id_str)?;
+    // No `--rhei` on this command: the explicit ticket target is the scope.
+    let task_id_str = &resolve_cli_task_id(&loaded, task_id_str, &None)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
     let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;

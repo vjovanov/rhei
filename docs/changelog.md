@@ -6,20 +6,38 @@
   `$SHELL` when omitted, and on detection failure list the supported shells
   with a copy-pasteable example instead of clap's bare missing-argument
   error. PR #58 §FS-rhei-completions.2
-- Make Panta the default execution model: every load yields a Panta-rooted
-  graph with bare rheis wrapped in an implicit Panta and ticket ids
-  project-qualified from the source-derived rhei id; project-wide mutation
-  replaces the staged boundary, routing every state, assignee, result, and
-  runtime rewrite to the owning rhei; CLI targets accept unambiguous
-  rhei-local shorthand; `--rhei <id>` (repeatable) narrows project-scoped
-  `run`, `next`, `reset`, and `list` to named rheis, selecting candidates
-  without narrowing where their priors resolve; and state machines compose via explicit `extends`
-  with whole-entity override and pair-group transition merging. Ticket ids in
-  output, result artifacts, ledgers, and logs are now qualified (`auth.1`);
-  plan files keep rhei-local headings, and result links authored in the old
-  unqualified form keep validating, migrating on the next completion. PR #45
-  §AR-rhei-panta.2 §AR-rhei-panta.3 §FS-rhei-panta.6 §FS-rhei-panta.6.3
-  §FS-rhei-states.12 §DA-state-machine-composition
+**Breaking: ticket ids are now project-qualified.** Every load yields a
+Panta-rooted graph, so a ticket that used to be `1` is now `auth.1` — named
+for the rhei it lives in. This changes ids in command output, result artifact
+filenames (`runtime/results/auth.1.md`), ledgers, and logs. Plan files are not
+rewritten: task headings stay rhei-local, and a plan completed before this
+change keeps its rhei-local result links and artifacts, which keep validating.
+A single-file rhei must now be named `<id>.rhei.md`, since the file stem is
+where its id comes from. PR #45
+
+- Make Panta the default execution model: a bare rhei — a `.rhei.md` file or a
+  Directory Workspace — loads as the single rhei of an implicit Panta, so there
+  is one loader and one graph shape whether or not an `index.panta.md` exists.
+  §AR-rhei-panta.2 §AR-rhei-panta.3
+- Mutate project-wide. `rhei run`, `next`, `transition`, `complete`, and `reset`
+  operate across the project, routing every state, assignee, result, and runtime
+  rewrite back to the owning rhei file. The previous staged boundary — which
+  rejected mutating commands on a project — is gone. §FS-rhei-panta.6
+- Accept rhei-local shorthand for CLI ticket targets: `rhei complete 1` resolves
+  when exactly one in-scope rhei has that ticket, and names the qualified
+  candidates when more than one does. §FS-rhei-panta.6
+- Add `--rhei <id>` (repeatable) to narrow `run`, `next`, `reset`, and `list` to
+  named rheis. It selects candidates without narrowing where their priors
+  resolve, so a candidate may still be blocked by a prior outside the scope.
+  `run` and `reset` report their resolved scope before acting, and a narrowed
+  reset removes only in-scope tickets' artifacts rather than whole `runtime/`
+  trees. §FS-rhei-panta.6 §FS-rhei-panta.6.1 §FS-rhei-panta.6.4
+- Validate result links as a pair: link text and target must describe the same
+  ticket, both qualified or both rhei-local. §FS-rhei-panta.6.3
+
+  One state machine still governs a whole project — a rhei declaring a machine
+  different from the project default is a load error. Per-rhei machines and a
+  Panta-aware `rhei viz` remain on the roadmap.
 - Add durable task state history to Flow/dashboard and the `rhei run` TUI,
   including the `state history` surroundings section, prompt-focused inspector
   navigation, a global Machine legend with process-kind styling, and links-only

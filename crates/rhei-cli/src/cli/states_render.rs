@@ -343,21 +343,39 @@ fn narrow_to_rhei_scope<'a>(
 }
 
 /// Resolve a CLI ticket target to its project-qualified id: the qualified id
-/// itself, or an unambiguous rhei-local shorthand. §FS-rhei-panta.6
-fn resolve_cli_task_id(loaded: &LoadedPlan, task_id_str: &str) -> MietteResult<String> {
+/// itself, or a rhei-local shorthand unambiguous within the scope. A `--rhei`
+/// narrowing bounds both. §FS-rhei-panta.6 §FS-rhei-panta.6.1
+fn resolve_cli_task_id(
+    loaded: &LoadedPlan,
+    task_id_str: &str,
+    scope: &RheiScope,
+) -> MietteResult<String> {
     let target = parse_task_id(task_id_str);
     if find_task_by_id(&loaded.rhei.tasks, &target).is_some() {
+        if !task_in_rhei_scope(scope, task_id_str) {
+            return Err(miette!(
+                "task '{}' is outside the --rhei scope ({})",
+                task_id_str,
+                scope_label(scope)
+            ));
+        }
         return Ok(task_id_str.to_string());
     }
     let candidates: Vec<String> = loaded
         .rhei_ids
         .iter()
+        .filter(|rhei_id| scope.as_ref().is_none_or(|scope| scope.contains(*rhei_id)))
         .map(|rhei_id| format!("{rhei_id}.{task_id_str}"))
         .filter(|qualified| {
             find_task_by_id(&loaded.rhei.tasks, &parse_task_id(qualified)).is_some()
         })
         .collect();
     match candidates.len() {
+        0 if scope.is_some() => Err(miette!(
+            "task '{}' not found in the --rhei scope ({})",
+            task_id_str,
+            scope_label(scope)
+        )),
         0 => Err(miette!("task '{}' not found in the plan", task_id_str)),
         1 => Ok(candidates.into_iter().next().expect("one candidate")),
         _ => Err(miette!(
@@ -365,6 +383,14 @@ fn resolve_cli_task_id(loaded: &LoadedPlan, task_id_str: &str) -> MietteResult<S
             task_id_str,
             candidates.join(", ")
         )),
+    }
+}
+
+/// Render a scope for diagnostics: the named rheis, or the whole project.
+fn scope_label(scope: &RheiScope) -> String {
+    match scope {
+        Some(scope) => scope.iter().cloned().collect::<Vec<_>>().join(", "),
+        None => "whole project".to_string(),
     }
 }
 

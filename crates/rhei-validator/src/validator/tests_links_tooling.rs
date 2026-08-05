@@ -230,12 +230,12 @@ See [missing](nowhere.md) for context.
 
         assert!(report.has_errors(), "expected result block identity errors");
         let joined = report.errors.join("\n");
-        assert!(joined.contains("link text must be '1'"), "got:\n{}", joined);
         assert!(
-            joined.contains("target must be 'runtime/results/1.md'"),
+            joined.contains("must link '[1](runtime/results/1.md)'"),
             "got:\n{}",
             joined
         );
+        assert!(joined.contains("got '[2](runtime/results/2.md)'"), "got:\n{}", joined);
     }
 
     #[test]
@@ -588,8 +588,21 @@ transitions:
             &machine,
         );
         assert!(
-            report.errors.iter().any(|err| err.contains("result block link text")),
+            report.errors.iter().any(|err| err.contains("result block must link")),
             "unrelated link must still error: {:?}",
             report.errors
         );
+
+        // §FS-rhei-panta.6.3: text and target are validated as a pair, so a
+        // link mixing the qualified and legacy forms is an error either way.
+        for mixed in
+            ["[1](runtime/results/legacy.1.md)", "[legacy.1](runtime/results/1.md)"]
+        {
+            let report = validate_with_machine(&qualified_plan(mixed), &machine);
+            assert!(
+                report.errors.iter().any(|err| err.contains("result block must link")),
+                "mixed-form link {mixed} must error: {:?}",
+                report.errors
+            );
+        }
     }
