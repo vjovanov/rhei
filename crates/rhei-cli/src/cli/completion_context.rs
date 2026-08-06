@@ -216,9 +216,29 @@ fn resolve_state_machine_for_loaded_plan(
         }
     }
 
+    // §AR-rhei-panta.4: the machine's definition file may live in a rhei's
+    // own root; a `name:` match there resolves the project default, first
+    // match in discovery order.
+    if declared_name != builtin.name {
+        let mut roots: Vec<&PathBuf> = loaded.task_roots.values().collect();
+        roots.sort();
+        roots.dedup();
+        for root in roots {
+            let rhei_candidate = root.join("states.yaml");
+            if rhei_candidate == candidate || !rhei_candidate.is_file() {
+                continue;
+            }
+            if let Ok(machine) = load_state_machine(Some(&rhei_candidate)) {
+                if machine.name == declared_name {
+                    return Ok(ResolvedStateMachine { machine, path: Some(rhei_candidate) });
+                }
+            }
+        }
+    }
+
     if declared_name != builtin.name {
         return Err(miette!(
-            "plan declares state machine '{}', but no auto-discovered states file was found at '{}'.\nUse --state-machine <path> to override the default location.",
+            "plan declares state machine '{}', but no auto-discovered states file was found at '{}' or, by name, in any rhei root.\nUse --state-machine <path> to override the default location.",
             declared_name,
             candidate.display()
         ));

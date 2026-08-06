@@ -44,7 +44,17 @@ fn init_command(dir: Option<&Path>, title: Option<&str>, no_agents: bool) -> Mie
         Some(title) => title.to_string(),
         None => default_project_title(&dir),
     };
-    fs::write(&manifest, format!("# Panta: {title}\n"))
+    // §FS-rhei-init.2: adopt a unanimously declared machine as the project
+    // default — a bare manifest would make such a project unloadable.
+    let declared = workspace::discover_declared_state_machines(&dir);
+    let contents = match declared.as_slice() {
+        [machine] => {
+            println!("Adopted state machine '{machine}' as the project default.");
+            format!("# Panta: {title}\n**States:** {machine}\n")
+        }
+        _ => format!("# Panta: {title}\n"),
+    };
+    fs::write(&manifest, contents)
         .map_err(|err| miette!("failed to write {}: {err}", manifest.display()))?;
 
     seed_gitignore(&dir)?;

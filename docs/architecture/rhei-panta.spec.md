@@ -142,6 +142,14 @@ current behavior. Inheritance stays a default, never a merge: a rhei that omits
 `**States:**` takes the project default wholesale, and a child rhei-local
 `states.yaml` never shadows it.
 
+The declared machine's *definition file* auto-discovers at the project root's
+`states.yaml` first; when that is absent or names a different machine, a
+`states.yaml` in a discovered rhei's root whose declared `name:` matches the
+project's declared machine resolves it, first match in discovery order. A name
+match is file resolution, not shadowing — the project still runs exactly one
+machine — and it is what lets a single-rhei project adopted by `rhei init`
+keep its machine file where the rhei always kept it (§FS-rhei-init.2).
+
 The state-machine profile that previously resolved the level-0 `rhei` root now
 resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node
 resolves through the dedicated `node_policy.rhei` key when declared; when it is

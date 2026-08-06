@@ -12,7 +12,13 @@
   adds a marked agent-discovery note to `AGENTS.md` (skippable with
   `--no-agents`), and reports the rheis discovery now sees — so pointing it
   at a directory of existing bare rheis both adopts them and validates them.
-  §FS-rhei-init
+  When the adopted rheis unanimously declare one state machine, init writes
+  it as the project default, since a bare manifest would make that project
+  unloadable under the one-machine-per-project rule. §FS-rhei-init
+- Fix `rhei install-skills` for `cargo install`ed binaries: skill sources now
+  also resolve by walking up from the current directory, so running inside a
+  rhei checkout works without a packaged `share/rhei/skills` tree.
+  §FS-rhei-install-skills.4
 - Resolve an omitted plan target from the current directory: every plan-taking
   command walks up to the nearest `index.panta.md` project, workspace
   `index.rhei.md`, or lone `*.rhei.md` file, so `rhei list` inside a project

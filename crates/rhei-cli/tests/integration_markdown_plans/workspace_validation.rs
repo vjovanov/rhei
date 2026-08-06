@@ -1958,3 +1958,84 @@ fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn init_adopts_a_unanimously_declared_state_machine_as_project_default() {
+    let dir = unique_temp_dir("init-adopt-machine");
+    fs::write(dir.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
+    fs::write(
+        dir.join("auth.rhei.md"),
+        "# Rhei: Auth\n**States:** workspace-test-machine\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+    )
+    .expect("write auth");
+    fs::write(
+        dir.join("billing.rhei.md"),
+        "# Rhei: Billing\n**States:** workspace-test-machine\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+    )
+    .expect("write billing");
+
+    // §FS-rhei-init.2: a bare manifest would make this project unloadable
+    // (rhei-declared machine != built-in default), so init adopts it.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .arg("--no-agents")
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should succeed: {stdout}");
+    assert!(
+        stdout.contains("Adopted state machine 'workspace-test-machine'")
+            && stdout.contains("with 2 rheis: auth, billing"),
+        "init should adopt the machine and still load cleanly: {stdout}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("does not load cleanly"),
+        "adoption should prevent the machine-conflict warning"
+    );
+    let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("manifest");
+    assert!(
+        manifest.contains("**States:** workspace-test-machine"),
+        "manifest should carry the adopted default: {manifest}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn project_machine_file_resolves_from_a_rhei_root_by_name() {
+    // A single workspace rhei keeps its machine file in its own root; the
+    // project declares that machine but has no root states.yaml.
+    let dir = unique_temp_dir("panta-machine-in-rhei-root");
+    fs::write(
+        dir.join("index.panta.md"),
+        "# Panta: Machine In Rhei\n**States:** workspace-test-machine\n",
+    )
+    .expect("write manifest");
+    let ws = dir.join("flow");
+    fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
+    fs::write(
+        ws.join("index.rhei.md"),
+        "# Rhei: Flow\n**States:** workspace-test-machine\n",
+    )
+    .expect("write index");
+    fs::write(ws.join("tasks/one.md"), "### Task 1: Alpha\n**State:** pending\n")
+        .expect("write task");
+    fs::write(ws.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
+
+    // §AR-rhei-panta.4: a name-matching states.yaml in a rhei root resolves
+    // the project machine when the project root has none.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(&dir)
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("flow.1"),
+        "project should load with the rhei-root machine file\nstdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

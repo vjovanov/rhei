@@ -409,6 +409,24 @@ fn qualify_task_metadata(metadata: Option<Metadata>, rhei_id: &str) -> Option<Me
     Some(metadata)
 }
 
+/// State machines declared by the rheis a project at `dir` would discover,
+/// deduped and sorted; unloadable entries are skipped (they surface through
+/// the ordinary project load). §FS-rhei-init.2
+pub fn discover_declared_state_machines(dir: &Path) -> Vec<String> {
+    let mut machines = std::collections::BTreeSet::new();
+    let Ok(entries) = discover_rhei_entries(dir) else {
+        return Vec::new();
+    };
+    for entry in entries {
+        if let Ok(loaded) = load_rhei_entry(&entry) {
+            if loaded.rhei.states_declared {
+                machines.insert(loaded.rhei.states.clone());
+            }
+        }
+    }
+    machines.into_iter().collect()
+}
+
 fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {
     if let Some(ws_dir) = workspace_dir(path) {
         load_workspace(&ws_dir)

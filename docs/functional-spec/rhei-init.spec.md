@@ -39,9 +39,14 @@ spaces and each word is capitalized (`my-project` → `My Project`).
    `index.panta.md`, init proceeds but warns on stderr: nested projects are
    almost always a mistake, and the outer project will not discover the inner
    one (§AR-rhei-panta.1 discovery does not recurse into rhei roots).
-3. **Write the manifest**: `# Panta: <title>` and nothing else. A minimal
-   manifest keeps the file honest — everything a project does comes from
-   discovery, not from init-time configuration.
+3. **Write the manifest**: `# Panta: <title>`, and nothing else — with one
+   adoption exception. When the rheis discovery would find all agree on a
+   single declared state machine, init writes that machine as the project
+   default (`**States:** <machine>`) and says so: a rhei declaring a machine
+   different from the project default is a load error (§FS-rhei-panta.6), so
+   a bare manifest would create a project that cannot load. Rheis declaring
+   *different* machines cannot be adopted; init proceeds and the conflict
+   surfaces through the discovery report (§5) with the ordinary error.
 4. **Seed ignore rules** (§3).
 5. **Write the agent-discovery note** unless `--no-agents` (§4).
 6. **Report what became visible** (§5).
