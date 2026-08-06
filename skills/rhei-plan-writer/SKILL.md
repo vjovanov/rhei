@@ -45,7 +45,7 @@ Use this exact block shape for every task node (root and child):
 Apply these rules:
 - **Every task MUST have a `**State:**` field**, placed as the first metadata line directly under the heading (no blank line between). A task without `**State:**` is invalid and will fail validation — this is the single most common authoring mistake, so check for it before finishing (see *Planning Workflow* step 9).
 - Place `**Prior:**` second when present; omit it when no prerequisites exist.
-- **Do not author `**Assignee:**` or `> **Result:**` blocks** — both are runtime-owned: `rhei next` writes `**Assignee:**` when a task is claimed; `rhei complete` removes it and writes `> **Result:** [<id>](runtime/results/<id>.md)`.
+- **Do not author `**Assignee:**` or `> **Result:**` blocks** — both are runtime-owned: `rhei next` writes `**Assignee:**` when a task is claimed; `rhei complete` removes it and writes `> **Result:** [<id>](runtime/results/<id>.md)`, where `<id>` is the project-qualified ticket id (e.g. `plan.1` for `plan.rhei.md`).
 - Separate metadata from description with a blank line. Emit no other metadata fields.
 - Keep descriptions actionable and implementation-oriented.
 
@@ -64,6 +64,7 @@ For markdown safety, format state names containing hyphens, spaces, or punctuati
 - Choose exactly one ID style per document and do not mix styles.
 - Numeric style (`1`, `2`, `3`, ...) or named style (`setup`, `review`, `api`, ...).
 - Prefer numeric IDs unless the plan is small and conceptual, or it is a Directory Workspace (prefer named IDs there to avoid collisions).
+- Headings stay rhei-local (`### Task 1:`); command output shows the project-qualified form (`plan.1`) — never author the qualified prefix into a heading.
 
 ### Child Task Format
 
@@ -128,7 +129,7 @@ When the CLI is available, run `rhei validate <plan>` after writing — it perfo
 
 ## File Extension
 
-Save Rhei Plan documents with the `.rhei.md` extension, or `.md` when the context is clear. The Directory Workspace root file is always `index.rhei.md`.
+Save Single-File Plans as `<id>.rhei.md` — the file stem becomes the rhei id that prefixes every ticket id in command output (`plan.rhei.md` → tickets `plan.1`, `plan.2`, ...), so choose it like an identifier. A bare `.md` extension is not a valid single-file rhei. The Directory Workspace root file is always `index.rhei.md`.
 
 ## Editing Existing Rhei Plans
 

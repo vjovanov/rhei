@@ -239,7 +239,8 @@ pub struct Profile {
 // §FS-rhei-states.9.2: Node-policy resolution order.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodePolicy {
-    /// Profile bound to the plan-root node (always the `rhei` kind).
+    /// Profile bound to the project-root node (the virtual `panta` root of
+    /// every load; a bare rhei is its one-rhei implicit Panta). §AR-rhei-panta.2
     pub root: String,
     /// Fallback profile for non-root nodes that match neither `overrides`
     /// nor `by_type`.

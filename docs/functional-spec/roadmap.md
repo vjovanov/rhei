@@ -101,6 +101,18 @@ old notes are historical; this roadmap owns the remaining backlog.
   run under their own machines, with each cross-rhei prior judged against the
   prior's own machine. Today one machine governs a whole project and a rhei
   declaring a different one is a load error. §AR-rhei-panta.4 §FS-rhei-panta.6
+- Add a `rhei new` command that creates a rhei under Panta without a location
+  argument. Today a rhei is added by creating a `<id>.rhei.md` file or a
+  workspace directory in the project directory. §FS-rhei-panta.2
+- Add rhei-level presentation to listing and monitoring: group tickets under
+  rhei headings with a per-rhei status rollup, and render the `basin` rhei
+  de-emphasized (dimmed or collapsed) while keeping its last-place ordering.
+  Today `rhei list` prints a flat qualified-id listing with basin's tickets
+  last. §FS-rhei-panta.3 §FS-rhei-panta.4 §FS-rhei-list.4.1
+- Materialize rhei nodes in the merged graph so `node_policy.rhei` can bind a
+  profile to the rhei tier and let a profiled rhei carry state and roll up like
+  a non-leaf ticket. Today the key has no effect because the graph contains no
+  rhei nodes. §FS-rhei-panta.6.3 §FS-rhei-states.9
 - Make `rhei viz` Panta-aware: render a project directory as one merged graph
   with rheis as top-level groups and cross-rhei dependency edges, instead of one
   disconnected plan per `*.rhei.md`. Directory Workspace rheis inside a project

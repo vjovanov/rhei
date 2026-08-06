@@ -67,6 +67,14 @@ source map records, for each node, the rhei (and file) that defines it, so
 targeted rewrites during transitions still target the owning file — the same
 contract `task_sources` provides for workspace task files.
 
+Frontmatter runtime metadata follows the same owning-file contract. On disk, a
+rhei's `metadata.tasks.<id>` keys stay rhei-local — a rhei file never learns its
+own qualification prefix. At load time each rhei's entries are re-keyed under
+project-qualified ids and merged into the project metadata, so counted-loop
+visit counters and poll timers resolve against the merged graph's qualified
+ticket ids; writes route back through the source map to the owning rhei file
+under the rhei-local key.
+
 Every load path yields a Panta-rooted graph. A bare rhei loaded directly — a
 `.rhei.md` file or a Directory Workspace with no enclosing `index.panta.md` — is
 treated as the single rhei of an **implicit Panta**: the loader synthesizes the
@@ -146,8 +154,8 @@ validation rules are specified in the states spec node-policy section
 
 ## 5. Execution root and per-rhei runtime
 
-Because each rhei may run its own state machine (§FS-rhei-panta.6), artifact and
-relative-link resolution is **per rhei**, not per project. A rhei's execution
+Each rhei keeps its own **execution root**, so artifact and relative-link
+resolution is **per rhei**, not per project. A rhei's execution
 root is defined exactly as a standalone plan's is today
 (§FS-rhei-plan-language.3.10): the containing directory for a Single-File Plan,
 the workspace directory for a Directory Workspace rhei. State-machine `inputs`,
@@ -171,20 +179,22 @@ accounting in one `runtime/`.
 
 ## 6. Command scope mechanics
 
-`rhei run` resolves and caches one state machine per rhei in scope and applies a
-ticket's machine when transitioning it; cross-rhei dependency readiness consults
-the prior ticket's own machine and requires a successful terminal state
+`rhei run` resolves the single project state machine (§4) once and applies it to
+every ticket it transitions; cross-rhei dependency readiness judges the prior
+ticket against that same machine and requires a successful terminal state
 (`final: true` and a normalized state name other than `cancelled`). This is the
 same predicate normal in-rhei scheduling uses; implementations may share one
 predicate, resolve the prior directly, or read an exported/cached readiness
 result, but only when that result is behaviorally equivalent and fresh. A
 dependency fails closed — the dependent stays blocked — whenever the prior
-state, the prior's state-machine meaning, or a cached readiness result cannot be
-resolved reliably. The ready-set
+state or its state-machine meaning cannot be resolved reliably. Per-rhei
+machines — and with them, readiness judged against the prior's own machine —
+are deferred (§4). The ready-set
 scan, claim selection, and rollup all walk the single merged graph (§2), so
 project-wide is the natural default and `--rhei` is a filter applied to candidate
-nodes after the merge. Mutating commands report the resolved scope and the set of
-rheis they will touch before acting (§FS-rhei-panta.6).
+nodes after the merge. The fan-out commands — `rhei run` and `rhei reset` —
+report the resolved scope and the set of rheis they will touch before acting;
+other mutating commands act without a scope report (§FS-rhei-panta.6).
 
 ## 7. Invisibility surface
 
@@ -194,9 +204,11 @@ the top level (§FS-rhei-panta.4). Tooling may expose the root behind an explici
 opt-in. Because the root is virtual and derived, no command may claim,
 transition, complete, cancel, or reset it.
 
-The synthetic `basin` rhei is de-emphasized rather than excluded: the same
-presentation layers order it last and render it in a de-emphasized form, but it
-participates normally in readiness, claim selection, execution, and rollup. The
+The synthetic `basin` rhei is de-emphasized rather than excluded: it loads
+after every discovered rhei, so its tickets order last in the merged graph and
+in every surface that walks it, but it participates normally in readiness,
+claim selection, execution, and rollup. Rendering it in a visually
+de-emphasized form is deferred presentation work tracked on the roadmap; the
 de-emphasis is presentational only and never alters scheduling
 (§FS-rhei-panta.4).
 

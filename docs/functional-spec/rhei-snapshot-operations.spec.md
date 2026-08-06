@@ -54,10 +54,10 @@ Prints a manifest in full and a transcript head/tail preview. It uses the
 shared snapshot reference parser above. Worked example:
 
 ```
-1.2.3:implementation:pending@2:claude-code-anthropic-claude-opus-4-7/g3
+plan.1.2.3:implementation:pending@2:claude-code-anthropic-claude-opus-4-7/g3
 ```
 
-resolves to task `1.2.3`, snapshot name `implementation`, emitting state
+resolves to task `plan.1.2.3`, snapshot name `implementation`, emitting state
 `pending`, visit `2`, target slug `claude-code-anthropic-claude-opus-4-7`,
 generation `3`. Trailing positional segments may be omitted to broaden the
 match; ambiguous shorthand prints all matches and exits non-zero.
@@ -189,12 +189,13 @@ The agent profile declares the native session surface once:
 }
 ```
 
-After `rhei run` emits `1:implementation:implement@1:analysis-agent-acme-model-a/g1`,
+After `rhei run` emits
+`snapshot-continuation.1:implementation:implement@1:analysis-agent-acme-model-a/g1`,
 an operator can attach to it without changing the plan:
 
 ```bash
 rhei snapshot continue \
-  1:implementation:implement@1:analysis-agent-acme-model-a \
+  snapshot-continuation.1:implementation:implement@1:analysis-agent-acme-model-a \
   --plan examples/snapshot-continuation
 ```
 

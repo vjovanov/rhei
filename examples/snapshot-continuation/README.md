@@ -44,7 +44,7 @@ Continue interactively from the implementation snapshot:
 cargo run -p rhei-cli -- \
   --state-machine examples/snapshot-continuation/states.yaml \
   snapshot continue \
-  1:implementation:implement@1:analysis-agent-acme-model-a \
+  snapshot-continuation.1:implementation:implement@1:analysis-agent-acme-model-a \
   --plan examples/snapshot-continuation
 ```
 
@@ -54,7 +54,7 @@ Inspect the captured operator generation:
 cargo run -p rhei-cli -- \
   --state-machine examples/snapshot-continuation/states.yaml \
   snapshot show \
-  1:implementation:implement@1:analysis-agent-acme-model-a/g2 \
+  snapshot-continuation.1:implementation:implement@1:analysis-agent-acme-model-a/g2 \
   --plan examples/snapshot-continuation
 ```
 
@@ -65,5 +65,5 @@ cargo run -p rhei-cli -- \
   --state-machine examples/snapshot-continuation/states.yaml \
   run examples/snapshot-continuation \
   --no-tui \
-  --from-snapshot 1:implementation:implement@1:analysis-agent-acme-model-a/g1
+  --from-snapshot snapshot-continuation.1:implementation:implement@1:analysis-agent-acme-model-a/g1
 ```

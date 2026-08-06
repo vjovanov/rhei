@@ -94,14 +94,16 @@ The commands that coordinate through the state machine:
 
 | Command            | What it does                                                                    |
 |--------------------|---------------------------------------------------------------------------------|
-| `rhei run`         | Drives the full plan forward under orchestrator authority                       |
-| `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only)    |
+| `rhei run`         | Drives the full plan forward under orchestrator authority (`--rhei <id>` narrows a project-scoped run) |
+| `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only, `--rhei <id>` to narrow) |
 | `rhei transition`  | Atomically changes a task's state via compare-and-swap                          |
 | `rhei complete`    | Terminal transition invoked by a manual worker; records result, releases claim  |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
 | `rhei snapshot`    | Lists, shows, prunes, or continues from session snapshots captured by `rhei run` |
 
 `rhei run` and the manual-worker flow (`next` / `transition` / `complete`) are mutually exclusive per execution — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives. The typical manual-worker loop is `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
+
+Ticket ids in command output are project-qualified — `<rhei-id>.<task-id>`, e.g. `plan.1` for a single-file `plan.rhei.md` — and `rhei list` accepts the same `--rhei <id>` narrowing as `run`, `next`, and `reset` (§FS-rhei-panta.6).
 
 The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
 `rhei run --from-snapshot` is the run-time override surface for ad-hoc

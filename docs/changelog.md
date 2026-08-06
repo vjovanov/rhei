@@ -6,6 +6,7 @@
   `$SHELL` when omitted, and on detection failure list the supported shells
   with a copy-pasteable example instead of clap's bare missing-argument
   error. PR #58 §FS-rhei-completions.2
+
 **Breaking: ticket ids are now project-qualified.** Every load yields a
 Panta-rooted graph, so a ticket that used to be `1` is now `auth.1` — named
 for the rhei it lives in. This changes ids in command output, result artifact

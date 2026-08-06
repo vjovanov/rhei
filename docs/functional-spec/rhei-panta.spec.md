@@ -39,11 +39,15 @@ user-facing name for a work item). Panta owns the rheis; rheis own their tickets
 ## 2. Default home for new rheis
 
 Creating a rhei without specifying where it goes places it under Panta. Panta is
-the implicit default parent, so adding a rhei takes no location argument:
+the implicit default parent, so adding a rhei takes no location argument: today
+that means dropping a `<id>.rhei.md` file or a workspace directory into the
+project directory, where discovery picks it up on the next load
+(§AR-rhei-panta.1). A `rhei new` command that scripts the same action is
+planned, tracked on the roadmap:
 
 ```bash
-rhei new "Authentication"        # creates a rhei under Panta
-rhei new "Billing" --under auth  # opt out of the default to nest elsewhere
+rhei new "Authentication"        # planned: creates a rhei under Panta
+rhei new "Billing" --under auth  # planned: opt out of the default to nest elsewhere
 ```
 
 A ticket created with no owning rhei is placed in the project **basin**. The
@@ -70,8 +74,11 @@ graph rather than as many disconnected plans:
 - **Dependencies resolve across rheis.** A ticket in one rhei may declare a
   `**Prior:**` on a ticket in another rhei; the reference resolves against the
   whole project graph. §AR-rhei-panta
-- **Listing and monitoring** treat the set of rheis as the top level, so an
-  operator sees the whole project from a single root.
+- **Listing and monitoring** read the one merged graph: `rhei list` prints every
+  ticket under its project-qualified id in a flat listing, indenting rhei-locally
+  so the rhei prefix marks ownership (§FS-rhei-list.4.1). Grouping the output
+  under rhei-level headings with a per-rhei status rollup is deferred, tracked
+  on the roadmap.
 
 ## 4. Invisibility
 
@@ -85,9 +92,12 @@ output never mentions it.
 The synthetic `basin` rhei is **de-emphasized, not hidden**. Unlike Panta, it is
 a real rhei that participates fully in readiness, scheduling, execution, and
 rollup — `rhei run` and `rhei next` treat its tickets like any other rhei's. But
-because its tickets are unfiled quick-captures rather than planned work, default
-listing and visualization order it last and present it in a de-emphasized form
-(for example dimmed or collapsed) so it never competes with planned rheis. It is
+because its tickets are unfiled quick-captures rather than planned work, it is
+ordered last: the basin loads after every discovered rhei, so its tickets come
+last in default listing and in every surface that walks the merged graph.
+Presenting it in a visually de-emphasized form (for example dimmed or
+collapsed) so it never competes with planned rheis is deferred presentation
+work, tracked on the roadmap; no surface implements it yet. It is
 never placed behind an opt-in flag the way Panta is: unfiled work must stay one
 glance away so it gets triaged rather than silently accumulating unseen.
 
@@ -201,12 +211,12 @@ names any other id, is an error.
 
 `rhei complete` finishes a leaf ticket. A rhei is done when all its tickets are
 terminal, and Panta when all rheis are done, but this status is **derived, not
-stored**: unprofiled rheis and the virtual Panta have no `**State:**` to write,
-so no cascade stamps `completed` up the tree — doneness is computed on read. A
-rhei given an explicit profile through `node_policy.rhei` does carry state; for
-such a rhei the non-leaf rule applies — it may move to a terminal state only
-after all its tickets are terminal, and `rhei run` or `rhei complete` may roll it
-up automatically.
+stored**: rheis and the virtual Panta have no `**State:**` to write, so no
+cascade stamps `completed` up the tree — doneness is computed on read. Giving a
+rhei an explicit profile through `node_policy.rhei`, so that it carries state
+and rolls up like a non-leaf ticket, is deferred: the merged graph today has no
+rhei nodes for a profile to bind to, so the key has no effect. Tracked on the
+roadmap.
 
 ### 6.4. Reset, validate, list, viz
 
@@ -227,10 +237,11 @@ up automatically.
 - `rhei validate` always checks the whole project graph: cross-rhei dependency
   resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
   `panta`/`rhei` kinds.
-- `rhei list` is project-wide with rheis as the top level; existing filters
+- `rhei list` is project-wide, printing every rhei's tickets under their
+  qualified ids (§FS-rhei-list.4.1); existing filters
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
-  `--rhei` filters to a rhei. The `basin` rhei is ordered last and de-emphasized
-  in default output (§4).
+  `--rhei` filters to a rhei. The `basin` rhei's tickets are ordered last in
+  default output; visual de-emphasis is deferred (§4).
 - `rhei viz` renders a **single rhei** — a `.rhei.md` file or a Directory
   Workspace — in the same id space the CLI uses, so its tickets carry their
   qualified ids (`auth.1`). It is **not yet Panta-aware**: pointed at a project

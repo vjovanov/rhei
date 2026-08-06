@@ -358,7 +358,7 @@ When `continuation-notes` is absent (first loop iteration), the resolved
 instructions become:
 
 ```text
-Implement Task 4: Add retry logic.
+Implement Task auth.4: Add retry logic.
 
 This is the first iteration. Start from the task description above.
 
@@ -368,10 +368,10 @@ When finished, transition to `check-continue`.
 When it is present (subsequent iterations):
 
 ```text
-Implement Task 4: Add retry logic.
+Implement Task auth.4: Add retry logic.
 
 A previous iteration left the following notes. Read
-`runtime/continuation/4.md` before starting and address any
+`runtime/continuation/auth.4.md` before starting and address any
 outstanding issues it identifies.
 
 When finished, transition to `check-continue`.
@@ -466,13 +466,13 @@ states:
         path: runtime/fixes/task-{task_id}-fix-{visit_count}.md
 ```
 
-When `rhei next` claims Task 3 ("Implement caching layer") during the second visit to `fix`, the agent receives:
+When `rhei next` claims Task auth.3 ("Implement caching layer") during the second visit to `fix`, the agent receives:
 
 ```text
-Fix pass 2 of 2 for Task 3: Implement caching layer.
+Fix pass 2 of 2 for Task auth.3: Implement caching layer.
 
-Read `runtime/reviews/task-3-review-2.md`, extract the accumulated review
-findings, and update `runtime/fixes/task-3-fix-2.md`.
+Read `runtime/reviews/task-auth.3-review-2.md`, extract the accumulated review
+findings, and update `runtime/fixes/task-auth.3-fix-2.md`.
 
 Transition back to `review` if 2 < 2.
 Otherwise, transition to `completed`.

@@ -277,6 +277,10 @@ The YAML frontmatter between `---` markers contains:
 - Any key-value pairs needed by callbacks or conditions (e.g., `retryCount`, `priority`)
 - `metadata.tasks.<id>.stateVisits.<state-name>` - Runtime-maintained counted-loop counters for states that declare a `visits` limit
 
+These on-disk `<id>` keys stay rhei-local (matching the task headings in the
+same file); the merged project graph re-keys them to project-qualified ticket
+ids at load.
+
 Markdown-owned task fields are not duplicated in frontmatter. In particular,
 `**Assignee:**` remains a markdown field even when runtimes expose it through
 callback APIs.

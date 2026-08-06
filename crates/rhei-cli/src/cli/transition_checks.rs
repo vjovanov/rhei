@@ -38,10 +38,8 @@ fn ensure_state_inputs_exist(
             ));
         }
         if !path.exists() {
-            // §FS-rhei-panta.6: artifacts produced before ticket ids were
-            // project-qualified are keyed by the rhei-local id. When that
-            // file exists, name it — "missing" alone sends an upgrading
-            // user hunting for an artifact that is one rename away.
+            // Pre-qualification artifacts are keyed by the rhei-local id;
+            // when one exists, name it so the fix is one rename away. §FS-rhei-panta.6
             let local_id = rhei_local_id_str(task_id);
             let legacy_hint = if local_id != task_id && artifact.path.contains("{task_id}") {
                 let (legacy_relative, legacy_path) = resolve_artifact_path(

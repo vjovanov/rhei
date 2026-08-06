@@ -1192,7 +1192,7 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
     // prefix match: it must survive a reset narrowed to `auth.1`'s rhei only
     // because it belongs to no in-scope ticket id.
     let runtime = project.join("runtime");
-    for dir in ["logs", "results", "worktree-refs", "accounting/tasks", "notes"] {
+    for dir in ["logs", "results", "worktree-refs", "accounting/tasks", "accounting/captures", "notes"] {
         fs::create_dir_all(runtime.join(dir)).expect("create runtime dir");
     }
     fs::create_dir_all(runtime.join("snapshot-sessions/auth.1-pending-slug-7"))
@@ -1205,6 +1205,8 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
         "results/billing.1.md",
         "worktree-refs/auth.1.yaml",
         "accounting/tasks/auth.1.json",
+        "accounting/captures/auth.1-pending-1.json",
+        "accounting/captures/billing.1-pending-1.json",
         "notes/auth.1.md",
         "notes/billing.1.md",
     ] {
@@ -1228,6 +1230,7 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
         "results/auth.1.md",
         "worktree-refs/auth.1.yaml",
         "accounting/tasks/auth.1.json",
+        "accounting/captures/auth.1-pending-1.json",
         "notes/auth.1.md",
         "snapshot-sessions/auth.1-pending-slug-7",
     ] {
@@ -1237,6 +1240,7 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
         "logs/task-auth.10-pending.log",
         "logs/task-billing.1-pending.log",
         "results/billing.1.md",
+        "accounting/captures/billing.1-pending-1.json",
         "notes/billing.1.md",
     ] {
         assert!(runtime.join(kept).exists(), "{kept} is not owned by an in-scope ticket");
@@ -1567,4 +1571,161 @@ fn missing_input_artifact_error_names_pre_qualification_file() {
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn viz_warns_on_panta_project_and_stays_quiet_on_single_rhei() {
+    let project = create_panta_project(
+        "panta-viz-warn",
+        "# Panta: Viz\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    // §FS-rhei-viz.7.3: a project input warns on stderr that the page is not
+    // the merged project graph, but the command still succeeds.
+    let out_file = project.join("viz.html");
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("viz")
+        .arg(&project)
+        .arg("--output")
+        .arg(&out_file)
+        .output()
+        .expect("viz runs");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "viz should still render\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("not Panta-aware")
+            && stderr.contains("not the merged project graph")
+            && stderr.contains("Point `rhei viz` at a single rhei"),
+        "project input should warn with the limitation and the workaround: {stderr}"
+    );
+    assert!(out_file.exists(), "viz output should be written");
+
+    // A single rhei inside the project renders without the warning.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("viz")
+        .arg(project.join("auth.rhei.md"))
+        .arg("--output")
+        .arg(project.join("viz-auth.html"))
+        .output()
+        .expect("viz runs");
+    assert!(output.status.success());
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("not Panta-aware"),
+        "single-rhei input must not warn"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
+    let project = create_panta_project(
+        "panta-scope-line",
+        "# Panta: Scope\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    // §FS-rhei-panta.6: an un-narrowed project-scoped reset announces the
+    // rheis it will touch before acting.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&project)
+        .output()
+        .expect("reset runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "reset should succeed: {stdout}");
+    assert!(
+        stdout.contains("Scope: `rhei reset` operates project-wide across 2 rheis: auth, billing"),
+        "project-wide reset should report its scope: {stdout}"
+    );
+    fs::remove_dir_all(project).expect("cleanup");
+
+    // §FS-rhei-panta.6.2: a bare rhei is a one-rhei implicit Panta with no
+    // fan-out to report — no scope line.
+    let dir = unique_temp_dir("bare-scope-quiet");
+    fs::write(
+        dir.join("plan.rhei.md"),
+        "# Rhei: Quiet\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
+    )
+    .expect("write plan");
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(dir.join("plan.rhei.md"))
+        .output()
+        .expect("reset runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "reset should succeed: {stdout}");
+    assert!(!stdout.contains("Scope:"), "one-rhei project must stay quiet: {stdout}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn ambiguous_rhei_local_shorthand_names_qualified_candidates() {
+    let project = create_panta_project(
+        "panta-ambiguous-shorthand",
+        "# Panta: Ambiguous\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    // §FS-rhei-panta.6: a shorthand matching more than one rhei is an error
+    // that names the qualified candidates.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(&project)
+        .args(["--task", "1", "--no-callbacks"])
+        .output()
+        .expect("next runs");
+    assert!(!output.status.success(), "ambiguous shorthand must fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ambiguous across rheis")
+            && stderr.contains("auth.1")
+            && stderr.contains("billing.1"),
+        "error should name the qualified candidates: {stderr}"
+    );
+
+    // A --rhei narrowing disambiguates the same shorthand.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(&project)
+        .args(["--task", "1", "--rhei", "auth", "--peek", "--no-callbacks"])
+        .output()
+        .expect("next runs");
+    assert!(
+        output.status.success(),
+        "narrowed shorthand should resolve\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("auth.1"),
+        "resolved ticket should be qualified in output"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
 }

@@ -30,7 +30,7 @@ Execute this loop until no eligible task remains or a human gate stops you:
     - If `rhei next` fails with a missing-artifact error, the current state requires an input file that does not exist — surface it; do not skip ahead.
 5. **Work in the current state.** Follow the printed instructions verbatim. The state you are handed is where the work happens — `rhei next` does **not** advance state. Implement child task nodes in order, logging per child (see *Progress Logging*).
 6. **Advance state only when the workflow demands it.** Use `rhei transition` for intermediate hops; for terminal completion use `rhei complete` (see *State Transitions*).
-7. **Finalize with `rhei complete`.** Run `rhei complete <plan> --task <id> --result "<one-line summary>"`. It transitions to the first reachable non-cancelled terminal, appends a `## <from> → <to>` entry plus the message to `runtime/results/<task-id>.md`, links that file via `> **Result:**`, and removes `**Assignee:**`.
+7. **Finalize with `rhei complete`.** Run `rhei complete <plan> --task <id> --result "<one-line summary>"`. It transitions to the first reachable non-cancelled terminal, appends a `## <from> → <to>` entry plus the message to `runtime/results/<task-id>.md`, links that file via `> **Result:**`, and removes `**Assignee:**`. `<task-id>` is the project-qualified id (`plan.1` for `plan.rhei.md`); `rhei next` prints qualified ids, and `--task` accepts both the qualified id and the rhei-local shorthand.
 8. **Stop at terminal or gating states.** `completed` is final in the built-in machine. Any state with `gating: true` in a custom machine halts the worker — do not transition out of it autonomously, and do not try to `rhei complete` through it.
 9. **Loop.** Return to step 4. Re-read the plan on every pass; the markdown file is the single source of truth.
 
@@ -55,7 +55,7 @@ All root-task state transitions go through the CLI. Never edit a root `**State:*
 rhei transition <plan> --task <id> --from <current-state> --to <target-state>
 ```
 
-The CLI provides file locking; compare-and-swap (`--from` guards against racing workers — if another agent already transitioned the task, the command fails and prints the actual state); transition validation (illegal edges rejected before any write); artifact enforcement (required `outputs:` on the source state must exist); callbacks (`on_leave` / `on_enter` fire unless `--no-callbacks`); and a result-file trail (each transition appends a `## <from> → <to>` entry to `runtime/results/<task-id>.md`). On conflict, re-read the plan and re-claim with `rhei next` — do not retry the same transition blindly.
+The CLI provides file locking; compare-and-swap (`--from` guards against racing workers — if another agent already transitioned the task, the command fails and prints the actual state); transition validation (illegal edges rejected before any write); artifact enforcement (required `outputs:` on the source state must exist); callbacks (`on_leave` / `on_enter` fire unless `--no-callbacks`); and a result-file trail (each transition appends a `## <from> → <to>` entry to `runtime/results/<task-id>.md`, keyed by the project-qualified id). On conflict, re-read the plan and re-claim with `rhei next` — do not retry the same transition blindly.
 
 For terminal completion use `rhei complete`, not `rhei transition` — it picks the first reachable non-cancelled terminal, writes the result file, and unassigns in one atomic step. Do not hand-craft a transition into a final state.
 

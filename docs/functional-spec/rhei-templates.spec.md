@@ -50,7 +50,7 @@ Discovery errors are handled per command:
 └── ...                    # Additional files (text rendered; binary copied)
 ```
 
-A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error.
+A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error. For single-file templates the entry-point filename also determines the ticket-id prefix of every instantiated workspace: the file stem is the rhei id, so `plan.rhei.md` yields tickets `plan.1`, `plan.2`, ..., regardless of the `--output` directory name.
 
 ## 3. Manifest Schema (`template.yaml`)
 

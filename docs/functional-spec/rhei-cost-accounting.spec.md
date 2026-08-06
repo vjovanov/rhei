@@ -76,8 +76,8 @@ Each supported agent spawn writes one JSON object:
 ```json
 {
   "schema": "rhei.accounting.invocation.v1",
-  "invocation_id": "1::pending::claude-code-anthropic-sonnet::visit-1",
-  "task_id": "1",
+  "invocation_id": "plan.1::pending::claude-code-anthropic-sonnet::visit-1",
+  "task_id": "plan.1",
   "state": "pending",
   "visit": 1,
   "target_slug": "claude-code-anthropic-sonnet",

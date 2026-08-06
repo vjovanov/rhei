@@ -1147,7 +1147,11 @@ The language cannot be fully described by a context-free grammar alone; semantic
 
 ## 7. File Extension
 
-The recommended file extension for Rhei Plan documents is `.rhei.md` or simply `.md` when the context is clear.
+A single-file Rhei Plan document must use the `.rhei.md` extension: the file
+stem is the rhei id that prefixes every ticket (§AR-rhei-panta.3), so a plan
+without the suffix has no id and the loader rejects it. The bare `.md`
+extension remains only for task files under a Directory Workspace's `tasks/`
+directory (and basin task files), whose owning rhei supplies the id.
 
 ## 8. CLI Command Groups
 

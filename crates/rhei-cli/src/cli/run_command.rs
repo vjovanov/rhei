@@ -1,10 +1,4 @@
 
-/// Execute the `run` subcommand: advance tasks through the state machine
-/// in dependency order.
-///
-/// In agent mode (the default when an agent is configured), spawns coding
-/// agents for each task. In callback-only mode (`--no-agent`), advances
-/// tasks through transition callbacks only.
 /// A file that owns more than one ticket, if any. Parallel scheduling may run
 /// those tickets' agents concurrently against one checkout. §FS-rhei-run.2.5
 fn shared_task_file(loaded: &LoadedPlan) -> Option<&Path> {
@@ -15,6 +9,12 @@ fn shared_task_file(loaded: &LoadedPlan) -> Option<&Path> {
     counts.into_iter().find(|(_, count)| *count > 1).map(|(path, _)| path)
 }
 
+/// Execute the `run` subcommand: advance tasks through the state machine
+/// in dependency order.
+///
+/// In agent mode (the default when an agent is configured), spawns coding
+/// agents for each task. In callback-only mode (`--no-agent`), advances
+/// tasks through transition callbacks only.
 fn run_command(
     input: &Path,
     state_machine_path: Option<&Path>,

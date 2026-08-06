@@ -92,7 +92,7 @@ The selected node is reflected in the URL hash, so a page can be **deep-linked**
 to a specific node: opening the surface with `#<node-id>` selects that node and
 opens its surroundings instead of the default live-leading view, and the
 inspector head offers a "copy link" affordance that yields such a URL. This makes
-the static artifact addressable for async review ("see task 3.1 here"). Hash
+the static artifact addressable for async review ("see task auth.3.1 here"). Hash
 updates use history replacement so keyboard navigation does not flood browser
 history; editing the hash or using back/forward reselects.
 

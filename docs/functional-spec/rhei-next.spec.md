@@ -112,8 +112,8 @@ error instead of silently skipping the task.
 Example:
 
 ```text
-Error: Task review-cache-key cannot be claimed in state agent-review-fix.
-Missing required input artifact: findings (runtime/findings/review-cache-key.md)
+Error: Task auth.review-cache-key cannot be claimed in state agent-review-fix.
+Missing required input artifact: findings (runtime/findings/auth.review-cache-key.md)
 ```
 
 ## 4. Peek Mode (`--peek`)
@@ -153,7 +153,9 @@ action is:
 | One or more otherwise-ready tasks are in a gating state | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...` |
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
-| Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: Task <ID> waiting on Task <PRIOR> (<state>) blocked by incomplete prerequisites.` |
+| Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
+| Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
+| Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
 
 These distinct messages allow a PM or orchestrator to tell apart a finished
 plan, a human gate, fully in-flight work, manual transition selection, and
@@ -174,7 +176,7 @@ When a state declares an `agent` field (or an agent is resolved from project/glo
 
 ```json
 {
-  "task_id": "3",
+  "task_id": "auth.3",
   "title": "Implement caching layer",
   "state": "pending",
   "agent": "claude-code",

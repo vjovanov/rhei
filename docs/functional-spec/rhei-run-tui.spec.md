@@ -434,8 +434,8 @@ lightweight. §FS-rhei-cost-accounting
 `runtime/transitions.log` is a UTF-8, append-only, newline-delimited text file. Each line is one run event. Columns are space-separated; columns 1–3 are fixed-width, column 4 is a path, and optional trailing fields are comma-separated key=value pairs.
 
 ```
-2026-04-21T14:03:22Z  task-042  start@pending           runtime/logs/task-042-pending.log
-2026-04-21T14:07:11Z  task-042  end@pending             runtime/logs/task-042-pending.log  exit=0,duration=3m49s,outcome=completed
+2026-04-21T14:03:22Z  task-plan.042  start@pending           runtime/logs/task-plan.042-pending.log
+2026-04-21T14:07:11Z  task-plan.042  end@pending             runtime/logs/task-plan.042-pending.log  exit=0,duration=3m49s,outcome=completed
 ```
 
 Rules:

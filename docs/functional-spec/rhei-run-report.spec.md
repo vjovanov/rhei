@@ -113,25 +113,25 @@ Run Report  Rhei UI Canonical Test                       9f24c6 · 12m04s
   Cost      $1.23 · In 2.4M · In cached 1.5M · Out 180k · Out cached - · Coverage partial
 
 Attention  3 gated · 4 blocked
-  ! full-pipeline              human-gate  counted fix loop finished
-        → inspect runtime/fixes/full-pipeline-visit-2.md and transition manually
-  ! poll-exhaustion            blocked     pollAttempts reached pollMaxAttempts
-        → inspect runtime/logs/task-poll-exhaustion-poll-exhaust.log
+  ! ui-test-canonical-example.full-pipeline              human-gate  counted fix loop finished
+        → inspect runtime/fixes/ui-test-canonical-example.full-pipeline-visit-2.md and transition manually
+  ! ui-test-canonical-example.poll-exhaustion            blocked     pollAttempts reached pollMaxAttempts
+        → inspect runtime/logs/task-ui-test-canonical-example.poll-exhaustion-poll-exhaust.log
   … 5 more in the report
 
 Tasks   17 tasks · source order
-  ✓ collect-inputs             completed    agent     3.4s
-  ⏸ full-pipeline              human-gate   counted fix loop finished
-  │ ✓ script-normalize         completed    program   0.2s
-  │ ✓ mock-implement           completed    agent     8.1s
-  │ ✓ parallel-review          completed    agent×2   5.0s
-  │ ! live-failure-blocked     blocked      program exited 42
-  ✓ snapshot-child             completed    agent     2.7s
-  · terminal-completed         completed    —         terminal at start
-  ⏸ human-gate                 human-gate   seeded gating state
-  ! poll-exhaustion            blocked      pollAttempts reached pollMaxAttempts
-  ! skill-unavailable-blocked  blocked      required skill absent-lens unavailable
-  ⊘ cancelled-task             cancelled    —
+  ✓ ui-test-canonical-example.collect-inputs             completed    agent     3.4s
+  ⏸ ui-test-canonical-example.full-pipeline              human-gate   counted fix loop finished
+  │ ✓ ui-test-canonical-example.script-normalize         completed    program   0.2s
+  │ ✓ ui-test-canonical-example.mock-implement           completed    agent     8.1s
+  │ ✓ ui-test-canonical-example.parallel-review          completed    agent×2   5.0s
+  │ ! ui-test-canonical-example.live-failure-blocked     blocked      program exited 42
+  ✓ ui-test-canonical-example.snapshot-child             completed    agent     2.7s
+  · ui-test-canonical-example.terminal-completed         completed    —         terminal at start
+  ⏸ ui-test-canonical-example.human-gate                 human-gate   seeded gating state
+  ! ui-test-canonical-example.poll-exhaustion            blocked      pollAttempts reached pollMaxAttempts
+  ! ui-test-canonical-example.skill-unavailable-blocked  blocked      required skill absent-lens unavailable
+  ⊘ ui-test-canonical-example.cancelled-task             cancelled    —
   … 3 completed tasks collapsed
 
 Report     runtime/run-report.md
@@ -195,11 +195,11 @@ Run Report  Rhei UI Canonical Test                       a13f02 · 0.4s
   Reuse     every required output already existed; no agent or program ran
 
 Tasks   22 tasks · source order
-  ✓ collect-inputs             completed    reused
-  ✓ full-pipeline              completed    reused
-  │ ✓ script-normalize         completed    reused
-  │ ✓ mock-implement           completed    reused
-  · terminal-completed         completed    terminal at start
+  ✓ ui-test-canonical-example.collect-inputs             completed    reused
+  ✓ ui-test-canonical-example.full-pipeline              completed    reused
+  │ ✓ ui-test-canonical-example.script-normalize         completed    reused
+  │ ✓ ui-test-canonical-example.mock-implement           completed    reused
+  · ui-test-canonical-example.terminal-completed         completed    terminal at start
   … 17 completed tasks collapsed
 
 Report     runtime/run-report.md
@@ -221,9 +221,9 @@ preserved output keeps the greppable `Final states: <state>=<count>` prefix, the
 ```text
 Run complete: 7 agent(s), 15 program(s) spawned, 9/24 tasks in terminal state.
 Final states: blocked=5, cancelled=1, completed=9, human-gate=2
-  - Task full-pipeline: Full pipeline [human-gate]
-  - Task polling: Polling loop [completed]
-  - Task poll-exhaustion: Poll exhaustion [blocked]
+  - Task ui-test-canonical-example.full-pipeline: Full pipeline [human-gate]
+  - Task ui-test-canonical-example.polling: Polling loop [completed]
+  - Task ui-test-canonical-example.poll-exhaustion: Poll exhaustion [blocked]
   …
 ```
 
@@ -261,7 +261,7 @@ columns are:
 `driver: reused-output` means the current state's required outputs existed
 before any subprocess was spawned for that decision, so Rhei was able to evaluate
 the outgoing transition without running the autonomous state. This is the
-high-signal label for artifact-collision investigations. The row must still list
+high-signal label for artifact-reuse investigations. The row must still list
 the checked outputs and mark them `reused`.
 
 `driver: callback-only` means the transition was made through callbacks or
@@ -271,8 +271,8 @@ treatment.
 
 `driver: blocked` is used for non-terminal tasks that remain in place at run end.
 The row's `reason` must name the first concrete blocker Rhei can prove, such as
-`waiting for prior polling`, `gating state human-gate`, `missing input
-runtime/build/full-pipeline-report.md`, `poll next attempt at ...`, or
+`waiting for prior ui-test-canonical-example.polling`, `gating state human-gate`, `missing input
+runtime/build/ui-test-canonical-example.full-pipeline-report.md`, `poll next attempt at ...`, or
 `required skill absent-lens unavailable`.
 
 ## 5. Artifact Evidence
@@ -294,10 +294,12 @@ The UI uses four output statuses:
 | `missing` | Required after invocation or transition check and not present. |
 | `not-checked` | No output check applied, such as terminal-at-start or dry-run. |
 
-This makes accidental path collisions visible. If two different plans use
-`runtime/milestones/{task_id}.md` and numeric task ids, a later run shows
-`driver: reused-output` and `output: milestone reused` instead of implying that
-an agent completed the work.
+This makes accidental artifact reuse visible. `{task_id}` renders the
+project-qualified ticket id, so two rheis sharing an execution root no longer
+collide on paths like `runtime/milestones/{task_id}.md` (§AR-rhei-panta.5); the
+remaining reuse case is an artifact left behind by an earlier run of the same
+ticket. Such a run shows `driver: reused-output` and `output: milestone reused`
+instead of implying that an agent completed the work.
 
 **Implementation status.** The durable report (§1, §2) and the Transition Ledger
 (§4) are emitted from the run event stream and the run-start state snapshot: every
@@ -309,7 +311,7 @@ best-effort write of the data available up to the failure (§1). The per-artifac
 Inputs/Outputs evidence columns (§5) and the `reused-output` driver are not yet
 captured — distinguishing reuse from a callback advance needs a pre-run
 output-existence snapshot from the engine, so no-spawn advances are reported as
-`callback-only`. Until that lands, the report makes the artifact-collision case
+`callback-only`. Until that lands, the report makes the artifact-reuse case
 visible the coarse way: a run whose Outcome Strip shows `agent invocations: 0 ·
 program invocations: 0` while tasks advanced is flagged in the report body as "no
 agent or program ran," which is the signal the motivating issue asked for.
@@ -357,13 +359,13 @@ The attention section should make the current stopping condition obvious:
 
 | Task | State | Reason | Next action |
 | --- | --- | --- | --- |
-| full-pipeline | human-gate | counted fix loop finished | inspect runtime/fixes/full-pipeline-visit-2.md and transition manually |
-| human-gate | human-gate | seeded gating state | transition manually when reviewed |
-| poll-exhaustion | blocked | pollAttempts reached pollMaxAttempts | inspect runtime/logs/task-poll-exhaustion-poll-exhaust.log |
-| live-failure-blocked | blocked | program exited 42 and matched blocked transition | inspect runtime/failures/live-failure-blocked.md |
-| skill-unavailable-blocked | blocked | required skill absent-lens unavailable | install skill or mark task cancelled |
-| mcp-unavailable-blocked | blocked | required MCP server mock-mcp unavailable | start server or mark task cancelled |
-| blocked-seeded | blocked | seeded blocked state remained non-terminal | inspect task owner |
+| ui-test-canonical-example.full-pipeline | human-gate | counted fix loop finished | inspect runtime/fixes/ui-test-canonical-example.full-pipeline-visit-2.md and transition manually |
+| ui-test-canonical-example.human-gate | human-gate | seeded gating state | transition manually when reviewed |
+| ui-test-canonical-example.poll-exhaustion | blocked | pollAttempts reached pollMaxAttempts | inspect runtime/logs/task-ui-test-canonical-example.poll-exhaustion-poll-exhaust.log |
+| ui-test-canonical-example.live-failure-blocked | blocked | program exited 42 and matched blocked transition | inspect runtime/failures/ui-test-canonical-example.live-failure-blocked.md |
+| ui-test-canonical-example.skill-unavailable-blocked | blocked | required skill absent-lens unavailable | install skill or mark task cancelled |
+| ui-test-canonical-example.mcp-unavailable-blocked | blocked | required MCP server mock-mcp unavailable | start server or mark task cancelled |
+| ui-test-canonical-example.blocked-seeded | blocked | seeded blocked state remained non-terminal | inspect task owner |
 ```
 
 The transition ledger should make spawned work and artifact checks compact:
@@ -373,22 +375,22 @@ The transition ledger should make spawned work and artifact checks compact:
 
 | Task | From | To | Driver | Inputs | Outputs | Invocation | Reason |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| full-pipeline | collect-inputs | script-normalize | agent | - | raw-inputs: created, raw-notes: created | mock-agent[yolo]:mock:ui-implementer / runtime/logs/task-full-pipeline-collect-inputs-mock-agent-yolo-mock-ui-implementer.log | exit 0, outputs present |
-| full-pipeline | script-normalize | mock-implement | program | raw-inputs: ok, raw-notes: ok | normalized-inputs: created, io-map: created | bash ./bin/mock-program.sh normalize / runtime/logs/task-full-pipeline-script-normalize.log | exit 0 |
-| full-pipeline | parallel-review | aggregate | agent | build-report: ok | review-findings: created x2 | 2 targets / runtime/logs/task-full-pipeline-parallel-review-*.log | all target outputs present |
-| polling | script-poll | script-poll | program | - | poll-ready: missing | bash ./bin/mock-program.sh poll / runtime/logs/task-polling-script-poll.log | exit 75, retry scheduled |
-| poll-exhaustion | poll-exhaust | blocked | program | - | poll-pending: created | bash ./bin/mock-program.sh poll-exhaust / runtime/logs/task-poll-exhaustion-poll-exhaust.log | pollAttempts >= pollMaxAttempts |
-| terminal-completed | completed | - | terminal-at-start | - | not-checked | none | already terminal |
+| ui-test-canonical-example.full-pipeline | collect-inputs | script-normalize | agent | - | raw-inputs: created, raw-notes: created | mock-agent[yolo]:mock:ui-implementer / runtime/logs/task-ui-test-canonical-example.full-pipeline-collect-inputs-mock-agent-yolo-mock-ui-implementer.log | exit 0, outputs present |
+| ui-test-canonical-example.full-pipeline | script-normalize | mock-implement | program | raw-inputs: ok, raw-notes: ok | normalized-inputs: created, io-map: created | bash ./bin/mock-program.sh normalize / runtime/logs/task-ui-test-canonical-example.full-pipeline-script-normalize.log | exit 0 |
+| ui-test-canonical-example.full-pipeline | parallel-review | aggregate | agent | build-report: ok | review-findings: created x2 | 2 targets / runtime/logs/task-ui-test-canonical-example.full-pipeline-parallel-review-*.log | all target outputs present |
+| ui-test-canonical-example.polling | script-poll | script-poll | program | - | poll-ready: missing | bash ./bin/mock-program.sh poll / runtime/logs/task-ui-test-canonical-example.polling-script-poll.log | exit 75, retry scheduled |
+| ui-test-canonical-example.poll-exhaustion | poll-exhaust | blocked | program | - | poll-pending: created | bash ./bin/mock-program.sh poll-exhaust / runtime/logs/task-ui-test-canonical-example.poll-exhaustion-poll-exhaust.log | pollAttempts >= pollMaxAttempts |
+| ui-test-canonical-example.terminal-completed | completed | - | terminal-at-start | - | not-checked | none | already terminal |
 ```
 
-To model the motivating artifact-collision case, the canonical fixture should
+To model the motivating artifact-reuse case, the canonical fixture should
 also have a report test variant with pre-created outputs. The ledger would show:
 
 ```markdown
 | Task | From | To | Driver | Inputs | Outputs | Invocation | Reason |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| full-pipeline | collect-inputs | script-normalize | reused-output | - | raw-inputs: reused, raw-notes: reused | none | required outputs existed before run |
-| full-pipeline | script-normalize | mock-implement | reused-output | raw-inputs: ok, raw-notes: ok | normalized-inputs: reused, io-map: reused | none | required outputs existed before run |
+| ui-test-canonical-example.full-pipeline | collect-inputs | script-normalize | reused-output | - | raw-inputs: reused, raw-notes: reused | none | required outputs existed before run |
+| ui-test-canonical-example.full-pipeline | script-normalize | mock-implement | reused-output | raw-inputs: ok, raw-notes: ok | normalized-inputs: reused, io-map: reused | none | required outputs existed before run |
 ```
 
 This is the central UI requirement: no reader should confuse reused artifacts

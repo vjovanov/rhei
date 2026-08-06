@@ -69,6 +69,12 @@ Ticket ids are project-qualified, including for a bare rhei loaded directly:
 `release.rhei.md` is the single rhei of an implicit Panta with the id `release`
 (§FS-rhei-panta.6, §AR-rhei-panta.3).
 
+Tickets print in the merged graph's source order: discovered rheis in
+deterministic discovery order, with the `basin` rhei's tickets last because the
+basin loads after every discovered rhei (§FS-rhei-panta.4). No rhei-level
+headings or visual de-emphasis are applied; rhei-level grouping is deferred
+(§FS-rhei-panta.3).
+
 The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 `@<assignee>` suffix is omitted when the task is unclaimed.
 
