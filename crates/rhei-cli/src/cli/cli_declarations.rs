@@ -156,8 +156,9 @@ enum Commands {
         /// Path to the markdown plan file (.rhei.md)
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
-        /// Narrow a project-scoped invocation to named rheis (repeatable)
-        #[arg(long = "rhei", value_name = "RHEI_ID")]
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
         rhei: Vec<String>,
         /// Filter by state (repeatable; comma-separated list also accepted)
         #[arg(
@@ -378,8 +379,9 @@ enum Commands {
         /// Target a specific task instead of auto-selecting
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
-        /// Narrow a project-scoped invocation to named rheis (repeatable)
-        #[arg(long = "rhei", value_name = "RHEI_ID")]
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
         rhei: Vec<String>,
         /// Emit output as JSON for machine consumption
         #[arg(long)]
@@ -413,8 +415,9 @@ enum Commands {
         /// Path to the markdown plan file (.rhei.md) or workspace directory
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: PathBuf,
-        /// Narrow a project-scoped invocation to named rheis (repeatable)
-        #[arg(long = "rhei", value_name = "RHEI_ID")]
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
         rhei: Vec<String>,
     },
     /// Print versions for the CLI and related crates

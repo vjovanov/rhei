@@ -380,7 +380,20 @@ fn resolve_cli_task_id(
             task_id_str,
             scope_label(scope)
         )),
-        0 => Err(miette!("task '{}' not found in the plan", task_id_str)),
+        0 => {
+            // Ticket ids are project-qualified now; point a user typing a
+            // stale or partial id at the closest real ones. §FS-rhei-panta.6
+            let similar = similar_task_ids(loaded, task_id_str);
+            if similar.is_empty() {
+                Err(miette!("task '{}' not found in the plan", task_id_str))
+            } else {
+                Err(miette!(
+                    "task '{}' not found in the plan; closest ids: {}",
+                    task_id_str,
+                    similar.join(", ")
+                ))
+            }
+        }
         1 => Ok(candidates.into_iter().next().expect("one candidate")),
         _ => Err(miette!(
             "task id '{}' is ambiguous across rheis; use a qualified id: {}",
@@ -388,6 +401,22 @@ fn resolve_cli_task_id(
             candidates.join(", ")
         )),
     }
+}
+
+/// Qualified ids that contain the attempted id as a substring, for
+/// did-you-mean hints. Capped so a large project stays readable.
+fn similar_task_ids(loaded: &LoadedPlan, needle: &str) -> Vec<String> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
+    tasks
+        .iter()
+        .map(|task| task.id.to_string())
+        .filter(|id| id.contains(needle))
+        .take(5)
+        .collect()
 }
 
 /// Render a scope for diagnostics: the named rheis, or the whole project.
@@ -423,11 +452,13 @@ fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiS
         .filter(|id| scope.as_ref().is_none_or(|scope| scope.contains(*id)))
         .collect();
     let qualifier = if scope.is_some() { "narrowed to" } else { "operates project-wide across" };
+    let noun = if affected.len() == 1 { "rhei" } else { "rheis" };
     println!(
-        "Scope: `rhei {}` {} {} rhei(s): {}",
+        "Scope: `rhei {}` {} {} {}: {}",
         command,
         qualifier,
         affected.len(),
+        noun,
         affected.join(", ")
     );
 }

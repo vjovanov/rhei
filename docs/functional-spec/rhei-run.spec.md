@@ -67,8 +67,19 @@ the named rheis.
   the scope, and the no-work diagnostic names that prior as out of scope
   (§FS-rhei-panta.6.1).
 - Before spawning, `rhei run` reports its resolved scope and the rheis it will
-  touch. A one-rhei project has no fan-out to report and stays quiet
-  (§FS-rhei-panta.6).
+  touch, using the shared scope line:
+
+  ```text
+  Scope: `rhei run` narrowed to <N> rheis: <ids>
+  ```
+
+  A one-rhei project has no fan-out to report and stays quiet
+  (§FS-rhei-panta.6). Because a TUI run takes over the screen right after
+  launch, a narrowed run repeats the scope in the run journal
+  (`Scope: narrowed to <ids>`), where the interactive view can show it.
+- `--parallel > 1` stays available on a project, but two tickets of one rhei
+  file are still concurrent work against a single checkout; the run warns and
+  names such a file. Plan-file writes themselves serialize on the file lock.
 
 ## 3. Execution Loop
 

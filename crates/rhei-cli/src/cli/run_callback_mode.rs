@@ -103,6 +103,11 @@ fn run_callback_mode(
     let mut awaiting_gate_announced = false;
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    if rhei_scope.is_some() {
+        // Repeat the pre-launch scope report inside the journal so a TUI run
+        // sees it too. §FS-rhei-panta.6
+        run_info!("Scope: narrowed to {}", scope_label(&rhei_scope));
+    }
 
     loop {
         let loaded = load_plan(input)?;

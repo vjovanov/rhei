@@ -346,6 +346,7 @@ struct TaskAssigneeClaimContext<'a> {
 fn write_task_assignee(
     task_file: &Path,
     task_id: &str,
+    qualified_id: &str,
     expected_state: &str,
     machine: &rhei_validator::StateMachine,
     claim: TaskAssigneeClaimContext<'_>,
@@ -366,19 +367,21 @@ fn write_task_assignee(
         let _ = fs2::FileExt::unlock(&handle);
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
-            task_id,
+            qualified_id,
             task.state,
             expected_state
         ));
     }
     if let Some(existing) = task.assignee.as_deref() {
         let _ = fs2::FileExt::unlock(&handle);
-        return Err(miette!("Task {} is already assigned to {}", task_id, existing));
+        return Err(miette!("Task {} is already assigned to {}", qualified_id, existing));
     }
+    // §AR-rhei-panta.2: `{task_id}` artifact templates render the qualified
+    // id — the same paths transition-time checks and agents see.
     ensure_state_inputs_exist_for_transition(
         claim.workspace_root,
         Some(&task),
-        task_id,
+        qualified_id,
         &current_state,
         claim.state_def,
         Some(render_visit_count(
@@ -390,7 +393,7 @@ fn write_task_assignee(
         )),
         machine,
         claim.settings,
-        &format!("Task {} cannot be claimed in state {}.", task_id, current_state),
+        &format!("Task {} cannot be claimed in state {}.", qualified_id, current_state),
     )?;
 
     let rewritten = insert_task_assignee(&raw, task_id, assignee)?;

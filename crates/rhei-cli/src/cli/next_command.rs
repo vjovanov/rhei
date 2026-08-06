@@ -460,6 +460,7 @@ fn next_command(
         write_task_assignee(
             &route.task_file,
             &route.local_id,
+            &task_id_str,
             &final_state,
             &machine,
             TaskAssigneeClaimContext {

@@ -48,7 +48,10 @@ before acting; a one-rhei project has no fan-out to report and stays quiet
 A narrowed reset must never delete whole `runtime/` trees: sibling single-file
 rheis share one execution root, so removing the tree would destroy an
 out-of-scope rhei's state. Instead it removes exactly what is **keyed by an
-in-scope ticket id**, under that ticket's owning rhei execution root:
+in-scope ticket id**, under that ticket's owning rhei execution root — and,
+when they differ, under the project execution root as well, because
+run-orchestrated logs and captures land there even for tickets owned by a
+subdirectory rhei:
 
 - `runtime/results/<ticket-id>.md`
 - `runtime/logs/task-<ticket-id>-*`
@@ -99,14 +102,14 @@ directory did not exist.
 A project-scoped invocation prints its resolved scope first:
 
 ```text
-Scope: `rhei reset` operates project-wide across <N> rhei(s): <ids>
+Scope: `rhei reset` operates project-wide across <N> rheis: <ids>
 ```
 
 and a narrowed one reports what it deliberately kept after the two summary
 lines:
 
 ```text
-Scope: `rhei reset` narrowed to <N> rhei(s): <ids>
+Scope: `rhei reset` narrowed to <N> rheis: <ids>
 Reset <N> task(s) to initial state '<initial>'.
 Removed runtime output.
 Kept run-scoped output not owned by any ticket (run report, dashboard, accounting rollups). Reset without `--rhei` to clear it.

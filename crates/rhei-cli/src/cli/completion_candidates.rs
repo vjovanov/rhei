@@ -411,6 +411,24 @@ fn complete_task_id(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+/// Complete `--rhei` values with the loaded project's rhei ids.
+/// §FS-rhei-panta.6
+fn complete_rhei_id(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(plan) = completion_plan_path() else {
+        return Vec::new();
+    };
+    let prefix = current.to_string_lossy();
+    let Ok(loaded) = load_plan(&plan) else {
+        return Vec::new();
+    };
+    loaded
+        .rhei_ids
+        .iter()
+        .filter(|id| id.starts_with(prefix.as_ref()))
+        .map(|id| CompletionCandidate::new(id.clone()))
+        .collect()
+}
+
 fn complete_transition_from_state(current: &OsStr) -> Vec<CompletionCandidate> {
     if let (Some(plan), Some(task_id)) = (completion_plan_path(), completion_option_value("task")) {
         if let Ok(state) = current_task_state(&plan, &task_id) {

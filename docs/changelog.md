@@ -46,11 +46,45 @@ where its id comes from. PR #45
 - Warn when `rhei viz` is pointed at a Panta project: it is not Panta-aware, so
   the page is one disconnected plan per `*.rhei.md`, not the merged project
   graph. §FS-rhei-viz.7.3
+- Unify subprocess ids: `RHEI_TASK_ID` is the project-qualified ticket id for
+  agents, programs, *and* transition callbacks (callbacks previously received
+  the rhei-local id). `RHEI_TASK_ID_LOCAL` and the `{task_id_local}` /
+  `{rhei_id}` template variables carry the rhei-local form for scripts and
+  instructions that edit or grep the plan file, and the callback context JSON
+  gains `task.localId`. §FS-rhei-panta.6 §AR-rhei-panta.3
 
-Two limits ship with this change, both tracked on the roadmap: one state
-machine still governs a whole project — a rhei declaring a machine different
-from the project default is a load error — and `rhei viz` is not yet
-Panta-aware.
+  Two limits ship with this change, both tracked on the roadmap: one state
+  machine still governs a whole project — a rhei declaring a machine different
+  from the project default is a load error — and `rhei viz` is not yet
+  Panta-aware.
+
+  **Upgrading a pre-qualification workspace.** Nothing is rewritten for you;
+  these are the sharp edges and what to do about them:
+
+  - *Plan filenames.* A single-file rhei must be `<id>.rhei.md`, where `<id>`
+    starts with a letter and uses only letters, digits, `_`, or `-`. Rename
+    files like `My Plan.rhei.md` or `2026-roadmap.rhei.md`; the load error
+    suggests a legal name. The same rule applies to Directory Workspace
+    directory names.
+  - *Scripts and JSON consumers.* Command output, `rhei next` JSON
+    (`task_id`), `rhei list --json` (`id`, `prior`, `parent`), `{task_id}`,
+    and `RHEI_TASK_ID` all carry qualified ids now. `rhei list --json`'s
+    `depth` counts within the owning rhei (a top-level ticket is `1`).
+    Scripts that match on heading ids should switch to `RHEI_TASK_ID_LOCAL`.
+  - *Mid-flight runtime artifacts.* Artifacts produced under rhei-local names
+    (`runtime/results/1.md`, `runtime/worktree-refs/1.yaml`, ledger lines
+    `1 pending@…`, `runtime/accounting/tasks/1.json`) are not read, cleaned,
+    or migrated — a narrowed reset only matches qualified keys. When a
+    required input exists only under its pre-qualification name, the
+    missing-artifact error names that file and the rename that fixes it.
+    Finish or reset in-flight tickets before upgrading if you want a clean
+    ledger; a full `rhei reset` still clears the whole `runtime/` tree.
+  - *Snapshot caches.* `.rhei/cache/snapshots/` is keyed by ticket id, so
+    caches produced before this change no longer resolve: `rhei snapshot
+    list --orphaned` shows them and `rhei snapshot gc` prunes them.
+  - *Completed plans.* Legacy rhei-local result links keep validating and are
+    left alone; only re-completing a ticket refreshes its link to the
+    qualified form. §FS-rhei-panta.6.3
 - Add durable task state history to Flow/dashboard and the `rhei run` TUI,
   including the `state history` surroundings section, prompt-focused inspector
   navigation, a global Machine legend with process-kind styling, and links-only

@@ -5,6 +5,16 @@
 /// In agent mode (the default when an agent is configured), spawns coding
 /// agents for each task. In callback-only mode (`--no-agent`), advances
 /// tasks through transition callbacks only.
+/// A file that owns more than one ticket, if any. Parallel scheduling may run
+/// those tickets' agents concurrently against one checkout. §FS-rhei-run.2.5
+fn shared_task_file(loaded: &LoadedPlan) -> Option<&Path> {
+    let mut counts: BTreeMap<&Path, usize> = BTreeMap::new();
+    for path in loaded.task_sources.values() {
+        *counts.entry(path.as_path()).or_default() += 1;
+    }
+    counts.into_iter().find(|(_, count)| *count > 1).map(|(path, _)| path)
+}
+
 fn run_command(
     input: &Path,
     state_machine_path: Option<&Path>,
@@ -34,6 +44,19 @@ fn run_command(
         );
         1
     } else {
+        // A project keeps parallelism, but two tickets of one rhei file are
+        // still concurrent work against a single checkout — say so instead
+        // of silently dropping the single-file warning. §FS-rhei-run.2.5
+        if opts.parallel() > 1 {
+            if let Some(shared) = shared_task_file(&loaded) {
+                eprintln!(
+                    "warning: --parallel > 1 schedules tickets from the same rhei file \
+                     concurrently ({}); plan-file writes serialize on the file lock, but \
+                     agents may still collide in the shared checkout.",
+                    shared.display()
+                );
+            }
+        }
         opts.parallel()
     };
 

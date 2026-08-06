@@ -9,8 +9,11 @@ release automation promotes into a numbered section here at release time
 
 See [docs/changelog.md](docs/changelog.md#unreleased). It currently carries a
 **breaking change**: ticket ids are project-qualified (`1` → `auth.1`), which
-changes command output, result artifact filenames, ledgers, and logs, and
-requires a single-file rhei to be named `<id>.rhei.md`.
+changes command output, result artifact filenames, ledgers, logs, snapshot
+cache keys, and the `RHEI_TASK_ID` seen by callbacks, and requires a
+single-file rhei to be named `<id>.rhei.md`. The entry ends with an
+"Upgrading a pre-qualification workspace" checklist — read it before upgrading
+a workspace with in-flight runs.
 
 ## 0.1.0 - 2026-05-19
 

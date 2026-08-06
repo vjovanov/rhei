@@ -198,24 +198,22 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
     })?;
 
     let mut rheis = Vec::new();
-    let mut seen_ids = HashSet::new();
+    let mut seen_ids: HashMap<String, PathBuf> = HashMap::new();
     let entries = discover_rhei_entries(dir)?;
     for entry in entries {
         let id = rhei_id_for_entry(&entry)?;
         validate_rhei_id(&id, &entry)?;
         if id == BASIN_RHEI_ID {
+            return Err(basin_id_reserved_error(&entry));
+        }
+        if let Some(first) = seen_ids.insert(id.clone(), entry.clone()) {
             return Err(ParseError::new(
                 format!(
-                    "`{}` is reserved for the synthetic basin rhei and cannot be used by {}",
-                    BASIN_RHEI_ID,
+                    "duplicate rhei id '{id}' in Panta project: derived from both {} and {}. \
+                     Rename one of them — the id comes from the file stem or directory name",
+                    first.display(),
                     entry.display()
                 ),
-                None,
-            ));
-        }
-        if !seen_ids.insert(id.clone()) {
-            return Err(ParseError::new(
-                format!("duplicate rhei id '{id}' in Panta project"),
                 None,
             ));
         }
@@ -227,7 +225,7 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
 
     let basin_dir = dir.join(BASIN_RHEI_ID);
     if basin_dir.is_dir() {
-        if !seen_ids.insert(BASIN_RHEI_ID.to_string()) {
+        if seen_ids.insert(BASIN_RHEI_ID.to_string(), basin_dir.clone()).is_some() {
             return Err(ParseError::new("duplicate synthetic basin rhei id", None));
         }
         let loaded = load_basin_rhei(&basin_dir, &manifest.structure, &manifest.states)?;
@@ -329,14 +327,7 @@ pub fn wrap_rhei_as_implicit_panta(
     let id = rhei_id_for_entry(entry)?;
     validate_rhei_id(&id, entry)?;
     if id == BASIN_RHEI_ID {
-        return Err(ParseError::new(
-            format!(
-                "`{}` is reserved for the synthetic basin rhei and cannot be used by {}",
-                BASIN_RHEI_ID,
-                entry.display()
-            ),
-            None,
-        ));
+        return Err(basin_id_reserved_error(entry));
     }
     let root = rhei_execution_root(entry);
     let mut rhei = loaded.rhei;
@@ -551,6 +542,21 @@ fn validate_panta_rhei_states(
     ))
 }
 
+/// The `basin` id belongs to the synthetic catch-all rhei that a Panta
+/// project's `basin/` directory feeds; a user rhei may not claim it.
+/// §FS-rhei-panta.4
+fn basin_id_reserved_error(entry: &Path) -> ParseError {
+    ParseError::new(
+        format!(
+            "`{BASIN_RHEI_ID}` is reserved: a Panta project's `{BASIN_RHEI_ID}/` directory \
+             feeds the synthetic catch-all rhei, so {} cannot use that id. Rename the file \
+             or directory to any other id",
+            entry.display()
+        ),
+        None,
+    )
+}
+
 fn rhei_id_for_entry(path: &Path) -> parser::Result<String> {
     if path.is_dir() {
         return path
@@ -582,13 +588,45 @@ fn validate_rhei_id(id: &str, path: &Path) -> parser::Result<()> {
     let valid = id.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     if valid {
-        Ok(())
-    } else {
-        Err(ParseError::new(
-            format!("rhei id '{id}' from {} is not a valid IDENTIFIER", path.display()),
-            None,
-        ))
+        return Ok(());
     }
+    let rename_hint = match suggest_rhei_id(id) {
+        Some(suggestion) if path.is_dir() => {
+            format!(" Rename the directory to `{suggestion}/` to fix the id.")
+        }
+        Some(suggestion) => {
+            format!(" Rename the file to `{suggestion}.rhei.md` to fix the id.")
+        }
+        None => String::new(),
+    };
+    Err(ParseError::new(
+        format!(
+            "rhei id '{id}' derived from {} is not valid: a rhei id must start with a \
+             letter and contain only letters, digits, `_`, or `-`, because it prefixes \
+             every ticket id in the project.{rename_hint}",
+            path.display()
+        ),
+        None,
+    ))
+}
+
+/// Best-effort legal rhei id for a rename suggestion: invalid characters
+/// become `-`, and anything before the first letter is dropped.
+fn suggest_rhei_id(id: &str) -> Option<String> {
+    let mut out = String::new();
+    for ch in id.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let out: String = out
+        .trim_matches('-')
+        .chars()
+        .skip_while(|ch| !ch.is_ascii_alphabetic())
+        .collect();
+    (!out.is_empty()).then_some(out)
 }
 
 fn merge_structure(into: &mut Structure, from: &Structure) {

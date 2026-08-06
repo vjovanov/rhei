@@ -558,6 +558,7 @@ transitions:
         let err = write_task_assignee(
             &path,
             "1",
+            "plan.1",
             "fix",
             &machine,
             TaskAssigneeClaimContext {

@@ -245,15 +245,21 @@ fn remove_scoped_runtime_artifacts(
     // sweep: sibling rheis share one `state-transitions.log`.
     let mut ledger_roots: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
 
+    // Run-orchestrated logs and captures land under the project execution
+    // root even for tickets whose own rhei root is a subdirectory, so a
+    // narrowed reset must sweep both roots. §FS-rhei-reset.2.1
+    let project_root = execution_workspace_root(input);
     for task_id in task_ids.iter().filter(|id| task_in_rhei_scope(scope, id)) {
         let root = loaded.task_root(task_id, input);
-        let runtime = root.join("runtime");
-        ledger_roots.entry(root).or_default().insert(task_id.clone());
-        if !runtime.exists() {
-            continue;
+        ledger_roots.entry(root.clone()).or_default().insert(task_id.clone());
+        let mut runtime_dirs = vec![root.join("runtime")];
+        if root != project_root {
+            runtime_dirs.push(project_root.join("runtime"));
         }
-        for target in scoped_runtime_targets(&runtime, task_id, machine) {
-            removed |= remove_scoped_target(&target)?;
+        for runtime in runtime_dirs.into_iter().filter(|dir| dir.exists()) {
+            for target in scoped_runtime_targets(&runtime, task_id, machine) {
+                removed |= remove_scoped_target(&target)?;
+            }
         }
     }
 

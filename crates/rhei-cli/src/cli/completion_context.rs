@@ -318,8 +318,20 @@ fn list_command(
     // names or aliases declared in the state machine.
     let state_filter: Vec<String> =
         filters.states.iter().map(|s| normalized_state_name(s.as_str(), &machine)).collect();
-    let parent_filter = filters.parent.as_deref().map(parse_task_id);
-    let has_prior_filter = filters.has_prior.as_deref().map(parse_task_id);
+    // §FS-rhei-panta.6: ticket targets accept the qualified id or an
+    // unambiguous rhei-local shorthand — including these filter values.
+    let parent_filter = filters
+        .parent
+        .as_deref()
+        .map(|id| resolve_cli_task_id(&loaded, id, &rhei_scope))
+        .transpose()?
+        .map(|id| parse_task_id(&id));
+    let has_prior_filter = filters
+        .has_prior
+        .as_deref()
+        .map(|id| resolve_cli_task_id(&loaded, id, &rhei_scope))
+        .transpose()?
+        .map(|id| parse_task_id(&id));
     let contains_lower = filters.contains.as_deref().map(|s| s.to_lowercase());
 
     let mut matches: Vec<&(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();

@@ -15,8 +15,9 @@ struct StandaloneExecutionFlags {
     /// Maximum number of agents to run concurrently (0 = unlimited)
     #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
     parallel: usize,
-    /// Narrow a project-scoped invocation to named rheis (repeatable)
-    #[arg(long = "rhei", value_name = "RHEI_ID")]
+    /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+    /// is its file stem or directory name; default is the whole project
+    #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
     rhei: Vec<String>,
     /// Force TUI mode even when stdout is not detected as a TTY
     #[arg(long, conflicts_with = "no_tui")]

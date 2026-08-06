@@ -38,10 +38,42 @@ fn ensure_state_inputs_exist(
             ));
         }
         if !path.exists() {
+            // §FS-rhei-panta.6: artifacts produced before ticket ids were
+            // project-qualified are keyed by the rhei-local id. When that
+            // file exists, name it — "missing" alone sends an upgrading
+            // user hunting for an artifact that is one rename away.
+            let local_id = rhei_local_id_str(task_id);
+            let legacy_hint = if local_id != task_id && artifact.path.contains("{task_id}") {
+                let (legacy_relative, legacy_path) = resolve_artifact_path(
+                    workspace_root,
+                    artifact,
+                    local_id,
+                    state_name,
+                    visit_count,
+                    target,
+                    model,
+                    model_provider,
+                    model_name,
+                    agent,
+                    agent_mode,
+                );
+                if legacy_path.exists() {
+                    format!(
+                        "\nA pre-qualification artifact exists at '{legacy_relative}'. \
+                         Ticket ids are now project-qualified; rename it to '{relative}' \
+                         to keep this run's history."
+                    )
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
             return Err(miette!(
-                "{context}\nMissing required input artifact: {} ({})",
+                "{context}\nMissing required input artifact: {} ({}){}",
                 artifact.name,
-                relative
+                relative,
+                legacy_hint
             ));
         }
     }

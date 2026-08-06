@@ -1449,6 +1449,12 @@ fn run_agent_mode(
     let mut awaiting_gate_announced = false;
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    if rhei_scope.is_some() {
+        // The pre-launch stdout scope report is hidden while the TUI holds
+        // the alternate screen, so the journal repeats it where an
+        // interactive run can see it. §FS-rhei-panta.6
+        run_info!("Scope: narrowed to {}", scope_label(&rhei_scope));
+    }
 
     loop {
         let loaded = load_plan(input)?;

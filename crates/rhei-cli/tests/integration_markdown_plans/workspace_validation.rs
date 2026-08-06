@@ -506,8 +506,10 @@ fn panta_rejects_domain_rhei_named_basin() {
 
     let err = workspace::load_panta_project(&project).expect_err("reserved basin should fail");
     assert!(
-        err.message.contains("reserved for the synthetic basin rhei"),
-        "unexpected error: {}",
+        err.message.contains("`basin` is reserved")
+            && err.message.contains("basin.rhei.md")
+            && err.message.contains("Rename"),
+        "error should state the rule, the offending path, and the fix: {}",
         err.message
     );
 
@@ -1131,7 +1133,7 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("narrowed to 1 rhei(s): auth"),
+        String::from_utf8_lossy(&output.stdout).contains("narrowed to 1 rhei: auth"),
         "reset should report the narrowed scope"
     );
 
@@ -1413,6 +1415,155 @@ fn list_indents_and_reports_depth_rhei_locally_despite_qualified_ids() {
         depths,
         vec![("plan.1".to_string(), 1), ("plan.1.1".to_string(), 2)],
         "depth must not count the qualification segment"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn invalid_derived_rhei_id_error_states_rule_and_suggests_rename() {
+    let dir = unique_temp_dir("invalid-rhei-id");
+    fs::write(
+        dir.join("My Plan.rhei.md"),
+        "# Rhei: Spaces\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
+    )
+    .expect("write plan");
+
+    // §AR-rhei-panta.3: the derived id is a load error with the rule and a
+    // concrete rename, on every command including read-only ones.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(dir.join("My Plan.rhei.md"))
+        .output()
+        .expect("list runs");
+    assert!(!output.status.success(), "invalid derived id must fail");
+    // miette wraps report lines, so collapse the decoration before matching.
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    // The wrap may split the suggested filename, so drop spaces entirely for
+    // the rename fragment.
+    let compact: String = stderr.chars().filter(|ch| !ch.is_whitespace()).collect();
+    assert!(
+        stderr.contains("rhei id 'My Plan'")
+            && stderr.contains("must start with a letter")
+            && compact.contains("Renamethefileto`My-Plan.rhei.md`"),
+        "error should state the rule and suggest a rename: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn duplicate_rhei_id_error_names_both_sources() {
+    let project = create_panta_project(
+        "panta-dup-id",
+        "# Panta: Duplicate\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth A\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n"),
+            (
+                "auth/index.rhei.md",
+                "# Rhei: Auth B\n\n## Notes\nWorkspace variant.\n",
+            ),
+            ("auth/tasks/one.md", "### Task 1: B\n**State:** pending\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let err = workspace::load_panta_project(&project).expect_err("duplicate id should fail");
+    assert!(
+        err.message.contains("duplicate rhei id 'auth'")
+            && err.message.contains("auth.rhei.md")
+            && err.message.matches("auth").count() >= 2
+            && err.message.contains("Rename"),
+        "error should name both colliding sources and the fix: {}",
+        err.message
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn implicit_panta_rejects_basin_named_single_file_rhei() {
+    let dir = unique_temp_dir("implicit-basin");
+    fs::write(
+        dir.join("basin.rhei.md"),
+        "# Rhei: Basin\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
+    )
+    .expect("write plan");
+
+    // §FS-rhei-panta.4: the reservation also guards the implicit-Panta path.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(dir.join("basin.rhei.md"))
+        .output()
+        .expect("list runs");
+    assert!(!output.status.success(), "basin id must be rejected on the implicit path");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`basin` is reserved") && stderr.contains("Rename"),
+        "error should state the reservation and the fix: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn unknown_task_id_error_suggests_closest_qualified_ids() {
+    let dir = unique_temp_dir("unknown-task-hint");
+    fs::write(
+        dir.join("plan.rhei.md"),
+        "# Rhei: Hints\n\n## Tasks\n\n### Task cache-key: Alpha\n**State:** pending\n",
+    )
+    .expect("write plan");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(dir.join("plan.rhei.md"))
+        .args(["--task", "cache", "--no-callbacks"])
+        .output()
+        .expect("next runs");
+    assert!(!output.status.success(), "unknown task must fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("task 'cache' not found") && stderr.contains("plan.cache-key"),
+        "error should suggest the closest qualified id: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn missing_input_artifact_error_names_pre_qualification_file() {
+    let dir = unique_temp_dir("legacy-artifact-hint");
+    fs::write(
+        dir.join("plan.rhei.md"),
+        "# Rhei: Legacy\n**States:** panta-input-machine\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
+    )
+    .expect("write plan");
+    fs::write(dir.join("states.yaml"), PANTA_INPUT_STATE_MACHINE).expect("write machine");
+    // The artifact exists under its pre-qualification (rhei-local) name only.
+    fs::create_dir_all(dir.join("runtime")).expect("mkdir runtime");
+    fs::write(dir.join("runtime/1.md"), "brief\n").expect("write legacy artifact");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("next")
+        .arg(dir.join("plan.rhei.md"))
+        .args(["--task", "1", "--no-callbacks"])
+        .output()
+        .expect("next runs");
+    assert!(!output.status.success(), "missing qualified input must fail");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("Missing required input artifact: brief (runtime/plan.1.md)")
+            && stderr.contains("pre-qualification artifact exists at 'runtime/1.md'"),
+        "error should name the legacy file and the rename: {stderr}"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

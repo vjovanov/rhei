@@ -115,6 +115,7 @@ When the shell supports descriptions, candidates should include concise help:
 | Template | Template description and source (`project` or `user`) |
 | Template input key | Type, required/default status, positional index when present, and description |
 | Task id | Task title and current state |
+| Rhei id (`--rhei`) | The loaded project's rhei ids (§FS-rhei-panta.6) |
 | State name | State description when available |
 | Assignee | Number of matching tasks when available |
 | Node kind | Number of matching tasks when available |
