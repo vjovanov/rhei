@@ -1279,3 +1279,141 @@ fn panta_narrowed_next_explains_a_prior_outside_the_scope() {
 
     fs::remove_dir_all(project).expect("cleanup");
 }
+
+/// A project machine whose initial state carries autonomous agent work, so
+/// `rhei run` takes the orchestrated (agent-mode) scheduling path.
+const AGENT_WORK_STATE_MACHINE: &str = r#"name: workspace-test-machine
+version: 1
+states:
+  pending:
+    description: Task not yet started
+    initial: true
+    agent: fake
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: completed
+"#;
+
+#[test]
+fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
+    let project = create_panta_project(
+        "panta-run-narrow",
+        "# Panta: Narrow Run\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        AGENT_WORK_STATE_MACHINE,
+    );
+
+    // The fake agent records every ticket it is spawned for.
+    let script = project.join("fake-agent.sh");
+    fs::write(
+        &script,
+        "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$RHEI_TASK_ID\" >> \"$RHEI_ROOT/agent-invocations.txt\"\n",
+    )
+    .expect("write fake agent");
+    make_run_agent_script_executable(&script);
+    write_run_agent_settings(
+        &project,
+        &format!(
+            r#"{{ "agents": {{ "fake": {{ "command": [{}], "timeout": "5s" }} }} }}"#,
+            serde_json::to_string(&script.display().to_string()).expect("script path json")
+        ),
+    );
+
+    // §FS-rhei-run.2.5: the sequential agent loop schedules in-scope work only.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("run")
+        .arg(&project)
+        .args(["--rhei", "auth", "--no-callbacks"])
+        .output()
+        .expect("run runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // §FS-rhei-panta.6.1: out-of-scope tickets left non-terminal are not a
+    // run failure for a narrowed invocation.
+    assert!(output.status.success(), "narrowed run should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(
+        stdout.contains("narrowed to") && stdout.contains("auth"),
+        "run should report its narrowed scope: {stdout}"
+    );
+
+    let invocations =
+        fs::read_to_string(project.join("agent-invocations.txt")).expect("agent ran for auth");
+    assert_eq!(invocations, "auth.1\n", "only the in-scope ticket may spawn an agent");
+
+    let auth = fs::read_to_string(project.join("auth.rhei.md")).expect("read auth");
+    assert!(auth.contains("**State:** completed"), "in-scope ticket should finish: {auth}");
+    let billing = fs::read_to_string(project.join("billing.rhei.md")).expect("read billing");
+    assert!(
+        billing.contains("**State:** pending"),
+        "out-of-scope ticket must stay untouched: {billing}"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn list_indents_and_reports_depth_rhei_locally_despite_qualified_ids() {
+    let dir = unique_temp_dir("list-depth");
+    fs::write(
+        dir.join("plan.rhei.md"),
+        "# Rhei: Depth\n\n## Tasks\n\n### Task 1: Parent\n**State:** pending\n\n#### Task 1.1: Child\n**State:** pending\n",
+    )
+    .expect("write plan");
+
+    // §FS-rhei-list.4.1: top-level tickets are flush-left; the qualification
+    // segment adds no indentation.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(dir.join("plan.rhei.md"))
+        .output()
+        .expect("list runs");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.starts_with("Task plan.1: Parent")),
+        "top-level ticket must be flush-left: {stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| line.starts_with("  Task plan.1.1: Child")),
+        "child ticket must be indented one level: {stdout}"
+    );
+
+    // §FS-rhei-list.4.2: `depth` is 1-based within the owning rhei.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(dir.join("plan.rhei.md"))
+        .arg("--json")
+        .output()
+        .expect("list --json runs");
+    assert!(output.status.success());
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json payload");
+    let depths: Vec<(String, u64)> = payload
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|task| {
+            (
+                task["id"].as_str().expect("id").to_string(),
+                task["depth"].as_u64().expect("depth"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        depths,
+        vec![("plan.1".to_string(), 1), ("plan.1.1".to_string(), 2)],
+        "depth must not count the qualification segment"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

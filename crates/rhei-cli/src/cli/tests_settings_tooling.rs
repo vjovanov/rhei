@@ -430,7 +430,7 @@ transitions:
 
         assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
         assert!(has_pending_human_gate(&rhei, &machine));
-        assert!(!should_wait_for_human_gate(&rhei, &machine));
+        assert!(!should_wait_for_human_gate(&rhei, &machine, &None));
     }
 
     #[test]
@@ -471,7 +471,7 @@ transitions:
         let dir = tempfile::tempdir().expect("tmpdir");
 
         assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
-        assert!(should_wait_for_human_gate(&rhei, &machine));
+        assert!(should_wait_for_human_gate(&rhei, &machine, &None));
     }
 
     #[test]
@@ -501,7 +501,7 @@ transitions: []
 
         assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
         assert!(!has_pending_human_gate(&rhei, &machine));
-        assert!(!should_wait_for_human_gate(&rhei, &machine));
+        assert!(!should_wait_for_human_gate(&rhei, &machine, &None));
     }
 
     #[test]

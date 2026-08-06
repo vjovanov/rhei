@@ -303,6 +303,47 @@ Some work description.
     }
 
     #[test]
+    fn rewrite_task_completion_refreshes_existing_legacy_result_link() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = dir.path().join("plan.md");
+        fs::write(
+            &path,
+            r#"# Rhei: Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** completed
+
+> **Result:** [1](runtime/results/1.md)
+
+Some work description.
+"#,
+        )
+        .expect("write");
+
+        // §FS-rhei-panta.6.3: completion owns this ticket's result link, so a
+        // stale legacy link is replaced by the file this completion wrote.
+        rewrite_task_completion(&path, "1", "plan.1", "runtime/results/plan.1.md", true)
+            .expect("rewrite");
+
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(
+            content.contains("> **Result:** [plan.1](runtime/results/plan.1.md)"),
+            "legacy link should be refreshed: {content}"
+        );
+        assert!(
+            !content.contains("> **Result:** [1](runtime/results/1.md)"),
+            "stale legacy link should be gone: {content}"
+        );
+        assert_eq!(
+            content.matches("> **Result:**").count(),
+            1,
+            "exactly one result block should remain: {content}"
+        );
+    }
+
+    #[test]
     fn rewrite_task_completion_without_assignee_still_appends_result_link() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = dir.path().join("plan.md");

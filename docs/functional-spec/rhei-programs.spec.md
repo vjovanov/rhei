@@ -75,7 +75,8 @@ Program subprocesses inherit the same base environment as agent subprocesses:
 | Variable | Value |
 |----------|-------|
 | `RHEI_PLAN_PATH` | Absolute path to the plan file or workspace directory |
-| `RHEI_TASK_ID` | Current task identifier |
+| `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
+| `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
 | `RHEI_STATE` | Current state name |
 | `RHEI_VISIT_COUNT` | Current visit number (for counted-loop states) |
 | `RHEI_INPUT_<NAME>_EXISTS` | `true` or `false` — whether the declared input artifact exists on disk. Set for every declared input, required or optional. `<NAME>` is the artifact `name` uppercased with hyphens and spaces replaced by underscores (e.g., `continuation-notes` → `RHEI_INPUT_CONTINUATION_NOTES_EXISTS`). |

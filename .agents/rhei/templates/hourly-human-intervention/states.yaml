@@ -186,9 +186,9 @@ states:
       For each non-empty non-CI class, append one child task under the current
       task in the same task file. Use this shape:
 
-        #### Task {task_id}.<class-slug>: Analyze <class title>
+        #### Task {task_id_local}.<class-slug>: Analyze <class title>
         **State:** deep-analysis
-        **Prior:** Task {task_id}
+        **Prior:** Task {task_id_local}
 
         - Source kind: issues or pull requests
         - Route hint: human-github | forge | graalvm
@@ -204,9 +204,9 @@ states:
       the same task file. Use one task per issue or PR, even when the symptom
       looks duplicated:
 
-        #### Task {task_id}.ci-failure-<number>: Triage CI failure for <item title>
+        #### Task {task_id_local}.ci-failure-<number>: Triage CI failure for <item title>
         **State:** ci-failure-triage
-        **Prior:** Task {task_id}
+        **Prior:** Task {task_id_local}
 
         - Source kind: issues or pull requests
         - Route hint: ci-failure
@@ -371,9 +371,9 @@ states:
 
       Child task shape:
 
-        ##### Task {task_id}.<route>-<slug>: <action title>
+        ##### Task {task_id_local}.<route>-<slug>: <action title>
         **State:** <github-human-issue | forge-fix | graalvm-propose-fix>
-        **Prior:** Task {task_id}
+        **Prior:** Task {task_id_local}
 
         - Route: <route>
         - Items: <numbers and URLs>
@@ -510,7 +510,7 @@ states:
       If it has blocking findings, validation gaps that matter for the change,
       or `Ready to publish: no`, do not publish. Instead write the publication
       note as blocked, append one child task in state `forge-review-fix` with
-      `**Prior:** Task {task_id}`, and leave GitHub labels unchanged except for
+      `**Prior:** Task {task_id_local}`, and leave GitHub labels unchanged except for
       a short status comment when useful.
 
       If publishing a PR:
@@ -671,7 +671,7 @@ states:
       If it has blocking findings, validation gaps that matter for the change,
       or `Ready to publish: no`, do not publish. Instead write the publication
       note as blocked, append one child task in state `graalvm-review-fix` with
-      `**Prior:** Task {task_id}`, and leave GitHub labels unchanged except for
+      `**Prior:** Task {task_id_local}`, and leave GitHub labels unchanged except for
       a short status comment when useful.
 
       If a PR is opened or updated:

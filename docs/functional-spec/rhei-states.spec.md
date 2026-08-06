@@ -261,6 +261,12 @@ Supported path template variables:
 
 - `{task_id}` - the current ticket's **project-qualified** id (`auth.3`), not
   the rhei-local id its heading carries in the plan file (§AR-rhei-panta.3)
+- `{task_id_local}` - the ticket id as written in its rhei file's heading
+  (`3`). Use this — never `{task_id}` — in instructions that author new task
+  headings or `**Prior:**` lines into the plan file, since the qualification
+  prefix is applied at load time and must not be authored (§AR-rhei-panta.3)
+- `{rhei_id}` - the owning rhei's id (`auth`); unresolved when the ticket
+  carries no qualification prefix
 - `{state}` - the canonical unsuffixed state name
 - `{visit_count}` - the current visit number for counted-loop states (only available when the state declares `visits`)
 - `{target}` - the current execution target selector (only available when the state declares `target` or `all_targets`)
@@ -384,6 +390,8 @@ The `instructions` and `personality` fields support template variable substituti
 | Variable | Source | Description | Example Value |
 |----------|--------|-------------|---------------|
 | `{task_id}` | claimed task | Ticket's project-qualified id — the rhei id joined with the rhei-local id, not the plain heading id | `auth.3`, `auth.setup` |
+| `{task_id_local}` | claimed task | Ticket id as written in its rhei file's heading. Required for instructions that author headings or `**Prior:**` lines into the plan file (§AR-rhei-panta.3) | `3`, `setup` |
+| `{rhei_id}` | claimed task | Owning rhei's id (the qualification prefix); unresolved when the ticket carries none | `auth` |
 | `{task_title}` | claimed task | Task title text | `Implement caching layer` |
 | `{state}` | state machine | Canonical unsuffixed state name | `review` |
 | `{visit_count}` | runtime counter | Current visit number for counted-loop states | `2` |

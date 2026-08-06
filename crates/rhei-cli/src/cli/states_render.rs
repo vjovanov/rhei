@@ -275,12 +275,16 @@ impl LoadedPlan {
         };
         // Ticket headings inside the owning file are rhei-local: strip the
         // project-qualifying rhei id segment. §AR-rhei-panta.3
-        let local_id = task_id
-            .split_once('.')
-            .map(|(_, rest)| rest.to_string())
-            .unwrap_or_else(|| task_id.to_string());
+        let local_id = rhei_local_id_str(task_id).to_string();
         TaskRoute { task_file, metadata_file, local_id, execution_root }
     }
+}
+
+/// Strip the project-qualifying rhei segment from a ticket id string. Mirrors
+/// [`LoadedPlan::task_route`] heading routing; an unqualified id passes
+/// through unchanged. §AR-rhei-panta.3
+fn rhei_local_id_str(task_id: &str) -> &str {
+    task_id.split_once('.').map(|(_, rest)| rest).unwrap_or(task_id)
 }
 
 /// The set of rhei ids a project-scoped invocation is narrowed to. `None` is

@@ -294,10 +294,10 @@ Body for step 6.
     assert!(
         last_tasks.contains("--- Task plan.2: Step 2 [pending] ---")
             && last_tasks
-                .contains("#### Task plan.2: Step 2\n**State:** pending\n\nBody for step 2.")
+                .contains("### Task plan.2: Step 2\n**State:** pending\n\nBody for step 2.")
             && last_tasks.contains("--- Task plan.6: Step 6 [pending] ---")
             && last_tasks
-                .contains("#### Task plan.6: Step 6\n**State:** pending\n\nBody for step 6.")
+                .contains("### Task plan.6: Step 6\n**State:** pending\n\nBody for step 6.")
             && !last_tasks.contains("Task plan.1: Step 1 [pending]"),
         "expected the last five rendered task definitions, excluding task 1; got:\n{}",
         last_tasks

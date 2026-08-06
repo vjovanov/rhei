@@ -101,19 +101,21 @@ fn run_callback_mode(
     let mut visited_ready_states = BTreeSet::<(String, String)>::new();
     // One-time notice so the gate-wait below does not spam the journal each tick.
     let mut awaiting_gate_announced = false;
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
 
     loop {
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
             find_runnable_tasks(&loaded.rhei, machine, &workspace_root),
-            &rhei_scope_set(opts.rhei_scope()),
+            &rhei_scope,
         );
         if ready.is_empty() {
             if !opts.dry_run() {
                 // Callback-only interactive TUI runs use the same human-gate
                 // surface as agent mode; keep it alive only when gates are the
                 // remaining blocker. §FS-rhei-run-tui.1.5.5
-                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, machine) {
+                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, machine, &rhei_scope) {
                     if !awaiting_gate_announced {
                         run_info!(
                             "Waiting for human gate decisions — resolve a gate in the UI, or press Ctrl+C to stop."
@@ -123,7 +125,9 @@ fn run_callback_mode(
                     std::thread::sleep(Duration::from_millis(500));
                     continue;
                 }
-                if let Some(deadline) = earliest_pending_poll_deadline(&loaded.rhei, machine) {
+                if let Some(deadline) =
+                    earliest_pending_poll_deadline(&loaded.rhei, machine, &rhei_scope)
+                {
                     let sleep_secs = deadline.saturating_sub(current_unix_secs()).max(1);
                     run_info!(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
@@ -281,7 +285,8 @@ fn run_callback_mode(
         run_info!("\nDry run complete \u{2014} no changes were made.");
         (0usize, 0usize)
     } else if transitions_made == 0 {
-        run_info!("No tasks could be advanced.");
+        let loaded = load_plan(input)?;
+        run_info!("{}", no_advancement_summary(&loaded.rhei, machine, &rhei_scope));
         (0usize, 0usize)
     } else {
         let loaded = load_plan(input)?;
@@ -348,9 +353,10 @@ fn run_callback_mode(
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
-        if terminal_count < total_task_count(&loaded.rhei)
-            && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine)
+        // §FS-rhei-panta.6.1: a narrowed run halts on in-scope work only —
+        // out-of-scope tickets left non-terminal are not a failure.
+        if scoped_unfinished_task_exists(&loaded.rhei, machine, &rhei_scope)
+            && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine, &rhei_scope)
         {
             return Err(miette!(
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"

@@ -184,11 +184,15 @@ owning rhei's execution root and links it as `[auth.1](runtime/results/auth.1.md
 Because every ticket gained its rhei prefix when bare rheis became implicit
 Pantas, a plan completed before that change carries the rhei-local link
 (`[1](runtime/results/1.md)`) beside a rhei-local artifact. Validation **accepts
-that legacy form** so existing plans keep validating, and **no command rewrites
-an existing result link** — an already-completed ticket keeps pointing at the
-artifact that actually holds its result. There is no migration pass: commands
-write the qualified form for completions from here on, and the two forms coexist
-in a long-lived plan.
+that legacy form** so existing plans keep validating, and a ticket that is not
+being completed keeps its existing link — an already-completed ticket keeps
+pointing at the artifact that actually holds its result. Completing a ticket is
+the one exception: `rhei complete` writes the qualified artifact, so it also
+**refreshes that ticket's result link** to the file it just wrote — leaving a
+legacy link beside a fresh qualified artifact would leave the plan green while
+pointing at a file that no longer receives writes. There is no migration pass:
+untouched tickets keep their form, and the two forms coexist in a long-lived
+plan.
 
 A result link is validated as a **pair**: text and target must describe the same
 ticket id, both qualified (`[auth.1](runtime/results/auth.1.md)`) or both

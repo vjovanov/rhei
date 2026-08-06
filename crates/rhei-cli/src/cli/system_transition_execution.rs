@@ -130,14 +130,14 @@ fn execute_transition_with_origin(
         let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
-            task_id_str,
+            files.artifact_id,
             current_state_raw,
             from
         ));
     }
     if let Err(err) = ensure_task_profile_allows_state(
         machine,
-        task_id_str,
+        files.artifact_id,
         &task_info.task.kind,
         task_info.level,
         to,
@@ -263,6 +263,7 @@ fn execute_transition_with_origin(
                     plan_for_context.as_ref(),
                     &callback_paths.plan_path,
                     task_id_str,
+                    files.artifact_id,
                     from,
                     to,
                     origin.triggered_by.unwrap_or("user"),
@@ -270,7 +271,10 @@ fn execute_transition_with_origin(
                     &callback_paths.working_dir,
                 );
                 let ctx = CallbackContext {
-                    task_id: task_id_str,
+                    // §FS-rhei-panta.6: callbacks see the qualified id; the
+                    // rhei-local heading id rides along for file edits.
+                    task_id: files.artifact_id,
+                    task_id_local: task_id_str,
                     from_state: from,
                     to_state: to,
                     plan_path: &callback_paths.plan_path,
@@ -320,7 +324,7 @@ fn execute_transition_with_origin(
             return Err(miette!("on_leave callback redirected to unknown state '{}'", redirect));
         } else if let Err(err) = ensure_task_profile_allows_state(
             machine,
-            task_id_str,
+            files.artifact_id,
             &task_info.task.kind,
             task_info.level,
             redirect,
@@ -444,6 +448,7 @@ fn execute_transition_with_origin(
         plan_for_context.as_ref(),
         &callback_paths.plan_path,
         task_id_str,
+        files.artifact_id,
         from,
         to,
         triggered_by,
@@ -451,7 +456,8 @@ fn execute_transition_with_origin(
         &callback_paths.working_dir,
     );
     let callback_ctx = CallbackContext {
-        task_id: task_id_str,
+        task_id: files.artifact_id,
+        task_id_local: task_id_str,
         from_state: from,
         to_state: to,
         plan_path: &callback_paths.plan_path,

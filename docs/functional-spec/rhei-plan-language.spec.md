@@ -865,8 +865,10 @@ the same ticket, in the same form.
   project-qualified id (`[auth.1](runtime/results/auth.1.md)`) that commands
   write from here on, or the **legacy rhei-local** id
   (`[1](runtime/results/1.md)`) left in plans completed before that change.
-  Both validate; there is no migration pass and no command rewrites an existing
-  result link.
+  Both validate; there is no migration pass, and no command rewrites the
+  result link of a ticket it is not completing. `rhei complete` refreshes the
+  completed ticket's link to the qualified artifact it writes
+  (§FS-rhei-panta.6.3).
 - A link that **mixes** the two forms (`[auth.1](runtime/results/1.md)`), or
   names any other id, is an error — it would point at an artifact that does not
   hold this ticket's result.

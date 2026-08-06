@@ -470,6 +470,14 @@ fn rewrite_task_completion(
             continue;
         }
         if !in_code_block && in_target_task && line.starts_with("> **Result:**") {
+            // §FS-rhei-panta.6.3: completion owns this ticket's result link.
+            // An existing (possibly legacy rhei-local) link is refreshed to
+            // the file this completion actually wrote.
+            if !link_inserted {
+                result_lines.push(result_line.clone());
+                link_inserted = true;
+                continue;
+            }
             link_inserted = true;
         }
 

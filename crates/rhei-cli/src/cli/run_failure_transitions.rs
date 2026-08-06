@@ -338,14 +338,72 @@ fn poll_next_attempt_at(
         .and_then(yaml_value_to_epoch_secs)
 }
 
+/// Whether any in-scope task is still non-terminal. Drives the end-of-run halt
+/// check: a narrowed run only answers for its own scope. §FS-rhei-panta.6.1
+fn scoped_unfinished_task_exists(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
+) -> bool {
+    let mut tasks = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut tasks);
+    tasks.into_iter().any(|task| {
+        task_in_rhei_scope(scope, &task.id.to_string())
+            && !is_terminal_state(task.state.as_str(), machine)
+    })
+}
+
+/// One-line no-work summary for `rhei run`. Project-wide it keeps the legacy
+/// phrasing; under `--rhei` it names the scope and the blocked in-scope
+/// candidates, marking priors that sit outside the scope. §FS-rhei-panta.6.1
+fn no_advancement_summary(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
+) -> String {
+    if scope.is_none() {
+        return "No tasks could be advanced.".to_string();
+    }
+    let mut project = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut project);
+    let state_map = plan_state_map(&project, machine);
+    let blocked: Vec<String> = project
+        .iter()
+        .copied()
+        .filter(|task| task.children.is_empty())
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machine))
+        .filter_map(|task| {
+            first_blocking_prior(task, &state_map, machine, scope)
+                .map(|prior| format!("Task {} waiting on {}", task.id, prior))
+        })
+        .collect();
+    let detail = if blocked.is_empty() {
+        String::new()
+    } else {
+        let suffix =
+            if blocked.len() > 3 { format!(" (+{} more)", blocked.len() - 3) } else { String::new() };
+        format!(
+            ": {}{}",
+            blocked.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
+            suffix
+        )
+    };
+    format!("No tasks could be advanced in the --rhei scope ({}){}.", scope_label(scope), detail)
+}
+
 fn earliest_pending_poll_deadline(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
 ) -> Option<u64> {
     let mut tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut tasks);
     tasks
         .into_iter()
+        // §FS-rhei-panta.6.1: a narrowed run never advances out-of-scope
+        // tickets, so their poll deadlines must not keep it alive.
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter_map(|task| {
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).and_then(|def| def.poll.as_ref())?;
@@ -377,14 +435,18 @@ fn has_pending_human_gate(
 fn should_wait_for_human_gate(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
 ) -> bool {
+    // The gate itself may sit in any rhei — the TUI shows the whole project —
+    // but only in-scope work decides whether waiting can still bear fruit.
     has_pending_human_gate(rhei, machine)
-        && remaining_work_is_only_gating_or_poll_blocked(rhei, machine)
+        && remaining_work_is_only_gating_or_poll_blocked(rhei, machine, scope)
 }
 
 fn remaining_work_is_only_gating_or_poll_blocked(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
 ) -> bool {
     let mut tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut tasks);
@@ -425,7 +487,14 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         })
     }
 
-    tasks.iter().copied().filter(|task| !is_terminal_state(task.state.as_str(), machine)).all(|task| {
+    tasks
+        .iter()
+        .copied()
+        // §FS-rhei-panta.6.1: "remaining work" is in-scope work; priors below
+        // still resolve project-wide.
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machine))
+        .all(|task| {
         let state = normalized_state_name(task.state.as_str(), machine);
         if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
             return true;

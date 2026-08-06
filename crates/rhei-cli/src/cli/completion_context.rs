@@ -416,7 +416,9 @@ fn list_command(
                     "assignee": task.assignee,
                     "prior": task.prior.iter().map(TaskId::to_string).collect::<Vec<_>>(),
                     "parent": parent_id.as_ref().map(TaskId::to_string),
-                    "depth": task.id.depth(),
+                    // Depth within the owning rhei: the Panta qualification
+                    // segment is routing, not plan structure. §FS-rhei-list.4.2
+                    "depth": task.profile_level(),
                 })
             })
             .collect();
@@ -432,7 +434,9 @@ fn list_command(
     }
 
     for (task, _) in &matches {
-        let indent = "  ".repeat(task.id.depth().saturating_sub(1));
+        // Indent by depth within the owning rhei, so top-level tickets stay
+        // flush-left after Panta qualification. §FS-rhei-list.4.1
+        let indent = "  ".repeat(usize::from(task.profile_level()).saturating_sub(1));
         let mut line = format!(
             "{}{} {}: {} [{}]",
             indent,

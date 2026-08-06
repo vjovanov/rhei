@@ -62,10 +62,12 @@ fn execution_workspace_root(plan_path: &Path) -> PathBuf {
 /// for the initial `on_leave` call, and the accumulated data from `on_leave` for `on_enter`.
 // §FS-rhei-transitions.1: TransitionContext callback payload.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn build_transition_context_json(
     plan: Option<&rhei_core::ast::Rhei>,
     plan_path: &Path,
     task_id_str: &str,
+    qualified_id: &str,
     from_state: &str,
     to_state: &str,
     triggered_by: &str,
@@ -74,11 +76,14 @@ fn build_transition_context_json(
 ) -> serde_json::Value {
     use serde_json::{json, Map, Value};
 
+    // `plan` is the parsed owning rhei file, so the lookup key is the
+    // rhei-local id; the emitted `id` is project-qualified. §FS-rhei-panta.6
     let task_node = plan.and_then(|rhei| find_task_by_id_str(&rhei.tasks, task_id_str));
 
     let task_json = match task_node {
         Some(task) => json!({
-            "id": task_id_to_json(&task.id),
+            "id": qualified_id,
+            "localId": task_id_to_json(&task.id),
             "kind": task.kind,
             "title": task.title,
             "content": task.content,
@@ -86,7 +91,8 @@ fn build_transition_context_json(
             "children": task.children.iter().map(task_summary_json).collect::<Vec<_>>(),
         }),
         None => json!({
-            "id": task_id_str,
+            "id": qualified_id,
+            "localId": task_id_str,
             "metadata": Value::Object(Map::new()),
             "children": Value::Array(Vec::new()),
         }),

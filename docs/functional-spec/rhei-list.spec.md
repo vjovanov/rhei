@@ -54,7 +54,9 @@ Filters combine with logical AND. Empty result sets are not an error.
 
 ### 4.1. Text (default)
 
-One task per line, indented two spaces per depth level, in source order:
+One task per line, indented two spaces per depth level *within its rhei* — the
+Panta qualification segment adds no indentation, so top-level tickets stay
+flush-left — in source order:
 
 ```text
 Task release.1: Define pipeline contracts [pending]
@@ -81,12 +83,12 @@ parent id when present.
 ```json
 [
   {
-    "id": "2",
+    "id": "release.2",
     "kind": "task",
     "title": "Bootstrap environments",
     "state": "draft",
     "assignee": null,
-    "prior": ["1"],
+    "prior": ["release.1"],
     "parent": null,
     "depth": 1
   }
@@ -95,7 +97,8 @@ parent id when present.
 
 Fields are stable: `id`, `kind`, `title`, `state` (raw, as authored), `assignee`
 (string or `null`), `prior` (array of id strings), `parent` (string or `null`),
-`depth` (1-based segment count).
+`depth` (1-based depth within the owning rhei — a top-level ticket is `1`; the
+Panta qualification segment does not count).
 
 ## Relationship to Other Commands
 

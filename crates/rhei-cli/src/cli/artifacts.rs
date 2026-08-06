@@ -154,12 +154,37 @@ fn artifact_relative_path_escapes_root(relative: &str) -> bool {
     false
 }
 
+/// The ticket id as written in its rhei file's heading: the project-qualified
+/// id with the qualification prefix stripped. Falls back to the full id when
+/// the task carries no prefix. §AR-rhei-panta.3
+fn rhei_local_id_of(task: &rhei_core::ast::Task) -> String {
+    let prefix = task.profile_depth_offset as usize;
+    if prefix == 0 || task.id.segments.len() <= prefix {
+        return task.id.to_string();
+    }
+    task.id.segments[prefix..].iter().map(|s| s.to_string()).collect::<Vec<_>>().join(".")
+}
+
+/// The owning rhei's id (the qualification prefix), when the task carries one.
+fn rhei_id_of(task: &rhei_core::ast::Task) -> Option<String> {
+    let prefix = task.profile_depth_offset as usize;
+    if prefix == 0 || task.id.segments.len() <= prefix {
+        return None;
+    }
+    Some(task.id.segments[..prefix].iter().map(|s| s.to_string()).collect::<Vec<_>>().join("."))
+}
+
 fn resolve_runtime_template_variable(
     variable: &str,
     context: &RuntimeTemplateContext<'_>,
 ) -> Option<String> {
     match variable {
         "task_id" => Some(context.task.id.to_string()),
+        // §AR-rhei-panta.3: the qualification prefix is never authored into
+        // task headings, so instructions that author or grep headings need
+        // the rhei-local id and the owning rhei's id as separate variables.
+        "task_id_local" => Some(rhei_local_id_of(context.task)),
+        "rhei_id" => rhei_id_of(context.task),
         "task_title" => Some(context.task.title.clone()),
         "state" => Some(context.state_name.to_string()),
         "visit_count" => Some(

@@ -31,7 +31,18 @@ State transitions will be defined declaratively in YAML and executed through pla
 The `TransitionContext` is the core data structure passed to all transition callbacks. It provides complete context about the rhei, the transitioning task, and the execution environment.
 
 ```typescript
-type TaskId = string | number;
+/**
+ * Project-qualified ticket id (`"auth.1"`). Always a string on the wire: the
+ * qualification prefix means even numerically-authored tickets serialize as
+ * dotted strings (§FS-rhei-panta.6).
+ */
+type TaskId = string;
+
+/**
+ * A ticket id as written inside its rhei file (`"1"`, `"setup"`). Always
+ * serialized as a string, including numerically-authored headings.
+ */
+type LocalTaskId = string;
 
 /**
  * Metadata associated with a task.
@@ -51,9 +62,16 @@ interface TaskMetadata {
   [key: string]: any;
 }
 
-/** A task being transitioned within the rhei */
+/**
+ * A task being transitioned within the rhei. Task nodes that appear as
+ * summaries (`children`, `rhei.tasks`) carry the owning file's rhei-local id
+ * in `id` and omit `localId`; the top-level `task` node carries the qualified
+ * id in `id` and the heading id in `localId`.
+ */
 interface TaskNode {
   id: TaskId;
+  /** The id as written in the owning rhei file's heading (§AR-rhei-panta.3) */
+  localId?: LocalTaskId;
   title: string;
   kind: string;
   metadata: TaskMetadata;

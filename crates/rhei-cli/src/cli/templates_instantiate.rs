@@ -265,7 +265,9 @@
     }
 
     fn render_task_definition(task: &rhei_core::ast::Task) -> String {
-        let heading_level = task.id.depth().saturating_add(2).max(3);
+        // Heading level mirrors the on-disk plan, where headings are
+        // rhei-local: the qualification segment adds no nesting.
+        let heading_level = usize::from(task.profile_level()).saturating_add(2).max(3);
         let mut lines = vec![
             format!(
                 "{} {} {}: {}",

@@ -227,7 +227,9 @@ fn run_bash_agent_team_fixture_to_completion() {
         team_log
     );
 
-    for task_id in &["1", "2", "3"] {
+    // Callbacks receive the project-qualified id, so ticket-keyed artifact
+    // paths carry it — the same key space a narrowed reset matches on.
+    for task_id in &["bash-agent-team.1", "bash-agent-team.2", "bash-agent-team.3"] {
         let artifact_dir = workspace_path.join(format!("runtime/artifacts/task-{task_id}"));
         assert!(
             artifact_dir.join("40-complete.txt").exists(),
