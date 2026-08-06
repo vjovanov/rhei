@@ -136,30 +136,69 @@ fn seed_gitignore(dir: &Path) -> MietteResult<()> {
     fs::write(&path, out).map_err(|err| miette!("failed to write {}: {err}", path.display()))
 }
 
-/// Create or update the marked Rhei block in `AGENTS.md`. An existing block
-/// between the markers is replaced in place, so the note is idempotent and
-/// removable as one unit. §FS-rhei-init.4
+/// Create or update the marked Rhei block in `AGENTS.md`. Every trace of a
+/// previous note is stripped first, so the note is idempotent even after a
+/// third-party merge mangled the markers. §FS-rhei-init.4
 fn write_agents_note(dir: &Path) -> MietteResult<()> {
     let path = dir.join("AGENTS.md");
     let block = format!("{AGENTS_NOTE_BEGIN}\n{AGENTS_NOTE_BODY}\n{AGENTS_NOTE_END}\n");
     let existing = fs::read_to_string(&path).unwrap_or_default();
-    let updated = match (existing.find(AGENTS_NOTE_BEGIN), existing.find(AGENTS_NOTE_END)) {
-        (Some(begin), Some(end)) if end >= begin => {
-            let after = existing[end..].split_once('\n').map(|(_, rest)| rest).unwrap_or("");
-            format!("{}{}{}", &existing[..begin], block, after)
-        }
-        _ if existing.is_empty() => block,
-        _ => {
-            let mut out = existing;
-            if !out.ends_with('\n') {
-                out.push('\n');
-            }
-            out.push('\n');
-            out.push_str(&block);
-            out
-        }
+    let cleaned = strip_rhei_note(&existing);
+    let updated = if cleaned.trim().is_empty() {
+        block
+    } else {
+        let mut out = cleaned.trim_end().to_string();
+        out.push_str("\n\n");
+        out.push_str(&block);
+        out
     };
     fs::write(&path, updated).map_err(|err| miette!("failed to write {}: {err}", path.display()))
+}
+
+/// Remove every trace of a previously written agent note: marker-delimited
+/// regions, orphaned markers, and a marker-less `## Rhei` section that still
+/// carries the note body (a merge may have eaten the markers). §FS-rhei-init.4
+fn strip_rhei_note(existing: &str) -> String {
+    const SENTINEL: &str = "This directory is a Rhei (Panta) project.";
+    let lines: Vec<&str> = existing.lines().collect();
+    let mut out: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if trimmed == AGENTS_NOTE_BEGIN {
+            while i < lines.len() && lines[i].trim() != AGENTS_NOTE_END {
+                i += 1;
+            }
+            i += 1; // past the end marker (or EOF)
+            continue;
+        }
+        if trimmed == AGENTS_NOTE_END {
+            i += 1;
+            continue;
+        }
+        if trimmed == "## Rhei" {
+            let mut j = i + 1;
+            let mut has_sentinel = false;
+            while j < lines.len()
+                && !lines[j].starts_with("## ")
+                && lines[j].trim() != AGENTS_NOTE_BEGIN
+            {
+                has_sentinel |= lines[j].contains(SENTINEL);
+                j += 1;
+            }
+            if has_sentinel {
+                i = j;
+                continue;
+            }
+        }
+        out.push(lines[i]);
+        i += 1;
+    }
+    let mut result = out.join("\n");
+    if existing.ends_with('\n') && !result.is_empty() {
+        result.push('\n');
+    }
+    result
 }
 
 /// Load the fresh project and say what it contains; a discovery failure is a

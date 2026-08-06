@@ -2081,3 +2081,35 @@ fn init_force_overwrites_manifest_without_duplicating_companions() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn init_force_heals_a_mangled_agents_note() {
+    let dir = unique_temp_dir("init-heal-agents");
+    // A merge ate the begin marker, leaving a marker-less note body plus an
+    // orphaned end marker, followed by an intact duplicate.
+    fs::write(
+        dir.join("AGENTS.md"),
+        "# House rules\n\nBe kind.\n\n## Rhei\n\nThis directory is a Rhei (Panta) project. Old text.\n<!-- rhei:end -->\n\n<!-- rhei:begin -->\n## Rhei\n\nThis directory is a Rhei (Panta) project. Old text.\n<!-- rhei:end -->\n",
+    )
+    .expect("write mangled agents");
+    assert!(
+        Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("init")
+            .current_dir(&dir)
+            .output()
+            .expect("init runs")
+            .status
+            .success(),
+        "init should succeed"
+    );
+
+    // §FS-rhei-init.4: every trace is stripped and exactly one block remains.
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    assert!(agents.starts_with("# House rules"), "unrelated content preserved: {agents}");
+    assert_eq!(agents.matches("<!-- rhei:begin -->").count(), 1, "one begin: {agents}");
+    assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
+    assert_eq!(agents.matches("## Rhei").count(), 1, "one section: {agents}");
+    assert!(!agents.contains("Old text."), "stale bodies removed: {agents}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
