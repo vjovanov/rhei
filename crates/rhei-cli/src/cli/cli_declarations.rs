@@ -120,15 +120,17 @@ enum Commands {
         /// Re-run validation when the plan or states file changes
         #[arg(long)]
         watch: bool,
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
     },
     /// Render a markdown plan into a selected output format
     Render {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Output format
         #[arg(long, value_enum)]
         format: RenderFormat,
@@ -153,9 +155,10 @@ enum Commands {
     },
     /// List tasks in a plan with optional filters
     List {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
         /// is its file stem or directory name; default is the whole project
         #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
@@ -220,9 +223,10 @@ enum Commands {
     },
     /// Atomically transition a task from one state to another (compare-and-swap)
     Transition {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Task identifier (number or name)
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: String,
@@ -238,9 +242,10 @@ enum Commands {
     },
     /// Execute a plan by advancing tasks through the state machine in dependency order
     Run {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         #[command(flatten)]
         standalone: StandaloneExecutionFlags,
         #[command(flatten)]
@@ -274,7 +279,7 @@ enum Commands {
     Cost {
         /// Path to the markdown plan file (.rhei.md) or workspace directory
         #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Show direct and subtree accounting for one task id
         #[arg(long, value_name = "ID", add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
@@ -287,9 +292,10 @@ enum Commands {
     },
     /// Render a self-contained HTML flow visualization of a plan or workspace
     Viz {
-        /// Path to the markdown plan file (.rhei.md) or a workspace directory
+        /// Path to the markdown plan file (.rhei.md) or a workspace directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Write the HTML here (default: runtime/<input>.html, or runtime/rhei-viz.html for a workspace)
         #[arg(long, short, value_name = "FILE")]
         output: Option<PathBuf>,
@@ -373,9 +379,10 @@ enum Commands {
     /// forward one step, and prints the task details with state-machine
     /// instructions so an agent knows exactly what to do.
     Next {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Target a specific task instead of auto-selecting
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
@@ -397,9 +404,10 @@ enum Commands {
     /// Complete a task: transition to terminal state, write the state ledger and
     /// result artifact, link it from the task, and remove the assignee.
     Complete {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Task identifier (number or name)
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: String,
@@ -412,9 +420,10 @@ enum Commands {
     },
     /// Reset a plan or workspace to the initial state
     Reset {
-        /// Path to the markdown plan file (.rhei.md) or workspace directory
+        /// Path to the markdown plan file (.rhei.md) or workspace directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
         /// is its file stem or directory name; default is the whole project
         #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]

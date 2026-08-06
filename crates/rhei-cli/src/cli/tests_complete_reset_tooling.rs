@@ -122,7 +122,7 @@
 
         match cli.command {
             Commands::Complete { input, task, result, no_callbacks } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
+                assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert_eq!(task, "3");
                 assert_eq!(result, "All tests pass");
                 assert!(!no_callbacks);
@@ -151,7 +151,7 @@
 
         match cli.command {
             Commands::Reset { input, .. } => {
-                assert_eq!(input, PathBuf::from("workspace"));
+                assert_eq!(input, Some(PathBuf::from("workspace")));
             }
             other => panic!("expected reset command, got {other:?}"),
         }

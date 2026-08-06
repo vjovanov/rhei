@@ -7,6 +7,14 @@
   with a copy-pasteable example instead of clap's bare missing-argument
   error. PR #58 §FS-rhei-completions.2
 
+- Resolve an omitted plan target from the current directory: every plan-taking
+  command walks up to the nearest `index.panta.md` project, workspace
+  `index.rhei.md`, or lone `*.rhei.md` file, so `rhei list` inside a project
+  just works. A directory holding several bare rheis without a manifest is an
+  error naming the candidates and the one-line project init
+  (`printf '# Panta: <title>\n' > index.panta.md`); no plan anywhere up the
+  tree is an error that says what was searched for. §FS-rhei-panta.6
+
 **Breaking: ticket ids are now project-qualified.** Every load yields a
 Panta-rooted graph, so a ticket that used to be `1` is now `auth.1` — named
 for the rhei it lives in. This changes ids in command output, result artifact

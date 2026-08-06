@@ -1729,3 +1729,88 @@ fn ambiguous_rhei_local_shorthand_names_qualified_candidates() {
 
     fs::remove_dir_all(project).expect("cleanup");
 }
+
+#[test]
+fn omitted_plan_target_resolves_from_current_directory() {
+    // §FS-rhei-panta.6: invoked inside a project, a command with no target
+    // operates on the whole project.
+    let project = create_panta_project(
+        "panta-cwd-resolve",
+        "# Panta: Cwd\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&project)
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("auth.1") && stdout.contains("billing.1"),
+        "bare `rhei list` inside a project should list it\nstdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Nested inside the project (a subdirectory with no plan of its own), the
+    // upward walk still finds the project.
+    let nested = project.join("notes");
+    fs::create_dir_all(&nested).expect("mkdir nested");
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&nested)
+        .output()
+        .expect("list runs");
+    assert!(
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("auth.1"),
+        "the upward walk should find the enclosing project"
+    );
+    fs::remove_dir_all(project).expect("cleanup");
+
+    // A lone `.rhei.md` in the directory resolves to that rhei.
+    let dir = unique_temp_dir("cwd-lone-rhei");
+    fs::write(
+        dir.join("plan.rhei.md"),
+        "# Rhei: Lone\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
+    )
+    .expect("write plan");
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&dir)
+        .output()
+        .expect("list runs");
+    assert!(
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("plan.1"),
+        "a lone rhei file should resolve"
+    );
+
+    // Several bare rheis with no manifest are ambiguous, and the error names
+    // both fixes.
+    fs::write(
+        dir.join("second.rhei.md"),
+        "# Rhei: Second\n\n## Tasks\n\n### Task 1: Beta\n**State:** pending\n",
+    )
+    .expect("write second plan");
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&dir)
+        .output()
+        .expect("list runs");
+    assert!(!output.status.success(), "ambiguous directory must fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("plan.rhei.md")
+            && stderr.contains("second.rhei.md")
+            && stderr.contains("index.panta.md"),
+        "ambiguity error should name the candidates and the project fix: {stderr}"
+    );
+    fs::remove_dir_all(dir).expect("cleanup");
+}

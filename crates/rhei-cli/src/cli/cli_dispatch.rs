@@ -213,10 +213,10 @@ fn emit_json_error(err: &miette::Report) {
 fn dispatch(cli: Cli) -> MietteResult<()> {
     match cli.command {
         Commands::Validate { watch, input } => {
-            validate_command(&input, cli.state_machine.as_deref(), watch)
+            validate_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), watch)
         }
         Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
-            render_command(&input, format, pretty, no_color, no_metadata, no_content)
+            render_command(&resolve_plan_target(input)?, format, pretty, no_color, no_metadata, no_content)
         }
         Commands::States { json } => states_command(cli.state_machine.as_deref(), json),
         Commands::List {
@@ -237,7 +237,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             limit,
             json,
         } => list_command(
-            &input,
+            &resolve_plan_target(input)?,
             cli.state_machine.as_deref(),
             ListFilters {
                 rhei,
@@ -258,7 +258,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             json,
         ),
         Commands::Transition { input, task, from, to, no_callbacks } => transition_command(
-            &input,
+            &resolve_plan_target(input)?,
             cli.state_machine.as_deref(),
             &task,
             &from,
@@ -266,16 +266,16 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             no_callbacks,
         ),
         Commands::Run { input, standalone, agent, program, snapshot } => run_command(
-            &input,
+            &resolve_plan_target(input)?,
             cli.state_machine.as_deref(),
             (standalone, agent, program, snapshot).into(),
         ),
-        Commands::Cost { input, task, json, by } => cost_command(&input, task.as_deref(), json, by),
+        Commands::Cost { input, task, json, by } => cost_command(&resolve_plan_target(input)?, task.as_deref(), json, by),
         Commands::Intervene { plan, task, slot, message } => {
             intervene_command(&plan, &task, slot, &message)
         }
         Commands::Viz { input, output, open } => {
-            viz_command(&input, cli.state_machine.as_deref(), output.as_deref(), open)
+            viz_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), output.as_deref(), open)
         }
         Commands::Snapshot { command } => snapshot_command(command, cli.state_machine.as_deref()),
         Commands::Templates { json, source } => templates::templates_command(json, &source),
@@ -304,7 +304,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             list_inputs,
         ),
         Commands::Next { input, task, json, no_callbacks, peek, rhei } => next_command(
-            &input,
+            &resolve_plan_target(input)?,
             cli.state_machine.as_deref(),
             task.as_deref(),
             json,
@@ -313,10 +313,10 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             &rhei,
         ),
         Commands::Complete { input, task, result, no_callbacks } => {
-            complete_command(&input, cli.state_machine.as_deref(), &task, &result, no_callbacks)
+            complete_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), &task, &result, no_callbacks)
         }
         Commands::Reset { input, rhei } => {
-            reset_command(&input, cli.state_machine.as_deref(), &rhei)
+            reset_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), &rhei)
         }
         Commands::Version => {
             print_versions();

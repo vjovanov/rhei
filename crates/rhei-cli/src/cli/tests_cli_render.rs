@@ -10,7 +10,7 @@
         match cli.command {
             Commands::Validate { watch, input } => {
                 assert!(!watch);
-                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+                assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
             }
             other => panic!("expected validate command, got {other:?}"),
         }
@@ -26,7 +26,7 @@
         match cli.command {
             Commands::Validate { watch, input } => {
                 assert!(watch);
-                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+                assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
             }
             other => panic!("expected validate command, got {other:?}"),
         }
@@ -46,7 +46,7 @@
 
         match cli.command {
             Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
-                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+                assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
                 assert_eq!(format, RenderFormat::Json);
                 assert!(pretty);
                 assert!(!no_color);
@@ -107,7 +107,7 @@
             .expect("cli should parse");
         match cli.command {
             Commands::Viz { input, output, open } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
+                assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert_eq!(output, Some(PathBuf::from("out.html")));
                 assert!(open);
             }
@@ -117,7 +117,7 @@
         let cli = Cli::try_parse_from(["rhei", "viz", "workspace"]).expect("cli should parse");
         match cli.command {
             Commands::Viz { input, output, open } => {
-                assert_eq!(input, PathBuf::from("workspace"));
+                assert_eq!(input, Some(PathBuf::from("workspace")));
                 assert!(output.is_none());
                 assert!(!open);
             }
@@ -234,7 +234,7 @@ transitions: []
 
         match cli.command {
             Commands::Run { input, standalone, agent, program, snapshot } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
+                assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert!(standalone.dry_run);
                 assert!(standalone.no_callbacks);
                 assert!(standalone.continue_on_error);

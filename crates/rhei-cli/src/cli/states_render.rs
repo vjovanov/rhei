@@ -287,6 +287,65 @@ fn rhei_local_id_str(task_id: &str) -> &str {
     task_id.split_once('.').map(|(_, rest)| rest).unwrap_or(task_id)
 }
 
+/// Resolve an omitted plan target: walk up from the current directory to the
+/// nearest project (`index.panta.md`), workspace rhei (`index.rhei.md`), or
+/// lone `*.rhei.md` file. §FS-rhei-panta.6
+fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
+    if let Some(input) = input {
+        return Ok(input);
+    }
+    let cwd = std::env::current_dir()
+        .map_err(|err| miette!("failed to read the current directory: {err}"))?;
+    let mut dir = Some(cwd.as_path());
+    while let Some(current) = dir {
+        if current.join("index.panta.md").is_file() || current.join("index.rhei.md").is_file() {
+            return Ok(current.to_path_buf());
+        }
+        let mut plans: Vec<PathBuf> = fs::read_dir(current)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_file()
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.ends_with(".rhei.md"))
+            })
+            .collect();
+        plans.sort();
+        match plans.len() {
+            0 => {}
+            1 => return Ok(plans.remove(0)),
+            _ => {
+                let names: Vec<String> = plans
+                    .iter()
+                    .filter_map(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .collect();
+                return Err(miette!(
+                    "{} holds {} rheis ({}) but no `index.panta.md`, so there is no \
+                     single plan to pick. Pass one explicitly, or make the directory \
+                     a project: printf '# Panta: <title>\\n' > index.panta.md",
+                    current.display(),
+                    names.len(),
+                    names.join(", ")
+                ));
+            }
+        }
+        dir = current.parent();
+    }
+    Err(miette!(
+        "no Rhei plan found: neither {} nor any parent directory contains an \
+         `index.panta.md` project manifest, a workspace `index.rhei.md`, or a \
+         `*.rhei.md` plan file. Pass a plan path (`rhei <command> path/to/plan.rhei.md`) \
+         or run inside a project",
+        cwd.display()
+    ))
+}
+
 /// The set of rhei ids a project-scoped invocation is narrowed to. `None` is
 /// the whole project. §FS-rhei-panta.6
 type RheiScope = Option<BTreeSet<String>>;

@@ -117,6 +117,20 @@ command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
 file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
 (repeatable) narrows a project-scoped invocation to named rheis.
 
+A command invoked with **no target** resolves one by walking up from the
+current directory, nearest match first. At each level, in order:
+
+1. a directory containing `index.panta.md` is the project;
+2. a directory containing `index.rhei.md` is that workspace rhei;
+3. a directory containing exactly one `*.rhei.md` file is that rhei.
+
+A directory holding more than one `*.rhei.md` file but no `index.panta.md` is
+ambiguous: the error names the candidate files and both fixes — pass one
+explicitly, or add an `index.panta.md` to make the directory a project. When
+the walk reaches the filesystem root without a match, the error says what was
+searched for and how to point the command at a plan, not merely that a
+required argument is missing.
+
 Within a project, every command — read-only and mutating alike — operates
 **project-wide by default**. Loading, validation, listing, and rendering read
 the merged project graph; `rhei run`, `rhei next`, `rhei transition`,
