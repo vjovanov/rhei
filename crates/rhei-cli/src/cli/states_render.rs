@@ -327,8 +327,8 @@ fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
                     .collect();
                 return Err(miette!(
                     "{} holds {} rheis ({}) but no `index.panta.md`, so there is no \
-                     single plan to pick. Pass one explicitly, or make the directory \
-                     a project: printf '# Panta: <title>\\n' > index.panta.md",
+                     single plan to pick. Pass one explicitly, or run `rhei init` to \
+                     make the directory a project (writes index.panta.md)",
                     current.display(),
                     names.len(),
                     names.join(", ")

@@ -1814,3 +1814,147 @@ fn omitted_plan_target_resolves_from_current_directory() {
     );
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn init_creates_project_with_manifest_gitignore_and_agents_note() {
+    let dir = unique_temp_dir("init-fresh");
+    let project = dir.join("my-cool_project");
+
+    // §FS-rhei-init.2: manifest, ignore rules, agent note, empty-project hint.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .arg(&project)
+        .output()
+        .expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should succeed: {stdout}");
+    assert!(
+        stdout.contains("Initialized Panta project \"My Cool Project\"")
+            && stdout.contains("no rheis yet"),
+        "init should report the derived title and the empty state: {stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("index.panta.md")).expect("manifest"),
+        "# Panta: My Cool Project\n"
+    );
+    let gitignore = fs::read_to_string(project.join(".gitignore")).expect("gitignore");
+    assert!(
+        gitignore.contains("runtime/") && gitignore.contains(".rhei/cache/"),
+        "gitignore should cover generated output: {gitignore}"
+    );
+    let agents = fs::read_to_string(project.join("AGENTS.md")).expect("agents note");
+    assert!(
+        agents.contains("<!-- rhei:begin -->")
+            && agents.contains("Rhei (Panta) project")
+            && agents.contains("<!-- rhei:end -->"),
+        "AGENTS.md should carry the marked note: {agents}"
+    );
+
+    // §FS-rhei-init.2: an existing project is refused untouched.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .arg(&project)
+        .output()
+        .expect("init runs");
+    assert!(!output.status.success(), "re-init must fail");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("already a Panta project"),
+        "refusal should say why: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
+    let dir = unique_temp_dir("init-adopt");
+    fs::write(
+        dir.join("auth.rhei.md"),
+        "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+    )
+    .expect("write auth");
+    fs::write(
+        dir.join("billing.rhei.md"),
+        "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+    )
+    .expect("write billing");
+    // An existing AGENTS.md is appended to, not clobbered.
+    fs::write(dir.join("AGENTS.md"), "# House rules\n\nBe kind.\n").expect("write agents");
+
+    // The ambiguity error names `rhei init` as the fix. §FS-rhei-panta.6
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&dir)
+        .output()
+        .expect("list runs");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("rhei init"),
+        "ambiguity error should point at init"
+    );
+
+    // §FS-rhei-init.5: adoption reports the discovered rheis.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .args(["--title", "Adopted"])
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should succeed: {stdout}");
+    assert!(
+        stdout.contains("Initialized Panta project \"Adopted\" with 2 rheis: auth, billing"),
+        "init should report discovered rheis: {stdout}"
+    );
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    assert!(
+        agents.starts_with("# House rules") && agents.contains("<!-- rhei:begin -->"),
+        "existing AGENTS.md content should be preserved: {agents}"
+    );
+
+    // The bare invocation now resolves the new project.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&dir)
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("auth.1") && stdout.contains("billing.1"),
+        "bare list should work after init: {stdout}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
+    let dir = unique_temp_dir("init-warn");
+    fs::write(
+        dir.join("My Plan.rhei.md"),
+        "# Rhei: Broken\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
+    )
+    .expect("write bad plan");
+
+    // §FS-rhei-init.5: a discovery failure is a warning, not an init failure.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .arg("--no-agents")
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    assert!(output.status.success(), "init should still succeed");
+    assert!(dir.join("index.panta.md").is_file(), "manifest should be written");
+    assert!(!dir.join("AGENTS.md").exists(), "--no-agents should skip the note");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does not load cleanly") && stderr.contains("My Plan"),
+        "load error should surface as a warning: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

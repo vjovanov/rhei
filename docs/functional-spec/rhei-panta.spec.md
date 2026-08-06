@@ -126,7 +126,8 @@ current directory, nearest match first. At each level, in order:
 
 A directory holding more than one `*.rhei.md` file but no `index.panta.md` is
 ambiguous: the error names the candidate files and both fixes — pass one
-explicitly, or add an `index.panta.md` to make the directory a project. When
+explicitly, or run `rhei init` (§FS-rhei-init) to make the directory a
+project. When
 the walk reaches the filesystem root without a match, the error says what was
 searched for and how to point the command at a plan, not merely that a
 required argument is missing.

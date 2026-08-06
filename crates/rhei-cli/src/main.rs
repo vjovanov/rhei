@@ -37,6 +37,7 @@ include!("cli/snapshot_records.rs");
 include!("cli/snapshot_list_show.rs");
 include!("cli/snapshot_refs_gc.rs");
 include!("cli/snapshot_continue_lock.rs");
+include!("cli/init_command.rs");
 include!("cli/run_command.rs");
 include!("cli/run_agent_mode.rs");
 include!("cli/run_callback_mode.rs");

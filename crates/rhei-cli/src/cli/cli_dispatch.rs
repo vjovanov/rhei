@@ -212,6 +212,9 @@ fn emit_json_error(err: &miette::Report) {
 /// Dispatch the parsed CLI command.
 fn dispatch(cli: Cli) -> MietteResult<()> {
     match cli.command {
+        Commands::Init { dir, title, no_agents } => {
+            init_command(dir.as_deref(), title.as_deref(), no_agents)
+        }
         Commands::Validate { watch, input } => {
             validate_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), watch)
         }

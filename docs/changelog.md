@@ -7,13 +7,18 @@
   with a copy-pasteable example instead of clap's bare missing-argument
   error. PR #58 §FS-rhei-completions.2
 
+- Add `rhei init [DIR]`: make a directory a Panta project. Writes the minimal
+  `index.panta.md`, seeds `.gitignore` with `runtime/` and `.rhei/cache/`,
+  adds a marked agent-discovery note to `AGENTS.md` (skippable with
+  `--no-agents`), and reports the rheis discovery now sees — so pointing it
+  at a directory of existing bare rheis both adopts them and validates them.
+  §FS-rhei-init
 - Resolve an omitted plan target from the current directory: every plan-taking
   command walks up to the nearest `index.panta.md` project, workspace
   `index.rhei.md`, or lone `*.rhei.md` file, so `rhei list` inside a project
   just works. A directory holding several bare rheis without a manifest is an
-  error naming the candidates and the one-line project init
-  (`printf '# Panta: <title>\n' > index.panta.md`); no plan anywhere up the
-  tree is an error that says what was searched for. §FS-rhei-panta.6
+  error naming the candidates and pointing at `rhei init`; no plan anywhere up
+  the tree is an error that says what was searched for. §FS-rhei-panta.6
 
 **Breaking: ticket ids are now project-qualified.** Every load yields a
 Panta-rooted graph, so a ticket that used to be `1` is now `auth.1` — named

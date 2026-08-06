@@ -115,6 +115,18 @@ fn cli_command() -> clap::Command {
 /// Supported CLI subcommands.
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Make a directory a Panta project (writes index.panta.md)
+    Init {
+        /// Directory to initialize (default: current directory; created when missing)
+        #[arg(value_name = "DIR")]
+        dir: Option<PathBuf>,
+        /// Project title (default: derived from the directory name)
+        #[arg(long, value_name = "TITLE")]
+        title: Option<String>,
+        /// Skip the AGENTS.md agent-discovery note
+        #[arg(long)]
+        no_agents: bool,
+    },
     /// Validate a markdown plan against the configured states
     Validate {
         /// Re-run validation when the plan or states file changes

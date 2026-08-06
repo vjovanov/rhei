@@ -24,6 +24,7 @@ zooms in on the CLI verbs and the gaps Rhei has by comparison.
 ## Rhei's command surface (today)
 
 ```
+rhei init [dir]                     Make a directory a Panta project
 rhei validate <plan>                Schema + DAG + artifact + link checks
 rhei render <plan> --format ...     JSON / GitHub markdown / progress
 rhei states                         Print configured state machine
