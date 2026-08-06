@@ -13,7 +13,12 @@ workspace directories; ticket ids are project-qualified (`<rhei>.<id>`).
 Drive work with `rhei list`, `rhei next`, `rhei complete`, and `rhei run`;
 validate edits with `rhei validate`. Run `rhei --help` for the full surface.";
 
-fn init_command(dir: Option<&Path>, title: Option<&str>, no_agents: bool) -> MietteResult<()> {
+fn init_command(
+    dir: Option<&Path>,
+    title: Option<&str>,
+    no_agents: bool,
+    force: bool,
+) -> MietteResult<()> {
     let dir = match dir {
         Some(dir) => dir.to_path_buf(),
         None => std::env::current_dir()
@@ -23,10 +28,12 @@ fn init_command(dir: Option<&Path>, title: Option<&str>, no_agents: bool) -> Mie
         .map_err(|err| miette!("failed to create {}: {err}", dir.display()))?;
 
     let manifest = dir.join("index.panta.md");
-    // §FS-rhei-init.2: refuse an existing project untouched.
-    if manifest.is_file() {
+    // §FS-rhei-init.2: refuse an existing project untouched unless --force,
+    // which rewrites the manifest and updates companion files in place.
+    if manifest.is_file() && !force {
         return Err(miette!(
-            "{} is already a Panta project: index.panta.md exists",
+            "{} is already a Panta project: index.panta.md exists. Re-run with \
+             `--force` to overwrite the manifest",
             dir.display()
         ));
     }

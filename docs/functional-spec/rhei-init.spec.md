@@ -15,7 +15,7 @@ trackers, where `init` must provision storage before anything works.
 ## 1. Usage
 
 ```bash
-rhei init [DIR] [--title <title>] [--no-agents]
+rhei init [DIR] [--title <title>] [--no-agents] [--force]
 ```
 
 `DIR` defaults to the current directory and is created when missing.
@@ -26,15 +26,21 @@ rhei init [DIR] [--title <title>] [--no-agents]
 |---------------------|--------------------|---------------------------------------------------------|
 | `--title <title>`   | from the directory | Project title written to the manifest heading           |
 | `--no-agents`       | off                | Skip the `AGENTS.md` agent-discovery note (§4)          |
+| `--force`           | off                | Re-initialize an existing project: overwrite the manifest (re-deriving the title and re-adopting the machine); companion files update in place |
 
 The default title is derived from the directory name: `-` and `_` become
 spaces and each word is capitalized (`my-project` → `My Project`).
 
 ## 2. Behavior
 
-1. **Refuse an existing project.** When `DIR` already contains
-   `index.panta.md`, the command fails stating the directory is already a
-   project and changes nothing.
+1. **Refuse an existing project** unless `--force`. When `DIR` already
+   contains `index.panta.md`, the command fails stating the directory is
+   already a project, names `--force` as the re-init path, and changes
+   nothing. With `--force` the manifest is rewritten from scratch — a
+   hand-edited manifest is deliberately clobbered, which is why force is
+   opt-in — and the companion files update in place: the `.gitignore`
+   entries and the marked `AGENTS.md` block are idempotent, so a forced
+   re-init never duplicates them.
 2. **Warn about an enclosing project.** When an ancestor directory contains
    `index.panta.md`, init proceeds but warns on stderr: nested projects are
    almost always a mistake, and the outer project will not discover the inner

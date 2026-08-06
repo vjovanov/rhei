@@ -14,7 +14,9 @@
   at a directory of existing bare rheis both adopts them and validates them.
   When the adopted rheis unanimously declare one state machine, init writes
   it as the project default, since a bare manifest would make that project
-  unloadable under the one-machine-per-project rule. §FS-rhei-init
+  unloadable under the one-machine-per-project rule. An existing project is
+  refused untouched; `--force` re-initializes it, overwriting the manifest
+  and updating the idempotent companion files in place. §FS-rhei-init
 - Fix `rhei install-skills` for `cargo install`ed binaries: skill sources now
   also resolve by walking up from the current directory, so running inside a
   rhei checkout works without a packaged `share/rhei/skills` tree.

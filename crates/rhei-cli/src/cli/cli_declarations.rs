@@ -126,6 +126,10 @@ enum Commands {
         /// Skip the AGENTS.md agent-discovery note
         #[arg(long)]
         no_agents: bool,
+        /// Re-initialize an existing project: overwrite the manifest,
+        /// update companion files in place
+        #[arg(long)]
+        force: bool,
     },
     /// Validate a markdown plan against the configured states
     Validate {

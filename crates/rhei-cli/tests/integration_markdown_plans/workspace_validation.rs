@@ -2039,3 +2039,45 @@ fn project_machine_file_resolves_from_a_rhei_root_by_name() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+#[test]
+fn init_force_overwrites_manifest_without_duplicating_companions() {
+    let dir = unique_temp_dir("init-force");
+    let run_init = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("init")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .expect("init runs")
+    };
+    assert!(run_init(&[]).status.success(), "first init should succeed");
+
+    // §FS-rhei-init.2: --force rewrites the manifest in place…
+    let output = run_init(&["--force", "--title", "Renamed"]);
+    assert!(
+        output.status.success(),
+        "forced re-init should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("index.panta.md")).expect("manifest"),
+        "# Panta: Renamed\n"
+    );
+
+    // …and the idempotent companion files are updated, never duplicated.
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    assert_eq!(
+        agents.matches("<!-- rhei:begin -->").count(),
+        1,
+        "AGENTS.md block must not duplicate: {agents}"
+    );
+    let gitignore = fs::read_to_string(dir.join(".gitignore")).expect("gitignore");
+    assert_eq!(
+        gitignore.matches("runtime/").count(),
+        1,
+        "gitignore entries must not duplicate: {gitignore}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
