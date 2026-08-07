@@ -22,7 +22,12 @@
   refused untouched; `--force` re-initializes it, overwriting the manifest
   and updating the idempotent companion files in place. The omitted-target
   resolution probes the `panta/` child, so bare commands work from the whole
-  host repository. §FS-rhei-init §FS-rhei-panta.6
+  host repository. The AGENTS.md note names only the worker surface (`list`,
+  `next`, `complete`, `validate`) and marks `rhei run` as human-initiated —
+  orchestration is never started by an agent. §FS-rhei-init §FS-rhei-panta.6
+- Treat an empty Panta project — the state `rhei init` leaves — as valid:
+  loading succeeds with zero tickets, and `rhei list` reports how to grow the
+  project (or `[]` under `--json`) instead of erroring. §FS-rhei-panta.6
 - Resolve an omitted plan target from the current directory: every plan-taking
   command walks up to the nearest `index.panta.md` project, workspace
   `index.rhei.md`, or lone `*.rhei.md` file, so `rhei list` inside a project

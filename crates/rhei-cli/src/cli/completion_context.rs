@@ -321,6 +321,22 @@ fn list_command(
         walk(task, None, &mut flat);
     }
 
+    // §FS-rhei-panta.6: an empty project is a valid project, not an error —
+    // say what it is and how to grow it.
+    if flat.is_empty() {
+        if as_json {
+            println!("[]");
+        } else if loaded.is_panta_project() {
+            println!(
+                "(project has no tickets yet — add a `<id>.rhei.md` file or a workspace \
+                 directory next to index.panta.md)"
+            );
+        } else {
+            println!("(plan has no tasks)");
+        }
+        return Ok(());
+    }
+
     // Pre-compute state map for ready/blocked checks (only top-level tasks
     // declare priors, but checking the full flat set is harmless).
     let state_map: HashMap<&TaskId, String> = flat

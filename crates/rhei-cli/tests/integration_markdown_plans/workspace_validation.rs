@@ -2181,3 +2181,49 @@ fn omitted_plan_target_resolves_conventional_panta_child() {
 
     fs::remove_dir_all(host).expect("cleanup");
 }
+
+#[test]
+fn empty_project_is_valid_and_list_exits_successfully() {
+    let host = unique_temp_dir("empty-project-ok");
+    assert!(
+        Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("init")
+            .arg("--no-agents")
+            .current_dir(&host)
+            .output()
+            .expect("init runs")
+            .status
+            .success(),
+        "init should succeed"
+    );
+
+    // §FS-rhei-panta.6: a just-initialized project lists successfully and
+    // says how to grow, instead of erroring.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&host)
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "empty project must not be a list error\nstdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("no tickets yet") && stdout.contains("index.panta.md"),
+        "empty listing should say how to grow the project: {stdout}"
+    );
+
+    // Machine consumers get an empty array, not prose.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg("--json")
+        .current_dir(&host)
+        .output()
+        .expect("list --json runs");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "[]");
+
+    fs::remove_dir_all(host).expect("cleanup");
+}

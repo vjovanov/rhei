@@ -7,9 +7,9 @@ const AGENTS_NOTE_END: &str = "<!-- rhei:end -->";
 /// Note body shared by both modes after the location sentence. §FS-rhei-init.4
 const AGENTS_NOTE_TAIL: &str = "Plans are
 `*.rhei.md` files and workspace directories; ticket ids are
-project-qualified (`<rhei>.<id>`). Drive work with `rhei list`, `rhei next`,
-`rhei complete`, and `rhei run`; validate edits with `rhei validate`. Run
-`rhei --help` for the full surface.";
+project-qualified (`<rhei>.<id>`). Work tickets with `rhei list`,
+`rhei next`, and `rhei complete`; validate edits with `rhei validate`.
+Orchestration (`rhei run`) is started by humans, never by agents.";
 
 fn init_command(
     dir: Option<&Path>,
@@ -250,6 +250,13 @@ fn strip_rhei_note(existing: &str) -> String {
 fn report_initialized_project(project: &Path, title: &str, here: bool) {
     let location = if here { String::new() } else { " at panta/".to_string() };
     match workspace::load_panta_project(project) {
+        Ok(loaded) if loaded.rhei_ids.is_empty() => {
+            println!(
+                "Initialized Panta project \"{title}\"{location} with no rheis yet. Add \
+                 one by dropping a `<id>.rhei.md` file or a workspace directory next to \
+                 index.panta.md."
+            );
+        }
         Ok(loaded) => {
             let noun = if loaded.rhei_ids.len() == 1 { "rhei" } else { "rheis" };
             println!(
@@ -259,13 +266,6 @@ fn report_initialized_project(project: &Path, title: &str, here: bool) {
                 loaded.rhei_ids.len(),
                 noun,
                 loaded.rhei_ids.join(", ")
-            );
-        }
-        Err(err) if err.message.contains("contains no tasks") => {
-            println!(
-                "Initialized Panta project \"{title}\"{location} with no rheis yet. Add \
-                 one by dropping a `<id>.rhei.md` file or a workspace directory next to \
-                 index.panta.md."
             );
         }
         Err(err) => {

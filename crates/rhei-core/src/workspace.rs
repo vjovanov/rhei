@@ -270,13 +270,8 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
         all_tasks.extend(rhei.tasks);
     }
 
-    if all_tasks.is_empty() {
-        return Err(ParseError::new(
-            "Panta project contains no tasks (no rheis or basin tickets found)",
-            None,
-        ));
-    }
-
+    // An empty project — a manifest with no rheis yet — is a valid project;
+    // `rhei init` creates exactly this state. §FS-rhei-panta.6
     Ok(PantaProject {
         rhei: Rhei {
             title: manifest.title,

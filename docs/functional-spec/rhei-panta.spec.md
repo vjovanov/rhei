@@ -117,6 +117,12 @@ command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
 file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
 (repeatable) narrows a project-scoped invocation to named rheis.
 
+An **empty project** — an `index.panta.md` with no rheis yet, the state
+`rhei init` leaves behind — is a valid project, not an error. Read commands
+treat it as zero tickets: `rhei list` says the project has no tickets yet and
+how to add one, and exits successfully. Only work-claiming and mutation
+surface the emptiness as their ordinary no-work outcomes.
+
 A command invoked with **no target** resolves one by walking up from the
 current directory, nearest match first. At each level, in order:
 

@@ -112,14 +112,17 @@ short note between stable markers naming where the project lives:
 
 The Rhei (Panta) project for this repository lives in `panta/`. Plans are
 `*.rhei.md` files and workspace directories; ticket ids are
-project-qualified (`<rhei>.<id>`). Drive work with `rhei list`, `rhei next`,
-`rhei complete`, and `rhei run`; validate edits with `rhei validate`. Run
-`rhei --help` for the full surface.
+project-qualified (`<rhei>.<id>`). Work tickets with `rhei list`,
+`rhei next`, and `rhei complete`; validate edits with `rhei validate`.
+Orchestration (`rhei run`) is started by humans, never by agents.
 <!-- rhei:end -->
 ```
 
 With `--here` the first sentence reads "This directory is a Rhei (Panta)
-project." instead. Rewriting the note first strips every trace of a previous
+project." instead. The note deliberately names only the worker surface —
+`list`, `next`, `complete`, `validate` — and marks `rhei run` as
+human-initiated: orchestration spawns agent fleets and spends money, so an
+agent must never be instructed to start it. Rewriting the note first strips every trace of a previous
 one — marker-delimited regions, orphaned markers, and a marker-less `## Rhei`
 section still carrying the note body — so init is idempotent even after a
 third-party merge mangled the markers, and removal is one block deletion.
