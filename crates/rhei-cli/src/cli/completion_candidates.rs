@@ -1,10 +1,11 @@
 fn completions_command(
-    shell: CompletionShell,
+    shell: Option<CompletionShell>,
     install: bool,
     system: bool,
     output: Option<&Path>,
     dry_run: bool,
 ) -> MietteResult<()> {
+    let shell = resolve_completion_shell(shell)?;
     if install || output.is_some() || dry_run {
         let path = match output {
             Some(path) => path.to_path_buf(),
@@ -23,6 +24,36 @@ fn completions_command(
     let mut stdout = std::io::stdout();
     write_completion_registration(shell, &mut stdout)?;
     Ok(())
+}
+
+/// Falls back to the shell detected from `$SHELL` when none was given. §FS-rhei-completions.2
+fn resolve_completion_shell(shell: Option<CompletionShell>) -> MietteResult<CompletionShell> {
+    if let Some(shell) = shell {
+        return Ok(shell);
+    }
+    match detect_current_shell(std::env::var_os("SHELL").as_deref()) {
+        Some(shell) => {
+            eprintln!("No shell given; using {} (detected from $SHELL)", shell.as_str());
+            Ok(shell)
+        }
+        None => Err(miette!(
+            help = "supported shells: bash, zsh, fish, powershell, elvish\n\
+                    example: rhei completions zsh --install",
+            "could not detect a supported shell from $SHELL; pass one explicitly"
+        )),
+    }
+}
+
+/// Maps the basename of `$SHELL` to a supported shell. §FS-rhei-completions.2
+fn detect_current_shell(shell_var: Option<&OsStr>) -> Option<CompletionShell> {
+    match Path::new(shell_var?).file_name()?.to_str()? {
+        "bash" => Some(CompletionShell::Bash),
+        "zsh" => Some(CompletionShell::Zsh),
+        "fish" => Some(CompletionShell::Fish),
+        "pwsh" | "powershell" => Some(CompletionShell::PowerShell),
+        "elvish" => Some(CompletionShell::Elvish),
+        _ => None,
+    }
 }
 
 fn write_completion_file(shell: CompletionShell, path: &Path) -> MietteResult<()> {

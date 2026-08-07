@@ -438,9 +438,9 @@ enum Commands {
     },
     /// Generate shell completion scripts
     Completions {
-        /// Shell to generate completions for
+        /// Shell to generate completions for (detected from $SHELL when omitted)
         #[arg(value_enum)]
-        shell: CompletionShell,
+        shell: Option<CompletionShell>,
         /// Write completions to the shell's default completion location
         #[arg(long)]
         install: bool,
