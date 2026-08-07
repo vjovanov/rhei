@@ -121,8 +121,11 @@ A command invoked with **no target** resolves one by walking up from the
 current directory, nearest match first. At each level, in order:
 
 1. a directory containing `index.panta.md` is the project;
-2. a directory containing `index.rhei.md` is that workspace rhei;
-3. a directory containing exactly one `*.rhei.md` file is that rhei.
+2. a directory whose `panta/` child contains `index.panta.md` resolves to
+   that child — the conventional project folder `rhei init` creates
+   (§FS-rhei-init), so bare commands work from the whole host repository;
+3. a directory containing `index.rhei.md` is that workspace rhei;
+4. a directory containing exactly one `*.rhei.md` file is that rhei.
 
 A directory holding more than one `*.rhei.md` file but no `index.panta.md` is
 ambiguous: the error names the candidate files and both fixes — pass one

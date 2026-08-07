@@ -94,7 +94,7 @@ The commands that coordinate through the state machine:
 
 | Command            | What it does                                                                    |
 |--------------------|---------------------------------------------------------------------------------|
-| `rhei init`        | Makes a directory a Panta project: manifest, ignore rules, agent-discovery note (§FS-rhei-init) |
+| `rhei init`        | Sets up a Panta project in a gitignored `panta/` folder (or in place with `--here`): manifest, ignore rules, agent-discovery note (§FS-rhei-init) |
 | `rhei run`         | Drives the full plan forward under orchestrator authority (`--rhei <id>` narrows a project-scoped run) |
 | `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only, `--rhei <id>` to narrow) |
 | `rhei transition`  | Atomically changes a task's state via compare-and-swap                          |

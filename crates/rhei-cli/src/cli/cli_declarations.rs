@@ -115,12 +115,18 @@ fn cli_command() -> clap::Command {
 /// Supported CLI subcommands.
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Make a directory a Panta project (writes index.panta.md)
+    /// Set up a Panta project in a gitignored `panta/` folder (or in place
+    /// with --here)
     Init {
-        /// Directory to initialize (default: current directory; created when missing)
+        /// Host directory (default: current directory; created when missing).
+        /// The project is created at <DIR>/panta/, or <DIR> itself with --here
         #[arg(value_name = "DIR")]
         dir: Option<PathBuf>,
-        /// Project title (default: derived from the directory name)
+        /// Make DIR itself the project — the mode for adopting a directory
+        /// of existing, versioned plans
+        #[arg(long)]
+        here: bool,
+        /// Project title (default: derived from the host directory name)
         #[arg(long, value_name = "TITLE")]
         title: Option<String>,
         /// Skip the AGENTS.md agent-discovery note

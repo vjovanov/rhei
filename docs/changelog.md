@@ -7,16 +7,22 @@
   with a copy-pasteable example instead of clap's bare missing-argument
   error. PR #58 §FS-rhei-completions.2
 
-- Add `rhei init [DIR]`: make a directory a Panta project. Writes the minimal
-  `index.panta.md`, seeds `.gitignore` with `runtime/` and `.rhei/cache/`,
-  adds a marked agent-discovery note to `AGENTS.md` (skippable with
-  `--no-agents`), and reports the rheis discovery now sees — so pointing it
-  at a directory of existing bare rheis both adopts them and validates them.
+- Add `rhei init [DIR]`: set up a Panta project in a gitignored `panta/`
+  folder inside the host directory — planning is working state by default,
+  with its own `.gitignore` inside so un-ignoring the plans later never
+  commits runtime output. `--here` makes the host itself the project (the
+  adoption mode for versioned plans); over a host that already holds bare
+  rheis, default mode refuses and names both fixes. Init writes the minimal
+  `index.panta.md` (title derived from the host name), adds a marked
+  agent-discovery note to `AGENTS.md` naming where the project lives
+  (skippable with `--no-agents`), and reports the rheis discovery now sees.
   When the adopted rheis unanimously declare one state machine, init writes
   it as the project default, since a bare manifest would make that project
   unloadable under the one-machine-per-project rule. An existing project is
   refused untouched; `--force` re-initializes it, overwriting the manifest
-  and updating the idempotent companion files in place. §FS-rhei-init
+  and updating the idempotent companion files in place. The omitted-target
+  resolution probes the `panta/` child, so bare commands work from the whole
+  host repository. §FS-rhei-init §FS-rhei-panta.6
 - Fix `rhei install-skills` for `cargo install`ed binaries: skill sources now
   also resolve by walking up from the current directory, so running inside a
   rhei checkout works without a packaged `share/rhei/skills` tree.

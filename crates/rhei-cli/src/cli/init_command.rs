@@ -1,59 +1,85 @@
-// `rhei init` — make a directory a Panta project: the manifest, ignore rules
-// for generated output, an agent-discovery note, then a discovery report that
-// doubles as a first validation. §FS-rhei-init
+// `rhei init` — set up a Panta project: a gitignored `panta/` folder by
+// default, or the host itself with `--here` (adoption). §FS-rhei-init
 
 const AGENTS_NOTE_BEGIN: &str = "<!-- rhei:begin -->";
 const AGENTS_NOTE_END: &str = "<!-- rhei:end -->";
 
-/// The block written between the markers in `AGENTS.md`. §FS-rhei-init.4
-const AGENTS_NOTE_BODY: &str = "## Rhei
-
-This directory is a Rhei (Panta) project. Plans are `*.rhei.md` files and
-workspace directories; ticket ids are project-qualified (`<rhei>.<id>`).
-Drive work with `rhei list`, `rhei next`, `rhei complete`, and `rhei run`;
-validate edits with `rhei validate`. Run `rhei --help` for the full surface.";
+/// Note body shared by both modes after the location sentence. §FS-rhei-init.4
+const AGENTS_NOTE_TAIL: &str = "Plans are
+`*.rhei.md` files and workspace directories; ticket ids are
+project-qualified (`<rhei>.<id>`). Drive work with `rhei list`, `rhei next`,
+`rhei complete`, and `rhei run`; validate edits with `rhei validate`. Run
+`rhei --help` for the full surface.";
 
 fn init_command(
     dir: Option<&Path>,
     title: Option<&str>,
     no_agents: bool,
     force: bool,
+    here: bool,
 ) -> MietteResult<()> {
-    let dir = match dir {
+    let host = match dir {
         Some(dir) => dir.to_path_buf(),
         None => std::env::current_dir()
             .map_err(|err| miette!("failed to read the current directory: {err}"))?,
     };
-    fs::create_dir_all(&dir)
-        .map_err(|err| miette!("failed to create {}: {err}", dir.display()))?;
+    let project = if here { host.clone() } else { host.join("panta") };
 
-    let manifest = dir.join("index.panta.md");
     // §FS-rhei-init.2: refuse an existing project untouched unless --force,
     // which rewrites the manifest and updates companion files in place.
-    if manifest.is_file() && !force {
-        return Err(miette!(
-            "{} is already a Panta project: index.panta.md exists. Re-run with \
-             `--force` to overwrite the manifest",
-            dir.display()
-        ));
+    for existing in [&host, &project] {
+        let manifest = existing.join("index.panta.md");
+        if manifest.is_file() && !force {
+            return Err(miette!(
+                "{} is already a Panta project: index.panta.md exists. Re-run with \
+                 `--force` to overwrite the manifest",
+                existing.display()
+            ));
+        }
     }
+    // §FS-rhei-init.2: a `panta/` project would not discover plans sitting in
+    // the host — refuse rather than silently shadow them.
+    if !here && !force {
+        let stranded = workspace::discover_rhei_entries(&host).unwrap_or_default();
+        if !stranded.is_empty() {
+            let names: Vec<String> = stranded
+                .iter()
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect();
+            return Err(miette!(
+                "{} already holds {} rhei(s) ({}) that a `panta/` project would not \
+                 discover. Re-run with `--here` to adopt them in place, or move them \
+                 into panta/ first",
+                host.display(),
+                names.len(),
+                names.join(", ")
+            ));
+        }
+    }
+
+    fs::create_dir_all(&project)
+        .map_err(|err| miette!("failed to create {}: {err}", project.display()))?;
+
     // §FS-rhei-init.2: nested projects are almost always a mistake.
-    if let Some(outer) = enclosing_panta_project(&dir) {
+    if let Some(outer) = enclosing_panta_project(&project) {
         eprintln!(
             "warning: {} is inside the Panta project at {}; the outer project will not \
              discover this one",
-            dir.display(),
+            project.display(),
             outer.display()
         );
     }
 
+    // §FS-rhei-init.1: the host names the project in both modes — `panta/`
+    // is a location, not an identity.
     let title = match title {
         Some(title) => title.to_string(),
-        None => default_project_title(&dir),
+        None => default_project_title(&host),
     };
     // §FS-rhei-init.2: adopt a unanimously declared machine as the project
     // default — a bare manifest would make such a project unloadable.
-    let declared = workspace::discover_declared_state_machines(&dir);
+    let declared = workspace::discover_declared_state_machines(&project);
     let contents = match declared.as_slice() {
         [machine] => {
             println!("Adopted state machine '{machine}' as the project default.");
@@ -61,14 +87,23 @@ fn init_command(
         }
         _ => format!("# Panta: {title}\n"),
     };
+    let manifest = project.join("index.panta.md");
     fs::write(&manifest, contents)
         .map_err(|err| miette!("failed to write {}: {err}", manifest.display()))?;
 
-    seed_gitignore(&dir)?;
-    if !no_agents {
-        write_agents_note(&dir)?;
+    // §FS-rhei-init.3: default mode ignores the whole project folder at the
+    // host and self-contains the generated-output rules inside it, so
+    // un-ignoring the plans later never starts committing runtime state.
+    if here {
+        seed_gitignore(&host, &["runtime/", ".rhei/cache/"])?;
+    } else {
+        seed_gitignore(&host, &["panta/"])?;
+        seed_gitignore(&project, &["runtime/", ".rhei/cache/"])?;
     }
-    report_initialized_project(&dir, &title);
+    if !no_agents {
+        write_agents_note(&host, here)?;
+    }
+    report_initialized_project(&project, &title, here);
     println!("Next: `rhei list` shows the project; `rhei install-skills` wires agent skills.");
     Ok(())
 }
@@ -86,8 +121,8 @@ fn enclosing_panta_project(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Default title from the directory name: `-`/`_` become spaces and each
-/// word is capitalized (`my-project` → `My Project`). §FS-rhei-init.1
+/// Default title from the host directory name: `-`/`_` become spaces and
+/// each word is capitalized (`my-project` → `My Project`). §FS-rhei-init.1
 fn default_project_title(dir: &Path) -> String {
     let name = dir
         .canonicalize()
@@ -109,13 +144,14 @@ fn default_project_title(dir: &Path) -> String {
         .join(" ")
 }
 
-/// Append the two generated-output entries to `.gitignore`, creating the file
-/// when absent and never rewriting entries already present. §FS-rhei-init.3
-fn seed_gitignore(dir: &Path) -> MietteResult<()> {
+/// Append missing entries to `dir/.gitignore`, creating the file when absent
+/// and never rewriting entries already present. §FS-rhei-init.3
+fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<()> {
     let path = dir.join(".gitignore");
     let existing = fs::read_to_string(&path).unwrap_or_default();
-    let missing: Vec<&str> = ["runtime/", ".rhei/cache/"]
-        .into_iter()
+    let missing: Vec<&str> = entries
+        .iter()
+        .copied()
         .filter(|entry| !existing.lines().any(|line| line.trim() == *entry))
         .collect();
     if missing.is_empty() {
@@ -128,7 +164,7 @@ fn seed_gitignore(dir: &Path) -> MietteResult<()> {
     if !out.is_empty() {
         out.push('\n');
     }
-    out.push_str("# Rhei generated output\n");
+    out.push_str("# Rhei\n");
     for entry in missing {
         out.push_str(entry);
         out.push('\n');
@@ -136,12 +172,19 @@ fn seed_gitignore(dir: &Path) -> MietteResult<()> {
     fs::write(&path, out).map_err(|err| miette!("failed to write {}: {err}", path.display()))
 }
 
-/// Create or update the marked Rhei block in `AGENTS.md`. Every trace of a
-/// previous note is stripped first, so the note is idempotent even after a
-/// third-party merge mangled the markers. §FS-rhei-init.4
-fn write_agents_note(dir: &Path) -> MietteResult<()> {
-    let path = dir.join("AGENTS.md");
-    let block = format!("{AGENTS_NOTE_BEGIN}\n{AGENTS_NOTE_BODY}\n{AGENTS_NOTE_END}\n");
+/// Create or update the marked Rhei block in the host's `AGENTS.md`. Every
+/// trace of a previous note is stripped first, so the note is idempotent
+/// even after a third-party merge mangled the markers. §FS-rhei-init.4
+fn write_agents_note(host: &Path, here: bool) -> MietteResult<()> {
+    let path = host.join("AGENTS.md");
+    let location = if here {
+        "This directory is a Rhei (Panta) project."
+    } else {
+        "The Rhei (Panta) project for this repository lives in `panta/`."
+    };
+    let block = format!(
+        "{AGENTS_NOTE_BEGIN}\n## Rhei\n\n{location} {AGENTS_NOTE_TAIL}\n{AGENTS_NOTE_END}\n"
+    );
     let existing = fs::read_to_string(&path).unwrap_or_default();
     let cleaned = strip_rhei_note(&existing);
     let updated = if cleaned.trim().is_empty() {
@@ -159,7 +202,7 @@ fn write_agents_note(dir: &Path) -> MietteResult<()> {
 /// regions, orphaned markers, and a marker-less `## Rhei` section that still
 /// carries the note body (a merge may have eaten the markers). §FS-rhei-init.4
 fn strip_rhei_note(existing: &str) -> String {
-    const SENTINEL: &str = "This directory is a Rhei (Panta) project.";
+    const SENTINEL: &str = "Rhei (Panta) project";
     let lines: Vec<&str> = existing.lines().collect();
     let mut out: Vec<&str> = Vec::new();
     let mut i = 0;
@@ -201,16 +244,18 @@ fn strip_rhei_note(existing: &str) -> String {
     result
 }
 
-/// Load the fresh project and say what it contains; a discovery failure is a
-/// warning, not an init failure, so init doubles as a first validation of a
-/// directory of pre-existing plans. §FS-rhei-init.5
-fn report_initialized_project(dir: &Path, title: &str) {
-    match workspace::load_panta_project(dir) {
+/// Load the fresh project and say where it lives and what it contains; a
+/// discovery failure is a warning, not an init failure, so init doubles as a
+/// first validation of pre-existing plans. §FS-rhei-init.5
+fn report_initialized_project(project: &Path, title: &str, here: bool) {
+    let location = if here { String::new() } else { " at panta/".to_string() };
+    match workspace::load_panta_project(project) {
         Ok(loaded) => {
             let noun = if loaded.rhei_ids.len() == 1 { "rhei" } else { "rheis" };
             println!(
-                "Initialized Panta project \"{}\" with {} {}: {}",
+                "Initialized Panta project \"{}\"{} with {} {}: {}",
                 title,
+                location,
                 loaded.rhei_ids.len(),
                 noun,
                 loaded.rhei_ids.join(", ")
@@ -218,13 +263,13 @@ fn report_initialized_project(dir: &Path, title: &str) {
         }
         Err(err) if err.message.contains("contains no tasks") => {
             println!(
-                "Initialized Panta project \"{title}\" with no rheis yet. Add one by \
-                 dropping a `<id>.rhei.md` file or a workspace directory next to \
+                "Initialized Panta project \"{title}\"{location} with no rheis yet. Add \
+                 one by dropping a `<id>.rhei.md` file or a workspace directory next to \
                  index.panta.md."
             );
         }
         Err(err) => {
-            println!("Initialized Panta project \"{title}\".");
+            println!("Initialized Panta project \"{title}\"{location}.");
             eprintln!("warning: the new project does not load cleanly: {}", err.message);
         }
     }

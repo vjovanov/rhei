@@ -298,7 +298,16 @@ fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         .map_err(|err| miette!("failed to read the current directory: {err}"))?;
     let mut dir = Some(cwd.as_path());
     while let Some(current) = dir {
-        if current.join("index.panta.md").is_file() || current.join("index.rhei.md").is_file() {
+        if current.join("index.panta.md").is_file() {
+            return Ok(current.to_path_buf());
+        }
+        // §FS-rhei-panta.6: the conventional `panta/` child `rhei init`
+        // creates resolves from anywhere in the host repository.
+        let conventional = current.join("panta");
+        if conventional.join("index.panta.md").is_file() {
+            return Ok(conventional);
+        }
+        if current.join("index.rhei.md").is_file() {
             return Ok(current.to_path_buf());
         }
         let mut plans: Vec<PathBuf> = fs::read_dir(current)

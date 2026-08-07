@@ -1818,42 +1818,51 @@ fn omitted_plan_target_resolves_from_current_directory() {
 #[test]
 fn init_creates_project_with_manifest_gitignore_and_agents_note() {
     let dir = unique_temp_dir("init-fresh");
-    let project = dir.join("my-cool_project");
+    let host = dir.join("my-cool_project");
 
-    // §FS-rhei-init.2: manifest, ignore rules, agent note, empty-project hint.
+    // §FS-rhei-init.2: manifest in panta/, ignore rules, agent note at the
+    // host, empty-project hint.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
-        .arg(&project)
+        .arg(&host)
         .output()
         .expect("init runs");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "init should succeed: {stdout}");
     assert!(
-        stdout.contains("Initialized Panta project \"My Cool Project\"")
+        stdout.contains("Initialized Panta project \"My Cool Project\" at panta/")
             && stdout.contains("no rheis yet"),
-        "init should report the derived title and the empty state: {stdout}"
+        "init should report the derived title, location, and empty state: {stdout}"
     );
     assert_eq!(
-        fs::read_to_string(project.join("index.panta.md")).expect("manifest"),
+        fs::read_to_string(host.join("panta/index.panta.md")).expect("manifest"),
         "# Panta: My Cool Project\n"
     );
-    let gitignore = fs::read_to_string(project.join(".gitignore")).expect("gitignore");
+    // §FS-rhei-init.3: the project folder is ignored at the host; generated
+    // output stays self-contained inside it.
+    let host_ignore = fs::read_to_string(host.join(".gitignore")).expect("host gitignore");
     assert!(
-        gitignore.contains("runtime/") && gitignore.contains(".rhei/cache/"),
-        "gitignore should cover generated output: {gitignore}"
+        host_ignore.lines().any(|line| line.trim() == "panta/"),
+        "host gitignore should ignore the project folder: {host_ignore}"
     );
-    let agents = fs::read_to_string(project.join("AGENTS.md")).expect("agents note");
+    let project_ignore =
+        fs::read_to_string(host.join("panta/.gitignore")).expect("project gitignore");
+    assert!(
+        project_ignore.contains("runtime/") && project_ignore.contains(".rhei/cache/"),
+        "project gitignore should cover generated output: {project_ignore}"
+    );
+    let agents = fs::read_to_string(host.join("AGENTS.md")).expect("agents note");
     assert!(
         agents.contains("<!-- rhei:begin -->")
-            && agents.contains("Rhei (Panta) project")
+            && agents.contains("lives in `panta/`")
             && agents.contains("<!-- rhei:end -->"),
-        "AGENTS.md should carry the marked note: {agents}"
+        "AGENTS.md should carry the marked note naming the location: {agents}"
     );
 
     // §FS-rhei-init.2: an existing project is refused untouched.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
-        .arg(&project)
+        .arg(&host)
         .output()
         .expect("init runs");
     assert!(!output.status.success(), "re-init must fail");
@@ -1897,10 +1906,28 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
         "ambiguity error should point at init"
     );
 
-    // §FS-rhei-init.5: adoption reports the discovered rheis.
+    // §FS-rhei-init.2: default mode refuses to shadow existing plans and
+    // names both fixes.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
-        .args(["--title", "Adopted"])
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    assert!(!output.status.success(), "default init over bare rheis must refuse");
+    let refusal: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let refusal = refusal.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        refusal.contains("--here") && refusal.contains("auth.rhei.md"),
+        "refusal should name the stranded rheis and the adoption flag: {refusal}"
+    );
+
+    // §FS-rhei-init.5: adoption (--here) reports the discovered rheis.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .args(["--here", "--title", "Adopted"])
         .current_dir(&dir)
         .output()
         .expect("init runs");
@@ -1943,7 +1970,7 @@ fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
     // §FS-rhei-init.5: a discovery failure is a warning, not an init failure.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
-        .arg("--no-agents")
+        .args(["--here", "--no-agents"])
         .current_dir(&dir)
         .output()
         .expect("init runs");
@@ -1978,7 +2005,7 @@ fn init_adopts_a_unanimously_declared_state_machine_as_project_default() {
     // (rhei-declared machine != built-in default), so init adopts it.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
-        .arg("--no-agents")
+        .args(["--here", "--no-agents"])
         .current_dir(&dir)
         .output()
         .expect("init runs");
@@ -2061,7 +2088,7 @@ fn init_force_overwrites_manifest_without_duplicating_companions() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(
-        fs::read_to_string(dir.join("index.panta.md")).expect("manifest"),
+        fs::read_to_string(dir.join("panta/index.panta.md")).expect("manifest"),
         "# Panta: Renamed\n"
     );
 
@@ -2072,11 +2099,18 @@ fn init_force_overwrites_manifest_without_duplicating_companions() {
         1,
         "AGENTS.md block must not duplicate: {agents}"
     );
-    let gitignore = fs::read_to_string(dir.join(".gitignore")).expect("gitignore");
+    let host_ignore = fs::read_to_string(dir.join(".gitignore")).expect("host gitignore");
     assert_eq!(
-        gitignore.matches("runtime/").count(),
+        host_ignore.matches("panta/").count(),
         1,
-        "gitignore entries must not duplicate: {gitignore}"
+        "host gitignore entry must not duplicate: {host_ignore}"
+    );
+    let project_ignore =
+        fs::read_to_string(dir.join("panta/.gitignore")).expect("project gitignore");
+    assert_eq!(
+        project_ignore.matches("runtime/").count(),
+        1,
+        "project gitignore entries must not duplicate: {project_ignore}"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -2112,4 +2146,38 @@ fn init_force_heals_a_mangled_agents_note() {
     assert!(!agents.contains("Old text."), "stale bodies removed: {agents}");
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn omitted_plan_target_resolves_conventional_panta_child() {
+    // §FS-rhei-panta.6: the `panta/` child rhei init creates resolves from
+    // the host directory and anywhere under it.
+    let host = unique_temp_dir("panta-child-resolve");
+    let project = host.join("panta");
+    fs::create_dir_all(&project).expect("mkdir panta");
+    fs::write(project.join("index.panta.md"), "# Panta: Child\n").expect("write manifest");
+    fs::write(
+        project.join("auth.rhei.md"),
+        "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+    )
+    .expect("write auth");
+    let nested = host.join("src/deep");
+    fs::create_dir_all(&nested).expect("mkdir nested");
+
+    for cwd in [&host, &nested] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("list")
+            .current_dir(cwd)
+            .output()
+            .expect("list runs");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("auth.1"),
+            "bare list from {} should resolve the panta/ child: {stdout}\nstderr: {}",
+            cwd.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fs::remove_dir_all(host).expect("cleanup");
 }
