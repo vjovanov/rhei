@@ -2227,3 +2227,322 @@ fn empty_project_is_valid_and_list_exits_successfully() {
 
     fs::remove_dir_all(host).expect("cleanup");
 }
+
+#[test]
+fn empty_project_validate_warns_that_discovery_found_nothing() {
+    let host = unique_temp_dir("empty-project-validate");
+    fs::write(host.join("index.panta.md"), "# Panta: Empty\n").expect("write manifest");
+    // A plan missing the `.rhei.md` suffix is invisible to discovery; validate
+    // must not report the project green without saying so. §FS-rhei-panta.6
+    fs::write(host.join("auth.md"), "# Rhei: Auth\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n")
+        .expect("write misnamed plan");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .current_dir(&host)
+        .output()
+        .expect("validate runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "an empty project validates successfully\nstdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("holds no rheis") && stdout.contains("*.rhei.md"),
+        "validate should warn that discovery found nothing: {stdout}"
+    );
+
+    fs::remove_dir_all(host).expect("cleanup");
+}
+
+#[test]
+fn reset_never_infers_an_omitted_target() {
+    // §FS-rhei-panta.6: reset destroys runtime state, so it is excluded from
+    // omitted-target resolution even inside a resolvable project.
+    let project = create_panta_project(
+        "reset-explicit-target",
+        "# Panta: Reset\n**States:** workspace-test-machine\n",
+        &[(
+            "auth.rhei.md",
+            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** in-progress\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .current_dir(&project)
+        .output()
+        .expect("reset runs");
+    assert!(!output.status.success(), "bare `rhei reset` must refuse");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("never infers its target"),
+        "the refusal should say why and how: {stderr}"
+    );
+    let plan = fs::read_to_string(project.join("auth.rhei.md")).expect("plan intact");
+    assert!(
+        plan.contains("**State:** in-progress"),
+        "a refused reset must not touch ticket states: {plan}"
+    );
+
+    // The explicit form still works.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&project)
+        .output()
+        .expect("reset runs");
+    assert!(
+        output.status.success(),
+        "explicit reset should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let plan = fs::read_to_string(project.join("auth.rhei.md")).expect("plan reset");
+    assert!(plan.contains("**State:** pending"), "explicit reset applies: {plan}");
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn omitted_target_counts_workspace_rheis_and_skips_dotfiles() {
+    // A bare file next to a workspace directory is ambiguous — the walk counts
+    // rheis exactly as project discovery does. §FS-rhei-panta.6
+    let dir = unique_temp_dir("cwd-workspace-ambiguity");
+    fs::write(
+        dir.join("auth.rhei.md"),
+        "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+    )
+    .expect("write auth");
+    let ws = dir.join("billing");
+    fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
+    fs::write(ws.join("index.rhei.md"), "# Rhei: Billing\n").expect("write index");
+    fs::write(ws.join("tasks/one.md"), "### Task 1: Invoice\n**State:** pending\n")
+        .expect("write task");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&dir)
+        .output()
+        .expect("list runs");
+    assert!(!output.status.success(), "file + workspace rhei must be ambiguous");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("auth.rhei.md") && stderr.contains("billing"),
+        "ambiguity error should name both rheis: {stderr}"
+    );
+    fs::remove_dir_all(dir).expect("cleanup");
+
+    // A lone workspace directory resolves; a hidden dotfile is not a rhei and
+    // neither creates ambiguity nor resolves. §FS-rhei-panta.6
+    let dir = unique_temp_dir("cwd-workspace-lone");
+    let ws = dir.join("billing");
+    fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
+    fs::write(ws.join("index.rhei.md"), "# Rhei: Billing\n").expect("write index");
+    fs::write(ws.join("tasks/one.md"), "### Task 1: Invoice\n**State:** pending\n")
+        .expect("write task");
+    fs::write(dir.join("._junk.rhei.md"), "AppleDouble metadata, not markdown")
+        .expect("write dotfile");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&dir)
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("billing.1"),
+        "the workspace rhei should resolve despite the dotfile\nstdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn omitted_target_never_adopts_a_loose_plan_from_an_ancestor() {
+    // §FS-rhei-panta.6: a loose plan resolves in the invocation directory
+    // only; ancestors are adopted solely through explicit manifests.
+    let parent = unique_temp_dir("ancestor-loose-plan");
+    fs::write(
+        parent.join("notes.rhei.md"),
+        "# Rhei: Notes\n\n## Tasks\n\n### Task 1: Idea\n**State:** pending\n",
+    )
+    .expect("write stray plan");
+    let nested = parent.join("some/unrelated");
+    fs::create_dir_all(&nested).expect("mkdir nested");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .current_dir(&nested)
+        .output()
+        .expect("list runs");
+    assert!(!output.status.success(), "the stray ancestor plan must not resolve");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("no Rhei plan found"),
+        "the error should say nothing was found: {stderr}"
+    );
+
+    fs::remove_dir_all(parent).expect("cleanup");
+}
+
+#[test]
+fn init_force_without_here_refuses_when_the_host_is_the_project() {
+    let dir = unique_temp_dir("init-force-host-project");
+    let run_init = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("init")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .expect("init runs")
+    };
+    assert!(run_init(&["--here", "--no-agents"]).status.success(), "adoption succeeds");
+
+    // §FS-rhei-init.2: force means re-initialize, never nest a shadowed
+    // `panta/` project inside the existing one.
+    let output = run_init(&["--force"]);
+    assert!(!output.status.success(), "default-mode --force over a --here project must refuse");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("--force --here"),
+        "the refusal should name the re-init path: {stderr}"
+    );
+    assert!(!dir.join("panta").exists(), "no shadowed nested project may be created");
+
+    assert!(
+        run_init(&["--force", "--here", "--no-agents"]).status.success(),
+        "--force --here re-initializes the host project"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn init_does_not_adopt_a_machine_over_a_rhei_that_declares_nothing() {
+    let dir = unique_temp_dir("init-mixed-machines");
+    fs::write(dir.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
+    fs::write(
+        dir.join("auth.rhei.md"),
+        "# Rhei: Auth\n**States:** workspace-test-machine\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+    )
+    .expect("write auth");
+    fs::write(
+        dir.join("billing.rhei.md"),
+        "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+    )
+    .expect("write billing");
+
+    // §FS-rhei-init.2: unanimity is over all rheis — a silent rhei was
+    // authored against the built-in default, so nothing is adopted and the
+    // conflict surfaces through the discovery report.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .args(["--here", "--no-agents"])
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should still succeed: {stdout}");
+    assert!(
+        !stdout.contains("Adopted state machine"),
+        "a mixed declared/silent set must not be adopted: {stdout}"
+    );
+    let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("manifest");
+    assert!(
+        !manifest.contains("**States:**"),
+        "the manifest stays bare on a mixed set: {manifest}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("does not load cleanly"),
+        "the machine conflict should surface through the discovery report"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn init_strips_an_orphaned_begin_marker_without_eating_user_content() {
+    let dir = unique_temp_dir("init-orphaned-begin");
+    // A merge lost the end marker; the user's own sections follow the note.
+    fs::write(
+        dir.join("AGENTS.md"),
+        "# House rules\n\n<!-- rhei:begin -->\n## Rhei\n\nThis directory is a Rhei (Panta) project. Old text.\n\n## Deployment\n\nAlways deploy on Fridays.\n",
+    )
+    .expect("write mangled agents");
+
+    assert!(
+        Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("init")
+            .current_dir(&dir)
+            .output()
+            .expect("init runs")
+            .status
+            .success(),
+        "init should succeed"
+    );
+
+    // §FS-rhei-init.4: the orphaned marker and stale note body go; the user's
+    // sections after them stay.
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    assert!(
+        agents.contains("## Deployment") && agents.contains("Always deploy on Fridays."),
+        "user content after an orphaned begin marker must survive: {agents}"
+    );
+    assert!(agents.starts_with("# House rules"), "leading content preserved: {agents}");
+    assert_eq!(agents.matches("<!-- rhei:begin -->").count(), 1, "one begin: {agents}");
+    assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
+    assert!(!agents.contains("Old text."), "stale note body removed: {agents}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn project_machine_in_rhei_root_beats_a_mismatched_project_root_file() {
+    // §AR-rhei-panta.4: the rhei-root fallback applies when the project-root
+    // states.yaml names a *different* machine, not only when it is absent.
+    let dir = unique_temp_dir("panta-machine-mismatch-fallback");
+    fs::write(
+        dir.join("index.panta.md"),
+        "# Panta: Mismatch Fallback\n**States:** workspace-test-machine\n",
+    )
+    .expect("write manifest");
+    fs::write(
+        dir.join("states.yaml"),
+        "name: unrelated-machine\nversion: 1\nstates:\n  open:\n    description: Open\n    initial: true\n  done:\n    description: Done\n    final: true\ntransitions:\n  - from: open\n    to: done\n",
+    )
+    .expect("write unrelated machine");
+    let ws = dir.join("flow");
+    fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
+    fs::write(ws.join("index.rhei.md"), "# Rhei: Flow\n**States:** workspace-test-machine\n")
+        .expect("write index");
+    fs::write(ws.join("tasks/one.md"), "### Task 1: Alpha\n**State:** pending\n")
+        .expect("write task");
+    fs::write(ws.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(&dir)
+        .output()
+        .expect("list runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("flow.1"),
+        "the name-matching rhei-root machine file should win over the mismatched root file\nstdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

@@ -442,8 +442,8 @@ enum Commands {
     },
     /// Reset a plan or workspace to the initial state
     Reset {
-        /// Path to the markdown plan file (.rhei.md) or workspace directory;
-        /// omitted, the nearest enclosing project, workspace, or lone plan is used
+        /// Path to the markdown plan file (.rhei.md) or workspace directory.
+        /// Reset destroys runtime state, so its target is never inferred
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: Option<PathBuf>,
         /// Narrow to the named rhei (repeatable; one id per flag). A rhei id

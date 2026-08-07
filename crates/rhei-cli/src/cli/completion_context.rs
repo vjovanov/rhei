@@ -1,7 +1,11 @@
 fn completion_plan_path() -> Option<PathBuf> {
     let words = completion_words();
     let command = completion_command_name(&words)?;
-    first_command_positional(&words, &command).map(PathBuf::from)
+    // §FS-rhei-panta.6: with the plan positional omitted, complete task and
+    // rhei ids against the same target the command itself would resolve.
+    first_command_positional(&words, &command)
+        .map(PathBuf::from)
+        .or_else(|| resolve_plan_target(None).ok())
 }
 
 fn completion_command_name(words: &[String]) -> Option<String> {
@@ -200,25 +204,18 @@ fn resolve_state_machine_for_loaded_plan(
         return Ok(ResolvedStateMachine { machine: builtin, path: None });
     }
 
+    let mut mismatch: Option<String> = None;
     if candidate.is_file() {
         let machine = load_state_machine(Some(&candidate))?;
         if machine.name == declared_name {
             return Ok(ResolvedStateMachine { machine, path: Some(candidate) });
         }
-
-        if declared_name != builtin.name {
-            return Err(miette!(
-                "plan declares state machine '{}', but auto-discovered states file '{}' declares '{}'",
-                declared_name,
-                candidate.display(),
-                machine.name
-            ));
-        }
+        mismatch = Some(machine.name);
     }
 
     // §AR-rhei-panta.4: the machine's definition file may live in a rhei's
-    // own root; a `name:` match there resolves the project default, first
-    // match in discovery order.
+    // own root; when the project-root file is absent or names a different
+    // machine, a `name:` match there resolves, first in discovery order.
     if declared_name != builtin.name {
         let mut roots: Vec<&PathBuf> = loaded.task_roots.values().collect();
         roots.sort();
@@ -234,14 +231,19 @@ fn resolve_state_machine_for_loaded_plan(
                 }
             }
         }
-    }
-
-    if declared_name != builtin.name {
-        return Err(miette!(
-            "plan declares state machine '{}', but no auto-discovered states file was found at '{}' or, by name, in any rhei root.\nUse --state-machine <path> to override the default location.",
-            declared_name,
-            candidate.display()
-        ));
+        return Err(match mismatch {
+            Some(found) => miette!(
+                "plan declares state machine '{}', but auto-discovered states file '{}' declares '{}', and no rhei root holds a states file declaring it.\nUse --state-machine <path> to override the default location.",
+                declared_name,
+                candidate.display(),
+                found
+            ),
+            None => miette!(
+                "plan declares state machine '{}', but no auto-discovered states file was found at '{}' or, by name, in any rhei root.\nUse --state-machine <path> to override the default location.",
+                declared_name,
+                candidate.display()
+            ),
+        });
     }
 
     Ok(ResolvedStateMachine { machine: builtin, path: None })

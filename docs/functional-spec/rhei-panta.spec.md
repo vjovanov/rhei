@@ -120,7 +120,10 @@ file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>
 An **empty project** — an `index.panta.md` with no rheis yet, the state
 `rhei init` leaves behind — is a valid project, not an error. Read commands
 treat it as zero tickets: `rhei list` says the project has no tickets yet and
-how to add one, and exits successfully. Only work-claiming and mutation
+how to add one, and exits successfully. `rhei validate` succeeds but warns
+that discovery found no rheis and restates where plans must live — a plan
+misnamed (missing the `.rhei.md` suffix) or misplaced would otherwise be
+silently invisible behind a green validation. Only work-claiming and mutation
 surface the emptiness as their ordinary no-work outcomes.
 
 A command invoked with **no target** resolves one by walking up from the
@@ -131,15 +134,28 @@ current directory, nearest match first. At each level, in order:
    that child — the conventional project folder `rhei init` creates
    (§FS-rhei-init), so bare commands work from the whole host repository;
 3. a directory containing `index.rhei.md` is that workspace rhei;
-4. a directory containing exactly one `*.rhei.md` file is that rhei.
+4. in the invocation directory only: a directory containing exactly one
+   rhei — counted the way project discovery counts them (§AR-rhei-panta.1):
+   a `*.rhei.md` file or a Directory Workspace subdirectory, hidden
+   dot-prefixed names skipped — is that rhei.
 
-A directory holding more than one `*.rhei.md` file but no `index.panta.md` is
-ambiguous: the error names the candidate files and both fixes — pass one
+Rule 4 never applies to ancestors. An explicit manifest (rules 1–3) is an
+opt-in safe to adopt from any distance, but a loose plan file is incidental:
+adopting one far above the invocation directory would let a forgotten
+`notes.rhei.md` in a home directory silently receive writes from any
+subdirectory below it.
+
+An invocation directory holding more than one rhei but no `index.panta.md`
+is ambiguous: the error names the candidates and both fixes — pass one
 explicitly, or run `rhei init` (§FS-rhei-init) to make the directory a
-project. When
-the walk reaches the filesystem root without a match, the error says what was
-searched for and how to point the command at a plan, not merely that a
-required argument is missing.
+project. When the walk reaches the filesystem root without a match, the
+error says what was searched for and how to point the command at a plan, not
+merely that a required argument is missing.
+
+`rhei reset` is excluded from omitted-target resolution: it destroys runtime
+state across its whole scope (§6.4), so an inferred target would turn a
+mistyped or misplaced invocation into irreversible data loss. Invoked with no
+target it fails, explaining that reset takes an explicit plan or project.
 
 Within a project, every command — read-only and mutating alike — operates
 **project-wide by default**. Loading, validation, listing, and rendering read
@@ -245,7 +261,8 @@ roadmap.
 ### 6.4. Reset, validate, list, viz
 
 - `rhei reset` is project-wide by default; because it destroys runtime state
-  across every in-scope rhei, it surfaces the scope and the affected rheis before
+  across every in-scope rhei, it always takes an explicit target (§6) and
+  surfaces the scope and the affected rheis before
   acting. `--rhei` narrows it. A narrowed reset removes only the runtime
   artifacts owned by in-scope tickets rather than whole `runtime/` trees:
   sibling single-file rheis share one execution root, so removing the tree

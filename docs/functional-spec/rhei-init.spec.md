@@ -37,7 +37,7 @@ missing). The project directory is `DIR/panta/`, or `DIR` itself with
 | `--here`            | off                | Make `DIR` itself the project instead of `DIR/panta/`. The mode for adopting a directory of existing, versioned plans |
 | `--title <title>`   | from the host      | Project title written to the manifest heading           |
 | `--no-agents`       | off                | Skip the `AGENTS.md` agent-discovery note (§4)          |
-| `--force`           | off                | Re-initialize an existing project: overwrite the manifest (re-deriving the title and re-adopting the machine); companion files update in place |
+| `--force`           | off                | Re-initialize an existing project: overwrite the manifest (re-deriving the title and re-adopting the machine); companion files update in place. Pair with `--here` when the host itself is the project (§2) |
 
 The default title is derived from the **host** directory's name in both
 modes — `panta/` is a location, not an identity: `-` and `_` become spaces
@@ -48,12 +48,17 @@ and each word is capitalized (`my-project` → `My Project`).
 1. **Refuse an existing project** unless `--force`. When the project
    directory already contains `index.panta.md` — and, in default mode, also
    when the host itself is already a project — the command fails stating the
-   directory is already a project, names `--force` as the re-init path, and
-   changes nothing. With `--force` the manifest is rewritten from scratch — a
+   directory is already a project, names the re-init path, and changes
+   nothing. With `--force` the manifest is rewritten from scratch — a
    hand-edited manifest is deliberately clobbered, which is why force is
    opt-in — and the companion files update in place: the `.gitignore`
    entries and the marked `AGENTS.md` block are idempotent, so a forced
-   re-init never duplicates them.
+   re-init never duplicates them. A host that is itself a project refuses
+   default mode even under `--force` — the refusal names `--force --here` —
+   because force means re-initialize, never "nest a fresh `panta/` project
+   inside this one": the child would lose every target resolution to the
+   host manifest (§FS-rhei-panta.6) and could never be reached by a bare
+   command.
 2. **Refuse to shadow existing plans** in default mode. When the host holds
    bare `*.rhei.md` files or workspace rheis, a `panta/` project would not
    discover them; the error offers both fixes — `--here` to adopt them in
@@ -64,12 +69,16 @@ and each word is capitalized (`my-project` → `My Project`).
    almost always a mistake, and the outer project will not discover the inner
    one (§AR-rhei-panta.1 discovery does not recurse into rhei roots).
 4. **Write the manifest**: `# Panta: <title>`, and nothing else — with one
-   adoption exception. When the rheis discovery would find all agree on a
-   single declared state machine, init writes that machine as the project
-   default (`**States:** <machine>`) and says so: a rhei declaring a machine
+   adoption exception. When *every* rhei discovery would find declares the
+   same state machine, init writes that machine as the project default
+   (`**States:** <machine>`) and says so: a rhei declaring a machine
    different from the project default is a load error (§FS-rhei-panta.6), so
-   a bare manifest would create a project that cannot load. Rheis declaring
-   *different* machines cannot be adopted; init proceeds and the conflict
+   a bare manifest would create a project that cannot load. Unanimity is
+   over all discovered rheis, not just the declaring ones: a rhei with no
+   `**States:**` line was authored against the built-in default, and
+   adopting a sibling's machine over it would silently re-interpret its
+   states. Mixed sets — different machines, or declaring next to silent —
+   cannot be adopted; init proceeds with the bare manifest and the conflict
    surfaces through the discovery report (§5) with the ordinary error.
 5. **Seed ignore rules** (§3).
 6. **Write the agent-discovery note** unless `--no-agents` (§4).
@@ -126,6 +135,9 @@ agent must never be instructed to start it. Rewriting the note first strips ever
 one — marker-delimited regions, orphaned markers, and a marker-less `## Rhei`
 section still carrying the note body — so init is idempotent even after a
 third-party merge mangled the markers, and removal is one block deletion.
+Stripping only ever removes the note's own material: an orphaned begin
+marker (its end marker lost) is removed alone, never together with the user
+content that follows it.
 Richer per-agent integration (skills for Claude Code, Cursor, …) stays with
 `rhei install-skills` (§FS-rhei-install-skills); init's final output points
 at it rather than duplicating it.

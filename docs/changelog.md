@@ -27,11 +27,16 @@
   orchestration is never started by an agent. §FS-rhei-init §FS-rhei-panta.6
 - Treat an empty Panta project — the state `rhei init` leaves — as valid:
   loading succeeds with zero tickets, and `rhei list` reports how to grow the
-  project (or `[]` under `--json`) instead of erroring. §FS-rhei-panta.6
+  project (or `[]` under `--json`) instead of erroring. `rhei validate` still
+  warns that discovery found no rheis, so a misnamed or misplaced plan is
+  never silently invisible behind a green validation. §FS-rhei-panta.6
 - Resolve an omitted plan target from the current directory: every plan-taking
-  command walks up to the nearest `index.panta.md` project, workspace
-  `index.rhei.md`, or lone `*.rhei.md` file, so `rhei list` inside a project
-  just works. A directory holding several bare rheis without a manifest is an
+  command except `rhei reset` walks up to the nearest `index.panta.md`
+  project, workspace `index.rhei.md`, or — in the invocation directory only —
+  lone rhei (a `*.rhei.md` file or workspace directory, counted like project
+  discovery), so `rhei list` inside a project just works. `rhei reset` keeps
+  requiring an explicit target: it destroys runtime state, so it never infers
+  one. A directory holding several bare rheis without a manifest is an
   error naming the candidates and pointing at `rhei init`; no plan anywhere up
   the tree is an error that says what was searched for. §FS-rhei-panta.6
 

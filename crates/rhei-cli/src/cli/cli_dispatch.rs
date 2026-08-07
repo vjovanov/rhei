@@ -319,7 +319,16 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             complete_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), &task, &result, no_callbacks)
         }
         Commands::Reset { input, rhei } => {
-            reset_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), &rhei)
+            // §FS-rhei-panta.6: reset destroys runtime state, so it is the one
+            // plan-taking command that never infers an omitted target.
+            let Some(input) = input else {
+                return Err(miette!(
+                    "`rhei reset` rewrites every in-scope ticket to the initial state \
+                     and deletes runtime artifacts, so it never infers its target. \
+                     Name the plan or project explicitly: `rhei reset <plan-or-project>`"
+                ));
+            };
+            reset_command(&input, cli.state_machine.as_deref(), &rhei)
         }
         Commands::Version => {
             print_versions();

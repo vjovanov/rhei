@@ -25,17 +25,25 @@ fn init_command(
     };
     let project = if here { host.clone() } else { host.join("panta") };
 
+    // §FS-rhei-init.2: a host that is itself a project refuses default mode
+    // even under --force — a fresh `panta/` child nested inside it would lose
+    // every target resolution to the host manifest and never be reachable.
+    if !here && host.join("index.panta.md").is_file() {
+        return Err(miette!(
+            "{} is already a Panta project itself: index.panta.md exists at the host. \
+             Re-run with `--force --here` to re-initialize it in place; a new `panta/` \
+             project inside it would be shadowed by the host manifest",
+            host.display()
+        ));
+    }
     // §FS-rhei-init.2: refuse an existing project untouched unless --force,
     // which rewrites the manifest and updates companion files in place.
-    for existing in [&host, &project] {
-        let manifest = existing.join("index.panta.md");
-        if manifest.is_file() && !force {
-            return Err(miette!(
-                "{} is already a Panta project: index.panta.md exists. Re-run with \
-                 `--force` to overwrite the manifest",
-                existing.display()
-            ));
-        }
+    if project.join("index.panta.md").is_file() && !force {
+        return Err(miette!(
+            "{} is already a Panta project: index.panta.md exists. Re-run with \
+             `--force` to overwrite the manifest",
+            project.display()
+        ));
     }
     // §FS-rhei-init.2: a `panta/` project would not discover plans sitting in
     // the host — refuse rather than silently shadow them.
@@ -78,10 +86,11 @@ fn init_command(
         None => default_project_title(&host),
     };
     // §FS-rhei-init.2: adopt a unanimously declared machine as the project
-    // default — a bare manifest would make such a project unloadable.
+    // default — a bare manifest would make such a project unloadable. A rhei
+    // declaring nothing runs the built-in default, so it blocks adoption too.
     let declared = workspace::discover_declared_state_machines(&project);
     let contents = match declared.as_slice() {
-        [machine] => {
+        [Some(machine), rest @ ..] if rest.iter().all(|d| d.as_ref() == Some(machine)) => {
             println!("Adopted state machine '{machine}' as the project default.");
             format!("# Panta: {title}\n**States:** {machine}\n")
         }
@@ -209,10 +218,12 @@ fn strip_rhei_note(existing: &str) -> String {
     while i < lines.len() {
         let trimmed = lines[i].trim();
         if trimmed == AGENTS_NOTE_BEGIN {
-            while i < lines.len() && lines[i].trim() != AGENTS_NOTE_END {
-                i += 1;
+            // §FS-rhei-init.4: an orphaned begin marker (end marker lost) is
+            // removed alone — the lines after it are user content, not the note.
+            match lines[i + 1..].iter().position(|line| line.trim() == AGENTS_NOTE_END) {
+                Some(end) => i += end + 2, // past the block and its end marker
+                None => i += 1,
             }
-            i += 1; // past the end marker (or EOF)
             continue;
         }
         if trimmed == AGENTS_NOTE_END {

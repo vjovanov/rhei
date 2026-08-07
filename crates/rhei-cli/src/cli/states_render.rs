@@ -288,8 +288,8 @@ fn rhei_local_id_str(task_id: &str) -> &str {
 }
 
 /// Resolve an omitted plan target: walk up from the current directory to the
-/// nearest project (`index.panta.md`), workspace rhei (`index.rhei.md`), or
-/// lone `*.rhei.md` file. §FS-rhei-panta.6
+/// nearest project (`index.panta.md`) or workspace rhei (`index.rhei.md`); a
+/// lone rhei resolves in the current directory only. §FS-rhei-panta.6
 fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
     if let Some(input) = input {
         return Ok(input);
@@ -298,50 +298,41 @@ fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         .map_err(|err| miette!("failed to read the current directory: {err}"))?;
     let mut dir = Some(cwd.as_path());
     while let Some(current) = dir {
-        if current.join("index.panta.md").is_file() {
+        if current.join(workspace::PANTA_INDEX_FILE).is_file() {
             return Ok(current.to_path_buf());
         }
         // §FS-rhei-panta.6: the conventional `panta/` child `rhei init`
         // creates resolves from anywhere in the host repository.
         let conventional = current.join("panta");
-        if conventional.join("index.panta.md").is_file() {
+        if conventional.join(workspace::PANTA_INDEX_FILE).is_file() {
             return Ok(conventional);
         }
         if current.join("index.rhei.md").is_file() {
             return Ok(current.to_path_buf());
         }
-        let mut plans: Vec<PathBuf> = fs::read_dir(current)
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.is_file()
-                    && path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|name| name.ends_with(".rhei.md"))
-            })
-            .collect();
-        plans.sort();
-        match plans.len() {
-            0 => {}
-            1 => return Ok(plans.remove(0)),
-            _ => {
-                let names: Vec<String> = plans
-                    .iter()
-                    .filter_map(|path| path.file_name())
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .collect();
-                return Err(miette!(
-                    "{} holds {} rheis ({}) but no `index.panta.md`, so there is no \
-                     single plan to pick. Pass one explicitly, or run `rhei init` to \
-                     make the directory a project (writes index.panta.md)",
-                    current.display(),
-                    names.len(),
-                    names.join(", ")
-                ));
+        // §FS-rhei-panta.6: a loose rhei — counted exactly as project
+        // discovery counts it — resolves in the invocation directory only;
+        // ancestors are adopted solely through explicit manifests.
+        if current == cwd {
+            let mut plans = workspace::discover_rhei_entries(current).unwrap_or_default();
+            match plans.len() {
+                0 => {}
+                1 => return Ok(plans.remove(0)),
+                _ => {
+                    let names: Vec<String> = plans
+                        .iter()
+                        .filter_map(|path| path.file_name())
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .collect();
+                    return Err(miette!(
+                        "{} holds {} rheis ({}) but no `index.panta.md`, so there is no \
+                         single plan to pick. Pass one explicitly, or run `rhei init` to \
+                         make the directory a project (writes index.panta.md)",
+                        current.display(),
+                        names.len(),
+                        names.join(", ")
+                    ));
+                }
             }
         }
         dir = current.parent();
@@ -761,6 +752,16 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
         &resolved.machine,
         &settings,
     )?);
+    // §FS-rhei-panta.6: an empty project is valid, but say discovery found
+    // nothing — a misnamed or misplaced plan is otherwise silently invisible
+    // behind a green validation.
+    if loaded.is_panta_project() && loaded.rhei_ids.is_empty() {
+        report.warnings.push(
+            "the project holds no rheis: discovery looks only for `*.rhei.md` files and \
+             workspace directories placed directly next to index.panta.md"
+                .to_string(),
+        );
+    }
 
     if report.has_errors() {
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
