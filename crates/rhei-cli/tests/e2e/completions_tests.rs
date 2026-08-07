@@ -172,7 +172,31 @@ fn generates_all_supported_shell_completions() {
             result.stdout.contains("COMPLETE"),
             "{shell} output should call back into rhei through COMPLETE"
         );
+        assert!(
+            result.stdout.contains(&format!("# rhei completions for {shell}.")),
+            "{shell} output should carry the enablement comment header"
+        );
+        assert!(
+            result.stdout.contains(&format!("rhei completions {shell} --install")),
+            "{shell} header should mention the --install alternative"
+        );
     }
+}
+
+/// `compinit` only autoloads files whose first line is `#compdef`, so the
+/// header must come after it. §FS-rhei-completions.5
+#[test]
+fn zsh_completions_keep_compdef_on_the_first_line() {
+    let result = run_completions("zsh");
+
+    assert!(result.status.success(), "zsh completions should succeed");
+    let first_line = result.stdout.lines().next().unwrap_or_default();
+    assert!(
+        first_line.starts_with("#compdef rhei"),
+        "first line must stay the #compdef directive, got: {first_line}"
+    );
+    assert!(result.stdout.contains("# rhei completions for zsh."));
+    assert!(result.stdout.contains("source <(rhei completions zsh)"));
 }
 
 #[test]
