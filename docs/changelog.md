@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Make the shell argument to `rhei completions` optional: detect it from
+  `$SHELL` when omitted, and on detection failure list the supported shells
+  with a copy-pasteable example instead of clap's bare missing-argument
+  error. PR #58 §FS-rhei-completions.2
+
 - Add durable task state history to Flow/dashboard and the `rhei run` TUI,
   including the `state history` surroundings section, prompt-focused inspector
   navigation, a global Machine legend with process-kind styling, and links-only
