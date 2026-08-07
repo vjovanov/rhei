@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Regenerate the grund managed block with grund 0.7: standard BEGIN/END
+  delimiters and the escaped worked example, replacing the hand-edited
+  workaround for vjovanov/grund#56. PR #62
+
 - Make the shell argument to `rhei completions` optional: detect it from
   `$SHELL` when omitted, and on detection failure list the supported shells
   with a copy-pasteable example instead of clap's bare missing-argument
