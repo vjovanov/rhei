@@ -24,10 +24,12 @@ continue to work.
 ## 1. Usage
 
 ```bash
-rhei completions <SHELL>
-rhei completions <SHELL> --install
-rhei completions <SHELL> --install --system
-rhei completions <SHELL> --install --output <PATH>
+rhei completions [SHELL]
+rhei completions [SHELL] --install
+rhei completions [SHELL] --install --system
+rhei completions [SHELL] --install --output <PATH>
+rhei completions
+rhei completions --install
 rhei completions bash
 rhei completions zsh
 rhei completions fish
@@ -39,7 +41,13 @@ rhei completions elvish
 
 | Argument | Description |
 |----------|-------------|
-| `<SHELL>` | Target shell. Supported values: `bash`, `zsh`, `fish`, `powershell`, `elvish` |
+| `[SHELL]` | Target shell. Supported values: `bash`, `zsh`, `fish`, `powershell`, `elvish`. Optional: when omitted, the shell is detected from the environment |
+
+When `[SHELL]` is omitted:
+
+- The shell is detected from the basename of the `SHELL` environment variable. `pwsh` maps to `powershell`; the other basenames map to the value of the same name.
+- On successful detection the command proceeds with the detected shell and prints a one-line note to stderr naming it, so the stdout output contract is unchanged.
+- When detection fails (`SHELL` unset or naming an unsupported shell), the command exits with an error that names the supported values and shows a copy-pasteable example invocation such as `rhei completions zsh --install`.
 
 ## 3. Options
 

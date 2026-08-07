@@ -383,7 +383,7 @@ transitions: []
 
         match cli.command {
             Commands::Completions { shell, install, system, output, dry_run, .. } => {
-                assert_eq!(shell, CompletionShell::Fish);
+                assert_eq!(shell, Some(CompletionShell::Fish));
                 assert!(!install);
                 assert!(!system);
                 assert!(output.is_none());
@@ -395,9 +395,48 @@ transitions: []
         let cli =
             Cli::try_parse_from(["rhei", "completions", "powershell"]).expect("cli should parse");
         match cli.command {
-            Commands::Completions { shell, .. } => assert_eq!(shell, CompletionShell::PowerShell),
+            Commands::Completions { shell, .. } => {
+                assert_eq!(shell, Some(CompletionShell::PowerShell))
+            }
             other => panic!("expected completions command, got {other:?}"),
         }
+    }
+
+    /// §FS-rhei-completions.2
+    #[test]
+    fn parses_completions_without_shell() {
+        let cli = Cli::try_parse_from(["rhei", "completions"]).expect("cli should parse");
+        match cli.command {
+            Commands::Completions { shell, .. } => assert_eq!(shell, None),
+            other => panic!("expected completions command, got {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["rhei", "completions", "--install", "--dry-run"])
+            .expect("cli should parse");
+        match cli.command {
+            Commands::Completions { shell, install, dry_run, .. } => {
+                assert_eq!(shell, None);
+                assert!(install);
+                assert!(dry_run);
+            }
+            other => panic!("expected completions command, got {other:?}"),
+        }
+    }
+
+    /// §FS-rhei-completions.2
+    #[test]
+    fn detects_current_shell_from_shell_var() {
+        let detected = |value: &str| detect_current_shell(Some(OsStr::new(value)));
+
+        assert_eq!(detected("/bin/bash"), Some(CompletionShell::Bash));
+        assert_eq!(detected("/usr/bin/zsh"), Some(CompletionShell::Zsh));
+        assert_eq!(detected("fish"), Some(CompletionShell::Fish));
+        assert_eq!(detected("/usr/local/bin/pwsh"), Some(CompletionShell::PowerShell));
+        assert_eq!(detected("powershell"), Some(CompletionShell::PowerShell));
+        assert_eq!(detected("/usr/bin/elvish"), Some(CompletionShell::Elvish));
+        assert_eq!(detected("/bin/tcsh"), None);
+        assert_eq!(detected(""), None);
+        assert_eq!(detect_current_shell(None), None);
     }
 
     #[test]
@@ -414,7 +453,7 @@ transitions: []
 
         match cli.command {
             Commands::Completions { shell, install, system, dry_run, .. } => {
-                assert_eq!(shell, CompletionShell::Bash);
+                assert_eq!(shell, Some(CompletionShell::Bash));
                 assert!(install);
                 assert!(system);
                 assert!(dry_run);
