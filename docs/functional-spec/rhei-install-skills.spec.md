@@ -145,7 +145,12 @@ Before writing, remove or replace any existing rhei skill files for the target a
 
 ### 4.3. Resolve skill source
 
-The command finds skill files relative to the `rhei` binary (e.g., `../share/rhei/skills/` for installed binaries, or `skills/` in the repo for dev builds).
+The command finds skill files by searching, in order: relative to the `rhei`
+binary (`../share/rhei/skills/`, for packaged installs), the repo root
+enclosing the binary (`skills/`, for dev builds run from `target/`), and the
+repo root enclosing the **current directory** (for a `cargo install`ed binary
+run from inside a rhei checkout, whose install carries no `share/` tree). The
+failure message names all three searched locations.
 
 ### 4.4. Symlink vs copy
 

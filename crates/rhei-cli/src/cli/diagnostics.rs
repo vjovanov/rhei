@@ -39,12 +39,9 @@ fn relative_path(from_dir: &Path, to_path: &Path) -> PathBuf {
     result
 }
 
-/// Locate the source directory for a named skill.
-///
-/// Search order:
-/// 1. Installed path: `<binary>/../share/rhei/skills/<skill_name>/`
-/// 2. Dev-build fallback: walk up from the binary looking for `Cargo.toml`
-///    (the repo root), then check `skills/<skill_name>/`.
+/// Locate the source directory for a named skill: binary-relative `share/`
+/// tree, then the repo enclosing the binary, then the repo enclosing the
+/// current directory (for `cargo install`ed binaries). §FS-rhei-install-skills.4
 fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
     // 1. Binary-relative installed path.
     if let Ok(exe) = std::env::current_exe() {
@@ -60,26 +57,48 @@ fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
 
     // 2. Dev-build fallback: walk up from binary to find repo root (Cargo.toml).
     if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(|p| p.to_path_buf());
-        while let Some(d) = dir {
-            if d.join("Cargo.toml").is_file() {
-                let dev_path = d.join("skills").join(skill_name);
-                if dev_path.is_dir() {
-                    return dev_path.canonicalize().map_err(|e| {
-                        miette!("failed to canonicalize '{}': {e}", dev_path.display())
-                    });
-                }
-                break;
-            }
-            dir = d.parent().map(|p| p.to_path_buf());
+        if let Some(found) = skill_in_enclosing_repo(exe.parent(), skill_name)? {
+            return Ok(found);
+        }
+    }
+
+    // 3. Checkout fallback: walk up from the current directory.
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Some(found) = skill_in_enclosing_repo(Some(cwd.as_path()), skill_name)? {
+            return Ok(found);
         }
     }
 
     Err(miette!(
         "could not find skill source directory for '{}'. Searched relative to the rhei binary \
-         (../share/rhei/skills/{0}/) and the repo root (skills/{0}/).",
+         (../share/rhei/skills/{0}/), the repo root enclosing the binary (skills/{0}/), and \
+         the repo root enclosing the current directory. Run inside a rhei checkout or use a \
+         packaged install.",
         skill_name
     ))
+}
+
+/// Walk up from `start` to the first `Cargo.toml` (a repo root) and return
+/// its `skills/<skill_name>/` when present. §FS-rhei-install-skills.4
+fn skill_in_enclosing_repo(
+    start: Option<&Path>,
+    skill_name: &str,
+) -> MietteResult<Option<PathBuf>> {
+    let mut dir = start.map(Path::to_path_buf);
+    while let Some(d) = dir {
+        if d.join("Cargo.toml").is_file() {
+            let dev_path = d.join("skills").join(skill_name);
+            if dev_path.is_dir() {
+                return dev_path
+                    .canonicalize()
+                    .map(Some)
+                    .map_err(|e| miette!("failed to canonicalize '{}': {e}", dev_path.display()));
+            }
+            break;
+        }
+        dir = d.parent().map(Path::to_path_buf);
+    }
+    Ok(None)
 }
 
 /// Find the project root by walking up from the current directory.

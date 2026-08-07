@@ -28,6 +28,10 @@
 - Treat an empty Panta project — the state `rhei init` leaves — as valid:
   loading succeeds with zero tickets, and `rhei list` reports how to grow the
   project (or `[]` under `--json`) instead of erroring. §FS-rhei-panta.6
+- Fix `rhei install-skills` for `cargo install`ed binaries: skill sources now
+  also resolve by walking up from the current directory, so running inside a
+  rhei checkout works without a packaged `share/rhei/skills` tree.
+  §FS-rhei-install-skills.4
 - Resolve an omitted plan target from the current directory: every plan-taking
   command walks up to the nearest `index.panta.md` project, workspace
   `index.rhei.md`, or lone `*.rhei.md` file, so `rhei list` inside a project
