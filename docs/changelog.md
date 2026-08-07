@@ -24,12 +24,13 @@
   resolution probes the `panta/` child, so bare commands work from the whole
   host repository. The AGENTS.md note names only the worker surface (`list`,
   `next`, `complete`, `validate`) and marks `rhei run` as human-initiated —
-  orchestration is never started by an agent. §FS-rhei-init §FS-rhei-panta.6
+  orchestration is never started by an agent. PR #54 §FS-rhei-init
+  §FS-rhei-panta.6
 - Treat an empty Panta project — the state `rhei init` leaves — as valid:
   loading succeeds with zero tickets, and `rhei list` reports how to grow the
   project (or `[]` under `--json`) instead of erroring. `rhei validate` still
   warns that discovery found no rheis, so a misnamed or misplaced plan is
-  never silently invisible behind a green validation. §FS-rhei-panta.6
+  never silently invisible behind a green validation. PR #54 §FS-rhei-panta.6
 - Resolve an omitted plan target from the current directory: every plan-taking
   command except `rhei reset` walks up to the nearest `index.panta.md`
   project, workspace `index.rhei.md`, or — in the invocation directory only —
@@ -38,7 +39,8 @@
   requiring an explicit target: it destroys runtime state, so it never infers
   one. A directory holding several bare rheis without a manifest is an
   error naming the candidates and pointing at `rhei init`; no plan anywhere up
-  the tree is an error that says what was searched for. §FS-rhei-panta.6
+  the tree is an error that says what was searched for. PR #54
+  §FS-rhei-panta.6
 
 **Breaking: ticket ids are now project-qualified.** Every load yields a
 Panta-rooted graph, so a ticket that used to be `1` is now `auth.1` — named
