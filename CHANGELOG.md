@@ -27,7 +27,7 @@ Initial release.
 - YAML state-machine support for transitions, callbacks, program states, agent/tooling profiles, counted review loops, and human gates.
 - Terminal and journal support for monitoring parallel `rhei run` execution.
 - Renderers for JSON, GitHub-style Markdown, and terminal progress output.
-- Built-in templates and examples for release automation, review loops, changeset review, human-intervention workflows, CI healing, and spec/implementation audits.
+- Example workspaces for release automation, review loops, changeset review, human-intervention workflows, CI healing, and spec/implementation audits. (Templates were project- and user-scoped in 0.1.0; a built-in library shipped inside the binary landed after it — see the unreleased notes.)
 - Rust library crates for core parsing, validation, output rendering, TUI events, and N-API bindings.
 
 ### Known Release Limitation

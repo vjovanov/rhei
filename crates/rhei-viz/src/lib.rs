@@ -16,6 +16,62 @@ use rhei_viz_model::{
 mod collect;
 pub use collect::{collect_plans, Bundle};
 
+/// Narrow every plan in `bundle` to the named rheis, keeping the one-hop
+/// neighbours their `**Prior:**` edges point at.
+///
+/// Pointing `rhei viz` at one rhei of a project asks about that rhei, but a
+/// cross-rhei prior is part of what governs it: dropping the far end would
+/// erase the dependency rather than scope it. Keeping the referenced ticket
+/// draws the edge with something to anchor to. An empty `rhei_ids` leaves the
+/// bundle untouched.
+// §FS-rhei-viz.7.3: a member rhei renders its project narrowed to itself.
+pub fn narrow_bundle(bundle: Bundle, rhei_ids: &[String]) -> Bundle {
+    if rhei_ids.is_empty() {
+        return bundle;
+    }
+    let scope: HashSet<&str> = rhei_ids.iter().map(String::as_str).collect();
+    fn owner(id: &str) -> &str {
+        id.split_once('.').map_or(id, |(head, _)| head)
+    }
+
+    bundle
+        .into_iter()
+        .map(|(key, mut model)| {
+            let in_scope: HashSet<String> = model
+                .tasks
+                .iter()
+                .filter(|task| scope.contains(owner(&task.id)))
+                .map(|task| task.id.clone())
+                .collect();
+            if in_scope.is_empty() {
+                // Nothing of this plan is in scope; an empty page is a clearer
+                // answer than one silently showing everything.
+                model.tasks.clear();
+                return (key, model);
+            }
+            let mut keep = in_scope.clone();
+            for task in &model.tasks {
+                if !in_scope.contains(&task.id) {
+                    continue;
+                }
+                keep.extend(task.prior.iter().cloned());
+                // An ancestor gives a kept descendant somewhere to hang.
+                let mut parent = task.parent.clone();
+                while let Some(id) = parent {
+                    parent = model
+                        .tasks
+                        .iter()
+                        .find(|candidate| candidate.id == id)
+                        .and_then(|candidate| candidate.parent.clone());
+                    keep.insert(id);
+                }
+            }
+            model.tasks.retain(|task| keep.contains(&task.id));
+            (key, model)
+        })
+        .collect()
+}
+
 /// Coarse status category a persisted state reduces to (§FS-rhei-viz §1.1). The
 /// rows are evaluated top to bottom, first match wins, so `Active` is the
 /// catch-all. The live dashboard overlays runtime slot assignment separately.

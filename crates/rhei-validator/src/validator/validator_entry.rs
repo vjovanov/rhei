@@ -218,7 +218,7 @@ fn validate_dependency_integrity(
                     "Task {} depends on missing Task {}{}",
                     task.id,
                     dep,
-                    unknown_rhei_hint(dep, rhei_ids)
+                    missing_prior_hint(&task.id, dep, index, rhei_ids)
                 ));
             }
             if ancestors.iter().any(|ancestor| ancestor == dep) {
@@ -256,41 +256,70 @@ fn project_rhei_ids(rhei: &Rhei) -> Vec<String> {
     ids
 }
 
-/// Explain a missing prior whose rhei segment names no rhei in the project.
+/// Explain a missing prior that resolved to no rhei at all.
 ///
-/// A cross-rhei `**Prior:**` naming an unknown rhei is indistinguishable at
-/// load time from a rhei-local id, so it is qualified with the citing rhei and
-/// surfaces as an id the author never wrote (`billing.onbaording.3` for an
-/// authored `onbaording.3`). Naming the unknown rhei — and the near miss —
-/// turns that into the typo it is.
-fn unknown_rhei_hint(dep: &TaskId, rhei_ids: &[String]) -> String {
-    // Shape: <citing-rhei>.<candidate-rhei>.<rest>; anything shorter is a
-    // plain missing ticket in a known rhei and needs no explanation.
-    let Some(TaskIdSegment::Named(candidate)) = dep.segments.get(1) else {
+/// A dotted `**Prior:**` whose leading segment names no rhei is kept as the
+/// author wrote it, so the id in the error is quotable back to the source. It is
+/// still ambiguous — a typo'd rhei name or a typo'd local hierarchical id — so
+/// the hint rules out both readings and only offers a correction that resolves.
+// §FS-rhei-validate.4.1: an unresolved prior is reported as the author wrote it.
+fn missing_prior_hint(
+    task: &TaskId,
+    dep: &TaskId,
+    index: &HashMap<TaskId, &Task>,
+    rhei_ids: &[String],
+) -> String {
+    let Some(TaskIdSegment::Named(candidate)) = dep.segments.first() else {
         return String::new();
     };
-    if dep.segments.len() < 3 || rhei_ids.iter().any(|id| id == candidate) {
+    // A dep under a known rhei is a plain missing ticket and needs no explaining.
+    if rhei_ids.iter().any(|id| id == candidate) {
         return String::new();
     }
-    let tail: Vec<String> =
-        dep.segments.iter().skip(1).map(|segment| segment.to_string()).collect();
+    let citing_rhei = match task.segments.first() {
+        Some(TaskIdSegment::Named(name)) => name.as_str(),
+        _ => return String::new(),
+    };
     let mut hint = format!(
-        ": no rhei named '{candidate}' in this project (rheis: {})",
+        ": no rhei named '{candidate}' in this project (rheis: {}), \
+         and rhei '{citing_rhei}' has no ticket '{dep}'",
         rhei_ids.join(", ")
     );
-    if let Some(nearest) = nearest_rhei_id(candidate, rhei_ids) {
-        let mut corrected = tail.clone();
-        corrected[0] = nearest.to_string();
-        hint.push_str(&format!(". Did you mean '{}'?", corrected.join(".")));
+    if let Some(corrected) = nearest_resolving_id(task, dep, candidate, index, rhei_ids) {
+        hint.push_str(&format!(". Did you mean '{corrected}'?"));
     }
     hint
 }
 
+/// Correct `dep`'s leading segment to the nearest rhei id, keeping the
+/// suggestion only when it names a real ticket other than the citing one.
+///
+/// Suggesting an id that does not resolve trades one dead end for another, and
+/// suggesting the citing task itself proposes a self-dependency.
+fn nearest_resolving_id(
+    task: &TaskId,
+    dep: &TaskId,
+    candidate: &str,
+    index: &HashMap<TaskId, &Task>,
+    rhei_ids: &[String],
+) -> Option<TaskId> {
+    let nearest = nearest_rhei_id(candidate, rhei_ids)?;
+    let mut segments = dep.segments.clone();
+    segments[0] = TaskIdSegment::Named(nearest.to_string());
+    let corrected = TaskId::from_segments(segments);
+    (corrected != *task && index.contains_key(&corrected)).then_some(corrected)
+}
+
 /// Closest rhei id to `candidate` within a small edit distance, if any.
 fn nearest_rhei_id<'a>(candidate: &str, rhei_ids: &'a [String]) -> Option<&'a str> {
-    // Two edits catches transpositions and a single slip without pairing
-    // unrelated names; short ids get a proportionally tighter budget.
-    let budget = 2.min(candidate.len().div_ceil(3)).max(1);
+    // Below three characters every id is within one edit of every other, so a
+    // "near miss" carries no signal; above it, two edits catches transpositions
+    // and a single slip without pairing unrelated names.
+    let length = candidate.chars().count();
+    if length < 3 {
+        return None;
+    }
+    let budget = 2.min(length.div_ceil(3)).max(1);
     rhei_ids
         .iter()
         .map(|id| (edit_distance(candidate, id), id.as_str()))

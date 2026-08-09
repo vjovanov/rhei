@@ -14,7 +14,7 @@ spec_root: docs/functional-spec
 implementation_roots:
   - crates
   - skills
-  - .agents/rhei/templates
+  - crates/rhei-cli/templates
   - examples
 audit_target: codex[yolo]:openai:gpt-5.5
 extra_context: |

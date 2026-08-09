@@ -81,6 +81,7 @@ Execution:
   snapshot    Inspect, prune, or continue from session snapshots
   next        Transition the next ready task to the next state
   complete    Complete a task: transition to terminal state, write ledger/result,\n              link it from the task, and remove the assignee
+  release     Drop a ticket's assignee so abandoned work can be claimed again
   reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
 Setup:
@@ -340,7 +341,7 @@ enum Commands {
         /// Emit the template list as JSON instead of plain text
         #[arg(long)]
         json: bool,
-        /// Filter by discovery source: project, user, or all
+        /// Filter by discovery source: project, user, builtin, or all
         #[arg(
             long,
             default_value = "all",
@@ -444,6 +445,27 @@ enum Commands {
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
         no_callbacks: bool,
+    },
+    /// Release a claim: drop `**Assignee:**` from a ticket so it can be picked
+    /// up again, leaving its state and artifacts untouched
+    Release {
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
+        /// Ticket to release; omit with --all to release every claimed ticket
+        #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
+        task: Option<String>,
+        /// Release every claimed non-terminal ticket in scope
+        #[arg(long)]
+        all: bool,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id is
+        /// its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
+        /// Report what would be released without changing anything
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Reset every ticket in a rhei or project to the initial state and remove
     /// runtime output

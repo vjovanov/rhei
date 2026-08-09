@@ -21,15 +21,16 @@
             return templates_command(false, "all");
         };
 
-        let template_dir = resolve_template_reference(template)?;
-        let manifest = load_template_manifest(&template_dir)?;
+        let resolved_template = resolve_template_reference(template)?;
+        let template_dir = resolved_template.path();
+        let manifest = load_template_manifest(template_dir)?;
 
         if list_inputs {
             print_template_inputs(&manifest);
             return Ok(());
         }
 
-        let layout = detect_template_layout(&template_dir)?;
+        let layout = detect_template_layout(template_dir)?;
         let template_input_args =
             template_input_args_without_execute_args(input_args, execute_args)?;
         let resolved_values = collect_template_inputs(
@@ -64,7 +65,7 @@
             .unwrap_or_else(|| output_dir.clone());
 
         let materialized =
-            match materialize_template(&template_dir, layout, &target_dir, &resolved_values) {
+            match materialize_template(template_dir, layout, &target_dir, &resolved_values) {
                 Ok(materialized) => materialized,
                 Err(err) => {
                     if !dry_run {

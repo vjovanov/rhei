@@ -343,28 +343,26 @@ overrides the location.
 Tickets carry the same project-qualified ids the rest of the CLI uses
 (`auth.1`), including for a bare rhei rendered directly (§AR-rhei-panta.2).
 
-### 7.3. Panta projects are not yet rendered as one graph
+### 7.3. Panta projects render as one graph
 
-`rhei viz` renders a **single rhei**. It is not Panta-aware: pointed at a
-project directory it renders each `*.rhei.md` as a separate plan rather than
-one merged graph, draws no cross-rhei dependency edges, and skips Directory
-Workspace rheis inside the project entirely.
+Pointed at a project directory, `rhei viz` loads the merged project
+(§AR-rhei-panta.2) and renders **one** graph: every rhei's tickets in the
+single project-qualified id space, cross-rhei `**Prior:**` edges drawn like any
+other edge, and Directory Workspace rheis included alongside single-file ones.
+Per-task state history is read under each ticket's owning rhei execution root,
+not the project root, because that is where a project keeps its ledgers
+(§AR-rhei-panta.5).
 
-Because that page is not the graph the rest of the CLI operates on, a project
-input must never be *advertised* as rendering one. `rhei viz` accepts the input
-and prints a warning to stderr naming the limitation and pointing the operator
-at a single rhei.
+Pointed at a **member rhei** of a project, `rhei viz` renders that project
+narrowed to the named rhei (§FS-rhei-panta.6). Narrowing keeps the one-hop
+neighbours a kept ticket's `**Prior:**` points at, and the ancestors a kept
+ticket hangs from. Dropping the far end of a cross-rhei edge would erase the
+dependency rather than scope it, leaving a page that reads as if the ticket had
+no prerequisite at all — the specific misrepresentation this view exists to
+prevent.
 
-That warning must also be **rendered into the page itself**, as a banner above
-the header, naming the rheis omitted from it. A caveat that lives only on
-stderr is gone as soon as the terminal scrolls, while the HTML it describes is
-opened, shared, and trusted for as long as it exists — a reader counting
-tickets against `rhei list` would find fewer and have no way to learn why. The
-page carries its own limitations or it misrepresents the project.
-
-Panta-aware rendering — Panta as the implicit canvas, rheis
-as top-level groups, cross-rhei dependency edges, `basin` last and
-de-emphasized — is tracked on the roadmap (§FS-rhei-panta.6.4).
+A page therefore never needs a limitation banner: what it renders is the graph
+the rest of the CLI operates on.
 
 ## 8. Data Contract
 

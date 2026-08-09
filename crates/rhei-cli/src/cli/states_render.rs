@@ -357,7 +357,17 @@ fn looks_like_task_id(value: &Path) -> bool {
 /// Resolve an omitted plan target: walk up from the current directory to the
 /// nearest project (`index.panta.md`) or workspace rhei (`index.rhei.md`); a
 /// lone rhei resolves in the current directory only. §FS-rhei-panta.6
-fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
+fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PlanTarget> {
+    let resolved = resolve_plan_path(input)?;
+    // A rhei inside a project is loaded through the project and narrowed to
+    // itself, so cross-rhei priors resolve. §FS-rhei-panta.6
+    match workspace::panta_member(&resolved) {
+        Some((project, id)) => Ok(PlanTarget { path: project, implied_scope: vec![id] }),
+        None => Ok(PlanTarget::whole(resolved)),
+    }
+}
+
+fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
     if let Some(input) = input {
         // The positional slot takes a plan, but it sits where a ticket id
         // looks like it belongs — and commands that select a ticket take it
@@ -430,6 +440,41 @@ fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
          or run inside a project",
         cwd.display()
     ))
+}
+
+/// A resolved plan target: the document to load, plus the rhei ids the
+/// invocation is implicitly narrowed to.
+///
+/// `implied_scope` is non-empty only when the caller pointed at a rhei that
+/// belongs to a Panta project. The project is what gets loaded — a member rhei
+/// cannot resolve its cross-rhei `**Prior:**` or its state machine without it —
+/// and the id it was pointed at narrows the tickets acted on, exactly as
+/// `--rhei <id>` would.
+// §FS-rhei-panta.6: a rhei that belongs to a project always loads through it.
+#[derive(Debug, Clone)]
+struct PlanTarget {
+    path: PathBuf,
+    implied_scope: Vec<String>,
+}
+
+impl PlanTarget {
+    fn whole(path: PathBuf) -> Self {
+        Self { path, implied_scope: Vec::new() }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The `--rhei` selection this invocation should use: the flag's value when
+    /// given, otherwise the rhei the target pointed at.
+    fn scope_with(&self, selected: &[String]) -> Vec<String> {
+        if selected.is_empty() {
+            self.implied_scope.clone()
+        } else {
+            selected.to_vec()
+        }
+    }
 }
 
 /// The set of rhei ids a project-scoped invocation is narrowed to. `None` is
@@ -596,8 +641,23 @@ struct TaskRoute {
     execution_root: PathBuf,
 }
 
-/// Name the rheis a fan-out invocation will touch, per §FS-rhei-panta.6.4.
-/// A one-rhei implicit Panta stays quiet.
+/// Explain that a member rhei validated its whole project.
+///
+/// Pointing validation at one rhei of a project widens rather than narrows, and
+/// silently reporting another rhei's errors under a command the user aimed at
+/// this one would be bewildering. Say what happened and why.
+// §FS-rhei-validate.1.1: validation takes no `--rhei`, so it widens instead.
+fn report_validation_widened(target: &PlanTarget) {
+    let Some(id) = target.implied_scope.first() else {
+        return;
+    };
+    println!(
+        "Scope: rhei '{id}' belongs to the project at {}, and its state machine, settings, and \
+         cross-rhei **Prior:** resolve only there — validating the whole project.",
+        display_path(target.path())
+    );
+}
+
 fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiScope) {
     if !(loaded.is_panta_project() || loaded.rhei_ids.len() > 1) {
         return;
@@ -793,11 +853,6 @@ fn collect_workspace_task_sources(
     }
 
     Ok(())
-}
-
-/// Read and parse a markdown plan file into a [`rhei_core::ast::Rhei`].
-fn parse_input_file(path: &Path) -> MietteResult<rhei_core::ast::Rhei> {
-    Ok(load_plan(path)?.rhei)
 }
 
 /// Execute the `validate` subcommand once or in watch mode.

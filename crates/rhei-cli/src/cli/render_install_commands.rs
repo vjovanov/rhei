@@ -102,24 +102,67 @@ fn print_next_output(output: NextOutput<'_>) {
 }
 
 /// Execute the `render` subcommand for the selected output format.
+#[allow(clippy::too_many_arguments)]
 fn render_command(
     input: &Path,
+    rhei_scope: &[String],
+    state_machine_path: Option<&Path>,
     format: RenderFormat,
     pretty: bool,
     no_color: bool,
     no_metadata: bool,
     no_content: bool,
 ) -> MietteResult<()> {
-    let rhei = parse_input_file(input)?;
-    let rendered = render_rhei(&rhei, format, pretty, no_color, no_metadata, no_content)
-        .map_err(|err| miette!("{err}"))?;
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
+    let loaded = load_plan(input)?;
+    let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
+    let rhei = narrow_rhei_to_scope(&loaded.rhei, &scope);
+    // The completion summary needs to know which states are final. A plan whose
+    // machine will not resolve still renders — it just renders without it.
+    let terminal_states = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)
+        .map(|resolved| terminal_state_names(&resolved.machine))
+        .unwrap_or_default();
+    let rendered =
+        render_rhei(&rhei, terminal_states, format, pretty, no_color, no_metadata, no_content)
+            .map_err(|err| miette!("{err}"))?;
     println!("{rendered}");
     Ok(())
+}
+
+/// Every state the machine marks final, for the progress summary.
+fn terminal_state_names(machine: &rhei_validator::StateMachine) -> BTreeSet<String> {
+    machine
+        .states
+        .iter()
+        .filter(|(_, def)| def.terminal)
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// Drop tickets and content sections outside `scope`, keeping the plan's own
+/// title and manifest sections. Priors keep their project-qualified ids: they
+/// were resolved against the whole project. §FS-rhei-panta.6
+fn narrow_rhei_to_scope(
+    rhei: &rhei_core::ast::Rhei,
+    scope: &RheiScope,
+) -> rhei_core::ast::Rhei {
+    if scope.is_none() {
+        return rhei.clone();
+    }
+    let mut narrowed = rhei.clone();
+    narrowed.tasks.retain(|task| task_in_rhei_scope(scope, &task.id.to_string()));
+    narrowed.content_sections.retain(|section| match section.rhei.as_deref() {
+        Some(id) => task_in_rhei_scope(scope, id),
+        None => true,
+    });
+    narrowed
 }
 
 /// Render a parsed rhei into the requested output representation.
 fn render_rhei(
     rhei: &rhei_core::ast::Rhei,
+    terminal_states: BTreeSet<String>,
     format: RenderFormat,
     pretty: bool,
     no_color: bool,
@@ -142,7 +185,12 @@ fn render_rhei(
         .to_markdown(rhei)),
         RenderFormat::Progress => {
             let color = should_use_color(no_color);
-            Ok(rhei_output::ProgressReportOutput { color, show_dependencies: true }.to_string(rhei))
+            Ok(rhei_output::ProgressReportOutput {
+                color,
+                show_dependencies: true,
+                terminal_states,
+            }
+            .to_string(rhei))
         }
     }
 }

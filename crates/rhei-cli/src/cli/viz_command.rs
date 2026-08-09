@@ -4,6 +4,7 @@
 
 fn viz_command(
     input: &Path,
+    rhei_scope: &[String],
     state_machine: Option<&Path>,
     output: Option<&Path>,
     open: bool,
@@ -15,24 +16,18 @@ fn viz_command(
         .unwrap_or("plan")
         .to_string();
 
-    let panta_caveat = panta_project_caveat(input);
-    if let Some(caveat) = &panta_caveat {
-        eprintln!("Warning: {caveat}");
-    }
-
     let plans = rhei_viz::collect_plans(input, &key, state_machine)
         .map_err(|err| miette!("failed to collect plans from {}: {err}", input.display()))?;
     if plans.is_empty() {
         return Err(miette!("no .rhei.md plans found at {}", input.display()));
     }
 
+    // A member rhei renders its project's graph, filtered to its own tickets:
+    // a cross-rhei prior is part of what governs this rhei, so the edge stays
+    // and its far end is drawn as an out-of-scope neighbour. §FS-rhei-viz.7.3
+    let plans = rhei_viz::narrow_bundle(plans, rhei_scope);
+
     let html = rhei_viz_model::render_static(&plans);
-    // The stderr warning is gone once the terminal scrolls, but the page it
-    // describes gets opened and trusted later. §FS-rhei-viz.7.3
-    let html = match &panta_caveat {
-        Some(caveat) => rhei_viz_model::with_page_notice(&html, caveat),
-        None => html,
-    };
     let out = output.map(Path::to_path_buf).unwrap_or_else(|| default_viz_output(input));
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)
@@ -45,36 +40,6 @@ fn viz_command(
         open_in_browser(&out)?;
     }
     Ok(())
-}
-
-/// A project renders as one disconnected plan per `*.rhei.md`, not the merged
-/// graph, so state the limit rather than advertise a project rendering. `None`
-/// for a single rhei, which renders accurately. §FS-rhei-viz.7.3
-fn panta_project_caveat(input: &Path) -> Option<String> {
-    let project = workspace::panta_project_dir(input)?;
-    // Name the rheis that will be missing from the page. A reader counting
-    // tickets against `rhei list` otherwise has no way to know what is absent.
-    let skipped = workspace::load_panta_project(&project)
-        .map(|loaded| {
-            loaded
-                .rhei_ids
-                .into_iter()
-                .filter(|id| !project.join(format!("{id}.rhei.md")).is_file())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let omission = if skipped.is_empty() {
-        "Directory Workspace rheis are skipped.".to_string()
-    } else {
-        format!("These rheis are missing from this page: {}.", skipped.join(", "))
-    };
-    Some(format!(
-        "`rhei viz` is not Panta-aware yet. {} is a Panta project, so this renders \
-         one disconnected plan per `*.rhei.md` — not the merged project graph. Cross-rhei \
-         dependency edges are not drawn. {omission} \
-         Point `rhei viz` at a single rhei for an accurate view.",
-        input.display()
-    ))
 }
 
 /// Default output under the workspace's `runtime/` directory (the run-end freeze

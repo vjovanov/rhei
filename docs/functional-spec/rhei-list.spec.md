@@ -30,7 +30,7 @@ directory. Listing is project-wide: filters apply across every rhei, and
 | `--contains <TEXT>`      | Case-insensitive substring match against task title and content body.             |
 | `--terminal`             | Only tasks whose state is terminal in the resolved state machine.                 |
 | `--non-terminal`         | Only tasks whose state is non-terminal. Mutually exclusive with `--terminal`.     |
-| `--ready`                | Only tasks whose `**Prior:**` set is satisfied and whose state is non-terminal and non-gating. Mutually exclusive with `--blocked`. |
+| `--ready`                | Only **leaf** tasks whose `**Prior:**` set is satisfied and whose state is non-terminal and non-gating — the claimable set (§3.1). Mutually exclusive with `--blocked`. |
 | `--blocked`              | Only non-terminal tasks with at least one unsatisfied prerequisite.               |
 | `--limit <N>`            | Cap the number of printed tasks. `0` means no limit (default).                    |
 | `--json`                 | Emit a JSON array instead of human-readable text.                                 |
@@ -48,6 +48,19 @@ Filters combine with logical AND. Empty result sets are not an error.
    plan state using the same dependency rule as `rhei next` (terminal,
    non-cancelled).
 5. Apply `--limit` after filtering.
+
+### 3.1. What `--ready` means
+
+`--ready` answers "what work could be picked up", so it lists exactly the set
+`rhei next` draws from — including the **leaf-only** rule that command applies.
+A ticket with children is a container whose state rolls up from them; `rhei next`
+never claims one, so listing it as ready offers work that cannot be handed out
+and inflates every count taken from the listing.
+
+`--ready` reports *readiness*, not *availability*: a ready ticket that already
+carries an `**Assignee:**` is still listed, because whether someone has claimed
+it is a separate question with its own filters. Compose them for the narrower
+answer — `rhei list --ready --no-assignee` is the unclaimed ready work.
 6. Emit the result. The plan file is **not** modified and no lock is acquired.
 
 ## 4. Output

@@ -252,10 +252,24 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             init_command(dir.as_deref(), title.as_deref(), no_agents, force, here)
         }
         Commands::Validate { watch, input } => {
-            validate_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), watch)
+            // §FS-rhei-validate.1.1: validation never narrows — a member rhei
+            // validates the project it cannot resolve without.
+            let target = resolve_plan_target(input)?;
+            report_validation_widened(&target);
+            validate_command(target.path(), cli.state_machine.as_deref(), watch)
         }
         Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
-            render_command(&resolve_plan_target(input)?, format, pretty, no_color, no_metadata, no_content)
+            let target = resolve_plan_target(input)?;
+            render_command(
+                target.path(),
+                &target.scope_with(&[]),
+                cli.state_machine.as_deref(),
+                format,
+                pretty,
+                no_color,
+                no_metadata,
+                no_content,
+            )
         }
         Commands::States { input, json } => {
             states_command(input, cli.state_machine.as_deref(), json)
@@ -277,8 +291,11 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             blocked,
             limit,
             json,
-        } => list_command(
-            &resolve_plan_target(input)?,
+        } => {
+            let target = resolve_plan_target(input)?;
+            let rhei = target.scope_with(&rhei);
+            list_command(
+            target.path(),
             cli.state_machine.as_deref(),
             ListFilters {
                 rhei,
@@ -297,26 +314,44 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                 limit,
             },
             json,
-        ),
-        Commands::Transition { input, task, from, to, no_callbacks } => transition_command(
-            &resolve_plan_target(input)?,
-            cli.state_machine.as_deref(),
-            &task,
-            &from,
-            &to,
-            no_callbacks,
-        ),
-        Commands::Run { input, standalone, agent, program, snapshot } => run_command(
-            &resolve_plan_target(input)?,
-            cli.state_machine.as_deref(),
-            (standalone, agent, program, snapshot).into(),
-        ),
-        Commands::Cost { input, task, json, by } => cost_command(&resolve_plan_target(input)?, task.as_deref(), json, by),
+            )
+        }
+        Commands::Transition { input, task, from, to, no_callbacks } => {
+            let target = resolve_plan_target(input)?;
+            transition_command(
+                target.path(),
+                &target.scope_with(&[]),
+                cli.state_machine.as_deref(),
+                &task,
+                &from,
+                &to,
+                no_callbacks,
+            )
+        }
+        Commands::Run { input, standalone, agent, program, snapshot } => {
+            let target = resolve_plan_target(input)?;
+            let mut opts: RunOptions = (standalone, agent, program, snapshot).into();
+            opts.narrow_to(target.scope_with(opts.rhei_scope()));
+            run_command(target.path(), cli.state_machine.as_deref(), opts)
+        }
+        // `rhei cost` reads accounting artifacts under the target's own runtime
+        // root and resolves no dependency graph, so it stays on the path it was
+        // given rather than widening to the enclosing project.
+        Commands::Cost { input, task, json, by } => {
+            cost_command(resolve_plan_target(input)?.path(), task.as_deref(), json, by)
+        }
         Commands::Intervene { plan, task, slot, message } => {
             intervene_command(&plan, &task, slot, &message)
         }
         Commands::Viz { input, output, open } => {
-            viz_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), output.as_deref(), open)
+            let target = resolve_plan_target(input)?;
+            viz_command(
+                target.path(),
+                &target.scope_with(&[]),
+                cli.state_machine.as_deref(),
+                output.as_deref(),
+                open,
+            )
         }
         Commands::Snapshot { command } => snapshot_command(command, cli.state_machine.as_deref()),
         Commands::Templates { json, source } => templates::templates_command(json, &source),
@@ -344,17 +379,39 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             keep_on_error,
             list_inputs,
         ),
-        Commands::Next { input, task, json, no_callbacks, peek, rhei } => next_command(
-            &resolve_plan_target(input)?,
-            cli.state_machine.as_deref(),
-            task.as_deref(),
-            json,
-            no_callbacks,
-            peek,
-            &rhei,
-        ),
+        Commands::Next { input, task, json, no_callbacks, peek, rhei } => {
+            let target = resolve_plan_target(input)?;
+            next_command(
+                target.path(),
+                cli.state_machine.as_deref(),
+                task.as_deref(),
+                json,
+                no_callbacks,
+                peek,
+                &target.scope_with(&rhei),
+            )
+        }
         Commands::Complete { input, task, result, no_callbacks } => {
-            complete_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), &task, &result, no_callbacks)
+            let target = resolve_plan_target(input)?;
+            complete_command(
+                target.path(),
+                &target.scope_with(&[]),
+                cli.state_machine.as_deref(),
+                &task,
+                &result,
+                no_callbacks,
+            )
+        }
+        Commands::Release { input, task, all, rhei, dry_run } => {
+            let target = resolve_plan_target(input)?;
+            release_command(
+                target.path(),
+                cli.state_machine.as_deref(),
+                task.as_deref(),
+                all,
+                &target.scope_with(&rhei),
+                dry_run,
+            )
         }
         Commands::Reset { input, rhei, dry_run, yes } => {
             // §FS-rhei-panta.6: reset destroys runtime state, so it is the one
@@ -366,7 +423,16 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                      Name the plan or project explicitly: `rhei reset <plan-or-project>`"
                 ));
             };
-            reset_command(&input, cli.state_machine.as_deref(), &rhei, dry_run, yes)
+            // Reset never *infers* a target, but an explicit member rhei still
+            // loads through its project and narrows to itself. §FS-rhei-panta.6
+            let target = resolve_plan_target(Some(input))?;
+            reset_command(
+                target.path(),
+                cli.state_machine.as_deref(),
+                &target.scope_with(&rhei),
+                dry_run,
+                yes,
+            )
         }
         Commands::Version => {
             print_versions();

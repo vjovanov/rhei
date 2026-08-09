@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+- Ship a built-in template library inside the binary. `rhei templates` printed
+  "No templates found." on every fresh install: templates were project- and
+  user-scoped only, so the ten shipped with this repo lived in a directory a
+  `cargo install` never sees. They now compile into the binary as a third
+  discovery tier below project and user, so a project or user template of the
+  same name still shadows one. §FS-rhei-templates.1
+- Add `rhei release`, the counterpart to the claim `rhei next` writes. A worker
+  that crashed left `**Assignee:**` behind and `rhei next` refused to hand out
+  work while it stood, with no way to drop it: the only escape was editing the
+  markdown or `rhei reset`, which rewrites every ticket in scope and deletes the
+  whole `runtime/` tree. Release drops the claim and nothing else, takes
+  `--task <id>` or `--all`, and has `--dry-run`. §FS-rhei-release
+- Render `rhei viz` for a Panta project as one merged graph. It drew a separate,
+  disconnected plan per `*.rhei.md`, omitted cross-rhei dependency edges, and
+  skipped Directory Workspace rheis entirely — on the layout `rhei init` creates
+  by default, and on the same surface `rhei run` serves live. A member rhei
+  renders that graph narrowed to itself, keeping the far end of its cross-rhei
+  priors so an edge is scoped rather than erased. §FS-rhei-viz.7.3
+- Load a rhei that belongs to a project *through* its project. Pointing a
+  command at `panta/billing.rhei.md` read the file alone, so a legitimate
+  cross-rhei `**Prior:**` had nothing to resolve against: a correct plan failed
+  `rhei validate <file>` while passing `rhei validate` on its project — a false
+  failure for any per-file CI or pre-commit check. The path now implies
+  `--rhei <id>`; validation, which takes no `--rhei`, widens and says so.
+  §FS-rhei-panta.6
+- Report a `**Prior:**` under the id the author wrote. An unresolvable dotted
+  reference was re-qualified with the citing rhei, so `c.1` surfaced everywhere
+  — validation errors, `rhei list`, every renderer — as `a.c.1`, an id in no
+  file. The previous release bolted an explanatory hint onto the mangled id;
+  this fixes the mangling. The correction offered is now required to resolve to
+  a real ticket other than the citing one, so a one-character rhei name can no
+  longer suggest a task as its own prior. §AR-rhei-panta.3 §FS-rhei-validate.4.1
+- Report every parse problem in a file when it is reached through its project.
+  Project-scoped loading stopped at the first one and dropped the structural
+  diagnostic that actually explains the mistake: a task heading authored under a
+  content section reported only "Metadata field appears outside a task", on a
+  line the author did not get wrong, while `rhei validate <that same file>`
+  additionally named the `## Tasks` rule. Diagnostics also render the plan path
+  relative to the invocation directory when that is shorter.
+  §FS-rhei-validate.4.2
+- Group project-scoped `rhei render` output by rhei. Both text formats printed
+  every rhei's heading as a block and then one flat merged task list, leaving a
+  rhei without a content section as a heading with nothing under it, and the
+  GitHub format emitted runs of blank lines. Each rhei now renders as one block:
+  title, its own sections, then its tickets. `--format progress` also leads with
+  the completion summary it is named for. §FS-rhei-render.3.3 §FS-rhei-render.3.4
+- Exclude parent tickets from `rhei list --ready`. `--ready` listed epics that
+  `rhei next` will never claim — it claims leaves only — so any count taken from
+  the listing overstated the available work. §FS-rhei-list.3.1
+- Name the fix in the unknown-node-kind error. It reported the declared kinds
+  but not where kinds are declared, leaving `### Bug 3:` a dead end; it now
+  points at `structure.nodeKinds` in the plan's frontmatter and shows the line
+  to write. §FS-rhei-plan-language.3
+- Name the artifact rename in the result-link error. Renaming a ticket id is a
+  two-file edit — the link and the artifact it points at — and nothing said so.
+- Distinguish ticket depth from project level in the plan language spec.
+  `structure.maxLevels` counts `###` as depth 1 while the Plan Root Model counts
+  Panta as level 0, so `maxLevels: 2` read two ways in one section.
+  §FS-rhei-plan-language.3
 - Let basin tickets execute. `rhei validate` and `rhei list` accepted them
   while `rhei transition`, `rhei next`, and `rhei run` all failed with
   "Metadata field appears outside a task": the synthetic basin is

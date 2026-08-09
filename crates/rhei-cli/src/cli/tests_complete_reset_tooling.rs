@@ -231,7 +231,7 @@ transitions:
         )
         .expect("write states");
 
-        let err = complete_command(&plan, Some(&states), "1", "done", true)
+        let err = complete_command(&plan, &[], Some(&states), "1", "done", true)
             .expect_err("gating completion must fail");
         assert!(err.to_string().contains("gating state"), "{err}");
     }

@@ -1709,54 +1709,53 @@ fn missing_input_artifact_error_names_pre_qualification_file() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// §FS-rhei-viz.7.3: a project renders as one merged graph — every rhei's
+/// tickets in one plan, cross-rhei edges intact — and a member rhei renders that
+/// graph narrowed to itself, keeping the far end of its cross-rhei priors.
 #[test]
-fn viz_warns_on_panta_project_and_stays_quiet_on_single_rhei() {
+fn viz_renders_a_panta_project_as_one_graph_and_narrows_to_a_member() {
     let project = create_panta_project(
-        "panta-viz-warn",
+        "panta-viz-merged",
         "# Panta: Viz\n**States:** workspace-test-machine\n",
         &[
             ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
             (
                 "billing.rhei.md",
-                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n\
+                 **Prior:** auth.1\n",
             ),
         ],
         WORKSPACE_STATE_MACHINE,
     );
 
-    // §FS-rhei-viz.7.3: a project input warns on stderr that the page is not
-    // the merged project graph, but the command still succeeds.
-    let out_file = project.join("viz.html");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
-        .arg("viz")
-        .arg(&project)
-        .arg("--output")
-        .arg(&out_file)
-        .output()
-        .expect("viz runs");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "viz should still render\nstderr: {stderr}");
-    assert!(
-        stderr.contains("not Panta-aware")
-            && stderr.contains("not the merged project graph")
-            && stderr.contains("Point `rhei viz` at a single rhei"),
-        "project input should warn with the limitation and the workaround: {stderr}"
-    );
-    assert!(out_file.exists(), "viz output should be written");
+    let render = |target: &Path, out_name: &str| -> String {
+        let out_file = project.join(out_name);
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("viz")
+            .arg(target)
+            .arg("--output")
+            .arg(&out_file)
+            .output()
+            .expect("viz runs");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "viz should render\nstderr: {stderr}");
+        assert!(
+            !stderr.contains("not Panta-aware"),
+            "a project renders as one graph, so nothing is caveated: {stderr}"
+        );
+        fs::read_to_string(&out_file).expect("read viz page")
+    };
 
-    // A single rhei inside the project renders without the warning.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
-        .arg("viz")
-        .arg(project.join("auth.rhei.md"))
-        .arg("--output")
-        .arg(project.join("viz-auth.html"))
-        .output()
-        .expect("viz runs");
-    assert!(output.status.success());
-    assert!(
-        !String::from_utf8_lossy(&output.stderr).contains("not Panta-aware"),
-        "single-rhei input must not warn"
-    );
+    // One page, one plan bundle: both rheis' tickets, and the cross-rhei edge.
+    let whole = render(&project, "viz.html");
+    assert!(whole.contains("auth.1"), "the project graph holds auth's ticket");
+    assert!(whole.contains("billing.1"), "the project graph holds billing's ticket");
+
+    // Narrowed to `billing`: its own ticket, plus the auth ticket its prior
+    // points at, so the dependency is scoped rather than erased.
+    let narrowed = render(&project.join("billing.rhei.md"), "viz-billing.html");
+    assert!(narrowed.contains("billing.1"), "the named rhei's ticket stays");
+    assert!(narrowed.contains("auth.1"), "the far end of a cross-rhei prior stays");
 
     fs::remove_dir_all(project).expect("cleanup");
 }
@@ -3064,9 +3063,55 @@ fn reset_dry_run_changes_nothing() {
     );
 }
 
-/// §FS-rhei-panta.6: a `**Prior:**` naming an unknown rhei is qualified with
-/// the citing rhei, so it surfaces as an id the author never wrote. Name the
-/// unknown rhei and the near miss.
+/// Reaching a plan through its project must not cost the author diagnostics.
+/// Task headings under a content section fail first as "Metadata field appears
+/// outside a task", on a line that is not the mistake; only the structural
+/// diagnostic explains it, and it must survive both scopes.
+// §FS-rhei-validate.4.2: both scopes report every problem in the file.
+#[test]
+fn project_scoped_parse_errors_match_file_scoped_ones() {
+    let plan = "# Rhei: A\n\n## Overview\n\n### Task 1: one\n\n**State:** pending\n\n\
+                ### Task 2: two\n\n**State:** pending\n";
+    let project = create_panta_project(
+        "panta-parse-parity",
+        "# Panta: Parity\n**States:** workspace-test-machine\n",
+        &[("c.rhei.md", plan)],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let run = |target: &Path| -> String {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("validate")
+            .arg(target)
+            .output()
+            .expect("validate command should run");
+        assert!(!output.status.success(), "the malformed plan must fail validation");
+        let stderr: String = String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .filter(|ch| *ch != '│' && *ch != '\n')
+            .collect();
+        normalize_for_assertions(&stderr)
+    };
+
+    let by_project = run(&project);
+    let by_file = run(&project.join("c.rhei.md"));
+
+    for scope in [&by_project, &by_file] {
+        assert!(scope.contains("(3 problems)"), "every problem must be reported, got:\n{scope}");
+        assert!(
+            scope.contains("Tasks section must be the final '##' chapter"),
+            "the structural diagnostic explains the mistake, got:\n{scope}"
+        );
+        assert!(
+            scope.contains("line 7:") && scope.contains("line 11:"),
+            "each problem keeps its line, got:\n{scope}"
+        );
+    }
+}
+
+/// §FS-rhei-validate.3: a `**Prior:**` naming an unknown rhei is reported under
+/// the id the author wrote — never re-qualified with the citing rhei — and names
+/// both the unknown rhei and the near miss.
 #[test]
 fn missing_prior_names_the_unknown_rhei_and_suggests_the_near_miss() {
     let project = create_panta_project(
@@ -3106,4 +3151,124 @@ fn missing_prior_names_the_unknown_rhei_and_suggests_the_near_miss() {
         stderr.contains("Did you mean 'onboarding.1'?"),
         "error should suggest the near miss, got:\n{stderr}"
     );
+    assert!(
+        stderr.contains("missing Task onbaording.1"),
+        "error should quote the authored id, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("billing.onbaording.1"),
+        "error must not re-qualify the authored id with the citing rhei, got:\n{stderr}"
+    );
+}
+
+/// §FS-rhei-validate.3: a correction is only offered when it resolves to some
+/// other ticket. A one-character rhei name is within one edit of every other, so
+/// the near-miss search must not propose the citing task as its own prior.
+#[test]
+fn missing_prior_never_suggests_the_citing_task_as_its_own_prior() {
+    let project = create_panta_project(
+        "panta-prior-self-suggest",
+        "# Panta: Short\n**States:** workspace-test-machine\n",
+        &[
+            ("b.rhei.md", "# Rhei: B\n\n## Tasks\n\n### Task 1: Other\n**State:** pending\n"),
+            (
+                "a.rhei.md",
+                "# Rhei: A\n\n## Tasks\n\n### Task 1: Pick\n**State:** pending\n\
+                 **Prior:** c.1\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = normalize_for_assertions(&stderr);
+    assert!(!output.status.success(), "validate should fail on the unknown rhei");
+    assert!(
+        stderr.contains("missing Task c.1"),
+        "error should quote the authored id, got:\n{stderr}"
+    );
+    assert!(!stderr.contains("Did you mean"), "no correction should be offered, got:\n{stderr}");
+    assert!(
+        stderr.contains("rhei 'a' has no ticket 'c.1'"),
+        "error should rule out the local-id reading too, got:\n{stderr}"
+    );
+}
+
+/// §FS-rhei-render.3.4: a merged project renders rhei by rhei, not as one flat
+/// task list under a run of headings, and the progress format leads with the
+/// completion summary it is named for.
+#[test]
+fn project_render_groups_tickets_under_their_rhei() {
+    let project = create_panta_project(
+        "panta-render-groups",
+        "# Panta: Store\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "auth.rhei.md",
+                "# Rhei: Authentication\n\n## Overview\n\nWho gets in.\n\n## Tasks\n\n\
+                 ### Task 1: Login\n**State:** completed\n",
+            ),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let render = |format: &str| -> String {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("render")
+            .arg(&project)
+            .arg("--format")
+            .arg(format)
+            .arg("--no-color")
+            .output()
+            .expect("render runs");
+        assert!(
+            output.status.success(),
+            "render should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    let github = render("github");
+    let auth_heading = github.find("## Authentication").expect("auth heading");
+    let billing_heading = github.find("## Billing").expect("billing heading");
+    let auth_ticket = github.find("auth.1").expect("auth ticket");
+    let billing_ticket = github.find("billing.1").expect("billing ticket");
+    assert!(
+        auth_heading < auth_ticket && auth_ticket < billing_heading,
+        "each rhei's tickets belong under its own heading:\n{github}"
+    );
+    assert!(billing_heading < billing_ticket, "billing's ticket follows its heading:\n{github}");
+    assert!(
+        !github.contains("Rhei auth / Overview"),
+        "the merge prefix is not part of the document:\n{github}"
+    );
+    assert!(!github.contains("\n\n\n"), "no runs of blank lines:\n{github:?}");
+
+    let progress = render("progress");
+    assert!(
+        progress.contains("1/2 tickets done (50%)"),
+        "progress leads with the completion summary:\n{progress}"
+    );
+    let auth_heading = progress.find("\nAuthentication\n").expect("auth group");
+    let billing_heading = progress.find("\nBilling\n").expect("billing group");
+    assert!(
+        auth_heading < progress.find("auth.1").expect("auth ticket")
+            && progress.find("auth.1").expect("auth ticket") < billing_heading,
+        "progress groups tickets under their rhei too:\n{progress}"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
 }

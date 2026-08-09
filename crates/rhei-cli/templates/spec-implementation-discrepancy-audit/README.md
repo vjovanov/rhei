@@ -13,7 +13,7 @@ gate.
 | `audit_title` | string | `Spec Implementation Discrepancy Audit` | Title for the instantiated workspace. |
 | `subject` | string | `Rhei` | Product, repository, or subsystem being audited. |
 | `spec_root` | string | `docs/functional-spec` | Documentation root containing the Rhei functional spec files. |
-| `implementation_roots` | array<string> | `crates`, `skills`, `.agents/rhei/templates` | Root paths containing implementation, tests, templates, or skills. |
+| `implementation_roots` | array<string> | `crates`, `skills`, `crates/rhei-cli/templates` | Root paths containing implementation, tests, templates, or skills. |
 | `audit_target` | string | `codex[yolo]:openai:gpt-5.5` | Execution target for each autonomous audit state. |
 | `extra_context` | string | empty | Optional context appended to the workspace overview. |
 

@@ -115,6 +115,12 @@ impl RunOptions {
         &self.standalone.rhei
     }
 
+    /// Adopt the scope implied by the resolved target — the rhei a member-plan
+    /// path pointed at — when `--rhei` did not already set one. §FS-rhei-panta.6
+    fn narrow_to(&mut self, scope: Vec<String>) {
+        self.standalone.rhei = scope;
+    }
+
     fn frontend_kind(&self) -> rhei_tui::FrontendKind {
         if self.standalone.tui {
             rhei_tui::FrontendKind::Tui

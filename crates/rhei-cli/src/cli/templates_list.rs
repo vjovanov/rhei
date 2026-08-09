@@ -4,6 +4,8 @@
     enum TemplateSource {
         Project,
         User,
+        /// Shipped inside the binary; the tier every install has. §FS-rhei-templates.1
+        Builtin,
     }
 
     impl TemplateSource {
@@ -11,6 +13,7 @@
             match self {
                 TemplateSource::Project => "project",
                 TemplateSource::User => "user",
+                TemplateSource::Builtin => "built-in",
             }
         }
     }
@@ -19,6 +22,7 @@
     enum TemplateSourceFilter {
         Project,
         User,
+        Builtin,
         All,
     }
 
@@ -29,6 +33,7 @@
                 (TemplateSourceFilter::All, _)
                     | (TemplateSourceFilter::Project, TemplateSource::Project)
                     | (TemplateSourceFilter::User, TemplateSource::User)
+                    | (TemplateSourceFilter::Builtin, TemplateSource::Builtin)
             )
         }
     }
@@ -455,8 +460,8 @@
         let words = words.get(instantiate_index + 1..)?;
         let before_current = words.get(..words.len().saturating_sub(1)).unwrap_or(words);
         let (template, input_args) = completion_template_and_inputs(before_current)?;
-        let template_dir = resolve_template_reference(&template).ok()?;
-        let manifest = load_template_manifest(&template_dir).ok()?;
+        let resolved = resolve_template_reference(&template).ok()?;
+        let manifest = load_template_manifest(resolved.path()).ok()?;
         Some((manifest, input_args))
     }
 

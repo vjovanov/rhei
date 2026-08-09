@@ -87,9 +87,8 @@ the single rhei of an implicit Panta with its id derived from the source
 location, mutation is project-wide with rewrites routed to each owning rhei, and
 `--rhei` narrows project-scoped invocations.
 
-Delivered with two deliberate limits, both tracked below: one state machine
-governs a whole project, and `rhei viz` is not yet Panta-aware.
-§FS-rhei-panta §AR-rhei-panta
+Delivered with one deliberate limit, tracked below: one state machine governs a
+whole project. §FS-rhei-panta §AR-rhei-panta
 
 ## Planned: CLI UX and Release Polish
 
@@ -113,11 +112,10 @@ old notes are historical; this roadmap owns the remaining backlog.
   profile to the rhei tier and let a profiled rhei carry state and roll up like
   a non-leaf ticket. Today the key has no effect because the graph contains no
   rhei nodes. §FS-rhei-panta.6.3 §FS-rhei-states.9
-- Make `rhei viz` Panta-aware: render a project directory as one merged graph
-  with rheis as top-level groups and cross-rhei dependency edges, instead of one
-  disconnected plan per `*.rhei.md`. Directory Workspace rheis inside a project
-  are currently skipped entirely; until this lands the CLI warns when it is
-  pointed at a project. §FS-rhei-viz.7.3 §FS-rhei-panta.6.4
+- Give `rhei viz` rhei-level *presentation*: visually grouped top-level bands
+  per rhei with the `basin` group last and de-emphasized. The merged project
+  graph and its cross-rhei edges already render; what is missing is the grouping
+  chrome around them. §FS-rhei-viz.7.3 §FS-rhei-panta.6.4
 - Validate child-rhei content-section links under Panta: carry a per-section
   link base so a rhei's own content sections resolve against that rhei's
   execution root, not the project root. Today only task-content links are

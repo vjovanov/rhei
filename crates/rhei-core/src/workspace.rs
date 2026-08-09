@@ -267,17 +267,19 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
         content_sections.push(ContentSection {
             title: format!("Rhei {rhei_id}: {}", rhei.title),
             content: String::new(),
+            rhei: Some(rhei_id.clone()),
         });
         content_section_roots.push(root.clone());
         for section in &rhei.content_sections {
             content_sections.push(ContentSection {
                 title: format!("Rhei {rhei_id} / {}", section.title),
                 content: section.content.clone(),
+                rhei: Some(rhei_id.clone()),
             });
             content_section_roots.push(root.clone());
         }
         let local_ids = collect_task_ids(&rhei.tasks);
-        qualify_tasks(&mut rhei.tasks, &rhei_id, &rhei_ids, &local_ids);
+        qualify_tasks(&mut rhei.tasks, &rhei_id, &local_ids);
         for task in &rhei.tasks {
             let source = source_for_task(&sources, task)?;
             collect_task_sources(task, source.as_path(), &mut task_sources)?;
@@ -344,7 +346,7 @@ pub fn wrap_rhei_as_implicit_panta(
     let mut rhei = loaded.rhei;
     let rhei_ids = vec![id.clone()];
     let local_ids = collect_task_ids(&rhei.tasks);
-    qualify_tasks(&mut rhei.tasks, &id, &rhei_ids, &local_ids);
+    qualify_tasks(&mut rhei.tasks, &id, &local_ids);
     // On-disk frontmatter keys stay rhei-local; merged-graph reads resolve
     // through project-qualified keys. §AR-rhei-panta.2
     rhei.metadata = qualify_task_metadata(rhei.metadata.take(), &id);
@@ -594,6 +596,42 @@ fn basin_id_reserved_error(entry: &Path) -> ParseError {
     )
 }
 
+/// Resolve `path` as a rhei entry inside a Panta project, returning the project
+/// directory and the entry's rhei id.
+///
+/// A rhei that belongs to a project cannot be understood without it: its
+/// `**Prior:**` may point across rheis and its state machine comes from the
+/// manifest. Commands therefore load the project and narrow to this id, rather
+/// than loading the file alone.
+// §FS-rhei-panta.6: pointing at a member rhei is `--rhei <id>` on its project.
+pub fn panta_member(path: &Path) -> Option<(PathBuf, String)> {
+    // `index.rhei.md` inside a workspace stands for the workspace directory.
+    let entry = workspace_dir(path).unwrap_or_else(|| path.to_path_buf());
+    // A bare `billing.rhei.md` has no parent component, so resolve against the
+    // invocation directory before asking what encloses it.
+    let absolute = if entry.is_absolute() {
+        entry.clone()
+    } else {
+        std::env::current_dir().ok()?.join(&entry)
+    };
+    let parent = absolute.parent()?;
+    if !is_panta_project(parent) {
+        return None;
+    }
+    let name = absolute.file_name()?;
+    if absolute.is_dir() && name == BASIN_RHEI_ID {
+        return Some((parent.to_path_buf(), BASIN_RHEI_ID.to_string()));
+    }
+    // Only a real rhei entry qualifies: a stray `notes.md` beside the manifest
+    // is not one, and neither is the `runtime/` tree.
+    let entries = discover_rhei_entries(parent).ok()?;
+    if !entries.iter().any(|candidate| candidate.file_name() == Some(name)) {
+        return None;
+    }
+    let id = rhei_id_for_entry(&absolute).ok()?;
+    Some((parent.to_path_buf(), id))
+}
+
 fn rhei_id_for_entry(path: &Path) -> parser::Result<String> {
     if path.is_dir() {
         return path
@@ -688,28 +726,25 @@ fn collect_task_ids(tasks: &[Task]) -> HashSet<TaskId> {
     ids
 }
 
-fn qualify_tasks(
-    tasks: &mut [Task],
-    rhei_id: &str,
-    rhei_ids: &[String],
-    local_ids: &HashSet<TaskId>,
-) {
+fn qualify_tasks(tasks: &mut [Task], rhei_id: &str, local_ids: &HashSet<TaskId>) {
     for task in tasks {
-        qualify_task(task, rhei_id, rhei_ids, local_ids);
+        qualify_task(task, rhei_id, local_ids);
     }
 }
 
-fn qualify_task(task: &mut Task, rhei_id: &str, rhei_ids: &[String], local_ids: &HashSet<TaskId>) {
+fn qualify_task(task: &mut Task, rhei_id: &str, local_ids: &HashSet<TaskId>) {
     task.id = qualify_local_id(&task.id, rhei_id);
     task.profile_depth_offset = task.profile_depth_offset.saturating_add(1);
     for prior in &mut task.prior {
-        // Rhei-local prior ids win when they are ambiguous with project-qualified ids. §AR-rhei-panta.3
-        if local_ids.contains(prior) || !is_project_qualified(prior, rhei_ids) {
+        // A dotted `<name>.<rest>` naming no local ticket is a cross-rhei
+        // reference, kept as authored so a dangling one is never reported under
+        // an id nobody wrote. §AR-rhei-panta.3
+        if local_ids.contains(prior) || !is_cross_rhei_reference(prior) {
             *prior = qualify_local_id(prior, rhei_id);
         }
     }
     for child in &mut task.children {
-        qualify_task(child, rhei_id, rhei_ids, local_ids);
+        qualify_task(child, rhei_id, local_ids);
     }
 }
 
@@ -720,11 +755,16 @@ fn qualify_local_id(id: &TaskId, rhei_id: &str) -> TaskId {
     TaskId::from_segments(segments)
 }
 
-fn is_project_qualified(id: &TaskId, rhei_ids: &[String]) -> bool {
-    let Some(TaskIdSegment::Named(first)) = id.segments.first() else {
-        return false;
-    };
-    id.segments.len() > 1 && rhei_ids.iter().any(|rhei_id| rhei_id == first)
+/// Whether `id` has the shape of a reference into another rhei: a dotted id
+/// whose leading segment is a name rather than a number.
+///
+/// The leading segment is *not* checked against the project's rhei ids. A typo'd
+/// rhei name is shaped like a cross-rhei reference and reads like one to the
+/// author, so it stays as written and validation explains it. Prefixing it with
+/// the citing rhei instead would report an id that appears in no file.
+// §AR-rhei-panta.3: a dotted, name-led prior is kept as authored.
+fn is_cross_rhei_reference(id: &TaskId) -> bool {
+    id.segments.len() > 1 && matches!(id.segments.first(), Some(TaskIdSegment::Named(_)))
 }
 
 fn source_for_task(sources: &HashMap<String, PathBuf>, task: &Task) -> parser::Result<PathBuf> {

@@ -25,12 +25,28 @@ Templates are resolved in order, first match wins:
 |----------|----------|-------|
 | 1 | `<project>/.agents/rhei/templates/<name>/` | Project-local |
 | 2 | `~/.agents/rhei/templates/<name>/` | User-global |
+| 3 | compiled into the `rhei` binary | Built-in |
 
 The `<name>` is the directory name and serves as the template identifier used in CLI commands.
 
+**Built-in templates** ship inside the binary. They are the tier every install
+has: a fresh `cargo install` — or a downloaded release binary — must be able to
+run `rhei templates` and `rhei instantiate` without first authoring a template
+or cloning a repository. Shipping them as files beside the binary would make the
+feature depend on an installation layout that no distribution channel
+guarantees, so the library is embedded at compile time instead.
+
+Because built-ins sit last in the search order, a project or user template of
+the same name shadows one, which is how a built-in is customized: copy it into
+`.agents/rhei/templates/<name>/` and edit.
+
+A built-in is extracted to a temporary directory when it is instantiated, so
+every later step — manifest validation, layout detection, rendering — sees an
+ordinary template directory and behaves identically for all three tiers.
+
 Discovery errors are handled per command:
 
-- `rhei templates` skips unreadable or invalid template directories and prints a warning naming the skipped path.
+- `rhei templates` skips unreadable or invalid template directories and prints a warning naming the skipped path. `--source` selects a tier: `project`, `user`, `builtin`, or `all`.
 - `rhei instantiate <name>` fails if the matched template directory is unreadable or invalid.
 - `rhei instantiate <path>` fails if the explicit template path is unreadable or invalid.
 

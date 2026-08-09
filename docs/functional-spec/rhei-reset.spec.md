@@ -141,3 +141,4 @@ See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface
 - [Plan Language Specification](rhei-plan-language.spec.md) — plan formats and semantic constraints
 - [States Specification](rhei-states.spec.md) — profile resolution and `initial` state rules
 - [Next Command](rhei-next.spec.md), [Complete Command](rhei-complete.spec.md), [Transition Command](rhei-transition-cmd.spec.md) — forward commands that reset inverts
+- [Release Command](rhei-release.spec.md) — drops one claim without destroying runtime output

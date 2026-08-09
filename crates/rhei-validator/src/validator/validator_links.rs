@@ -177,15 +177,22 @@ fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut Vali
             if qualified || legacy {
                 continue;
             }
+            // Renaming a ticket id is a two-file edit: the link *and* the
+            // artifact it points at. Nothing else says so, and the artifact is
+            // the half an author forgets.
+            let rename_hint = format!(
+                ". If this ticket was renamed, move the artifact to match: \
+                 `mv {target} runtime/results/{expected_text}.md`"
+            );
             match legacy_text.as_deref() {
                 Some(local) => report.errors.push(format!(
                     "{} result block must link '[{}](runtime/results/{}.md)' \
-                     (or the legacy '[{}](runtime/results/{}.md)'), got '[{}]({})'",
-                    label, expected_text, expected_text, local, local, display, target
+                     (or the legacy '[{}](runtime/results/{}.md)'), got '[{}]({})'{}",
+                    label, expected_text, expected_text, local, local, display, target, rename_hint
                 )),
                 None => report.errors.push(format!(
-                    "{} result block must link '[{}](runtime/results/{}.md)', got '[{}]({})'",
-                    label, expected_text, expected_text, display, target
+                    "{} result block must link '[{}](runtime/results/{}.md)', got '[{}]({})'{}",
+                    label, expected_text, expected_text, display, target, rename_hint
                 )),
             }
         }

@@ -14,7 +14,7 @@ Spec scope:
 Implementation roots:
 - `crates`
 - `skills`
-- `.agents/rhei/templates`
+- `crates/rhei-cli/templates`
 - `examples`
 
 Focus on ready-set selection, parallel scheduling, concurrent state handling,

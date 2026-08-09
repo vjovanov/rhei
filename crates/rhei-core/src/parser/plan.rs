@@ -181,8 +181,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 pre_tasks_h2_seen = true;
                 if let Some(cap) = re_section_header.captures(line) {
                     let section_title = cap.get(1).unwrap().as_str().trim().to_string();
-                    rhei_content
-                        .push(ContentSection { title: section_title, content: String::new() });
+                    rhei_content.push(ContentSection {
+                        title: section_title,
+                        content: String::new(),
+                        rhei: None,
+                    });
                 }
                 continue;
             }
@@ -227,10 +230,19 @@ pub fn parse(input: &str) -> Result<Rhei> {
 
             let kind_canonical = kind_raw.to_ascii_lowercase();
             if !structure.accepts_kind(&kind_canonical) {
+                // Naming the fault without the fix sends the author hunting:
+                // node kinds are declared in the plan's own frontmatter, which
+                // is not where a heading error makes anyone look.
                 return Err(ParseError::new(
                     format!(
-                        "unknown node kind `{}` at heading; declared kinds are {:?}",
-                        kind_raw, structure.node_kinds
+                        "unknown node kind `{}` at heading; this plan declares {:?}. \
+                         Add it to `structure.nodeKinds` in the plan's YAML frontmatter \
+                         (`structure:` / `  nodeKinds: [{}, {}]`), or use one of the \
+                         declared kinds",
+                        kind_raw,
+                        structure.node_kinds,
+                        structure.node_kinds.join(", "),
+                        kind_canonical
                     ),
                     Some(line_number),
                 ));

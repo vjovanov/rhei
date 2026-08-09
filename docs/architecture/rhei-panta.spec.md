@@ -127,7 +127,25 @@ Within a rhei, tickets are authored and validated exactly as today
 `structure.maxLevels` (1–4) counted from the rhei-local level 1. The Panta prefix
 is applied at merge time and is not authored into the rhei's task headings.
 `**Prior:**` references may be written as project ids to point across rheis;
-within a rhei, rhei-local references continue to resolve locally.
+within a rhei, rhei-local references continue to resolve locally. Merge-time
+qualification of a `**Prior:**` follows one rule:
+
+1. An id naming a ticket in the citing rhei is rhei-local and gets the citing
+   rhei's prefix. A rhei-local id wins whenever it is ambiguous with a
+   project-qualified one.
+2. Otherwise a **dotted id whose leading segment is a name** is a cross-rhei
+   reference and is left exactly as authored — whether or not the leading
+   segment names a real rhei.
+3. Every other id (single-segment, or dotted under a numeric lead) is
+   rhei-local and gets the citing rhei's prefix.
+
+Rule 2 deliberately does not test the leading segment against the project's
+rhei ids. A mistyped rhei name is shaped like a cross-rhei reference and reads
+like one to the author; prefixing it with the citing rhei would make it
+surface — in validation errors, `rhei list`, and every renderer — as an id that
+appears in no file and matches no search. An unresolved reference is a
+validation error either way (§FS-rhei-validate.4.1), so the only thing
+qualification could add is a wrong id.
 
 ## 4. State-machine binding
 

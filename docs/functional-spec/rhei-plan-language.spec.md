@@ -574,9 +574,17 @@ field for that purpose.
 When frontmatter defines a `structure` map, the following keys are meaningful
 to this specification:
 
-- `structure.maxLevels` — maximum allowed task depth, counted from level 1 at
-  `### <kind> ...`. Valid values are `1` through `4`. If omitted, the default
-  is `2`.
+- `structure.maxLevels` — maximum allowed **ticket depth**, counted from
+  depth 1 at `### <kind> ...` (`#### ` is 2, `##### ` is 3, `###### ` is 4).
+  Valid values are `1` through `4`. If omitted, the default is `2`, so a plan
+  may nest one level of subtasks without declaring anything. This is the same
+  number `rhei list --json` reports as a ticket's `depth`.
+
+  Ticket depth is **not** the project-tree level used by node policy and the
+  Plan Root Model below, which counts the virtual Panta root as level 0 and
+  rheis as level 1 — so ticket depth 1 is project level 2. `maxLevels` and
+  `depth` always speak in ticket depth; `node_policy` selectors and the reserved
+  `panta`/`rhei` kinds always speak in project level.
 - `structure.nodeKinds` — allowed node-kind keywords for task nodes. Values
   must be unique `IDENTIFIER`s. Parsing and validation normalize them
   case-insensitively. If omitted, the default is `[task]`.

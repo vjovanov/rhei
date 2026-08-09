@@ -211,7 +211,7 @@ prompt unless `intervene_stdin` opts into a held-open streaming transport.
 
 ### 10. Template changes
 
-- `.agents/rhei/templates/multi-model-analysis/states.yaml` uses
+- `crates/rhei-cli/templates/multi-model-analysis/states.yaml` uses
   `agent: gemini` in the `gemini-analyze` state.
 - The template emits a `.agents/rhei/settings.json` under the instantiated plan
   containing the `agents.gemini` entry.

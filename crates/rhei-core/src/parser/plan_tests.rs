@@ -223,10 +223,12 @@ High-level context.
             ContentSection {
                 title: "Overview".to_string(),
                 content: "High-level context.".to_string(),
+                rhei: None,
             },
             ContentSection {
                 title: "Requirements".to_string(),
                 content: "- Preserve audit logs\n- Support approvals".to_string(),
+                rhei: None,
             },
         ]
     );

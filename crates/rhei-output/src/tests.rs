@@ -185,7 +185,7 @@ fn progress_report_basic_colors_and_structure() {
 "#;
 
     let rhei = parse(input).expect("parse ok");
-    let gen = ProgressReportOutput { color: true, show_dependencies: true };
+    let gen = ProgressReportOutput::plain(true, true);
     let s = gen.to_string(&rhei);
 
     assert!(s.contains("Rhei: "));
@@ -225,7 +225,7 @@ fn progress_report_no_color_option() {
 "#;
 
     let rhei = parse(input).expect("parse ok");
-    let gen = ProgressReportOutput { color: false, show_dependencies: true };
+    let gen = ProgressReportOutput::plain(false, true);
     let s = gen.to_string(&rhei);
 
     assert!(!s.contains("\x1b["));

@@ -26,7 +26,7 @@ inputs:
     default:
       - crates
       - skills
-      - .agents/rhei/templates
+      - crates/rhei-cli/templates
 
   - name: audit_target
     description: Execution target that scopes, compares, elaborates, and proposes reconciliation for each partition.

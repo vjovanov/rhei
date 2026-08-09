@@ -47,6 +47,31 @@ pub fn collect_plans(
         ));
     }
 
+    if workspace::is_panta_project(path) {
+        // A project renders as one graph: cross-rhei `**Prior:**` edges are
+        // drawn, and Directory Workspace rheis appear alongside single-file
+        // ones. §FS-rhei-viz.7.3
+        let loaded = workspace::load_panta_project(path).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to load Panta project {}: {}", path.display(), err.message),
+            )
+        })?;
+        let machine = resolve_machine(path, machine_override, &loaded.rhei)?;
+        // Runtime ledgers live under each rhei's own root, not the project's.
+        // §AR-rhei-panta.5
+        let task_roots = loaded
+            .task_roots
+            .iter()
+            .map(|(id, root)| (id.clone(), root.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        plans.insert(
+            key.to_string(),
+            crate::build_with_history_roots(&loaded.rhei, &machine, path, &task_roots),
+        );
+        return Ok(plans);
+    }
+
     if workspace::is_workspace(path) {
         // §AR-rhei-panta.2: viz renders the same implicit-Panta id space as
         // the CLI, so workspace tickets carry their qualified ids.

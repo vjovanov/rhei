@@ -513,7 +513,7 @@ transitions: []
         .expect("parse should succeed");
 
         let rendered =
-            render_rhei(&rhei, RenderFormat::Json, true, false, false, false).expect("render ok");
+            render_rhei(&rhei, BTreeSet::new(), RenderFormat::Json, true, false, false, false).expect("render ok");
 
         assert!(rendered.contains("\"title\": \"Smoke\""));
         assert!(rendered.contains("\"tasks\""));

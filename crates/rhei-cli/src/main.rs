@@ -5,6 +5,7 @@ include!("cli/completion_candidates.rs");
 include!("cli/completion_context.rs");
 
 mod templates {
+    include!("cli/templates_builtin.rs");
     include!("cli/templates_list.rs");
     include!("cli/templates_instantiate.rs");
     include!("cli/templates_discovery.rs");
@@ -49,6 +50,7 @@ include!("cli/snapshot_runtime_preload.rs");
 include!("cli/next_command.rs");
 include!("cli/complete_reset_commands.rs");
 include!("cli/complete_reset_rewrites.rs");
+include!("cli/release_command.rs");
 include!("cli/render_install_commands.rs");
 include!("cli/install_skill_agents.rs");
 include!("cli/viz_command.rs");

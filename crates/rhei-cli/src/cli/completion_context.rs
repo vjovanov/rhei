@@ -5,7 +5,7 @@ fn completion_plan_path() -> Option<PathBuf> {
     // rhei ids against the same target the command itself would resolve.
     first_command_positional(&words, &command)
         .map(PathBuf::from)
-        .or_else(|| resolve_plan_target(None).ok())
+        .or_else(|| resolve_plan_target(None).ok().map(|target| target.path))
 }
 
 fn completion_command_name(words: &[String]) -> Option<String> {
@@ -296,6 +296,7 @@ fn resolve_state_machine_for_states_command(
         Err(err) => return Err(err),
     };
 
+    let target = target.path;
     match load_plan(&target)
         .and_then(|loaded| resolve_state_machine_for_loaded_plan(&target, &loaded, None))
     {
@@ -514,7 +515,11 @@ fn list_command(
             let normalized = normalized_state_name(task.state.as_str(), &machine);
             let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
             let satisfied = priors_satisfied(task);
-            let task_ready = !is_terminal && !is_gating && satisfied;
+            // A ticket with children is a container, not work: `rhei next`
+            // claims leaves only, so listing a parent as ready would offer work
+            // that can never be handed out. §FS-rhei-list.4.2
+            let is_leaf = task.children.is_empty();
+            let task_ready = !is_terminal && !is_gating && satisfied && is_leaf;
             if filters.ready && !task_ready {
                 continue;
             }

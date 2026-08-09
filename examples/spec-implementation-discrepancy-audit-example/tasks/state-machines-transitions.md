@@ -13,7 +13,7 @@ Spec scope:
 Implementation roots:
 - `crates`
 - `skills`
-- `.agents/rhei/templates`
+- `crates/rhei-cli/templates`
 - `examples`
 
 Focus on profiles, node policy, state fields, terminal and gating behavior,

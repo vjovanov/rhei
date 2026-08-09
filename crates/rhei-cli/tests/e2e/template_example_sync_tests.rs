@@ -19,7 +19,7 @@ use std::process::Command;
 
 use super::*;
 
-/// (template dir under `.agents/rhei/templates`, example dir under `examples/`).
+/// (template dir under `crates/rhei-cli/templates`, example dir under `examples/`).
 const TEMPLATE_EXAMPLES: &[(&str, &str)] = &[
     ("analyze-and-dispatch", "analyze-and-dispatch-example"),
     ("parallel-worktrees", "parallel-worktrees-example"),
@@ -57,7 +57,7 @@ fn collect_files(root: &Path, dir: &Path, skip: &[&str], out: &mut Vec<String>) 
 
 #[test]
 fn committed_examples_match_template_instantiation() {
-    let templates_root = repo_root().join(".agents/rhei/templates");
+    let templates_root = repo_root().join("crates/rhei-cli/templates");
     let examples_root = repo_root().join("examples");
 
     for (template_name, example_name) in TEMPLATE_EXAMPLES {

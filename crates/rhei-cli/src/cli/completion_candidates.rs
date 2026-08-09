@@ -220,9 +220,10 @@ fn complete_template_source(current: &OsStr) -> Vec<CompletionCandidate> {
     static_completion(
         current,
         &[
-            ("all", "Project and user templates"),
+            ("all", "Project, user, and built-in templates"),
             ("project", "Project templates only"),
             ("user", "User templates only"),
+            ("builtin", "Templates shipped with the rhei binary"),
         ],
     )
 }

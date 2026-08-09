@@ -940,7 +940,7 @@ fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
         example_path.display()
     );
 
-    let template_path = repo_root.join(".agents/rhei/templates/changeset-review/states.yaml");
+    let template_path = repo_root.join("crates/rhei-cli/templates/changeset-review/states.yaml");
     let template = fs::read_to_string(&template_path).expect("read template states.yaml");
     let start = template
         .find("\n  human-review:\n")

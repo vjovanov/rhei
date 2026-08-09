@@ -840,3 +840,97 @@ inputs:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// §FS-rhei-templates.1: built-in templates ship inside the binary, so a
+/// directory with no `.agents/` and an empty HOME still has a usable library.
+#[test]
+fn templates_ships_a_builtin_library_with_the_binary() {
+    let dir = unique_temp_dir("templates-builtin");
+    let home = dir.join(".home");
+    fs::create_dir_all(&home).expect("create isolated home");
+
+    let run = |args: &[&str]| -> CliRun {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .current_dir(&dir)
+            .env("HOME", &home)
+            .args(args)
+            .output()
+            .expect("rhei command should run");
+        CliRun {
+            status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    };
+
+    let listing = run(&["templates"]);
+    assert!(listing.status.success(), "templates should succeed: {}", listing.stderr);
+    assert!(
+        !listing.stdout.contains("No templates found"),
+        "a fresh install must have templates:\n{}",
+        listing.stdout
+    );
+    assert!(
+        listing.stdout.contains("changeset-review") && listing.stdout.contains("built-in"),
+        "built-ins are listed and labelled:\n{}",
+        listing.stdout
+    );
+
+    // A built-in instantiates like any other template, from a directory that
+    // holds no templates of its own.
+    let out = dir.join("out");
+    let instantiated = run(&[
+        "instantiate",
+        "parallel-worktrees",
+        "--set",
+        "task=Bump the linter",
+        "--output",
+        out.to_str().expect("utf-8 path"),
+    ]);
+    assert!(instantiated.status.success(), "instantiate should succeed: {}", instantiated.stderr);
+    assert!(out.join("index.rhei.md").is_file(), "the workspace was rendered");
+    assert!(out.join("states.yaml").is_file(), "the bundled state machine came along");
+    assert!(out.join("tasks").is_dir(), "nested template directories are extracted too");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.1: built-ins sit last in the search order, so a project
+/// template of the same name shadows one — that is how a built-in is customized.
+#[test]
+fn a_project_template_shadows_a_builtin_of_the_same_name() {
+    let dir = unique_temp_dir("templates-shadow");
+    let home = dir.join(".home");
+    fs::create_dir_all(&home).expect("create isolated home");
+    let template_dir = dir.join(".agents/rhei/templates/spec-review");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        "name: spec-review\nversion: 9.9.9\ndescription: Locally overridden spec review\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        "# Rhei: Local\n\n## Tasks\n\n### Task 1: Go\n**State:** pending\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .current_dir(&dir)
+        .env("HOME", &home)
+        .arg("templates")
+        .output()
+        .expect("rhei templates should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Locally overridden spec review"),
+        "the project template wins:\n{stdout}"
+    );
+    assert_eq!(
+        stdout.matches("spec-review").count(),
+        1,
+        "the shadowed built-in is not listed twice:\n{stdout}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

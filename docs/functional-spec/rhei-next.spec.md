@@ -210,4 +210,5 @@ Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 - [Transition Command](rhei-transition-cmd.spec.md) — `rhei transition` behavioral contract
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract
 - [Run Command](rhei-run.spec.md) — `rhei run` behavioral contract
+- [Release Command](rhei-release.spec.md) — dropping a claim this command wrote
 - [Reset Command](rhei-reset.spec.md) — `rhei reset` behavioral contract

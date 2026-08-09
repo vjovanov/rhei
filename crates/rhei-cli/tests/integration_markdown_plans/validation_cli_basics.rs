@@ -98,7 +98,7 @@ fn valid_plan_parses_validates_and_renders_across_crates() {
     assert!(github.contains("- Prior: Task 1, Task 2"));
     assert!(github.contains("#### Task 3.1: Dry run in staging"));
 
-    let progress = ProgressReportOutput { color: false, show_dependencies: true }.to_string(&rhei);
+    let progress = ProgressReportOutput::plain(false, true).to_string(&rhei);
     assert!(progress.contains("Rhei: Release Automation Rollout"));
     assert!(progress.contains("* Task 2: Bootstrap environments  [IN-PROGRESS]"));
     assert!(progress.contains("  - Prior: Task 1, Task 2"));

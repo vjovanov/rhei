@@ -117,6 +117,24 @@ command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
 file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
 (repeatable) narrows a project-scoped invocation to named rheis.
 
+**A rhei that belongs to a project always loads through it.** Pointing a command
+at `panta/billing.rhei.md` loads the project and narrows to `billing` — it is
+`--rhei billing`, not a plan read in isolation. A member rhei cannot be
+understood alone: its `**Prior:**` may point across rheis (§AR-rhei-panta.3) and
+its state machine comes from the manifest (§AR-rhei-panta.4). Loading the file
+by itself made a *correct* plan fail, because a cross-rhei prior has nothing to
+resolve against, so `rhei validate <member>` reported errors that
+`rhei validate` on the same project did not — false failures for any per-file
+CI or pre-commit check. An explicit `--rhei` on the same invocation wins over
+the id implied by the path.
+
+Two commands do not widen:
+
+- `rhei validate` takes no `--rhei` at all (§FS-rhei-validate.1.1), so pointing
+  it at a member rhei validates the whole project and says so.
+- `rhei cost` reads accounting artifacts under the target's own runtime root and
+  resolves no dependency graph, so it stays on the path it was given.
+
 An **empty project** — an `index.panta.md` with no rheis yet, the state
 `rhei init` leaves behind — is a valid project, not an error. Read commands
 treat it as zero tickets: `rhei list` says the project has no tickets yet and
@@ -299,19 +317,14 @@ roadmap.
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
   `--rhei` filters to a rhei. The `basin` rhei's tickets are ordered last in
   default output; visual de-emphasis is deferred (§4).
-- `rhei viz` renders a **single rhei** — a `.rhei.md` file or a Directory
-  Workspace — in the same id space the CLI uses, so its tickets carry their
-  qualified ids (`auth.1`). It is **not yet Panta-aware**: pointed at a project
-  directory it renders each `*.rhei.md` as a separate plan rather than one
-  merged graph, draws no cross-rhei dependency edges, and skips Directory
-  Workspace rheis inside the project. Project inputs must not be advertised as
-  rendering a merged project graph until that path exists: `rhei viz` accepts a
-  project directory but warns on stderr that the page is not the merged graph
-  and points the operator at a single rhei (§FS-rhei-viz.7.3). The intended
-  rendering remains Panta as the implicit
-  canvas (never a drawn root box), rheis as top-level groups, and cross-rhei
-  dependency edges between them; the `basin` group is placed last and
-  de-emphasized (§4). Tracked on the roadmap.
+- `rhei viz` renders the merged project graph in the same id space the CLI
+  uses, so its tickets carry their qualified ids (`auth.1`): every rhei's
+  tickets in one graph, cross-rhei dependency edges drawn, and Directory
+  Workspace rheis included. A member rhei renders that graph narrowed to itself,
+  keeping the one-hop neighbours its priors point at (§FS-rhei-viz.7.3). Panta
+  is the implicit canvas, never a drawn root box. Rheis as *visually grouped*
+  top-level bands, and a `basin` group placed last and de-emphasized, remain
+  presentation work tracked on the roadmap (§4).
 
 ## Related Specifications
 

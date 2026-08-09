@@ -1,6 +1,6 @@
 use rhei_core::ast::Task;
 
-use crate::common::{fmt_prior_list, title_case_kind};
+use crate::common::{fmt_prior_list, rhei_groups, title_case_kind, RheiGroup};
 
 pub struct GithubIssuesOutput {
     pub include_content: bool,
@@ -14,29 +14,73 @@ impl GithubIssuesOutput {
 
         out.push_str("# Rhei: ");
         out.push_str(&rhei.title);
-        out.push('\n');
-        out.push('\n');
+        out.push_str("\n\n");
 
         for section in &rhei.content_sections {
+            // Project-contributed sections are printed inside their rhei's
+            // block; only the manifest's own sections belong up here.
+            if section.rhei.is_some() {
+                continue;
+            }
             out.push_str("## ");
             out.push_str(&section.title);
             out.push('\n');
             if !section.content.is_empty() {
-                out.push_str(&section.content);
+                out.push_str(section.content.trim_end());
                 out.push('\n');
             }
-        }
-        if !rhei.content_sections.is_empty() {
             out.push('\n');
         }
 
-        out.push_str("## Tasks\n\n");
-        for task in &rhei.tasks {
-            self.render_node(task, 3, &mut out);
-            out.push('\n');
+        let groups = rhei_groups(rhei);
+        match groups.as_slice() {
+            // A plan that is not a merged project keeps the flat shape: one
+            // `## Tasks` chapter, mirroring how it was authored.
+            [] => {
+                out.push_str("## Tasks\n\n");
+                for task in &rhei.tasks {
+                    self.render_node(task, 3, &mut out);
+                }
+            }
+            groups => {
+                for group in groups {
+                    self.render_group(rhei, group, &mut out);
+                }
+            }
         }
 
-        out
+        out.trim_end().to_string()
+    }
+
+    /// Render one rhei of a merged project: its heading, its own content
+    /// sections, then its tickets — so the document reads workstream by
+    /// workstream instead of as one flat list under shared headings.
+    fn render_group(&self, rhei: &rhei_core::ast::Rhei, group: &RheiGroup, out: &mut String) {
+        out.push_str("## ");
+        out.push_str(&group.title);
+        out.push_str("\n\n");
+
+        for section in &rhei.content_sections {
+            if section.rhei.as_deref() != Some(group.id.as_str()) || section.content.is_empty() {
+                continue;
+            }
+            out.push_str("### ");
+            out.push_str(group.section_title(&section.title));
+            out.push('\n');
+            out.push_str(section.content.trim_end());
+            out.push_str("\n\n");
+        }
+
+        let mut empty = true;
+        for task in rhei.tasks.iter().filter(|task| group.owns(task)) {
+            self.render_node(task, 3, out);
+            empty = false;
+        }
+        if empty {
+            // A rhei with no tickets is a real, valid state (a freshly created
+            // one). Saying so beats a heading with nothing under it.
+            out.push_str("_No tickets yet._\n\n");
+        }
     }
 
     fn render_node(&self, task: &Task, level: u8, out: &mut String) {
@@ -66,11 +110,14 @@ impl GithubIssuesOutput {
             }
         }
 
-        if self.include_content && !task.content.is_empty() {
+        let content = task.content.trim();
+        if self.include_content && !content.is_empty() {
             out.push('\n');
-            out.push_str(&task.content);
+            out.push_str(content);
             out.push('\n');
         }
+
+        out.push('\n');
 
         for child in &task.children {
             self.render_node(child, level + 1, out);

@@ -248,6 +248,28 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
     Ok(())
 }
 
+/// Render a plan path for a diagnostic header.
+///
+/// Prefers the form relative to the invocation directory when it is shorter:
+/// a project loader hands back absolute paths, and an absolute path wraps
+/// across the miette gutter into something no editor jump-to-file recognises.
+fn display_path(path: &Path) -> String {
+    let absolute = path.display().to_string();
+    let Ok(cwd) = std::env::current_dir() else {
+        return absolute;
+    };
+    let relative = relative_path(&cwd, path).display().to_string();
+    // An empty relative path means the target *is* the invocation directory.
+    if relative.is_empty() {
+        return ".".to_string();
+    }
+    if relative.len() < absolute.len() {
+        relative
+    } else {
+        absolute
+    }
+}
+
 /// Convert a parser error into an Elm-style diagnostic report.
 fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -> Report {
     miette!("{}", render_parse_diagnostic(path, input, err))
@@ -291,7 +313,7 @@ fn render_workspace_parse_diagnostic(groups: &[ParseErrorGroup]) -> String {
     let mut index = 1usize;
     for group in groups {
         lines.push(String::new());
-        lines.push(format!("{}:", group.path.display()));
+        lines.push(format!("{}:", display_path(&group.path)));
         for err in &group.errors {
             match err.line {
                 Some(line_number) => {
@@ -327,7 +349,7 @@ fn render_multi_parse_diagnostic(
 
     let mut lines = vec![
         "-- PARSE ERROR ----------------------------".to_string(),
-        format!("in {}", path.display()),
+        format!("in {}", display_path(path)),
     ];
     lines.push(String::new());
     lines
@@ -358,10 +380,12 @@ fn render_multi_parse_diagnostic(
 /// project, a Directory Workspace).
 ///
 /// When the error names the file its line belongs to and that file still
-/// reads, this renders the same code frame a single-file plan gets. The point
-/// is that `rhei validate` inside a project must not be less helpful than
+/// reads, this renders the same code frame a single-file plan gets, and
+/// re-parses the file to recover the *full* error set. The point is that
+/// `rhei validate` inside a project must not be less helpful than
 /// `rhei validate <that same file>` — the project form is the one `rhei init`
 /// steers every new author toward.
+// §FS-rhei-validate.4.2: parse diagnostics read the same in both scopes.
 fn nested_parse_report(err: &rhei_core::parser::ParseError) -> Report {
     let Some(path) = err.file.as_deref() else {
         return miette!("{}", err.message);
@@ -370,7 +394,57 @@ fn nested_parse_report(err: &rhei_core::parser::ParseError) -> Report {
         // The file moved or is unreadable; the message still stands on its own.
         return miette!("{}: {}", path.display(), err.message);
     };
+    // The project loader stops at the first error per entry, so the diagnostic
+    // that actually explains the mistake — the structural one recovery reaches
+    // last — would otherwise never be printed.
+    let collected = collect_parse_errors(path, &source);
+    if collected.len() > 1 && collected.iter().any(|other| other.message == err.message) {
+        return parse_errors_report(path, &source, &collected);
+    }
     parse_report(path, &source, err)
+}
+
+/// Re-parse `path` with the error-collecting parser that matches its role in a
+/// project, so a nested failure can be reported with the same completeness as
+/// `rhei validate <path>`.
+///
+/// Returns an empty vector when the file's role is not one this can reproduce;
+/// the caller then falls back to the single error it already has.
+fn collect_parse_errors(path: &Path, source: &str) -> Vec<rhei_core::parser::ParseError> {
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+
+    // A single-file rhei parses as a whole plan.
+    if name.ends_with(".rhei.md") && name != "index.rhei.md" {
+        return rhei_core::parser::parse_collect(source).1;
+    }
+
+    // A workspace task file or a basin ticket file parses as bare task nodes,
+    // against the structure of the document that owns it.
+    let Some(structure) = owning_structure(path) else {
+        return Vec::new();
+    };
+    rhei_core::parser::parse_workspace_tasks_collect_with_structure(source, &structure).1
+}
+
+/// Structure governing a bare task file: its Directory Workspace index, or the
+/// project manifest when the file is a basin ticket. §FS-rhei-panta.2
+fn owning_structure(path: &Path) -> Option<rhei_core::ast::Structure> {
+    let parent = path.parent()?;
+    // `tasks/` files may nest, so walk up to the workspace root.
+    let mut dir = parent;
+    loop {
+        let index = dir.join("index.rhei.md");
+        if index.is_file() {
+            let raw = std::fs::read_to_string(&index).ok()?;
+            return Some(rhei_core::parser::parse_workspace_index(&raw).ok()?.structure);
+        }
+        let manifest = dir.join(rhei_core::workspace::PANTA_INDEX_FILE);
+        if manifest.is_file() {
+            let raw = std::fs::read_to_string(&manifest).ok()?;
+            return Some(rhei_core::parser::parse_panta_manifest(&raw).ok()?.structure);
+        }
+        dir = dir.parent()?;
+    }
 }
 
 /// Convert file I/O failures into a consistent diagnostic message.
@@ -390,7 +464,7 @@ fn render_parse_diagnostic(
 ) -> String {
     let mut lines = vec![
         "-- PARSE ERROR ----------------------------".to_string(),
-        format!("in {}", path.display()),
+        format!("in {}", display_path(path)),
     ];
     lines.push(String::new());
     lines.push("I got stuck while reading this markdown plan.".to_string());
@@ -423,7 +497,7 @@ fn render_validation_diagnostic(
 ) -> String {
     let mut lines = vec![
         "-- VALIDATION ERROR ----------------------".to_string(),
-        format!("in {}", input.display()),
+        format!("in {}", display_path(input)),
     ];
     lines.push(String::new());
     lines.push(format!(

@@ -2,9 +2,10 @@
         match value.trim().to_ascii_lowercase().as_str() {
             "project" => Ok(TemplateSourceFilter::Project),
             "user" => Ok(TemplateSourceFilter::User),
+            "builtin" | "built-in" => Ok(TemplateSourceFilter::Builtin),
             "all" => Ok(TemplateSourceFilter::All),
             other => Err(miette!(
-                "invalid template source '{}'. Expected one of: project, user, all",
+                "invalid template source '{}'. Expected one of: project, user, builtin, all",
                 other
             )),
         }
@@ -15,6 +16,31 @@
         let mut seen = HashSet::new();
 
         for (source, root) in template_search_roots(filter)? {
+            if source == TemplateSource::Builtin {
+                // Built-ins have no search root: they live in the binary and are
+                // extracted only when one is actually instantiated. Listing them
+                // reads the embedded manifest instead. §FS-rhei-templates.1
+                for name in builtin_template_names() {
+                    if seen.contains(&name) {
+                        continue;
+                    }
+                    let Ok(extracted) = materialize_builtin_template(&name) else {
+                        continue;
+                    };
+                    let Ok(manifest) = load_template_manifest(extracted.path()) else {
+                        continue;
+                    };
+                    seen.insert(name.clone());
+                    templates.push(DiscoveredTemplate {
+                        manifest,
+                        // A built-in has no stable on-disk location; the name is
+                        // how it is referenced.
+                        path: PathBuf::from(&name),
+                        source,
+                    });
+                }
+                continue;
+            }
             if !root.is_dir() {
                 continue;
             }
@@ -63,6 +89,12 @@
                 home_dir()?.join(".agents").join("rhei").join("templates"),
             ));
         }
+        if filter.includes(TemplateSource::Builtin) {
+            // Placeholder path: built-ins are embedded, so this root is never
+            // read. It exists so the tier keeps its place in the search order
+            // and can be named in the "searched" listing.
+            roots.push((TemplateSource::Builtin, PathBuf::from("<compiled into the rhei binary>")));
+        }
 
         Ok(roots)
     }
@@ -90,19 +122,47 @@
         Ok(None)
     }
 
-    fn resolve_template_reference(reference: &str) -> MietteResult<PathBuf> {
+    /// A template resolved to a directory the instantiation pipeline can read.
+    ///
+    /// A built-in is extracted from the binary into a temporary directory; the
+    /// handle is carried here so the extraction lives exactly as long as the
+    /// resolved template is in use.
+    struct ResolvedTemplate {
+        path: PathBuf,
+        _extracted: Option<ExtractedTemplate>,
+    }
+
+    impl ResolvedTemplate {
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    fn resolve_template_reference(reference: &str) -> MietteResult<ResolvedTemplate> {
         if template_reference_is_path(reference) {
             let path = PathBuf::from(reference);
             if !path.is_dir() {
                 return Err(miette!("template directory '{}' does not exist", path.display()));
             }
-            return Ok(path);
+            return Ok(ResolvedTemplate { path, _extracted: None });
         }
 
-        for (_, root) in template_search_roots(TemplateSourceFilter::All)? {
+        for (source, root) in template_search_roots(TemplateSourceFilter::All)? {
+            if source == TemplateSource::Builtin {
+                // Lowest priority: a project or user template of the same name
+                // has already won by the time the search reaches here.
+                if builtin_template_exists(reference) {
+                    let extracted = materialize_builtin_template(reference)?;
+                    return Ok(ResolvedTemplate {
+                        path: extracted.path().to_path_buf(),
+                        _extracted: Some(extracted),
+                    });
+                }
+                continue;
+            }
             let candidate = root.join(reference);
             if candidate.is_dir() {
-                return Ok(candidate);
+                return Ok(ResolvedTemplate { path: candidate, _extracted: None });
             }
         }
 
@@ -110,13 +170,18 @@
         if let Some(name) = suggestion {
             // §FS-rhei-templates.6.1.2: named-template lookup reports a close discovered match.
             return Err(miette!(
-                "template '{}' not found in project or user template directories. Did you mean '{}'?",
+                "template '{}' not found among project, user, or built-in templates. \
+                 Did you mean '{}'?",
                 reference,
                 name
             ));
         }
 
-        Err(miette!("template '{}' not found in project or user template directories", reference))
+        Err(miette!(
+            "template '{}' not found among project, user, or built-in templates. \
+             `rhei templates` lists what is available",
+            reference
+        ))
     }
 
     fn template_reference_is_path(reference: &str) -> bool {
