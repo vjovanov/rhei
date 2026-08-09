@@ -1,4 +1,3 @@
-
 /// Flags that control standalone execution behavior for `rhei run`.
 #[derive(Args, Clone, Debug, Default)]
 #[command(next_help_heading = "Standalone Execution")]
@@ -336,8 +335,7 @@ fn start_run_frontend(
     // render per-task driver/duration regardless of dashboard state.
     // §FS-rhei-run-report.3
     let summary = Arc::new(SummarySink::new());
-    let mut inner: Vec<Arc<dyn rhei_tui::EventSink>> =
-        vec![frontend.sink.clone(), summary.clone()];
+    let mut inner: Vec<Arc<dyn rhei_tui::EventSink>> = vec![frontend.sink.clone(), summary.clone()];
     if let Some(dashboard) = &dashboard {
         inner.push(dashboard.clone());
     }
@@ -387,7 +385,13 @@ fn transition_dashboard_gate(
 
     let route = loaded.task_route(task_id_str, input);
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
+        TransitionFiles {
+            task_file: &route.task_file,
+            metadata_file: &route.metadata_file,
+            metadata_id: &route.metadata_id,
+            artifact_root: &route.execution_root,
+            artifact_id: task_id_str,
+        },
         callback_paths,
         machine,
         &route.local_id,
@@ -408,12 +412,16 @@ fn load_plan_for_dashboard(
     machine: &rhei_validator::StateMachine,
 ) -> Option<rhei_viz_model::VizModel> {
     let loaded = load_plan(plan_path).ok()?;
-    let workspace_root = if workspace::is_workspace(plan_path) {
-        plan_path
-    } else {
-        plan_path.parent().unwrap_or_else(|| Path::new("."))
-    };
-    Some(rhei_viz::build_with_history(&loaded.rhei, machine, workspace_root))
+    // Any directory input — workspace or Panta project — is its own execution
+    // root; per-task roots route each ticket's history to its owning rhei,
+    // which is where a project run writes its ledgers. §AR-rhei-panta.5
+    let default_root = execution_workspace_root(plan_path);
+    Some(rhei_viz::build_with_history_roots(
+        &loaded.rhei,
+        machine,
+        &default_root,
+        &loaded.task_roots,
+    ))
 }
 
 impl

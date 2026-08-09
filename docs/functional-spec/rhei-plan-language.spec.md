@@ -166,6 +166,17 @@ lexicographic comparison. A discovered task file must parse as
 `workspace_task_file` and contain at least one root task node; empty Markdown
 files and prose-only Markdown files under `tasks/` are invalid task files.
 
+A workspace that discovers **no** task files is a valid, empty rhei — not an
+error. It is the state a workspace passes through between being created and
+receiving its first ticket, and the same state a living workspace starts from
+before its coordinator appends work. Failing the load instead would let one
+freshly created directory break `rhei list` and `rhei validate` for every
+sibling rhei in the project, so an empty rhei is treated exactly as an empty
+project is (§FS-rhei-panta.6): read commands report zero tickets and succeed.
+Because a mistyped `tasks/` directory is otherwise indistinguishable from a
+deliberately empty one, `rhei validate` reports the emptiness as a **warning**
+naming the rhei and where its task files must live (§FS-rhei-validate.4).
+
 In a Directory Workspace, all tasks are parsed and merged into a single global
 task graph at runtime. Dependency validation (`**Prior:**`) resolves globally
 across all discovered task files under `tasks/`. The merged plan order is the
@@ -396,6 +407,15 @@ task_id_segment = NUMBER | IDENTIFIER ;
    command strips the assignee on completion. A task may declare at most one
    execution override — either `**Model:**` or `**Target:**`, never both. See
    section 3.11. *)
+(* The metadata block is closed: `**State:**`, `**Prior:**`, `**Assignee:**`,
+   `**Model:**`, and `**Target:**` are the only fields. A `**<name>:**` line
+   with any other name, appearing in the block before a blank line has
+   separated it from the heading, is a parse error naming the unknown field.
+   Accepting it as content silently discards it, and the field authors most
+   often mistype is `**Prior:**` — a dropped dependency leaves a plan that
+   validates green and executes in the wrong order, with nothing to point at.
+   Past a blank line the same line is ordinary bold text and is kept as task
+   content. *)
 metadata        = state_field, [ prior_field ], [ assignee_field ],
                   [ execution_override ] ;
 
@@ -433,7 +453,12 @@ prior_field     = "**Prior:** ", task_ref_list, NEWLINE ;
 
 task_ref_list   = task_ref, { ", ", task_ref } ;
 
-task_ref        = node_kind_keyword, " ", task_id ;
+(* The kind keyword is decoration: a reference resolves on its task_id alone,
+   so the bare form is accepted too. It exists because every surface that
+   *prints* a dependency prints the id by itself — `rhei list` renders
+   `(prior: auth.2)` — and an author who pastes that back must not be met with
+   a parse error. Writers emit the kind-prefixed form; readers accept both. *)
+task_ref        = [ node_kind_keyword, " " ], task_id ;
 
 (* State values have two rendered forms:
    - bare form for canonical names that match IDENTIFIER exactly

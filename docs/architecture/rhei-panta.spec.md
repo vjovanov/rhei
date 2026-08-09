@@ -56,7 +56,12 @@ Loading a Panta produces one graph rooted at the virtual `panta` node:
 3. If `basin/` is present, load it as a synthetic Directory Workspace rhei with
    id `basin`. It has no authored `index.rhei.md`; its files parse as workspace
    task files, inherit the Panta default state declaration, and use `basin/` as
-   their execution root.
+   their execution root. An `index.rhei.md` found anywhere under `basin/` is a
+   **load error** naming the file: the basin's manifest is synthetic, so such a
+   file is an author who believed the basin was an ordinary Directory
+   Workspace, and its tickets would otherwise never load. Skipping it silently
+   is the one outcome the basin must not have — unfiled work that disappears
+   behind a green `rhei validate` is precisely what §FS-rhei-panta.4 forbids.
 4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
    synthetic basin rhei, as a level-1 child.
 5. Merge into one task graph and resolve `**Prior:**` across the whole project,
@@ -145,10 +150,16 @@ current behavior. Inheritance stays a default, never a merge: a rhei that omits
 The declared machine's *definition file* auto-discovers at the project root's
 `states.yaml` first; when that is absent or names a different machine, a
 `states.yaml` in a discovered rhei's root whose declared `name:` matches the
-project's declared machine resolves it, first match in discovery order. A name
-match is file resolution, not shadowing — the project still runs exactly one
-machine — and it is what lets a single-rhei project adopted by `rhei init`
-keep its machine file where the rhei always kept it (§FS-rhei-init.2).
+project's declared machine resolves it — but only a **unique** match. When
+several rhei roots hold files declaring that name, resolution is ambiguous and
+errors, naming the candidates and the fixes (move the definitive file to the
+project root, or pass `--state-machine`): a stale copy silently driving every
+ticket in the project would be far worse than asking once. A rhei-root
+candidate that fails to load is likewise an error, not a silent non-match — it
+would otherwise surface as a misleading "no states file found". A name match
+is file resolution, not shadowing — the project still runs exactly one machine
+— and it is what lets a single-rhei project adopted by `rhei init` keep its
+machine file where the rhei always kept it (§FS-rhei-init.2).
 
 The state-machine profile that previously resolved the level-0 `rhei` root now
 resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node

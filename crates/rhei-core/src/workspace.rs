@@ -42,6 +42,23 @@ pub struct PantaProject {
     pub rhei_ids: Vec<String>,
 }
 
+/// Re-raise a parse error from a nested document, recording which file its
+/// line belongs to.
+///
+/// The path travels as data rather than as a message prefix so diagnostics can
+/// still open the file and render a code frame. Flattening it into the message
+/// cost every nested error its line number and source excerpt — exactly the
+/// errors a project author hits first, since `rhei init` puts their plans one
+/// level down.
+fn nested_parse_error(err: ParseError, path: &Path) -> ParseError {
+    // An error that already names its origin keeps it: the innermost file is
+    // the one holding the line.
+    if err.file.is_some() {
+        return err;
+    }
+    err.in_file(path)
+}
+
 /// Returns `true` if `path` is a directory workspace
 /// (a directory containing `index.rhei.md`).
 pub fn is_workspace(path: &Path) -> bool {
@@ -193,9 +210,8 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
     let manifest_content = std::fs::read_to_string(&manifest_path).map_err(|e| {
         ParseError::new(format!("failed to read {}: {e}", manifest_path.display()), None)
     })?;
-    let manifest = parser::parse_panta_manifest(&manifest_content).map_err(|e| {
-        ParseError::new(format!("{}: {}", manifest_path.display(), e.message), e.line)
-    })?;
+    let manifest = parser::parse_panta_manifest(&manifest_content)
+        .map_err(|e| nested_parse_error(e, &manifest_path))?;
 
     let mut rheis = Vec::new();
     let mut seen_ids: HashMap<String, PathBuf> = HashMap::new();
@@ -427,8 +443,7 @@ fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             ParseError::new(format!("failed to read {}: {e}", path.display()), None)
         })?;
-        let rhei = parser::parse(&content)
-            .map_err(|e| ParseError::new(format!("{}: {}", path.display(), e.message), e.line))?;
+        let rhei = parser::parse(&content).map_err(|e| nested_parse_error(e, path))?;
         let mut task_sources = HashMap::new();
         for task in &rhei.tasks {
             collect_task_sources(task, path, &mut task_sources)?;
@@ -441,16 +456,27 @@ fn load_basin_rhei(dir: &Path, structure: &Structure, states: &str) -> parser::R
     let mut tasks = Vec::new();
     let mut task_sources = HashMap::new();
     for path in discover_basin_task_files(dir)? {
-        // The basin has no authored manifest; never parse a stray `index.rhei.md`
-        // as a loose task file. §FS-rhei-panta.2
+        // The basin's manifest is synthetic, so an authored index can never
+        // load. Skipping it silently vanished its tickets behind a green
+        // validation — what the basin exists to prevent. §AR-rhei-panta.1
         if path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
-            continue;
+            return Err(ParseError::new(
+                format!(
+                    "{}: the basin has no authored index — its manifest is synthetic, so this \
+                     file would never load. Move its tickets into task files under {} (any \
+                     `*.md` file works), or rename the directory to make it an ordinary rhei \
+                     with its own id.",
+                    path.display(),
+                    dir.display()
+                ),
+                None,
+            ));
         }
         let content = std::fs::read_to_string(&path).map_err(|e| {
             ParseError::new(format!("failed to read {}: {e}", path.display()), None)
         })?;
         let parsed = parser::parse_workspace_tasks_with_structure(&content, structure)
-            .map_err(|e| ParseError::new(format!("{}: {}", path.display(), e.message), e.line))?;
+            .map_err(|e| nested_parse_error(e, &path))?;
         for task in &parsed {
             collect_task_sources(task, &path, &mut task_sources)?;
         }
@@ -632,11 +658,8 @@ fn suggest_rhei_id(id: &str) -> Option<String> {
             out.push('-');
         }
     }
-    let out: String = out
-        .trim_matches('-')
-        .chars()
-        .skip_while(|ch| !ch.is_ascii_alphabetic())
-        .collect();
+    let out: String =
+        out.trim_matches('-').chars().skip_while(|ch| !ch.is_ascii_alphabetic()).collect();
     (!out.is_empty()).then_some(out)
 }
 
@@ -745,7 +768,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
     })?;
 
     let index = parser::parse_workspace_index(&index_content)
-        .map_err(|e| ParseError::new(format!("{}: {}", index_path.display(), e.message), e.line))?;
+        .map_err(|e| nested_parse_error(e, &index_path))?;
 
     let tasks_dir = dir.join("tasks");
     let mut all_tasks: Vec<Task> = Vec::new();
@@ -758,9 +781,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
             })?;
 
             let tasks = parser::parse_workspace_tasks_with_structure(&content, &index.structure)
-                .map_err(|e| {
-                    ParseError::new(format!("{}: {}", path.display(), e.message), e.line)
-                })?;
+                .map_err(|e| nested_parse_error(e, &path))?;
 
             for task in &tasks {
                 collect_task_sources(task, &path, &mut task_sources)?;
@@ -770,12 +791,9 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
         }
     }
 
-    if all_tasks.is_empty() {
-        return Err(ParseError::new(
-            "workspace contains no tasks (tasks/ directory is empty or missing)",
-            None,
-        ));
-    }
+    // No task files is a valid, empty rhei. Failing here let one freshly
+    // created directory break loading for every sibling rhei; `rhei validate`
+    // warns instead. §FS-rhei-plan-language.1.2
 
     Ok(Workspace {
         rhei: Rhei {
@@ -791,6 +809,32 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
     })
 }
 
+/// Line of the *last* heading in `path` declaring ticket `id_str`.
+///
+/// That is the redeclaration in both shapes this serves: the second of two
+/// headings when a single file repeats an id, and the colliding heading in the
+/// newly loaded file when two files share one. Runs only on the error path, so
+/// re-reading the file costs nothing in the common case; a file that no longer
+/// reads simply yields no line rather than masking the duplicate itself.
+fn duplicate_heading_line(path: &Path, id_str: &str) -> Option<usize> {
+    let source = std::fs::read_to_string(path).ok()?;
+    let mut found = None;
+    for (index, line) in source.lines().enumerate() {
+        let rest = line.trim_start_matches('#');
+        if rest.len() == line.len() {
+            continue;
+        }
+        // `<kind> <id>:` — the id sits between the kind keyword and the colon.
+        let Some((head, _)) = rest.split_once(':') else {
+            continue;
+        };
+        if head.split_whitespace().nth(1) == Some(id_str) {
+            found = Some(index + 1);
+        }
+    }
+    found
+}
+
 fn collect_task_sources(
     task: &Task,
     path: &Path,
@@ -798,15 +842,20 @@ fn collect_task_sources(
 ) -> parser::Result<()> {
     let id_str = task.id.to_string();
     if let Some(existing) = task_sources.get(&id_str) {
-        return Err(ParseError::new(
+        // Two tickets in one file read as "defined in both X and X" if the
+        // paths are printed unconditionally; say which case it is, and point
+        // at the offending heading so the fix is a jump away.
+        let message = if existing == path {
+            format!("duplicate task ID '{}': declared twice in {}", id_str, path.display())
+        } else {
             format!(
                 "duplicate task ID '{}': defined in both {} and {}",
                 id_str,
                 existing.display(),
                 path.display()
-            ),
-            None,
-        ));
+            )
+        };
+        return Err(ParseError::new(message, duplicate_heading_line(path, &id_str)).in_file(path));
     }
     task_sources.insert(id_str, path.to_path_buf());
 

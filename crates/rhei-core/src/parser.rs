@@ -25,16 +25,29 @@ pub use workspace::{
 use crate::ast::{Metadata, Structure, DEFAULT_MAX_LEVELS, DEFAULT_NODE_KIND, MAX_ALLOWED_LEVELS};
 use serde_yaml::Value as YamlValue;
 
-/// Parser error with a message and an optional line number.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Parser error with a message, an optional line number, and — once the error
+/// has crossed a file boundary — the file the line belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParseError {
     pub message: String,
     pub line: Option<usize>,
+    /// The file `line` refers to, set when an error from one document is
+    /// re-raised while loading another (a rhei inside a project, a task file
+    /// inside a workspace). `None` means the line belongs to the document the
+    /// caller passed in. Diagnostics need this to render a code frame: a
+    /// message alone strands the reader with no line and no source.
+    pub file: Option<std::path::PathBuf>,
 }
 
 impl ParseError {
     pub fn new<M: Into<String>>(msg: M, line: Option<usize>) -> Self {
-        Self { message: msg.into(), line }
+        Self { message: msg.into(), line, file: None }
+    }
+
+    /// Attach the source file this error's line belongs to.
+    pub fn in_file<P: Into<std::path::PathBuf>>(mut self, path: P) -> Self {
+        self.file = Some(path.into());
+        self
     }
 }
 

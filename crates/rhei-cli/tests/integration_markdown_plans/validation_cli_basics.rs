@@ -290,3 +290,26 @@ fn cli_validate_reports_empty_tasks_section_parse_failure() {
         &["missing mandatory **State:**", "depends on missing Task"],
     );
 }
+
+/// A bare `rhei` asks for orientation; `rhei <group>` with no subcommand is a
+/// usage error about that group. Answering both with the root help on stdout
+/// and a success exit left no way for a script to tell them apart.
+#[test]
+fn missing_subcommand_under_a_group_is_a_usage_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("snapshot")
+        .output()
+        .expect("rhei command should run");
+
+    assert!(!output.status.success(), "a missing subcommand should not exit successfully");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        "usage errors belong on stderr, got stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Usage: rhei snapshot"),
+        "error should show the subcommand's own usage, got:\n{stderr}"
+    );
+}

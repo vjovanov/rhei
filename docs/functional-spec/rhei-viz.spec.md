@@ -353,7 +353,16 @@ Workspace rheis inside the project entirely.
 Because that page is not the graph the rest of the CLI operates on, a project
 input must never be *advertised* as rendering one. `rhei viz` accepts the input
 and prints a warning to stderr naming the limitation and pointing the operator
-at a single rhei. Panta-aware rendering — Panta as the implicit canvas, rheis
+at a single rhei.
+
+That warning must also be **rendered into the page itself**, as a banner above
+the header, naming the rheis omitted from it. A caveat that lives only on
+stderr is gone as soon as the terminal scrolls, while the HTML it describes is
+opened, shared, and trusted for as long as it exists — a reader counting
+tickets against `rhei list` would find fewer and have no way to learn why. The
+page carries its own limitations or it misrepresents the project.
+
+Panta-aware rendering — Panta as the implicit canvas, rheis
 as top-level groups, cross-rhei dependency edges, `basin` last and
 de-emphasized — is tracked on the roadmap (§FS-rhei-panta.6.4).
 

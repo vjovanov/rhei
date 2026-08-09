@@ -53,7 +53,7 @@ fn fire_tooling_unavailable_transition(
     };
     let route = loaded.task_route(task_id_str, input);
     match execute_system_tooling_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
         &route.local_id,
@@ -165,7 +165,7 @@ fn fire_selected_timeout_transition(
         })
         .unwrap_or_default();
     match execute_system_timeout_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
         &route.local_id,
@@ -216,7 +216,7 @@ fn fire_agent_exit_transition(
     };
     let route = loaded.task_route(task_id_str, input);
     match execute_system_program_exit_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
         &route.local_id,
@@ -260,6 +260,29 @@ fn format_ready_tasks(tasks: &[&rhei_core::ast::Task]) -> String {
 
 fn format_dry_run_transition(task_id: &str, from: &str, to: &str) -> String {
     format!("would transition: Task {task_id}  {from} -> {to}")
+}
+
+/// A dry run reports the manual-only condition instead of aborting on the
+/// first task that hits it, so one invocation lists every blocked task
+/// alongside the transitions that would run. §FS-rhei-run.4
+fn format_dry_run_manual_only(task_id: &str, from: &str, to: &str) -> String {
+    format!(
+        "manual-only: Task {task_id}  {from} -> {to} \
+         (claim with `rhei next`, finish with `rhei complete`)"
+    )
+}
+
+/// The error a dry run ends with once it has reported every manual-only task.
+///
+/// The individual tasks were already streamed as `manual-only:` lines above,
+/// so this only carries the count and the fix.
+fn manual_only_dry_run_error(reported: &[String]) -> miette::Report {
+    miette!(
+        "{} task(s) reported above are in a manual-only initial state and cannot be advanced \
+         by `rhei run`. Claim each with `rhei next`, do the work, then finish with \
+         `rhei complete`.",
+        reported.len()
+    )
 }
 
 fn format_state_counts(rhei: &rhei_core::ast::Rhei) -> String {

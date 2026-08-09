@@ -34,6 +34,52 @@ fn run_builtin_default_refuses_manual_pending_tasks() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// §FS-rhei-run.4: `--dry-run` exists to show what would happen. Aborting on
+/// the first manual-only task made it fail before printing anything under the
+/// built-in machine, whose initial state is manual-only.
+#[test]
+fn run_dry_run_reports_every_manual_only_task_instead_of_aborting() {
+    let dir = unique_temp_dir("run-dry-run-manual-pending");
+    let plan = r#"# Rhei: Manual Default
+
+## Tasks
+
+### Task 1: Do manually
+**State:** pending
+
+### Task 2: Also manually
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+
+    let result = run_cli_without_machine("run", &plan_path, &["--dry-run", "--no-tui"]);
+    assert!(
+        !result.status.success(),
+        "a dry run that found manual-only tasks still exits non-zero\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    for id in ["plan.1", "plan.2"] {
+        assert!(
+            combined.contains(&format!("manual-only: Task {id}")),
+            "the scan must continue and report {id}; got:\n{combined}"
+        );
+    }
+    assert!(
+        combined.contains("rhei next") && combined.contains("rhei complete"),
+        "the report must name the manual worker loop; got:\n{combined}"
+    );
+
+    let content = fs::read_to_string(&plan_path).expect("read plan after dry run");
+    assert!(
+        !content.contains("**State:** completed"),
+        "a dry run must not rewrite the plan; got:\n{content}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn run_single_file_linear_to_completion() {
     let (dir, plan_path, machine_path) = setup_single_file("run-linear", LINEAR_PLAN);
@@ -1071,4 +1117,91 @@ fn run_already_completed_is_noop() {
     assert_eq!(original, after, "file should be unchanged");
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_parallel_does_not_warn_for_a_ticket_with_subtasks_in_one_file() {
+    // §FS-rhei-run.2.5: only top-level tickets count toward a file — a ticket
+    // and its subtasks are one schedulable unit, not shared-file concurrency.
+    let (ws, machine_path) = create_workspace(
+        "run-parallel-subtasks",
+        "# Rhei: Subtask Layout\n**States:** integration-test\n",
+        &[
+            (
+                "one.md",
+                "### Task 1: Alpha\n**State:** draft\n\n#### Task 1.1: Detail\n**State:** draft\n",
+            ),
+            ("two.md", "### Task 2: Beta\n**State:** draft\n"),
+        ],
+    );
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert!(
+        !result.stderr.contains("schedules tickets from the same rhei file"),
+        "a ticket plus its subtasks is not a shared file:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("Falling back to sequential"),
+        "a multi-file plan keeps parallelism:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
+}
+
+#[test]
+fn run_parallel_warns_when_one_of_several_files_owns_two_tickets() {
+    let (ws, machine_path) = create_workspace(
+        "run-parallel-shared",
+        "# Rhei: Shared File\n**States:** integration-test\n",
+        &[
+            (
+                "one.md",
+                "### Task 1: Alpha\n**State:** draft\n\n### Task 2: Beta\n**State:** draft\n",
+            ),
+            ("two.md", "### Task 3: Gamma\n**State:** draft\n"),
+        ],
+    );
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert!(
+        result.stderr.contains("schedules tickets from the same rhei file")
+            && result.stderr.contains("one.md"),
+        "two top-level tickets in one of several files should warn and name it:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("Falling back to sequential"),
+        "other files still benefit from parallelism:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
+}
+
+#[test]
+fn run_parallel_falls_back_to_sequential_when_all_tickets_share_one_file() {
+    // §FS-rhei-run.2.5: with every ticket in one plan file, parallel slots
+    // could only schedule same-file tickets — sequential, as for a bare file.
+    let (ws, machine_path) = create_workspace(
+        "run-parallel-single-file",
+        "# Rhei: One File\n**States:** integration-test\n",
+        &[(
+            "one.md",
+            "### Task 1: Alpha\n**State:** draft\n\n### Task 2: Beta\n**State:** draft\n",
+        )],
+    );
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert!(
+        result.stderr.contains("Falling back to sequential execution"),
+        "a single ticket-owning file cannot run in parallel:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
 }

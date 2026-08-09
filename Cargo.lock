@@ -902,6 +902,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "tempfile",
+ "textwrap",
 ]
 
 [[package]]

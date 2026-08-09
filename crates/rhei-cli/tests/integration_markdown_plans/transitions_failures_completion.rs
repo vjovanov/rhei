@@ -267,6 +267,136 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// The plan file is the artifact humans read and review in a diff, so
+/// completion must not degrade its spacing. The result block used to land with
+/// two blank lines above it and none below, butting the next heading against
+/// the blockquote and getting worse with every completion.
+#[test]
+fn complete_surrounds_the_result_block_with_exactly_one_blank_line() {
+    let plan = r#"# Rhei: Result Spacing
+
+## Tasks
+
+### Task 1: First
+**State:** pending
+
+Body of one.
+
+### Task 2: Last
+**State:** pending
+
+Body of two.
+"#;
+
+    let dir = unique_temp_dir("complete-result-spacing");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COMPLETE_STATE_MACHINE);
+
+    for task in ["1", "2"] {
+        let result = run_complete(&plan_path, &machine_path, task, "done");
+        assert!(result.status.success(), "complete {task} failed:\n{}", result.stderr);
+    }
+
+    let updated = fs::read_to_string(&plan_path).expect("read completed plan");
+    assert!(
+        updated.contains("Body of one.\n\n> **Result:** [plan.1](runtime/results/plan.1.md)\n\n### Task 2: Last"),
+        "a mid-file result block needs exactly one blank line on each side; got:\n{updated}"
+    );
+    assert!(
+        updated.ends_with("> **Result:** [plan.2](runtime/results/plan.2.md)\n"),
+        "an end-of-file result block must not add trailing blank lines; got:\n{updated}"
+    );
+    assert!(
+        !updated.contains("\n\n\n"),
+        "completion must not introduce doubled blank lines; got:\n{updated}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-complete.4: completing ahead of a prerequisite makes the ticket
+/// terminal, so the violation would drop out of readiness and never resurface.
+#[test]
+fn complete_rejects_task_with_unsatisfied_prior() {
+    let plan = r#"# Rhei: Prior Completion Guard
+
+## Tasks
+
+### Task 1: First
+**State:** pending
+
+### Task 2: Second
+**State:** pending
+**Prior:** Task 1
+"#;
+
+    let dir = unique_temp_dir("complete-unsatisfied-prior");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COMPLETE_STATE_MACHINE);
+
+    let result = run_complete(&plan_path, &machine_path, "2", "done");
+
+    assert!(!result.status.success(), "complete should fail when a prior is unsatisfied");
+    let normalized = normalize_for_assertions(&result.stderr);
+    assert!(
+        normalized.contains("cannot be completed while its prerequisites are unsatisfied"),
+        "expected prior guard in stderr, got:\n{}",
+        result.stderr
+    );
+    assert!(
+        normalized.contains("Task plan.1 (pending)"),
+        "expected blocking prior and its state in stderr, got:\n{}",
+        result.stderr
+    );
+    assert!(
+        normalized.contains("rhei transition"),
+        "expected the deliberate-override escape hatch in stderr, got:\n{}",
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("Task 2 exists");
+    assert_eq!(task.state.as_str(), "pending", "the rejected completion must not write state");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The guard must not fire once the prior is genuinely satisfied.
+#[test]
+fn complete_accepts_task_once_prior_is_terminal() {
+    let plan = r#"# Rhei: Prior Completion Guard
+
+## Tasks
+
+### Task 1: First
+**State:** completed
+
+### Task 2: Second
+**State:** pending
+**Prior:** Task 1
+"#;
+
+    let dir = unique_temp_dir("complete-satisfied-prior");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", COMPLETE_STATE_MACHINE);
+
+    let result = run_complete(&plan_path, &machine_path, "2", "done");
+
+    assert!(
+        result.status.success(),
+        "complete should succeed when the prior is terminal\nstderr:\n{}",
+        result.stderr
+    );
+
+    let updated = fs::read_to_string(&plan_path).expect("read updated plan");
+    let rhei = parse(&updated).expect("parse updated plan");
+    let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("Task 2 exists");
+    assert_eq!(task.state.as_str(), "completed");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn complete_succeeds_when_all_subtasks_are_terminal() {
     let plan = r#"# Rhei: Parent Completion Success

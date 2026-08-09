@@ -51,6 +51,16 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 
 `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment and unassignment are owned by `rhei next` and `rhei complete` respectively.
 
+`rhei transition` deliberately does **not** check `**Prior:**` dependencies.
+It is the explicit human-initiated primitive, so it is the escape hatch for
+the moves the scheduling commands refuse: leaving a gating state
+(§FS-rhei-complete.4), and advancing a ticket ahead of an unsatisfied prior.
+`rhei next`, `rhei run`, and `rhei complete` all enforce readiness; a caller
+that reaches for `transition` is stating the out-of-order move is intended.
+Because the resulting plan then contradicts its own declared dependencies,
+`rhei validate` reports it as a warning (§FS-rhei-validate.4) rather than
+letting it pass unremarked.
+
 Counted-visit accounting: if the target state declares a `visits` budget and `--to` is a loop-back re-entry, the runtime increments `metadata.tasks.<id>.stateVisits.<target>` and renders the new visit number in `**State:**` using the `-<n>` suffix. See [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
 
 ## 4. Compare-and-Swap Conflicts

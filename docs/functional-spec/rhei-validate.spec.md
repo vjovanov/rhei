@@ -8,14 +8,28 @@ or orchestrator mutates plan state. §GOAL-rhei-outcomes
 ## 1. Usage
 
 ```bash
-rhei validate <RHEI_PLAN_OR_WORKSPACE>
-rhei validate --watch <RHEI_PLAN_OR_WORKSPACE>
-rhei --state-machine <PATH> validate <RHEI_PLAN_OR_WORKSPACE>
+rhei validate [RHEI_PLAN_OR_WORKSPACE]
+rhei validate --watch [RHEI_PLAN_OR_WORKSPACE]
+rhei --state-machine <PATH> validate [RHEI_PLAN_OR_WORKSPACE]
 ```
 
-`<RHEI_PLAN_OR_WORKSPACE>` may be a single `.rhei.md` file or a Directory
-Workspace root. When a workspace root is passed, validation loads
-`index.rhei.md` and the workspace task files.
+`<RHEI_PLAN_OR_WORKSPACE>` may be a single `.rhei.md` file, a Directory
+Workspace root, or a Panta project directory; omitted, the target is resolved
+by walking up from the current directory (§FS-rhei-panta.6). When a workspace
+root is passed, validation loads `index.rhei.md` and the workspace task files.
+A project target validates the whole merged graph.
+
+### 1.1. Why there is no `--rhei`
+
+Unlike `rhei list`, `rhei run`, and `rhei reset`, `rhei validate` takes no
+`--rhei` narrowing flag. Narrowing those commands selects *tickets to act on*,
+which is well defined. Narrowing validation would have to select *diagnostics
+to report*, and a project's diagnostics are not partitioned by rhei: the state
+machine, merged settings, link bases, and cross-rhei `**Prior:**` resolution
+are all project-wide, and a load failure in one rhei is what stops the others
+from resolving. A flag that filtered the reported subset would hide real
+errors behind an apparently narrower green — the opposite of what validation
+is for. Validate the project; the diagnostics name their own rhei.
 
 ## 2. Options
 
@@ -52,7 +66,19 @@ pass `--state-machine`.
    machine. §FS-rhei-agents §FS-rhei-snapshots
 4. Validate snapshot plan context and report orphaned snapshot diagnostics as
    warnings when a snapshot cache exists. §FS-rhei-snapshot-operations
-5. Exit non-zero when any validation error remains. Warnings do not make the
+5. Report every ticket that reached a successful terminal state while one of
+   its `**Prior:**` dependencies is still unsatisfied as a **warning** naming
+   the ticket and each blocking prior with its state. Such a plan contradicts
+   the dependency semantics it declares, and no other surface reveals it: a
+   terminal ticket drops out of `rhei list --blocked` and out of readiness
+   entirely, so the plan reads as healthy. The condition is reachable through
+   the deliberate `rhei transition` escape hatch
+   (§FS-rhei-transition-cmd.3), by editing a `**Prior:**` onto an
+   already-completed ticket, and by a prior that was later cancelled — all
+   legitimate authoring moves. It is therefore a warning, never an error:
+   validation must surface the inconsistency without making an existing plan
+   unloadable.
+6. Exit non-zero when any validation error remains. Warnings do not make the
    command fail.
 
 `rhei validate` does not acquire task locks, run callbacks, spawn agents,

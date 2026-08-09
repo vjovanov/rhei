@@ -1,6 +1,9 @@
 fn reset_target_files(loaded: &LoadedPlan, input: &Path, scope: &RheiScope) -> Vec<PathBuf> {
     if loaded.task_sources.is_empty() {
-        return vec![input.to_path_buf()];
+        // Only a bare plan file is itself the rewrite target; an empty
+        // project or workspace has no plan files to rewrite — resetting it
+        // is a no-op, not an error. §FS-rhei-panta.6
+        return if input.is_file() { vec![input.to_path_buf()] } else { Vec::new() };
     }
 
     // §FS-rhei-panta.6.4: `--rhei` narrows which rheis are reset.
@@ -294,8 +297,7 @@ fn append_result_entry(
         .open(&result_file)
         .map_err(|err| miette!("failed to open result file: {err}"))?;
 
-    writeln!(file, "## Result")
-        .map_err(|err| miette!("failed to write result entry: {err}"))?;
+    writeln!(file, "## Result").map_err(|err| miette!("failed to write result entry: {err}"))?;
     writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
     writeln!(file, "{}", msg).map_err(|err| miette!("failed to write result entry: {err}"))?;
     writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
@@ -384,9 +386,12 @@ fn write_task_assignee(
         qualified_id,
         &current_state,
         claim.state_def,
+        // `claim.metadata` is the merged project graph's, so `stateVisits`
+        // is keyed by the qualified id — not the rhei-local id the raw file
+        // parse yields. §AR-rhei-panta.2
         Some(render_visit_count(
             claim.metadata,
-            &task.id,
+            &parse_task_id(qualified_id),
             &current_state,
             task.state.as_str(),
             machine,
@@ -431,6 +436,14 @@ fn parse_claim_task_from_raw(
 }
 
 /// Rewrite a task's markdown after completion: remove `**Assignee:**` and,
+/// Drop blank lines from the end of `lines` so the caller controls the exact
+/// separation it wants.
+fn trim_trailing_blank_lines(lines: &mut Vec<String>) {
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+}
+
 /// when `insert_link` is true, append a `> **Result:** [link_text](link_path)`
 /// line to the task body.
 ///
@@ -458,8 +471,14 @@ fn rewrite_task_completion(
     for line in &lines {
         let heading = node_heading_outside_code(line, &mut in_code_block);
         if in_target_task && !link_inserted && heading.is_some() {
+            // Exactly one blank line on each side: the task body already ends
+            // with the blank that separates it from the next heading, so
+            // pushing another produced a double blank above the result block
+            // and left the following heading butted against it.
+            trim_trailing_blank_lines(&mut result_lines);
             result_lines.push(String::new());
             result_lines.push(result_line.clone());
+            result_lines.push(String::new());
             link_inserted = true;
         }
 
@@ -487,8 +506,10 @@ fn rewrite_task_completion(
         result_lines.push(line.to_string());
     }
 
-    // If the target task is the last element in the file, append here.
+    // If the target task is the last element in the file, append here. No
+    // trailing blank: the final newline is restored from the source below.
     if in_target_task && !link_inserted {
+        trim_trailing_blank_lines(&mut result_lines);
         result_lines.push(String::new());
         result_lines.push(result_line);
     }

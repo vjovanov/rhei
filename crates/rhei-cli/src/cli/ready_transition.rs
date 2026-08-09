@@ -175,6 +175,26 @@ fn plan_state_map<'a>(
         .collect()
 }
 
+/// Every unsatisfied `**Prior:**` of `task` as `Task <id> (<state>)`. Judged
+/// exactly as readiness judges it, so mutation commands and the scheduler
+/// agree on what "blocked" means. §FS-rhei-panta.6.1
+fn blocking_priors(
+    task: &rhei_core::ast::Task,
+    state_map: &std::collections::HashMap<&TaskId, String>,
+    machine: &rhei_validator::StateMachine,
+) -> Vec<String> {
+    task.prior
+        .iter()
+        .filter_map(|dep_id| match state_map.get(dep_id) {
+            Some(state) if !dependency_is_satisfied(state, machine) => {
+                Some(format!("Task {} ({})", dep_id, state))
+            }
+            None => Some(format!("Task {} (missing)", dep_id)),
+            _ => None,
+        })
+        .collect()
+}
+
 fn first_blocking_prior(
     task: &rhei_core::ast::Task,
     state_map: &std::collections::HashMap<&TaskId, String>,
@@ -298,8 +318,18 @@ fn diagnose_no_claimable(
 
     if all.is_empty() {
         return match scope {
-            Some(_) => format!("no tasks are ready to claim{scope_suffix} (no tasks in scope)"),
-            None => "no tasks are ready to claim (plan has no tasks)".to_string(),
+            Some(_) => {
+                format!("no tickets are ready to claim{scope_suffix} (no tickets in scope)")
+            }
+            // Match the vocabulary and the next step `rhei list` gives for the
+            // same state; a bare "plan has no tasks" leaves a new user stuck.
+            None if rhei_core::workspace::is_panta_project(plan_path) => {
+                "no tickets are ready to claim — the project has none yet. Add a rhei by \
+                 dropping a `<id>.rhei.md` file or a workspace directory next to \
+                 index.panta.md."
+                    .to_string()
+            }
+            None => "no tickets are ready to claim — this rhei has none yet".to_string(),
         };
     }
 
@@ -488,7 +518,7 @@ fn diagnose_no_claimable(
             String::new()
         };
         return format!(
-            "no tasks are ready to claim{}: {} task(s) blocked by incomplete prerequisites: {}{}.",
+            "no tickets are ready to claim{}: {} ticket(s) blocked by incomplete prerequisites: {}{}.",
             scope_suffix,
             blocked.len(),
             ids.join(", "),
@@ -498,7 +528,7 @@ fn diagnose_no_claimable(
 
     // Fallback: we found non-terminal tasks with priors satisfied but no
     // other category matched. Keep the legacy phrasing for this edge case.
-    format!("no tasks are ready to claim{scope_suffix}")
+    format!("no tickets are ready to claim{scope_suffix}")
 }
 
 /// Check whether a state is terminal (final) in the state machine.
@@ -703,7 +733,7 @@ fn try_auto_advance_task(
     let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: task_id_str },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
         &route.local_id,

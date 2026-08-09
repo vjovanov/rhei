@@ -190,10 +190,7 @@ fn resolve_state_machine_for_loaded_plan(
                 machine.name
             ));
         }
-        return Ok(ResolvedStateMachine {
-            machine,
-            path: Some(path.to_path_buf()),
-        });
+        return Ok(ResolvedStateMachine { machine, path: Some(path.to_path_buf()) });
     }
 
     let builtin = rhei_validator::StateMachine::builtin_default();
@@ -213,23 +210,39 @@ fn resolve_state_machine_for_loaded_plan(
         mismatch = Some(machine.name);
     }
 
-    // §AR-rhei-panta.4: the machine's definition file may live in a rhei's
-    // own root; when the project-root file is absent or names a different
-    // machine, a `name:` match there resolves, first in discovery order.
+    // §AR-rhei-panta.4: when the project-root file is absent or mismatched,
+    // a *unique* `name:` match in a rhei root resolves the machine file;
+    // several matches are ambiguous — a stale copy must not win silently.
     if declared_name != builtin.name {
         let mut roots: Vec<&PathBuf> = loaded.task_roots.values().collect();
         roots.sort();
         roots.dedup();
+        let mut matches: Vec<(PathBuf, rhei_validator::StateMachine)> = Vec::new();
         for root in roots {
             let rhei_candidate = root.join("states.yaml");
             if rhei_candidate == candidate || !rhei_candidate.is_file() {
                 continue;
             }
-            if let Ok(machine) = load_state_machine(Some(&rhei_candidate)) {
-                if machine.name == declared_name {
-                    return Ok(ResolvedStateMachine { machine, path: Some(rhei_candidate) });
-                }
+            // An unloadable candidate is a real project problem; swallowing
+            // it here would surface as a misleading "not found" instead.
+            let machine = load_state_machine(Some(&rhei_candidate))?;
+            if machine.name == declared_name {
+                matches.push((rhei_candidate, machine));
             }
+        }
+        if matches.len() > 1 {
+            let paths: Vec<String> =
+                matches.iter().map(|(path, _)| format!("'{}'", path.display())).collect();
+            return Err(miette!(
+                "plan declares state machine '{}', and more than one rhei root holds a \
+                 states file declaring it: {}.\nMove the definitive file to the project \
+                 root or pass --state-machine <path>.",
+                declared_name,
+                paths.join(", ")
+            ));
+        }
+        if let Some((path, machine)) = matches.into_iter().next() {
+            return Ok(ResolvedStateMachine { machine, path: Some(path) });
         }
         return Err(match mismatch {
             Some(found) => miette!(
@@ -249,6 +262,59 @@ fn resolve_state_machine_for_loaded_plan(
     Ok(ResolvedStateMachine { machine: builtin, path: None })
 }
 
+/// Resolve the state machine for `rhei states`.
+///
+/// An explicit `--state-machine` answers on its own — the command must stay
+/// usable for inspecting a machine file anywhere. Otherwise the target plan
+/// decides, exactly as it does for `validate`, `list`, and `run`.
+///
+/// Discovery is best-effort in both directions that matter: outside any
+/// project there is nothing to resolve against, so the built-in default is the
+/// honest answer; and an auto-discovered plan that fails to load must not make
+/// `rhei states` unusable while the author is repairing that very plan. An
+/// explicitly named plan is strict, because the user asked about *that* plan.
+fn resolve_state_machine_for_states_command(
+    input: Option<PathBuf>,
+    state_machine: Option<&Path>,
+) -> MietteResult<ResolvedStateMachine> {
+    if let Some(path) = state_machine {
+        let machine = load_state_machine(Some(path))?;
+        return Ok(ResolvedStateMachine { machine, path: Some(path.to_path_buf()) });
+    }
+
+    let explicit = input.is_some();
+    let target = match resolve_plan_target(input) {
+        Ok(target) => target,
+        // No plan and no project to speak of: the built-in default is what any
+        // plan authored here would get.
+        Err(_) if !explicit => {
+            return Ok(ResolvedStateMachine {
+                machine: rhei_validator::StateMachine::builtin_default(),
+                path: None,
+            });
+        }
+        Err(err) => return Err(err),
+    };
+
+    match load_plan(&target)
+        .and_then(|loaded| resolve_state_machine_for_loaded_plan(&target, &loaded, None))
+    {
+        Ok(resolved) => Ok(resolved),
+        Err(err) if !explicit => {
+            eprintln!(
+                "warning: could not resolve the state machine from {} ({err}); showing the \
+                 built-in default",
+                target.display()
+            );
+            Ok(ResolvedStateMachine {
+                machine: rhei_validator::StateMachine::builtin_default(),
+                path: None,
+            })
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Human-readable label for the state machine source, used in diagnostics.
 fn state_machine_label(path: Option<&Path>) -> String {
     match path {
@@ -257,10 +323,20 @@ fn state_machine_label(path: Option<&Path>) -> String {
     }
 }
 
-/// Execute the `states` subcommand: load the configured state machine and
-/// print its states and declared transitions.
-fn states_command(state_machine: Option<&Path>, as_json: bool) -> MietteResult<()> {
-    let machine = load_state_machine(state_machine)?;
+/// Execute the `states` subcommand: resolve the state machine the plan or
+/// project actually runs under, then print its states and transitions.
+/// Resolution matches every other command. §FS-rhei-plan-language.1.3
+fn states_command(
+    input: Option<PathBuf>,
+    state_machine: Option<&Path>,
+    as_json: bool,
+) -> MietteResult<()> {
+    let resolved = resolve_state_machine_for_states_command(input, state_machine)?;
+    let machine = resolved.machine;
+
+    if !as_json {
+        println!("Source: {}", state_machine_label(resolved.path.as_deref()));
+    }
 
     if as_json {
         let rendered = render_state_machine_json(&machine)
@@ -334,7 +410,7 @@ fn list_command(
                  directory next to index.panta.md)"
             );
         } else {
-            println!("(plan has no tasks)");
+            println!("(this rhei has no tickets yet)");
         }
         return Ok(());
     }

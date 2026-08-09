@@ -403,7 +403,7 @@ fn next_command(
             miette!("no forward transition available from state '{}'", current_state_raw)
         })?;
         let effective_to = execute_transition(
-            TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: &task_id_str },
+            TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
             &callback_paths,
             &machine,
             &route.local_id,

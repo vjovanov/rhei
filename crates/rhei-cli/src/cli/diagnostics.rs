@@ -354,6 +354,25 @@ fn render_multi_parse_diagnostic(
     lines.join("\n")
 }
 
+/// Report a parse error raised while loading a multi-document plan (a Panta
+/// project, a Directory Workspace).
+///
+/// When the error names the file its line belongs to and that file still
+/// reads, this renders the same code frame a single-file plan gets. The point
+/// is that `rhei validate` inside a project must not be less helpful than
+/// `rhei validate <that same file>` — the project form is the one `rhei init`
+/// steers every new author toward.
+fn nested_parse_report(err: &rhei_core::parser::ParseError) -> Report {
+    let Some(path) = err.file.as_deref() else {
+        return miette!("{}", err.message);
+    };
+    let Ok(source) = std::fs::read_to_string(path) else {
+        // The file moved or is unreadable; the message still stands on its own.
+        return miette!("{}: {}", path.display(), err.message);
+    };
+    parse_report(path, &source, err)
+}
+
 /// Convert file I/O failures into a consistent diagnostic message.
 fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Report {
     miette!("{action} '{}': {err}", path.display())

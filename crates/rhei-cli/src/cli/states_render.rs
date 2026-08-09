@@ -224,6 +224,35 @@ enum LoadedPlanKind {
     PantaProject,
 }
 
+/// One warning per rhei that loaded but holds no tickets. Empty is valid, but a
+/// mistyped `tasks/` loads identically, so name it rather than report a bare
+/// green. §FS-rhei-plan-language.1.2
+fn empty_rhei_warnings(loaded: &LoadedPlan) -> Vec<String> {
+    match loaded.kind {
+        LoadedPlanKind::PantaProject => loaded
+            .rhei_ids
+            .iter()
+            .filter(|id| {
+                let prefix = format!("{id}.");
+                !loaded.rhei.tasks.iter().any(|task| task.id.to_string().starts_with(&prefix))
+            })
+            .map(|id| {
+                format!(
+                    "rhei '{id}' holds no tickets: a workspace rhei takes its tickets from \
+                     non-hidden `tasks/**/*.md` files, a single-file rhei from its `## Tasks` \
+                     section"
+                )
+            })
+            .collect(),
+        LoadedPlanKind::Workspace if loaded.rhei.tasks.is_empty() => vec![
+            "this workspace holds no tickets: task files are the non-hidden `*.md` files \
+             under `tasks/`"
+                .to_string(),
+        ],
+        _ => Vec::new(),
+    }
+}
+
 struct LoadedPlan {
     rhei: rhei_core::ast::Rhei,
     kind: LoadedPlanKind,
@@ -266,17 +295,39 @@ impl LoadedPlan {
             _ => input.to_path_buf(),
         };
         let execution_root = self.task_root(task_id, &fallback_root);
-        // A workspace-shaped rhei keeps ticket metadata in its own index; a
-        // single-file rhei keeps it in the rhei file itself.
+        // Ticket headings inside the owning file are rhei-local: strip the
+        // project-qualifying rhei id segment. §AR-rhei-panta.3
+        let local_id = rhei_local_id_str(task_id).to_string();
+        // A workspace-shaped rhei keeps ticket metadata in its own index, a
+        // single-file rhei in the rhei file itself. The basin has no authored
+        // index, so its metadata lands in the manifest. §FS-rhei-panta.6.1
+        if self.is_basin_task(task_id) {
+            // `input` may name the project by directory or by manifest file;
+            // resolve it rather than assuming, since not every caller
+            // normalizes before routing.
+            let project_dir = workspace::panta_project_dir(input)
+                .unwrap_or_else(|| input.to_path_buf());
+            return TaskRoute {
+                task_file,
+                metadata_file: project_dir.join(workspace::PANTA_INDEX_FILE),
+                local_id,
+                metadata_id: task_id.to_string(),
+                execution_root,
+            };
+        }
         let metadata_file = if workspace::is_workspace(&execution_root) {
             execution_root.join("index.rhei.md")
         } else {
             task_file.clone()
         };
-        // Ticket headings inside the owning file are rhei-local: strip the
-        // project-qualifying rhei id segment. §AR-rhei-panta.3
-        let local_id = rhei_local_id_str(task_id).to_string();
-        TaskRoute { task_file, metadata_file, local_id, execution_root }
+        let metadata_id = local_id.clone();
+        TaskRoute { task_file, metadata_file, local_id, metadata_id, execution_root }
+    }
+
+    /// True when `task_id` belongs to the synthetic basin rhei of a project.
+    fn is_basin_task(&self, task_id: &str) -> bool {
+        self.is_panta_project()
+            && task_id.split_once('.').map(|(rhei, _)| rhei) == Some(workspace::BASIN_RHEI_ID)
     }
 }
 
@@ -287,11 +338,46 @@ fn rhei_local_id_str(task_id: &str) -> &str {
     task_id.split_once('.').map(|(_, rest)| rest).unwrap_or(task_id)
 }
 
+/// True when `value` has the shape of a ticket id (`3`, `auth.1`, `auth.1.2`)
+/// rather than a filesystem path: dot-separated segments, no separators, and
+/// no markdown extension.
+fn looks_like_task_id(value: &Path) -> bool {
+    let Some(text) = value.to_str() else {
+        return false;
+    };
+    if text.is_empty() || text.contains('/') || text.contains('\\') || text.ends_with(".md") {
+        return false;
+    }
+    text.split('.').all(|segment| {
+        !segment.is_empty()
+            && segment.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    })
+}
+
 /// Resolve an omitted plan target: walk up from the current directory to the
 /// nearest project (`index.panta.md`) or workspace rhei (`index.rhei.md`); a
 /// lone rhei resolves in the current directory only. §FS-rhei-panta.6
 fn resolve_plan_target(input: Option<PathBuf>) -> MietteResult<PathBuf> {
     if let Some(input) = input {
+        // The positional slot takes a plan, but it sits where a ticket id
+        // looks like it belongs — and commands that select a ticket take it
+        // through `--task`. Name that mistake instead of failing later with a
+        // path error about something the user never meant as a path.
+        if !input.exists() {
+            if looks_like_task_id(&input) {
+                return Err(miette!(
+                    "'{}' is not a path. This argument takes a plan or project; select a \
+                     ticket with `--task {}` and let the plan resolve on its own.",
+                    input.display(),
+                    input.display()
+                ));
+            }
+            return Err(miette!(
+                "no plan or project at '{}'. Pass a `.rhei.md` file, a workspace \
+                 directory, or omit the argument to use the enclosing project.",
+                input.display()
+            ));
+        }
         return Ok(input);
     }
     let cwd = std::env::current_dir()
@@ -442,13 +528,21 @@ fn resolve_cli_task_id(
         0 => {
             // Ticket ids are project-qualified now; point a user typing a
             // stale or partial id at the closest real ones. §FS-rhei-panta.6
+            let scope_noun = if loaded.is_panta_project() { "project" } else { "rhei" };
             let similar = similar_task_ids(loaded, task_id_str);
             if similar.is_empty() {
-                Err(miette!("task '{}' not found in the plan", task_id_str))
+                // Nothing close enough to suggest — name the next step rather
+                // than leaving a dead end.
+                Err(miette!(
+                    "task '{}' not found in this {}; `rhei list` shows every ticket id",
+                    task_id_str,
+                    scope_noun
+                ))
             } else {
                 Err(miette!(
-                    "task '{}' not found in the plan; closest ids: {}",
+                    "task '{}' not found in this {}; closest ids: {}",
                     task_id_str,
+                    scope_noun,
                     similar.join(", ")
                 ))
             }
@@ -494,6 +588,10 @@ struct TaskRoute {
     metadata_file: PathBuf,
     /// The ticket id as written inside `task_file`.
     local_id: String,
+    /// The `metadata.tasks.<id>` key inside `metadata_file`: rhei-local for an
+    /// authored rhei, project-qualified for the synthetic basin, whose
+    /// metadata shares the project manifest. §FS-rhei-panta.6.1
+    metadata_id: String,
     /// Root directory for the owning rhei's `runtime/` artifacts.
     execution_root: PathBuf,
 }
@@ -526,7 +624,7 @@ fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiS
 fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
     if let Some(project_dir) = workspace::panta_project_dir(path) {
         let project = workspace::load_panta_project(&project_dir)
-            .map_err(|err| miette!("{}", err.message))?;
+            .map_err(|err| nested_parse_report(&err))?;
         Ok(LoadedPlan {
             rhei: project.rhei,
             kind: LoadedPlanKind::PantaProject,
@@ -538,9 +636,9 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         // §AR-rhei-panta.2: a bare Directory Workspace is the single rhei of
         // an implicit Panta; the graph shape matches an explicit project.
-        let ws = workspace::load_workspace(&ws_dir).map_err(|err| miette!("{}", err.message))?;
+        let ws = workspace::load_workspace(&ws_dir).map_err(|err| nested_parse_report(&err))?;
         let project = workspace::wrap_rhei_as_implicit_panta(ws, &ws_dir)
-            .map_err(|err| miette!("{}", err.message))?;
+            .map_err(|err| nested_parse_report(&err))?;
         Ok(implicit_loaded_plan(project, LoadedPlanKind::Workspace))
     } else {
         let input = read_input_file(path)?;
@@ -548,7 +646,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
         // §AR-rhei-panta.2/.3: a bare rhei file wraps as an implicit Panta
         // with its id derived from the file stem.
         let project = workspace::implicit_panta_from_file_rhei(rhei, path)
-            .map_err(|err| miette!("{}", err.message))?;
+            .map_err(|err| nested_parse_report(&err))?;
         Ok(implicit_loaded_plan(project, LoadedPlanKind::SingleFile))
     }
 }
@@ -574,7 +672,7 @@ fn implicit_loaded_plan(
 fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
     if let Some(project_dir) = workspace::panta_project_dir(path) {
         let project = workspace::load_panta_project(&project_dir)
-            .map_err(|err| miette!("{}", err.message))?;
+            .map_err(|err| nested_parse_report(&err))?;
         return Ok(LoadedPlan {
             rhei: project.rhei,
             kind: LoadedPlanKind::PantaProject,
@@ -594,7 +692,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
     match (maybe_rhei, errs.is_empty()) {
         (Some(rhei), true) => {
             let project = workspace::implicit_panta_from_file_rhei(rhei, path)
-                .map_err(|err| miette!("{}", err.message))?;
+                .map_err(|err| nested_parse_report(&err))?;
             Ok(implicit_loaded_plan(project, LoadedPlanKind::SingleFile))
         }
         (_, false) | (None, _) => Err(parse_errors_report(path, &raw, &errs)),
@@ -615,7 +713,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
 
     if tasks_dir.is_dir() {
         let task_files = workspace::discover_task_files(&tasks_dir)
-            .map_err(|err| miette!("{}", err.message))?;
+            .map_err(|err| nested_parse_report(&err))?;
 
         for path in task_files {
             let raw = read_input_file(&path)?;
@@ -651,9 +749,8 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         return Err(miette!("{error}"));
     }
 
-    if all_tasks.is_empty() {
-        return Err(miette!("workspace contains no tasks (tasks/ directory is empty or missing)"));
-    }
+    // An empty workspace is a valid, empty rhei; `rhei validate` warns rather
+    // than failing the whole project's load. §FS-rhei-plan-language.1.2
 
     let ws = rhei_core::workspace::Workspace {
         rhei: rhei_core::ast::Rhei {
@@ -668,7 +765,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         task_sources,
     };
     let project = workspace::wrap_rhei_as_implicit_panta(ws, ws_dir)
-        .map_err(|err| miette!("{}", err.message))?;
+        .map_err(|err| nested_parse_report(&err))?;
     Ok(implicit_loaded_plan(project, LoadedPlanKind::Workspace))
 }
 
@@ -762,6 +859,10 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
                 .to_string(),
         );
     }
+    // An empty rhei is valid, but a mistyped `tasks/` looks identical to a
+    // deliberately empty one — name it rather than let it pass unremarked.
+    // §FS-rhei-plan-language.1.2
+    report.warnings.extend(empty_rhei_warnings(&loaded));
 
     if report.has_errors() {
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));

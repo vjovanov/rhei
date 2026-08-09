@@ -63,7 +63,15 @@ and each word is capitalized (`my-project` → `My Project`).
    bare `*.rhei.md` files or workspace rheis, a `panta/` project would not
    discover them; the error offers both fixes — `--here` to adopt them in
    place, or moving them into `panta/` first. `--here` and `--force` skip
-   this check.
+   this check. The mirror-image check guards `--here`: when the host is not
+   itself a project but already holds a default-mode project at `panta/`,
+   adopting the host would shadow that project — target resolution prefers
+   the host manifest (§FS-rhei-panta.6), so every ticket in `panta/` would
+   become unreachable by inference. The command refuses, names the child
+   project, and offers the fixes (keep using `panta/`, or move its contents
+   into the host and remove it first); `--force` does not skip this refusal,
+   for the same reason it cannot nest a fresh `panta/` inside a host project
+   (point 1).
 3. **Warn about an enclosing project.** When an ancestor directory contains
    `index.panta.md`, init proceeds but warns on stderr: nested projects are
    almost always a mistake, and the outer project will not discover the inner
@@ -158,6 +166,22 @@ An adoption (`--here`) over existing plans reports the discovered rheis
 file whose stem is not a valid rhei id — init still succeeds (the manifest is
 written) and surfaces the load error as a warning, so init doubles as a first
 validation.
+
+Init also **names every file it wrote or changed outside the project
+directory**, and states the gitignore consequence in default mode:
+
+```text
+Also changed in the host directory: .gitignore, AGENTS.md
+Note: `panta/` is gitignored — planning state is working material, not
+repository content. Delete that entry to version the project.
+```
+
+Init runs inside someone else's repository and edits two files there that the
+user did not name. Writing them silently is the surprise: a team discovers
+weeks later that no plan was ever committed, and the `.gitignore` line that
+caused it was never mentioned. Only files actually changed are listed —
+re-running init over an up-to-date `.gitignore` and `AGENTS.md` reports
+neither, because the entries and the marked block are idempotent (§2).
 
 The omitted-plan-target resolution knows the convention: a `panta/` child
 containing `index.panta.md` resolves as the project for commands run in the

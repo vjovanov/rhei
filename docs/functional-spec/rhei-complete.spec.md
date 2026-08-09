@@ -99,15 +99,25 @@ Added avatar_url column and migration 0042
 5. Reject if any descendant task node of the target task is still in a
    non-terminal state. A parent task must not be completed while any child,
    grandchild, or deeper descendant remains open.
-6. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
-7. Execute the state transition directly (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks, source `outputs:` checks, and completion-target `inputs:` checks) using the artifact order defined in [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts). This is performed inline — `rhei complete` does **not** delegate to `rhei transition`, so only one result entry is appended per invocation.
-8. If callbacks redirect the transition, the effective target must still be a non-cancelled terminal completion state. If it is non-terminal or `cancelled`, the command fails without writing completion result artifacts or removing the assignee.
-9. Append `<task-id> <from>@<to>` to `runtime/state-transitions.log` and append
+6. Reject if any `**Prior:**` of the target task is unsatisfied — resolved
+   across the whole project graph and judged the same way readiness judges it
+   (terminal-and-not-cancelled, §FS-rhei-panta.6.1). The error names every
+   blocking prior with its current state. Completing a ticket ahead of its
+   prerequisites contradicts the dependency semantics the plan declares, and
+   nothing downstream would ever surface it: the ticket becomes terminal, so
+   `rhei list --blocked` stops reporting it and the plan reads as healthy.
+   A deliberate out-of-order move stays available through the explicit
+   human-initiated `rhei transition` (§FS-rhei-transition-cmd.3), the same
+   escape hatch a gating state uses in point 4.
+7. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
+8. Execute the state transition directly (compare-and-swap with file lock, `on_leave`/`on_enter` callbacks, source `outputs:` checks, and completion-target `inputs:` checks) using the artifact order defined in [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts). This is performed inline — `rhei complete` does **not** delegate to `rhei transition`, so only one result entry is appended per invocation.
+9. If callbacks redirect the transition, the effective target must still be a non-cancelled terminal completion state. If it is non-terminal or `cancelled`, the command fails without writing completion result artifacts or removing the assignee.
+10. Append `<task-id> <from>@<to>` to `runtime/state-transitions.log` and append
    the `--result` message to `runtime/results/<task-id>.md` (create directories
    as needed).
-10. Remove the `**Assignee:**` line from the task (no-op if absent).
-11. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
-12. Write the task file atomically (temp file + rename).
+11. Remove the `**Assignee:**` line from the task (no-op if absent).
+12. If the result file does not yet have a `> **Result:**` link in the task body, append a `> **Result:** [<task-id>](runtime/results/<task-id>.md)` link to the task body.
+13. Write the task file atomically (temp file + rename).
 
 `rhei transition` writes only the central state-transition ledger; it does not
 need a per-task result file when there is no result message.

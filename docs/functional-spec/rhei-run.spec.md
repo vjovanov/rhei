@@ -80,6 +80,25 @@ the named rheis.
 - `--parallel > 1` stays available on a project, but two tickets of one rhei
   file are still concurrent work against a single checkout; the run warns and
   names such a file. Plan-file writes themselves serialize on the file lock.
+  Only **top-level tickets** count toward a file: a subtask always executes
+  inside its ticket's slot, so a file holding one ticket and its subtasks is
+  not shared. When *every* ticket in the run lives in one plan file, parallel
+  slots could only ever schedule same-file tickets — the run then falls back
+  to sequential execution with a warning, exactly as for a bare single-file
+  plan.
+
+### 2.6. Run Lock
+
+At most one live run may drive a rhei's files at a time. A run acquires the
+`.rhei/run.lock` of **every** involved execution root — the target's own root
+plus each contained rhei's execution root — not just the root it was pointed
+at. This is what makes a project-level `rhei run <project>` and a direct
+`rhei run <project>/<rhei>` mutually exclusive: both contend on the member
+rhei's lock. Locks are acquired in one canonical (sorted, absolute) order so
+two multi-root runs cannot deadlock. `--dry-run` takes no locks
+(§4). Narrowing with `--rhei` does not narrow the lock set: a narrowed run
+still locks the whole project, keeping lock behavior independent of scheduling
+scope.
 
 ## 3. Execution Loop
 
@@ -176,6 +195,19 @@ would transition: Task <ID>  <from> -> <to>
 ```
 
 No file lock is acquired, no markdown is rewritten, and no runtime artifacts are created.
+
+A dry run **reports** the manual-only condition of §3 instead of aborting on
+the first task that hits it:
+
+```text
+manual-only: Task <ID>  <from> -> <to> (claim with `rhei next`, finish with `rhei complete`)
+```
+
+The scan continues, so one invocation lists every manual-only task alongside
+every transition that would run; the command still exits non-zero when any
+were reported. Aborting on the first one defeats the purpose of the flag —
+under the built-in machine, whose initial state is manual-only, it made
+`--dry-run` fail before printing anything at all.
 
 ## 5. Parallel Execution
 

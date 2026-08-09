@@ -17,6 +17,11 @@ pub(super) struct NodeBuilder {
     /// Once non-metadata content appears, further metadata fields become
     /// errors.
     pub(super) metadata_closed: bool,
+    /// Whether a blank line has separated the heading from the current line.
+    /// Recognized metadata fields are still accepted after one, but an
+    /// *unrecognized* `**Field:**` past a blank line reads as prose and is
+    /// left alone.
+    pub(super) blank_line_seen: bool,
     /// Line number of the heading (for error reporting).
     pub(super) heading_line: usize,
 }

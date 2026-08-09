@@ -61,6 +61,7 @@ impl Validator {
         validate_state_machine_warnings(&self.machine, &mut report);
         validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
+        validate_prior_order_coherence(rhei, &index, &self.machine, &mut report);
         validate_state_consistency(rhei, &self.machine, &mut report);
         validate_task_execution_overrides(rhei, &self.machine, &mut report);
         validate_terminal_tree_coherence(rhei, &self.machine, &mut report);
@@ -202,15 +203,23 @@ fn validate_dependency_integrity(
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {
+    let rhei_ids = project_rhei_ids(rhei);
+
     fn recurse(
         task: &Task,
         ancestors: &mut Vec<TaskId>,
         index: &HashMap<TaskId, &Task>,
+        rhei_ids: &[String],
         report: &mut ValidationReport,
     ) {
         for dep in &task.prior {
             if !index.contains_key(dep) {
-                report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
+                report.errors.push(format!(
+                    "Task {} depends on missing Task {}{}",
+                    task.id,
+                    dep,
+                    unknown_rhei_hint(dep, rhei_ids)
+                ));
             }
             if ancestors.iter().any(|ancestor| ancestor == dep) {
                 report.errors.push(format!(
@@ -221,15 +230,141 @@ fn validate_dependency_integrity(
         }
         ancestors.push(task.id.clone());
         for child in &task.children {
-            recurse(child, ancestors, index, report);
+            recurse(child, ancestors, index, rhei_ids, report);
         }
         ancestors.pop();
     }
 
     let mut ancestors = Vec::new();
     for task in &rhei.tasks {
-        recurse(task, &mut ancestors, index, report);
+        recurse(task, &mut ancestors, index, &rhei_ids, report);
     }
+}
+
+/// Rhei ids of the merged project: the leading segment of every top-level id.
+fn project_rhei_ids(rhei: &Rhei) -> Vec<String> {
+    let mut ids: Vec<String> = rhei
+        .tasks
+        .iter()
+        .filter_map(|task| match task.id.segments.first() {
+            Some(TaskIdSegment::Named(name)) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// Explain a missing prior whose rhei segment names no rhei in the project.
+///
+/// A cross-rhei `**Prior:**` naming an unknown rhei is indistinguishable at
+/// load time from a rhei-local id, so it is qualified with the citing rhei and
+/// surfaces as an id the author never wrote (`billing.onbaording.3` for an
+/// authored `onbaording.3`). Naming the unknown rhei — and the near miss —
+/// turns that into the typo it is.
+fn unknown_rhei_hint(dep: &TaskId, rhei_ids: &[String]) -> String {
+    // Shape: <citing-rhei>.<candidate-rhei>.<rest>; anything shorter is a
+    // plain missing ticket in a known rhei and needs no explanation.
+    let Some(TaskIdSegment::Named(candidate)) = dep.segments.get(1) else {
+        return String::new();
+    };
+    if dep.segments.len() < 3 || rhei_ids.iter().any(|id| id == candidate) {
+        return String::new();
+    }
+    let tail: Vec<String> =
+        dep.segments.iter().skip(1).map(|segment| segment.to_string()).collect();
+    let mut hint = format!(
+        ": no rhei named '{candidate}' in this project (rheis: {})",
+        rhei_ids.join(", ")
+    );
+    if let Some(nearest) = nearest_rhei_id(candidate, rhei_ids) {
+        let mut corrected = tail.clone();
+        corrected[0] = nearest.to_string();
+        hint.push_str(&format!(". Did you mean '{}'?", corrected.join(".")));
+    }
+    hint
+}
+
+/// Closest rhei id to `candidate` within a small edit distance, if any.
+fn nearest_rhei_id<'a>(candidate: &str, rhei_ids: &'a [String]) -> Option<&'a str> {
+    // Two edits catches transpositions and a single slip without pairing
+    // unrelated names; short ids get a proportionally tighter budget.
+    let budget = 2.min(candidate.len().div_ceil(3)).max(1);
+    rhei_ids
+        .iter()
+        .map(|id| (edit_distance(candidate, id), id.as_str()))
+        .filter(|(distance, _)| *distance <= budget)
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, id)| id)
+}
+
+/// Levenshtein distance over chars.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut previous: Vec<usize> = (0..=b.len()).collect();
+    let mut current = vec![0usize; b.len() + 1];
+    for (i, a_char) in a.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, b_char) in b.iter().enumerate() {
+            let substitution = previous[j] + usize::from(a_char != b_char);
+            current[j + 1] = substitution.min(previous[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[b.len()]
+}
+
+/// Warn about tickets that went terminal while a `**Prior:**` is unsatisfied.
+/// A terminal ticket leaves readiness and `--blocked`, so nothing else reveals
+/// it; legitimate authoring reaches it, so warn. §FS-rhei-validate.4
+fn validate_prior_order_coherence(
+    rhei: &Rhei,
+    index: &HashMap<TaskId, &Task>,
+    machine: &StateMachine,
+    report: &mut ValidationReport,
+) {
+    let satisfied = |id: &TaskId| -> bool {
+        index
+            .get(id)
+            .map(|dep| {
+                let state = parse_task_state(dep.state.as_str(), machine).state;
+                state != "cancelled"
+                    && machine.states.get(&state).map(|def| def.terminal).unwrap_or(false)
+            })
+            .unwrap_or(false)
+    };
+
+    for_each_node(rhei, |task| {
+        let state = parse_task_state(task.state.as_str(), machine).state;
+        // Only a *successful* terminal state is a contradiction: a cancelled
+        // ticket never claimed its prerequisites ran.
+        if state == "cancelled"
+            || !machine.states.get(&state).map(|def| def.terminal).unwrap_or(false)
+        {
+            return;
+        }
+        // A missing prior is already a hard error in dependency integrity;
+        // do not double-report it here.
+        let unmet: Vec<String> = task
+            .prior
+            .iter()
+            .filter(|dep| index.contains_key(*dep) && !satisfied(dep))
+            .map(|dep| {
+                format!("Task {} ({})", dep, parse_task_state(index[dep].state.as_str(), machine).state)
+            })
+            .collect();
+        if !unmet.is_empty() {
+            report.warnings.push(format!(
+                "{} {} is '{}' but its prerequisites are unsatisfied: {}. The plan contradicts its own **Prior:** dependencies.",
+                title_case_kind(&task.kind),
+                task.id,
+                state,
+                unmet.join(", ")
+            ));
+        }
+    });
 }
 
 fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {

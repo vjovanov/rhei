@@ -231,6 +231,41 @@ mod tests {
     }
 
     #[test]
+    fn history_falls_back_to_legacy_rhei_local_ids() {
+        let temp = TempDir::new("legacy-history");
+        let plan = temp.path().join("plan.rhei.md");
+        fs::write(
+            &plan,
+            "# Rhei: Legacy\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** in-progress\n",
+        )
+        .unwrap();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        // A ledger written before project qualification keys records by the
+        // rhei-local id, not `plan.1`. §AR-rhei-panta.2
+        fs::write(runtime.join("state-transitions.log"), "1 pending@in-progress\n").unwrap();
+
+        let plans = collect_plans(&plan, "legacy", None).expect("collect");
+        let task = &plans["legacy"].tasks[0];
+        assert_eq!(task.id, "plan.1");
+        assert_eq!(task.history.len(), 1, "legacy local-id history should attach");
+        assert_eq!(task.history[0].from, "pending");
+        assert_eq!(task.history[0].to, "in-progress");
+
+        // A qualified record wins outright; the legacy key is a fallback,
+        // never a merge source.
+        fs::write(
+            runtime.join("state-transitions.log"),
+            "plan.1 pending@completed\n1 pending@in-progress\n",
+        )
+        .unwrap();
+        let plans = collect_plans(&plan, "legacy", None).expect("collect");
+        let task = &plans["legacy"].tasks[0];
+        assert_eq!(task.history.len(), 1);
+        assert_eq!(task.history[0].to, "completed");
+    }
+
+    #[test]
     fn sibling_states_named_rhei_overrides_builtin_default() {
         let temp = TempDir::new("local-rhei");
         let plan = temp.path().join("plan.rhei.md");

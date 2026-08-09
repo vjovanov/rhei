@@ -91,19 +91,20 @@ fn execute_transition_with_origin(
     };
 
     // Parse to validate structure and find the task.
-    // Try full plan parse first; fall back to workspace task-file parse.
+    // Try full plan parse first; fall back to manifest + task-file parse.
     let target_id = parse_task_id(task_id_str);
-    let workspace_index = if task_file == metadata_file {
+    // The metadata key is the ticket's local id everywhere except the basin,
+    // whose metadata shares the project manifest under qualified ids.
+    let metadata_key = parse_task_id(files.metadata_id);
+    let manifest = if task_file == metadata_file {
         None
     } else {
-        Some(rhei_core::parser::parse_workspace_index(&metadata_raw).map_err(|err| {
-            miette!("failed to parse workspace index for transition metadata: {}", err.message)
-        })?)
+        Some(parse_metadata_manifest(metadata_file, &metadata_raw)?)
     };
     let task_info = find_task_transition_info(
         &task_raw,
         task_file,
-        workspace_index.as_ref().map(|index| &index.structure),
+        manifest.as_ref().map(|index| &index.structure),
         &target_id,
         task_id_str,
     )?;
@@ -116,7 +117,7 @@ fn execute_transition_with_origin(
             })?
             .metadata
     } else {
-        workspace_index.and_then(|index| index.metadata)
+        manifest.and_then(|index| index.metadata)
     };
 
     // Compare-and-swap: verify the task's current state matches `from`.
@@ -169,7 +170,7 @@ fn execute_transition_with_origin(
 
     let normalized_metadata = ensure_current_state_visit_count(
         metadata.as_ref(),
-        &target_id,
+        &metadata_key,
         from,
         &current_state_raw,
         machine,
@@ -180,7 +181,7 @@ fn execute_transition_with_origin(
         matching_rule,
         machine,
         metadata_for_checks,
-        &target_id,
+        &metadata_key,
         from,
         &current_state_raw,
     )? {
@@ -192,14 +193,14 @@ fn execute_transition_with_origin(
             matching_rule,
             machine,
             metadata_for_checks,
-            &target_id,
+            &metadata_key,
             from,
             &current_state_raw,
         );
         let alternatives = applicable_alternatives(
             machine,
             metadata_for_checks,
-            &target_id,
+            &metadata_key,
             from,
             &current_state_raw,
         );
@@ -364,25 +365,25 @@ fn execute_transition_with_origin(
         .ok_or_else(|| miette!("state '{}' missing from loaded machine", to))?;
 
     let mut updated_metadata =
-        update_metadata_for_transition(metadata_for_checks, &target_id, to, machine)
+        update_metadata_for_transition(metadata_for_checks, &metadata_key, to, machine)
             .or_else(|| normalized_metadata.clone());
     if from_state_def.poll.is_some() && to != from {
         updated_metadata = clear_poll_state_metadata(
             updated_metadata.as_ref().or(metadata_for_checks),
-            &target_id,
+            &metadata_key,
             from,
         );
     }
     let from_visit_count = Some(render_visit_count(
         metadata_for_checks,
-        &target_id,
+        &metadata_key,
         from,
         &current_state_raw,
         machine,
     ));
     let to_visit_count = updated_metadata
         .as_ref()
-        .map(|meta| task_visit_count(Some(meta), &target_id, to))
+        .map(|meta| task_visit_count(Some(meta), &metadata_key, to))
         .filter(|count| *count > 0);
 
     // §AR-rhei-panta.2: artifact templates render the project-qualified id

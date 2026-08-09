@@ -36,6 +36,24 @@ fn init_command(
             host.display()
         ));
     }
+    // §FS-rhei-init.2: --here must not shadow an existing `panta/` project —
+    // target resolution prefers the host manifest (§FS-rhei-panta.6). Not
+    // even --force skips this: force never means "bury the child project".
+    let conventional = host.join("panta");
+    if here
+        && !host.join("index.panta.md").is_file()
+        && conventional.join("index.panta.md").is_file()
+    {
+        return Err(miette!(
+            "{} already holds a Panta project at {}: an adopted host project would \
+             shadow it — every inferred target would resolve to the host manifest. \
+             Keep using the project at {}, or move its contents into the host and \
+             remove it before re-running `rhei init --here`",
+            host.display(),
+            conventional.display(),
+            conventional.display()
+        ));
+    }
     // §FS-rhei-init.2: refuse an existing project untouched unless --force,
     // which rewrites the manifest and updates companion files in place.
     if project.join("index.panta.md").is_file() && !force {
@@ -100,19 +118,25 @@ fn init_command(
     fs::write(&manifest, contents)
         .map_err(|err| miette!("failed to write {}: {err}", manifest.display()))?;
 
-    // §FS-rhei-init.3: default mode ignores the whole project folder at the
-    // host and self-contains the generated-output rules inside it, so
-    // un-ignoring the plans later never starts committing runtime state.
+    // §FS-rhei-init.3: default mode ignores the project folder at the host and
+    // self-contains the output rules inside it, so un-ignoring the plans later
+    // never commits runtime state. Track host writes to name them. §FS-rhei-init.5
+    let mut host_changes: Vec<&str> = Vec::new();
     if here {
-        seed_gitignore(&host, &["runtime/", ".rhei/cache/"])?;
+        if seed_gitignore(&host, &["runtime/", ".rhei/cache/"])? {
+            host_changes.push(".gitignore");
+        }
     } else {
-        seed_gitignore(&host, &["panta/"])?;
+        if seed_gitignore(&host, &["panta/"])? {
+            host_changes.push(".gitignore");
+        }
         seed_gitignore(&project, &["runtime/", ".rhei/cache/"])?;
     }
-    if !no_agents {
-        write_agents_note(&host, here)?;
+    if !no_agents && write_agents_note(&host, here)? {
+        host_changes.push("AGENTS.md");
     }
     report_initialized_project(&project, &title, here);
+    report_host_changes(&host_changes, here);
     println!("Next: `rhei list` shows the project; `rhei install-skills` wires agent skills.");
     Ok(())
 }
@@ -154,8 +178,9 @@ fn default_project_title(dir: &Path) -> String {
 }
 
 /// Append missing entries to `dir/.gitignore`, creating the file when absent
-/// and never rewriting entries already present. §FS-rhei-init.3
-fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<()> {
+/// and never rewriting entries already present. `true` when it changed, so the
+/// caller can name what init touched. §FS-rhei-init.3 §FS-rhei-init.5
+fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<bool> {
     let path = dir.join(".gitignore");
     let existing = fs::read_to_string(&path).unwrap_or_default();
     let missing: Vec<&str> = entries
@@ -164,7 +189,7 @@ fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<()> {
         .filter(|entry| !existing.lines().any(|line| line.trim() == *entry))
         .collect();
     if missing.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     let mut out = existing;
     if !out.is_empty() && !out.ends_with('\n') {
@@ -178,13 +203,14 @@ fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<()> {
         out.push_str(entry);
         out.push('\n');
     }
-    fs::write(&path, out).map_err(|err| miette!("failed to write {}: {err}", path.display()))
+    fs::write(&path, out).map_err(|err| miette!("failed to write {}: {err}", path.display()))?;
+    Ok(true)
 }
 
-/// Create or update the marked Rhei block in the host's `AGENTS.md`. Every
-/// trace of a previous note is stripped first, so the note is idempotent
-/// even after a third-party merge mangled the markers. §FS-rhei-init.4
-fn write_agents_note(host: &Path, here: bool) -> MietteResult<()> {
+/// Create or update the marked Rhei block in the host's `AGENTS.md`, stripping
+/// every trace of a previous note first so it stays idempotent. `true` when it
+/// changed, so the caller can name it. §FS-rhei-init.4 §FS-rhei-init.5
+fn write_agents_note(host: &Path, here: bool) -> MietteResult<bool> {
     let path = host.join("AGENTS.md");
     let location = if here {
         "This directory is a Rhei (Panta) project."
@@ -204,7 +230,27 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<()> {
         out.push_str(&block);
         out
     };
-    fs::write(&path, updated).map_err(|err| miette!("failed to write {}: {err}", path.display()))
+    if updated == existing {
+        return Ok(false);
+    }
+    fs::write(&path, updated)
+        .map_err(|err| miette!("failed to write {}: {err}", path.display()))?;
+    Ok(true)
+}
+
+/// Name the host files init changed and state the gitignore consequence. Doing
+/// this silently is how a team learns weeks later that no plan was ever
+/// committed. §FS-rhei-init.5
+fn report_host_changes(changed: &[&str], here: bool) {
+    if !changed.is_empty() {
+        println!("Also changed in the host directory: {}", changed.join(", "));
+    }
+    if !here && changed.contains(&".gitignore") {
+        println!(
+            "Note: `panta/` is gitignored — planning state is working material, not \
+             repository content. Delete that entry to version the project."
+        );
+    }
 }
 
 /// Remove every trace of a previously written agent note: marker-delimited

@@ -42,6 +42,63 @@ states:
         );
     }
 
+    /// §FS-rhei-validate.4: a ticket that went terminal ahead of its prior
+    /// leaves readiness and `--blocked`, so validation is the only surface
+    /// that can still reveal the contradiction.
+    #[test]
+    fn warns_when_a_task_completed_ahead_of_its_prior() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: First
+**State:** pending
+
+### Task 2: Second
+**State:** completed
+**Prior:** Task 1
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(!report.has_errors(), "must stay a warning: {:?}", report.errors);
+        let joined = report.warnings.join("\n");
+        assert!(
+            joined.contains("Task 2 is 'completed' but its prerequisites are unsatisfied")
+                && joined.contains("Task 1 (pending)"),
+            "did not find expected warning; got:\n{}",
+            joined
+        );
+    }
+
+    #[test]
+    fn does_not_warn_when_priors_are_satisfied_or_task_is_open() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: First
+**State:** completed
+
+### Task 2: Second
+**State:** completed
+**Prior:** Task 1
+
+### Task 3: Third
+**State:** pending
+**Prior:** Task 2
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let sm = sample_machine();
+        let report = validate_with_machine(&rhei, &sm);
+
+        assert!(!report.has_errors(), "unexpected errors: {:?}", report.errors);
+        assert!(
+            !report.warnings.iter().any(|w| w.contains("prerequisites are unsatisfied")),
+            "unexpected prior-order warning: {:?}",
+            report.warnings
+        );
+    }
+
     #[test]
     fn rejects_child_prior_to_parent() {
         let input = r#"# Rhei: Example

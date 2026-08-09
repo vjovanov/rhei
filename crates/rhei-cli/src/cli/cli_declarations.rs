@@ -84,6 +84,7 @@ Execution:
   reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
 Setup:
+  init            Set up a Panta project in a gitignored `panta/` folder (or in place with --here)
   install-skills  Install rhei skills into AI coding agent configuration directories
   completions     Generate shell completion scripts
 
@@ -171,6 +172,10 @@ enum Commands {
     },
     /// Print the states and allowed transitions for the configured state machine
     States {
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
         /// Emit the state machine as JSON instead of plain text
         #[arg(long)]
         json: bool,
@@ -440,16 +445,24 @@ enum Commands {
         #[arg(long)]
         no_callbacks: bool,
     },
-    /// Reset a plan or workspace to the initial state
+    /// Reset every ticket in a rhei or project to the initial state and remove
+    /// runtime output
     Reset {
-        /// Path to the markdown plan file (.rhei.md) or workspace directory.
-        /// Reset destroys runtime state, so its target is never inferred
+        /// Path to the markdown plan file (.rhei.md), workspace directory, or
+        /// project. Reset destroys runtime state, so its target is never
+        /// inferred
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: Option<PathBuf>,
         /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
         /// is its file stem or directory name; default is the whole project
         #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
         rhei: Vec<String>,
+        /// Report what would be reset and removed without changing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the interactive confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
     /// Print versions for the CLI and related crates
     Version,

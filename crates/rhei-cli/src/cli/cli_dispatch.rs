@@ -145,16 +145,52 @@ impl CompletionShell {
 /// Program entry point.
 ///
 /// Delegates to fallible command logic so tests can exercise it directly.
+/// Wrap diagnostics at word boundaries but never *inside* a word.
+///
+/// miette's defaults offer a break opportunity at every hyphen and every `/`,
+/// and split an overlong token outright. All three land mid-path on the
+/// filesystem diagnostics this CLI prints constantly, and a path broken across
+/// lines cannot be copied, clicked, or grepped. Treating only spaces as break
+/// points keeps prose wrapping while a long path overflows the wrap column
+/// intact, where the terminal soft-wraps it.
+fn install_diagnostic_handler() {
+    let _ = miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .break_words(false)
+                .word_separator(textwrap::WordSeparator::AsciiSpace)
+                .word_splitter(textwrap::WordSplitter::NoHyphenation)
+                .build(),
+        )
+    }));
+}
+
+/// True when `rhei` was invoked with no arguments at all.
+///
+/// Distinguishes the orientation case from a subcommand-level usage error;
+/// see the call site in [`main`].
+fn is_bare_invocation() -> bool {
+    std::env::args_os().count() <= 1
+}
+
 fn main() {
+    install_diagnostic_handler();
     CompleteEnv::with_factory(cli_command).bin("rhei").complete();
 
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
+        // A bare `rhei` is a request for orientation, so answer it with the
+        // root help on stdout and a success exit. Every *other* missing
+        // subcommand — `rhei snapshot`, say — is a usage error about that
+        // subcommand: let clap render its own contextual help to stderr with
+        // the conventional exit code, or a script cannot tell the two apart.
         Err(err)
-            if matches!(
-                err.kind(),
-                ErrorKind::MissingSubcommand | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-            ) =>
+            if is_bare_invocation()
+                && matches!(
+                    err.kind(),
+                    ErrorKind::MissingSubcommand
+                        | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                ) =>
         {
             let mut cmd = cli_command();
             if let Err(io_err) = cmd.print_help() {
@@ -186,7 +222,7 @@ fn main() {
 fn command_wants_json(command: &Commands) -> bool {
     match command {
         Commands::Next { json, .. } => *json,
-        Commands::States { json } => *json,
+        Commands::States { json, .. } => *json,
         Commands::List { json, .. } => *json,
         Commands::Snapshot { command: SnapshotCommand::List { format, .. } } => {
             matches!(format, SnapshotListFormat::Json)
@@ -221,7 +257,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
             render_command(&resolve_plan_target(input)?, format, pretty, no_color, no_metadata, no_content)
         }
-        Commands::States { json } => states_command(cli.state_machine.as_deref(), json),
+        Commands::States { input, json } => {
+            states_command(input, cli.state_machine.as_deref(), json)
+        }
         Commands::List {
             input,
             rhei,
@@ -318,7 +356,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Complete { input, task, result, no_callbacks } => {
             complete_command(&resolve_plan_target(input)?, cli.state_machine.as_deref(), &task, &result, no_callbacks)
         }
-        Commands::Reset { input, rhei } => {
+        Commands::Reset { input, rhei, dry_run, yes } => {
             // §FS-rhei-panta.6: reset destroys runtime state, so it is the one
             // plan-taking command that never infers an omitted target.
             let Some(input) = input else {
@@ -328,7 +366,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                      Name the plan or project explicitly: `rhei reset <plan-or-project>`"
                 ));
             };
-            reset_command(&input, cli.state_machine.as_deref(), &rhei)
+            reset_command(&input, cli.state_machine.as_deref(), &rhei, dry_run, yes)
         }
         Commands::Version => {
             print_versions();

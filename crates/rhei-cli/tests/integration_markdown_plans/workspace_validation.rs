@@ -158,6 +158,103 @@ fn create_panta_project(
     dir
 }
 
+/// A path broken across lines cannot be copied, clicked, or grepped, and the
+/// CLI prints one in nearly every diagnostic. miette's defaults offered a
+/// break at every `/` and `-`; the handler installed in `main` removes them.
+#[test]
+fn diagnostics_never_break_a_file_path_across_lines() {
+    let root = unique_temp_dir("diag-long-path");
+    let deep = root
+        .join("a-directory-with-hyphens")
+        .join("and-another-long-segment")
+        .join("plus-one-more-to-overflow-the-wrap-column");
+    fs::create_dir_all(&deep).expect("create nested dirs");
+    let plan_path = write_fixture_file(&deep, "broken.rhei.md", "# Not A Rhei Heading\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&plan_path)
+        .output()
+        .expect("validate command should run");
+    assert!(!output.status.success(), "the malformed plan must fail validation");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let wanted = plan_path.display().to_string();
+    assert!(
+        stderr.lines().any(|line| line.contains(&wanted)),
+        "the path must appear intact on one line so it stays copy-pasteable.\n\
+         wanted: {wanted}\ngot:\n{stderr}"
+    );
+
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// §FS-rhei-plan-language.1.2: one freshly created workspace directory used to
+/// fail the whole project's load with an error that named no file at all.
+#[test]
+fn empty_workspace_rhei_does_not_break_the_project_and_is_warned_about() {
+    let project = create_panta_project(
+        "panta-empty-rhei",
+        "# Panta: Product Suite\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            ("growth/index.rhei.md", "# Rhei: Growth\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let loaded = workspace::load_panta_project(&project).expect("empty rhei must not fail the load");
+    assert_eq!(loaded.rhei_ids, vec!["auth", "growth"]);
+    assert_eq!(loaded.rhei.tasks.len(), 1, "the sibling rhei's tickets must still load");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        output.status.success(),
+        "an empty rhei is valid\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("rhei 'growth' holds no tickets"),
+        "validate must name the empty rhei so a mistyped `tasks/` is not silent, got:\n{combined}"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+/// The duplicate-id diagnostic used to be masked by the empty-workspace error,
+/// so a collision surfaced as an unattributed "workspace contains no tasks".
+#[test]
+fn duplicate_rhei_id_is_reported_even_when_one_side_is_empty() {
+    let project = create_panta_project(
+        "panta-dup-empty",
+        "# Panta: Product Suite\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            ("auth/index.rhei.md", "# Rhei: Auth Dir\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let error = workspace::load_panta_project(&project).expect_err("duplicate ids must fail");
+    assert!(
+        error.message.contains("duplicate rhei id 'auth'"),
+        "expected the collision to surface, got:\n{}",
+        error.message
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
 #[test]
 fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
     let project = create_panta_project(
@@ -168,10 +265,7 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
                 "auth.rhei.md",
                 "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** completed\n",
             ),
-            (
-                "billing/index.rhei.md",
-                "# Rhei: Billing\n\n## Notes\nBilling context.\n",
-            ),
+            ("billing/index.rhei.md", "# Rhei: Billing\n\n## Notes\nBilling context.\n"),
             (
                 "billing/tasks/invoice.md",
                 "### Task 1: Invoice\n**State:** pending\n**Prior:** Task auth.1\n",
@@ -286,10 +380,7 @@ fn panta_next_peek_resolves_inputs_from_owning_rhei_root() {
         "# Panta: Peek Inputs\n**States:** panta-input-machine\n",
         &[
             ("auth/index.rhei.md", "# Rhei: Auth\n\n"),
-            (
-                "auth/tasks/login.md",
-                "### Task 1: Login\n**State:** pending\n",
-            ),
+            ("auth/tasks/login.md", "### Task 1: Login\n**State:** pending\n"),
         ],
         PANTA_INPUT_STATE_MACHINE,
     );
@@ -357,10 +448,7 @@ fn panta_validates_child_rhei_content_links() {
                 "auth/index.rhei.md",
                 "# Rhei: Auth\n\n## Overview\nSee [missing](docs/missing.md).\n",
             ),
-            (
-                "auth/tasks/login.md",
-                "### Task 1: Login\n**State:** pending\n",
-            ),
+            ("auth/tasks/login.md", "### Task 1: Login\n**State:** pending\n"),
         ],
         WORKSPACE_STATE_MACHINE,
     );
@@ -374,8 +462,7 @@ fn panta_validates_child_rhei_content_links() {
     // Project validation checks child rhei content links against the child root. §AR-rhei-panta.5
     assert!(!output.status.success(), "validate should reject broken child rhei content link");
     assert!(
-        stderr.contains("section 'Rhei auth / Overview'")
-            && stderr.contains("docs/missing.md"),
+        stderr.contains("section 'Rhei auth / Overview'") && stderr.contains("docs/missing.md"),
         "unexpected stderr: {stderr}"
     );
 
@@ -437,10 +524,7 @@ fn panta_basin_loads_as_reserved_last_rhei() {
         "panta-basin",
         "# Panta: Captures\n**States:** workspace-test-machine\n",
         &[
-            (
-                "auth.rhei.md",
-                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
-            ),
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
             ("basin/loose.md", "### Task 3: Triage later\n**State:** pending\n"),
         ],
         WORKSPACE_STATE_MACHINE,
@@ -455,16 +539,57 @@ fn panta_basin_loads_as_reserved_last_rhei() {
     fs::remove_dir_all(project).expect("cleanup");
 }
 
+/// §AR-rhei-panta.1: the basin's manifest is synthetic, so an authored index
+/// can never load. Skipping it silently vanished unfiled tickets behind a green
+/// validate — what the basin exists to prevent (§FS-rhei-panta.4).
+#[test]
+fn panta_basin_index_file_is_a_load_error_not_a_silent_skip() {
+    let project = create_panta_project(
+        "panta-basin-index",
+        "# Panta: Captures\n**States:** workspace-test-machine\n",
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            (
+                "basin/index.rhei.md",
+                "# Rhei: Basin\n\n## Tasks\n\n### Task 3: Triage later\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let error = workspace::load_panta_project(&project)
+        .expect_err("an authored basin index must fail the load");
+    let message = error.message;
+    assert!(
+        message.contains("basin/index.rhei.md") || message.contains("basin\\index.rhei.md"),
+        "the error must name the offending file, got:\n{message}"
+    );
+    assert!(
+        message.contains("the basin has no authored index"),
+        "the error must explain why the file cannot load, got:\n{message}"
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        !output.status.success(),
+        "validate must not report success while basin tickets are unloadable\nstdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
 #[test]
 fn panta_basin_ignores_runtime_markdown_artifacts() {
     let project = create_panta_project(
         "panta-basin-runtime",
         "# Panta: Captures\n**States:** workspace-test-machine\n",
         &[
-            (
-                "auth.rhei.md",
-                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
-            ),
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
             ("basin/loose.md", "### Task 3: Triage later\n**State:** pending\n"),
             ("basin/runtime/result.md", "# Runtime Result\n\nNot a task file.\n"),
         ],
@@ -545,10 +670,7 @@ fn panta_profile_resolution_uses_rhei_local_task_depth() {
     let project = create_panta_project(
         "panta-profile-depth",
         "# Panta: Profile Depth\n**States:** panta-profile-machine\n",
-        &[(
-            "auth.rhei.md",
-            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
-        )],
+        &[("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n")],
         PANTA_PROFILE_STATE_MACHINE,
     );
 
@@ -572,10 +694,7 @@ fn panta_transition_routes_rewrite_to_owning_rhei_file() {
     let project = create_panta_project(
         "panta-mutate",
         "# Panta: Mutable\n**States:** workspace-test-machine\n",
-        &[(
-            "auth.rhei.md",
-            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
-        )],
+        &[("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n")],
         WORKSPACE_STATE_MACHINE,
     );
 
@@ -600,8 +719,7 @@ fn panta_transition_routes_rewrite_to_owning_rhei_file() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let rewritten =
-        fs::read_to_string(project.join("auth.rhei.md")).expect("read child rhei file");
+    let rewritten = fs::read_to_string(project.join("auth.rhei.md")).expect("read child rhei file");
     assert!(
         rewritten.contains("### Task 1: Login\n**State:** in-progress"),
         "child rhei file should carry the new state under its local heading: {rewritten}"
@@ -624,10 +742,7 @@ fn panta_next_peek_reads_and_claim_writes_owning_rhei() {
     let project = create_panta_project(
         "panta-next-peek",
         "# Panta: Peek\n**States:** workspace-test-machine\n",
-        &[(
-            "auth.rhei.md",
-            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
-        )],
+        &[("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n")],
         WORKSPACE_STATE_MACHINE,
     );
 
@@ -662,8 +777,7 @@ fn panta_next_peek_reads_and_claim_writes_owning_rhei() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let rewritten =
-        fs::read_to_string(project.join("auth.rhei.md")).expect("read child rhei file");
+    let rewritten = fs::read_to_string(project.join("auth.rhei.md")).expect("read child rhei file");
     assert!(
         rewritten.contains("**Assignee:**"),
         "claim should write the assignee into the owning rhei file: {rewritten}"
@@ -993,12 +1107,36 @@ fn workspace_missing_index_is_not_detected_as_workspace() {
 }
 
 #[test]
-fn workspace_empty_tasks_directory_is_reported() {
+/// §FS-rhei-plan-language.1.2: an empty workspace is a valid, empty rhei. It
+/// loads, and validate warns so a mistyped `tasks/` is not mistaken for a
+/// deliberately empty one.
+fn workspace_empty_tasks_directory_loads_and_is_warned_about() {
     let (ws, _machine_path) =
         create_workspace("ws-empty", "# Rhei: Empty Test\n", &[], fixtures::TEST_STATE_MACHINE);
 
-    let err = workspace::load_workspace(&ws).expect_err("should fail on empty");
-    assert!(err.message.contains("no tasks"), "error should mention no tasks: {}", err.message);
+    let loaded = workspace::load_workspace(&ws).expect("an empty workspace is valid");
+    assert!(loaded.rhei.tasks.is_empty());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&ws)
+        .output()
+        .expect("validate command should run");
+    assert!(
+        output.status.success(),
+        "an empty workspace must validate\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("holds no tickets"),
+        "validate must name the emptiness rather than report a bare green, got:\n{combined}"
+    );
 
     fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
@@ -1192,7 +1330,9 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
     // prefix match: it must survive a reset narrowed to `auth.1`'s rhei only
     // because it belongs to no in-scope ticket id.
     let runtime = project.join("runtime");
-    for dir in ["logs", "results", "worktree-refs", "accounting/tasks", "accounting/captures", "notes"] {
+    for dir in
+        ["logs", "results", "worktree-refs", "accounting/tasks", "accounting/captures", "notes"]
+    {
         fs::create_dir_all(runtime.join(dir)).expect("create runtime dir");
     }
     fs::create_dir_all(runtime.join("snapshot-sessions/auth.1-pending-slug-7"))
@@ -1346,7 +1486,10 @@ fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
 
     // §FS-rhei-panta.6.1: out-of-scope tickets left non-terminal are not a
     // run failure for a narrowed invocation.
-    assert!(output.status.success(), "narrowed run should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(
+        output.status.success(),
+        "narrowed run should succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
     assert!(
         stdout.contains("narrowed to") && stdout.contains("auth"),
         "run should report its narrowed scope: {stdout}"
@@ -1402,17 +1545,13 @@ fn list_indents_and_reports_depth_rhei_locally_despite_qualified_ids() {
         .output()
         .expect("list --json runs");
     assert!(output.status.success());
-    let payload: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("json payload");
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json payload");
     let depths: Vec<(String, u64)> = payload
         .as_array()
         .expect("array")
         .iter()
         .map(|task| {
-            (
-                task["id"].as_str().expect("id").to_string(),
-                task["depth"].as_u64().expect("depth"),
-            )
+            (task["id"].as_str().expect("id").to_string(), task["depth"].as_u64().expect("depth"))
         })
         .collect();
     assert_eq!(
@@ -1467,10 +1606,7 @@ fn duplicate_rhei_id_error_names_both_sources() {
         "# Panta: Duplicate\n",
         &[
             ("auth.rhei.md", "# Rhei: Auth A\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n"),
-            (
-                "auth/index.rhei.md",
-                "# Rhei: Auth B\n\n## Notes\nWorkspace variant.\n",
-            ),
+            ("auth/index.rhei.md", "# Rhei: Auth B\n\n## Notes\nWorkspace variant.\n"),
             ("auth/tasks/one.md", "### Task 1: B\n**State:** pending\n"),
         ],
         WORKSPACE_STATE_MACHINE,
@@ -1599,10 +1735,7 @@ fn viz_warns_on_panta_project_and_stays_quiet_on_single_rhei() {
         .output()
         .expect("viz runs");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "viz should still render\nstderr: {stderr}"
-    );
+    assert!(output.status.success(), "viz should still render\nstderr: {stderr}");
     assert!(
         stderr.contains("not Panta-aware")
             && stderr.contains("not the merged project graph")
@@ -1768,8 +1901,7 @@ fn omitted_plan_target_resolves_from_current_directory() {
         .output()
         .expect("list runs");
     assert!(
-        output.status.success()
-            && String::from_utf8_lossy(&output.stdout).contains("auth.1"),
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("auth.1"),
         "the upward walk should find the enclosing project"
     );
     fs::remove_dir_all(project).expect("cleanup");
@@ -1787,8 +1919,7 @@ fn omitted_plan_target_resolves_from_current_directory() {
         .output()
         .expect("list runs");
     assert!(
-        output.status.success()
-            && String::from_utf8_lossy(&output.stdout).contains("plan.1"),
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("plan.1"),
         "a lone rhei file should resolve"
     );
 
@@ -1871,10 +2002,7 @@ fn init_creates_project_with_manifest_gitignore_and_agents_note() {
         .filter(|ch| *ch != '│' && *ch != '\n')
         .collect();
     let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        stderr.contains("already a Panta project"),
-        "refusal should say why: {stderr}"
-    );
+    assert!(stderr.contains("already a Panta project"), "refusal should say why: {stderr}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -2041,22 +2169,16 @@ fn project_machine_file_resolves_from_a_rhei_root_by_name() {
     .expect("write manifest");
     let ws = dir.join("flow");
     fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
-    fs::write(
-        ws.join("index.rhei.md"),
-        "# Rhei: Flow\n**States:** workspace-test-machine\n",
-    )
-    .expect("write index");
+    fs::write(ws.join("index.rhei.md"), "# Rhei: Flow\n**States:** workspace-test-machine\n")
+        .expect("write index");
     fs::write(ws.join("tasks/one.md"), "### Task 1: Alpha\n**State:** pending\n")
         .expect("write task");
     fs::write(ws.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
 
     // §AR-rhei-panta.4: a name-matching states.yaml in a rhei root resolves
     // the project machine when the project root has none.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
-        .arg("list")
-        .arg(&dir)
-        .output()
-        .expect("list runs");
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success() && stdout.contains("flow.1"),
@@ -2234,8 +2356,11 @@ fn empty_project_validate_warns_that_discovery_found_nothing() {
     fs::write(host.join("index.panta.md"), "# Panta: Empty\n").expect("write manifest");
     // A plan missing the `.rhei.md` suffix is invisible to discovery; validate
     // must not report the project green without saying so. §FS-rhei-panta.6
-    fs::write(host.join("auth.md"), "# Rhei: Auth\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n")
-        .expect("write misnamed plan");
+    fs::write(
+        host.join("auth.md"),
+        "# Rhei: Auth\n\n## Tasks\n\n### Task 1: A\n**State:** pending\n",
+    )
+    .expect("write misnamed plan");
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("validate")
@@ -2532,11 +2657,8 @@ fn project_machine_in_rhei_root_beats_a_mismatched_project_root_file() {
         .expect("write task");
     fs::write(ws.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
-        .arg("list")
-        .arg(&dir)
-        .output()
-        .expect("list runs");
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success() && stdout.contains("flow.1"),
@@ -2545,4 +2667,443 @@ fn project_machine_in_rhei_root_beats_a_mismatched_project_root_file() {
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn project_machine_resolution_errors_when_several_rhei_roots_match() {
+    // §AR-rhei-panta.4: only a *unique* name match resolves; two rhei roots
+    // holding files that declare the machine is an ambiguity error, not a
+    // silent first-match — one could be a stale copy.
+    let dir = unique_temp_dir("panta-machine-ambiguous");
+    fs::write(
+        dir.join("index.panta.md"),
+        "# Panta: Ambiguous Machine\n**States:** workspace-test-machine\n",
+    )
+    .expect("write manifest");
+    for name in ["alpha", "beta"] {
+        let ws = dir.join(name);
+        fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
+        fs::write(ws.join("index.rhei.md"), "# Rhei: Flow\n**States:** workspace-test-machine\n")
+            .expect("write index");
+        fs::write(ws.join("tasks/one.md"), "### Task 1: Alpha\n**State:** pending\n")
+            .expect("write task");
+        fs::write(ws.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
+    }
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
+    assert!(!output.status.success(), "ambiguous machine files must fail");
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("more than one rhei root")
+            && stderr.contains("alpha")
+            && stderr.contains("beta")
+            && stderr.contains("--state-machine"),
+        "error should name the candidates and the fixes: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn project_machine_resolution_surfaces_a_broken_rhei_root_states_file() {
+    // §AR-rhei-panta.4: an unloadable rhei-root candidate is an error, not a
+    // silent non-match hiding behind "no states file found".
+    let dir = unique_temp_dir("panta-machine-broken-candidate");
+    fs::write(
+        dir.join("index.panta.md"),
+        "# Panta: Broken Candidate\n**States:** workspace-test-machine\n",
+    )
+    .expect("write manifest");
+    let ws = dir.join("flow");
+    fs::create_dir_all(ws.join("tasks")).expect("mkdir workspace");
+    fs::write(ws.join("index.rhei.md"), "# Rhei: Flow\n**States:** workspace-test-machine\n")
+        .expect("write index");
+    fs::write(ws.join("tasks/one.md"), "### Task 1: Alpha\n**State:** pending\n")
+        .expect("write task");
+    fs::write(ws.join("states.yaml"), "name: [unclosed\n").expect("write broken machine");
+
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
+    assert!(!output.status.success(), "a broken candidate machine file must fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("failed to load states"),
+        "the parse failure should surface, not a misleading not-found: {stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn init_here_refuses_to_shadow_an_existing_panta_child_project() {
+    // §FS-rhei-init.2: adopting the host must not shadow a default-mode
+    // project at panta/ — target resolution prefers the host manifest, so
+    // the child project would become unreachable by inference.
+    let dir = unique_temp_dir("init-here-shadow");
+    let first = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    assert!(first.status.success(), "default init should succeed");
+
+    for args in [&["--here"][..], &["--here", "--force"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .arg("init")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .expect("init runs");
+        assert!(
+            !output.status.success(),
+            "--here over an existing panta/ project must refuse ({args:?})"
+        );
+        let stderr: String = String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .filter(|ch| *ch != '│' && *ch != '\n')
+            .collect();
+        let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            stderr.contains("would shadow") && stderr.contains("panta"),
+            "refusal should explain the shadowing: {stderr}"
+        );
+    }
+    assert!(
+        !dir.join("index.panta.md").exists(),
+        "the refused adoption must not write a host manifest"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn empty_project_reset_is_a_noop_success() {
+    // §FS-rhei-panta.6: an empty project — exactly what `rhei init` creates —
+    // is a valid state for every command; reset has nothing to rewrite and
+    // reports a no-op instead of failing on the project directory.
+    let dir = unique_temp_dir("panta-empty-reset");
+    fs::write(dir.join("index.panta.md"), "# Panta: Empty\n").expect("write manifest");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&dir)
+        .output()
+        .expect("reset runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "reset on an empty project should succeed\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Reset 0 task(s)"), "reset should report a no-op: {stdout}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn panta_narrowed_reset_clears_workspace_index_metadata_and_legacy_records() {
+    // §FS-rhei-panta.6.4: the owning index's runtime ticket metadata is
+    // ticket-owned state, and legacy rhei-local records are swept at a root
+    // whose every rhei is in scope.
+    let project = create_panta_project(
+        "panta-narrow-metadata",
+        "# Panta: Narrow Metadata\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "auth/index.rhei.md",
+                "# Rhei: Auth\n\n---\nmetadata:\n  tasks:\n    1:\n      stateVisits:\n        in-progress: 2\n---\n\n## Overview\nAuth.\n",
+            ),
+            ("auth/tasks/one.md", "### Task 1: Login\n**State:** in-progress\n"),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Invoice\n**State:** pending\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+    // Legacy pre-qualification runtime state under the workspace rhei's own
+    // root, keyed by the rhei-local id.
+    let auth_runtime = project.join("auth/runtime");
+    fs::create_dir_all(auth_runtime.join("results")).expect("mkdir results");
+    fs::write(auth_runtime.join("results/1.md"), "## Result\n\nlegacy\n").expect("seed result");
+    fs::write(auth_runtime.join("state-transitions.log"), "1 pending@in-progress\n")
+        .expect("seed ledger");
+    // A legacy record at the *shared* project root must survive: `billing`
+    // also roots there and is out of scope, so a bare local id is ambiguous.
+    let project_runtime = project.join("runtime");
+    fs::create_dir_all(project_runtime.join("results")).expect("mkdir project results");
+    fs::write(project_runtime.join("results/1.md"), "## Result\n\nambiguous\n")
+        .expect("seed shared result");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&project)
+        .args(["--rhei", "auth"])
+        .output()
+        .expect("reset runs");
+    assert!(
+        output.status.success(),
+        "narrowed reset should succeed\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let index = fs::read_to_string(project.join("auth/index.rhei.md")).expect("read index");
+    assert!(
+        !index.contains("stateVisits"),
+        "the in-scope workspace index must lose its runtime visit counters: {index}"
+    );
+    assert!(
+        !auth_runtime.join("results/1.md").exists(),
+        "the legacy local-id result at the rhei's own root should be swept"
+    );
+    assert!(
+        !auth_runtime.join("state-transitions.log").exists(),
+        "the legacy local-id ledger line should be pruned (file emptied)"
+    );
+    assert!(
+        project_runtime.join("results/1.md").exists(),
+        "a local-id record at the shared root is ambiguous and must survive"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+#[test]
+fn panta_run_locks_every_member_rhei_execution_root() {
+    // §FS-rhei-run.2.6: a project-level run locks the project root *and*
+    // each member rhei's execution root, so a direct `rhei run <member>` and
+    // the project run contend on the same lock.
+    let project = create_panta_project(
+        "panta-run-locks",
+        "# Panta: Run Locks\n**States:** workspace-test-machine\n",
+        &[
+            ("auth/index.rhei.md", "# Rhei: Auth\n"),
+            ("auth/tasks/one.md", "### Task 1: Login\n**State:** pending\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("run")
+        .arg(&project)
+        .arg("--no-callbacks")
+        .output()
+        .expect("run runs");
+    assert!(
+        output.status.success(),
+        "project run should succeed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(project.join(".rhei/run.lock").is_file(), "the project root must be locked");
+    assert!(
+        project.join("auth/.rhei/run.lock").is_file(),
+        "the member workspace rhei's root must be locked too"
+    );
+
+    fs::remove_dir_all(project).expect("cleanup");
+}
+
+/// Basin tickets keep runtime metadata in the project manifest, so commands
+/// that advance a ticket can read and write it. Parsing their bare task files
+/// as whole plans made the whole basin unworkable. §FS-rhei-panta.6.1
+#[test]
+fn basin_tickets_transition_and_complete() {
+    let project = create_panta_project(
+        "panta-basin-transition",
+        "# Panta: Basin Work\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "auth.rhei.md",
+                "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
+            ),
+            ("basin/quick.md", "### Task 1: Fix typo\n**State:** pending\n"),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let transition = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("transition")
+        .arg(&project)
+        .args(["--task", "basin.1", "--from", "pending", "--to", "in-progress"])
+        .output()
+        .expect("transition command should run");
+    assert!(
+        transition.status.success(),
+        "basin ticket should transition\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&transition.stdout),
+        String::from_utf8_lossy(&transition.stderr)
+    );
+
+    let complete = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("complete")
+        .arg(&project)
+        .args(["--task", "basin.1", "--result", "done"])
+        .output()
+        .expect("complete command should run");
+    assert!(
+        complete.status.success(),
+        "basin ticket should complete\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&complete.stdout),
+        String::from_utf8_lossy(&complete.stderr)
+    );
+
+    let listed = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("list")
+        .arg(&project)
+        .args(["--rhei", "basin"])
+        .output()
+        .expect("list command should run");
+    let stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        stdout.contains("Task basin.1: Fix typo [completed]"),
+        "basin ticket should be completed, got:\n{stdout}"
+    );
+}
+
+/// §FS-rhei-states-cmd.3: `rhei states` reports the machine the project runs
+/// under. Printing the built-in default while the project declared another
+/// named every state wrong.
+#[test]
+fn states_command_resolves_the_projects_declared_machine() {
+    let project = create_panta_project(
+        "panta-states-cmd",
+        "# Panta: Declared\n**States:** workspace-test-machine\n",
+        &[("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n")],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("states")
+        .arg(&project)
+        .output()
+        .expect("states command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "states should succeed\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("State machine: workspace-test-machine"),
+        "states should report the declared machine, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Source: ") && stdout.contains("states.yaml"),
+        "states should name the resolved source file, got:\n{stdout}"
+    );
+}
+
+/// A parse error in a rhei inside a project keeps the code frame that file
+/// gets when validated directly — the project form is the one `rhei init`
+/// steers new authors toward. §FS-rhei-panta.6
+#[test]
+fn project_parse_errors_keep_their_line_and_code_frame() {
+    let project = create_panta_project(
+        "panta-parse-frame",
+        "# Panta: Broken\n**States:** workspace-test-machine\n",
+        &[("broken.rhei.md", "# Onboarding\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n")],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "validate should fail on the malformed rhei");
+    for fragment in ["PARSE ERROR", "line 1", "# Onboarding", "broken.rhei.md"] {
+        assert!(
+            stderr.contains(fragment),
+            "project parse error should include {fragment:?}, got:\n{stderr}"
+        );
+    }
+}
+
+/// §FS-rhei-reset.1.2: `--dry-run` reports the damage and changes nothing.
+#[test]
+fn reset_dry_run_changes_nothing() {
+    let project = create_panta_project(
+        "panta-reset-dry-run",
+        "# Panta: Reset\n**States:** workspace-test-machine\n",
+        &[(
+            "auth.rhei.md",
+            "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** completed\n",
+        )],
+        WORKSPACE_STATE_MACHINE,
+    );
+    let plan = project.join("auth.rhei.md");
+    let before = fs::read_to_string(&plan).expect("read plan before reset");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("reset")
+        .arg(&project)
+        .arg("--dry-run")
+        .output()
+        .expect("reset command should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "dry run should succeed\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Would reset") && stdout.contains("Dry run"),
+        "dry run should preview the reset, got:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(&plan).expect("read plan after dry run"),
+        before,
+        "dry run must not rewrite the plan"
+    );
+}
+
+/// §FS-rhei-panta.6: a `**Prior:**` naming an unknown rhei is qualified with
+/// the citing rhei, so it surfaces as an id the author never wrote. Name the
+/// unknown rhei and the near miss.
+#[test]
+fn missing_prior_names_the_unknown_rhei_and_suggests_the_near_miss() {
+    let project = create_panta_project(
+        "panta-prior-typo",
+        "# Panta: Typo\n**States:** workspace-test-machine\n",
+        &[
+            (
+                "onboarding.rhei.md",
+                "# Rhei: Onboarding\n\n## Tasks\n\n### Task 1: Research\n**State:** pending\n",
+            ),
+            (
+                "billing.rhei.md",
+                "# Rhei: Billing\n\n## Tasks\n\n### Task 1: Pick\n**State:** pending\n\
+                 **Prior:** onbaording.1\n",
+            ),
+        ],
+        WORKSPACE_STATE_MACHINE,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
+    // miette wraps report lines, so collapse the decoration before matching.
+    let stderr: String = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .filter(|ch| *ch != '│' && *ch != '\n')
+        .collect();
+    let stderr = normalize_for_assertions(&stderr);
+    assert!(!output.status.success(), "validate should fail on the unknown rhei");
+    assert!(
+        stderr.contains("no rhei named 'onbaording'"),
+        "error should name the unknown rhei, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Did you mean 'onboarding.1'?"),
+        "error should suggest the near miss, got:\n{stderr}"
+    );
 }

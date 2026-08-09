@@ -184,6 +184,17 @@ rhei contains that ticket; ambiguity across rheis is an error that names the
 qualified candidates. Output, artifacts, and ledgers always use the qualified
 id regardless of how the target was written.
 
+Runtime ticket metadata (`metadata.tasks.<id>.*` — visit counters, poll timers)
+is written to the metadata document of the rhei that owns the ticket, keyed by
+that document's own id space: a workspace rhei's `index.rhei.md` under
+rhei-local ids, a single-file rhei's own frontmatter under rhei-local ids.
+
+The synthetic `basin` rhei has no authored index to hold that metadata, so its
+tickets store it in `index.panta.md` under their **project-qualified** ids
+(`basin.3`) — the same keys the merged graph reads them back from. Without a
+metadata document, basin tickets could not transition at all: every command
+that advances a ticket must read and write its counters.
+
 One state machine governs the whole project: the `index.panta.md` declaration,
 or the built-in `rhei` machine when the manifest declares none. A rhei may
 restate that machine in its own `**States:**`, but declaring a *different*
@@ -268,11 +279,16 @@ roadmap.
   sibling single-file rheis share one execution root, so removing the tree
   would destroy an out-of-scope rhei's state. "Owned" means keyed by an
   in-scope ticket id — its result file, logs, declared artifact-contract paths,
-  snapshot sessions, worktree refs, accounting captures and task index, and its
-  lines in the transition ledger. Leaving any of those behind would be a silent
-  partial reset: a stale declared output can satisfy a required input on the
-  next run, and a stale ledger line claims a completion the plan no longer
-  holds. Run-scoped output — the run report, the dashboard, accounting rollups —
+  snapshot sessions, worktree refs, accounting captures and task index, its
+  lines in the transition ledger, and its runtime ticket metadata (visit
+  counts, poll timers) in the owning rhei's index. Leaving any of those behind
+  would be a silent partial reset: a stale declared output can satisfy a
+  required input on the next run, a stale ledger line claims a completion the
+  plan no longer holds, and a stale visit count makes a counted loop resume
+  mid-flight instead of restarting. Runtime records written before project
+  qualification are keyed by the rhei-local id; the reset sweeps those legacy
+  keys too, but only at an execution root whose every rhei is in scope —
+  sibling rheis sharing a root make bare local ids ambiguous. Run-scoped output — the run report, the dashboard, accounting rollups —
   is not ticket-owned; a narrowed reset keeps it and **says so**, rather than
   letting the operator discover the difference (§FS-rhei-reset.2.1).
 - `rhei validate` always checks the whole project graph: cross-rhei dependency

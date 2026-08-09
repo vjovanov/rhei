@@ -5,7 +5,7 @@ Reset every task in a plan to its resolved profile's `initial` state and remove 
 ## 1. Usage
 
 ```bash
-rhei reset <RHEI_PLAN_OR_WORKSPACE> [--rhei <RHEI_ID>]
+rhei reset <RHEI_PLAN_OR_WORKSPACE> [--rhei <RHEI_ID>] [--dry-run] [--yes]
 ```
 
 `<RHEI_PLAN_OR_WORKSPACE>` may be a `.rhei.md` file (single-file plan), a directory workspace root (containing `index.rhei.md` and `tasks/`), or a Panta project directory.
@@ -15,9 +15,24 @@ rhei reset <RHEI_PLAN_OR_WORKSPACE> [--rhei <RHEI_ID>]
 | Flag               | Default | Description                                                                    |
 |--------------------|---------|--------------------------------------------------------------------------------|
 | `--rhei <RHEI_ID>` | all     | Narrow the reset to the named rheis (repeatable). See §2.1. §FS-rhei-panta.6.4 |
+| `--dry-run`        | false   | Report what would be reset and deleted, then exit without changing anything    |
+| `--yes`, `-y`      | false   | Skip the interactive confirmation. See §1.2                                    |
 
 An id that names no rhei in the project is an error listing the available rhei
 ids.
+
+### 1.2. Confirmation
+
+Reset deletes result artifacts and ledgers that have no other copy: `rhei init`
+gitignores `panta/` by default (§FS-rhei-init), so the destroyed material is
+typically absent from version control.
+
+Before acting, reset prints what it would reset and the runtime directories it
+would delete. When stdin is an interactive terminal and `--yes` was not passed,
+it then asks for confirmation and treats any answer other than `y`/`yes` as a
+cancellation, changing nothing. When stdin is not a terminal there is no one to
+ask, so reset proceeds — scripted callers keep working unchanged, and reach
+`--dry-run` for a preview.
 
 ## 2. Behavior
 

@@ -1,6 +1,31 @@
     use super::*;
     use clap::CommandFactory;
 
+    /// The top-level help is a hand-maintained `help_template` string, so a
+    /// newly added subcommand is invisible in `rhei --help` until someone
+    /// remembers to list it. `init` shipped that way. Fail loudly instead.
+    #[test]
+    fn every_subcommand_is_listed_in_the_top_level_help() {
+        let command = cli_command();
+        let help = command.clone().render_help().to_string();
+        // Match a listing entry (`  <name>  <description>`), not a bare
+        // substring: `list` and `run` also occur inside descriptions.
+        let listed = |name: &str| {
+            help.lines().any(|line| {
+                line.starts_with("  ")
+                    && line.trim_start().strip_prefix(name).is_some_and(|rest| {
+                        rest.starts_with(char::is_whitespace) || rest.is_empty()
+                    })
+            })
+        };
+        let missing: Vec<&str> =
+            command.get_subcommands().map(|sub| sub.get_name()).filter(|n| !listed(n)).collect();
+        assert!(
+            missing.is_empty(),
+            "subcommands missing from the `help_template` in cli_declarations.rs: {missing:?}"
+        );
+    }
+
     #[test]
     fn parses_validate_command_with_input() {
         let cli = Cli::try_parse_from(["rhei", "validate", "docs/markdown-plan-compiler.md"])
@@ -129,13 +154,13 @@
     fn parses_states_command() {
         let cli = Cli::try_parse_from(["rhei", "states"]).expect("cli should parse");
         match cli.command {
-            Commands::States { json } => assert!(!json),
+            Commands::States { json, .. } => assert!(!json),
             other => panic!("expected states command, got {other:?}"),
         }
 
         let cli = Cli::try_parse_from(["rhei", "states", "--json"]).expect("cli should parse");
         match cli.command {
-            Commands::States { json } => assert!(json),
+            Commands::States { json, .. } => assert!(json),
             other => panic!("expected states command, got {other:?}"),
         }
     }
@@ -621,6 +646,7 @@ states:
         let err = rhei_core::parser::ParseError {
             message: "unexpected token".to_string(),
             line: Some(2),
+            file: None,
         };
 
         let rendered = render_parse_diagnostic(Path::new("broken.md"), input, &err);

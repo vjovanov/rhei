@@ -9,6 +9,10 @@ struct CallbackPaths {
 struct TransitionFiles<'a> {
     task_file: &'a Path,
     metadata_file: &'a Path,
+    /// `metadata.tasks.<id>` key inside `metadata_file`. Equal to the ticket's
+    /// rhei-local id except for basin tickets, whose metadata shares the
+    /// project manifest and is therefore qualified. See [`TaskRoute`].
+    metadata_id: &'a str,
     /// Owning rhei's execution root for artifact resolution. §FS-rhei-panta.6.2
     artifact_root: &'a Path,
     /// Project-qualified ticket id rendered into `{task_id}` artifact
@@ -277,17 +281,17 @@ fn record_poll_self_loop_if_needed(
     )
     .saturating_add(1);
     // §FS-rhei-panta.6.1: the write lands in the owning rhei's metadata file
-    // under the rhei-local id — the same on-disk key space the exit-time
+    // under that file's own key space — the same one the exit-time
     // clear_poll_state_metadata removes.
     let route = loaded.task_route(&task.id.to_string(), input);
-    let local_id = parse_task_id(&route.local_id);
+    let metadata_key = parse_task_id(&route.metadata_id);
     let raw = fs::read_to_string(&route.metadata_file).map_err(|err| {
         file_io_report(&route.metadata_file, "failed to read plan metadata file", err)
     })?;
     let on_disk = parse_metadata_from_raw(&route.metadata_file, &raw)?;
     let updated = set_poll_next_attempt_metadata(
         on_disk.as_ref(),
-        &local_id,
+        &metadata_key,
         current_state,
         current_unix_secs().saturating_add(interval),
         next_attempt_count,
@@ -298,17 +302,45 @@ fn record_poll_self_loop_if_needed(
 }
 
 /// Parse the frontmatter metadata mapping from a metadata file (a workspace
-/// `index.rhei.md` manifest or a single-file plan). Keys are rhei-local.
+/// `index.rhei.md` manifest, a Panta `index.panta.md` manifest, or a
+/// single-file plan). Keys are rhei-local, except in the project manifest,
+/// where basin tickets are keyed by their qualified ids. See [`TaskRoute`].
 fn parse_metadata_from_raw(path: &Path, raw: &str) -> MietteResult<Option<Metadata>> {
-    if path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
-        let index = rhei_core::parser::parse_workspace_index(raw)
-            .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
-        Ok(index.metadata)
-    } else {
-        let rhei = rhei_core::parse(raw)
-            .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
-        Ok(rhei.metadata)
+    match path.file_name().and_then(|name| name.to_str()) {
+        Some("index.rhei.md") | Some(workspace::PANTA_INDEX_FILE) => {
+            Ok(parse_metadata_manifest(path, raw)?.metadata)
+        }
+        _ => {
+            let rhei = rhei_core::parse(raw)
+                .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
+            Ok(rhei.metadata)
+        }
     }
+}
+
+/// Structure and metadata shared by both manifest forms.
+struct MetadataManifest {
+    structure: rhei_core::ast::Structure,
+    metadata: Option<Metadata>,
+}
+
+/// Parse the manifest that owns a ticket's runtime metadata, dispatching on
+/// which index form `path` names. A Panta manifest reaches here only for basin
+/// tickets, which have no index of their own. §FS-rhei-panta.6.1
+fn parse_metadata_manifest(path: &Path, raw: &str) -> MietteResult<MetadataManifest> {
+    if path.file_name().and_then(|name| name.to_str()) == Some(workspace::PANTA_INDEX_FILE) {
+        let manifest = rhei_core::parser::parse_panta_manifest(raw).map_err(|err| {
+            miette!("failed to parse Panta manifest for transition metadata: {}", err.message)
+        })?;
+        return Ok(MetadataManifest {
+            structure: manifest.structure,
+            metadata: manifest.metadata,
+        });
+    }
+    let index = rhei_core::parser::parse_workspace_index(raw).map_err(|err| {
+        miette!("failed to parse workspace index for transition metadata: {}", err.message)
+    })?;
+    Ok(MetadataManifest { structure: index.structure, metadata: index.metadata })
 }
 
 /// Merge `src` object keys into `dst` (last write wins). Non-object `src`

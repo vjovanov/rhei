@@ -101,6 +101,9 @@ fn run_callback_mode(
     let mut visited_ready_states = BTreeSet::<(String, String)>::new();
     // One-time notice so the gate-wait below does not spam the journal each tick.
     let mut awaiting_gate_announced = false;
+    // Manual-only tasks reported by a dry run; the command still exits
+    // non-zero once the scan is complete. §FS-rhei-run.4
+    let mut manual_only_dry_run: Vec<String> = Vec::new();
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
     if rhei_scope.is_some() {
@@ -179,6 +182,14 @@ fn run_callback_mode(
                 continue;
             }
             if let Some(to_state) = manual_initial_terminal_transition(task, &loaded.rhei, machine)? {
+                // A dry run reports and keeps scanning; only a real run must
+                // stop before touching the task. §FS-rhei-run.4
+                if opts.dry_run() {
+                    let line = format_dry_run_manual_only(&task_id_str, &current_state, &to_state);
+                    run_info!("{}", line);
+                    manual_only_dry_run.push(line);
+                    continue;
+                }
                 return Err(miette!(
                     "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
                      use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
@@ -225,7 +236,7 @@ fn run_callback_mode(
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let route = loaded.task_route(&task_id_str, input);
             match execute_transition(
-                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, artifact_root: &route.execution_root, artifact_id: &task_id_str },
+                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
                 callback_paths,
                 machine,
                 &route.local_id,
@@ -288,6 +299,9 @@ fn run_callback_mode(
 
     let (terminal_count, total_tasks) = if opts.dry_run() {
         run_info!("\nDry run complete \u{2014} no changes were made.");
+        if !manual_only_dry_run.is_empty() {
+            return Err(manual_only_dry_run_error(&manual_only_dry_run));
+        }
         (0usize, 0usize)
     } else if transitions_made == 0 {
         let loaded = load_plan(input)?;

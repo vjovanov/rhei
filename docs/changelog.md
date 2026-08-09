@@ -2,6 +2,99 @@
 
 ## Unreleased
 
+- Let basin tickets execute. `rhei validate` and `rhei list` accepted them
+  while `rhei transition`, `rhei next`, and `rhei run` all failed with
+  "Metadata field appears outside a task": the synthetic basin is
+  workspace-shaped but has no authored `index.rhei.md`, so its bare task files
+  were parsed as whole plans. Basin tickets now keep their runtime metadata in
+  `index.panta.md` under their project-qualified ids. §FS-rhei-panta.6.1
+- Resolve the plan's own state machine in `rhei states`. It was the only
+  command that took no plan argument and never auto-discovered, so inside a
+  project declaring `**States:**` it printed the built-in default — naming
+  every state wrong for the machine actually in force. It now accepts a plan,
+  infers one like every other command, and opens with a `Source:` line.
+  §FS-rhei-states-cmd.3
+- Return a usage error from `rhei <group>` with no subcommand. `rhei snapshot`
+  printed the *root* help to stdout and exited 0, so a malformed invocation was
+  indistinguishable from success. A bare `rhei` still prints the root help.
+- Preview and confirm `rhei reset`. It destroyed every result and ledger with
+  no confirmation and no preview, inside a `panta/` directory `rhei init`
+  gitignores by default — so there was usually no copy to recover. Adds
+  `--dry-run` and `--yes`, and prompts on an interactive terminal.
+  §FS-rhei-reset.1.2
+- Reject an unrecognized `**Field:**` in a task's metadata block instead of
+  swallowing it as content. A mistyped `**Priorr:**` silently dropped the
+  dependency, leaving a plan that validated green and executed in the wrong
+  order. Bold text past a blank line is still content.
+  §FS-rhei-plan-language.2
+- Keep line numbers and code frames on parse errors inside a project. The same
+  file reported `path: message` with no line when validated through its project
+  and a full code frame when named directly — and the project form is the one
+  `rhei init` steers new authors toward. §FS-rhei-panta.6
+- Name the unknown rhei behind a missing cross-rhei `**Prior:**`. An unknown
+  rhei id is qualified with the citing rhei, so `onbaording.3` surfaced as
+  `billing.onbaording.3` — an id the author never wrote. The error now names
+  the unknown rhei, lists the project's rheis, and suggests the near miss.
+- Report a duplicate task id declared twice in one file as such, with the line
+  of the redeclaration. It read "defined in both X and X" and carried no line.
+- Explain a ticket id passed in the plan-path slot. `rhei complete auth.1` took
+  the id as a path and failed downstream; it now says to use `--task`, and a
+  non-existent plan path is reported as such.
+
+- Refuse to complete a ticket whose `**Prior:**` dependencies are unsatisfied,
+  and report the same condition from `rhei validate` as a warning. `rhei
+  complete` and `rhei transition` both advanced a ticket past its unfinished
+  prerequisites silently; once terminal, the ticket left readiness and `rhei
+  list --blocked`, so nothing ever revealed that the plan contradicted its own
+  dependencies. `rhei complete` now names every blocking prior and its state.
+  `rhei transition` keeps advancing without the check — it is the explicit
+  human-initiated primitive and so the deliberate override — and validation
+  reports the resulting inconsistency instead of letting it pass.
+  §FS-rhei-complete.4 §FS-rhei-validate.4 §FS-rhei-transition-cmd.3
+- Fail loudly on an authored `index.rhei.md` under `basin/` instead of skipping
+  it. The basin's manifest is synthetic, so such a file could never load; it
+  was dropped without a word, leaving `rhei validate` green and the tickets
+  invisible — the exact disappearance the basin exists to prevent.
+  §AR-rhei-panta.1
+- Treat a workspace rhei with no task files as a valid, empty rhei rather than
+  a load error. One freshly created directory used to fail `rhei list` and
+  `rhei validate` for the whole project, with a message that named no file, and
+  it masked the duplicate-rhei-id diagnostic. `rhei validate` now warns and
+  names the empty rhei, so a mistyped `tasks/` is still caught.
+  §FS-rhei-plan-language.1.2
+- Report manual-only tickets from `rhei run --dry-run` instead of aborting on
+  the first one. Under the built-in machine, whose initial state is
+  manual-only, the flag failed before printing anything; the scan now continues
+  and lists every blocked ticket alongside the transitions that would run,
+  still exiting non-zero. §FS-rhei-run.4
+- Accept a bare task id in `**Prior:**` (`**Prior:** auth.2`) alongside the
+  kind-prefixed form. Every surface that prints a dependency prints the bare id
+  — `rhei list` renders `(prior: auth.2)` — so pasting it back was met with a
+  parse error that merely restated the grammar. Malformed references now quote
+  what was written. §FS-rhei-plan-language.5
+- Stop breaking file paths across lines in diagnostics. miette's defaults
+  offered a wrap opportunity at every `/` and `-`, so no path in any error was
+  copy-pasteable, clickable, or greppable.
+- Surround the `> **Result:**` block written by `rhei complete` with exactly one
+  blank line on each side. It landed with two blank lines above and none below,
+  butting the following heading against the blockquote and degrading the
+  human-reviewed plan file a little more with every completion.
+- Name the host files `rhei init` writes or changes outside the project it
+  creates, and state that `panta/` is gitignored. Init edits `.gitignore` and
+  `AGENTS.md` in someone else's repository; doing it silently is how a team
+  discovers weeks later that no plan was ever committed. §FS-rhei-init.5
+- Render `rhei viz`'s not-Panta-aware caveat into the generated page, naming
+  the rheis missing from it. The warning went to stderr only, while the HTML it
+  describes is opened and trusted long after the terminal scrolled.
+  §FS-rhei-viz.7.3
+- List `rhei init` in `rhei --help`. The top-level command list is a
+  hand-maintained template and `init` was never added to it, leaving the first
+  command a new user needs invisible; a test now fails when any subcommand is
+  missing from it.
+- Align the runtime commands on the project/ticket vocabulary the docs use, and
+  give the no-work and unknown-ticket messages the next step `rhei list`
+  already offers.
+
 - Make the shell argument to `rhei completions` optional: detect it from
   `$SHELL` when omitted, and on detection failure list the supported shells
   with a copy-pasteable example instead of clap's bare missing-argument
@@ -20,15 +113,21 @@
   it as the project default, since a bare manifest would make that project
   unloadable under the one-machine-per-project rule. An existing project is
   refused untouched; `--force` re-initializes it, overwriting the manifest
-  and updating the idempotent companion files in place. The omitted-target
+  and updating the idempotent companion files in place. `--here` refuses a
+  host that already holds a default-mode project at `panta/` — the host
+  manifest would shadow it — even under `--force`. The omitted-target
   resolution probes the `panta/` child, so bare commands work from the whole
-  host repository. The AGENTS.md note names only the worker surface (`list`,
+  host repository. The project machine may keep living in a rhei's own root:
+  a unique name match resolves it; several matching rhei-root files are an
+  ambiguity error, and an unloadable candidate file is an error rather than
+  a silent non-match. The AGENTS.md note names only the worker surface (`list`,
   `next`, `complete`, `validate`) and marks `rhei run` as human-initiated —
   orchestration is never started by an agent. PR #54 §FS-rhei-init
   §FS-rhei-panta.6
 - Treat an empty Panta project — the state `rhei init` leaves — as valid:
-  loading succeeds with zero tickets, and `rhei list` reports how to grow the
-  project (or `[]` under `--json`) instead of erroring. `rhei validate` still
+  loading succeeds with zero tickets, `rhei list` reports how to grow the
+  project (or `[]` under `--json`) instead of erroring, and `rhei reset`
+  reports a no-op instead of failing. `rhei validate` still
   warns that discovery found no rheis, so a misnamed or misplaced plan is
   never silently invisible behind a green validation. PR #54 §FS-rhei-panta.6
 - Resolve an omitted plan target from the current directory: every plan-taking
@@ -58,7 +157,12 @@ where its id comes from. PR #45
 - Mutate project-wide. `rhei run`, `next`, `transition`, `complete`, and `reset`
   operate across the project, routing every state, assignee, result, and runtime
   rewrite back to the owning rhei file. The previous staged boundary — which
-  rejected mutating commands on a project — is gone. §FS-rhei-panta.6
+  rejected mutating commands on a project — is gone. A run locks every involved
+  execution root (the project's and each member rhei's), so a project-level run
+  and a direct run of one of its rheis are mutually exclusive. `--parallel > 1`
+  counts only top-level tickets per plan file when warning about same-file
+  concurrency, and falls back to sequential when every ticket lives in one
+  file. §FS-rhei-panta.6 §FS-rhei-run.2.5 §FS-rhei-run.2.6
 - Accept rhei-local shorthand for CLI ticket targets: `rhei complete 1` resolves
   when exactly one in-scope rhei has that ticket, and names the qualified
   candidates when more than one does. §FS-rhei-panta.6
@@ -72,10 +176,14 @@ where its id comes from. PR #45
   §FS-rhei-next.2.2 §FS-rhei-list.2 §FS-rhei-reset.1.1
 - Scope a narrowed `rhei reset` to everything keyed by an in-scope ticket —
   result file, logs, declared artifact-contract paths, snapshot sessions,
-  worktree refs, accounting captures, and its lines in the transition ledger —
+  worktree refs, accounting captures, its lines in the transition ledger, and
+  its runtime visit/poll metadata in the owning workspace rhei's index —
   instead of results and logs alone, and report the run-scoped output it
   deliberately keeps. A stale declared output could otherwise satisfy a
-  required input on the next run. §FS-rhei-reset.2.1 §FS-rhei-panta.6.4
+  required input on the next run, and a stale visit count would resume a
+  counted loop mid-flight. Legacy pre-qualification records (rhei-local keys)
+  are swept too when every rhei at the execution root is in scope.
+  §FS-rhei-reset.2.1 §FS-rhei-panta.6.4
 - Validate result links as a pair: link text and target must describe the same
   ticket, both qualified or both rhei-local. §FS-rhei-panta.6.3
   §FS-rhei-plan-language.3.8
@@ -109,12 +217,16 @@ where its id comes from. PR #45
     Scripts that match on heading ids should switch to `RHEI_TASK_ID_LOCAL`.
   - *Mid-flight runtime artifacts.* Artifacts produced under rhei-local names
     (`runtime/results/1.md`, `runtime/worktree-refs/1.yaml`, ledger lines
-    `1 pending@…`, `runtime/accounting/tasks/1.json`) are not read, cleaned,
-    or migrated — a narrowed reset only matches qualified keys. When a
-    required input exists only under its pre-qualification name, the
-    missing-artifact error names that file and the rename that fixes it.
-    Finish or reset in-flight tickets before upgrading if you want a clean
-    ledger; a full `rhei reset` still clears the whole `runtime/` tree.
+    `1 pending@…`, `runtime/accounting/tasks/1.json`) are not migrated. State
+    history in `rhei viz` and the run dashboard falls back to the rhei-local
+    key when a ticket has no qualified records, so an executed plan keeps its
+    history after upgrading, and a narrowed reset sweeps rhei-local keys when
+    every rhei at the execution root is in scope. Other readers only match
+    qualified keys: when a required input exists only under its
+    pre-qualification name, the missing-artifact error names that file and
+    the rename that fixes it. Finish or reset in-flight tickets before
+    upgrading if you want a clean ledger; a full `rhei reset` still clears
+    the whole `runtime/` tree.
   - *Snapshot caches.* `.rhei/cache/snapshots/` is keyed by ticket id, so
     caches produced before this change no longer resolve: `rhei snapshot
     list --orphaned` shows them and `rhei snapshot gc` prunes them.
