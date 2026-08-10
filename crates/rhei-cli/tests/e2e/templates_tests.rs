@@ -934,3 +934,174 @@ fn a_project_template_shadows_a_builtin_of_the_same_name() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A minimal template whose plan declares its own state machine, so placement
+/// inside a project has something to reconcile. §FS-rhei-templates.6.2
+fn write_machine_template(dir: &std::path::Path, name: &str) {
+    let template_dir = dir.join(".agents/rhei/templates").join(name);
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        &format!(
+            r#"name: {name}
+version: 1.0.0
+description: Template declaring the {name} machine
+inputs:
+  - name: subject
+    description: What the task covers
+"#
+        ),
+    );
+    write_fixture_file(
+        &template_dir,
+        "states.yaml",
+        &format!(
+            r#"name: {name}
+version: 1
+states:
+  review:
+    description: Look at it
+    initial: true
+  done:
+    description: Finished
+    final: true
+transitions:
+  - from: review
+    to: done
+"#
+        ),
+    );
+    // A Directory Workspace, because that is what project discovery counts as
+    // a rhei — a single-file template renders a plain directory. §AR-rhei-panta.1
+    write_fixture_file(
+        &template_dir,
+        "index.rhei.md",
+        &format!(
+            r#"# Rhei: {name}
+**States:** {name}
+"#
+        ),
+    );
+    fs::create_dir_all(template_dir.join("tasks")).expect("create tasks dir");
+    write_fixture_file(
+        &template_dir,
+        "tasks/01-review.md",
+        r#"### Task 1: Review {{subject}}
+**State:** review
+"#,
+    );
+}
+
+/// §FS-rhei-templates.6.2: inside a project the default output is the project,
+/// and the project adopts the template's machine so the result actually loads.
+#[test]
+fn instantiate_defaults_into_the_enclosing_project_and_adopts_its_machine() {
+    let dir = unique_temp_dir("instantiate-project-default");
+    write_machine_template(&dir, "audit");
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+
+    let result = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
+    assert!(
+        result.status.success(),
+        "instantiate should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Added to the Panta project"),
+        "placement must be reported:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("Adopted state machine 'audit'"),
+        "adoption must be reported:\n{}",
+        result.stdout
+    );
+    assert!(dir.join("audit").is_dir(), "output belongs next to index.panta.md");
+
+    let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("read manifest");
+    assert!(manifest.contains("**States:** audit"), "manifest should declare it:\n{manifest}");
+
+    // The whole point: the project can be listed and validated afterwards.
+    let listed = run_raw(&["list"], &dir);
+    assert!(listed.status.success(), "list should succeed: {}", listed.stderr);
+    assert!(listed.stdout.contains("audit.1"), "ticket should be listed:\n{}", listed.stdout);
+    assert!(run_raw(&["validate"], &dir).status.success(), "project should validate");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.6.2: a second machine cannot join the same project, and
+/// the refusal leaves the project exactly as it was.
+#[test]
+fn instantiate_refuses_a_conflicting_machine_and_leaves_the_project_intact() {
+    let dir = unique_temp_dir("instantiate-project-conflict");
+    write_machine_template(&dir, "audit");
+    write_machine_template(&dir, "triage");
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+    assert!(
+        run_raw(&["instantiate", "audit", "subject=payments"], &dir).status.success(),
+        "first template should land"
+    );
+
+    let result = run_raw(&["instantiate", "triage", "subject=inbox"], &dir);
+    assert!(!result.status.success(), "a second machine must be refused:\n{}", result.stdout);
+    // miette wraps and gutters the report, so compare against unwrapped text.
+    let stripped: String = result.stderr.chars().filter(|ch| *ch != '│').collect();
+    let stderr = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        stderr.contains("is governed by 'audit'"),
+        "the error should name the project's machine:\n{}",
+        result.stderr
+    );
+    assert!(stderr.contains("--output"), "the error should offer a way out:\n{}", result.stderr);
+    assert!(!dir.join("triage").exists(), "a refused placement leaves no output behind");
+
+    let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("read manifest");
+    assert!(manifest.contains("**States:** audit"), "manifest must be untouched:\n{manifest}");
+    assert!(run_raw(&["validate"], &dir).status.success(), "project should still validate");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.4: a member rhei's settings resolve at the project root,
+/// so a template's bundled registry is hoisted there instead of being ignored.
+#[test]
+fn instantiate_hoists_template_settings_to_the_project_root() {
+    let dir = unique_temp_dir("instantiate-project-settings");
+    write_machine_template(&dir, "audit");
+    write_fixture_file(
+        &dir.join(".agents/rhei/templates/audit"),
+        "settings.json",
+        r#"{
+  "defaults": { "agent_timeout": "42m" },
+  "agents": {
+    "codex": {
+      "command": ["codex", "exec"],
+      "modes": { "xhigh": ["--effort", "xhigh"] }
+    }
+  }
+}
+"#,
+    );
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+
+    let result = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
+    assert!(result.status.success(), "instantiate should succeed:\n{}", result.stderr);
+    assert!(
+        result.stdout.contains("Merged the template's agent settings"),
+        "the hoist must be reported:\n{}",
+        result.stdout
+    );
+
+    let hoisted = dir.join(".agents/rhei/settings.json");
+    let settings = fs::read_to_string(&hoisted).expect("project settings should exist");
+    assert!(settings.contains("codex"), "the agent registry should land here:\n{settings}");
+    assert!(
+        !dir.join("audit/.agents/rhei/settings.json").exists(),
+        "no dead copy may stay in the workspace, where nothing reads it"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

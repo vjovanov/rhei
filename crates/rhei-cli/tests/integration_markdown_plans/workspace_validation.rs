@@ -1260,6 +1260,7 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
     // sibling single-file rheis share one execution root. §FS-rhei-panta.6.4
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(&project)
         .arg("--rhei")
         .arg("auth")
@@ -1355,6 +1356,7 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(&project)
         .args(["--rhei", "auth"])
         .output()
@@ -1779,6 +1781,7 @@ fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
     // rheis it will touch before acting.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(&project)
         .output()
         .expect("reset runs");
@@ -1800,6 +1803,7 @@ fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
     .expect("write plan");
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(dir.join("plan.rhei.md"))
         .output()
         .expect("reset runs");
@@ -2417,6 +2421,7 @@ fn reset_never_infers_an_omitted_target() {
     // The explicit form still works.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(&project)
         .output()
         .expect("reset runs");
@@ -2790,6 +2795,7 @@ fn empty_project_reset_is_a_noop_success() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(&dir)
         .output()
         .expect("reset runs");
@@ -2841,6 +2847,7 @@ fn panta_narrowed_reset_clears_workspace_index_metadata_and_legacy_records() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("reset")
+        .arg("-y")
         .arg(&project)
         .args(["--rhei", "auth"])
         .output()

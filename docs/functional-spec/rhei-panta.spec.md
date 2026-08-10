@@ -144,6 +144,18 @@ misnamed (missing the `.rhei.md` suffix) or misplaced would otherwise be
 silently invisible behind a green validation. Only work-claiming and mutation
 surface the emptiness as their ordinary no-work outcomes.
 
+A rhei that **fails to load** — a malformed heading, a bad frontmatter block —
+fails the project load for every command that must reason about the whole
+graph: validation, work claiming, transitions, runs, and resets all stop and
+report the parse error, because a partial graph cannot decide readiness and a
+cross-rhei `**Prior:**` into the broken rhei has nothing to resolve against.
+
+`rhei list` is the exception. It is the surface an author reaches for *while* a
+plan is broken, and failing it left no way to see the rest of the project —
+not even `rhei list --rhei <healthy-one>`, which names a rhei that parses
+fine. It therefore skips what it cannot load, prints one warning per skipped
+rhei naming the file and the parse error, and lists everything else.
+
 A command invoked with **no target** resolves one by walking up from the
 current directory, nearest match first. At each level, in order:
 

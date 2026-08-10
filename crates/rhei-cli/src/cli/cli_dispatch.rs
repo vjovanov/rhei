@@ -224,7 +224,7 @@ fn command_wants_json(command: &Commands) -> bool {
         Commands::Next { json, .. } => *json,
         Commands::States { json, .. } => *json,
         Commands::List { json, .. } => *json,
-        Commands::Snapshot { command: SnapshotCommand::List { format, .. } } => {
+        Commands::Snapshot { command: SnapshotCommand::List { format, .. }, .. } => {
             matches!(format, SnapshotListFormat::Json)
         }
         Commands::Templates { json, .. } => *json,
@@ -247,23 +247,26 @@ fn emit_json_error(err: &miette::Report) {
 
 /// Dispatch the parsed CLI command.
 fn dispatch(cli: Cli) -> MietteResult<()> {
+    // `--state-machine` is accepted both before the subcommand and on the
+    // subcommands that read one; the subcommand copy wins when both appear.
+    let before_subcommand = cli.state_machine;
     match cli.command {
         Commands::Init { dir, here, title, no_agents, force } => {
             init_command(dir.as_deref(), title.as_deref(), no_agents, force, here)
         }
-        Commands::Validate { watch, input } => {
+        Commands::Validate { watch, input, state_machine } => {
             // §FS-rhei-validate.1.1: validation never narrows — a member rhei
             // validates the project it cannot resolve without.
             let target = resolve_plan_target(input)?;
             report_validation_widened(&target);
-            validate_command(target.path(), cli.state_machine.as_deref(), watch)
+            validate_command(target.path(), state_machine.or(before_subcommand).as_deref(), watch)
         }
-        Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
+        Commands::Render { input, format, pretty, no_color, no_metadata, no_content, state_machine } => {
             let target = resolve_plan_target(input)?;
             render_command(
                 target.path(),
                 &target.scope_with(&[]),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 format,
                 pretty,
                 no_color,
@@ -271,8 +274,8 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                 no_content,
             )
         }
-        Commands::States { input, json } => {
-            states_command(input, cli.state_machine.as_deref(), json)
+        Commands::States { input, json, state_machine } => {
+            states_command(input, state_machine.or(before_subcommand).as_deref(), json)
         }
         Commands::List {
             input,
@@ -291,12 +294,13 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             blocked,
             limit,
             json,
+            state_machine,
         } => {
             let target = resolve_plan_target(input)?;
             let rhei = target.scope_with(&rhei);
             list_command(
             target.path(),
-            cli.state_machine.as_deref(),
+            state_machine.or(before_subcommand).as_deref(),
             ListFilters {
                 rhei,
                 states: state,
@@ -316,23 +320,23 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             json,
             )
         }
-        Commands::Transition { input, task, from, to, no_callbacks } => {
+        Commands::Transition { input, task, from, to, no_callbacks, state_machine } => {
             let target = resolve_plan_target(input)?;
             transition_command(
                 target.path(),
                 &target.scope_with(&[]),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 &task,
                 &from,
                 &to,
                 no_callbacks,
             )
         }
-        Commands::Run { input, standalone, agent, program, snapshot } => {
+        Commands::Run { input, standalone, agent, program, snapshot, state_machine } => {
             let target = resolve_plan_target(input)?;
             let mut opts: RunOptions = (standalone, agent, program, snapshot).into();
             opts.narrow_to(target.scope_with(opts.rhei_scope()));
-            run_command(target.path(), cli.state_machine.as_deref(), opts)
+            run_command(target.path(), state_machine.or(before_subcommand).as_deref(), opts)
         }
         // `rhei cost` reads accounting artifacts under the target's own runtime
         // root and resolves no dependency graph, so it stays on the path it was
@@ -343,17 +347,17 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Intervene { plan, task, slot, message } => {
             intervene_command(&plan, &task, slot, &message)
         }
-        Commands::Viz { input, output, open } => {
+        Commands::Viz { input, output, open, state_machine } => {
             let target = resolve_plan_target(input)?;
             viz_command(
                 target.path(),
                 &target.scope_with(&[]),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 output.as_deref(),
                 open,
             )
         }
-        Commands::Snapshot { command } => snapshot_command(command, cli.state_machine.as_deref()),
+        Commands::Snapshot { command, state_machine } => snapshot_command(command, state_machine.or(before_subcommand).as_deref()),
         Commands::Templates { json, source } => templates::templates_command(json, &source),
         Commands::Instantiate {
             template,
@@ -379,11 +383,11 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             keep_on_error,
             list_inputs,
         ),
-        Commands::Next { input, task, json, no_callbacks, peek, rhei } => {
+        Commands::Next { input, task, json, no_callbacks, peek, rhei, state_machine } => {
             let target = resolve_plan_target(input)?;
             next_command(
                 target.path(),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 task.as_deref(),
                 json,
                 no_callbacks,
@@ -391,29 +395,29 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                 &target.scope_with(&rhei),
             )
         }
-        Commands::Complete { input, task, result, no_callbacks } => {
+        Commands::Complete { input, task, result, no_callbacks, state_machine } => {
             let target = resolve_plan_target(input)?;
             complete_command(
                 target.path(),
                 &target.scope_with(&[]),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 &task,
                 &result,
                 no_callbacks,
             )
         }
-        Commands::Release { input, task, all, rhei, dry_run } => {
+        Commands::Release { input, task, all, rhei, dry_run, state_machine } => {
             let target = resolve_plan_target(input)?;
             release_command(
                 target.path(),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 task.as_deref(),
                 all,
                 &target.scope_with(&rhei),
                 dry_run,
             )
         }
-        Commands::Reset { input, rhei, dry_run, yes } => {
+        Commands::Reset { input, rhei, dry_run, yes, state_machine } => {
             // §FS-rhei-panta.6: reset destroys runtime state, so it is the one
             // plan-taking command that never infers an omitted target.
             let Some(input) = input else {
@@ -428,7 +432,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             let target = resolve_plan_target(Some(input))?;
             reset_command(
                 target.path(),
-                cli.state_machine.as_deref(),
+                state_machine.or(before_subcommand).as_deref(),
                 &target.scope_with(&rhei),
                 dry_run,
                 yes,

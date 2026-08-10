@@ -123,6 +123,30 @@ fn find_runnable_tasks<'a>(
         .collect()
 }
 
+/// Ready tickets `rhei run` will not touch because someone already holds them.
+/// The loop counts only what it can schedule, so a held ticket vanished from
+/// the pass report and read as "not ready". §FS-rhei-run.3
+fn find_held_tasks<'a>(
+    rhei: &'a rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    workspace_root: &Path,
+) -> Vec<&'a rhei_core::ast::Task> {
+    find_ready_tasks(rhei, machine, workspace_root, &std::collections::HashMap::new(), false)
+        .into_iter()
+        .filter(|task| task.assignee.is_some())
+        .collect()
+}
+
+/// One line naming every held ticket and who holds it.
+fn format_held_tasks(held: &[&rhei_core::ast::Task]) -> String {
+    held.iter()
+        .map(|task| {
+            format!("Task {} (assignee {})", task.id, task.assignee.as_deref().unwrap_or("?"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Find tasks that are ready to be claimed by `rhei next` in automatic mode.
 ///
 /// A task is claimable when it is in the state machine's initial state, its
@@ -324,10 +348,10 @@ fn diagnose_no_claimable(
             // Match the vocabulary and the next step `rhei list` gives for the
             // same state; a bare "plan has no tasks" leaves a new user stuck.
             None if rhei_core::workspace::is_panta_project(plan_path) => {
-                "no tickets are ready to claim — the project has none yet. Add a rhei by \
-                 dropping a `<id>.rhei.md` file or a workspace directory next to \
-                 index.panta.md."
-                    .to_string()
+                format!(
+                    "no tickets are ready to claim — the project has none yet: {}",
+                    add_a_rhei_hint()
+                )
             }
             None => "no tickets are ready to claim — this rhei has none yet".to_string(),
         };

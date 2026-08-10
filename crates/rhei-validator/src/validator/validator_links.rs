@@ -177,11 +177,14 @@ fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut Vali
             if qualified || legacy {
                 continue;
             }
-            // Renaming a ticket id is a two-file edit: the link *and* the
-            // artifact it points at. Nothing else says so, and the artifact is
-            // the half an author forgets.
+            // Renaming a ticket id is a two-part edit — the link text *and* the
+            // artifact it points at. Naming only the `mv` sent authors round a
+            // second time: they moved the file, the stale link then failed as a
+            // dangling target, and the new error read as a different problem.
             let rename_hint = format!(
-                ". If this ticket was renamed, move the artifact to match: \
+                ". If this ticket was renamed, do both halves: rewrite the block as \
+                 `> **Result:** [{expected_text}](runtime/results/{expected_text}.md)`, and \
+                 move the artifact to match with \
                  `mv {target} runtime/results/{expected_text}.md`"
             );
             match legacy_text.as_deref() {

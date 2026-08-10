@@ -16,7 +16,7 @@ rhei reset <RHEI_PLAN_OR_WORKSPACE> [--rhei <RHEI_ID>] [--dry-run] [--yes]
 |--------------------|---------|--------------------------------------------------------------------------------|
 | `--rhei <RHEI_ID>` | all     | Narrow the reset to the named rheis (repeatable). See §2.1. §FS-rhei-panta.6.4 |
 | `--dry-run`        | false   | Report what would be reset and deleted, then exit without changing anything    |
-| `--yes`, `-y`      | false   | Skip the interactive confirmation. See §1.2                                    |
+| `--yes`, `-y`      | false   | Confirm without prompting; required when stdin is not a terminal. See §1.2     |
 
 An id that names no rhei in the project is an error listing the available rhei
 ids.
@@ -28,11 +28,19 @@ gitignores `panta/` by default (§FS-rhei-init), so the destroyed material is
 typically absent from version control.
 
 Before acting, reset prints what it would reset and the runtime directories it
-would delete. When stdin is an interactive terminal and `--yes` was not passed,
-it then asks for confirmation and treats any answer other than `y`/`yes` as a
-cancellation, changing nothing. When stdin is not a terminal there is no one to
-ask, so reset proceeds — scripted callers keep working unchanged, and reach
-`--dry-run` for a preview.
+would delete. That preview precedes every destructive reset, including `--yes`
+and non-interactive invocations: they destroy the same artifacts, so printing
+only on the path that stops to ask would make exactly the unattended runs the
+silent ones.
+
+Unless `--yes` was passed, reset then asks for confirmation and treats any
+answer other than `y`/`yes` as a cancellation, changing nothing. When stdin is
+not a terminal there is no one to ask, so reset **fails** rather than assuming
+consent, naming `--yes` to confirm and `--dry-run` to preview. Unattended
+callers — scripts, CI, and agents driving the CLI — cannot see a prompt, so
+inferring agreement from their silence turned every accidental invocation into
+irreversible loss of material that is typically absent from version control.
+Deliberate automation states the intent once with `--yes`.
 
 ## 2. Behavior
 

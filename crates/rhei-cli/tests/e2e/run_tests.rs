@@ -1034,7 +1034,8 @@ fn reset_bash_agent_team_fixture_restores_initial_state() {
     let run_result = run_cli("run", &workspace_path, &machine_path, &[]);
     assert_success(&run_result);
 
-    let reset_result = run_cli("reset", &workspace_path, &machine_path, &[]);
+    // §FS-rhei-reset.1.2: no terminal here, so the intent is stated explicitly.
+    let reset_result = run_cli("reset", &workspace_path, &machine_path, &["-y"]);
     assert_success(&reset_result);
 
     assert_all_tasks_in_state(&workspace_path, &machine_path, "pending");

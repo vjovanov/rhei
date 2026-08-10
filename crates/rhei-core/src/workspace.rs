@@ -40,6 +40,9 @@ pub struct PantaProject {
     pub content_section_roots: Vec<PathBuf>,
     /// Rhei ids in presentation order; `basin` is always last when present.
     pub rhei_ids: Vec<String>,
+    /// Rheis skipped by a lenient load, one message each. Always empty for the
+    /// strict load, which fails on the first unloadable rhei instead.
+    pub unloadable: Vec<String>,
 }
 
 /// Re-raise a parse error from a nested document, recording which file its
@@ -206,6 +209,17 @@ pub fn discover_rhei_entries(project_dir: &Path) -> parser::Result<Vec<PathBuf>>
 /// Load a Panta project, merging all contained rheis into one graph with
 /// project-qualified task ids. §AR-rhei-panta.2 §AR-rhei-panta.3
 pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
+    load_panta_project_with(dir, false)
+}
+
+/// Load a project, skipping rheis that fail to load instead of failing the
+/// whole project, and recording why in [`PantaProject::unloadable`].
+/// §FS-rhei-panta.6
+pub fn load_panta_project_lenient(dir: &Path) -> parser::Result<PantaProject> {
+    load_panta_project_with(dir, true)
+}
+
+fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaProject> {
     let manifest_path = dir.join(PANTA_INDEX_FILE);
     let manifest_content = std::fs::read_to_string(&manifest_path).map_err(|e| {
         ParseError::new(format!("failed to read {}: {e}", manifest_path.display()), None)
@@ -214,6 +228,7 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
         .map_err(|e| nested_parse_error(e, &manifest_path))?;
 
     let mut rheis = Vec::new();
+    let mut unloadable: Vec<String> = Vec::new();
     let mut seen_ids: HashMap<String, PathBuf> = HashMap::new();
     let entries = discover_rhei_entries(dir)?;
     for entry in entries {
@@ -234,8 +249,29 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
             ));
         }
         let root = rhei_execution_root(&entry);
-        let loaded = load_rhei_entry(&entry)?;
-        validate_panta_rhei_states(&id, &loaded.rhei, &manifest.states, manifest.states_declared)?;
+        let entry_result = load_rhei_entry(&entry).and_then(|loaded| {
+            validate_panta_rhei_states(
+                &id,
+                &loaded.rhei,
+                &manifest.states,
+                manifest.states_declared,
+            )?;
+            Ok(loaded)
+        });
+        let loaded = match entry_result {
+            Ok(loaded) => loaded,
+            Err(err) if lenient => {
+                seen_ids.remove(&id);
+                let where_ = match err.line {
+                    Some(line) => format!("{}:{line}", entry.display()),
+                    None => entry.display().to_string(),
+                };
+                unloadable
+                    .push(format!("rhei '{id}' could not be loaded ({where_}): {}", err.message));
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
         rheis.push((id, loaded.rhei, loaded.task_sources, root));
     }
 
@@ -304,6 +340,7 @@ pub fn load_panta_project(dir: &Path) -> parser::Result<PantaProject> {
         task_roots,
         content_section_roots,
         rhei_ids,
+        unloadable,
     })
 }
 
@@ -360,7 +397,14 @@ pub fn wrap_rhei_as_implicit_panta(
     let content_section_roots = vec![root; rhei.content_sections.len()];
     // The implicit Panta has no manifest: the single rhei's own `**States:**`
     // declaration is the project's effective machine. §AR-rhei-panta.2
-    Ok(PantaProject { rhei, task_sources, task_roots, content_section_roots, rhei_ids })
+    Ok(PantaProject {
+        rhei,
+        task_sources,
+        task_roots,
+        content_section_roots,
+        rhei_ids,
+        unloadable: Vec::new(),
+    })
 }
 
 /// Runtime task metadata lives at `metadata.tasks` inside the frontmatter

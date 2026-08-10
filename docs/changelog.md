@@ -2,6 +2,84 @@
 
 ## Unreleased
 
+- Make `rhei instantiate` reckon with the Panta project it is standing in. Run
+  inside a project it wrote its workspace to the working directory, where
+  discovery never looks — `rhei list` still reported an empty project after a
+  successful instantiation. Pointed into `panta/` with `--output` it wrote a
+  second state machine, and since one machine governs a whole project
+  (§FS-rhei-panta.6) *every* project-scoped command then failed to load, while
+  instantiate itself had printed "Validation succeeded" from validating the
+  workspace in isolation. A template's output now defaults to the project, the
+  project adopts the template's machine when it is the first rhei, a genuine
+  collision is refused before anything is written and names the `--output` that
+  works, and a member rhei is validated through its project. Output placed
+  under a project but not directly next to `index.panta.md` — including every
+  single-file template, which renders a plain directory — is warned about
+  rather than silently unlisted. §FS-rhei-templates.6.2
+- Hoist a template's bundled `settings.json` to the project it joins. Settings
+  resolve once, at the root the plan loads from, so a copy left in a member
+  workspace was read by nothing: the built-in `product-management` template
+  failed validation on its *own* default targets as "unknown target mode
+  'xhigh'", with the error pointing at the selectors rather than the registry
+  that had gone missing. Existing project values win the merge, and both the
+  added and the kept keys are reported. `rhei validate` now also warns when it
+  finds a member rhei carrying settings the project ignores.
+  §FS-rhei-templates.4 §FS-rhei-agents.1.1
+- Stop `rhei reset` from destroying runtime state on an unattended invocation.
+  With no terminal it skipped the confirmation *and* the damage preview and
+  went ahead, so `echo n | rhei reset panta` deleted every result and ledger —
+  material `rhei init` gitignores, with no VCS copy to recover from — and did
+  it silently. It now prints the preview before every destructive reset,
+  including `--yes`, and fails without a terminal unless `-y` states the
+  intent. **Breaking:** scripts, CI, and agents that reset non-interactively
+  must pass `-y`. §FS-rhei-reset.1.2
+- Let `rhei list` survive a malformed plan. One unparseable `*.rhei.md` failed
+  every project-scoped command — including `rhei list --rhei <a-healthy-one>`,
+  which names a rhei that parses fine — leaving no way to see the rest of the
+  project while fixing it. Listing now skips what it cannot load and warns per
+  skipped rhei; validation, claiming, transitions, runs, and resets still stop,
+  because a partial graph cannot decide readiness. §FS-rhei-panta.6
+- Anchor the `AGENTS.md` agent-discovery note at the repository root. Written
+  at the host, `rhei init <subdir> --here` buried it inside the adopted plans
+  directory, where no coding agent reads it — precisely the mode documented for
+  adopting a directory of existing, versioned plans. Init now names the path
+  when the note lands outside the host, and a failed target resolution lists
+  any project it finds below the invocation directory instead of only reporting
+  that nothing was found above it. §FS-rhei-init.4 §FS-rhei-panta.6
+- Stop advertising `--state-machine` on the seven commands that ignore it. The
+  flag was `global`, so it appeared in `--help` for `init`, `templates`,
+  `install-skills`, `completions`, `version`, `cost`, and `intervene`, and was
+  silently accepted there: `rhei init --state-machine ./my-states.yaml`
+  reported success and used the default. It is now declared on the commands
+  that read one, and still accepted before the subcommand.
+- Say what belongs in a first plan. `init`, `list`, `next`, and `validate` all
+  pointed at where a `<id>.rhei.md` file goes without saying what goes in it,
+  and never mentioned `rhei templates` / `rhei instantiate` — the only route
+  that does not require knowing the language first. All four now name both
+  routes, and the roomier surfaces show a minimal plan skeleton.
+- Report every missing template input at once, name `--list-inputs`, and stop
+  tearing structured defaults apart. Inputs were reported one per run, turning
+  supply into a guessing loop that bought one field name per attempt, and an
+  array default rendered as raw multi-line YAML inside a single-line
+  `(type, default=…)` parenthetical. §FS-rhei-templates.6.1.1
+- List the agents and modes that *do* resolve when one does not. The built-in
+  registry defines a single mode per agent, so `codex[high]` validates only
+  where a settings file adds it, and nothing else lists what is there — unlike
+  an invalid state, which has always named its allowed states.
+  §FS-rhei-agents.1.1
+- Finish the renamed-ticket hint. It named the `mv` for the result artifact but
+  not the link text that also has to change, so following it exactly produced a
+  second, differently-worded failure about a dangling target. It now spells out
+  both halves. §FS-rhei-complete
+- Smaller fixes: `rhei run` names the ready tickets it skipped because someone
+  already holds them, rather than dropping them from the pass report;
+  `rhei render --format` lists its values in the missing-argument error;
+  progress output heads a project with `Panta:` rather than `Rhei:`, which put
+  the same word on two levels; `rhei install-skills` names `--agent` after a
+  default fan-out across all eight agents; and the README documents the child
+  heading syntax, that `structure.nodeKinds` replaces rather than extends the
+  default, and that the frontmatter block goes below the `# Rhei:` heading.
+
 - Ship a built-in template library inside the binary. `rhei templates` printed
   "No templates found." on every fresh install: templates were project- and
   user-scoped only, so the ten shipped with this repo lived in a directory a

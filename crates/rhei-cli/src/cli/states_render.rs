@@ -224,6 +224,34 @@ enum LoadedPlanKind {
     PantaProject,
 }
 
+/// Name any member rhei carrying its own `.agents/rhei/settings.json`: settings
+/// resolve once, at the project root, so a copy inside a member is read by
+/// nothing and its agent registry silently vanished. §FS-rhei-agents.1.1
+fn ignored_member_settings_warnings(input: &Path, loaded: &LoadedPlan) -> Vec<String> {
+    if !loaded.is_panta_project() {
+        return Vec::new();
+    }
+    let Some(project) = workspace::panta_project_dir(input) else {
+        return Vec::new();
+    };
+    let Ok(entries) = workspace::discover_rhei_entries(&project) else {
+        return Vec::new();
+    };
+    entries
+        .into_iter()
+        .map(|entry| entry.join(".agents/rhei/settings.json"))
+        .filter(|settings| settings.is_file())
+        .map(|settings| {
+            format!(
+                "{} is ignored: settings resolve at the project root, so move its contents into \
+                 {} — nothing reads a member rhei's own settings file",
+                settings.display(),
+                project.join(".agents/rhei/settings.json").display()
+            )
+        })
+        .collect()
+}
+
 /// One warning per rhei that loaded but holds no tickets. Empty is valid, but a
 /// mistyped `tasks/` loads identically, so name it rather than report a bare
 /// green. §FS-rhei-plan-language.1.2
@@ -266,6 +294,8 @@ struct LoadedPlan {
     content_section_roots: Vec<PathBuf>,
     /// For Panta projects: rhei ids in load order (`basin` last when present).
     rhei_ids: Vec<String>,
+    /// Rheis a lenient load skipped, one message each; empty for a strict load.
+    unloadable: Vec<String>,
 }
 
 impl LoadedPlan {
@@ -433,6 +463,24 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         }
         dir = current.parent();
     }
+    // Resolution only walks up, so a project adopted in a subdirectory is
+    // invisible from the repo root — the one place bare commands get run.
+    // §FS-rhei-panta.6
+    let nearby = nearby_projects(&cwd);
+    if !nearby.is_empty() {
+        let listed = nearby
+            .iter()
+            .map(|path| format!("  rhei <command> {}", path.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(miette!(
+            "no Rhei plan found at or above {}. Target resolution only walks up, but there \
+             {} below it:\n{}",
+            cwd.display(),
+            if nearby.len() == 1 { "is a project" } else { "are projects" },
+            listed
+        ));
+    }
     Err(miette!(
         "no Rhei plan found: neither {} nor any parent directory contains an \
          `index.panta.md` project manifest, a workspace `index.rhei.md`, or a \
@@ -440,6 +488,47 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
          or run inside a project",
         cwd.display()
     ))
+}
+
+/// Panta projects within a few levels below `root`, for a resolution failure
+/// that would otherwise just say "not found". Bounded in depth and breadth so
+/// the search stays cheap, and skipping hidden and build directories.
+fn nearby_projects(root: &Path) -> Vec<PathBuf> {
+    const MAX_DEPTH: usize = 3;
+    const MAX_HITS: usize = 5;
+    let mut found = Vec::new();
+    let mut frontier = vec![(root.to_path_buf(), 0usize)];
+    while let Some((dir, depth)) = frontier.pop() {
+        if depth >= MAX_DEPTH || found.len() >= MAX_HITS {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut children: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .filter(|path| {
+                path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+                    !name.starts_with('.') && !matches!(name, "target" | "node_modules")
+                })
+            })
+            .collect();
+        children.sort();
+        for child in children {
+            if workspace::is_panta_project(&child) {
+                found.push(child);
+                if found.len() >= MAX_HITS {
+                    break;
+                }
+            } else {
+                frontier.push((child, depth + 1));
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 /// A resolved plan target: the document to load, plus the rhei ids the
@@ -682,9 +771,24 @@ fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiS
 
 /// Load a plan from a file or directory workspace.
 fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
+    load_plan_with(path, false)
+}
+
+/// Load a plan, and for a project skip rheis that fail to load rather than
+/// failing the whole project. Only read-only surfaces that can report the skip
+/// may use this: a partial graph cannot decide readiness. §FS-rhei-panta.6
+fn load_plan_leniently(path: &Path) -> MietteResult<LoadedPlan> {
+    load_plan_with(path, true)
+}
+
+fn load_plan_with(path: &Path, lenient: bool) -> MietteResult<LoadedPlan> {
     if let Some(project_dir) = workspace::panta_project_dir(path) {
-        let project = workspace::load_panta_project(&project_dir)
-            .map_err(|err| nested_parse_report(&err))?;
+        let project = if lenient {
+            workspace::load_panta_project_lenient(&project_dir)
+        } else {
+            workspace::load_panta_project(&project_dir)
+        }
+        .map_err(|err| nested_parse_report(&err))?;
         Ok(LoadedPlan {
             rhei: project.rhei,
             kind: LoadedPlanKind::PantaProject,
@@ -692,6 +796,7 @@ fn load_plan(path: &Path) -> MietteResult<LoadedPlan> {
             task_roots: project.task_roots,
             content_section_roots: project.content_section_roots,
             rhei_ids: project.rhei_ids,
+            unloadable: project.unloadable,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
         // §AR-rhei-panta.2: a bare Directory Workspace is the single rhei of
@@ -724,6 +829,7 @@ fn implicit_loaded_plan(
         task_roots: project.task_roots,
         content_section_roots: project.content_section_roots,
         rhei_ids: project.rhei_ids,
+        unloadable: project.unloadable,
     }
 }
 
@@ -740,6 +846,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             task_roots: project.task_roots,
             content_section_roots: project.content_section_roots,
             rhei_ids: project.rhei_ids,
+            unloadable: project.unloadable,
         });
     }
 
@@ -908,16 +1015,17 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     // nothing — a misnamed or misplaced plan is otherwise silently invisible
     // behind a green validation.
     if loaded.is_panta_project() && loaded.rhei_ids.is_empty() {
-        report.warnings.push(
+        report.warnings.push(format!(
             "the project holds no rheis: discovery looks only for `*.rhei.md` files and \
-             workspace directories placed directly next to index.panta.md"
-                .to_string(),
-        );
+             workspace directories placed directly next to index.panta.md — {}",
+            add_a_rhei_hint()
+        ));
     }
     // An empty rhei is valid, but a mistyped `tasks/` looks identical to a
     // deliberately empty one — name it rather than let it pass unremarked.
     // §FS-rhei-plan-language.1.2
     report.warnings.extend(empty_rhei_warnings(&loaded));
+    report.warnings.extend(ignored_member_settings_warnings(input, &loaded));
 
     if report.has_errors() {
         return Err(validation_report(input, resolved.path.as_deref(), &report.errors));

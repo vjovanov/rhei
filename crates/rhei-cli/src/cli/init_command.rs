@@ -132,12 +132,28 @@ fn init_command(
         }
         seed_gitignore(&project, &["runtime/", ".rhei/cache/"])?;
     }
-    if !no_agents && write_agents_note(&host, here)? {
-        host_changes.push("AGENTS.md");
+    let mut agents_note_path = None;
+    if !no_agents {
+        let (changed, path) = write_agents_note(&host, here)?;
+        if changed {
+            agents_note_path = Some(path.clone());
+            if path.parent() == Some(host.as_path()) {
+                host_changes.push("AGENTS.md");
+            }
+        }
     }
     report_initialized_project(&project, &title, here);
     report_host_changes(&host_changes, here);
-    println!("Next: `rhei list` shows the project; `rhei install-skills` wires agent skills.");
+    if let Some(path) = agents_note_path.filter(|path| path.parent() != Some(host.as_path())) {
+        println!("Wrote the agent-discovery note to {} (the repository root).", path.display());
+    }
+    println!("Next: `rhei install-skills` wires agent skills; `rhei list` shows the project.");
+    // A fresh project's real next step is its first rhei, and the block is
+    // long, so it goes last rather than between the setup lines.
+    if workspace::load_panta_project(&project).map(|p| p.rhei_ids.is_empty()).unwrap_or(false) {
+        println!();
+        println!("{}", add_a_rhei_help());
+    }
     Ok(())
 }
 
@@ -210,12 +226,23 @@ fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<bool> {
 /// Create or update the marked Rhei block in the host's `AGENTS.md`, stripping
 /// every trace of a previous note first so it stays idempotent. `true` when it
 /// changed, so the caller can name it. §FS-rhei-init.4 §FS-rhei-init.5
-fn write_agents_note(host: &Path, here: bool) -> MietteResult<bool> {
-    let path = host.join("AGENTS.md");
-    let location = if here {
-        "This directory is a Rhei (Panta) project."
+fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
+    // The note exists to be *read* by coding agents, which read the repository
+    // root. Writing it into the adopted plans directory buried it exactly where
+    // no agent looks. §FS-rhei-init.5
+    let anchor = repository_root(host).unwrap_or_else(|| host.to_path_buf());
+    let path = anchor.join("AGENTS.md");
+    let location = if anchor == host {
+        if here {
+            "This directory is a Rhei (Panta) project.".to_string()
+        } else {
+            "The Rhei (Panta) project for this repository lives in `panta/`.".to_string()
+        }
     } else {
-        "The Rhei (Panta) project for this repository lives in `panta/`."
+        format!(
+            "The Rhei (Panta) project for this repository lives in `{}`.",
+            relative_path(&anchor, host).display()
+        )
     };
     let block = format!(
         "{AGENTS_NOTE_BEGIN}\n## Rhei\n\n{location} {AGENTS_NOTE_TAIL}\n{AGENTS_NOTE_END}\n"
@@ -231,11 +258,24 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<bool> {
         out
     };
     if updated == existing {
-        return Ok(false);
+        return Ok((false, path));
     }
     fs::write(&path, updated)
         .map_err(|err| miette!("failed to write {}: {err}", path.display()))?;
-    Ok(true)
+    Ok((true, path))
+}
+
+/// The enclosing git repository root, if `dir` is inside one.
+fn repository_root(dir: &Path) -> Option<PathBuf> {
+    let start = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let mut current: Option<&Path> = Some(start.as_path());
+    while let Some(candidate) = current {
+        if candidate.join(".git").exists() {
+            return Some(candidate.to_path_buf());
+        }
+        current = candidate.parent();
+    }
+    None
 }
 
 /// Name the host files init changed and state the gitignore consequence. Doing
@@ -308,11 +348,7 @@ fn report_initialized_project(project: &Path, title: &str, here: bool) {
     let location = if here { String::new() } else { " at panta/".to_string() };
     match workspace::load_panta_project(project) {
         Ok(loaded) if loaded.rhei_ids.is_empty() => {
-            println!(
-                "Initialized Panta project \"{title}\"{location} with no rheis yet. Add \
-                 one by dropping a `<id>.rhei.md` file or a workspace directory next to \
-                 index.panta.md."
-            );
+            println!("Initialized Panta project \"{title}\"{location} with no rheis yet.");
         }
         Ok(loaded) => {
             let noun = if loaded.rhei_ids.len() == 1 { "rhei" } else { "rheis" };

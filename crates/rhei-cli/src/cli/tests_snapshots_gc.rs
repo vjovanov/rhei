@@ -189,6 +189,7 @@
         match cli.command {
             Commands::Snapshot {
                 command: SnapshotCommand::List { plan, task, name, state, produced_by, format, .. },
+                ..
             } => {
                 assert_eq!(plan, PathBuf::from("plan"));
                 assert_eq!(task.as_deref(), Some("1"));

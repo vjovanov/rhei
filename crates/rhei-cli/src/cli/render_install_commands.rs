@@ -123,9 +123,17 @@ fn render_command(
     let terminal_states = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)
         .map(|resolved| terminal_state_names(&resolved.machine))
         .unwrap_or_default();
-    let rendered =
-        render_rhei(&rhei, terminal_states, format, pretty, no_color, no_metadata, no_content)
-            .map_err(|err| miette!("{err}"))?;
+    let rendered = render_rhei(
+        &rhei,
+        terminal_states,
+        loaded.is_panta_project(),
+        format,
+        pretty,
+        no_color,
+        no_metadata,
+        no_content,
+    )
+    .map_err(|err| miette!("{err}"))?;
     println!("{rendered}");
     Ok(())
 }
@@ -160,9 +168,11 @@ fn narrow_rhei_to_scope(
 }
 
 /// Render a parsed rhei into the requested output representation.
+#[allow(clippy::too_many_arguments)]
 fn render_rhei(
     rhei: &rhei_core::ast::Rhei,
     terminal_states: BTreeSet<String>,
+    is_project: bool,
     format: RenderFormat,
     pretty: bool,
     no_color: bool,
@@ -189,6 +199,7 @@ fn render_rhei(
                 color,
                 show_dependencies: true,
                 terminal_states,
+                is_project,
             }
             .to_string(rhei))
         }
@@ -271,6 +282,14 @@ fn install_skills_command(
         installed_count,
         if installed_count == 1 { "" } else { "s" }
     );
+    // The default fans out across every supported agent, which writes config
+    // for tools the user may not have. Name the narrower form once. §FS-rhei-install-skills.1
+    if agent == Agent::All && installed_count > 1 && !uninstall {
+        println!(
+            "That was every supported agent (the `--agent` default). Use `--agent <name>` \
+             to write only the one you use, or `--uninstall` to remove these again."
+        );
+    }
 
     Ok(())
 }

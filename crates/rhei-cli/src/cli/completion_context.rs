@@ -378,7 +378,12 @@ fn list_command(
     filters: ListFilters,
     as_json: bool,
 ) -> MietteResult<()> {
-    let loaded = load_plan(input)?;
+    // Listing is the surface an author reaches for *while* a plan is broken, so
+    // it reports what it could not load and shows the rest. §FS-rhei-panta.6
+    let loaded = load_plan_leniently(input)?;
+    for skipped in &loaded.unloadable {
+        eprintln!("warning: {skipped}");
+    }
     let rhei_scope = resolve_rhei_scope(&loaded, &filters.rhei)?;
     let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machine = resolved.machine;
@@ -406,10 +411,8 @@ fn list_command(
         if as_json {
             println!("[]");
         } else if loaded.is_panta_project() {
-            println!(
-                "(project has no tickets yet — add a `<id>.rhei.md` file or a workspace \
-                 directory next to index.panta.md)"
-            );
+            println!("(project has no tickets yet)");
+            println!("{}", add_a_rhei_help());
         } else {
             println!("(this rhei has no tickets yet)");
         }

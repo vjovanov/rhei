@@ -8,6 +8,7 @@ mod templates {
     include!("cli/templates_builtin.rs");
     include!("cli/templates_list.rs");
     include!("cli/templates_instantiate.rs");
+    include!("cli/templates_project.rs");
     include!("cli/templates_discovery.rs");
     include!("cli/templates_inputs.rs");
 }

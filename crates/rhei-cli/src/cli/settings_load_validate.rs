@@ -186,6 +186,27 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
     })
 }
 
+/// The agents the merged registry knows, so an error does not leave an author
+/// guessing at names nothing else lists. §FS-rhei-agents.1.1
+fn known_agents_hint(settings: &RheiSettings) -> String {
+    if settings.agents.is_empty() {
+        return "no agents are configured; declare one under `agents` in .agents/rhei/settings.json"
+            .to_string();
+    }
+    let names: Vec<&str> = settings.agents.keys().map(String::as_str).collect();
+    format!("known agents: {}", names.join(", "))
+}
+
+/// The modes one agent declares, listed the way an invalid state lists its
+/// allowed states. §FS-rhei-agents.1.1
+fn known_modes_hint(profile: &CustomAgentProfile) -> String {
+    if profile.modes.is_empty() {
+        return "it declares no modes".to_string();
+    }
+    let modes: Vec<&str> = profile.modes.keys().map(String::as_str).collect();
+    format!("known modes: {}", modes.join(", "))
+}
+
 fn validate_machine_settings_references(
     machine: &rhei_validator::StateMachine,
     settings: &RheiSettings,
@@ -278,19 +299,21 @@ fn validate_machine_settings_references(
         if let Some(agent) = state.agent.as_ref() {
             let Some(profile) = settings.agents.get(agent.id()) else {
                 errors.push(format!(
-                    "state '{}' references unknown agent '{}'",
+                    "state '{}' references unknown agent '{}' ({})",
                     state_name,
-                    agent.id()
+                    agent.id(),
+                    known_agents_hint(settings)
                 ));
                 continue;
             };
             if let Some(mode) = state.agent_mode.as_deref() {
                 if !profile.modes.is_empty() && !profile.modes.contains_key(mode) {
                     errors.push(format!(
-                        "state '{}' references unknown mode '{}' for agent '{}'",
+                        "state '{}' references unknown mode '{}' for agent '{}' ({})",
                         state_name,
                         mode,
-                        agent.id()
+                        agent.id(),
+                        known_modes_hint(profile)
                     ));
                 }
             }
@@ -307,16 +330,23 @@ fn validate_machine_settings_references(
                 Ok(target) => {
                     let Some(profile) = settings.agents.get(target.agent.as_str()) else {
                         errors.push(format!(
-                            "state '{}' references unknown target agent '{}' in '{}'",
-                            state_name, target.agent, selector
+                            "state '{}' references unknown target agent '{}' in '{}' ({})",
+                            state_name,
+                            target.agent,
+                            selector,
+                            known_agents_hint(settings)
                         ));
                         continue;
                     };
                     if let Some(mode) = target.mode.as_deref() {
                         if !profile.modes.contains_key(mode) {
                             errors.push(format!(
-                                "state '{}' references unknown target mode '{}' for agent '{}' in '{}'",
-                                state_name, mode, target.agent, selector
+                                "state '{}' references unknown target mode '{}' for agent '{}' in '{}' ({})",
+                                state_name,
+                                mode,
+                                target.agent,
+                                selector,
+                                known_modes_hint(profile)
                             ));
                         }
                     }
@@ -412,16 +442,23 @@ fn validate_task_execution_override_settings_references(
                 Ok(target) => {
                     let Some(profile) = settings.agents.get(target.agent.as_str()) else {
                         errors.push(format!(
-                            "Task {} references unknown target agent '{}' in **Target:** '{}'",
-                            task.id, target.agent, selector
+                            "Task {} references unknown target agent '{}' in **Target:** '{}' ({})",
+                            task.id,
+                            target.agent,
+                            selector,
+                            known_agents_hint(settings)
                         ));
                         return;
                     };
                     if let Some(mode) = target.mode.as_deref() {
                         if !profile.modes.contains_key(mode) {
                             errors.push(format!(
-                                "Task {} references unknown target mode '{}' for agent '{}' in **Target:** '{}'",
-                                task.id, mode, target.agent, selector
+                                "Task {} references unknown target mode '{}' for agent '{}' in **Target:** '{}' ({})",
+                                task.id,
+                                mode,
+                                target.agent,
+                                selector,
+                                known_modes_hint(profile)
                             ));
                         }
                     }

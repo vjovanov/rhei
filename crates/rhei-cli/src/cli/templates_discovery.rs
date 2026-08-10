@@ -516,18 +516,47 @@
             }
         }
 
+        // Report every missing input at once and name the command that lists
+        // them. One-at-a-time made supplying inputs a guessing loop: each
+        // attempt bought exactly one more field name. §FS-rhei-templates.6.1.1
+        let missing = manifest
+            .inputs
+            .iter()
+            .filter(|input| {
+                input.is_required()
+                    && !raw_values.contains_key(&input.name)
+                    && input.schema.default.is_none()
+            })
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            let noun = if missing.len() == 1 { "input" } else { "inputs" };
+            let listed = missing
+                .iter()
+                .map(|input| format!("  {} — {}", input.name, input.description))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let example = missing
+                .iter()
+                .map(|input| format!("{}=<value>", input.name))
+                .collect::<Vec<_>>()
+                .join(" ");
+            return Err(miette!(
+                "template '{}' requires {} {} not supplied:\n{}\nSupply them as `{}`.\nList every input with `rhei instantiate {} --list-inputs`.",
+                manifest.name,
+                missing.len(),
+                noun,
+                listed,
+                example,
+                manifest.name
+            ));
+        }
+
         let mut resolved = BTreeMap::new();
         for input in &manifest.inputs {
             let value = if let Some(raw) = raw_values.get(&input.name) {
                 coerce_template_input_value(input, raw, &cwd, false)?
             } else if let Some(default) = input.schema.default.as_ref() {
                 coerce_template_input_value(input, default, &cwd, true)?
-            } else if input.is_required() {
-                return Err(miette!(
-                    "template '{}' requires input '{}'",
-                    manifest.name,
-                    input.name
-                ));
             } else {
                 empty_template_value(&input.schema)
             };

@@ -164,6 +164,13 @@ fn run_callback_mode(
             total_task_count(&loaded.rhei)
         );
         run_info!("Ready: {}", format_ready_tasks(&ready));
+        // A ticket someone already claimed is ready but unschedulable; saying
+        // nothing made it look like it was not ready at all. §FS-rhei-run.3
+        let held =
+            narrow_to_rhei_scope(find_held_tasks(&loaded.rhei, machine, &workspace_root), &rhei_scope);
+        if !held.is_empty() {
+            run_info!("Held by an assignee, so not scheduled: {}", format_held_tasks(&held));
+        }
 
         let mut advanced_any = false;
         let mut stalled_ready_tasks = Vec::new();

@@ -527,3 +527,30 @@ fn format_validation_errors(errors: &[String]) -> String {
 fn line_text(input: &str, line_number: usize) -> Option<&str> {
     input.lines().nth(line_number.saturating_sub(1))
 }
+
+/// One line naming both routes to a first rhei, for messages with no room.
+/// Saying only *where* the file goes left the harder half — what belongs
+/// inside it — unstated just when an author needs it. §FS-rhei-panta.6
+fn add_a_rhei_hint() -> &'static str {
+    "add one with `rhei instantiate <template>` (`rhei templates` lists them), or by hand as a \
+     `<id>.rhei.md` file next to index.panta.md"
+}
+
+/// The same two routes with room to show what a hand-written plan looks like.
+/// §FS-rhei-panta.6
+fn add_a_rhei_help() -> String {
+    [
+        "Add a rhei either way:",
+        "  from a template  `rhei templates` lists them; `rhei instantiate <name>` writes one",
+        "                   into this project and adopts its state machine",
+        "  by hand          create `<id>.rhei.md` next to index.panta.md:",
+        "",
+        "                       # Rhei: <title>",
+        "",
+        "                       ## Tasks",
+        "",
+        "                       ### Task 1: <first ticket>",
+        "                       **State:** pending",
+    ]
+    .join("\n")
+}

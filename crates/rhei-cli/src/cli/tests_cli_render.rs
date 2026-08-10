@@ -33,7 +33,7 @@
 
         assert!(cli.state_machine.is_none());
         match cli.command {
-            Commands::Validate { watch, input } => {
+            Commands::Validate { watch, input, .. } => {
                 assert!(!watch);
                 assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
             }
@@ -49,7 +49,7 @@
 
         assert!(cli.state_machine.is_none());
         match cli.command {
-            Commands::Validate { watch, input } => {
+            Commands::Validate { watch, input, .. } => {
                 assert!(watch);
                 assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
             }
@@ -70,7 +70,7 @@
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
+            Commands::Render { input, format, pretty, no_color, no_metadata, no_content, .. } => {
                 assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
                 assert_eq!(format, RenderFormat::Json);
                 assert!(pretty);
@@ -131,7 +131,7 @@
         let cli = Cli::try_parse_from(["rhei", "viz", "plan.rhei.md", "-o", "out.html", "--open"])
             .expect("cli should parse");
         match cli.command {
-            Commands::Viz { input, output, open } => {
+            Commands::Viz { input, output, open, .. } => {
                 assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert_eq!(output, Some(PathBuf::from("out.html")));
                 assert!(open);
@@ -141,7 +141,7 @@
 
         let cli = Cli::try_parse_from(["rhei", "viz", "workspace"]).expect("cli should parse");
         match cli.command {
-            Commands::Viz { input, output, open } => {
+            Commands::Viz { input, output, open, .. } => {
                 assert_eq!(input, Some(PathBuf::from("workspace")));
                 assert!(output.is_none());
                 assert!(!open);
@@ -258,7 +258,7 @@ transitions: []
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Run { input, standalone, agent, program, snapshot } => {
+            Commands::Run { input, standalone, agent, program, snapshot, .. } => {
                 assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert!(standalone.dry_run);
                 assert!(standalone.no_callbacks);
@@ -513,7 +513,7 @@ transitions: []
         .expect("parse should succeed");
 
         let rendered =
-            render_rhei(&rhei, BTreeSet::new(), RenderFormat::Json, true, false, false, false).expect("render ok");
+            render_rhei(&rhei, BTreeSet::new(), false, RenderFormat::Json, true, false, false, false).expect("render ok");
 
         assert!(rendered.contains("\"title\": \"Smoke\""));
         assert!(rendered.contains("\"tasks\""));

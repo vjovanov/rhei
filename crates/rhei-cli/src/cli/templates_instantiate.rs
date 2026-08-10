@@ -40,11 +40,16 @@
             set_values,
             set_files,
         )?;
-        let default_output = std::env::current_dir()
-            .map_err(|err| miette!("failed to determine working directory: {err}"))?
-            .join(template_dir.file_name().ok_or_else(|| {
-                miette!("template path '{}' has no directory name", template_dir.display())
-            })?);
+        let cwd = std::env::current_dir()
+            .map_err(|err| miette!("failed to determine working directory: {err}"))?;
+        let template_name = template_dir.file_name().ok_or_else(|| {
+            miette!("template path '{}' has no directory name", template_dir.display())
+        })?;
+        // Inside a project the default home is the project itself; defaulting
+        // to the working directory dropped the workspace where discovery never
+        // looks, so no command listed it. §FS-rhei-templates.6.2
+        let default_output =
+            enclosing_project_for_new_rhei(&cwd).unwrap_or(cwd).join(template_name);
         let output_dir = output.map(Path::to_path_buf).unwrap_or(default_output);
 
         if !dry_run && output_dir.exists() {
@@ -78,9 +83,64 @@
         let entrypoint = materialized.entrypoint();
         let state_machine_path = materialized.state_machine_path();
 
-        if let Err(err) = run_validation_once(&entrypoint, state_machine_path.as_deref()) {
+        // Reconcile with the owning project before validating: a machine
+        // collision is a placement problem with a way out, not a load error
+        // every later command repeats. §FS-rhei-templates.6.2
+        let workspace_machine = workspace_declared_machine(&entrypoint);
+        let discard_output = || {
             if !dry_run && !keep_on_error {
                 let _ = remove_path(&target_dir, false);
+            }
+        };
+        let placement = match plan_project_placement(
+            &output_dir,
+            &materialized.output_dir,
+            workspace_machine.as_deref(),
+        ) {
+            Ok(placement) => placement,
+            Err(err) => {
+                discard_output();
+                return Err(err);
+            }
+        };
+
+        let mut adopted_machine = None;
+        let mut hoisted_settings = None;
+        let mut manifest_backup: Option<(PathBuf, String)> = None;
+        if !dry_run {
+            if let ProjectPlacement::Adopts { project, machine } = &placement {
+                let manifest = project.join("index.panta.md");
+                manifest_backup =
+                    fs::read_to_string(&manifest).ok().map(|content| (manifest, content));
+                if let Err(err) = adopt_project_machine(project, machine) {
+                    discard_output();
+                    return Err(err);
+                }
+                adopted_machine = Some(machine.clone());
+            }
+            if let Some(project) = placement.project() {
+                match hoist_workspace_settings_into_project(&materialized.output_dir, project) {
+                    Ok(hoisted) => hoisted_settings = hoisted,
+                    Err(err) => {
+                        discard_output();
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        // A member rhei is only correct in the project's terms — its machine and
+        // settings resolve there — so that is what gets validated. Validating
+        // the workspace in isolation is what let a project-breaking result be
+        // reported as "Validation succeeded".
+        let validation = match placement.project() {
+            Some(project) if !dry_run => run_validation_once(project, None),
+            _ => run_validation_once(&entrypoint, state_machine_path.as_deref()),
+        };
+        if let Err(err) = validation {
+            discard_output();
+            if let Some((manifest, content)) = manifest_backup {
+                let _ = fs::write(manifest, content);
             }
             return Err(err);
         }
@@ -109,6 +169,11 @@
         }
 
         println!("Instantiated template '{}' into '{}'.", manifest.name, output_dir.display());
+        report_project_placement(
+            &placement,
+            adopted_machine.as_deref(),
+            hoisted_settings.as_ref(),
+        );
         print_instantiated_workspace_summary(
             &materialized,
             &output_dir,
@@ -130,6 +195,40 @@
         }
 
         Ok(())
+    }
+
+    /// Say what joining a project did to it. Adoption edits `index.panta.md`
+    /// and the hoist moves a settings file: both are writes outside the output
+    /// directory, so neither may happen silently. §FS-rhei-templates.6.2
+    fn report_project_placement(
+        placement: &ProjectPlacement,
+        adopted_machine: Option<&str>,
+        hoisted: Option<&HoistedSettings>,
+    ) {
+        let Some(project) = placement.project() else {
+            return;
+        };
+        println!("Added to the Panta project at {}.", project.display());
+        if let Some(machine) = adopted_machine {
+            println!(
+                "  Adopted state machine '{machine}' as the project default in index.panta.md."
+            );
+        }
+        if let Some(hoisted) = hoisted {
+            println!(
+                "  Merged the template's agent settings into {}.",
+                project.join(".agents/rhei/settings.json").display()
+            );
+            if !hoisted.added.is_empty() {
+                println!("    added: {}", hoisted.added.join(", "));
+            }
+            if !hoisted.kept.is_empty() {
+                println!(
+                    "    kept your existing values for: {} (the template's differ)",
+                    hoisted.kept.join(", ")
+                );
+            }
+        }
     }
 
     fn template_input_args_without_execute_args(

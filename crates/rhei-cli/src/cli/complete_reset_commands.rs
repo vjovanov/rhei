@@ -167,13 +167,24 @@ fn reset_command(
     // directory `rhei init` gitignores by default — there is usually no VCS
     // copy to recover from. Show the damage before doing it.
     let runtime_targets = reset_runtime_preview(&loaded, input, &scope);
+    // The preview precedes every destructive reset, not just the one that
+    // stops to ask: printing it only on the interactive path left exactly the
+    // unattended runs — scripts, CI, agents — silent. §FS-rhei-reset.1.2
+    report_reset_preview(task_count, descendant_count, &reset_summary, &runtime_targets);
     if dry_run {
-        report_reset_preview(task_count, descendant_count, &reset_summary, &runtime_targets);
         println!("\nDry run — nothing was changed.");
         return Ok(());
     }
-    if !assume_yes && stdin_is_interactive() {
-        report_reset_preview(task_count, descendant_count, &reset_summary, &runtime_targets);
+    if !assume_yes {
+        // §FS-rhei-reset.1.2: with no terminal there is no one to answer, and
+        // the destroyed material is typically gitignored with no VCS copy. Ask
+        // for `-y` instead of assuming consent nobody gave.
+        if !stdin_is_interactive() {
+            return Err(miette!(
+                "`rhei reset` destroys runtime state and stdin is not a terminal, so it cannot \
+                 ask for confirmation. Re-run with `-y` to confirm, or `--dry-run` to preview."
+            ));
+        }
         if !confirm("\nProceed?")? {
             println!("Cancelled — nothing was changed.");
             return Ok(());

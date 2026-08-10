@@ -121,7 +121,7 @@
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Complete { input, task, result, no_callbacks } => {
+            Commands::Complete { input, task, result, no_callbacks, .. } => {
                 assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert_eq!(task, "3");
                 assert_eq!(result, "All tests pass");

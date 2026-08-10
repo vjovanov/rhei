@@ -120,8 +120,10 @@ hand-maintained ignore file is never rewritten or reordered.
 
 Rhei projects are driven by coding agents, and an agent dropped into a
 repository has no way to know it plans work with Rhei. Init creates
-`DIR/AGENTS.md` at the **host** — or appends to an existing one — with a
-short note between stable markers naming where the project lives:
+`AGENTS.md` at the **repository root** — the enclosing directory containing
+`.git`, falling back to the host when there is none — or appends to an
+existing one, with a short note between stable markers naming where the
+project lives:
 
 ```markdown
 <!-- rhei:begin -->
@@ -135,8 +137,16 @@ Orchestration (`rhei run`) is started by humans, never by agents.
 <!-- rhei:end -->
 ```
 
-With `--here` the first sentence reads "This directory is a Rhei (Panta)
-project." instead. The note deliberately names only the worker surface —
+The note is anchored at the repository root because that is the file coding
+agents read. Anchoring it at the host instead buried it inside the adopted
+directory whenever `rhei init <subdir> --here` was used for its documented
+purpose — adopting a directory of existing, versioned plans — which is
+precisely the case where nothing else advertises the project. When the note
+lands somewhere other than the host, init says so and names the path.
+
+The first sentence names where the project is relative to that root: `panta/`
+in default mode, the relative path in `--here` mode, and "This directory is a
+Rhei (Panta) project." when the root and the project are the same directory. The note deliberately names only the worker surface —
 `list`, `next`, `complete`, `validate` — and marks `rhei run` as
 human-initiated: orchestration spawns agent fleets and spends money, so an
 agent must never be instructed to start it. Rewriting the note first strips every trace of a previous

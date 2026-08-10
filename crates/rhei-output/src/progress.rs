@@ -11,18 +11,22 @@ pub struct ProgressReportOutput {
     /// resolved, which suppresses the completion summary rather than guessing
     /// at state names a custom machine may not use.
     pub terminal_states: BTreeSet<String>,
+    /// Whether the rendered root is a Panta project rather than a single rhei.
+    /// The heading names what the reader is looking at, and calling a project
+    /// "Rhei:" put the same word on two different levels. §FS-rhei-panta.1
+    pub is_project: bool,
 }
 
 impl ProgressReportOutput {
     /// A progress report with no state machine resolved, so no summary line.
     pub fn plain(color: bool, show_dependencies: bool) -> Self {
-        Self { color, show_dependencies, terminal_states: BTreeSet::new() }
+        Self { color, show_dependencies, terminal_states: BTreeSet::new(), is_project: false }
     }
 
     pub fn to_string(&self, rhei: &rhei_core::ast::Rhei) -> String {
         let mut out = String::new();
 
-        out.push_str("Rhei: ");
+        out.push_str(if self.is_project { "Panta: " } else { "Rhei: " });
         out.push_str(&rhei.title);
         out.push('\n');
         if let Some(summary) = self.summary_line(rhei) {

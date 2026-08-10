@@ -136,6 +136,12 @@ On instantiation the rendered file is written to `.agents/rhei/settings.json`
 in the output tree, where `rhei run` and `rhei validate` automatically pick it
 up and compose it over the user's global `~/.config/rhei/settings.json`.
 
+When the output joins a Panta project the file is **hoisted to the project**
+instead (§6.2): settings resolve once, at the root the plan loads from, and for
+a member rhei that root is the project, not the workspace. Left in the
+workspace, a template's own agent registry was silently unread, and the
+template's own default targets then failed validation as unknown agents.
+
 Example:
 
 ```json
@@ -241,9 +247,10 @@ Options:
   --values <file>              Load input values from a YAML or JSON file (repeatable;
                                  later files, then input args / --set, then --set-file
                                  override earlier values)
-  --output <path>              Output directory (default: ./<template-name>/ where
+  --output <path>              Output directory (default: <project>/<template-name>/
+                                 inside a Panta project, else ./<template-name>/, where
                                  <template-name> is the directory basename of the
-                                 resolved template)
+                                 resolved template — see §6.2)
   --execute                    Instantiate and immediately begin execution
   --dry-run                    Show what would be generated without writing files
   --keep-on-error              Keep output directory on validation failure
@@ -396,7 +403,58 @@ their own recent definitions when they are among the last five tasks.
 | 0 | Success |
 | 1 | Any instantiation error, including template lookup failure, missing or invalid inputs, unresolved instantiation variables, output-path conflicts, validation failure, or `--execute` runtime failure surfaced by the CLI |
 
-### 6.2. `rhei templates`
+### 6.2. Instantiating inside a Panta project
+
+A template is not a free-floating directory. Dropped next to `index.panta.md`
+it becomes a member rhei, and the project — not the workspace — owns the one
+state machine (§FS-rhei-panta.6) and the one settings root (§FS-rhei-agents.1.1)
+that govern it. `rhei instantiate` therefore resolves the enclosing project
+before writing, and reconciles with it.
+
+**Default output.** Run inside a project, a template's default output is
+`<project>/<template-name>/` — the project is the default home for a new rhei
+(§FS-rhei-panta.2), the same place the empty-project message points at.
+Defaulting to the working directory instead dropped the workspace where
+discovery never looks, so the command reported success and `rhei list` still
+said the project had no tickets. Outside a project the default stays
+`./<template-name>/`.
+
+**State machine reconciliation.** With the output directly next to
+`index.panta.md`, the machine the template declares is checked against the
+project's before anything is written:
+
+| Project declares | Template declares | Outcome |
+|------------------|-------------------|---------|
+| nothing          | nothing           | member, no change |
+| nothing          | `M`, and no sibling rhei needs another machine | **adopted**: `**States:** M` is written into `index.panta.md`, reported on stdout |
+| nothing          | `M`, with siblings on the default machine | error naming the siblings |
+| `M`              | `M` or nothing    | member, no change |
+| `M`              | `N` ≠ `M`         | error naming both machines |
+
+Every error names a way out — instantiate the template as its own project
+beside this one, with the `--output` path spelled out. Instantiation is aborted
+before any output survives, so a refused placement leaves the project exactly
+as it was. Adoption mirrors what `rhei init` does when it adopts a machine
+unanimously declared by plans already on disk (§FS-rhei-init.2).
+
+**Settings hoist.** A template's bundled `settings.json` (§4) is written to the
+*project's* `.agents/rhei/settings.json` rather than the workspace's, merged
+key-by-key into whatever is already there. Values the project already defines
+always win — a template must not quietly redefine an agent the operator
+configured — and both the added keys and the kept ones are reported. No copy is
+left in the workspace, where nothing would read it.
+
+**Validation scope.** A member rhei is validated *through its project*, because
+that is the only context in which its machine and settings resolve. Validating
+the workspace in isolation is what let `rhei instantiate` print
+"Validation succeeded" for output that made every project-scoped command fail.
+
+**Output that the project cannot see.** An `--output` path under the project
+but not directly next to `index.panta.md` is not a member: discovery never
+recurses (§AR-rhei-panta.1). That is allowed, but warned about, naming the
+member path that would have worked.
+
+### 6.3. `rhei templates`
 
 List available templates.
 
