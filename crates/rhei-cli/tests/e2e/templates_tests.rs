@@ -1084,9 +1084,9 @@ transitions:
 }
 
 /// §FS-rhei-templates.6.2: inside a project the default output is the project,
-/// and the project adopts the template's machine so the result actually loads.
+/// and the member rhei keeps the machine it declares — the manifest stays bare.
 #[test]
-fn instantiate_defaults_into_the_enclosing_project_and_adopts_its_machine() {
+fn instantiate_defaults_into_the_enclosing_project_keeping_its_machine() {
     let dir = unique_temp_dir("instantiate-project-default");
     write_machine_template(&dir, "audit");
     assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
@@ -1104,14 +1104,14 @@ fn instantiate_defaults_into_the_enclosing_project_and_adopts_its_machine() {
         result.stdout
     );
     assert!(
-        result.stdout.contains("Adopted state machine 'audit'"),
-        "adoption must be reported:\n{}",
+        !result.stdout.contains("Adopted state machine"),
+        "nothing is adopted — the rhei keeps its own machine:\n{}",
         result.stdout
     );
     assert!(dir.join("audit").is_dir(), "output belongs next to index.panta.md");
 
     let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("read manifest");
-    assert!(manifest.contains("**States:** audit"), "manifest should declare it:\n{manifest}");
+    assert!(!manifest.contains("**States:**"), "manifest stays bare:\n{manifest}");
 
     // The whole point: the project can be listed and validated afterwards.
     let listed = run_raw(&["list"], &dir);
@@ -1122,35 +1122,115 @@ fn instantiate_defaults_into_the_enclosing_project_and_adopts_its_machine() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
-/// §FS-rhei-templates.6.2: a second machine cannot join the same project, and
-/// the refusal leaves the project exactly as it was.
-#[test]
-fn instantiate_refuses_a_conflicting_machine_and_leaves_the_project_intact() {
-    let dir = unique_temp_dir("instantiate-project-conflict");
-    write_machine_template(&dir, "audit");
-    write_machine_template(&dir, "triage");
-    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
-    assert!(
-        run_raw(&["instantiate", "audit", "subject=payments"], &dir).status.success(),
-        "first template should land"
+/// Like `write_machine_template`, but the review state carries a mock agent
+/// target, so a project composed from these templates can actually `run`.
+fn write_runnable_machine_template(dir: &std::path::Path, name: &str) {
+    write_machine_template(dir, name);
+    let template_dir = dir.join(".agents/rhei/templates").join(name);
+    write_fixture_file(
+        &template_dir,
+        "states.yaml",
+        &format!(
+            r#"name: {name}
+version: 1
+models: [default-model]
+states:
+  review:
+    description: Look at it
+    initial: true
+    target: mock[yolo]:mock:default-model
+    agent_timeout: 5s
+  done:
+    description: Finished
+    final: true
+transitions:
+  - from: review
+    to: done
+"#
+        ),
     );
+}
 
-    let result = run_raw(&["instantiate", "triage", "subject=inbox"], &dir);
-    assert!(!result.status.success(), "a second machine must be refused:\n{}", result.stdout);
-    // miette wraps and gutters the report, so compare against unwrapped text.
-    let stripped: String = result.stderr.chars().filter(|ch| *ch != '│').collect();
-    let stderr = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+/// Project-root settings wiring the `mock` agent the runnable templates
+/// target: a no-op script, so `run` exercises machine dispatch, not agents.
+fn write_mock_agent_settings(dir: &std::path::Path) {
+    let script = write_fixture_file(dir, "mock-agent.sh", "#!/bin/sh\nexit 0\n");
+    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "agents": {{
+    "mock": {{
+      "command": ["sh", {script_json}],
+      "timeout": "5s",
+      "modes": {{ "yolo": [] }}
+    }}
+  }},
+  "models": {{
+    "default-model": {{ "provider": "mock", "model": "default-model", "default_agent": "mock" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+}
+
+/// §FS-rhei-templates.6.2: templates declaring different machines compose in
+/// one project — each member rhei is validated, listed, and run under the
+/// machine it declares. The journey the removed single-machine rule refused.
+
+// §DA-per-rhei-state-machines
+#[test]
+fn instantiate_composes_templates_with_different_machines_into_one_project() {
+    let dir = unique_temp_dir("instantiate-project-compose");
+    write_runnable_machine_template(&dir, "audit");
+    write_runnable_machine_template(&dir, "triage");
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+    write_mock_agent_settings(&dir);
+
+    let first = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
     assert!(
-        stderr.contains("is governed by 'audit'"),
-        "the error should name the project's machine:\n{}",
-        result.stderr
+        first.status.success(),
+        "the first template should land\nstdout:\n{}\nstderr:\n{}",
+        first.stdout,
+        first.stderr
     );
-    assert!(stderr.contains("--output"), "the error should offer a way out:\n{}", result.stderr);
-    assert!(!dir.join("triage").exists(), "a refused placement leaves no output behind");
+    let second = run_raw(&["instantiate", "triage", "subject=inbox"], &dir);
+    assert!(
+        second.status.success(),
+        "a template with a different machine joins the same project\nstdout:\n{}\nstderr:\n{}",
+        second.stdout,
+        second.stderr
+    );
 
     let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("read manifest");
-    assert!(manifest.contains("**States:** audit"), "manifest must be untouched:\n{manifest}");
-    assert!(run_raw(&["validate"], &dir).status.success(), "project should still validate");
+    assert!(!manifest.contains("**States:**"), "no machine is hoisted:\n{manifest}");
+
+    let listed = run_raw(&["list"], &dir);
+    assert!(listed.status.success(), "list should succeed: {}", listed.stderr);
+    assert!(
+        listed.stdout.contains("audit.1") && listed.stdout.contains("triage.1"),
+        "both rheis' tickets should be listed:\n{}",
+        listed.stdout
+    );
+    assert!(run_raw(&["validate"], &dir).status.success(), "project should validate");
+
+    // One run drives both rheis, each ticket under its own machine.
+    let run = run_raw(&["run", "--no-tui", "--no-callbacks"], &dir);
+    assert!(
+        run.status.success(),
+        "run should drive both machines\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+    for rhei in ["audit", "triage"] {
+        let task = fs::read_to_string(dir.join(rhei).join("tasks/01-review.md"))
+            .expect("read ticket after run");
+        assert!(task.contains("**State:** done"), "{rhei}.1 should finish as done:\n{task}");
+    }
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

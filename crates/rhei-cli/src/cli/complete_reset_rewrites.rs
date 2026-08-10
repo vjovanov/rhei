@@ -1,9 +1,20 @@
-fn reset_target_files(loaded: &LoadedPlan, input: &Path, scope: &RheiScope) -> Vec<PathBuf> {
+/// The plan files a reset rewrites, each paired with a sample qualified task
+/// id from that file — the handle its owning rhei's machine resolves through.
+/// §DA-per-rhei-state-machines
+fn reset_target_files(
+    loaded: &LoadedPlan,
+    input: &Path,
+    scope: &RheiScope,
+) -> Vec<(PathBuf, String)> {
     if loaded.task_sources.is_empty() {
         // Only a bare plan file is itself the rewrite target; an empty
         // project or workspace has no plan files to rewrite — resetting it
         // is a no-op, not an error. §FS-rhei-panta.6
-        return if input.is_file() { vec![input.to_path_buf()] } else { Vec::new() };
+        return if input.is_file() {
+            vec![(input.to_path_buf(), String::new())]
+        } else {
+            Vec::new()
+        };
     }
 
     // §FS-rhei-panta.6.4: `--rhei` narrows which rheis are reset.
@@ -11,10 +22,10 @@ fn reset_target_files(loaded: &LoadedPlan, input: &Path, scope: &RheiScope) -> V
         .task_sources
         .iter()
         .filter(|(task_id, _)| task_in_rhei_scope(scope, task_id))
-        .map(|(_, path)| path.clone())
+        .map(|(task_id, path)| (path.clone(), task_id.clone()))
         .collect::<Vec<_>>();
     files.sort();
-    files.dedup();
+    files.dedup_by(|a, b| a.0 == b.0);
     files
 }
 

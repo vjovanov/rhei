@@ -37,7 +37,7 @@ missing). The project directory is `DIR/panta/`, or `DIR` itself with
 | `--here`            | off                | Make `DIR` itself the project instead of `DIR/panta/`. The mode for adopting a directory of existing, versioned plans |
 | `--title <title>`   | from the host      | Project title written to the manifest heading           |
 | `--no-agents`       | off                | Skip the `AGENTS.md` agent-discovery note (§4)          |
-| `--force`           | off                | Re-initialize an existing project: overwrite the manifest (re-deriving the title and re-adopting the machine); companion files update in place. Pair with `--here` when the host itself is the project (§2) |
+| `--force`           | off                | Re-initialize an existing project: overwrite the manifest (re-deriving the title); companion files update in place. Pair with `--here` when the host itself is the project (§2) |
 
 The default title is derived from the **host** directory's name in both
 modes — `panta/` is a location, not an identity: `-` and `_` become spaces
@@ -76,18 +76,15 @@ and each word is capitalized (`my-project` → `My Project`).
    `index.panta.md`, init proceeds but warns on stderr: nested projects are
    almost always a mistake, and the outer project will not discover the inner
    one (§AR-rhei-panta.1 discovery does not recurse into rhei roots).
-4. **Write the manifest**: `# Panta: <title>`, and nothing else — with one
-   adoption exception. When *every* rhei discovery would find declares the
-   same state machine, init writes that machine as the project default
-   (`**States:** <machine>`) and says so: a rhei declaring a machine
-   different from the project default is a load error (§FS-rhei-panta.6), so
-   a bare manifest would create a project that cannot load. Unanimity is
-   over all discovered rheis, not just the declaring ones: a rhei with no
-   `**States:**` line was authored against the built-in default, and
-   adopting a sibling's machine over it would silently re-interpret its
-   states. Mixed sets — different machines, or declaring next to silent —
-   cannot be adopted; init proceeds with the bare manifest and the conflict
-   surfaces through the discovery report (§5) with the ordinary error.
+4. **Write the manifest**: `# Panta: <title>`, and nothing else. The state
+   machine is per-rhei, defaulted by the project (§FS-rhei-panta.6): a
+   discovered rhei that declares its own machine runs under it, and one that
+   declares nothing was authored against the built-in default and keeps it.
+   There is nothing for init to adopt — writing a discovered machine into the
+   manifest would silently re-govern every *future* rhei that declares
+   nothing. (An earlier revision adopted a unanimously-declared machine as
+   the project default, back when a divergent member was a load error; the
+   per-rhei model removed both the error and the need.)
 5. **Seed ignore rules** (§3).
 6. **Write the agent-discovery note** unless `--no-agents` (§4).
 7. **Report what became visible** (§5).
@@ -219,6 +216,6 @@ host directory or anywhere under it (§FS-rhei-panta.6), so after init, bare
 - It does not scaffold from templates — that is `rhei instantiate`
   (§FS-rhei-templates).
 - It does not touch git beyond `.gitignore`: no hooks, no commits.
-- It does not write a state machine or a `**States:**` line unless adoption
-  requires one (§2); the built-in `rhei` machine is the default
-  (§FS-rhei-states).
+- It does not write a state machine or a `**States:**` line — the manifest
+  stays bare (§2); each rhei keeps the machine it declares, and the built-in
+  `rhei` machine covers the rest (§FS-rhei-states).

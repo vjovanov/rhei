@@ -40,6 +40,15 @@ pub struct PantaProject {
     pub content_section_roots: Vec<PathBuf>,
     /// Rhei ids in presentation order; `basin` is always last when present.
     pub rhei_ids: Vec<String>,
+    /// State-machine name each rhei declared with its own `**States:**` line.
+    /// Absent for rheis that declare nothing — they run the project default.
+    /// The merge records ownership instead of discarding it, so every consumer
+    /// can resolve a ticket's machine through its owning rhei.
+    // §DA-per-rhei-state-machines: the machine is per-rhei, defaulted by the manifest.
+    pub rhei_machines: HashMap<String, String>,
+    /// Execution root of each rhei, keyed by rhei id — where a self-declared
+    /// machine's `states.yaml` resolves first. §AR-rhei-panta.4
+    pub rhei_roots: HashMap<String, PathBuf>,
     /// Rheis skipped by a lenient load, one message each. Always empty for the
     /// strict load, which fails on the first unloadable rhei instead.
     pub unloadable: Vec<String>,
@@ -249,15 +258,10 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
             ));
         }
         let root = rhei_execution_root(&entry);
-        let entry_result = load_rhei_entry(&entry).and_then(|loaded| {
-            validate_panta_rhei_states(
-                &id,
-                &loaded.rhei,
-                &manifest.states,
-                manifest.states_declared,
-            )?;
-            Ok(loaded)
-        });
+        // A rhei's own `**States:**` declaration is recorded, not policed:
+        // the machine is a per-rhei property defaulted by the manifest.
+        // §DA-per-rhei-state-machines §AR-rhei-panta.4
+        let entry_result = load_rhei_entry(&entry);
         let loaded = match entry_result {
             Ok(loaded) => loaded,
             Err(err) if lenient => {
@@ -288,11 +292,23 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
     let mut all_tasks = Vec::new();
     let mut task_sources = HashMap::new();
     let mut task_roots = HashMap::new();
+    let mut rhei_machines: HashMap<String, String> = HashMap::new();
+    let mut rhei_roots: HashMap<String, PathBuf> = HashMap::new();
     let mut merged_structure = manifest.structure.clone();
     let mut merged_metadata = manifest.metadata.clone();
     let mut content_sections = manifest.content_sections.clone();
     let mut content_section_roots = vec![dir.to_path_buf(); content_sections.len()];
     for (rhei_id, mut rhei, sources, root) in rheis {
+        // Machine ownership survives the merge: a declared `**States:**` is
+        // the rhei's own machine; silence means the project default. The
+        // synthetic basin is built on the manifest machine and records no
+        // declaration.
+
+        // §DA-per-rhei-state-machines
+        if rhei.states_declared && rhei_id != BASIN_RHEI_ID {
+            rhei_machines.insert(rhei_id.clone(), rhei.states.trim().to_string());
+        }
+        rhei_roots.insert(rhei_id.clone(), root.clone());
         // Child runtime metadata joins the merged graph under qualified keys
         // so counted loops and poll timers resolve project-wide. §AR-rhei-panta.2
         merge_task_metadata(
@@ -340,6 +356,8 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
         task_roots,
         content_section_roots,
         rhei_ids,
+        rhei_machines,
+        rhei_roots,
         unloadable,
     })
 }
@@ -394,15 +412,19 @@ pub fn wrap_rhei_as_implicit_panta(
         collect_task_sources(task, source.as_path(), &mut task_sources)?;
         collect_task_roots(task, &root, &mut task_roots)?;
     }
+    let rhei_roots = HashMap::from([(id.clone(), root.clone())]);
     let content_section_roots = vec![root; rhei.content_sections.len()];
     // The implicit Panta has no manifest: the single rhei's own `**States:**`
-    // declaration is the project's effective machine. §AR-rhei-panta.2
+    // declaration is the project's effective machine, so it needs no per-rhei
+    // entry. §AR-rhei-panta.2
     Ok(PantaProject {
         rhei,
         task_sources,
         task_roots,
         content_section_roots,
         rhei_ids,
+        rhei_machines: HashMap::new(),
+        rhei_roots,
         unloadable: Vec::new(),
     })
 }
@@ -464,22 +486,6 @@ fn qualify_task_metadata(metadata: Option<Metadata>, rhei_id: &str) -> Option<Me
         set_frontmatter_tasks(&mut metadata, qualified);
     }
     Some(metadata)
-}
-
-/// The state-machine declaration of each rhei a project at `dir` would
-/// discover, in discovery order — `None` for a rhei with no `**States:**`
-/// line. Unloadable entries surface through the project load. §FS-rhei-init.2
-pub fn discover_declared_state_machines(dir: &Path) -> Vec<Option<String>> {
-    let mut machines = Vec::new();
-    let Ok(entries) = discover_rhei_entries(dir) else {
-        return machines;
-    };
-    for entry in entries {
-        if let Ok(loaded) = load_rhei_entry(&entry) {
-            machines.push(loaded.rhei.states_declared.then(|| loaded.rhei.states.clone()));
-        }
-    }
-    machines
 }
 
 fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {
@@ -593,36 +599,6 @@ fn discover_basin_task_files(dir: &Path) -> parser::Result<Vec<PathBuf>> {
         a_key.cmp(&b_key)
     });
     Ok(files)
-}
-
-fn validate_panta_rhei_states(
-    id: &str,
-    rhei: &Rhei,
-    manifest_states: &str,
-    manifest_states_declared: bool,
-) -> parser::Result<()> {
-    if !rhei.states_declared {
-        return Ok(());
-    }
-    let effective_project_states = if manifest_states_declared { manifest_states } else { "rhei" };
-    if rhei.states.trim() == effective_project_states {
-        return Ok(());
-    }
-    // §AR-rhei-panta.4: one machine governs a whole project. A rhei may restate
-    // the project machine, but declaring a different one is a load error until
-    // per-rhei machines land.
-    Err(ParseError::new(
-        format!(
-            "rhei '{id}' declares state machine '{}', but the project state machine is '{}'. \
-             One state machine governs a whole Panta project: either declare '{}' in this rhei \
-             or change the project default in index.panta.md. Per-rhei state machines are not \
-             supported yet.",
-            rhei.states.trim(),
-            effective_project_states,
-            effective_project_states
-        ),
-        None,
-    ))
 }
 
 /// The `basin` id belongs to the synthetic catch-all rhei that a Panta

@@ -496,9 +496,8 @@ fn panta_explicit_max_levels_one_is_not_raised_to_default() {
     fs::remove_dir_all(project).expect("cleanup");
 }
 
-// §AR-rhei-panta.4: one machine governs a whole project, so a rhei that
-// restates the project machine loads. The divergent case is rejected by
-// `panta_rejects_child_rhei_state_machine_declaration_that_differs_from_project`.
+// A rhei restating the project machine is the degenerate override — the same
+// machine governs it either way. §FS-rhei-plan-language.1.3
 #[test]
 fn panta_rhei_may_restate_the_project_state_machine() {
     let project = create_panta_project(
@@ -641,25 +640,55 @@ fn panta_rejects_domain_rhei_named_basin() {
     fs::remove_dir_all(project).expect("cleanup");
 }
 
+/// A second machine with disjoint state names, so a project mixing it with
+/// `workspace-test-machine` proves each ticket is judged under the machine of
+/// the rhei that owns it. §DA-per-rhei-state-machines
+const CHILD_FLOW_STATE_MACHINE: &str = r#"name: child-flow
+version: 1
+states:
+  open:
+    description: Ticket waiting for work
+    initial: true
+  done:
+    description: Ticket finished
+    final: true
+transitions:
+  - from: open
+    to: done
+"#;
+
+/// §FS-rhei-plan-language.1.3: a member rhei's own `**States:**` declaration
+/// overrides the project default; the two machines govern side by side.
 #[test]
-fn panta_rejects_child_rhei_state_machine_declaration_that_differs_from_project() {
+fn panta_child_rhei_state_machine_override_loads_and_validates() {
     let project = create_panta_project(
         "panta-child-states",
         "# Panta: Mixed Machines\n**States:** workspace-test-machine\n",
-        &[(
-            "auth.rhei.md",
-            "# Rhei: Auth\n**States:** child-flow\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
-        )],
+        &[
+            ("auth.rhei.md", "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n"),
+            ("payments/index.rhei.md", "# Rhei: Payments\n**States:** child-flow\n"),
+            ("payments/tasks/one.md", "### Task 1: Charge\n**State:** open\n"),
+            ("payments/states.yaml", CHILD_FLOW_STATE_MACHINE),
+        ],
         WORKSPACE_STATE_MACHINE,
     );
 
-    let err = workspace::load_panta_project(&project).expect_err("mixed machines should fail");
+    let loaded = workspace::load_panta_project(&project).expect("mixed machines load");
+    assert_eq!(loaded.rhei_machines.get("payments").map(String::as_str), Some("child-flow"));
+    assert!(!loaded.rhei_machines.contains_key("auth"), "a silent rhei stays on the default");
+
+    // `pending` exists only in the default machine and `open` only in
+    // child-flow, so a green validate proves per-ticket dispatch.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("validate")
+        .arg(&project)
+        .output()
+        .expect("validate command should run");
     assert!(
-        err.message.contains("declares state machine 'child-flow'")
-            && err.message.contains("project state machine is 'workspace-test-machine'")
-            && err.message.contains("not supported yet"),
-        "message should name both machines and the limitation: {}",
-        err.message
+        output.status.success(),
+        "mixed machines should validate\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 
     fs::remove_dir_all(project).expect("cleanup");
@@ -2187,8 +2216,8 @@ fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
 }
 
 #[test]
-fn init_adopts_a_unanimously_declared_state_machine_as_project_default() {
-    let dir = unique_temp_dir("init-adopt-machine");
+fn init_leaves_the_manifest_bare_over_rhei_declared_machines() {
+    let dir = unique_temp_dir("init-declared-machines");
     fs::write(dir.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
     fs::write(
         dir.join("auth.rhei.md"),
@@ -2201,8 +2230,8 @@ fn init_adopts_a_unanimously_declared_state_machine_as_project_default() {
     )
     .expect("write billing");
 
-    // §FS-rhei-init.2: a bare manifest would make this project unloadable
-    // (rhei-declared machine != built-in default), so init adopts it.
+    // §FS-rhei-init.2: the manifest stays bare — each rhei keeps the machine
+    // it declares, so nothing needs hoisting into the project default.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
         .args(["--here", "--no-agents"])
@@ -2212,19 +2241,15 @@ fn init_adopts_a_unanimously_declared_state_machine_as_project_default() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "init should succeed: {stdout}");
     assert!(
-        stdout.contains("Adopted state machine 'workspace-test-machine'")
-            && stdout.contains("with 2 rheis: auth, billing"),
-        "init should adopt the machine and still load cleanly: {stdout}"
+        stdout.contains("with 2 rheis: auth, billing"),
+        "init should discover both rheis: {stdout}"
     );
     assert!(
         !String::from_utf8_lossy(&output.stderr).contains("does not load cleanly"),
-        "adoption should prevent the machine-conflict warning"
+        "rhei-declared machines load without any project default"
     );
     let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("manifest");
-    assert!(
-        manifest.contains("**States:** workspace-test-machine"),
-        "manifest should carry the adopted default: {manifest}"
-    );
+    assert!(!manifest.contains("**States:**"), "the manifest stays bare: {manifest}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -2629,7 +2654,7 @@ fn init_force_without_here_refuses_when_the_host_is_the_project() {
 }
 
 #[test]
-fn init_does_not_adopt_a_machine_over_a_rhei_that_declares_nothing() {
+fn init_loads_a_mixed_declared_and_silent_machine_set_cleanly() {
     let dir = unique_temp_dir("init-mixed-machines");
     fs::write(dir.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
     fs::write(
@@ -2643,9 +2668,8 @@ fn init_does_not_adopt_a_machine_over_a_rhei_that_declares_nothing() {
     )
     .expect("write billing");
 
-    // §FS-rhei-init.2: unanimity is over all rheis — a silent rhei was
-    // authored against the built-in default, so nothing is adopted and the
-    // conflict surfaces through the discovery report.
+    // §FS-rhei-init.2: a silent rhei runs the built-in default while a
+    // declaring sibling keeps its own machine — no conflict to surface.
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("init")
         .args(["--here", "--no-agents"])
@@ -2653,19 +2677,16 @@ fn init_does_not_adopt_a_machine_over_a_rhei_that_declares_nothing() {
         .output()
         .expect("init runs");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "init should still succeed: {stdout}");
+    assert!(output.status.success(), "init should succeed: {stdout}");
     assert!(
-        !stdout.contains("Adopted state machine"),
-        "a mixed declared/silent set must not be adopted: {stdout}"
+        stdout.contains("with 2 rheis: auth, billing"),
+        "both rheis should load despite differing machines: {stdout}"
     );
     let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("manifest");
+    assert!(!manifest.contains("**States:**"), "the manifest stays bare: {manifest}");
     assert!(
-        !manifest.contains("**States:**"),
-        "the manifest stays bare on a mixed set: {manifest}"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("does not load cleanly"),
-        "the machine conflict should surface through the discovery report"
+        !String::from_utf8_lossy(&output.stderr).contains("does not load cleanly"),
+        "a mixed declared/silent set loads cleanly"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

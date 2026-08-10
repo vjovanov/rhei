@@ -118,14 +118,17 @@ fn render_command(
     let loaded = load_plan(input)?;
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
     let rhei = narrow_rhei_to_scope(&loaded.rhei, &scope);
-    // The completion summary needs to know which states are final. A plan whose
-    // machine will not resolve still renders — it just renders without it.
-    let terminal_states = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)
-        .map(|resolved| terminal_state_names(&resolved.machine))
+    // The completion summary needs to know which tickets are done — each
+    // judged under its owning rhei's machine. A plan whose machines will not
+    // resolve still renders — it just renders without the summary.
+
+    // §DA-per-rhei-state-machines
+    let terminal_ids = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)
+        .map(|resolved| terminal_ticket_ids(&rhei, &resolved.validator_set()))
         .unwrap_or_default();
     let rendered = render_rhei(
         &rhei,
-        terminal_states,
+        terminal_ids,
         loaded.is_panta_project(),
         format,
         pretty,
@@ -138,14 +141,29 @@ fn render_command(
     Ok(())
 }
 
-/// Every state the machine marks final, for the progress summary.
-fn terminal_state_names(machine: &rhei_validator::StateMachine) -> BTreeSet<String> {
-    machine
-        .states
-        .iter()
-        .filter(|(_, def)| def.terminal)
-        .map(|(name, _)| name.clone())
-        .collect()
+/// Every ticket currently in a terminal state, judged per owning machine, for
+/// the progress summary. §DA-per-rhei-state-machines
+fn terminal_ticket_ids(
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+) -> BTreeSet<String> {
+    fn walk(
+        tasks: &[rhei_core::ast::Task],
+        machines: &rhei_validator::MachineSet,
+        out: &mut BTreeSet<String>,
+    ) {
+        for task in tasks {
+            let machine = machines.for_task(&task.id);
+            let state = normalized_state_name(task.state.as_str(), machine);
+            if machine.states.get(&state).map(|def| def.terminal).unwrap_or(false) {
+                out.insert(task.id.to_string());
+            }
+            walk(&task.children, machines, out);
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(&rhei.tasks, machines, &mut out);
+    out
 }
 
 /// Drop tickets and content sections outside `scope`, keeping the plan's own
@@ -171,7 +189,7 @@ fn narrow_rhei_to_scope(
 #[allow(clippy::too_many_arguments)]
 fn render_rhei(
     rhei: &rhei_core::ast::Rhei,
-    terminal_states: BTreeSet<String>,
+    terminal_ids: BTreeSet<String>,
     is_project: bool,
     format: RenderFormat,
     pretty: bool,
@@ -198,7 +216,7 @@ fn render_rhei(
             Ok(rhei_output::ProgressReportOutput {
                 color,
                 show_dependencies: true,
-                terminal_states,
+                terminal_ids,
                 is_project,
             }
             .to_string(rhei))

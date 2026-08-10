@@ -83,20 +83,15 @@
         let entrypoint = materialized.entrypoint();
         let state_machine_path = materialized.state_machine_path();
 
-        // Reconcile with the owning project before validating: a machine
-        // collision is a placement problem with a way out, not a load error
-        // every later command repeats. §FS-rhei-templates.6.2
-        let workspace_machine = workspace_declared_machine(&entrypoint);
+        // Place relative to the owning project before validating. The
+        // template's machine needs no reconciling: a member rhei's own
+        // declaration overrides the project default. §FS-rhei-templates.6.2
         let discard_output = || {
             if !dry_run && !keep_on_error {
                 let _ = remove_path(&target_dir, false);
             }
         };
-        let placement = match plan_project_placement(
-            &output_dir,
-            &materialized.output_dir,
-            workspace_machine.as_deref(),
-        ) {
+        let placement = match plan_project_placement(&output_dir, &materialized.output_dir) {
             Ok(placement) => placement,
             Err(err) => {
                 discard_output();
@@ -104,20 +99,8 @@
             }
         };
 
-        let mut adopted_machine = None;
         let mut hoisted_settings = None;
-        let mut manifest_backup: Option<(PathBuf, String)> = None;
         if !dry_run {
-            if let ProjectPlacement::Adopts { project, machine } = &placement {
-                let manifest = project.join("index.panta.md");
-                manifest_backup =
-                    fs::read_to_string(&manifest).ok().map(|content| (manifest, content));
-                if let Err(err) = adopt_project_machine(project, machine) {
-                    discard_output();
-                    return Err(err);
-                }
-                adopted_machine = Some(machine.clone());
-            }
             if let Some(project) = placement.project() {
                 match hoist_workspace_settings_into_project(&materialized.output_dir, project) {
                     Ok(hoisted) => hoisted_settings = hoisted,
@@ -139,9 +122,6 @@
         };
         if let Err(err) = validation {
             discard_output();
-            if let Some((manifest, content)) = manifest_backup {
-                let _ = fs::write(manifest, content);
-            }
             return Err(err);
         }
 
@@ -173,11 +153,7 @@
             manifest.name,
             display_path(&output_dir).display()
         );
-        report_project_placement(
-            &placement,
-            adopted_machine.as_deref(),
-            hoisted_settings.as_ref(),
-        );
+        report_project_placement(&placement, hoisted_settings.as_ref());
         if matches!(placement, ProjectPlacement::Standalone) {
             report_standalone_versioning(&output_dir);
         }
@@ -265,23 +241,14 @@
         }
     }
 
-    /// Say what joining a project did to it. Adoption edits `index.panta.md`
-    /// and the hoist moves a settings file: both are writes outside the output
-    /// directory, so neither may happen silently. §FS-rhei-templates.6.2
-    fn report_project_placement(
-        placement: &ProjectPlacement,
-        adopted_machine: Option<&str>,
-        hoisted: Option<&HoistedSettings>,
-    ) {
+    /// Say what joining a project did to it. The hoist moves a settings file —
+    /// a write outside the output directory, so it may not happen silently.
+    /// §FS-rhei-templates.6.2
+    fn report_project_placement(placement: &ProjectPlacement, hoisted: Option<&HoistedSettings>) {
         let Some(project) = placement.project() else {
             return;
         };
         println!("Added to the Panta project at {}.", display_path(project).display());
-        if let Some(machine) = adopted_machine {
-            println!(
-                "  Adopted state machine '{machine}' as the project default in index.panta.md."
-            );
-        }
         if let Some(hoisted) = hoisted {
             println!(
                 "  Merged the template's agent settings into {}.",
@@ -347,9 +314,29 @@
         dry_run: bool,
     ) -> MietteResult<()> {
         let entrypoint = materialized.entrypoint();
-        let loaded = load_plan(&entrypoint)?;
+        let mut loaded = load_plan(&entrypoint)?;
         let resolved =
-            resolve_state_machine_for_loaded_plan(&entrypoint, &loaded, state_machine_path)?;
+            resolve_state_machines_for_loaded_plan(&entrypoint, &loaded, state_machine_path)?;
+        // A member loads through its project (§FS-rhei-panta.6), but the
+        // summary reports what *this instantiation* created — narrow to the
+        // new rhei when siblings are present. §FS-rhei-templates.6.1.3
+        let entry_rhei_id = materialized
+            .output_dir
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if loaded.rhei_ids.len() > 1 && loaded.rhei_ids.contains(&entry_rhei_id) {
+            loaded
+                .rhei
+                .tasks
+                .retain(|task| task.id.to_string().starts_with(&format!("{entry_rhei_id}.")));
+        }
+        let machine = resolved
+            .per_rhei
+            .get(&entry_rhei_id)
+            .map(|entry| entry.machine.clone())
+            .unwrap_or_else(|| resolved.default.machine.clone());
+        let resolved = ResolvedStateMachine { machine, path: resolved.default.path.clone() };
         let tasks = flatten_tasks(&loaded.rhei);
 
         let display_output_dir = display_path(display_output_dir);

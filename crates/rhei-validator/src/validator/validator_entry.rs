@@ -32,15 +32,76 @@ pub fn parse_task_state(raw: &str, machine: &StateMachine) -> ParsedTaskState {
 // Semantic Validator (Task 5)
 // ========================================
 
-/// Validator configured with a loaded [`StateMachine`].
+/// The state machines governing one loaded plan: the project default plus the
+/// machine of every rhei that declared its own `**States:**`. A ticket's
+/// machine resolves through its owning rhei — the leading segment of its
+/// project-qualified id.
+// §DA-per-rhei-state-machines §AR-rhei-panta.4
+#[derive(Debug, Clone)]
+pub struct MachineSet {
+    /// The project default: the manifest declaration or the built-in machine.
+    pub default: StateMachine,
+    /// Machines of self-declaring rheis, keyed by rhei id.
+    pub per_rhei: BTreeMap<String, StateMachine>,
+}
+
+impl MachineSet {
+    /// A set with no self-declaring rheis — the single-machine case every
+    /// pre-existing entry point still speaks.
+    pub fn single(machine: StateMachine) -> Self {
+        Self { default: machine, per_rhei: BTreeMap::new() }
+    }
+
+    /// The machine governing `id`: its owning rhei's declared machine when
+    /// there is one, the project default otherwise.
+    pub fn for_task(&self, id: &TaskId) -> &StateMachine {
+        if let Some(TaskIdSegment::Named(rhei)) = id.segments.first() {
+            if let Some(machine) = self.per_rhei.get(rhei) {
+                return machine;
+            }
+        }
+        &self.default
+    }
+
+    /// [`for_task`](Self::for_task) over a rendered qualified id (`auth.1`).
+    pub fn for_task_str(&self, task_id: &str) -> &StateMachine {
+        let rhei_id = task_id.split('.').next().unwrap_or(task_id);
+        self.per_rhei.get(rhei_id).unwrap_or(&self.default)
+    }
+
+    /// Every distinct machine in the set (by name), default first.
+    pub fn distinct(&self) -> Vec<&StateMachine> {
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut out = vec![&self.default];
+        seen.insert(self.default.name.as_str());
+        for machine in self.per_rhei.values() {
+            if seen.insert(machine.name.as_str()) {
+                out.push(machine);
+            }
+        }
+        out
+    }
+
+    /// Whether one machine governs everything in scope.
+    pub fn is_single(&self) -> bool {
+        self.distinct().len() == 1
+    }
+}
+
+/// Validator configured with the [`MachineSet`] of a loaded plan.
 pub struct Validator {
-    machine: StateMachine,
+    machines: MachineSet,
 }
 
 impl Validator {
     /// Create a validator that will use `machine` for allowed-state checks.
     pub fn new(machine: StateMachine) -> Self {
-        Self { machine }
+        Self { machines: MachineSet::single(machine) }
+    }
+
+    /// Create a validator over a full per-rhei machine set.
+    pub fn with_machines(machines: MachineSet) -> Self {
+        Self { machines }
     }
 
     /// Validate a parsed rhei using the currently configured states.
@@ -57,17 +118,19 @@ impl Validator {
         let mut report = ValidationReport::ok();
 
         let index = build_task_index(rhei);
-        validate_node_policy_against_structure(&self.machine, &rhei.structure, &mut report);
-        validate_state_machine_warnings(&self.machine, &mut report);
+        for machine in self.machines.distinct() {
+            validate_node_policy_against_structure(machine, &rhei.structure, &mut report);
+            validate_state_machine_warnings(machine, &mut report);
+        }
         validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
-        validate_prior_order_coherence(rhei, &index, &self.machine, &mut report);
-        validate_state_consistency(rhei, &self.machine, &mut report);
-        validate_task_execution_overrides(rhei, &self.machine, &mut report);
-        validate_terminal_tree_coherence(rhei, &self.machine, &mut report);
+        validate_prior_order_coherence(rhei, &index, &self.machines, &mut report);
+        validate_state_consistency(rhei, &self.machines, &mut report);
+        validate_task_execution_overrides(rhei, &self.machines, &mut report);
+        validate_terminal_tree_coherence(rhei, &self.machines, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
         validate_assignee_nonempty(rhei, &mut report);
-        validate_result_blocks(rhei, &self.machine, &mut report);
+        validate_result_blocks(rhei, &self.machines, &mut report);
 
         if let Some(base) = base_path {
             validate_markdown_links(rhei, base, &mut report);
@@ -80,6 +143,26 @@ impl Validator {
 /// Validate a parsed rhei using an already-loaded [`StateMachine`].
 pub fn validate_with_machine(rhei: &Rhei, machine: &StateMachine) -> ValidationReport {
     Validator::new(machine.clone()).validate(rhei)
+}
+
+/// Validate a parsed rhei whose rheis may run under their own machines.
+/// §DA-per-rhei-state-machines
+pub fn validate_with_machine_set(rhei: &Rhei, machines: &MachineSet) -> ValidationReport {
+    Validator::with_machines(machines.clone()).validate(rhei)
+}
+
+/// Validate with a per-rhei machine set and per-task markdown link bases.
+/// §AR-rhei-panta.5 §DA-per-rhei-state-machines
+pub fn validate_with_machine_set_and_link_bases(
+    rhei: &Rhei,
+    machines: &MachineSet,
+    default_base: &Path,
+    task_bases: &HashMap<String, PathBuf>,
+    section_bases: &[PathBuf],
+) -> ValidationReport {
+    let mut report = Validator::with_machines(machines.clone()).validate_with_base(rhei, None);
+    validate_markdown_links_with_task_bases(rhei, default_base, task_bases, section_bases, &mut report);
+    report
 }
 
 /// Validate a parsed rhei using an already-loaded [`StateMachine`], resolving
@@ -398,13 +481,16 @@ fn edit_distance(a: &str, b: &str) -> usize {
 fn validate_prior_order_coherence(
     rhei: &Rhei,
     index: &HashMap<TaskId, &Task>,
-    machine: &StateMachine,
+    machines: &MachineSet,
     report: &mut ValidationReport,
 ) {
+    // A prior is judged under the machine of the rhei that owns it: the
+    // target's states mean what its own process says. §FS-rhei-panta.6.1
     let satisfied = |id: &TaskId| -> bool {
         index
             .get(id)
             .map(|dep| {
+                let machine = machines.for_task(id);
                 let state = parse_task_state(dep.state.as_str(), machine).state;
                 state != "cancelled"
                     && machine.states.get(&state).map(|def| def.terminal).unwrap_or(false)
@@ -413,6 +499,7 @@ fn validate_prior_order_coherence(
     };
 
     for_each_node(rhei, |task| {
+        let machine = machines.for_task(&task.id);
         let state = parse_task_state(task.state.as_str(), machine).state;
         // Only a *successful* terminal state is a contradiction: a cancelled
         // ticket never claimed its prerequisites ran.
@@ -428,7 +515,11 @@ fn validate_prior_order_coherence(
             .iter()
             .filter(|dep| index.contains_key(*dep) && !satisfied(dep))
             .map(|dep| {
-                format!("Task {} ({})", dep, parse_task_state(index[dep].state.as_str(), machine).state)
+                format!(
+                    "Task {} ({})",
+                    dep,
+                    parse_task_state(index[dep].state.as_str(), machines.for_task(dep)).state
+                )
             })
             .collect();
         if !unmet.is_empty() {
@@ -443,8 +534,9 @@ fn validate_prior_order_coherence(
     });
 }
 
-fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
+fn validate_state_consistency(rhei: &Rhei, machines: &MachineSet, report: &mut ValidationReport) {
     for_each_node(rhei, |task| {
+        let machine = machines.for_task(&task.id);
         let kind_label = title_case_kind(&task.kind);
         let subject = format!("{} {}", kind_label, task.id);
         validate_task_state_instance(&subject, &task.state, machine, report);
@@ -461,13 +553,13 @@ fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut 
 
 fn validate_task_execution_overrides(
     rhei: &Rhei,
-    machine: &StateMachine,
+    machines: &MachineSet,
     report: &mut ValidationReport,
 ) {
     // §FS-rhei-plan-language.3.11: Task execution override validation.
-    let declared_models: HashSet<&str> = machine.models.iter().map(String::as_str).collect();
-
     for_each_node(rhei, |task| {
+        let machine = machines.for_task(&task.id);
+        let declared_models: HashSet<&str> = machine.models.iter().map(String::as_str).collect();
         let subject = format!("{} {}", title_case_kind(&task.kind), task.id);
         let has_model = task.model.is_some();
         let has_target = task.target.is_some();
@@ -661,7 +753,7 @@ fn validate_sibling_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
 /// its subtree.
 fn validate_terminal_tree_coherence(
     rhei: &Rhei,
-    machine: &StateMachine,
+    machines: &MachineSet,
     report: &mut ValidationReport,
 ) {
     fn is_terminal(state_raw: &str, machine: &StateMachine) -> bool {
@@ -687,6 +779,9 @@ fn validate_terminal_tree_coherence(
     }
 
     for_each_node(rhei, |task| {
+        // A subtree lives inside one rhei, so the top task's machine governs
+        // every descendant. §DA-per-rhei-state-machines
+        let machine = machines.for_task(&task.id);
         if is_terminal(&task.state, machine) {
             check_descendants(task, task, machine, report);
         }

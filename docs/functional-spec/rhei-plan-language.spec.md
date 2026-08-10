@@ -199,11 +199,14 @@ State-machine resolution is normative for all commands:
    effective value; if the effective field is omitted, the loaded file's `name`
    becomes the active state-machine name for this invocation.
 2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
-   resolved per rhei. A declaration in the rhei itself wins. If the rhei omits
-   `**States:**`, it inherits the declaration from `index.panta.md` when that
-   manifest declares one. The inherited declaration is resolved from the Panta
-   project root (`<project>/states.yaml`) unless `--state-machine` supplied an
-   override.
+   resolved per rhei. A declaration in the rhei itself wins — the rhei runs
+   under the machine it names, which may differ from its siblings'
+   (§AR-rhei-panta.4). Its definition file resolves from the rhei's own
+   execution root (`<rhei>/states.yaml`) when that file's `name` matches, then
+   by the project-level name-match rules. If the rhei omits `**States:**`, it
+   inherits the declaration from `index.panta.md` when that manifest declares
+   one. The inherited declaration is resolved from the Panta project root
+   (`<project>/states.yaml`) unless `--state-machine` supplied an override.
 3. When `**States:**` is omitted after Panta inheritance has been applied, the
    plan or rhei uses the built-in `rhei` state machine. Sibling, workspace, or
    project `states.yaml` files are ignored in this case.
@@ -214,8 +217,11 @@ State-machine resolution is normative for all commands:
 5. When a non-`rhei` `**States:** <name>` is declared and no override is
    supplied, the CLI resolves the file from a sibling `states.yaml` for a
    single-file plan, from `<workspace>/states.yaml` for a Directory Workspace,
-   or from `<project>/states.yaml` when the declaration was inherited from
-   `index.panta.md`. That file must exist and its `name` must match `<name>`.
+   from the declaring rhei's execution root for a member rhei's own
+   declaration, or from `<project>/states.yaml` when the declaration was
+   inherited from `index.panta.md` — falling back, in every project case, to a
+   unique `name`-match among the project's candidate roots (§AR-rhei-panta.4).
+   A resolved file's `name` must match `<name>`.
 6. A declared non-`rhei` state machine without a matching auto-discovered file
    is a validation error; it never falls back to the built-in machine.
 

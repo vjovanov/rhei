@@ -36,7 +36,11 @@ every state name the author is about to type.
    `index.panta.md`. §FS-rhei-plan-language.1.3
 3. Fall back to the built-in default state machine when no plan or project
    resolves — there is then nothing to declare a machine.
-4. Render a complete inspection view of the machine.
+4. Render a complete inspection view of the machine. For a project whose rheis
+   declare their own machines (§FS-rhei-panta.6), render the project default
+   first, then each additional distinct machine, each introduced by its own
+   `Source:` line naming the rheis that run under it — one project, several
+   processes, all inspectable from one command.
 5. Print the result to stdout.
 
 Discovery failures are non-fatal only when the target was inferred: an

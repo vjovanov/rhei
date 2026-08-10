@@ -42,6 +42,107 @@ states:
         );
     }
 
+    /// Build a merged-project-shaped task (qualified id, offset 1).
+    fn qualified_task(rhei_id: &str, local: u32, state: &str, prior: Vec<TaskId>) -> Task {
+        use rhei_core::ast::TaskIdSegment;
+        Task {
+            id: TaskId::from_segments(vec![
+                TaskIdSegment::Named(rhei_id.to_string()),
+                TaskIdSegment::Number(local),
+            ]),
+            profile_depth_offset: 1,
+            kind: "task".to_string(),
+            title: format!("{rhei_id} {local}"),
+            state: state.to_string(),
+            prior_kinds: vec![None; prior.len()],
+            prior,
+            assignee: None,
+            model: None,
+            target: None,
+            content: String::new(),
+            children: Vec::new(),
+        }
+    }
+
+    // §DA-per-rhei-state-machines: each ticket validates under its owning
+    // rhei's machine, and a cross-rhei prior's terminal-ness is judged under
+    // the *target's* machine.
+    #[test]
+    fn machine_set_dispatches_per_owning_rhei() {
+        let default_machine = sample_machine(); // pending / in-progress / completed
+        let review_machine = StateMachine::from_yaml_str(
+            r#"
+name: review-loop
+version: 1.0
+states:
+  draft: { description: "writing" }
+  done: { final: true, description: "reviewed" }
+transitions:
+  - from: draft
+    to: done
+"#,
+        )
+        .expect("review machine loads");
+
+        let rhei = Rhei {
+            title: "Project".to_string(),
+            states: default_machine.name.clone(),
+            states_declared: true,
+            structure: Default::default(),
+            metadata: None,
+            content_sections: Vec::new(),
+            tasks: vec![
+                qualified_task("plain", 1, "completed", Vec::new()),
+                // `draft` exists only in review-loop; `done` waits on plain.1
+                // judged under the *default* machine.
+                qualified_task(
+                    "review",
+                    1,
+                    "done",
+                    vec![TaskId::from_segments(vec![
+                        rhei_core::ast::TaskIdSegment::Named("plain".to_string()),
+                        rhei_core::ast::TaskIdSegment::Number(1),
+                    ])],
+                ),
+                qualified_task("review", 2, "draft", Vec::new()),
+            ],
+        };
+        let machines = MachineSet {
+            default: default_machine.clone(),
+            per_rhei: BTreeMap::from([("review".to_string(), review_machine)]),
+        };
+
+        let report = validate_with_machine_set(&rhei, &machines);
+        assert!(
+            !report.has_errors(),
+            "states valid under their owning machines must pass; got:\n{}",
+            report.errors.join("\n")
+        );
+
+        // The same graph under one machine fails: `draft`/`done` are not
+        // states of the default machine.
+        let single = validate_with_machine(&rhei, &default_machine);
+        assert!(
+            single.errors.iter().any(|e| e.contains("invalid state 'draft'")),
+            "single-machine validation should reject review states; got:\n{}",
+            single.errors.join("\n")
+        );
+
+        // Cross-machine prior-order coherence: review.1 is terminal ('done')
+        // while its prior plain.1 regresses to pending → warning, judged under
+        // the prior's own (default) machine.
+        let mut regressed = rhei.clone();
+        regressed.tasks[0].state = "pending".to_string();
+        let report = validate_with_machine_set(&regressed, &machines);
+        assert!(
+            report.warnings.iter().any(|w| w.contains("Task review.1")
+                && w.contains("prerequisites are unsatisfied")
+                && w.contains("plain.1 (pending)")),
+            "cross-machine prior coherence should warn; got:\n{}",
+            report.warnings.join("\n")
+        );
+    }
+
     /// §FS-rhei-plan-language.3.1: a kind keyword on a **Prior:** reference
     /// must match the referenced node's declared kind.
     #[test]

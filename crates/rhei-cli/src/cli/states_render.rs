@@ -202,6 +202,18 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
     serde_json::to_string_pretty(&payload).context("render state machine as JSON")
 }
 
+/// The same payload as [`render_state_machine_json`], unserialized — for the
+/// heterogeneous-project array shape. §FS-rhei-states-cmd.5
+fn render_state_machine_json_value(machine: &rhei_validator::StateMachine) -> serde_json::Value {
+    match render_state_machine_json(machine)
+        .ok()
+        .and_then(|rendered| serde_json::from_str(&rendered).ok())
+    {
+        Some(value) => value,
+        None => serde_json::json!({ "name": machine.name }),
+    }
+}
+
 fn format_version(value: &serde_yaml::Value) -> String {
     match value {
         serde_yaml::Value::String(s) => s.clone(),
@@ -294,6 +306,11 @@ struct LoadedPlan {
     content_section_roots: Vec<PathBuf>,
     /// For Panta projects: rhei ids in load order (`basin` last when present).
     rhei_ids: Vec<String>,
+    /// Machine name each rhei declared with its own `**States:**`, when it
+    /// did. §DA-per-rhei-state-machines
+    rhei_machines: HashMap<String, String>,
+    /// Execution root of each rhei, keyed by rhei id. §AR-rhei-panta.4
+    rhei_roots: HashMap<String, PathBuf>,
     /// Rheis a lenient load skipped, one message each; empty for a strict load.
     unloadable: Vec<String>,
 }
@@ -796,6 +813,8 @@ fn load_plan_with(path: &Path, lenient: bool) -> MietteResult<LoadedPlan> {
             task_roots: project.task_roots,
             content_section_roots: project.content_section_roots,
             rhei_ids: project.rhei_ids,
+            rhei_machines: project.rhei_machines,
+            rhei_roots: project.rhei_roots,
             unloadable: project.unloadable,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
@@ -829,6 +848,8 @@ fn implicit_loaded_plan(
         task_roots: project.task_roots,
         content_section_roots: project.content_section_roots,
         rhei_ids: project.rhei_ids,
+        rhei_machines: project.rhei_machines,
+        rhei_roots: project.rhei_roots,
         unloadable: project.unloadable,
     }
 }
@@ -846,6 +867,8 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             task_roots: project.task_roots,
             content_section_roots: project.content_section_roots,
             rhei_ids: project.rhei_ids,
+            rhei_machines: project.rhei_machines,
+            rhei_roots: project.rhei_roots,
             unloadable: project.unloadable,
         });
     }
@@ -975,7 +998,8 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
     let loaded = load_plan_for_validation(input)?;
 
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine)?;
+    let machines = resolved.validator_set();
     let normalized_input = normalize_workspace_input(input);
     let base_path = if normalized_input.is_dir() {
         normalized_input.as_path()
@@ -984,31 +1008,32 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     };
     let mut report = if loaded.is_panta_project() {
         // Panta task links validate against each ticket's owning rhei root. §AR-rhei-panta.5
-        rhei_validator::validate_with_machine_and_link_bases(
+        rhei_validator::validate_with_machine_set_and_link_bases(
             &loaded.rhei,
-            &resolved.machine,
+            &machines,
             base_path,
             &loaded.task_roots,
             &loaded.content_section_roots,
         )
     } else {
-        rhei_validator::validate_with_machine_and_base(
-            &loaded.rhei,
-            &resolved.machine,
-            base_path,
-        )
+        let mut report = rhei_validator::Validator::with_machines(machines.clone())
+            .validate_with_base(&loaded.rhei, Some(base_path));
+        report.warnings.dedup();
+        report
     };
     let workspace_root = execution_workspace_root(input);
     let settings = load_merged_settings(&workspace_root)?;
-    report.errors.extend(validate_machine_settings_references(&resolved.machine, &settings));
+    for machine in machines.distinct() {
+        report.errors.extend(validate_machine_settings_references(machine, &settings));
+    }
     report
         .errors
         .extend(validate_task_execution_override_settings_references(&loaded.rhei, &settings));
-    report.errors.extend(validate_snapshot_plan_context(&loaded, &resolved.machine));
+    report.errors.extend(validate_snapshot_plan_context(&loaded, &resolved));
     report.warnings.extend(snapshot_orphan_validation_warnings(
         &workspace_root,
         &loaded,
-        &resolved.machine,
+        &resolved,
         &settings,
     )?);
     // §FS-rhei-panta.6: an empty project is valid, but say discovery found
@@ -1028,7 +1053,7 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     report.warnings.extend(ignored_member_settings_warnings(input, &loaded));
 
     if report.has_errors() {
-        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
+        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
     }
 
     print_validation_report(&report.warnings);

@@ -1,3 +1,14 @@
+    fn single_execution_machines(machine: &rhei_validator::StateMachine) -> ExecutionMachines {
+        ExecutionMachines {
+            set: rhei_validator::MachineSet::single(machine.clone()),
+            default_callbacks: CallbackPaths {
+                plan_path: PathBuf::from("plan.rhei.md"),
+                state_machine_path: None,
+                working_dir: PathBuf::from("."),
+            },
+            per_rhei_callbacks: BTreeMap::new(),
+        }
+    }
     #[test]
     fn snapshot_targetless_auto_state_without_authored_snapshot_runs_cold() {
         let dir = snapshot_workspace();
@@ -884,7 +895,7 @@ transitions:
             &format!("plan.1:impl:source@1:{slug_a}/g1"),
             false,
         );
-        let err = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
+        let err = select_snapshot_override_run_invocation(&single_execution_machines(&machine), &opts, &invocations)
             .expect_err("ambiguous run invocation is rejected");
         let msg = err.to_string();
         assert!(msg.contains("ambiguous"));
@@ -892,7 +903,7 @@ transitions:
         assert!(msg.contains(&format!("task=plan.1 target={slug_b}")));
 
         opts.snapshot.snapshot_target = Some(slug_a.clone());
-        let selection = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
+        let selection = select_snapshot_override_run_invocation(&single_execution_machines(&machine), &opts, &invocations)
             .expect("selected")
             .expect("selection");
         assert_eq!(selection.task_id, "plan.1");
@@ -1034,7 +1045,7 @@ transitions:
             .collect::<Vec<_>>();
         let mut opts = snapshot_override_options("plan.1:impl:source@1/g1", false);
         opts.snapshot.snapshot_target = Some(selected_run_slug.to_string());
-        let selection = select_snapshot_override_run_invocation(&machine, &opts, &invocations)
+        let selection = select_snapshot_override_run_invocation(&single_execution_machines(&machine), &opts, &invocations)
             .expect("selected")
             .expect("selection");
         assert_eq!(selection.target_slug, selected_run_slug);
@@ -1451,8 +1462,10 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
             plan_path: dir.path().join("index.rhei.md"),
             cache_root: snapshot_cache_dir(&settings, dir.path()),
             loaded: load_plan(dir.path()).expect("load plan"),
-            machine: rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
-                .expect("state machine"),
+            machines: rhei_validator::MachineSet::single(
+                rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+                    .expect("state machine"),
+            ),
             settings,
         };
         write_snapshot_generation(
@@ -1502,8 +1515,10 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
             plan_path: dir.path().join("index.rhei.md"),
             cache_root: snapshot_cache_dir(&settings, dir.path()),
             loaded: load_plan(dir.path()).expect("load plan"),
-            machine: rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
-                .expect("state machine"),
+            machines: rhei_validator::MachineSet::single(
+                rhei_validator::StateMachine::from_yaml_file(dir.path().join("states.yaml"))
+                    .expect("state machine"),
+            ),
             settings,
         };
         write_snapshot_generation(

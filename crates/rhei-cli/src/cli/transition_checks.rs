@@ -151,16 +151,19 @@ fn transition_command(
     // narrowed by the rhei the invocation was pointed at. §FS-rhei-panta.6
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
     let task_id_str = &resolve_cli_task_id(&loaded, task_id_str, &scope)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
-    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = ExecutionMachines::build(&resolved, input)?;
+    // The explicit ticket target's own machine and callback base govern.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
 
     let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
         TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
-        &callback_paths,
-        &machine,
+        callback_paths,
+        machine,
         &route.local_id,
         from,
         to,

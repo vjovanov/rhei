@@ -414,10 +414,11 @@ their own recent definitions when they are among the last five tasks.
 ### 6.2. Instantiating inside a Panta project
 
 A template is not a free-floating directory. Dropped next to `index.panta.md`
-it becomes a member rhei, and the project — not the workspace — owns the one
-state machine (§FS-rhei-panta.6) and the one settings root (§FS-rhei-agents.1.1)
-that govern it. `rhei instantiate` therefore resolves the enclosing project
-before writing, and reconciles with it.
+it becomes a member rhei: it keeps the state machine it declares
+(§FS-rhei-panta.6), but the project — not the workspace — owns the one
+settings root (§FS-rhei-agents.1.1) that governs it. `rhei instantiate`
+therefore resolves the enclosing project before writing, and reconciles with
+it.
 
 **Default output.** Run inside a project, a template's default output is
 `<project>/<template-name>/` — the project is the default home for a new rhei
@@ -427,23 +428,22 @@ discovery never looks, so the command reported success and `rhei list` still
 said the project had no tickets. Outside a project the default stays
 `./<template-name>/`.
 
-**State machine reconciliation.** With the output directly next to
-`index.panta.md`, the machine the template declares is checked against the
-project's before anything is written:
+**State machines compose; nothing to reconcile.** The state machine is a
+property of the rhei, defaulted by the project (§AR-rhei-panta.4,
+§FS-rhei-panta.6): a template that declares its own machine lands as a member
+running under it, its `states.yaml` staying in the workspace root where
+per-rhei resolution finds it, and the project manifest is never edited. A
+template that declares nothing inherits the project default. Ten templates
+with ten machines coexist in one project — each is a distinct process, and
+that is the product's normal shape, not an edge case.
 
-| Project declares | Template declares | Outcome |
-|------------------|-------------------|---------|
-| nothing          | nothing           | member, no change |
-| nothing          | `M`, and no sibling rhei needs another machine | **adopted**: `**States:** M` is written into `index.panta.md`, reported on stdout |
-| nothing          | `M`, with siblings on the default machine | error naming the siblings |
-| `M`              | `M` or nothing    | member, no change |
-| `M`              | `N` ≠ `M`         | error naming both machines |
-
-Every error names a way out — instantiate the template as its own project
-beside this one, with the `--output` path spelled out. Instantiation is aborted
-before any output survives, so a refused placement leaves the project exactly
-as it was. Adoption mirrors what `rhei init` does when it adopts a machine
-unanimously declared by plans already on disk (§FS-rhei-init.2).
+Two earlier mechanisms are deliberately gone. *Refusal* — rejecting a template
+whose machine differed from the project's — walled off every template but the
+first, contradicting the multi-routine pitch. *Adoption* — writing the first
+template's machine into `index.panta.md` as the project default — silently
+re-governed every later plain rhei: a hand-written `launch.rhei.md` on
+`pending`/`completed` then validated against the template's machine and
+failed. Both existed only to police a uniformity the model no longer requires.
 
 **Settings hoist.** A template's bundled `settings.json` (§4) is written to the
 *project's* `.agents/rhei/settings.json` rather than the workspace's, merged
@@ -452,8 +452,8 @@ always win — a template must not quietly redefine an agent the operator
 configured — and both the added keys and the kept ones are reported. No copy is
 left in the workspace, where nothing would read it.
 
-**Standalone output inside a git repository.** A standalone workspace — the
-escape hatch every reconciliation error offers — lands outside any project, so
+**Standalone output inside a git repository.** A standalone workspace — what
+`--output` outside any project produces — lands outside any project, so
 no init-managed ignore rule covers it: `git status` reports it as untracked
 even when the repository gitignores `panta/` on the position that planning
 state is working material (§FS-rhei-init.3). Instantiation does not edit

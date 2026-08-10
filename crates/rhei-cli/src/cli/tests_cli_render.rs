@@ -349,18 +349,24 @@ transitions: []
         opts.standalone.dry_run = true;
         opts.standalone.dashboard = true;
 
-        let frontend = start_run_frontend(
-            Path::new("."),
-            Path::new("missing-plan.rhei.md"),
-            &CallbackPaths {
+        let machines = ExecutionMachines {
+            set: rhei_validator::MachineSet::single(
+                rhei_validator::StateMachine::builtin_default(),
+            ),
+            default_callbacks: CallbackPaths {
                 plan_path: PathBuf::from("missing-plan.rhei.md"),
                 state_machine_path: None,
                 working_dir: PathBuf::from("."),
             },
+            per_rhei_callbacks: BTreeMap::new(),
+        };
+        let frontend = start_run_frontend(
+            Path::new("."),
+            Path::new("missing-plan.rhei.md"),
+            &machines,
             &opts,
             1,
             0,
-            &rhei_validator::StateMachine::builtin_default(),
         );
 
         assert!(frontend.dashboard.is_none());

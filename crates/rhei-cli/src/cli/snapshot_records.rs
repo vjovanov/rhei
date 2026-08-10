@@ -3,7 +3,7 @@ struct SnapshotCommandContext {
     plan_path: PathBuf,
     cache_root: PathBuf,
     loaded: LoadedPlan,
-    machine: rhei_validator::StateMachine,
+    machines: rhei_validator::MachineSet,
     settings: RheiSettings,
 }
 

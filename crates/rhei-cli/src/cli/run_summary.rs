@@ -182,7 +182,7 @@ impl rhei_tui::EventSink for SummarySink {
 /// Best-effort — a load or write failure must not mask the result. §FS-rhei-run-report.1 §FS-rhei-run-report.3
 fn emit_run_report(
     input: &std::path::Path,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     summary: &SummarySink,
     runtime_dir: &std::path::Path,
     stats: RunStats,
@@ -194,7 +194,7 @@ fn emit_run_report(
     // A dry run is a side-effect-free preview: render the console summary but
     // never touch the durable report on disk. §FS-rhei-run-report.3.5
     let dry_run = stats.dry_run;
-    let mut report = RunSummaryReport::build(&loaded.rhei, machine, summary, stats);
+    let mut report = RunSummaryReport::build(&loaded.rhei, machines, summary, stats);
     // Write the durable report even when stdout is piped, so CI runs leave the
     // artifact; a dry run writes nothing, leaving `report_path` unset so no pointer
     // prints below. §FS-rhei-run-report.1 §FS-rhei-run-report.3.5
@@ -256,20 +256,23 @@ fn current_command_line() -> String {
 /// emit no slot events. §FS-rhei-run-report.8
 fn collect_initial_states(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> HashMap<String, String> {
     fn walk(
         tasks: &[rhei_core::ast::Task],
-        machine: &rhei_validator::StateMachine,
+        machines: &rhei_validator::MachineSet,
         out: &mut HashMap<String, String>,
     ) {
         for task in tasks {
-            out.insert(task.id.to_string(), normalized_state_name(task.state.as_str(), machine));
-            walk(&task.children, machine, out);
+            out.insert(
+                task.id.to_string(),
+                normalized_state_name(task.state.as_str(), machines.for_task(&task.id)),
+            );
+            walk(&task.children, machines, out);
         }
     }
     let mut out = HashMap::new();
-    walk(&rhei.tasks, machine, &mut out);
+    walk(&rhei.tasks, machines, &mut out);
     out
 }
 
@@ -278,7 +281,7 @@ fn collect_initial_states(
 /// happy path disarms it after the full report is written. §FS-rhei-run-report.1
 struct RunReportGuard<'a> {
     input: &'a std::path::Path,
-    machine: &'a rhei_validator::StateMachine,
+    machines: &'a rhei_validator::MachineSet,
     runtime_dir: std::path::PathBuf,
     run_started: std::time::Instant,
     run_started_wall: std::time::SystemTime,
@@ -320,7 +323,7 @@ impl Drop for RunReportGuard<'_> {
         let programs = ledger.iter().filter(|r| r.driver == "program").count() as u32;
         emit_run_report(
             self.input,
-            self.machine,
+            self.machines,
             &summary,
             &self.runtime_dir,
             RunStats {
@@ -545,7 +548,7 @@ impl RunSummaryReport {
     /// per-task activity captured by [`SummarySink`]. §FS-rhei-run-report.8
     pub fn build(
         rhei: &rhei_core::ast::Rhei,
-        machine: &rhei_validator::StateMachine,
+        machines: &rhei_validator::MachineSet,
         summary: &SummarySink,
         stats: RunStats,
     ) -> Self {
@@ -559,7 +562,7 @@ impl RunSummaryReport {
         collect_rows(
             &rhei.tasks,
             0,
-            machine,
+            machines,
             &activity,
             &mut rows,
             &mut attention,
@@ -572,8 +575,8 @@ impl RunSummaryReport {
         let mut terminal_at_start = 0usize;
         for row in &mut rows {
             let was = stats.initial_states.get(&row.id).map(String::as_str);
-            let unchanged_terminal =
-                was == Some(row.state.as_str()) && is_terminal_state(&row.state, machine);
+            let unchanged_terminal = was == Some(row.state.as_str())
+                && is_terminal_state(&row.state, machines.for_task(&parse_task_id(&row.id)));
             if unchanged_terminal {
                 terminal_at_start += 1;
                 // A success state flips to the calm `·` marker; a cancelled task
@@ -613,7 +616,7 @@ impl RunSummaryReport {
             &attention,
             &summary.ledger(),
             &stats.initial_states,
-            machine,
+            machines,
             &stats.workspace_root,
         );
         let invocations = build_invocations(&summary.ledger(), &stats.workspace_root);
@@ -1041,13 +1044,14 @@ impl RunSummaryReport {
 fn collect_rows(
     tasks: &[rhei_core::ast::Task],
     depth: usize,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     activity: &HashMap<String, TaskActivity>,
     rows: &mut Vec<TaskRow>,
     attention: &mut Vec<AttentionRow>,
     counts: &mut std::collections::BTreeMap<String, (usize, Marker)>,
 ) {
     for task in tasks {
+        let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         let marker = classify_marker(&state, machine);
         let id = task.id.to_string();
@@ -1068,7 +1072,7 @@ fn collect_rows(
         }
 
         rows.push(TaskRow { depth, id, state, marker, detail });
-        collect_rows(&task.children, depth + 1, machine, activity, rows, attention, counts);
+        collect_rows(&task.children, depth + 1, machines, activity, rows, attention, counts);
     }
 }
 
@@ -1228,7 +1232,7 @@ fn build_ledger(
     attention: &[AttentionRow],
     records: &[LedgerRecord],
     initial_states: &HashMap<String, String>,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &std::path::Path,
 ) -> Vec<LedgerEntry> {
     let attention_by_id: HashMap<&str, &AttentionRow> =
@@ -1304,7 +1308,7 @@ fn build_ledger(
                 invocation: "none".to_string(),
                 reason: "advanced without spawning work".to_string(),
             });
-        } else if is_terminal_state(&row.state, machine) {
+        } else if is_terminal_state(&row.state, machines.for_task(&parse_task_id(&row.id))) {
             ledger.push(LedgerEntry {
                 task: row.id.clone(),
                 from: row.state.clone(),
@@ -1443,7 +1447,7 @@ mod run_summary_tests {
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(&rhei, &machine(), &SummarySink::new(), test_stats())
+        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), test_stats())
     }
 
     /// `RunStats` with non-zero spawn counts and empty run metadata, for the
@@ -1526,7 +1530,7 @@ mod run_summary_tests {
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(&rhei, &machine(), &SummarySink::new(), stats)
+        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), stats)
     }
 
     #[test]
@@ -1670,7 +1674,7 @@ mod run_summary_tests {
         let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
         md.push_str("### Task 1: Task 1\n**State:** completed\n\n");
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        let report = RunSummaryReport::build(&rhei, &machine(), &summary, stats);
+        let report = RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &summary, stats);
         let md = report.render_markdown();
         // The spawned agent row and the synthesized callback advance both appear.
         assert!(md.contains("| 1 | build | review | agent |"), "{md}");

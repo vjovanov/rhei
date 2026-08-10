@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Make the state machine a property of the rhei, defaulted by the project.
+  One machine governed a whole Panta project, so the second template a user
+  instantiated was refused, a rhei that declared a different machine was a
+  load error, and `rhei init` had to hoist a machine into the manifest to
+  keep such a project loadable — three mechanisms enforcing a uniformity that
+  contradicted the product's own pitch of composing routines. A rhei's
+  `**States:**` declaration now overrides the project default, its
+  `states.yaml` resolving from its own root first; every ticket is validated,
+  listed, transitioned, and run under the machine of the rhei that owns it,
+  and a cross-rhei prior is judged terminal under the machine of the rhei
+  that owns the *prior*. Templates with different machines compose in one
+  project; the refusal, the load error, and both adoption paths are gone.
+  §DA-per-rhei-state-machines §FS-rhei-panta.6 §AR-rhei-panta.4
 - Validate the node-kind keyword on `**Prior:**` references. The parser
   accepted any word as a kind prefix, so `**Prior:** Banana 1` validated green
   and a pasted task *title* — `**Prior:** Design schema` — failed as

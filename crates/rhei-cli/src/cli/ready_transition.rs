@@ -43,7 +43,7 @@ fn state_inputs_exist_for_ready_set(
 /// Returns task references in source order.
 fn find_ready_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
     leaf_only: bool,
@@ -53,10 +53,11 @@ fn find_ready_tasks<'a>(
     let mut all_tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all_tasks);
 
-    // Build a map of every task node's state for dependency lookups. §FS-rhei-run.3
+    // Build a map of every task node's state for dependency lookups, each
+    // normalized under its owning rhei's machine. §FS-rhei-run.3
     let state_map: HashMap<&TaskId, String> = all_tasks
         .iter()
-        .map(|t| (&t.id, normalized_state_name(t.state.as_str(), machine)))
+        .map(|t| (&t.id, normalized_state_name(t.state.as_str(), machines.for_task(&t.id))))
         .collect();
 
     let mut ready = Vec::new();
@@ -65,6 +66,7 @@ fn find_ready_tasks<'a>(
         if leaf_only && !task.children.is_empty() {
             continue;
         }
+        let machine = machines.for_task(&task.id);
         let current_state = task.state.as_str();
 
         // Skip tasks already in a terminal or gating state.
@@ -82,9 +84,13 @@ fn find_ready_tasks<'a>(
             continue;
         }
 
-        // Check that all prior dependencies are satisfied.
+        // Check that all prior dependencies are satisfied — each judged under
+        // the machine of the rhei that owns the prior. §FS-rhei-panta.6.1
         let all_priors_done = task.prior.iter().all(|dep_id| {
-            state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
+            state_map
+                .get(dep_id)
+                .map(|s| dependency_is_satisfied(s, machines.for_task(dep_id)))
+                .unwrap_or(false)
         });
 
         let task_id = task.id.to_string();
@@ -114,10 +120,10 @@ fn find_ready_tasks<'a>(
 /// the orchestrator.
 fn find_runnable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, &std::collections::HashMap::new(), false)
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), false)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -128,10 +134,10 @@ fn find_runnable_tasks<'a>(
 /// the pass report and read as "not ready". §FS-rhei-run.3
 fn find_held_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, &std::collections::HashMap::new(), false)
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), false)
         .into_iter()
         .filter(|task| task.assignee.is_some())
         .collect()
@@ -154,14 +160,15 @@ fn format_held_tasks(held: &[&rhei_core::ast::Task]) -> String {
 /// indicates it is already claimed by another agent).
 fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, task_roots, true)
+    find_ready_tasks(rhei, machines, workspace_root, task_roots, true)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
+            let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
             task_is_in_initial_state(task, &state, machine)
         })
@@ -191,11 +198,13 @@ fn collect_plan_tasks<'a>(
 
 fn plan_state_map<'a>(
     tasks: &[&'a rhei_core::ast::Task],
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> std::collections::HashMap<&'a TaskId, String> {
     tasks
         .iter()
-        .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machine)))
+        .map(|task| {
+            (&task.id, normalized_state_name(task.state.as_str(), machines.for_task(&task.id)))
+        })
         .collect()
 }
 
@@ -205,12 +214,12 @@ fn plan_state_map<'a>(
 fn blocking_priors(
     task: &rhei_core::ast::Task,
     state_map: &std::collections::HashMap<&TaskId, String>,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> Vec<String> {
     task.prior
         .iter()
         .filter_map(|dep_id| match state_map.get(dep_id) {
-            Some(state) if !dependency_is_satisfied(state, machine) => {
+            Some(state) if !dependency_is_satisfied(state, machines.for_task(dep_id)) => {
                 Some(format!("Task {} ({})", dep_id, state))
             }
             None => Some(format!("Task {} (missing)", dep_id)),
@@ -222,11 +231,11 @@ fn blocking_priors(
 fn first_blocking_prior(
     task: &rhei_core::ast::Task,
     state_map: &std::collections::HashMap<&TaskId, String>,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> Option<String> {
     task.prior.iter().find_map(|dep_id| match state_map.get(dep_id) {
-        Some(state) if !dependency_is_satisfied(state, machine) => {
+        Some(state) if !dependency_is_satisfied(state, machines.for_task(dep_id)) => {
             // §FS-rhei-panta.6.1: `--rhei` narrows candidates, never prior
             // resolution, so name the prior that sits outside the scope
             // rather than leaving the operator to guess why nothing ran.
@@ -319,7 +328,7 @@ fn transition_command_lines(
 /// reported categories narrow — never the state map. §FS-rhei-panta.6.1
 fn diagnose_no_claimable(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     plan_path: &Path,
     state_machine_path: Option<&Path>,
     scope: &RheiScope,
@@ -327,7 +336,7 @@ fn diagnose_no_claimable(
     let mut project = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut project);
 
-    let state_map = plan_state_map(&project, machine);
+    let state_map = plan_state_map(&project, machines);
 
     let all: Vec<&rhei_core::ast::Task> = project
         .iter()
@@ -357,8 +366,11 @@ fn diagnose_no_claimable(
         };
     }
 
-    let non_terminal: Vec<&rhei_core::ast::Task> =
-        all.iter().copied().filter(|t| !is_terminal_state(t.state.as_str(), machine)).collect();
+    let non_terminal: Vec<&rhei_core::ast::Task> = all
+        .iter()
+        .copied()
+        .filter(|t| !is_terminal_state(t.state.as_str(), machines.for_task(&t.id)))
+        .collect();
 
     if non_terminal.is_empty() {
         return match scope {
@@ -375,17 +387,23 @@ fn diagnose_no_claimable(
     let non_terminal_rollups: Vec<&rhei_core::ast::Task> = all
         .iter()
         .copied()
-        .filter(|task| !task.children.is_empty() && !is_terminal_state(task.state.as_str(), machine))
+        .filter(|task| {
+            !task.children.is_empty()
+                && !is_terminal_state(task.state.as_str(), machines.for_task(&task.id))
+        })
         .collect();
     if !leaf_tasks.is_empty()
-        && leaf_tasks.iter().all(|task| is_terminal_state(task.state.as_str(), machine))
+        && leaf_tasks
+            .iter()
+            .all(|task| is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         && !non_terminal_rollups.is_empty()
     {
         let items: Vec<String> = non_terminal_rollups
             .iter()
             .take(3)
             .map(|task| {
-                let state = normalized_state_name(task.state.as_str(), machine);
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
                 format!("Task {} ({})", task.id, state)
             })
             .collect();
@@ -410,7 +428,10 @@ fn diagnose_no_claimable(
 
     let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
         task.prior.iter().all(|dep_id| {
-            state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
+            state_map
+                .get(dep_id)
+                .map(|s| dependency_is_satisfied(s, machines.for_task(dep_id)))
+                .unwrap_or(false)
         })
     };
 
@@ -419,6 +440,7 @@ fn diagnose_no_claimable(
         .copied()
         .filter(|task| task.children.is_empty())
         .filter(|task| {
+            let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).map(|def| def.gating).unwrap_or(false)
                 && priors_satisfied(task)
@@ -430,7 +452,8 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                let state = normalized_state_name(task.state.as_str(), machine);
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
                 format!("Task {} ({})", task.id, state)
             })
             .collect();
@@ -451,6 +474,7 @@ fn diagnose_no_claimable(
         .iter()
         .copied()
         .filter(|t| {
+            let machine = machines.for_task(&t.id);
             let s = normalized_state_name(t.state.as_str(), machine);
             let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
             !gating && t.assignee.is_some() && priors_satisfied(t)
@@ -462,7 +486,8 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                let state = normalized_state_name(task.state.as_str(), machine);
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
                 let assignee = task.assignee.as_deref().unwrap_or("unknown");
                 format!("Task {} ({}, assignee {})", task.id, state, assignee)
             })
@@ -485,6 +510,7 @@ fn diagnose_no_claimable(
         .iter()
         .copied()
         .filter(|t| {
+            let machine = machines.for_task(&t.id);
             let s = normalized_state_name(t.state.as_str(), machine);
             let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
             !gating && !task_is_in_initial_state(t, &s, machine) && priors_satisfied(t)
@@ -492,6 +518,7 @@ fn diagnose_no_claimable(
         .collect();
 
     if let Some(task) = ready_non_initial.first() {
+        let machine = machines.for_task(&task.id);
         let state_name = normalized_state_name(task.state.as_str(), machine);
         let plan_arg = shell_quote(&plan_path.display().to_string());
         let normalized_metadata = ensure_current_state_visit_count(
@@ -529,7 +556,7 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                if let Some(prior) = first_blocking_prior(task, &state_map, machine, scope) {
+                if let Some(prior) = first_blocking_prior(task, &state_map, machines, scope) {
                     format!("Task {} waiting on {}", task.id, prior)
                 } else {
                     format!("Task {}", task.id)
@@ -691,13 +718,16 @@ type BeforeTransitionCallback<'a> =
 
 fn try_auto_advance_task(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     task_id_str: &str,
     current_state: &str,
     no_callbacks: bool,
     mut before_transition: Option<BeforeTransitionCallback<'_>>,
 ) -> MietteResult<Option<String>> {
+    // The advancing ticket's own machine and callback base govern it.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
     // The spec splits agent exit into:
     //   (5) select the outgoing transition without applying it,
     //   (6) emit snapshots after selection / before application,

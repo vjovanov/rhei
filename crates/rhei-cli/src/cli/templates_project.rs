@@ -1,23 +1,18 @@
-    /// Where an instantiated template lands relative to a Panta project, and
-    /// what the project must adopt before it can load the result. The project,
-    /// not the workspace, owns the machine and settings. §FS-rhei-templates.6.2
+    /// Where an instantiated template lands relative to a Panta project. A
+    /// member rhei keeps whatever machine it declares — the project default
+    /// only covers rheis that declare nothing. §FS-rhei-templates.6.2
     pub(super) enum ProjectPlacement {
         /// The output is not a member of any project; nothing to reconcile.
         Standalone,
-        /// The output joins `project`, which already governs `machine`.
+        /// The output joins `project` as a member rhei.
         Member { project: PathBuf },
-        /// The output joins `project`, which has no machine of its own yet and
-        /// can take the template's as the project default.
-        Adopts { project: PathBuf, machine: String },
     }
 
     impl ProjectPlacement {
         pub(super) fn project(&self) -> Option<&Path> {
             match self {
                 ProjectPlacement::Standalone => None,
-                ProjectPlacement::Member { project } | ProjectPlacement::Adopts { project, .. } => {
-                    Some(project.as_path())
-                }
+                ProjectPlacement::Member { project } => Some(project.as_path()),
             }
         }
     }
@@ -48,16 +43,14 @@
         workspace::is_panta_project(parent).then(|| parent.to_path_buf())
     }
 
-    /// Decide how `output_dir` relates to any enclosing project, refusing the
-    /// combinations that would leave the project unloadable.
-    ///
-    /// The check runs before validation so a machine collision is reported as a
-    /// collision, with both names and a way out, rather than surfacing later as
-    /// a load error from every project-scoped command.
+    /// Decide how `output_dir` relates to any enclosing project. State
+    /// machines never conflict — a member rhei's own declaration simply
+    /// overrides the project default — so the only placement questions left
+    /// are about discovery.
+    // §FS-rhei-templates.6.2
     pub(super) fn plan_project_placement(
         output_dir: &Path,
         materialized_dir: &Path,
-        workspace_machine: Option<&str>,
     ) -> MietteResult<ProjectPlacement> {
         let Some(project) = owning_project_of(output_dir) else {
             // Not a member — but a workspace buried deeper inside a project is
@@ -92,83 +85,7 @@
             return Ok(ProjectPlacement::Standalone);
         }
 
-        let declared = project_declared_machine(&project)?;
-        // A template that declares nothing simply inherits whatever the project
-        // governs, which is exactly the single-machine rule working as intended.
-        let Some(machine) = workspace_machine else {
-            return Ok(ProjectPlacement::Member { project });
-        };
-
-        match declared {
-            Some(project_machine) if project_machine == machine => {
-                Ok(ProjectPlacement::Member { project })
-            }
-            Some(project_machine) => Err(miette!(
-                "the template declares state machine '{machine}', but the Panta project at {} \
-                 is governed by '{project_machine}'. One state machine governs a whole project \
-                 (§FS-rhei-panta.6), so this rhei could never load there. Instantiate it as its \
-                 own project instead — `--output {}` — or use a template built for \
-                 '{project_machine}'.",
-                display_path(&project).display(),
-                display_path(&sibling_output_suggestion(&project, output_dir)).display()
-            )),
-            None => {
-                // Nothing declared: the project runs the built-in default, and
-                // so does every rhei already in it. Adopting the template's
-                // machine is safe only while no sibling depends on the default.
-                let siblings = sibling_rhei_machines(&project, output_dir);
-                let conflicting: Vec<&(String, Option<String>)> = siblings
-                    .iter()
-                    .filter(|(_, declared)| declared.as_deref() != Some(machine))
-                    .collect();
-                if conflicting.is_empty() {
-                    Ok(ProjectPlacement::Adopts { project, machine: machine.to_string() })
-                } else {
-                    let names = conflicting
-                        .iter()
-                        .map(|(id, _)| id.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    Err(miette!(
-                        "the template declares state machine '{machine}', but the Panta project \
-                         at {} already holds rheis on the built-in default machine ({names}). \
-                         One state machine governs a whole project (§FS-rhei-panta.6), so \
-                         adopting '{machine}' would break them. Instantiate it as its own \
-                         project instead: `--output {}`.",
-                        display_path(&project).display(),
-                        display_path(&sibling_output_suggestion(&project, output_dir))
-                            .display()
-                    ))
-                }
-            }
-        }
-    }
-
-    /// The rheis already in `project`, paired with the machine each declares,
-    /// excluding the one being instantiated at `exclude` — by the time this
-    /// runs the new workspace is already on disk, and counting it as a sibling
-    /// makes every first template look like a collision with itself.
-    fn sibling_rhei_machines(project: &Path, exclude: &Path) -> Vec<(String, Option<String>)> {
-        let excluded = exclude.canonicalize().unwrap_or_else(|_| exclude.to_path_buf());
-        let Ok(entries) = workspace::discover_rhei_entries(project) else {
-            return Vec::new();
-        };
-        entries
-            .into_iter()
-            .filter(|entry| {
-                entry.canonicalize().unwrap_or_else(|_| entry.clone()) != excluded
-            })
-            .map(|entry| {
-                let id = entry
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("?")
-                    .trim_end_matches(".rhei")
-                    .to_string();
-                let declared = workspace_declared_machine(&entry);
-                (id, declared)
-            })
-            .collect()
+        Ok(ProjectPlacement::Member { project })
     }
 
     /// A path outside the project, next to it, keeping the chosen directory name.
@@ -178,56 +95,6 @@
             Some(parent) if !parent.as_os_str().is_empty() => parent.join(name),
             _ => PathBuf::from(name),
         }
-    }
-
-    /// The state machine `index.panta.md` declares, if it declares one.
-    fn project_declared_machine(project: &Path) -> MietteResult<Option<String>> {
-        let manifest = project.join("index.panta.md");
-        let content = fs::read_to_string(&manifest)
-            .map_err(|err| file_io_report(&manifest, "failed to read the project manifest", err))?;
-        let parsed = rhei_core::parser::parse_panta_manifest(&content)
-            .map_err(|err| miette!("failed to parse {}: {err:?}", manifest.display()))?;
-        Ok(parsed.states_declared.then_some(parsed.states))
-    }
-
-    /// The state machine a materialized rhei declares, if it declares one.
-    ///
-    /// A Directory Workspace keeps its tickets in `tasks/`, so its
-    /// `index.rhei.md` does not parse as a standalone plan — reading it that
-    /// way reported "declares nothing" for every workspace template and skipped
-    /// the placement check the moment it mattered most.
-    pub(super) fn workspace_declared_machine(entrypoint: &Path) -> Option<String> {
-        let rhei = match workspace::workspace_dir(entrypoint) {
-            Some(dir) => workspace::load_workspace(&dir).ok()?.rhei,
-            None => rhei_core::parser::parse(&fs::read_to_string(entrypoint).ok()?).ok()?,
-        };
-        rhei.states_declared.then_some(rhei.states)
-    }
-
-    /// Write the adopted machine into `index.panta.md` so the project and its
-    /// first rhei agree. Mirrors what `rhei init` does when it adopts a machine
-    /// from plans already on disk. §FS-rhei-init.2
-    pub(super) fn adopt_project_machine(project: &Path, machine: &str) -> MietteResult<()> {
-        let manifest = project.join("index.panta.md");
-        let content = fs::read_to_string(&manifest)
-            .map_err(|err| file_io_report(&manifest, "failed to read the project manifest", err))?;
-        let mut lines: Vec<String> = content.lines().map(ToOwned::to_owned).collect();
-        let states_line = format!("**States:** {machine}");
-        if let Some(existing) = lines.iter_mut().find(|line| line.starts_with("**States:**")) {
-            *existing = states_line;
-        } else {
-            // The declaration belongs directly under the `# Panta:` heading.
-            let insert_at = lines
-                .iter()
-                .position(|line| line.starts_with("# Panta:"))
-                .map(|idx| idx + 1)
-                .unwrap_or(lines.len());
-            lines.insert(insert_at, states_line);
-        }
-        let mut rendered = lines.join("\n");
-        rendered.push('\n');
-        fs::write(&manifest, rendered)
-            .map_err(|err| file_io_report(&manifest, "failed to write the project manifest", err))
     }
 
     const WORKSPACE_SETTINGS_RELATIVE_PATH: &str = ".agents/rhei/settings.json";

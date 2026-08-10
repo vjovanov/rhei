@@ -542,7 +542,7 @@ fn add_a_rhei_help() -> String {
     [
         "Add a rhei either way:",
         "  from a template  `rhei templates` lists them; `rhei instantiate <name>` writes one",
-        "                   into this project and adopts its state machine",
+        "                   into this project, keeping the template's own state machine",
         "  by hand          create `<id>.rhei.md` next to index.panta.md:",
         "",
         "                       # Rhei: <title>",

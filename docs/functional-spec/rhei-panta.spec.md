@@ -225,18 +225,25 @@ tickets store it in `index.panta.md` under their **project-qualified** ids
 metadata document, basin tickets could not transition at all: every command
 that advances a ticket must read and write its counters.
 
-One state machine governs the whole project: the `index.panta.md` declaration,
-or the built-in `rhei` machine when the manifest declares none. A rhei may
-restate that machine in its own `**States:**`, but declaring a *different*
-machine is a load error (§AR-rhei-panta.4). Per-rhei machines are a deferred
-capability, tracked on the roadmap.
+The state machine is per-rhei, defaulted by the project. The `index.panta.md`
+declaration — or the built-in `rhei` machine when the manifest declares none —
+governs every rhei that does not declare its own `**States:**`, plus the
+synthetic `basin` rhei and the Panta root's node policy. A rhei that declares
+its own machine runs under it (§AR-rhei-panta.4): a machine is a *process*,
+and one project holds several processes the moment it holds two instantiated
+templates. Restating the default is legal and means the same thing as omitting
+the line. Each ticket validates, transitions, and completes under its owning
+rhei's machine; the only place two machines meet is a cross-rhei prior, judged
+under the target's machine (§6.1).
 
 ### 6.1. Readiness and `rhei next`
 
 Readiness is **project-global**. A ticket is ready when it is a claimable leaf
 and every `**Prior:**` is terminal-and-not-cancelled, resolved across the whole
 project graph — a ticket in one rhei may be blocked by a ticket in another.
-Terminal status is judged against the project state machine (§AR-rhei-panta.4).
+Terminal status of each prior is judged against the machine of the rhei that
+*owns the prior* (§AR-rhei-panta.4) — the target ticket's states mean what its
+own process says they mean, wherever the waiting ticket lives.
 Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
 the candidate tickets but never narrows where their priors resolve: a candidate
 may still be blocked by a prior outside the named rheis. A ticket named

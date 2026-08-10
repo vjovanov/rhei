@@ -48,9 +48,9 @@ fn run_command(
     let loaded = load_plan(input)?;
     let rhei_scope = resolve_rhei_scope(&loaded, opts.rhei_scope())?;
     report_panta_scope_narrowed(&loaded, "run", &rhei_scope);
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
-    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = ExecutionMachines::build(&resolved, input)?;
+    let callback_paths = machines.default_callbacks.clone();
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let settings = load_merged_settings(&workspace_root)?;
     // §FS-rhei-run.2.6: one live run per rhei — lock every involved
@@ -98,23 +98,25 @@ fn run_command(
     };
 
     // Initial validation pass.
-    let mut report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
-    report.errors.extend(validate_machine_settings_references(&machine, &settings));
+    let mut report = rhei_validator::validate_with_machine_set(&loaded.rhei, &machines.set);
+    for machine in machines.set.distinct() {
+        report.errors.extend(validate_machine_settings_references(machine, &settings));
+    }
     report
         .errors
         .extend(validate_task_execution_override_settings_references(&loaded.rhei, &settings));
-    report.errors.extend(validate_snapshot_plan_context(&loaded, &machine));
+    report.errors.extend(validate_snapshot_plan_context(&loaded, &resolved));
     if report.has_errors() {
-        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
+        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
     }
 
     let use_standalone_mode =
-        should_use_agent_mode(&loaded.rhei, &machine, &settings, &opts, &workspace_root)?;
+        should_use_agent_mode(&loaded.rhei, &machines.set, &settings, &opts, &workspace_root)?;
 
     let result = if use_standalone_mode {
-        run_agent_mode(input, &machine, &callback_paths, &settings, &opts, effective_parallel)
+        run_agent_mode(input, &machines, &settings, &opts, effective_parallel)
     } else {
-        run_callback_mode(input, &machine, &callback_paths, &opts, effective_parallel)
+        run_callback_mode(input, &machines, &opts, effective_parallel)
     };
     result?;
     git_consistency.verify_after_success()
@@ -122,24 +124,27 @@ fn run_command(
 
 fn should_use_agent_mode(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
 ) -> MietteResult<bool> {
     if !opts.no_agent()
-        && machine
-            .states
-            .values()
-            .any(|def| !def.terminal && !def.gating && state_declares_autonomous_agent_work(def))
+        && machines.distinct().iter().any(|machine| {
+            machine
+                .states
+                .values()
+                .any(|def| !def.terminal && !def.gating && state_declares_autonomous_agent_work(def))
+        })
     {
         return Ok(true);
     }
 
     for task in narrow_to_rhei_scope(
-        find_runnable_tasks(rhei, machine, workspace_root),
+        find_runnable_tasks(rhei, machines, workspace_root),
         &rhei_scope_set(opts.rhei_scope()),
     ) {
+        let machine = machines.for_task(&task.id);
         let state_name = normalized_state_name(task.state.as_str(), machine);
         let Some(def) = machine.states.get(&state_name) else {
             continue;

@@ -510,10 +510,11 @@ fn validate_skill_entries_known(
 
 fn validate_snapshot_plan_context(
     loaded: &LoadedPlan,
-    machine: &rhei_validator::StateMachine,
+    machines: &ResolvedMachineSet,
 ) -> Vec<String> {
     let mut errors = Vec::new();
     for task in &loaded.rhei.tasks {
+        let machine = machines.machine_for_task_str(&task.id.to_string());
         let state_name = normalized_state_name(task.state.as_str(), machine);
         if machine
             .states
@@ -535,7 +536,7 @@ fn validate_snapshot_plan_context(
 fn snapshot_orphan_validation_warnings(
     workspace_root: &Path,
     loaded: &LoadedPlan,
-    machine: &rhei_validator::StateMachine,
+    machines: &ResolvedMachineSet,
     settings: &RheiSettings,
 ) -> MietteResult<Vec<String>> {
     let cache_root = snapshot_cache_dir(settings, workspace_root);
@@ -545,6 +546,9 @@ fn snapshot_orphan_validation_warnings(
     let records = read_snapshot_records(&cache_root)?;
     let mut warnings = Vec::new();
     for record in records {
+        // A snapshot belongs to one ticket; judge it under that ticket's
+        // machine. §DA-per-rhei-state-machines
+        let machine = machines.machine_for_task_str(&record.task_id);
         if snapshot_record_is_orphaned_for_loaded(&record, loaded, machine, settings) {
             warnings.push(format!(
                 "snapshot {} is orphaned relative to the current plan/state machine",

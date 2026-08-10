@@ -7,10 +7,11 @@ use crate::common::{fmt_prior_list, rhei_groups, title_case_kind, RheiGroup};
 pub struct ProgressReportOutput {
     pub color: bool,
     pub show_dependencies: bool,
-    /// States the resolved state machine marks final. Empty when no machine was
-    /// resolved, which suppresses the completion summary rather than guessing
-    /// at state names a custom machine may not use.
-    pub terminal_states: BTreeSet<String>,
+    /// Ids of tickets currently in a terminal state, each judged under its
+    /// owning rhei's machine. Empty when no machine was resolved, which
+    /// suppresses the completion summary rather than guessing.
+    // §DA-per-rhei-state-machines: terminal-ness is a per-ticket judgment.
+    pub terminal_ids: BTreeSet<String>,
     /// Whether the rendered root is a Panta project rather than a single rhei.
     /// The heading names what the reader is looking at, and calling a project
     /// "Rhei:" put the same word on two different levels. §FS-rhei-panta.1
@@ -20,7 +21,7 @@ pub struct ProgressReportOutput {
 impl ProgressReportOutput {
     /// A progress report with no state machine resolved, so no summary line.
     pub fn plain(color: bool, show_dependencies: bool) -> Self {
-        Self { color, show_dependencies, terminal_states: BTreeSet::new(), is_project: false }
+        Self { color, show_dependencies, terminal_ids: BTreeSet::new(), is_project: false }
     }
 
     pub fn to_string(&self, rhei: &rhei_core::ast::Rhei) -> String {
@@ -103,10 +104,10 @@ impl ProgressReportOutput {
     /// Requires resolved terminal states: "done" is a property of the state
     /// machine, and a custom machine need not have a state called `completed`.
     fn summary_line(&self, rhei: &rhei_core::ast::Rhei) -> Option<String> {
-        if self.terminal_states.is_empty() {
+        if self.terminal_ids.is_empty() {
             return None;
         }
-        let (total, done) = count_tickets(&rhei.tasks, &self.terminal_states);
+        let (total, done) = count_tickets(&rhei.tasks, &self.terminal_ids);
         if total == 0 {
             return None;
         }
@@ -149,18 +150,15 @@ impl ProgressReportOutput {
 }
 
 /// `(total, in a terminal state)` over every ticket in the tree.
-fn count_tickets(tasks: &[Task], terminal: &BTreeSet<String>) -> (usize, usize) {
+fn count_tickets(tasks: &[Task], terminal_ids: &BTreeSet<String>) -> (usize, usize) {
     let mut total = 0;
     let mut done = 0;
     for task in tasks {
         total += 1;
-        // A counted-loop state is authored as `<state>-<n>`; compare on the base.
-        let state = task.state.trim();
-        let base = state.rsplit_once('-').filter(|(_, n)| n.parse::<u32>().is_ok());
-        if terminal.contains(state) || base.is_some_and(|(head, _)| terminal.contains(head)) {
+        if terminal_ids.contains(&task.id.to_string()) {
             done += 1;
         }
-        let (child_total, child_done) = count_tickets(&task.children, terminal);
+        let (child_total, child_done) = count_tickets(&task.children, terminal_ids);
         total += child_total;
         done += child_done;
     }

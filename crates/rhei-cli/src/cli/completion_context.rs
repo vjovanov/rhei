@@ -154,6 +154,213 @@ struct ResolvedStateMachine {
     path: Option<PathBuf>,
 }
 
+/// Every machine governing a loaded plan, with the file each resolved from:
+/// the project default plus one entry per self-declaring rhei. A ticket's
+/// machine — and the callback base its transitions run under — resolves
+/// through its owning rhei.
+// §DA-per-rhei-state-machines §AR-rhei-panta.4
+struct ResolvedMachineSet {
+    default: ResolvedStateMachine,
+    per_rhei: BTreeMap<String, ResolvedStateMachine>,
+}
+
+impl ResolvedMachineSet {
+    fn single(default: ResolvedStateMachine) -> Self {
+        Self { default, per_rhei: BTreeMap::new() }
+    }
+
+    /// The resolved machine governing the ticket named by a project-qualified
+    /// id string (`auth.1`): its owning rhei's machine, else the default.
+    fn for_task_str(&self, task_id: &str) -> &ResolvedStateMachine {
+        let rhei_id = task_id.split('.').next().unwrap_or(task_id);
+        self.per_rhei.get(rhei_id).unwrap_or(&self.default)
+    }
+
+    fn machine_for_task_str(&self, task_id: &str) -> &rhei_validator::StateMachine {
+        &self.for_task_str(task_id).machine
+    }
+
+    /// The validator-facing set (owned clone).
+    fn validator_set(&self) -> rhei_validator::MachineSet {
+        rhei_validator::MachineSet {
+            default: self.default.machine.clone(),
+            per_rhei: self
+                .per_rhei
+                .iter()
+                .map(|(id, resolved)| (id.clone(), resolved.machine.clone()))
+                .collect(),
+        }
+    }
+
+    /// Distinct resolved machines (by machine name), default first.
+    fn distinct(&self) -> Vec<&ResolvedStateMachine> {
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut out = vec![&self.default];
+        seen.insert(self.default.machine.name.as_str());
+        for resolved in self.per_rhei.values() {
+            if seen.insert(resolved.machine.name.as_str()) {
+                out.push(resolved);
+            }
+        }
+        out
+    }
+
+    /// Rhei ids running each per-rhei machine, keyed by machine name — for
+    /// surfaces that present machines to a reader. §FS-rhei-states-cmd.3
+    fn rheis_by_machine(&self) -> BTreeMap<&str, Vec<&str>> {
+        let mut out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for (rhei_id, resolved) in &self.per_rhei {
+            out.entry(resolved.machine.name.as_str()).or_default().push(rhei_id.as_str());
+        }
+        out
+    }
+}
+
+/// Everything the execution paths need per rhei: the machine set for state
+/// classification plus the callback base each rhei's transitions run under —
+/// a self-declared machine's callbacks resolve relative to *its* states file,
+/// exactly as when that workspace runs standalone.
+// §DA-per-rhei-state-machines
+#[derive(Clone)]
+struct ExecutionMachines {
+    set: rhei_validator::MachineSet,
+    default_callbacks: CallbackPaths,
+    per_rhei_callbacks: BTreeMap<String, CallbackPaths>,
+}
+
+impl ExecutionMachines {
+    fn build(resolved: &ResolvedMachineSet, input: &Path) -> MietteResult<Self> {
+        let default_callbacks = resolve_callback_paths(resolved.default.path.as_deref(), input)?;
+        let mut per_rhei_callbacks = BTreeMap::new();
+        for (rhei_id, machine) in &resolved.per_rhei {
+            per_rhei_callbacks
+                .insert(rhei_id.clone(), resolve_callback_paths(machine.path.as_deref(), input)?);
+        }
+        Ok(Self { set: resolved.validator_set(), default_callbacks, per_rhei_callbacks })
+    }
+
+    fn for_task(&self, id: &TaskId) -> &rhei_validator::StateMachine {
+        self.set.for_task(id)
+    }
+
+    fn for_task_str(&self, task_id: &str) -> &rhei_validator::StateMachine {
+        let rhei_id = task_id.split('.').next().unwrap_or(task_id);
+        self.set.per_rhei.get(rhei_id).unwrap_or(&self.set.default)
+    }
+
+    fn callbacks_for_str(&self, task_id: &str) -> &CallbackPaths {
+        let rhei_id = task_id.split('.').next().unwrap_or(task_id);
+        self.per_rhei_callbacks.get(rhei_id).unwrap_or(&self.default_callbacks)
+    }
+}
+
+/// Resolve every machine a loaded plan runs under: the default via the
+/// existing project rules, plus each self-declaring rhei's machine — its own
+/// execution root's `states.yaml` first, then the shared name-match rules.
+/// An explicit `--state-machine` stays a whole-scope override and errors when
+/// a rhei in scope declares a different machine name.
+// §AR-rhei-panta.4
+fn resolve_state_machines_for_loaded_plan(
+    input: &Path,
+    loaded: &LoadedPlan,
+    state_machine_path: Option<&Path>,
+) -> MietteResult<ResolvedMachineSet> {
+    let default = resolve_state_machine_for_loaded_plan(input, loaded, state_machine_path)?;
+
+    let mut per_rhei = BTreeMap::new();
+    let mut declared: Vec<(&String, &String)> = loaded.rhei_machines.iter().collect();
+    declared.sort();
+    for (rhei_id, machine_name) in declared {
+        // Restating the default means the same thing as omitting the line.
+        if *machine_name == default.machine.name {
+            continue;
+        }
+        if let Some(override_path) = state_machine_path {
+            return Err(miette!(
+                "--state-machine '{}' declares '{}', but rhei '{rhei_id}' declares state \
+                 machine '{machine_name}'. The override replaces resolution for the whole \
+                 scope; it cannot reinterpret that rhei's states under another machine. \
+                 Narrow the invocation or drop the override.",
+                override_path.display(),
+                default.machine.name,
+            ));
+        }
+        let resolved =
+            resolve_declared_rhei_machine(input, loaded, rhei_id, machine_name)?;
+        per_rhei.insert(rhei_id.clone(), resolved);
+    }
+
+    Ok(ResolvedMachineSet { default, per_rhei })
+}
+
+/// Resolve one self-declaring rhei's machine file: the rhei's own execution
+/// root first — the shape every instantiated template ships — then the
+/// project-level name-match rules. §AR-rhei-panta.4 §FS-rhei-plan-language.1.3
+fn resolve_declared_rhei_machine(
+    input: &Path,
+    loaded: &LoadedPlan,
+    rhei_id: &str,
+    machine_name: &str,
+) -> MietteResult<ResolvedStateMachine> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(root) = loaded.rhei_roots.get(rhei_id) {
+        candidates.push(root.join("states.yaml"));
+    }
+    candidates.push(auto_state_machine_path(input));
+    let mut roots: Vec<&PathBuf> = loaded.rhei_roots.values().collect();
+    roots.sort();
+    roots.dedup();
+    for root in roots {
+        candidates.push(root.join("states.yaml"));
+    }
+
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut matches: Vec<(PathBuf, rhei_validator::StateMachine)> = Vec::new();
+    for candidate in candidates {
+        if !seen.insert(candidate.clone()) || !candidate.is_file() {
+            continue;
+        }
+        // An unloadable candidate is a real project problem; swallowing it
+        // here would surface as a misleading "not found" instead.
+        let machine = load_state_machine(Some(&candidate))?;
+        if machine.name == machine_name {
+            // The rhei's own root wins outright; other locations must be a
+            // unique match. §AR-rhei-panta.4
+            let own_root = loaded
+                .rhei_roots
+                .get(rhei_id)
+                .is_some_and(|root| candidate == root.join("states.yaml"));
+            if own_root {
+                return Ok(ResolvedStateMachine { machine, path: Some(candidate) });
+            }
+            matches.push((candidate, machine));
+        }
+    }
+
+    match matches.len() {
+        0 => Err(miette!(
+            "rhei '{rhei_id}' declares state machine '{machine_name}', but no states file \
+             declaring it was found in the rhei's root, the project root, or any other \
+             rhei root. Add a `states.yaml` declaring '{machine_name}' next to the rhei, \
+             or pass --state-machine <path>.",
+        )),
+        1 => {
+            let (path, machine) = matches.into_iter().next().expect("single match");
+            Ok(ResolvedStateMachine { machine, path: Some(path) })
+        }
+        _ => {
+            let paths: Vec<String> =
+                matches.iter().map(|(path, _)| format!("'{}'", path.display())).collect();
+            Err(miette!(
+                "rhei '{rhei_id}' declares state machine '{machine_name}', and more than one \
+                 root holds a states file declaring it: {}.\nMove the definitive file to the \
+                 rhei's own root or pass --state-machine <path>.",
+                paths.join(", ")
+            ))
+        }
+    }
+}
+
 fn auto_state_machine_path(input: &Path) -> PathBuf {
     if let Some(project_dir) = workspace::panta_project_dir(input) {
         project_dir.join("states.yaml")
@@ -276,29 +483,33 @@ fn resolve_state_machine_for_loaded_plan(
 fn resolve_state_machine_for_states_command(
     input: Option<PathBuf>,
     state_machine: Option<&Path>,
-) -> MietteResult<ResolvedStateMachine> {
+) -> MietteResult<ResolvedMachineSet> {
     if let Some(path) = state_machine {
         let machine = load_state_machine(Some(path))?;
-        return Ok(ResolvedStateMachine { machine, path: Some(path.to_path_buf()) });
+        return Ok(ResolvedMachineSet::single(ResolvedStateMachine {
+            machine,
+            path: Some(path.to_path_buf()),
+        }));
     }
 
     let explicit = input.is_some();
+    let builtin = || {
+        ResolvedMachineSet::single(ResolvedStateMachine {
+            machine: rhei_validator::StateMachine::builtin_default(),
+            path: None,
+        })
+    };
     let target = match resolve_plan_target(input) {
         Ok(target) => target,
         // No plan and no project to speak of: the built-in default is what any
         // plan authored here would get.
-        Err(_) if !explicit => {
-            return Ok(ResolvedStateMachine {
-                machine: rhei_validator::StateMachine::builtin_default(),
-                path: None,
-            });
-        }
+        Err(_) if !explicit => return Ok(builtin()),
         Err(err) => return Err(err),
     };
 
     let target = target.path;
     match load_plan(&target)
-        .and_then(|loaded| resolve_state_machine_for_loaded_plan(&target, &loaded, None))
+        .and_then(|loaded| resolve_state_machines_for_loaded_plan(&target, &loaded, None))
     {
         Ok(resolved) => Ok(resolved),
         Err(err) if !explicit => {
@@ -307,10 +518,7 @@ fn resolve_state_machine_for_states_command(
                  built-in default",
                 target.display()
             );
-            Ok(ResolvedStateMachine {
-                machine: rhei_validator::StateMachine::builtin_default(),
-                path: None,
-            })
+            Ok(builtin())
         }
         Err(err) => Err(err),
     }
@@ -333,18 +541,41 @@ fn states_command(
     as_json: bool,
 ) -> MietteResult<()> {
     let resolved = resolve_state_machine_for_states_command(input, state_machine)?;
-    let machine = resolved.machine;
-
-    if !as_json {
-        println!("Source: {}", state_machine_label(resolved.path.as_deref()));
-    }
 
     if as_json {
-        let rendered = render_state_machine_json(&machine)
-            .map_err(|err| miette!("failed to serialize state machine: {err}"))?;
+        // JSON keeps its stable single-object shape when one machine governs;
+        // a heterogeneous project renders as an array, default first.
+        // §FS-rhei-states-cmd.5
+        let distinct = resolved.distinct();
+        let rendered = if distinct.len() == 1 {
+            render_state_machine_json(&resolved.default.machine)
+                .map_err(|err| miette!("failed to serialize state machine: {err}"))?
+        } else {
+            let values = distinct
+                .iter()
+                .map(|entry| render_state_machine_json_value(&entry.machine))
+                .collect::<Vec<_>>();
+            serde_json::to_string_pretty(&values)
+                .map_err(|err| miette!("failed to serialize state machines: {err}"))?
+        };
         println!("{rendered}");
-    } else {
-        println!("{}", render_state_machine_text(&machine));
+        return Ok(());
+    }
+
+    // Text: the project default first, then each additional distinct machine,
+    // each introduced by its own Source line naming the rheis that run under
+    // it. §FS-rhei-states-cmd.3
+    println!("Source: {}", state_machine_label(resolved.default.path.as_deref()));
+    println!("{}", render_state_machine_text(&resolved.default.machine));
+    let by_machine = resolved.rheis_by_machine();
+    for entry in resolved.distinct().into_iter().skip(1) {
+        let rheis = by_machine
+            .get(entry.machine.name.as_str())
+            .map(|ids| ids.join(", "))
+            .unwrap_or_default();
+        println!();
+        println!("Source: {} (rhei: {})", state_machine_label(entry.path.as_deref()), rheis);
+        println!("{}", render_state_machine_text(&entry.machine));
     }
 
     Ok(())
@@ -385,8 +616,8 @@ fn list_command(
         eprintln!("warning: {skipped}");
     }
     let rhei_scope = resolve_rhei_scope(&loaded, &filters.rhei)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = resolved.validator_set();
 
     // Flatten the task tree into (task, parent_id) pairs, preserving source order.
     let mut flat: Vec<(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();
@@ -423,19 +654,32 @@ fn list_command(
     // declare priors, but checking the full flat set is harmless).
     let state_map: HashMap<&TaskId, String> = flat
         .iter()
-        .map(|(t, _)| (&t.id, normalized_state_name(t.state.as_str(), &machine)))
+        .map(|(t, _)| (&t.id, normalized_state_name(t.state.as_str(), machines.for_task(&t.id))))
         .collect();
 
     let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
         task.prior.iter().all(|dep| {
-            state_map.get(dep).map(|s| dependency_is_satisfied(s, &machine)).unwrap_or(false)
+            state_map
+                .get(dep)
+                .map(|s| dependency_is_satisfied(s, machines.for_task(dep)))
+                .unwrap_or(false)
         })
     };
 
-    // Normalize state filter values once so users can pass either canonical
-    // names or aliases declared in the state machine.
-    let state_filter: Vec<String> =
-        filters.states.iter().map(|s| normalized_state_name(s.as_str(), &machine)).collect();
+    // Normalize state filter values once per machine so users can pass either
+    // canonical names or counted-visit forms; a filter value normalizes under
+    // each distinct machine and matches per ticket. §DA-per-rhei-state-machines
+    let state_filter: Vec<String> = filters
+        .states
+        .iter()
+        .flat_map(|s| {
+            machines
+                .distinct()
+                .into_iter()
+                .map(|machine| normalized_state_name(s.as_str(), machine))
+                .collect::<Vec<_>>()
+        })
+        .collect();
     // §FS-rhei-panta.6: ticket targets accept the qualified id or an
     // unambiguous rhei-local shorthand — including these filter values.
     let parent_filter = filters
@@ -462,7 +706,8 @@ fn list_command(
         }
 
         if !state_filter.is_empty() {
-            let task_state = normalized_state_name(task.state.as_str(), &machine);
+            let task_state =
+                normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
             if !state_filter.iter().any(|s| s == &task_state) {
                 continue;
             }
@@ -506,7 +751,8 @@ fn list_command(
             }
         }
 
-        let is_terminal = is_terminal_state(task.state.as_str(), &machine);
+        let machine = machines.for_task(&task.id);
+        let is_terminal = is_terminal_state(task.state.as_str(), machine);
         if filters.terminal && !is_terminal {
             continue;
         }
@@ -515,7 +761,7 @@ fn list_command(
         }
 
         if filters.ready || filters.blocked {
-            let normalized = normalized_state_name(task.state.as_str(), &machine);
+            let normalized = normalized_state_name(task.state.as_str(), machine);
             let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
             let satisfied = priors_satisfied(task);
             // A ticket with children is a container, not work: `rhei next`

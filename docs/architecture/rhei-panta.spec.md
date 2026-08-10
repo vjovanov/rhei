@@ -149,35 +149,52 @@ qualification could add is a wrong id.
 
 ## 4. State-machine binding
 
-One machine governs a whole project. `index.panta.md` supplies the project
-default state machine; when the manifest declares none, the built-in `rhei`
-machine is the default. Every rhei, every ticket, and the Panta root resolve
-through that one machine, so a project has a single state vocabulary and a
-single set of legal transitions. The resolved source is surfaced in diagnostics
-— CLI override path, `index.panta.md` declaration, or built-in `rhei` fallback.
+The state machine is a property of the **rhei**, defaulted by the project.
+`index.panta.md` supplies the project *default* machine — the built-in `rhei`
+machine when the manifest declares none — and every rhei that does not declare
+its own `**States:**` runs under that default, as do the synthetic `basin` rhei
+and the Panta root's node policy. A rhei that declares its own `**States:**`
+runs under the machine it names: a state machine here is the *process* — state
+vocabulary, transitions, per-state agent bindings, artifact contracts — and
+different workstreams in one project legitimately follow different processes
+(every instantiated template is one). The merge records which rhei declared
+which machine (§DA-per-rhei-state-machines); the graph stays one merged,
+project-qualified task list, and every consumer resolves a ticket's machine
+through its owning rhei. Inheritance stays a default, never a merge: a rhei
+that omits `**States:**` takes the project default wholesale, and machines are
+never combined or namespaced.
 
-A rhei may still carry a `**States:**` line, but it must name the project's
-effective machine; a rhei that declares a *different* machine is rejected at load
-with the conflicting names and the project default. Per-rhei divergence — letting
-each rhei run under its own machine, with cross-rhei priors judged against the
-prior's own machine — is a deferred capability tracked on the roadmap, not
-current behavior. Inheritance stays a default, never a merge: a rhei that omits
-`**States:**` takes the project default wholesale, and a child rhei-local
-`states.yaml` never shadows it.
+Cross-rhei semantics need no shared vocabulary. The one computation where two
+machines meet is readiness: a `**Prior:**` into another rhei is satisfied when
+the target ticket is terminal-and-not-cancelled **under the target's own
+machine** (§FS-rhei-panta.6.1). Every other operation — validation of a
+ticket's state, transition legality, completion-target selection, artifact
+contracts, agent bindings — is a per-ticket question answered by the owning
+rhei's machine. The resolved source of each machine is surfaced in diagnostics
+— CLI override path, rhei declaration, `index.panta.md` declaration, or
+built-in `rhei` fallback.
 
-The declared machine's *definition file* auto-discovers at the project root's
-`states.yaml` first; when that is absent or names a different machine, a
-`states.yaml` in a discovered rhei's root whose declared `name:` matches the
-project's declared machine resolves it — but only a **unique** match. When
-several rhei roots hold files declaring that name, resolution is ambiguous and
-errors, naming the candidates and the fixes (move the definitive file to the
-project root, or pass `--state-machine`): a stale copy silently driving every
-ticket in the project would be far worse than asking once. A rhei-root
-candidate that fails to load is likewise an error, not a silent non-match — it
-would otherwise surface as a misleading "no states file found". A name match
-is file resolution, not shadowing — the project still runs exactly one machine
-— and it is what lets a single-rhei project adopted by `rhei init` keep its
-machine file where the rhei always kept it (§FS-rhei-init.2).
+A machine's *definition file* resolves per declaration. For a rhei's own
+declaration, the rhei's execution root `states.yaml` resolves it first when its
+`name:` matches — the shape every instantiated template ships. Otherwise, and
+for the manifest's default declaration, resolution proceeds as before: the
+project root's `states.yaml` first; when that is absent or names a different
+machine, a `states.yaml` in a discovered rhei's root whose declared `name:`
+matches — but only a **unique** match. When several candidate roots hold files
+declaring that name, resolution is ambiguous and errors, naming the candidates
+and the fixes (move the definitive file to the project root, or pass
+`--state-machine`): a stale copy silently driving tickets would be far worse
+than asking once. A candidate that fails to load is likewise an error, not a
+silent non-match — it would otherwise surface as a misleading "no states file
+found". Name-match resolution is file resolution, not shadowing, and it is
+what lets a project initialized over existing plans by `rhei init` keep each
+machine file where its rhei always kept it (§FS-rhei-init.2).
+
+`--state-machine <path>` stays a whole-scope override: it replaces resolution
+for every rhei in scope, and errors when any in-scope rhei declares a machine
+name different from the override file's `name:` — an override that silently
+reinterpreted one rhei's states under another rhei's process would corrupt
+exactly the runs the flag exists to debug.
 
 The state-machine profile that previously resolved the level-0 `rhei` root now
 resolves the `panta` root: Panta resolves through `node_policy.root`. A rhei node

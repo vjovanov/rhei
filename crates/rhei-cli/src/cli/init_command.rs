@@ -103,17 +103,9 @@ fn init_command(
         Some(title) => title.to_string(),
         None => default_project_title(&host),
     };
-    // §FS-rhei-init.2: adopt a unanimously declared machine as the project
-    // default — a bare manifest would make such a project unloadable. A rhei
-    // declaring nothing runs the built-in default, so it blocks adoption too.
-    let declared = workspace::discover_declared_state_machines(&project);
-    let contents = match declared.as_slice() {
-        [Some(machine), rest @ ..] if rest.iter().all(|d| d.as_ref() == Some(machine)) => {
-            println!("Adopted state machine '{machine}' as the project default.");
-            format!("# Panta: {title}\n**States:** {machine}\n")
-        }
-        _ => format!("# Panta: {title}\n"),
-    };
+    // §FS-rhei-init.2: the manifest is bare — each rhei keeps the machine it
+    // declares, and ones declaring nothing run the built-in default.
+    let contents = format!("# Panta: {title}\n");
     let manifest = project.join("index.panta.md");
     fs::write(&manifest, contents)
         .map_err(|err| miette!("failed to write {}: {err}", manifest.display()))?;

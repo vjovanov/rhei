@@ -117,6 +117,91 @@ pub fn build_with_history_roots(
     build_inner(rhei, machine, Some(HistoryRoots { default_root, task_roots: Some(task_roots) }))
 }
 
+/// Like [`build_with_history_roots`], for a project whose rheis run their own
+/// machines: each subtree classifies under its owning rhei's machine, and the
+/// legend is the union of every distinct machine. §DA-per-rhei-state-machines
+pub fn build_set_with_history_roots(
+    rhei: &Rhei,
+    machines: &rhei_validator::MachineSet,
+    default_root: &Path,
+    task_roots: &HashMap<String, PathBuf>,
+) -> VizModel {
+    let roots = Some(HistoryRoots { default_root, task_roots: Some(task_roots) });
+    let mut tasks = Vec::new();
+    for task in &rhei.tasks {
+        // A subtree lives inside one rhei; the top task's machine covers it.
+        collect_task(task, 0, None, machines.for_task(&task.id), roots, &mut tasks);
+    }
+    let plan_state = derive_plan_state_set(&tasks, machines);
+    let about = rhei
+        .content_sections
+        .iter()
+        .find(|s| s.title.eq_ignore_ascii_case("overview"))
+        .or_else(|| rhei.content_sections.first())
+        .map(|s| s.content.trim().to_string())
+        .filter(|s| !s.is_empty());
+    VizModel {
+        plan_title: Some(rhei.title.clone()),
+        plan_state: Some(plan_state),
+        about,
+        tasks,
+        machine: flatten_machine_union(machines),
+    }
+}
+
+/// Presentation legend for a heterogeneous project: every distinct machine's
+/// states, first definition of a name winning. Per-ticket semantics must use
+/// [`MachineSet::for_task`], never this union. §DA-per-rhei-state-machines
+pub fn flatten_machine_union(machines: &rhei_validator::MachineSet) -> Machine {
+    let distinct = machines.distinct();
+    let mut union = flatten_machine(distinct[0]);
+    for machine in distinct.iter().skip(1) {
+        let flattened = flatten_machine(machine);
+        for state in flattened.states {
+            if !union.states.iter().any(|existing| existing.name == state.name) {
+                union.states.push(state);
+            }
+        }
+    }
+    union.name =
+        distinct.iter().map(|machine| machine.name.as_str()).collect::<Vec<_>>().join(" + ");
+    union
+}
+
+/// [`derive_plan_state`] with each top-level task judged under its owning
+/// rhei's machine. §DA-per-rhei-state-machines
+pub fn derive_plan_state_set(tasks: &[TaskRow], machines: &rhei_validator::MachineSet) -> String {
+    let roots: Vec<&TaskRow> = tasks.iter().filter(|t| t.depth == 0).collect();
+    if roots.is_empty() {
+        return "draft".into();
+    }
+    if roots.iter().all(|t| t.state == "draft") {
+        return "draft".into();
+    }
+    if roots.iter().all(|t| t.state == "completed") {
+        return "completed".into();
+    }
+    let is_terminal = |row: &TaskRow| {
+        machines
+            .for_task_str(&row.id)
+            .states
+            .get(&row.state)
+            .map(|def| def.terminal)
+            .unwrap_or(false)
+    };
+    if roots.iter().all(|t| is_terminal(t)) {
+        return "archived".into();
+    }
+    // active-like = a non-terminal state that is not in the `idle` category.
+    let any_active_like =
+        roots.iter().any(|t| category(machines.for_task_str(&t.id), &t.state) == Category::Active);
+    if any_active_like {
+        "active".into()
+    } else {
+        "pending".into()
+    }
+}
+
 /// Where each task's runtime history is read from: its owning rhei's
 /// execution root when known, the plan's own root otherwise.
 #[derive(Clone, Copy)]

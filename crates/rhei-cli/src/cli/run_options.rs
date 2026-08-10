@@ -201,28 +201,24 @@ struct ActiveRunFrontend {
 
 struct RunGateTransitionSink {
     input: PathBuf,
-    machine: rhei_validator::StateMachine,
-    callback_paths: CallbackPaths,
+    machines: ExecutionMachines,
     no_callbacks: bool,
 }
 
 impl RunGateTransitionSink {
-    fn new(
-        input: PathBuf,
-        machine: rhei_validator::StateMachine,
-        callback_paths: CallbackPaths,
-        no_callbacks: bool,
-    ) -> Self {
-        Self { input, machine, callback_paths, no_callbacks }
+    fn new(input: PathBuf, machines: ExecutionMachines, no_callbacks: bool) -> Self {
+        Self { input, machines, no_callbacks }
     }
 }
 
 impl rhei_tui::GateTransitionSink for RunGateTransitionSink {
     fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+        // A gate decision lands on one ticket: its own machine and callback
+        // base execute the human transition. §DA-per-rhei-state-machines
         transition_dashboard_gate(
             &self.input,
-            &self.machine,
-            &self.callback_paths,
+            self.machines.for_task_str(task_id),
+            self.machines.callbacks_for_str(task_id),
             task_id,
             from,
             to,
@@ -262,11 +258,10 @@ impl ActiveRunFrontend {
 fn start_run_frontend(
     workspace_root: &Path,
     plan_input: &Path,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
-    machine: &rhei_validator::StateMachine,
 ) -> ActiveRunFrontend {
     if opts.dry_run() {
         return ActiveRunFrontend {
@@ -283,15 +278,14 @@ fn start_run_frontend(
     // so the TUI render thread and dashboard share one run model and the same
     // intervene/gate boundaries; neither parses plans itself. §FS-rhei-run-tui.1.5
     let plan_path = plan_input.to_path_buf();
-    let loader_machine = machine.clone();
+    let loader_machines = machines.set.clone();
     let loader: rhei_tui::PlanLoader =
-        Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machine));
+        Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machines));
     // AR §7: the intervene registry the run loop registers agents into.
     let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
     let gate = Arc::new(RunGateTransitionSink::new(
         plan_input.to_path_buf(),
-        machine.clone(),
-        callback_paths.clone(),
+        machines.clone(),
         opts.no_callbacks(),
     ));
 
@@ -415,16 +409,16 @@ fn transition_dashboard_gate(
 /// `None` and let the dashboard fall back to the last good model. AR §5.2.
 fn load_plan_for_dashboard(
     plan_path: &Path,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> Option<rhei_viz_model::VizModel> {
     let loaded = load_plan(plan_path).ok()?;
     // Any directory input — workspace or Panta project — is its own execution
     // root; per-task roots route each ticket's history to its owning rhei,
     // which is where a project run writes its ledgers. §AR-rhei-panta.5
     let default_root = execution_workspace_root(plan_path);
-    Some(rhei_viz::build_with_history_roots(
+    Some(rhei_viz::build_set_with_history_roots(
         &loaded.rhei,
-        machine,
+        machines,
         &default_root,
         &loaded.task_roots,
     ))

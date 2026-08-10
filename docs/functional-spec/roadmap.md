@@ -87,8 +87,9 @@ the single rhei of an implicit Panta with its id derived from the source
 location, mutation is project-wide with rewrites routed to each owning rhei, and
 `--rhei` narrows project-scoped invocations.
 
-Delivered with one deliberate limit, tracked below: one state machine governs a
-whole project. §FS-rhei-panta §AR-rhei-panta
+Originally delivered with one deliberate limit — one state machine governed a
+whole project — since lifted: the machine is per-rhei, defaulted by the
+manifest (§DA-per-rhei-state-machines). §FS-rhei-panta §AR-rhei-panta
 
 ## Planned: CLI UX and Release Polish
 
@@ -96,10 +97,12 @@ Status: planned. This section is the canonical home for useful follow-up work
 from the April 2026 PM review and the product-management pre-release pass. The
 old notes are historical; this roadmap owns the remaining backlog.
 
-- Resolve per-rhei state machines during execution so heterogeneous rheis can
+- ~~Resolve per-rhei state machines during execution so heterogeneous rheis can
   run under their own machines, with each cross-rhei prior judged against the
-  prior's own machine. Today one machine governs a whole project and a rhei
-  declaring a different one is a load error. §AR-rhei-panta.4 §FS-rhei-panta.6
+  prior's own machine.~~ Done: the machine is a per-rhei property defaulted by
+  the manifest, cross-rhei priors are judged under the prior's own machine, and
+  templates with distinct machines coexist in one project.
+  §DA-per-rhei-state-machines §AR-rhei-panta.4 §FS-rhei-panta.6
 - Add a `rhei new` command that creates a rhei under Panta without a location
   argument. Today a rhei is added by creating a `<id>.rhei.md` file or a
   workspace directory in the project directory. §FS-rhei-panta.2

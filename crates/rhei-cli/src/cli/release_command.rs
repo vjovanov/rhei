@@ -22,14 +22,14 @@ fn release_command(
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = resolved.validator_set();
 
     let targets = match task_id_str {
-        Some(id) => vec![release_target_by_id(&loaded, id, &scope, &machine)?],
+        Some(id) => vec![release_target_by_id(&loaded, id, &scope, &machines)?],
         None => {
             report_panta_scope_narrowed(&loaded, "release", &scope);
-            claimed_tickets(&loaded, &machine, &scope)
+            claimed_tickets(&loaded, &machines, &scope)
         }
     };
 
@@ -46,7 +46,7 @@ fn release_command(
         // rolling the state back: the transition happened, its callbacks ran,
         // and discarding that silently would lose the record of it.
         if let Some(initial) = target.initial_state.as_deref() {
-            if normalized_state_name(&target.state, &machine) != initial {
+            if normalized_state_name(&target.state, machines.for_task_str(&target.id)) != initial {
                 println!(
                     "  note: still in '{}'. `rhei next` claims from '{}', so move it back with \
                      `rhei transition --task {} --from {} --to {}` if it should be picked up \
@@ -85,7 +85,7 @@ fn release_target_by_id(
     loaded: &LoadedPlan,
     task_id_str: &str,
     scope: &RheiScope,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> MietteResult<ReleaseTarget> {
     let task_id_str = resolve_cli_task_id(loaded, task_id_str, scope)?;
     let target_id = parse_task_id(&task_id_str);
@@ -97,13 +97,13 @@ fn release_target_by_id(
             task_id_str
         ));
     };
-    Ok(release_target(loaded, task, assignee, machine))
+    Ok(release_target(loaded, task, assignee, machines.for_task(&task.id)))
 }
 
 /// Every claimed, non-terminal ticket in scope.
 fn claimed_tickets(
     loaded: &LoadedPlan,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> Vec<ReleaseTarget> {
     let mut all = Vec::new();
@@ -112,9 +112,11 @@ fn claimed_tickets(
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         // A terminal ticket keeping an assignee is a record of who finished it,
         // not a claim blocking anyone; a sweep must not erase that.
-        .filter(|task| !is_terminal_state(task.state.as_str(), machine))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .filter_map(|task| {
-            task.assignee.clone().map(|assignee| release_target(loaded, task, assignee, machine))
+            task.assignee
+                .clone()
+                .map(|assignee| release_target(loaded, task, assignee, machines.for_task(&task.id)))
         })
         .collect()
 }

@@ -74,14 +74,16 @@ fn complete_command(
     // narrowed by the rhei the invocation was pointed at. §FS-rhei-panta.6
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
     let task_id_str = &resolve_cli_task_id(&loaded, task_id_str, &scope)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
-    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = ExecutionMachines::build(&resolved, input)?;
+    // One ticket is the whole scope: its machine and callback base govern.
+    let machine = machines.for_task_str(task_id_str).clone();
+    let callback_paths = machines.callbacks_for_str(task_id_str).clone();
 
     // Validate the plan first.
-    let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
+    let report = rhei_validator::validate_with_machine_set(&loaded.rhei, &machines.set);
     if report.has_errors() {
-        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
+        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
     }
 
     // Find the task and its current state.
@@ -121,8 +123,8 @@ fn complete_command(
     // never surface again. §FS-rhei-complete.4
     let mut all_tasks = Vec::new();
     collect_plan_tasks(&loaded.rhei.tasks, &mut all_tasks);
-    let state_map = plan_state_map(&all_tasks, &machine);
-    let blocked_by = blocking_priors(task, &state_map, &machine);
+    let state_map = plan_state_map(&all_tasks, &machines.set);
+    let blocked_by = blocking_priors(task, &state_map, &machines.set);
     if !blocked_by.is_empty() {
         return Err(miette!(
             "Task {} cannot be completed while its prerequisites are unsatisfied.\nBlocking priors: {}\n\
@@ -201,8 +203,9 @@ fn reset_command(
     let loaded = load_plan(input)?;
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
     report_panta_scope_narrowed(&loaded, "reset", &scope);
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let reset_summary = reset_initial_summary(&loaded.rhei, &resolved.machine)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = resolved.validator_set();
+    let reset_summary = reset_initial_summary(&loaded.rhei, &machines)?;
 
     fn count_nodes(task: &rhei_core::ast::Task) -> usize {
         1 + task.children.iter().map(count_nodes).sum::<usize>()
@@ -245,8 +248,13 @@ fn reset_command(
         }
     }
 
-    for file in reset_target_files(&loaded, input, &scope) {
-        reset_plan_file_states(&file, &resolved.machine)?;
+    // Each plan file resets to the initial states of *its* rhei's machine.
+    // §DA-per-rhei-state-machines
+    for (file, sample_task_id) in reset_target_files(&loaded, input, &scope) {
+        let rhei_id = sample_task_id.split('.').next().unwrap_or("");
+        let machine =
+            machines.per_rhei.get(rhei_id).unwrap_or(&machines.default);
+        reset_plan_file_states(&file, machine)?;
     }
     if workspace::is_workspace(input) {
         clear_runtime_metadata_in_file(&input.join("index.rhei.md"), true)?;
@@ -269,7 +277,7 @@ fn reset_command(
                 clear_runtime_metadata_in_file(&root.join("index.rhei.md"), true)?;
             }
         }
-        let removed = remove_scoped_runtime_artifacts(&loaded, input, &scope, &resolved.machine)?;
+        let removed = remove_scoped_runtime_artifacts(&loaded, input, &scope, &machines)?;
         report_reset_summary(task_count, descendant_count, &reset_summary, removed);
         // A narrowed reset can only speak for ticket-owned artifacts; run-scoped
         // rollups belong to the run, not the ticket. Say so rather than leaving
@@ -411,7 +419,7 @@ fn remove_scoped_runtime_artifacts(
     loaded: &LoadedPlan,
     input: &Path,
     scope: &RheiScope,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> MietteResult<bool> {
     let mut removed = false;
     let mut task_ids: Vec<String> = Vec::new();
@@ -464,6 +472,9 @@ fn remove_scoped_runtime_artifacts(
             if !runtime.exists() {
                 continue;
             }
+            // Artifact-name patterns come from the owning ticket's machine.
+            // §DA-per-rhei-state-machines
+            let machine = machines.for_task_str(task_id);
             for target in scoped_runtime_targets(&runtime, task_id, machine) {
                 removed |= remove_scoped_target(&target)?;
             }
@@ -613,7 +624,7 @@ fn prune_transition_ledger(root: &Path, task_ids: &BTreeSet<String>) -> MietteRe
 
 fn reset_initial_summary(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> MietteResult<String> {
     fn collect(
         task: &rhei_core::ast::Task,
@@ -629,7 +640,7 @@ fn reset_initial_summary(
 
     let mut states = BTreeSet::new();
     for task in &rhei.tasks {
-        collect(task, machine, &mut states)?;
+        collect(task, machines.for_task(&task.id), &mut states)?;
     }
 
     match states.len() {

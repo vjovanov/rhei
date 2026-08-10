@@ -258,15 +258,14 @@ fn next_command(
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
-    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
-    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = ExecutionMachines::build(&resolved, input)?;
+    let workspace_root = execution_workspace_root(&machines.default_callbacks.plan_path);
 
     // Validate the plan first.
-    let report = rhei_validator::validate_with_machine(&loaded.rhei, &machine);
+    let report = rhei_validator::validate_with_machine_set(&loaded.rhei, &machines.set);
     if report.has_errors() {
-        return Err(validation_report(input, resolved.path.as_deref(), &report.errors));
+        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
     }
 
     // Find the target task to claim. §FS-rhei-panta.6: accept the qualified
@@ -287,17 +286,21 @@ fn next_command(
         if let Some(assignee) = task.assignee.as_deref() {
             return Err(miette!("Task {} is already assigned to {}", tid, assignee));
         }
-        let state_name = normalized_state_name(task.state.as_str(), &machine);
-        let is_initial = task_is_in_initial_state(task, &state_name, &machine);
+        let machine = machines.for_task_str(tid);
+        let state_name = normalized_state_name(task.state.as_str(), machine);
+        let is_initial = task_is_in_initial_state(task, &state_name, machine);
         if is_initial {
             let mut all_tasks = Vec::new();
             collect_plan_tasks(&loaded.rhei.tasks, &mut all_tasks);
-            let state_map = plan_state_map(&all_tasks, &machine);
+            let state_map = plan_state_map(&all_tasks, &machines.set);
             let all_priors_done = task.prior.iter().all(|dep_id| {
-                state_map.get(dep_id).map(|s| dependency_is_satisfied(s, &machine)).unwrap_or(false)
+                state_map
+                    .get(dep_id)
+                    .map(|s| dependency_is_satisfied(s, machines.set.for_task(dep_id)))
+                    .unwrap_or(false)
             });
             if !all_priors_done {
-                let detail = first_blocking_prior(task, &state_map, &machine, &scope)
+                let detail = first_blocking_prior(task, &state_map, &machines.set, &scope)
                     .map(|prior| format!("; waiting on {}", prior))
                     .unwrap_or_default();
                 return Err(miette!(
@@ -324,9 +327,9 @@ fn next_command(
                 &task.id,
                 &state_name,
                 task.state.as_str(),
-                &machine,
+                machine,
             )),
-            &machine,
+            machine,
             &settings,
             &format!("Task {} cannot be claimed in state {}.", tid, state_name),
         )?;
@@ -334,7 +337,7 @@ fn next_command(
     } else {
         // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
         let ready = narrow_to_rhei_scope(
-            find_claimable_tasks(&loaded.rhei, &machine, &workspace_root, &loaded.task_roots),
+            find_claimable_tasks(&loaded.rhei, &machines.set, &workspace_root, &loaded.task_roots),
             &scope,
         );
         if ready.is_empty() {
@@ -342,15 +345,16 @@ fn next_command(
                 "{}",
                 diagnose_no_claimable(
                     &loaded.rhei,
-                    &machine,
+                    &machines.set,
                     input,
-                    resolved.path.as_deref(),
+                    resolved.default.path.as_deref(),
                     &scope
                 )
             ));
         }
         let task = ready.into_iter().next().unwrap();
-        let state_name = normalized_state_name(task.state.as_str(), &machine);
+        let machine = machines.for_task(&task.id);
+        let state_name = normalized_state_name(task.state.as_str(), machine);
         let state_def = machine
             .states
             .get(&state_name)
@@ -368,9 +372,9 @@ fn next_command(
                 &task.id,
                 &state_name,
                 task.state.as_str(),
-                &machine,
+                machine,
             )),
-            &machine,
+            machine,
             &settings,
             &format!("Task {} cannot be claimed in state {}.", task.id, state_name),
         )?;
@@ -380,9 +384,11 @@ fn next_command(
     // Determine whether we need a state transition.
     // Tasks in an initial state (e.g. draft) are transitioned forward.
     let target_id = parse_task_id(&task_id_str);
+    let machine = machines.for_task_str(&task_id_str);
+    let callback_paths = machines.callbacks_for_str(&task_id_str);
     let selected_task = find_task_by_id(&loaded.rhei.tasks, &target_id)
         .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
-    let is_initial = task_is_in_initial_state(selected_task, &current_state, &machine);
+    let is_initial = task_is_in_initial_state(selected_task, &current_state, machine);
     let current_state_def = machine
         .states
         .get(&current_state)
@@ -390,7 +396,7 @@ fn next_command(
     // §FS-rhei-next.3: claim initial states in place when the next edge is terminal completion.
     let auto_transition_initial = is_initial
         && !state_declares_autonomous_execution(current_state_def)
-        && initial_state_has_non_terminal_forward_transition(selected_task, &loaded.rhei, &machine)?;
+        && initial_state_has_non_terminal_forward_transition(selected_task, &loaded.rhei, machine)?;
 
     let route = loaded.task_route(&task_id_str, input);
 
@@ -399,13 +405,13 @@ fn next_command(
         let target_id = parse_task_id(&task_id_str);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
             .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
-        let to_state = find_next_transition(task, &loaded.rhei, &machine)?.ok_or_else(|| {
+        let to_state = find_next_transition(task, &loaded.rhei, machine)?.ok_or_else(|| {
             miette!("no forward transition available from state '{}'", current_state_raw)
         })?;
         let effective_to = execute_transition(
             TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
-            &callback_paths,
-            &machine,
+            callback_paths,
+            machine,
             &route.local_id,
             &current_state,
             &to_state,
@@ -433,7 +439,7 @@ fn next_command(
     // errors to a stderr warning instead of failing the command outright.
     let settings = load_merged_settings(&workspace_root)?;
     let no_agent_opts = default_run_options();
-    let resolved = match resolve_agent_for_task(&machine, &final_state, &settings, &no_agent_opts, task) {
+    let resolved = match resolve_agent_for_task(machine, &final_state, &settings, &no_agent_opts, task) {
         Ok(resolved) => resolved,
         Err(err) => {
             eprintln!(
@@ -462,7 +468,7 @@ fn next_command(
             &route.local_id,
             &task_id_str,
             &final_state,
-            &machine,
+            machine,
             TaskAssigneeClaimContext {
                 workspace_root: &task_workspace_root,
                 metadata: loaded.rhei.metadata.as_ref(),
@@ -472,7 +478,7 @@ fn next_command(
             assignee,
         )?;
     }
-    let tooling = resolve_tooling(&machine, &final_state, &settings);
+    let tooling = resolve_tooling(machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
         checkout_root: &task_workspace_root,
@@ -482,7 +488,7 @@ fn next_command(
         task,
         state_name: &final_state,
         current_state_raw: task.state.as_str(),
-        machine: &machine,
+        machine,
         metadata: loaded.rhei.metadata.as_ref(),
         target: resolved.as_ref().and_then(|r| r.target.as_ref()),
         model: model_id_str.as_deref(),
@@ -493,7 +499,7 @@ fn next_command(
         tooling: Some(&tooling),
     };
     let instructions = resolve_runtime_template_text(
-        state_instructions(&machine, &final_state).as_str(),
+        state_instructions(machine, &final_state).as_str(),
         &render_context,
     );
     let personality = machine

@@ -112,7 +112,7 @@ fn rhei_local_task_id(task: &Task) -> Option<String> {
     )
 }
 
-fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
+fn validate_result_blocks(rhei: &Rhei, machines: &MachineSet, report: &mut ValidationReport) {
     let re = Regex::new(r"^> \*\*Result:\*\* \[([^\]]*)\]\(([^)]+)\)\s*$")
         .expect("valid result block regex");
 
@@ -153,6 +153,7 @@ fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut Vali
             return;
         }
 
+        let machine = machines.for_task(&task.id);
         let parsed = parse_task_state(&task.state, machine);
         let is_terminal =
             machine.states.get(&parsed.state).map(|state| state.terminal).unwrap_or(false);

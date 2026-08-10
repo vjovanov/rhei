@@ -27,14 +27,17 @@ fn tooling_trigger_matches(value: &serde_yaml::Value, unavailable: &[String]) ->
 #[allow(clippy::too_many_arguments)]
 fn fire_tooling_unavailable_transition(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     task_id_str: &str,
     from_state: &str,
     kind: ToolingKind,
     unavailable: &[String],
     no_callbacks: bool,
 ) -> TimeoutTransitionOutcome {
+    // The failing ticket's own machine and callback base fire the transition.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
     let matching_rule = machine.transitions.iter().find(|rule| {
         let trigger = match kind {
             ToolingKind::Mcp => rule.mcp_unavailable.as_ref(),
@@ -112,20 +115,19 @@ fn find_timeout_transition(
 // §FS-rhei-agents.7.5: Timeout callback context payload.
 fn fire_timeout_transition(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     task_id_str: &str,
     from_state: &str,
     timeout_secs: Option<u64>,
     no_callbacks: bool,
 ) -> TimeoutTransitionOutcome {
+    let machine = machines.for_task_str(task_id_str);
     let Some(to_state) = find_timeout_transition(machine, from_state) else {
         return TimeoutTransitionOutcome::NoRule;
     };
     fire_selected_timeout_transition(
         input,
-        machine,
-        callback_paths,
+        machines,
         task_id_str,
         from_state,
         &to_state,
@@ -137,14 +139,17 @@ fn fire_timeout_transition(
 #[allow(clippy::too_many_arguments)]
 fn fire_selected_timeout_transition(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     task_id_str: &str,
     from_state: &str,
     to_state: &str,
     timeout_secs: Option<u64>,
     no_callbacks: bool,
 ) -> TimeoutTransitionOutcome {
+    // The failing ticket's own machine and callback base fire the transition.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
     let loaded = match load_plan(input) {
         Ok(l) => l,
         Err(_) => return TimeoutTransitionOutcome::Failed,
@@ -202,14 +207,17 @@ fn fire_selected_timeout_transition(
 #[allow(clippy::too_many_arguments)]
 fn fire_agent_exit_transition(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     task_id_str: &str,
     from_state: &str,
     to_state: &str,
     exit_code: i32,
     no_callbacks: bool,
 ) -> TimeoutTransitionOutcome {
+    // The failing ticket's own machine and callback base fire the transition.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
     let loaded = match load_plan(input) {
         Ok(l) => l,
         Err(_) => return TimeoutTransitionOutcome::Failed,
@@ -308,13 +316,13 @@ fn total_task_count(rhei: &rhei_core::ast::Rhei) -> usize {
 
 fn terminal_task_count(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> usize {
     let mut tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut tasks);
     tasks
         .into_iter()
-        .filter(|task| is_terminal_state(task.state.as_str(), machine))
+        .filter(|task| is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .count()
 }
 
@@ -365,14 +373,14 @@ fn poll_next_attempt_at(
 /// check: a narrowed run only answers for its own scope. §FS-rhei-panta.6.1
 fn scoped_unfinished_task_exists(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> bool {
     let mut tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut tasks);
     tasks.into_iter().any(|task| {
         task_in_rhei_scope(scope, &task.id.to_string())
-            && !is_terminal_state(task.state.as_str(), machine)
+            && !is_terminal_state(task.state.as_str(), machines.for_task(&task.id))
     })
 }
 
@@ -381,7 +389,7 @@ fn scoped_unfinished_task_exists(
 /// candidates, marking priors that sit outside the scope. §FS-rhei-panta.6.1
 fn no_advancement_summary(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> String {
     if scope.is_none() {
@@ -389,15 +397,15 @@ fn no_advancement_summary(
     }
     let mut project = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut project);
-    let state_map = plan_state_map(&project, machine);
+    let state_map = plan_state_map(&project, machines);
     let blocked: Vec<String> = project
         .iter()
         .copied()
         .filter(|task| task.children.is_empty())
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
-        .filter(|task| !is_terminal_state(task.state.as_str(), machine))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .filter_map(|task| {
-            first_blocking_prior(task, &state_map, machine, scope)
+            first_blocking_prior(task, &state_map, machines, scope)
                 .map(|prior| format!("Task {} waiting on {}", task.id, prior))
         })
         .collect();
@@ -417,7 +425,7 @@ fn no_advancement_summary(
 
 fn earliest_pending_poll_deadline(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> Option<u64> {
     let mut tasks = Vec::new();
@@ -428,6 +436,7 @@ fn earliest_pending_poll_deadline(
         // tickets, so their poll deadlines must not keep it alive.
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter_map(|task| {
+            let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).and_then(|def| def.poll.as_ref())?;
             poll_next_attempt_at(rhei.metadata.as_ref(), &task.id, &state)
@@ -441,11 +450,12 @@ fn earliest_pending_poll_deadline(
 /// gate stays resolvable in the UI. §FS-rhei-run-tui.1.5.5
 fn has_pending_human_gate(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> bool {
     let mut tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut tasks);
     tasks.iter().any(|task| {
+        let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         machine
             .states
@@ -457,32 +467,32 @@ fn has_pending_human_gate(
 
 fn should_wait_for_human_gate(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> bool {
     // The gate itself may sit in any rhei — the TUI shows the whole project —
     // but only in-scope work decides whether waiting can still bear fruit.
-    has_pending_human_gate(rhei, machine)
-        && remaining_work_is_only_gating_or_poll_blocked(rhei, machine, scope)
+    has_pending_human_gate(rhei, machines)
+        && remaining_work_is_only_gating_or_poll_blocked(rhei, machines, scope)
 }
 
 fn remaining_work_is_only_gating_or_poll_blocked(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> bool {
     let mut tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut tasks);
     let state_map: HashMap<&TaskId, String> = tasks
         .iter()
-        .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machine)))
+        .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machines.for_task(&task.id))))
         .collect();
 
     fn blocked_by_gate<'a>(
         task: &'a rhei_core::ast::Task,
         tasks: &[&'a rhei_core::ast::Task],
         state_map: &HashMap<&'a TaskId, String>,
-        machine: &rhei_validator::StateMachine,
+        machines: &rhei_validator::MachineSet,
         seen: &mut HashSet<TaskId>,
     ) -> bool {
         task.prior.iter().any(|dep_id| {
@@ -492,6 +502,9 @@ fn remaining_work_is_only_gating_or_poll_blocked(
             let Some(dep_state) = state_map.get(dep_id) else {
                 return false;
             };
+            // The prior's own machine says whether it gates or satisfies.
+            // §FS-rhei-panta.6.1
+            let machine = machines.for_task(dep_id);
             let dep_is_gate = machine
                 .states
                 .get(dep_state)
@@ -506,7 +519,7 @@ fn remaining_work_is_only_gating_or_poll_blocked(
             tasks
                 .iter()
                 .find(|candidate| &candidate.id == dep_id)
-                .is_some_and(|dep_task| blocked_by_gate(dep_task, tasks, state_map, machine, seen))
+                .is_some_and(|dep_task| blocked_by_gate(dep_task, tasks, state_map, machines, seen))
         })
     }
 
@@ -516,8 +529,9 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         // §FS-rhei-panta.6.1: "remaining work" is in-scope work; priors below
         // still resolve project-wide.
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
-        .filter(|task| !is_terminal_state(task.state.as_str(), machine))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .all(|task| {
+        let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
             return true;
@@ -527,6 +541,6 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         {
             return true;
         }
-        blocked_by_gate(task, &tasks, &state_map, machine, &mut HashSet::new())
+        blocked_by_gate(task, &tasks, &state_map, machines, &mut HashSet::new())
     })
 }
