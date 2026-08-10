@@ -121,14 +121,14 @@ fn init_command(
     // §FS-rhei-init.3: default mode ignores the project folder at the host and
     // self-contains the output rules inside it, so un-ignoring the plans later
     // never commits runtime state. Track host writes to name them. §FS-rhei-init.5
-    let mut host_changes: Vec<&str> = Vec::new();
+    let mut host_changes: Vec<String> = Vec::new();
     if here {
         if seed_gitignore(&host, &["runtime/", ".rhei/cache/"])? {
-            host_changes.push(".gitignore");
+            host_changes.push(".gitignore".to_string());
         }
     } else {
         if seed_gitignore(&host, &["panta/"])? {
-            host_changes.push(".gitignore");
+            host_changes.push(".gitignore".to_string());
         }
         seed_gitignore(&project, &["runtime/", ".rhei/cache/"])?;
     }
@@ -138,7 +138,13 @@ fn init_command(
         if changed {
             agents_note_path = Some(path.clone());
             if path.parent() == Some(host.as_path()) {
-                host_changes.push("AGENTS.md");
+                // Name the actual file: the note can land in CLAUDE.md when
+                // that is the instruction file the repository uses. §FS-rhei-init.4
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "AGENTS.md".to_string());
+                host_changes.push(name);
             }
         }
     }
@@ -231,7 +237,7 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
     // root. Writing it into the adopted plans directory buried it exactly where
     // no agent looks. §FS-rhei-init.5
     let anchor = repository_root(host).unwrap_or_else(|| host.to_path_buf());
-    let path = anchor.join("AGENTS.md");
+    let path = agents_note_target(&anchor);
     let location = if anchor == host {
         if here {
             "This directory is a Rhei (Panta) project.".to_string()
@@ -265,6 +271,32 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
     Ok((true, path))
 }
 
+/// Which instruction file at the root receives the agent-discovery note.
+///
+/// `AGENTS.md` is the canonical target, but a repository whose agent
+/// instructions live only in `CLAUDE.md` has an agent that never opens
+/// `AGENTS.md` — the note must land in the file that agent actually reads.
+/// A file already carrying the note wins outright so a re-run rewrites in
+/// place instead of duplicating the note into a newer sibling.
+// §FS-rhei-init.4: CLAUDE.md-only repositories get the note in CLAUDE.md.
+fn agents_note_target(anchor: &Path) -> PathBuf {
+    let agents = anchor.join("AGENTS.md");
+    let claude = anchor.join("CLAUDE.md");
+    let carries_note = |path: &Path| {
+        fs::read_to_string(path).is_ok_and(|content| strip_rhei_note(&content) != content)
+    };
+    if carries_note(&agents) {
+        return agents;
+    }
+    if carries_note(&claude) {
+        return claude;
+    }
+    if !agents.exists() && claude.exists() {
+        return claude;
+    }
+    agents
+}
+
 /// The enclosing git repository root, if `dir` is inside one.
 fn repository_root(dir: &Path) -> Option<PathBuf> {
     let start = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
@@ -281,11 +313,11 @@ fn repository_root(dir: &Path) -> Option<PathBuf> {
 /// Name the host files init changed and state the gitignore consequence. Doing
 /// this silently is how a team learns weeks later that no plan was ever
 /// committed. §FS-rhei-init.5
-fn report_host_changes(changed: &[&str], here: bool) {
+fn report_host_changes(changed: &[String], here: bool) {
     if !changed.is_empty() {
         println!("Also changed in the host directory: {}", changed.join(", "));
     }
-    if !here && changed.contains(&".gitignore") {
+    if !here && changed.iter().any(|name| name == ".gitignore") {
         println!(
             "Note: `panta/` is gitignored — planning state is working material, not \
              repository content. Delete that entry to version the project."

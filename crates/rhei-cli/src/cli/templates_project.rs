@@ -69,9 +69,10 @@
                         "warning: {} is inside the Panta project at {}, but not directly next to \
                          index.panta.md, so the project will not discover it. Instantiate into \
                          {} to make it a member.",
-                        output_dir.display(),
-                        outer.display(),
-                        outer.join(output_dir.file_name().unwrap_or_default()).display()
+                        display_path(output_dir).display(),
+                        display_path(&outer).display(),
+                        display_path(&outer.join(output_dir.file_name().unwrap_or_default()))
+                            .display()
                     );
                 }
             }
@@ -84,9 +85,9 @@
         if !workspace::is_workspace(materialized_dir) {
             eprintln!(
                 "warning: {} sits in the Panta project at {}, but a single-file template renders                  a plain directory, which discovery does not count as a rhei — only `*.rhei.md`                  files and Directory Workspaces. The project will not list it. Instantiate it                  outside the project (`--output {}`), or move the rendered plan file next to                  index.panta.md.",
-                output_dir.display(),
-                project.display(),
-                sibling_output_suggestion(&project, output_dir).display()
+                display_path(output_dir).display(),
+                display_path(&project).display(),
+                display_path(&sibling_output_suggestion(&project, output_dir)).display()
             );
             return Ok(ProjectPlacement::Standalone);
         }
@@ -108,8 +109,8 @@
                  (§FS-rhei-panta.6), so this rhei could never load there. Instantiate it as its \
                  own project instead — `--output {}` — or use a template built for \
                  '{project_machine}'.",
-                project.display(),
-                sibling_output_suggestion(&project, output_dir).display()
+                display_path(&project).display(),
+                display_path(&sibling_output_suggestion(&project, output_dir)).display()
             )),
             None => {
                 // Nothing declared: the project runs the built-in default, and
@@ -134,8 +135,9 @@
                          One state machine governs a whole project (§FS-rhei-panta.6), so \
                          adopting '{machine}' would break them. Instantiate it as its own \
                          project instead: `--output {}`.",
-                        project.display(),
-                        sibling_output_suggestion(&project, output_dir).display()
+                        display_path(&project).display(),
+                        display_path(&sibling_output_suggestion(&project, output_dir))
+                            .display()
                     ))
                 }
             }

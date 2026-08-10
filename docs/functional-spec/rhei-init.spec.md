@@ -123,7 +123,18 @@ repository has no way to know it plans work with Rhei. Init creates
 `AGENTS.md` at the **repository root** — the enclosing directory containing
 `.git`, falling back to the host when there is none — or appends to an
 existing one, with a short note between stable markers naming where the
-project lives:
+project lives.
+
+One exception: when the root has no `AGENTS.md` but does have a `CLAUDE.md`,
+the note is appended to `CLAUDE.md` instead. A repository whose agent
+instructions live only in `CLAUDE.md` has an agent that never opens
+`AGENTS.md`, so creating one there files the note where nobody reads — the
+note goes into the instruction file the repository actually uses. A repository
+with both files (including the common `CLAUDE.md → AGENTS.md` symlink) keeps
+`AGENTS.md` as the target, and re-running init finds and rewrites the note in
+whichever file carries it. Init's output names the file it changed either way.
+
+The note:
 
 ```markdown
 <!-- rhei:begin -->

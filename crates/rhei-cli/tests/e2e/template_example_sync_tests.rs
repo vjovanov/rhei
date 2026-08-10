@@ -28,7 +28,10 @@ const TEMPLATE_EXAMPLES: &[(&str, &str)] = &[
 ];
 
 /// Example-owned files that the rendered template output does not include.
-const EXAMPLE_ONLY_FILES: &[&str] = &["README.md", "instantiation-values.yaml"];
+/// The spec-review fixture is demo data for the committed example — a user's
+/// instantiation reviews the user's own spec, so the template must not ship it.
+const EXAMPLE_ONLY_FILES: &[&str] =
+    &["README.md", "instantiation-values.yaml", "specs/template-review-fixture.spec.md"];
 
 /// Sorted, root-relative paths of every file under `root`, skipping any whose
 /// relative path appears in `skip`.

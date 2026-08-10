@@ -51,7 +51,7 @@ impl ProgressReportOutput {
 
         for group in &groups {
             out.push('\n');
-            out.push_str(&group.title);
+            out.push_str(&group.heading());
             out.push('\n');
             for section in &rhei.content_sections {
                 if section.rhei.as_deref() != Some(group.id.as_str()) || section.content.is_empty()

@@ -181,34 +181,28 @@
         }
     }
 
-    pub(super) fn templates_command(as_json: bool, source_filter: &str) -> MietteResult<()> {
+    pub(super) fn templates_command(
+        as_json: bool,
+        source_filter: &str,
+        template: Option<&str>,
+    ) -> MietteResult<()> {
         let filter = parse_template_source_filter(source_filter)?;
         let templates = discover_templates(filter)?;
 
+        // Naming a template after reading the list answers with its detail;
+        // resolution searches every tier — the filter shapes the list only.
+        // §FS-rhei-templates.6.3
+        if let Some(reference) = template {
+            let all = if filter == TemplateSourceFilter::All {
+                templates
+            } else {
+                discover_templates(TemplateSourceFilter::All)?
+            };
+            return template_detail(as_json, &all, reference);
+        }
+
         if as_json {
-            let payload = templates
-                .iter()
-                .map(|template| {
-                    serde_json::json!({
-                        "name": template.manifest.name,
-                        "version": template.manifest.version_string(),
-                        "description": template.manifest.description,
-                        "source": template.source.as_str(),
-                        "path": template.path,
-                        "required_inputs": template.manifest.required_input_count(),
-                        "inputs": template.manifest.inputs.iter().map(|input| {
-                            serde_json::json!({
-                                "name": input.name,
-                                "type": input.value_type().as_str(),
-                                "required": input.is_required(),
-                                "description": input.description,
-                                "default": input.schema.default.as_ref(),
-                                "validate": input.schema.validate.as_ref(),
-                            })
-                        }).collect::<Vec<_>>(),
-                    })
-                })
-                .collect::<Vec<_>>();
+            let payload = templates.iter().map(template_json_entry).collect::<Vec<_>>();
             let rendered = serde_json::to_string_pretty(&payload)
                 .map_err(|err| miette!("failed to serialize template listing: {err}"))?;
             println!("{rendered}");
@@ -241,6 +235,92 @@
         }
 
         Ok(())
+    }
+
+    /// One list entry in the JSON shape shared by the listing and the detail
+    /// view. §FS-rhei-templates.6.3
+    fn template_json_entry(template: &DiscoveredTemplate) -> serde_json::Value {
+        serde_json::json!({
+            "name": template.manifest.name,
+            "version": template.manifest.version_string(),
+            "description": template.manifest.description,
+            "source": template.source.as_str(),
+            "path": template.path,
+            "required_inputs": template.manifest.required_input_count(),
+            "inputs": template.manifest.inputs.iter().map(|input| {
+                serde_json::json!({
+                    "name": input.name,
+                    "type": input.value_type().as_str(),
+                    "required": input.is_required(),
+                    "description": input.description,
+                    "default": input.schema.default.as_ref(),
+                    "validate": input.schema.validate.as_ref(),
+                })
+            }).collect::<Vec<_>>(),
+        })
+    }
+
+    /// One template in detail: the list row expanded to the full input schema,
+    /// where the template comes from, and how to instantiate it.
+    /// §FS-rhei-templates.6.3
+    fn template_detail(
+        as_json: bool,
+        templates: &[DiscoveredTemplate],
+        reference: &str,
+    ) -> MietteResult<()> {
+        if let Some(template) = templates.iter().find(|t| t.manifest.name == reference) {
+            if as_json {
+                let rendered = serde_json::to_string_pretty(&template_json_entry(template))
+                    .map_err(|err| miette!("failed to serialize template detail: {err}"))?;
+                println!("{rendered}");
+                return Ok(());
+            }
+            print_template_inputs(&template.manifest);
+            println!("Source: {}", template.source.as_str());
+            if template.source != TemplateSource::Builtin {
+                println!("Path: {}", template.path.display());
+            }
+            print_instantiate_hint(&template.manifest);
+            return Ok(());
+        }
+
+        // A path reference still resolves; the resolver also owns the
+        // did-you-mean error for real misses. §FS-rhei-templates.6.1.2
+        let resolved = resolve_template_reference(reference)?;
+        let manifest = load_template_manifest(resolved.path())?;
+        if as_json {
+            let entry = DiscoveredTemplate {
+                manifest,
+                path: resolved.path().to_path_buf(),
+                source: TemplateSource::Project,
+            };
+            let mut value = template_json_entry(&entry);
+            // A directory reference has no discovery tier to report.
+            value["source"] = serde_json::Value::Null;
+            let rendered = serde_json::to_string_pretty(&value)
+                .map_err(|err| miette!("failed to serialize template detail: {err}"))?;
+            println!("{rendered}");
+            return Ok(());
+        }
+        print_template_inputs(&manifest);
+        println!("Path: {}", resolved.path().display());
+        print_instantiate_hint(&manifest);
+        Ok(())
+    }
+
+    /// The next command a reader of the detail view reaches for, with every
+    /// required input spelled out. §FS-rhei-templates.6.3
+    fn print_instantiate_hint(manifest: &TemplateManifest) {
+        use std::fmt::Write as _;
+        let required = manifest.inputs.iter().filter(|input| input.is_required()).fold(
+            String::new(),
+            |mut out, input| {
+                let _ = write!(out, " --set {}=<value>", input.name);
+                out
+            },
+        );
+        println!("Instantiate with:");
+        println!("  rhei instantiate {}{required}", manifest.name);
     }
 
     pub(super) fn complete_template_reference(current: &OsStr) -> Vec<CompletionCandidate> {

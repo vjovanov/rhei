@@ -363,6 +363,7 @@ transitions:
             title: "child".to_string(),
             state: "pending".to_string(),
             prior: Vec::new(),
+            prior_kinds: Vec::new(),
             assignee: None,
             model: None,
             target: None,

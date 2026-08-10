@@ -322,6 +322,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 level,
                 state: None,
                 prior: Vec::new(),
+                prior_kinds: Vec::new(),
                 assignee: None,
                 model: None,
                 target: None,
@@ -395,6 +396,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
             }
             let prior_value = line.strip_prefix("**Prior:**").unwrap_or_default();
             let mut ids = Vec::new();
+            let mut kinds = Vec::new();
             for item in prior_value.split(',') {
                 let item = item.trim();
                 let Some(caps) = re_prior_ref.captures(item) else {
@@ -418,6 +420,9 @@ pub fn parse(input: &str) -> Result<Rhei> {
                     ));
                 };
                 ids.push(id);
+                // Kept as authored; the validator checks it against the
+                // referenced node's kind. §FS-rhei-plan-language.3.1
+                kinds.push(caps.get(1).map(|m| m.as_str().to_string()));
             }
             if ids.is_empty() {
                 return Err(ParseError::new(
@@ -426,6 +431,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 ));
             }
             top.prior.extend(ids);
+            top.prior_kinds.extend(kinds);
             continue;
         }
 

@@ -214,6 +214,11 @@ pub struct Task {
     pub state: String,
     /// Prior dependencies as full task ids.
     pub prior: Vec<TaskId>,
+    /// Node-kind keyword authored on each `**Prior:**` reference, aligned
+    /// index-for-index with `prior` (`None` for bare references), kept as
+    /// authored so errors can quote the source.
+    // §FS-rhei-plan-language.3.1: validated against the referenced node's kind.
+    pub prior_kinds: Vec<Option<String>>,
     /// Assignee value captured from the optional `**Assignee:**` metadata
     /// field. `None` when the field is absent.
     pub assignee: Option<String>,

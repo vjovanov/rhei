@@ -210,16 +210,63 @@ fn validate_dependency_integrity(
         ancestors: &mut Vec<TaskId>,
         index: &HashMap<TaskId, &Task>,
         rhei_ids: &[String],
+        structure: &Structure,
         report: &mut ValidationReport,
     ) {
-        for dep in &task.prior {
-            if !index.contains_key(dep) {
+        let mut seen: HashSet<&TaskId> = HashSet::new();
+        for (position, dep) in task.prior.iter().enumerate() {
+            let kind = task.prior_kinds.get(position).and_then(|k| k.as_deref());
+            // A repeated reference is at best noise and at worst a leftover
+            // from an edit that meant to name a different task.
+            // §FS-rhei-plan-language.3.1
+            if !seen.insert(dep) {
                 report.errors.push(format!(
-                    "Task {} depends on missing Task {}{}",
-                    task.id,
-                    dep,
-                    missing_prior_hint(&task.id, dep, index, rhei_ids)
+                    "Task {} lists Task {} more than once in **Prior:**; drop the duplicate",
+                    task.id, dep
                 ));
+            }
+            match (index.get(dep), kind) {
+                // The kind keyword is decoration for the reader, so a wrong
+                // one misleads exactly where it was meant to help.
+                // §FS-rhei-plan-language.3.1
+                (Some(target), Some(kind)) if !target.kind.eq_ignore_ascii_case(kind) => {
+                    let flavor = if structure.accepts_kind(kind) {
+                        String::new()
+                    } else {
+                        format!(
+                            " ('{kind}' is not a declared node kind; declared: {:?})",
+                            structure.node_kinds
+                        )
+                    };
+                    report.errors.push(format!(
+                        "Task {} **Prior:** kind keyword '{kind}' does not match Task {}: \
+                         that node is declared '{}'{flavor}. Use the node's kind or the bare id",
+                        task.id,
+                        dep,
+                        title_case_kind(&target.kind),
+                    ));
+                }
+                // An unknown kind on an unresolvable reference is the shape a
+                // pasted task *title* takes — lead with that common mistake.
+                // §FS-rhei-plan-language.3.1
+                (None, Some(kind)) if !structure.accepts_kind(kind) => {
+                    report.errors.push(format!(
+                        "Task {} has an unresolvable **Prior:** reference: '{kind}' is not a \
+                         declared node kind (declared: {:?}) and no Task {} exists. If the \
+                         reference is a task title, use the task's id instead (`**Prior:** 1`, \
+                         `**Prior:** auth.2`)",
+                        task.id, structure.node_kinds, dep
+                    ));
+                }
+                (None, _) => {
+                    report.errors.push(format!(
+                        "Task {} depends on missing Task {}{}",
+                        task.id,
+                        dep,
+                        missing_prior_hint(&task.id, dep, index, rhei_ids)
+                    ));
+                }
+                _ => {}
             }
             if ancestors.iter().any(|ancestor| ancestor == dep) {
                 report.errors.push(format!(
@@ -230,14 +277,14 @@ fn validate_dependency_integrity(
         }
         ancestors.push(task.id.clone());
         for child in &task.children {
-            recurse(child, ancestors, index, rhei_ids, report);
+            recurse(child, ancestors, index, rhei_ids, structure, report);
         }
         ancestors.pop();
     }
 
     let mut ancestors = Vec::new();
     for task in &rhei.tasks {
-        recurse(task, &mut ancestors, index, &rhei_ids, report);
+        recurse(task, &mut ancestors, index, &rhei_ids, &rhei.structure, report);
     }
 }
 

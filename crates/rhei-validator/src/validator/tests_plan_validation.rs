@@ -42,6 +42,131 @@ states:
         );
     }
 
+    /// §FS-rhei-plan-language.3.1: a kind keyword on a **Prior:** reference
+    /// must match the referenced node's declared kind.
+    #[test]
+    fn reports_prior_kind_mismatch() {
+        let input = r#"# Rhei: Example
+
+---
+structure:
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+
+### Task 1: Design schema
+**State:** pending
+
+### Bug 2: Fix login
+**State:** pending
+
+### Task 3: Ship
+**State:** pending
+**Prior:** Task 2, Bug 1
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &sample_machine());
+
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("Task 3 **Prior:** kind keyword 'Task' does not match Task 2")
+                && joined.contains("declared 'Bug'"),
+            "missing Task->Bug mismatch; got:\n{joined}"
+        );
+        assert!(
+            joined.contains("Task 3 **Prior:** kind keyword 'Bug' does not match Task 1")
+                && joined.contains("declared 'Task'"),
+            "missing Bug->Task mismatch; got:\n{joined}"
+        );
+    }
+
+    /// §FS-rhei-plan-language.3.1: an undeclared kind keyword is reported as
+    /// such; matching keywords and bare ids stay silent.
+    #[test]
+    fn reports_undeclared_prior_kind_keyword() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Design schema
+**State:** pending
+
+### Task 2: Build API
+**State:** pending
+**Prior:** Banana 1
+
+### Task 3: Ship
+**State:** pending
+**Prior:** Task 1, 2
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &sample_machine());
+
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("Task 2 **Prior:** kind keyword 'Banana' does not match Task 1")
+                && joined.contains("'Banana' is not a declared node kind"),
+            "missing undeclared-kind error; got:\n{joined}"
+        );
+        assert!(
+            !joined.contains("Task 3"),
+            "matching keyword or bare id wrongly flagged; got:\n{joined}"
+        );
+    }
+
+    /// §FS-rhei-plan-language.3.1: a pasted task title parses as
+    /// `<kind> <id>`; the error names that reading instead of inventing a
+    /// phantom task id out of the title's second word.
+    #[test]
+    fn hints_that_an_unresolvable_prior_may_be_a_title() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Design schema
+**State:** pending
+
+### Task 2: Build API
+**State:** pending
+**Prior:** Design schema
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &sample_machine());
+
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("'Design' is not a declared node kind")
+                && joined.contains("If the reference is a task title"),
+            "missing title hint; got:\n{joined}"
+        );
+        assert!(
+            !joined.contains("depends on missing Task"),
+            "generic missing-task error should be replaced by the title hint; got:\n{joined}"
+        );
+    }
+
+    /// §FS-rhei-plan-language.3.1: duplicate **Prior:** references are errors.
+    #[test]
+    fn reports_duplicate_prior_references() {
+        let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Design schema
+**State:** pending
+
+### Task 2: Build API
+**State:** pending
+**Prior:** 1, 1
+"#;
+        let rhei = parse(input).expect("parse ok");
+        let report = validate_with_machine(&rhei, &sample_machine());
+
+        let joined = report.errors.join("\n");
+        assert!(
+            joined.contains("Task 2 lists Task 1 more than once in **Prior:**"),
+            "missing duplicate-prior error; got:\n{joined}"
+        );
+    }
+
     /// §FS-rhei-validate.4: a ticket that went terminal ahead of its prior
     /// leaves readiness and `--blocked`, so validation is the only surface
     /// that can still reveal the contradiction.

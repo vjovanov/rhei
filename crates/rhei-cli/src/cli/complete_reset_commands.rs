@@ -1,3 +1,57 @@
+/// Split `rhei complete`'s positional between the two things it can name:
+/// a plan path or the ticket id itself.
+// §FS-rhei-complete.2.1: `rhei complete auth.1 --result "…"` works as pasted.
+fn split_complete_ticket_target(
+    input: Option<PathBuf>,
+    task: Option<String>,
+) -> MietteResult<(Option<PathBuf>, String)> {
+    // With --task present the positional is the plan path — legacy behavior.
+    if let Some(task) = task {
+        return Ok((input, task));
+    }
+    let Some(positional) = input else {
+        return Err(miette!(
+            "name the ticket to complete: `rhei complete <ticket-id> --result <message>` \
+             (or `--task <ticket-id>`)"
+        ));
+    };
+    // An existing path wins over id shape, so a plan named like an id never
+    // silently completes a ticket. §FS-rhei-complete.2.1
+    if positional.exists() {
+        return Err(miette!(
+            "'{}' is a plan path; name the ticket too: \
+             `rhei complete <ticket-id> --result <message>` \
+             (or `rhei complete {} --task <ticket-id> --result <message>`)",
+            positional.display(),
+            positional.display(),
+        ));
+    }
+    let raw = positional.to_string_lossy();
+    if is_ticket_id_shaped(&raw) {
+        return Ok((None, raw.into_owned()));
+    }
+    Err(miette!("plan '{}' does not exist", positional.display()))
+}
+
+/// Whether `raw` has the shape of a ticket id (`3`, `auth.1`): dot-separated
+/// segments that are numbers or names, no path separators, and not a markdown
+/// file name. §FS-rhei-complete.2.1
+fn is_ticket_id_shaped(raw: &str) -> bool {
+    if raw.is_empty() || raw.contains(['/', '\\']) || raw.ends_with(".md") {
+        return false;
+    }
+    raw.split('.').all(|segment| {
+        let mut chars = segment.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_digit() => segment.chars().all(|c| c.is_ascii_digit()),
+            Some(c) if c.is_ascii_alphabetic() => {
+                chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            }
+            _ => false,
+        }
+    })
+}
+
 /// Execute the `complete` subcommand: transition a task to a terminal state,
 /// write the central state ledger and result artifact, link it from the task
 /// body, and remove the assignee.

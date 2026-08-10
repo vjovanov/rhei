@@ -68,7 +68,13 @@ with nothing beneath it.
 
 Each rhei renders as one block: its title as the heading, its own content
 sections beneath that (without the `Rhei <id> / ` merge prefix), then its
-tickets. A rhei that holds no tickets says so rather than rendering an empty
+tickets. The heading carries the rhei id when it differs from the title
+(compared case-insensitively, so `Billing`/`billing` stays bare) —
+`Q3 Launch (design)` — because the title and the id diverge freely (the id is
+the file stem, the title is the `# Rhei:` header) and tickets are addressed by
+id everywhere else: a reader of the progress report must be able to connect
+`design.2` in a `rhei list` or error message back to the block that explains
+it. A rhei that holds no tickets says so rather than rendering an empty
 heading. Manifest-level content sections stay above the blocks, where they
 describe the project rather than any one rhei.
 

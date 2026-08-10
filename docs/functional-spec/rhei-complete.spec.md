@@ -5,24 +5,49 @@ Atomically complete a task: transition to a terminal state, write the result to 
 ## 1. Usage
 
 ```bash
-rhei complete <RHEI_PLAN> --task <TASK_ID> --result <MESSAGE>
+rhei complete <TICKET_ID> --result <MESSAGE>
+rhei complete [RHEI_PLAN] --task <TASK_ID> --result <MESSAGE>
 ```
+
+The first form is the everyday one: every other ticket surface (`rhei list`,
+`rhei next`, error messages) prints bare ticket ids, so the id is what an agent
+or human has in hand when finishing work — `rhei complete auth.1 --result "…"`
+must work as pasted. The positional argument is disambiguated in §2.1; the
+`--task` form stays for scripts that pass an explicit plan path.
 
 ## 2. Options
 
 | Flag             | Required | Default | Description                                       |
 |------------------|----------|---------|---------------------------------------------------|
-| `--task <ID>`    | Yes      |         | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
+| `--task <ID>`    | No       |         | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). Alternative to the positional ticket id; exactly one of the two must name the ticket. See §2.1. |
 | `--result <MSG>` | Yes      |         | Result message for the task                       |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave`/`on_enter` callbacks |
 
 ### 2.1. Ticket Targets
 
-`--task` accepts either the project-qualified ticket id (`auth.1`) or a
+A ticket target accepts either the project-qualified ticket id (`auth.1`) or a
 rhei-local shorthand (`1`). A shorthand resolves only when exactly one rhei in
 the project contains that ticket; when more than one does, the error names the
 qualified candidates. There is no `--rhei` flag — the explicit ticket target is
 the scope (§FS-rhei-panta.6).
+
+The positional argument doubles as the plan path (`RHEI_PLAN`, as on every
+other command) and the ticket id, resolved in this order:
+
+1. With `--task` present, the positional is the plan path — unchanged legacy
+   behavior.
+2. Without `--task`, a positional that names an existing file or directory is
+   the plan path, and the command fails asking for the ticket. Existence wins
+   over id shape so a plan named like an id (`1/`) never silently completes a
+   ticket.
+3. Without `--task`, a positional that names no existing path, contains no path
+   separator, does not end in `.md`, and parses as a ticket id is the ticket;
+   the plan is inferred from the working directory exactly as when the
+   positional is omitted.
+4. Anything else is reported as a plan path that does not exist.
+
+With neither a positional ticket nor `--task`, the error shows the positional
+form first: `rhei complete <ticket-id> --result <message>`.
 
 ## 3. Result File
 

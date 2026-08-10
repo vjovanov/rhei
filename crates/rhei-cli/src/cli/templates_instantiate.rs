@@ -18,7 +18,7 @@
 
         let Some(template) = template else {
             // §FS-rhei-templates.6.1.2: an omitted template lists available templates.
-            return templates_command(false, "all");
+            return templates_command(false, "all", None);
         };
 
         let resolved_template = resolve_template_reference(template)?;
@@ -149,7 +149,7 @@
             println!(
                 "Dry run OK: '{}' would be instantiated into '{}'.",
                 manifest.name,
-                output_dir.display()
+                display_path(&output_dir).display()
             );
             print_instantiated_workspace_summary(
                 &materialized,
@@ -168,12 +168,19 @@
             return Ok(());
         }
 
-        println!("Instantiated template '{}' into '{}'.", manifest.name, output_dir.display());
+        println!(
+            "Instantiated template '{}' into '{}'.",
+            manifest.name,
+            display_path(&output_dir).display()
+        );
         report_project_placement(
             &placement,
             adopted_machine.as_deref(),
             hoisted_settings.as_ref(),
         );
+        if matches!(placement, ProjectPlacement::Standalone) {
+            report_standalone_versioning(&output_dir);
+        }
         print_instantiated_workspace_summary(
             &materialized,
             &output_dir,
@@ -197,6 +204,67 @@
         Ok(())
     }
 
+    /// A standalone workspace inside a git repository is tracked content
+    /// unless the user says otherwise — unlike `panta/`, which init ignores.
+    // §FS-rhei-templates.6.2: note the untracked workspace; never edit
+    // `.gitignore` — committed workspaces (examples) are the other use.
+    fn report_standalone_versioning(output_dir: &Path) {
+        let parent = match output_dir.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        let toplevel = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(parent)
+            .output();
+        let Ok(toplevel) = toplevel else {
+            return; // no git on PATH: nothing worth guessing about
+        };
+        if !toplevel.status.success() {
+            return; // not inside a git repository
+        }
+        let ignored = std::process::Command::new("git")
+            .args(["check-ignore", "-q", "--"])
+            .arg(output_dir.file_name().unwrap_or_default())
+            .current_dir(parent)
+            .status();
+        match ignored {
+            Ok(status) if status.code() == Some(1) => {}
+            _ => return, // already ignored, or git could not tell
+        }
+        let repo_root = PathBuf::from(String::from_utf8_lossy(&toplevel.stdout).trim());
+        let entry = output_dir
+            .canonicalize()
+            .ok()
+            .and_then(|dir| dir.strip_prefix(&repo_root).map(|rel| rel.to_path_buf()).ok())
+            .unwrap_or_else(|| output_dir.to_path_buf());
+        println!(
+            "Note: this standalone workspace is inside a git repository and is not gitignored, \
+             so its planning state (including `runtime/`) is repository content. Commit it to \
+             version the workspace, or add `{}/` to .gitignore to keep it working material — \
+             the stance `rhei init` takes for `panta/`.",
+            entry.display()
+        );
+    }
+
+    /// Render `path` for the report: relative to the working directory when it
+    /// sits inside it. The report is read — and its commands pasted — from that
+    /// directory, so `panta/product-management` beats the absolute spelling.
+    // §FS-rhei-templates.6.1.3: report paths inside the working directory are relative.
+    pub(super) fn display_path(path: &Path) -> PathBuf {
+        if path.is_relative() {
+            return path.to_path_buf();
+        }
+        let Ok(cwd) = std::env::current_dir() else {
+            return path.to_path_buf();
+        };
+        match path.strip_prefix(&cwd) {
+            Ok(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
+            Ok(rel) => rel.to_path_buf(),
+            Err(_) => path.to_path_buf(),
+        }
+    }
+
     /// Say what joining a project did to it. Adoption edits `index.panta.md`
     /// and the hoist moves a settings file: both are writes outside the output
     /// directory, so neither may happen silently. §FS-rhei-templates.6.2
@@ -208,7 +276,7 @@
         let Some(project) = placement.project() else {
             return;
         };
-        println!("Added to the Panta project at {}.", project.display());
+        println!("Added to the Panta project at {}.", display_path(project).display());
         if let Some(machine) = adopted_machine {
             println!(
                 "  Adopted state machine '{machine}' as the project default in index.panta.md."
@@ -217,7 +285,7 @@
         if let Some(hoisted) = hoisted {
             println!(
                 "  Merged the template's agent settings into {}.",
-                project.join(".agents/rhei/settings.json").display()
+                display_path(&project.join(".agents/rhei/settings.json")).display()
             );
             if !hoisted.added.is_empty() {
                 println!("    added: {}", hoisted.added.join(", "));
@@ -284,6 +352,7 @@
             resolve_state_machine_for_loaded_plan(&entrypoint, &loaded, state_machine_path)?;
         let tasks = flatten_tasks(&loaded.rhei);
 
+        let display_output_dir = display_path(display_output_dir);
         println!();
         println!("=== Instantiation Summary ===");
         println!("Output: {}", display_output_dir.display());
@@ -380,8 +449,21 @@
         ];
 
         if !task.prior.is_empty() {
-            let priors =
-                task.prior.iter().map(|id| format!("Task {id}")).collect::<Vec<_>>().join(", ");
+            // Echo each reference as authored: the kind keyword belongs to the
+            // referenced node, so inventing `Task` here would misprint plans
+            // with custom node kinds. §FS-rhei-plan-language.3.1
+            let priors = task
+                .prior
+                .iter()
+                .enumerate()
+                .map(|(position, id)| {
+                    match task.prior_kinds.get(position).and_then(|k| k.as_deref()) {
+                        Some(kind) => format!("{} {id}", title_case_kind(kind)),
+                        None => id.to_string(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
             lines.push(format!("**Prior:** {priors}"));
         }
 
@@ -446,11 +528,12 @@
 
         let ready = ready_tasks_from_flat(&tasks, machine);
         if let Some(task) = ready.first() {
+            let target = display_path(entrypoint);
             return format!(
                 "instantiation stopped before execution; next ready task is {}. Run `rhei run {}` or claim it with `rhei next {}`.",
                 format_task_summary_line(task),
-                entrypoint.display(),
-                entrypoint.display()
+                target.display(),
+                target.display()
             );
         }
 
@@ -570,7 +653,7 @@
             parts.push(value.clone());
         }
         parts.push("--output".to_string());
-        parts.push(output_dir.display().to_string());
+        parts.push(display_path(output_dir).display().to_string());
 
         parts.iter().map(|part| shell_quote(part)).collect::<Vec<_>>().join(" ")
     }

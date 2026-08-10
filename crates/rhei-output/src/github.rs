@@ -57,7 +57,7 @@ impl GithubIssuesOutput {
     /// workstream instead of as one flat list under shared headings.
     fn render_group(&self, rhei: &rhei_core::ast::Rhei, group: &RheiGroup, out: &mut String) {
         out.push_str("## ");
-        out.push_str(&group.title);
+        out.push_str(&group.heading());
         out.push_str("\n\n");
 
         for section in &rhei.content_sections {

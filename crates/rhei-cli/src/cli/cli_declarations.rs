@@ -365,8 +365,12 @@ enum Commands {
         #[command(subcommand)]
         command: SnapshotCommand,
     },
-    /// List available templates
+    /// List available templates, or show one template in detail
     Templates {
+        /// Template name (or path to a template directory) to show in detail;
+        /// omitted, all discovered templates are listed
+        #[arg(value_name = "TEMPLATE", add = ArgValueCompleter::new(templates::complete_template_reference))]
+        template: Option<String>,
         /// Emit the template list as JSON instead of plain text
         #[arg(long)]
         json: bool,
@@ -467,13 +471,17 @@ enum Commands {
         /// Path to a states YAML file (uses built-in default when omitted)
         #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
         state_machine: Option<PathBuf>,
-        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
-        /// enclosing project, workspace, or lone plan is used
-        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        /// Ticket id to complete (`auth.1`, `3`), or path to the markdown plan
+        /// file (.rhei.md). An id-shaped argument that names no existing path
+        /// is the ticket, with the plan inferred from the working directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is
+        /// used
+        #[arg(value_name = "TICKET_OR_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: Option<PathBuf>,
-        /// Task identifier (number or name)
+        /// Task identifier (number or name); alternative to naming the ticket
+        /// positionally
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
-        task: String,
+        task: Option<String>,
         /// Result message written to `runtime/results/<task-id>.md`
         #[arg(long)]
         result: String,

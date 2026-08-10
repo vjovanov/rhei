@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- Validate the node-kind keyword on `**Prior:**` references. The parser
+  accepted any word as a kind prefix, so `**Prior:** Banana 1` validated green
+  and a pasted task *title* — `**Prior:** Design schema` — failed as
+  "depends on missing Task p.schema", an id nobody wrote, manufactured from the
+  title's second word. A keyword must now match the referenced node's declared
+  kind (`Task 2` naming a Bug is an error that says so), an undeclared keyword
+  on an unresolvable reference leads with the title reading and points at
+  referencing by id, and a `**Prior:**` list that names the same task twice is
+  an error instead of silence — both constraints the spec already stated.
+  §FS-rhei-plan-language.3.1
+- Let `rhei complete` take the ticket id positionally. Every ticket surface
+  prints bare ids, but `rhei complete launch.1` — the exact shape the generated
+  agent note implies — failed wanting `--task` and `--result`, and silently
+  read the id as a plan path. An id-shaped positional that names no existing
+  path is now the ticket (`rhei complete auth.1 --result "…"` works as
+  pasted); an existing path still means the plan, and `--task` keeps its
+  meaning for scripts. §FS-rhei-complete.2.1
+- Stop shipping the spec-review demo fixture into user projects. Instantiating
+  `spec-review` wrote `specs/template-review-fixture.spec.md` — a file whose
+  own text says it exists for the checked-in example — next to the user's real
+  spec. The fixture is now example-owned; an instantiation reviews the spec the
+  `spec` input names and ships no demo data.
+- Put the init agent-discovery note where the repository's agent reads. In a
+  repository whose instructions live only in `CLAUDE.md`, init created a fresh
+  `AGENTS.md` for the note — a file that agent never opens. The note now goes
+  into `CLAUDE.md` when it is the only instruction file, re-runs rewrite it in
+  place wherever it landed, and init names the file it changed. Repositories
+  with `AGENTS.md` (including the `CLAUDE.md → AGENTS.md` symlink) keep it as
+  the target. §FS-rhei-init.4
+- Say when a standalone workspace lands as tracked repository content. The
+  escape hatch every placement error offers — `--output` beside the project —
+  produced a workspace no init-managed ignore rule covers, silently
+  contradicting the "planning state is working material" stance the same repo
+  chose for `panta/`. Instantiation now notes the untracked workspace and the
+  `.gitignore` entry that would ignore it; it never edits `.gitignore` itself,
+  because committed workspaces (the checked-in examples) are the other
+  legitimate use. §FS-rhei-templates.6.2
+- Answer `rhei templates <name>` with the template. Naming a template after
+  reading the list — the obvious next gesture — was an argument error that
+  pointed nowhere. It now prints the template's detail: the input schema
+  `--list-inputs` shows, the source tier, and an instantiation hint with every
+  required input spelled out; `--json` emits the list's entry shape for one
+  template, and a near-miss still gets the resolver's "did you mean".
+  §FS-rhei-templates.6.3
+- Render instantiation-report paths relative to the working directory. The
+  summary echoed absolute paths everywhere — `Output:`, the follow-up
+  `rhei run /tmp/…/panta/product-management`, the reproducible command's
+  `--output` — where `rhei next panta/product-management` is what a reader
+  actually types from the directory the report is read in. Paths outside the
+  working directory stay absolute. §FS-rhei-templates.6.1.3
+- Name the rhei id in merged-project render headings. A plan titled
+  `# Rhei: Q3 Launch` in `design.rhei.md` owns tickets `design.N`, but the
+  progress and GitHub renderers headed its block with the title alone, so
+  nothing connected `design.2` in a list or error back to the block that
+  explains it. Headings now read `Q3 Launch (design)`, staying bare when the
+  title already names the id. §FS-rhei-render.3.4
 - Make `rhei instantiate` reckon with the Panta project it is standing in. Run
   inside a project it wrote its workspace to the working directory, where
   discovery never looks — `rhei list` still reported an empty project after a

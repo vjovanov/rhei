@@ -14,8 +14,10 @@ criteria: thread safety, backward compatibility
 ```
 
 The same values are checked in at `instantiation-values.yaml`. The fixture spec
-is bundled under `specs/`, so the example remains portable across checkout
-locations and temporary e2e copies.
+is an example-owned file bundled under `specs/`, so the example remains portable
+across checkout locations and temporary e2e copies. Instantiating the template
+does not produce it — a real instantiation reviews the spec the `spec` input
+names, and ships no demo data.
 
 <!-- Fixture grounding for repository validation: §FS-template-review-fixture -->
 
@@ -35,6 +37,6 @@ rhei instantiate .agents/rhei/templates/spec-review \
   --output examples/spec-review-example
 ```
 
-After regenerating, restore this README and `instantiation-values.yaml` from the
-checked-in copy if you want to keep the example metadata alongside the rendered
-workspace.
+After regenerating, restore this README, `instantiation-values.yaml`, and
+`specs/template-review-fixture.spec.md` from the checked-in copies — all three
+are example-owned files that instantiation does not produce.

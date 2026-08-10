@@ -655,7 +655,14 @@ Directory Workspace example:
 ```
 
 When a dependency reference includes a node kind, that kind must match the
-declared kind of the referenced node.
+declared kind of the referenced node. A kind keyword that is not a declared
+node kind of the plan is reported as such; when the reference also resolves to
+no task, the error additionally suggests that the author may have pasted a task
+*title* — `**Prior:** Design schema` parses as kind `Design`, id `schema` — and
+points at referencing the task by id instead. Both checks run in the validator
+rather than the parser: a reference may point across rheis in a Panta project
+(§FS-rhei-panta.6), so the set of declared kinds and the referenced node's kind
+are only known once the whole project is loaded.
 
 Invalid child dependency example:
 

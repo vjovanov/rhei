@@ -2089,6 +2089,75 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// §FS-rhei-init.4: a repository whose agent instructions live only in
+/// CLAUDE.md gets the note there — a fresh AGENTS.md next to it would land
+/// where the resident agent never looks. Re-runs rewrite the note in place.
+#[test]
+fn init_writes_agent_note_into_claude_md_when_it_is_the_only_instruction_file() {
+    let dir = unique_temp_dir("init-claude-md");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
+    fs::write(dir.join("CLAUDE.md"), "# My project rules\n\nBe nice.\n").expect("write claude");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should succeed: {stdout}");
+    assert!(!dir.join("AGENTS.md").exists(), "no AGENTS.md should be created: {stdout}");
+    let claude = fs::read_to_string(dir.join("CLAUDE.md")).expect("claude note");
+    assert!(
+        claude.starts_with("# My project rules") && claude.contains("<!-- rhei:begin -->"),
+        "CLAUDE.md should keep its content and gain the note: {claude}"
+    );
+    assert!(
+        stdout.contains("Also changed in the host directory: .gitignore, CLAUDE.md"),
+        "init should name CLAUDE.md as the changed file: {stdout}"
+    );
+
+    // A forced re-run rewrites the note in CLAUDE.md instead of creating a
+    // sibling AGENTS.md or duplicating the block.
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .args(["init", "--force"])
+        .current_dir(&dir)
+        .output()
+        .expect("init re-runs");
+    assert!(output.status.success(), "forced re-init should succeed");
+    assert!(!dir.join("AGENTS.md").exists(), "re-run must not create AGENTS.md");
+    let claude = fs::read_to_string(dir.join("CLAUDE.md")).expect("claude note");
+    assert_eq!(
+        claude.matches("<!-- rhei:begin -->").count(),
+        1,
+        "note must not duplicate: {claude}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-init.4: with both instruction files present, AGENTS.md stays the
+/// canonical target (the common CLAUDE.md → AGENTS.md symlink reads through).
+#[test]
+fn init_prefers_agents_md_when_both_instruction_files_exist() {
+    let dir = unique_temp_dir("init-both-notes");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
+    fs::write(dir.join("AGENTS.md"), "# House rules\n").expect("write agents");
+    fs::write(dir.join("CLAUDE.md"), "# Claude rules\n").expect("write claude");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .expect("init runs");
+    assert!(output.status.success(), "init should succeed");
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    let claude = fs::read_to_string(dir.join("CLAUDE.md")).expect("claude untouched");
+    assert!(agents.contains("<!-- rhei:begin -->"), "AGENTS.md should carry the note: {agents}");
+    assert!(!claude.contains("<!-- rhei:begin -->"), "CLAUDE.md must stay untouched: {claude}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
     let dir = unique_temp_dir("init-warn");
@@ -3249,8 +3318,11 @@ fn project_render_groups_tickets_under_their_rhei() {
     };
 
     let github = render("github");
-    let auth_heading = github.find("## Authentication").expect("auth heading");
-    let billing_heading = github.find("## Billing").expect("billing heading");
+    // §FS-rhei-render.3.4: the heading carries the rhei id when it differs
+    // from the title (`Authentication (auth)`); `Billing` already names its
+    // id and stays bare.
+    let auth_heading = github.find("## Authentication (auth)").expect("auth heading");
+    let billing_heading = github.find("## Billing\n").expect("billing heading");
     let auth_ticket = github.find("auth.1").expect("auth ticket");
     let billing_ticket = github.find("billing.1").expect("billing ticket");
     assert!(
@@ -3269,7 +3341,7 @@ fn project_render_groups_tickets_under_their_rhei() {
         progress.contains("1/2 tickets done (50%)"),
         "progress leads with the completion summary:\n{progress}"
     );
-    let auth_heading = progress.find("\nAuthentication\n").expect("auth group");
+    let auth_heading = progress.find("\nAuthentication (auth)\n").expect("auth group");
     let billing_heading = progress.find("\nBilling\n").expect("billing group");
     assert!(
         auth_heading < progress.find("auth.1").expect("auth ticket")

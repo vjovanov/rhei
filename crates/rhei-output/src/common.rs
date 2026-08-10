@@ -24,6 +24,17 @@ impl RheiGroup {
     pub fn section_title<'a>(&self, merged: &'a str) -> &'a str {
         merged.strip_prefix(&format!("Rhei {} / ", self.id)).unwrap_or(merged)
     }
+
+    /// The block heading: the title, carrying the rhei id when the two
+    /// diverge. Tickets are addressed by id everywhere else, so the heading
+    /// is where `design.2` connects back to "Q3 Launch". §FS-rhei-render.3.4
+    pub fn heading(&self) -> String {
+        if self.title.eq_ignore_ascii_case(&self.id) {
+            self.title.clone()
+        } else {
+            format!("{} ({})", self.title, self.id)
+        }
+    }
 }
 
 /// The rheis of a merged Panta project, in merge order.

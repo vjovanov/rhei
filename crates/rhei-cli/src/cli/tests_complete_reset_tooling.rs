@@ -123,12 +123,46 @@
         match cli.command {
             Commands::Complete { input, task, result, no_callbacks, .. } => {
                 assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
-                assert_eq!(task, "3");
+                assert_eq!(task.as_deref(), Some("3"));
                 assert_eq!(result, "All tests pass");
                 assert!(!no_callbacks);
             }
             other => panic!("expected complete command, got {other:?}"),
         }
+    }
+
+    /// §FS-rhei-complete.2.1: the positional doubles as the ticket id when it
+    /// is id-shaped and names no existing path.
+    #[test]
+    fn complete_positional_splits_between_ticket_and_plan() {
+        // Id-shaped, no such path: the positional is the ticket.
+        let (input, task) =
+            split_complete_ticket_target(Some(PathBuf::from("auth.1")), None).expect("ticket form");
+        assert_eq!(input, None);
+        assert_eq!(task, "auth.1");
+
+        // --task present: the positional stays the plan path.
+        let (input, task) =
+            split_complete_ticket_target(Some(PathBuf::from("auth.1")), Some("3".to_string()))
+                .expect("legacy form");
+        assert_eq!(input, Some(PathBuf::from("auth.1")));
+        assert_eq!(task, "3");
+
+        // An existing path without --task asks for the ticket.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let plan = dir.path().join("plan.rhei.md");
+        std::fs::write(&plan, "# Rhei: X\n").expect("write");
+        let err = split_complete_ticket_target(Some(plan), None).expect_err("plan without ticket");
+        assert!(err.to_string().contains("name the ticket"), "got: {err}");
+
+        // Neither positional nor --task: the error shows the positional form.
+        let err = split_complete_ticket_target(None, None).expect_err("no ticket at all");
+        assert!(err.to_string().contains("rhei complete <ticket-id>"), "got: {err}");
+
+        // Not id-shaped and not an existing path: reported as a missing plan.
+        let err = split_complete_ticket_target(Some(PathBuf::from("missing/plan.rhei.md")), None)
+            .expect_err("missing plan path");
+        assert!(err.to_string().contains("does not exist"), "got: {err}");
     }
 
     #[test]

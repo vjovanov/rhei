@@ -16,6 +16,94 @@ fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
     }
 }
 
+/// §FS-rhei-templates.6.2: a standalone workspace inside a git repository gets
+/// a versioning note when untracked, and stays quiet once it is gitignored —
+/// instantiation never edits `.gitignore` itself.
+#[test]
+fn standalone_instantiation_notes_untracked_workspace_in_git_repo() {
+    let dir = unique_temp_dir("templates-standalone-git");
+    let git = Command::new("git").arg("init").arg("-q").current_dir(&dir).status();
+    if !git.map(|status| status.success()).unwrap_or(false) {
+        eprintln!("skipping: git unavailable");
+        return;
+    }
+    let template_dir = dir.join(".agents/rhei/templates/hello");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        "name: hello\nversion: 1.0.0\ndescription: Hello\ninputs:\n  - name: target\n    description: Greeting target\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        "# Rhei: Hello {{target}}\n\n## Tasks\n\n### Task 1: Greet {{target}}\n**State:** pending\n",
+    );
+
+    let result = run_raw(&["instantiate", "hello", "target=world", "--output", "out"], &dir);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("is not gitignored") && result.stdout.contains("`out/`"),
+        "untracked standalone workspace should get the versioning note; got:\n{}",
+        result.stdout
+    );
+
+    // Once ignored, the note disappears — the user has made the call.
+    fs::write(dir.join(".gitignore"), "out2/\n").expect("write gitignore");
+    let result = run_raw(&["instantiate", "hello", "target=world", "--output", "out2"], &dir);
+    assert_success(&result);
+    assert!(
+        !result.stdout.contains("is not gitignored"),
+        "ignored standalone workspace must not get the note; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.6.3: naming a template after reading the list answers
+/// with its detail — source, input schema, and an instantiation hint — instead
+/// of an argument error.
+#[test]
+fn templates_with_a_name_shows_the_template_detail() {
+    let dir = unique_temp_dir("templates-detail");
+
+    let result = run_raw(&["templates", "spec-review"], &dir);
+    assert_success(&result);
+    for expected in [
+        "Template: spec-review",
+        "spec (string, required)",
+        "Source: built-in",
+        "Instantiate with:",
+        "rhei instantiate spec-review --set spec=<value>",
+    ] {
+        assert!(
+            result.stdout.contains(expected),
+            "detail should contain '{expected}'; got:\n{}",
+            result.stdout
+        );
+    }
+
+    // JSON detail is one object in the list's entry shape.
+    let result = run_raw(&["templates", "spec-review", "--json"], &dir);
+    assert_success(&result);
+    let value: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("detail should be valid JSON");
+    assert_eq!(value["name"], "spec-review", "got:\n{}", result.stdout);
+    assert!(value["inputs"].is_array(), "got:\n{}", result.stdout);
+
+    // A miss still gets the resolver's error, with its suggestion machinery.
+    let result = run_raw(&["templates", "spec-reveiw"], &dir);
+    assert!(!result.status.success(), "unknown template should fail");
+    assert!(
+        result.stderr.contains("Did you mean 'spec-review'?"),
+        "unknown template should suggest the close name; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn templates_lists_project_local_templates() {
     let dir = unique_temp_dir("templates-list");
@@ -194,11 +282,12 @@ Say hello to {{target}}.
         "expected instantiate hint in output; got:\n{}",
         result.stdout
     );
+    // §FS-rhei-templates.6.1.3: the repro command renders the output path
+    // relative to the working directory it is pasted from.
     assert!(
         result.stdout.contains(&format!(
-            "rhei instantiate {} --set target=World --output {}",
+            "rhei instantiate {} --set target=World --output output",
             template_dir.display(),
-            output_dir.display()
         )),
         "expected reproducible instantiate command in output; got:\n{}",
         result.stdout
@@ -669,12 +758,13 @@ inputs:
         &dir,
     );
     assert_success(&result);
+    // §FS-rhei-templates.6.1.3: the repro command renders the output path
+    // relative to the working directory it is pasted from.
     assert!(
         result.stdout.contains(&format!(
-            "rhei instantiate {} --values {} --output {}",
+            "rhei instantiate {} --values {} --output output",
             template_dir.display(),
             dir.join("values.yaml").display(),
-            output_dir.display()
         )),
         "expected values-file instantiate command in output; got:\n{}",
         result.stdout

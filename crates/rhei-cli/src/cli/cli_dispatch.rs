@@ -358,7 +358,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             )
         }
         Commands::Snapshot { command, state_machine } => snapshot_command(command, state_machine.or(before_subcommand).as_deref()),
-        Commands::Templates { json, source } => templates::templates_command(json, &source),
+        Commands::Templates { template, json, source } => {
+            templates::templates_command(json, &source, template.as_deref())
+        }
         Commands::Instantiate {
             template,
             set_values,
@@ -396,6 +398,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             )
         }
         Commands::Complete { input, task, result, no_callbacks, state_machine } => {
+            let (input, task) = split_complete_ticket_target(input, task)?;
             let target = resolve_plan_target(input)?;
             complete_command(
                 target.path(),
