@@ -1,7 +1,7 @@
-# multi-agent-deliberation — example
+# agora — example
 
 A pre-rendered instantiation of the
-[`multi-agent-deliberation`](../../crates/rhei-cli/templates/multi-agent-deliberation/)
+[`agora`](../../crates/rhei-cli/templates/agora/)
 template. This example is a smoke test for the workflow shape: one splitter task
 starts in `split-points`; at runtime it creates point tasks and a final
 aggregation task.
@@ -24,8 +24,8 @@ target_agents:
 ## Validate
 
 ```bash
-rhei validate examples/multi-agent-deliberation-example
-rhei run examples/multi-agent-deliberation-example --dry-run
+rhei validate examples/agora-example
+rhei run examples/agora-example --dry-run
 ```
 
 `rhei run --dry-run` stops at the ready splitter task. The point fan-out appears
@@ -34,10 +34,10 @@ after `Task split` executes and appends concrete `point-<slug>` tasks.
 ## Regenerate
 
 ```bash
-rm -rf examples/multi-agent-deliberation-example
-rhei instantiate crates/rhei-cli/templates/multi-agent-deliberation \
-  --values crates/rhei-cli/templates/multi-agent-deliberation/.example-values.yaml \
-  --output examples/multi-agent-deliberation-example
+rm -rf examples/agora-example
+rhei instantiate crates/rhei-cli/templates/agora \
+  --values crates/rhei-cli/templates/agora/.example-values.yaml \
+  --output examples/agora-example
 ```
 
 After regenerating, restore this README and `instantiation-values.yaml` from the

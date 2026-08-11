@@ -1,5 +1,5 @@
-# Rhei: {{plan_title}}
-**States:** multi-agent-deliberation
+# Rhei: Agora Example
+**States:** agora
 
 ## Overview
 

@@ -1,4 +1,4 @@
-# Multi-Agent Deliberation Template
+# Agora Template
 
 This template turns a discussion, transcript, issue, or decision brief into a
 structured multi-agent deliberation. One splitter agent breaks the input into
@@ -15,7 +15,7 @@ state-machine diagram.
 
 | Input | Type | Default | What it does |
 |---|---|---|---|
-| `plan_title` | string | `Multi-Agent Deliberation` | Title of the instantiated workspace. |
+| `plan_title` | string | `Agora` | Title of the instantiated workspace. |
 | `discussion_title` | string | required | Short title for the discussion being resolved. |
 | `discussion` | string | required | Full discussion/transcript/brief. Use `--set-file` for long input. |
 | `splitter_agent` | string | `codex[yolo]:openai:gpt-5.5` | Agent that turns the input into point tasks. |
@@ -24,7 +24,7 @@ state-machine diagram.
 | `final_aggregator_agent` | string | `codex[yolo]:openai:gpt-5.5` | Agent that synthesizes the final cross-point solution. |
 | `presentation_agent` | string | `claude-code[yolo]:anthropic:claude-opus-4-7` | Agent that writes the simplest human-facing summary. |
 | `max_points` | positive number | `8` | Soft cap for how many point tasks the splitter should create. |
-| `output_dir` | string | `runtime/deliberation` | Workspace-relative artifact directory. |
+| `output_dir` | string | `runtime/agora` | Workspace-relative artifact directory. |
 
 ## Task Paths
 
@@ -48,17 +48,17 @@ state-machine diagram.
 5. `resolve-point` chooses the best solution for that point and records why.
 6. `final-solution` reads all point decisions and writes the overall
    recommendation.
-7. `present-to-human` writes `runtime/deliberation/human-summary.md`, then the
+7. `present-to-human` writes `runtime/agora/human-summary.md`, then the
    final task enters the `human-review` gate. A human accepts by transitioning to
    `completed` or abandons by transitioning to `cancelled`.
 
 ## Instantiate
 
 ```bash
-cargo run -p rhei-cli -- instantiate multi-agent-deliberation \
+cargo run -p rhei-cli -- instantiate agora \
   --set discussion_title="Resolve API design discussion" \
   --set-file discussion=./discussion.txt \
-  --output ./multi-agent-deliberation-demo
+  --output ./agora-demo
 ```
 
 For custom target agents, use a values file:
@@ -79,14 +79,14 @@ target_agents:
 Then instantiate with:
 
 ```bash
-cargo run -p rhei-cli -- instantiate multi-agent-deliberation \
-  --values ./deliberation-values.yaml \
+cargo run -p rhei-cli -- instantiate agora \
+  --values ./agora-values.yaml \
   --set-file discussion=./discussion.txt \
-  --output ./multi-agent-deliberation-demo
+  --output ./agora-demo
 ```
 
 ## Example
 
 A pre-rendered example lives at
-[`examples/multi-agent-deliberation-example/`](../../../../examples/multi-agent-deliberation-example/)
+[`examples/agora-example/`](../../../../examples/agora-example/)
 and passes `rhei validate` as shipped.
