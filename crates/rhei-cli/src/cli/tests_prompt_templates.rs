@@ -132,14 +132,25 @@ transitions:
         );
     }
 
+    /// The watch plan stores canonical paths, and so do the events the watcher
+    /// delivers — on macOS a temp dir is reached through a `/var` symlink, so
+    /// deriving test paths from the raw handle would compare a path the runtime
+    /// never sees.
+    fn canonical_tempdir() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path().canonicalize().expect("canonicalize tmpdir");
+        (dir, root)
+    }
+
     #[test]
     fn watch_plan_covers_an_existing_prompt_templates_directory_recursively() {
-        let dir = tempfile::tempdir().expect("tmpdir");
-        let plan = dir.path().join("plan.rhei.md");
+        let (_guard, dir) = canonical_tempdir();
+        let dir = dir.as_path();
+        let plan = dir.join("plan.rhei.md");
         fs::write(&plan, "# Rhei: Watch\n").expect("plan");
-        let states = dir.path().join("states.yaml");
+        let states = dir.join("states.yaml");
         fs::write(&states, "name: x\nversion: 1\nstates: {}\ntransitions: []\n").expect("states");
-        let templates_dir = dir.path().join("prompt_templates");
+        let templates_dir = dir.join("prompt_templates");
         fs::create_dir_all(&templates_dir).expect("prompt_templates");
         fs::write(templates_dir.join("review.md"), "Review it.\n").expect("template");
 
@@ -168,10 +179,10 @@ transitions:
 
     #[test]
     fn watch_plan_still_matches_prompt_files_when_the_directory_is_absent() {
-        let dir = tempfile::tempdir().expect("tmpdir");
-        let plan = dir.path().join("plan.rhei.md");
+        let (_guard, dir) = canonical_tempdir();
+        let plan = dir.join("plan.rhei.md");
         fs::write(&plan, "# Rhei: Watch\n").expect("plan");
-        let states = dir.path().join("states.yaml");
+        let states = dir.join("states.yaml");
         fs::write(&states, "name: x\nversion: 1\nstates: {}\ntransitions: []\n").expect("states");
 
         let plan_out = validation_watch_plan(&plan, Some(&states));
@@ -183,7 +194,7 @@ transitions:
             should_revalidate(
                 &Event {
                     kind: EventKind::Create(notify::event::CreateKind::Folder),
-                    paths: vec![dir.path().join("prompt_templates")],
+                    paths: vec![dir.join("prompt_templates")],
                     attrs: Default::default(),
                 },
                 &plan_out.targets,
