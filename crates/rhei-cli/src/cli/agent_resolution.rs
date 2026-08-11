@@ -7,25 +7,10 @@ fn resolve_target_agent(
         .map_err(|err| miette!(help = err, "invalid target selector '{}'", selector))?;
     let agent = AgentConfig::from(target.agent.clone());
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
-        // §FS-rhei-errors.1.3: name the near miss before listing everything.
-        let known = settings
-            .agents
-            .keys()
-            .chain(built_in_agents().keys())
-            .cloned()
-            .collect::<Vec<_>>();
-        miette!(
-            help = format!(
-                "{}Define it under `agents.<id>` in .agents/rhei/settings.json or \
-                 ~/.config/rhei/settings.json. Built-in ids: {}.",
-                did_you_mean(agent.id(), &known)
-                    .map(|hint| format!("{hint} "))
-                    .unwrap_or_default(),
-                built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-            ),
-            "agent '{}' is not defined",
-            agent.id()
-        )
+        // §FS-rhei-errors.1.3: `settings.agents` is the merged registry and is
+        // already seeded with the built-ins, so it is the whole candidate set.
+        let known = settings.agents.keys().cloned().collect::<Vec<_>>();
+        miette!(help = unknown_agent_help(agent.id(), &known), "agent '{}' is not defined", agent.id())
     })?;
 
     if let Some(mode) = target.mode.as_deref() {
@@ -152,25 +137,12 @@ fn resolve_legacy_agent_with_model(
     };
 
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
-        // §FS-rhei-errors.1.3: name the near miss before listing everything.
-        let known = settings
-            .agents
-            .keys()
-            .chain(built_in_agents().keys())
-            .cloned()
-            .collect::<Vec<_>>();
-        miette!(
-            help = format!(
-                "{}Define it under `agents.<id>` in .agents/rhei/settings.json or \
-                 ~/.config/rhei/settings.json. Built-in ids: {}.",
-                did_you_mean(agent.id(), &known)
-                    .map(|hint| format!("{hint} "))
-                    .unwrap_or_default(),
-                built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-            ),
-            "agent '{}' is not defined",
-            agent.id()
-        )
+        // §FS-rhei-errors.1.2: a value carrying a mode or a model is a flag
+        // mistake, not a missing settings entry.
+        let known = settings.agents.keys().cloned().collect::<Vec<_>>();
+        let help = agent_flag_selector_help(agent.id(), &known)
+            .unwrap_or_else(|| unknown_agent_help(agent.id(), &known));
+        miette!(help = help, "agent '{}' is not defined", agent.id())
     })?;
 
     let mode = if let Some(ovr) = opts.agent_mode_override() {

@@ -135,14 +135,14 @@ fn spawn_and_wait_program(
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| miette!(
-                help = "program output is logged under runtime/logs/. Check that directory is writable.",
+                help = program_log_help(),
                 "failed to create log directory '{}': {e}", parent.display()
             ))?;
     }
 
     let log_file = fs::File::create(log_path)
         .map_err(|e| miette!(
-            help = "program output is logged under runtime/logs/. Check that directory is writable.",
+            help = program_log_help(),
             "failed to create log file '{}': {e}", log_path.display()
         ))?;
     {
@@ -171,12 +171,12 @@ fn spawn_and_wait_program(
 
     let log_stdout =
         log_file.try_clone().map_err(|e| miette!(
-            help = "program output is logged under runtime/logs/. Check that directory is writable.",
+            help = program_log_help(),
             "failed to clone log file handle: {e}"
         ))?;
     let log_stderr =
         log_file.try_clone().map_err(|e| miette!(
-            help = "program output is logged under runtime/logs/. Check that directory is writable.",
+            help = program_log_help(),
             "failed to clone log file handle: {e}"
         ))?;
     let mut cmd = build_program_command(resolved, render_context)?;
@@ -204,7 +204,7 @@ fn spawn_and_wait_program(
                                 let _ = child.kill();
                                 break child.wait().map_err(|e| {
                                     miette!(
-                                        help = state_machine_help(),
+                                        help = internal_error_help(),
                                         "failed to wait for program after kill: {e}"
                                     )
                                 });
@@ -214,14 +214,14 @@ fn spawn_and_wait_program(
                     std::thread::sleep(Duration::from_millis(200));
                 }
                 Err(e) => break Err(miette!(
-                    help = state_machine_help(),
+                    help = internal_error_help(),
                     "error waiting for program: {e}"
                 )),
             }
         }
     } else {
         child.wait().map_err(|e| miette!(
-            help = state_machine_help(),
+            help = internal_error_help(),
             "failed to wait for program: {e}"
         ))
     }?;
@@ -232,7 +232,7 @@ fn spawn_and_wait_program(
             .append(true)
             .open(log_path)
             .map_err(|e| miette!(
-                help = "program output is logged under runtime/logs/. Check that directory is writable.",
+                help = program_log_help(),
                 "failed to append to log file: {e}"
             ))?;
         if timed_out {

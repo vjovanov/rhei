@@ -32,8 +32,7 @@ fn ensure_state_inputs_exist(
         );
         if artifact_relative_path_escapes_root(&relative) {
             return Err(miette!(
-                help = "artifact paths are workspace-relative. Remove the leading '/' or the \
-                        '..' segments from this artifact's `path` in the state machine.",
+                help = artifact_path_help(),
                 "{context}\nInput artifact '{}' expands to '{}' which escapes the workspace root",
                 artifact.name,
                 relative
@@ -117,8 +116,7 @@ fn ensure_state_outputs_exist(
         );
         if artifact_relative_path_escapes_root(&relative) {
             return Err(miette!(
-                help = "artifact paths are workspace-relative. Remove the leading '/' or the \
-                        '..' segments from this artifact's `path` in the state machine.",
+                help = artifact_path_help(),
                 "Task {} cannot leave state {}.\nOutput artifact '{}' expands to '{}' which escapes the workspace root",
                 task_id,
                 state_name,

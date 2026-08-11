@@ -219,7 +219,7 @@ fn snapshot_preload_session_supported(session: &serde_json::Value) -> bool {
 fn snapshot_target_slug_or_err(resolved: &ResolvedAgent) -> MietteResult<String> {
     resolved_agent_target_slug(resolved).ok_or_else(|| {
         miette!(
-            help = "snapshots are keyed by agent, provider, and model. Use a full <agent>:<provider>:<model> selector for this state.",
+            help = snapshot_key_help(),
             "snapshot-requires-target: agent '{}' does not resolve provider and model",
             resolved.agent.id()
         )
@@ -446,17 +446,17 @@ fn apply_snapshot_redactor(
     })?;
     let mut stdin =
         child.stdin.take().ok_or_else(|| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "failed to open snapshot redactor stdin"
         ))?;
     let mut stdout =
         child.stdout.take().ok_or_else(|| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "failed to open snapshot redactor stdout"
         ))?;
     let mut stderr =
         child.stderr.take().ok_or_else(|| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "failed to open snapshot redactor stderr"
         ))?;
 
@@ -486,7 +486,7 @@ fn apply_snapshot_redactor(
                             let _ = child.kill();
                             break child.wait().map_err(|err| {
                                 miette!(
-                                    help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+                                    help = snapshot_redactor_help(),
                                     "failed to wait for snapshot redactor after kill: {err}"
                                 )
                             })?;
@@ -496,7 +496,7 @@ fn apply_snapshot_redactor(
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(err) => return Err(miette!(
-                help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+                help = snapshot_redactor_help(),
                 "error waiting for snapshot redactor: {err}"
             )),
         }
@@ -505,27 +505,27 @@ fn apply_snapshot_redactor(
     let writer_result = writer
         .join()
         .map_err(|_| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "snapshot redactor stdin writer panicked"
         ))?;
     let stdout_bytes = stdout_reader
         .join()
         .map_err(|_| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "snapshot redactor stdout reader panicked"
         ))?
         .map_err(|err| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "failed to read snapshot redactor stdout: {err}"
         ))?;
     let stderr_bytes = stderr_reader
         .join()
         .map_err(|_| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "snapshot redactor stderr reader panicked"
         ))?
         .map_err(|err| miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "failed to read snapshot redactor stderr: {err}"
         ))?;
     let (stderr_summary, stderr_truncated) = snapshot_redactor_stderr_summary(&stderr_bytes);
@@ -540,7 +540,7 @@ fn apply_snapshot_redactor(
 
     if timed_out {
         return Err(miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "snapshot redactor '{}' timed out after {}s; stderr: {}",
             redactor_label,
             SNAPSHOT_REDACTOR_TIMEOUT.as_secs_f64(),
@@ -549,7 +549,7 @@ fn apply_snapshot_redactor(
     }
     if !status.success() {
         return Err(miette!(
-            help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+            help = snapshot_redactor_help(),
             "snapshot redactor '{}' exited with status {}; stderr: {}",
             redactor_label,
             status,
@@ -557,7 +557,7 @@ fn apply_snapshot_redactor(
         ));
     }
     writer_result.map_err(|err| miette!(
-        help = "the redactor is the command in `snapshot.redact` in settings.json. Check it exists, reads stdin, and writes stdout.",
+        help = snapshot_redactor_help(),
         "failed to write snapshot redactor stdin: {err}"
     ))?;
     Ok(stdout_bytes)

@@ -251,15 +251,15 @@ fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|err| miette!(
-            help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+            help = temp_write_help(),
             "failed to create temp file: {err}"
         ))?;
     tmp.write_all(content.as_bytes()).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
     tmp.persist(path).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
     Ok(())

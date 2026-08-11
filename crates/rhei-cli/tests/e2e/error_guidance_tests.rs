@@ -19,8 +19,9 @@ fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
     }
 }
 
-/// A template with two required inputs and one execution-target input, so the
-/// tests can exercise both the missing-input report and the format check.
+/// A template with two required inputs and one execution-target input, named
+/// something other than `agent` so a hardcoded `agent=` repair example is
+/// caught rather than accidentally passing. §FS-rhei-errors.1.2
 fn write_agent_template(dir: &std::path::Path) {
     let template_dir = dir.join(".agents/rhei/templates/guided");
     fs::create_dir_all(&template_dir).expect("create template dir");
@@ -37,15 +38,24 @@ inputs:
     required: true
 
   - name: brief
-    description: How to work on it
+    description: How to work on it, at whatever length the work needs
     type: string
     required: true
 
-  - name: agent
+  - name: worker_agent
     description: Agent target that does the work
     type: string
     format: execution-target
     default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: reviewers
+    description: Agent targets that review the work
+    type: array
+    items:
+      type: string
+    default:
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+      - codex[xhigh]:openai:gpt-5.5
 "#,
     );
     write_fixture_file(
@@ -143,14 +153,14 @@ fn malformed_execution_target_fails_against_the_input_the_user_typed() {
     write_agent_template(&dir);
 
     let result = run_raw(
-        &["instantiate", "guided", "subject=a", "brief=b", "agent=codex", "--dry-run"],
+        &["instantiate", "guided", "subject=a", "brief=b", "worker_agent=codex", "--dry-run"],
         &dir,
     );
     assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
 
     // §FS-rhei-errors.3.1: the error names the input, not the rendered file.
     assert!(
-        result.stderr.contains("input 'agent' is not a valid execution target: 'codex'"),
+        result.stderr.contains("input 'worker_agent' is not a valid execution target: 'codex'"),
         "expected the failure to name the input; got:\n{}",
         result.stderr
     );
@@ -159,11 +169,112 @@ fn malformed_execution_target_fails_against_the_input_the_user_typed() {
         "the error must not point at a rendered file the user never wrote; got:\n{}",
         result.stderr
     );
-    // §FS-rhei-errors.2: the suggested selector is quoted, because `[yolo]` is
-    // a glob in zsh and would fail before rhei ever ran.
+    // §FS-rhei-errors.2: quoted, because `[yolo]` is a glob in zsh.
+    // §FS-rhei-errors.1.2: and keyed to the input the user typed, so it pastes
+    // back instead of producing a fresh "no such input" error.
     assert!(
-        result.stderr.contains("agent='codex[yolo]:openai:gpt-5.5'"),
-        "expected a shell-quoted example selector; got:\n{}",
+        result.stderr.contains("worker_agent='codex[yolo]:openai:gpt-5.5'"),
+        "expected a shell-quoted example keyed to the input; got:\n{}",
+        result.stderr
+    );
+}
+
+#[test]
+fn the_suggested_execution_target_repair_can_be_pasted_back() {
+    let dir = unique_temp_dir("errors-execution-target-paste");
+    write_agent_template(&dir);
+
+    let failed = run_raw(
+        &["instantiate", "guided", "subject=a", "brief=b", "worker_agent=codex", "--dry-run"],
+        &dir,
+    );
+    // Recover the assignment rhei suggested and hand it straight back.
+    let suggestion = failed
+        .stderr
+        .split_whitespace()
+        .find(|word| word.starts_with("worker_agent='"))
+        .map(|word| word.trim_end_matches('.').replace('\'', ""))
+        .unwrap_or_else(|| panic!("no suggestion found in:\n{}", failed.stderr));
+
+    // §FS-rhei-errors.1.2: a suggested command is a next action, not a hint.
+    let retry =
+        run_raw(&["instantiate", "guided", "subject=a", "brief=b", &suggestion, "--dry-run"], &dir);
+    assert!(
+        !retry.stderr.contains("has no input named"),
+        "the suggestion named an input that does not exist; got:\n{}",
+        retry.stderr
+    );
+    assert!(
+        !retry.stderr.contains("is not a valid execution target"),
+        "the suggestion was itself rejected; got:\n{}",
+        retry.stderr
+    );
+}
+
+#[test]
+fn every_rejected_input_is_reported_in_one_pass() {
+    let dir = unique_temp_dir("errors-rejected-batch");
+    write_agent_template(&dir);
+
+    let result = run_raw(
+        &[
+            "instantiate",
+            "guided",
+            "subject=a",
+            "brief=b",
+            "worker_agent=codex",
+            "reviewers=not-a-list",
+            "--dry-run",
+        ],
+        &dir,
+    );
+    assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
+
+    // §FS-rhei-errors.1.1: two bad values cost one round trip, not two.
+    assert!(result.stderr.contains("2 inputs were rejected"), "got:\n{}", result.stderr);
+    assert!(result.stderr.contains("worker_agent"), "got:\n{}", result.stderr);
+    assert!(result.stderr.contains("reviewers"), "got:\n{}", result.stderr);
+}
+
+#[test]
+fn agent_flag_given_a_selector_names_the_flags_that_carry_it() {
+    let dir = unique_temp_dir("errors-agent-flag");
+    write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        "# Rhei: t\n\n## Tasks\n\n### Task 1: work\n**State:** pending\n",
+    );
+
+    let result = run_raw(&["run", "plan.rhei.md", "--agent", "claude-code:some-model"], &dir);
+    assert!(!result.status.success(), "run should fail: {}", result.stdout);
+
+    // §FS-rhei-errors.1.2: `--agent` takes a bare id, so pointing the user at
+    // `agents.<id>` in settings.json would be a dead end.
+    assert!(
+        result.stderr.contains("--agent claude-code --model some-model"),
+        "expected the flag split to be spelled out; got:\n{}",
+        result.stderr
+    );
+}
+
+#[test]
+fn candidate_lists_name_each_agent_once() {
+    let dir = unique_temp_dir("errors-agent-dupes");
+    write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        "# Rhei: t\n\n## Tasks\n\n### Task 1: work\n**State:** pending\n",
+    );
+
+    let result = run_raw(&["run", "plan.rhei.md", "--agent", "wholly-unrelated-name"], &dir);
+    assert!(!result.status.success(), "run should fail: {}", result.stdout);
+
+    // §FS-rhei-errors.1.3: the built-ins are already seeded into the merged
+    // registry, so listing both sources would print every id twice.
+    assert_eq!(
+        result.stderr.matches("claude-code").count(),
+        1,
+        "expected each agent id once; got:\n{}",
         result.stderr
     );
 }
@@ -187,6 +298,39 @@ fn list_inputs_quotes_values_that_a_shell_would_glob() {
         "expected the listing to end on a runnable command; got:\n{}",
         result.stdout
     );
+}
+
+#[test]
+fn list_inputs_gives_a_pasteable_form_of_a_multi_line_default() {
+    let dir = unique_temp_dir("errors-list-inputs-block");
+    write_agent_template(&dir);
+
+    let result = run_raw(&["instantiate", "guided", "--list-inputs"], &dir);
+    assert_success(&result);
+
+    // The readable block is still there, but its scalars are bare YAML, so
+    // §FS-rhei-errors.2 needs a quoted one-line form beside it.
+    assert!(result.stdout.contains("default below"), "got:\n{}", result.stdout);
+    assert!(
+        result.stdout.contains(
+            "copy: reviewers='[\"claude-code[yolo]:anthropic:claude-opus-4-7\",\
+             \"codex[xhigh]:openai:gpt-5.5\"]'"
+        ),
+        "expected a quoted one-line default; got:\n{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn the_long_value_hint_names_the_input_most_likely_to_hold_prose() {
+    let dir = unique_temp_dir("errors-long-value-hint");
+    write_agent_template(&dir);
+
+    let result = run_raw(&["instantiate", "guided", "--dry-run"], &dir);
+    assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
+    // `brief` carries the longer description; suggesting `--set-file` for the
+    // one-word `subject` instead would read as noise.
+    assert!(result.stderr.contains("--set-file brief=<path>"), "got:\n{}", result.stderr);
 }
 
 #[test]

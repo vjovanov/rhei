@@ -139,7 +139,7 @@ fn resolve_skill_sources(skills: &[String], link: bool) -> MietteResult<Resolved
 fn find_project_root() -> MietteResult<PathBuf> {
     let cwd = std::env::current_dir()
         .map_err(|e| miette!(
-            help = "re-run from a directory that still exists.",
+            help = cwd_help(),
             "failed to determine working directory: {e}"
         ))?;
 

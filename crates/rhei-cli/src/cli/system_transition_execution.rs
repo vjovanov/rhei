@@ -58,14 +58,14 @@ fn execute_transition_with_origin(
     if !machine.is_valid_state(from) {
         let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
         return Err(miette!(
-            help = "pick a state the machine declares. List them with: rhei states",
+            help = unknown_state_help(),
             "'{}' is not a valid state. Allowed: [{}]", from, allowed
         ));
     }
     if !machine.is_valid_state(to) {
         let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
         return Err(miette!(
-            help = "pick a state the machine declares. List them with: rhei states",
+            help = unknown_state_help(),
             "'{}' is not a valid state. Allowed: [{}]", to, allowed
         ));
     }
@@ -140,7 +140,7 @@ fn execute_transition_with_origin(
         }
         let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
-            help = "someone moved the task since you looked. Re-read its current state with: rhei list <plan>",
+            help = task_moved_help(),
             "conflict: Task {} is in state '{}', expected '{}'",
             files.artifact_id,
             current_state_raw,
@@ -314,7 +314,7 @@ fn execute_transition_with_origin(
                         .clone()
                         .unwrap_or_else(|| "transition rejected by callback".to_string());
                     return Err(miette!(
-                        help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                        help = callback_command_help(),
                         "on_leave callback '{}' rejected the transition: {message}",
                         cb.0
                     ));
@@ -343,7 +343,7 @@ fn execute_transition_with_origin(
             }
             let _ = fs2::FileExt::unlock(&metadata_handle);
             return Err(miette!(
-                help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                help = callback_command_help(),
                 "on_leave callback redirected to unknown state '{}'", redirect
             ));
         } else if let Err(err) = ensure_task_profile_allows_state(
@@ -370,7 +370,7 @@ fn execute_transition_with_origin(
             }
             let _ = fs2::FileExt::unlock(&metadata_handle);
             return Err(miette!(
-                help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                help = callback_command_help(),
                 "on_leave callback redirected to '{}', but no transition from '{}' to '{}' is declared",
                 redirect,
                 from,
@@ -520,13 +520,13 @@ fn execute_transition_with_origin(
                     result.error.clone().unwrap_or_else(|| "on_enter callback failed".to_string());
                 if rollback_err.is_some() || task_rollback_err.is_some() {
                     return Err(miette!(
-                        help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                        help = callback_command_help(),
                         "on_enter callback '{}' failed ({message}); rollback also failed — plan file may be inconsistent",
                         cb.0
                     ));
                 }
                 return Err(miette!(
-                    help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                    help = callback_command_help(),
                     "on_enter callback '{}' failed: {message}", cb.0
                 ));
             }
@@ -576,7 +576,7 @@ fn find_task_transition_info(
     }
 
     Err(miette!(
-        help = "list the task ids in this plan with: rhei list <plan>",
+        help = task_id_help(),
         "task '{}' not found in {}", task_id_str, file_path.display()
     ))
 }

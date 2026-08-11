@@ -123,7 +123,7 @@ fn current_task_state(plan: &Path, task_id: &str) -> MietteResult<String> {
         .find(|task| task.id.to_string() == task_id)
         .map(|task| task.state.clone())
         .ok_or_else(|| miette!(
-            help = "list the task ids in this plan with: rhei list <plan>",
+            help = task_id_help(),
             "task '{}' not found in {}", task_id, plan.display()
         ))
 }
@@ -428,7 +428,7 @@ fn resolve_state_machine_for_loaded_plan(
         let machine = load_state_machine(Some(path))?;
         if loaded.rhei.states_declared && machine.name != loaded.rhei.states.trim() {
             return Err(miette!(
-                help = "the plan's `**States:**` declaration must match the name inside the states file. Rename one of them, or point --state-machine at the matching file.",
+                help = states_declaration_help(),
                 "plan declares state machine '{}', but --state-machine '{}' declares '{}'",
                 loaded.rhei.states.trim(),
                 path.display(),
@@ -479,7 +479,7 @@ fn resolve_state_machine_for_loaded_plan(
             let paths: Vec<String> =
                 matches.iter().map(|(path, _)| format!("'{}'", path.display())).collect();
             return Err(miette!(
-                help = "the plan's `**States:**` declaration must match the name inside the states file. Rename one of them, or point --state-machine at the matching file.",
+                help = states_declaration_help(),
                 "plan declares state machine '{}', and more than one rhei root holds a \
                  states file declaring it: {}.\nMove the definitive file to the project \
                  root or pass --state-machine <path>.",
@@ -492,14 +492,14 @@ fn resolve_state_machine_for_loaded_plan(
         }
         return Err(match mismatch {
             Some(found) => miette!(
-                help = "the plan's `**States:**` declaration must match the name inside the states file. Rename one of them, or point --state-machine at the matching file.",
+                help = states_declaration_help(),
                 "plan declares state machine '{}', but auto-discovered states file '{}' declares '{}', and no rhei root holds a states file declaring it.\nUse --state-machine <path> to override the default location.",
                 declared_name,
                 candidate.display(),
                 found
             ),
             None => miette!(
-                help = "the plan's `**States:**` declaration must match the name inside the states file. Rename one of them, or point --state-machine at the matching file.",
+                help = states_declaration_help(),
                 "plan declares state machine '{}', but no auto-discovered states file was found at '{}' or, by name, in any rhei root.\nUse --state-machine <path> to override the default location.",
                 declared_name,
                 candidate.display()

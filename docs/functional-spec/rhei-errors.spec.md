@@ -28,6 +28,12 @@ clause. It reports **all** instances of the same failure at once — one missing
 input per invocation turns supplying inputs into a guessing loop where each
 attempt buys exactly one more field name.
 
+Values the user must go back and retype are one failure class, so a single run
+reports every missing input together, and every supplied-but-rejected input
+together: a wrong type, a failing `validate` pattern, and a failing `format`
+all cost the same one round trip. A batched report keeps each entry's own
+message and its own help rather than collapsing them into a summary.
+
 ### 1.2. Help
 
 The help line carries the next action. In order of preference it is:
@@ -51,19 +57,36 @@ suggests the closest match and, when the set is small, lists it. Unknown agent
 ids, states, template names, template inputs, task ids, and program names all
 follow this rule.
 
+A listing is a substitute for a near miss, not an inventory: past eight
+candidates the error names the first few, says how many remain, and defers to
+the command that lists them all. Each candidate appears once — registries are
+built by merging built-in entries with user settings, and a name present in
+both is still one name.
+
 ## 2. Copy-Paste Safety
 
 Any command Rhei prints — in an error, a help line, or a success summary — must
 survive being pasted into an interactive shell.
 
 Values are POSIX-quoted whenever they contain characters outside
-`[A-Za-z0-9_.,:/@%+=-]`. This is not cosmetic: execution target selectors
-contain `[` and `]`, and an unquoted `agent=codex[yolo]:openai:gpt-5.5` fails in
-zsh with `no matches found` before Rhei is ever executed. Printed selectors are
+`[A-Za-z0-9_.,:/@%+=-]`, and whenever they begin with `=`, which zsh expands to
+a command path. This is not cosmetic: execution target selectors contain `[`
+and `]`, and an unquoted `agent=codex[yolo]:openai:gpt-5.5` fails in zsh with
+`no matches found` before Rhei is ever executed. Printed selectors are
 therefore always quoted as `agent='codex[yolo]:openai:gpt-5.5'`.
 
+In a `KEY=VALUE` argument only the value is quoted, so the key — which is what
+the suggestion is teaching — stays readable.
+
 The same rule applies to documentation and to `--list-inputs` output, which is
-read as a source of copyable values.
+read as a source of copyable values. Where a default is shown as a multi-line
+block for readability, the block is followed by a `copy:` line carrying the
+same value as a single quoted assignment, because the block's own scalars are
+bare YAML.
+
+A repair example is keyed to the input it corrects. A suggestion built around a
+guessed name is not a next action: pasted back, it fails on the name rather
+than on the value.
 
 ## 3. Failing at the Input Boundary
 
@@ -86,6 +109,10 @@ used for `--dry-run` rendering, and output directories that instantiation
 removes on failure, are not named as if they were user artifacts; the error
 names the input or template that produced the bad content instead.
 
+A filesystem failure while rendering into scratch space names the file by its
+position inside the template — a path the user can open — and points the remedy
+at `$TMPDIR` rather than at a directory that no longer exists.
+
 ## 5. Machine-Readable Errors
 
 Commands with a JSON output mode emit errors as a single-line JSON object on
@@ -103,6 +130,14 @@ consumers see the same next action as humans:
 The contract applies to every diagnostic `rhei` prints on a failing exit path.
 Filesystem failures derive their help from the underlying error kind (missing
 path, permission, already-exists) and always name the path.
+
+Help is derived from the failure, never assigned by the area of code it sits
+in. A remedy that does not act on the reported failure — telling the user to
+check a destination for a command that writes to stdout, or to edit the state
+machine for a `waitpid` failure — is the same defect as no help at all, and the
+honest answer for a cause the user cannot have created is §1.2's bug report.
+Recurring categories share one wording so that improving a remedy improves
+every site that reaches it.
 
 ## Related
 

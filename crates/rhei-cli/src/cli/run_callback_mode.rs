@@ -219,7 +219,7 @@ fn run_callback_mode(
                     continue;
                 }
                 return Err(miette!(
-                    help = "every remaining task is blocked, gated, or assigned. See what is left with: rhei list <plan>",
+                    help = nothing_claimable_help(),
                     "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
                      use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
                     task_id_str,
@@ -412,7 +412,7 @@ fn run_callback_mode(
             && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, &machines.set, &rhei_scope)
         {
             return Err(miette!(
-                help = "every remaining task is blocked, gated, or assigned. See what is left with: rhei list <plan>",
+                help = nothing_claimable_help(),
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"
             ));
         }

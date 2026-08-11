@@ -44,7 +44,7 @@ fn resolve_snapshot_ref(
 
     match matches.len() {
         0 => Err(miette!(
-            help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+            help = snapshot_reference_help(),
             "snapshot reference '{reference}' did not match any cached generation"
         )),
         1 => Ok(matches.remove(0)),
@@ -99,7 +99,7 @@ fn parse_snapshot_ref(
         Some((body, n)) => {
             let generation = n.parse::<u64>().map_err(|_| {
                 miette!(
-                    help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+                    help = snapshot_reference_help(),
                     "snapshot reference '{reference}' has invalid generation '/g{n}'"
                 )
             })?;
@@ -110,7 +110,7 @@ fn parse_snapshot_ref(
     let parts: Vec<&str> = body.split(':').collect();
     if parts.len() < 2 || parts.len() > 4 || parts.iter().any(|part| part.is_empty()) {
         return Err(miette!(
-            help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+            help = snapshot_reference_help(),
             "snapshot reference '{reference}' must use <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]"
         ));
     }
@@ -162,13 +162,13 @@ fn split_visit<'a>(segment: &'a str, reference: &str) -> MietteResult<(&'a str, 
         Some((prefix, visit)) => {
             if prefix.is_empty() {
                 return Err(miette!(
-                    help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+                    help = snapshot_reference_help(),
                     "snapshot reference '{reference}' has an empty state before '@'"
                 ));
             }
             let visit = visit.parse::<u64>().map_err(|_| {
                 miette!(
-                    help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+                    help = snapshot_reference_help(),
                     "snapshot reference '{reference}' has invalid visit '@{visit}'"
                 )
             })?;
@@ -200,7 +200,7 @@ fn select_current_records(
     for (identity, group) in grouped {
         let Some(current) = group.iter().find(|record| record.is_current).cloned() else {
             return Err(miette!(
-                help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+                help = snapshot_reference_help(),
                 "snapshot reference '{reference}' matched cached generations for {}, but none is marked current; retry with /g<N> or repair the current pointer",
                 snapshot_identity_ref(&identity)
             ));
@@ -230,7 +230,7 @@ fn ambiguous_snapshot_report(reference: &str, matches: &[SnapshotRecord]) -> Rep
         .collect::<Vec<_>>()
         .join("\n");
     miette!(
-        help = "a reference is <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]. Copy one from: rhei snapshot list",
+        help = snapshot_reference_help(),
         "snapshot reference '{reference}' is ambiguous; matched {} candidates:\n{}\nretry with explicit --task, --name, --state, --target, or --generation selectors",
         sorted.len(),
         candidates

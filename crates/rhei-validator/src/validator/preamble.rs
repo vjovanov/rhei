@@ -394,18 +394,28 @@ impl ExecutionTarget {
     }
 }
 
+/// A concrete, corrected selector shaped from what the caller typed. Callers own
+/// the left-hand side, so this never guesses a `key=` prefix. §FS-rhei-errors.1.2
+pub fn execution_target_example(selector: &str) -> String {
+    let head = selector.split(':').next().unwrap_or_default().trim();
+    let agent = head.split('[').next().unwrap_or_default().trim();
+    let agent = if agent.is_empty() { "<agent>" } else { agent };
+    format!("{agent}[yolo]:openai:gpt-5.5")
+}
+
 /// The accepted selector shapes plus a repair of what the caller typed, quoted
 /// because a `[mode]` segment is a zsh glob. §FS-rhei-errors.1.2
 fn execution_target_repair(selector: &str) -> String {
-    // Unquoted, `agent=codex[yolo]:openai:gpt-5.5` dies with `no matches found`
+    // Unquoted, `codex[yolo]:openai:gpt-5.5` dies with `no matches found`
     // before rhei ever runs.
     let head = selector.split(':').next().unwrap_or_default().trim();
     let head = if head.is_empty() { "<agent>" } else { head };
     format!(
         "write it as '{head}:<model>' or '{head}:<provider>:<model>' \
          (a mode goes in brackets: '{head}[<mode>]:<provider>:<model>'). \
-         Selectors with a mode must be quoted in the shell, e.g. \
-         agent='{head}[yolo]:openai:gpt-5.5'"
+         A selector carrying a mode must be quoted in the shell, e.g. \
+         '{}'",
+        execution_target_example(selector)
     )
 }
 

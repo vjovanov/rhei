@@ -12,9 +12,14 @@
   `agent='codex[yolo]:openai:gpt-5.5'` survives paste into zsh instead of dying
   on glob expansion. Template inputs may declare `format: execution-target`,
   which validates the selector where the user typed it instead of failing later
-  against a rendered `states.yaml` the user never wrote.
-  §FS-rhei-errors.1 §FS-rhei-errors.2
-  §FS-rhei-errors.3.1 §FS-rhei-errors.5 §FS-rhei-templates.3.1
+  against a rendered `states.yaml` the user never wrote. Rejected inputs batch
+  the same way missing ones do, a repair example is keyed to the input it
+  corrects so it pastes back, candidate lists name each id once and stop at
+  eight, and `--agent` given a full selector says which flags carry the mode and
+  the model instead of sending the user to define an agent named
+  `claude-code:some-model`.
+  §FS-rhei-errors.1 §FS-rhei-errors.2 §FS-rhei-errors.3.1 §FS-rhei-errors.4
+  §FS-rhei-errors.5 §FS-rhei-errors.6 §FS-rhei-templates.3.1
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
   template that splits a discussion into points, collects proposals and
   disagreements, and resolves each one carried the one name in the library

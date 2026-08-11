@@ -22,21 +22,21 @@ fn snapshot_continue_command(
     let resolved = resolve_snapshot_continue_agent(ctx, &record)?;
     let Some(session) = resolved.profile.session.as_ref() else {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' does not expose a resume strategy, session layout, and interactive continuation profile",
             resolved.agent.id()
         ));
     };
     if !profile_supports_interactive_continue(&resolved.profile.session) {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' does not expose a resume strategy, session layout, and interactive continuation profile",
             resolved.agent.id()
         ));
     }
     if !no_capture && snapshot_session_string(session, "session_dir_flag").is_none() {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' cannot capture interactive continuation without session_dir_flag",
             resolved.agent.id()
         ));
@@ -126,12 +126,12 @@ fn resolve_snapshot_continue_agent(
     let selector = snapshot_record_target_selector(record)?;
     let target = parse_execution_target(&selector)
         .map_err(|err| miette!(
-            help = "a snapshot records the target it ran under. Re-create the snapshot, or pass an explicit target.",
+            help = snapshot_target_help(),
             "snapshot target selector '{}' is invalid: {}", selector, err
         ))?;
     if !ctx.settings.agents.contains_key(target.agent.as_str()) {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' is not configured",
             target.agent
         ));
@@ -149,7 +149,7 @@ fn snapshot_record_target_selector(record: &SnapshotRecord) -> MietteResult<Stri
         .map(str::to_string)
         .ok_or_else(|| {
             miette!(
-                help = "a snapshot records the target it ran under. Re-create the snapshot, or pass an explicit target.",
+                help = snapshot_target_help(),
                 "invalid snapshot manifest for {}: missing target.selector",
                 record.display_ref()
             )
@@ -194,7 +194,7 @@ fn prepare_snapshot_continue_preload(
         }
     } else {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent profile has no supported snapshot resume or fork strategy"
         ));
     }
@@ -240,7 +240,7 @@ fn spawn_snapshot_continue_agent(
     let command_parts = snapshot_interactive_command(resolved, session)?;
     let (program, base_args) = command_parts.split_first().ok_or_else(|| {
         miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' interactive command is empty",
             resolved.agent.id()
         )
@@ -313,7 +313,7 @@ fn snapshot_interactive_command(
 ) -> MietteResult<Vec<String>> {
     let Some(interactive) = session.get("interactive") else {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' has no interactive continuation profile",
             resolved.agent.id()
         ));
@@ -324,14 +324,14 @@ fn snapshot_interactive_command(
             .map(|item| {
                 item.as_str().map(str::to_string).ok_or_else(|| {
                     miette!(
-                        help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+                        help = session_capture_resume_help(),
                         "unsupported-snapshot-session: interactive.command must contain strings"
                     )
                 })
             })
             .collect(),
         Some(_) => Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: interactive.command must be an array of strings"
         )),
         None => Ok(resolved.profile.command.clone()),
@@ -348,14 +348,14 @@ fn snapshot_interactive_args(session: &serde_json::Value) -> MietteResult<Vec<St
             .map(|item| {
                 item.as_str().map(str::to_string).ok_or_else(|| {
                     miette!(
-                        help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+                        help = session_capture_resume_help(),
                         "unsupported-snapshot-session: interactive.args must contain strings"
                     )
                 })
             })
             .collect(),
         Some(_) => Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: interactive.args must be an array of strings"
         )),
         None => Ok(Vec::new()),
@@ -373,14 +373,14 @@ fn capture_snapshot_continue_generation(
 ) -> MietteResult<SnapshotRecord> {
     let layout = snapshot_session_layout(session).ok_or_else(|| {
         miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' has no supported snapshot session layout",
             resolved.agent.id()
         )
     })?;
     let Some(session_layout) = snapshot_layout_manifest(session) else {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' has an incomplete snapshot session layout",
             resolved.agent.id()
         ));
@@ -393,7 +393,7 @@ fn capture_snapshot_continue_generation(
         )?
     else {
         return Err(miette!(
-            help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' did not produce a supported native session transcript",
             resolved.agent.id()
         ));
@@ -470,7 +470,7 @@ fn transcript_source_for_snapshot_continue(
         .and_then(OsStr::to_str)
         .ok_or_else(|| {
             miette!(
-                help = "this agent profile cannot capture or resume a native session. Configure `agents.<id>.session` in settings.json, or continue with an agent that supports it.",
+                help = session_capture_resume_help(),
                 "unsupported-snapshot-session: snapshot continue transcript has no session id"
             )
         })?
@@ -504,12 +504,12 @@ fn parse_snapshot_duration_secs(value: &str) -> MietteResult<u64> {
     }
     let Some(days) = value.strip_suffix('d').and_then(|n| n.parse::<u64>().ok()) else {
         return Err(miette!(
-            help = "durations are a number plus a unit: 7d, 4h, 30m, 10s.",
+            help = duration_format_help(),
             "invalid duration '{value}' (expected e.g. 7d, 4h, 30m, 10s)"
         ));
     };
     days.checked_mul(86_400).ok_or_else(|| miette!(
-        help = "durations are a number plus a unit: 7d, 4h, 30m, 10s.",
+        help = duration_format_help(),
         "duration '{value}' is too large"
     ))
 }

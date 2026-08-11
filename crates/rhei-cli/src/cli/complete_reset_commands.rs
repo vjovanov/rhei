@@ -131,7 +131,7 @@ fn complete_command(
     let target_id = parse_task_id(task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
         .ok_or_else(|| miette!(
-            help = "list the task ids in this plan with: rhei list <plan>",
+            help = task_id_help(),
             "task '{}' not found in the plan", task_id_str
         ))?;
     let current_state_raw = task.state.as_str();

@@ -64,7 +64,7 @@ fn emit_snapshots_after_agent_exit(
     let Some(target_slug) = resolved_agent_target_slug(resolved) else {
         if emit.is_some() {
             return Err(miette!(
-                help = "snapshots are keyed by agent, provider, and model. Use a full <agent>:<provider>:<model> selector for this state.",
+                help = snapshot_key_help(),
                 "snapshot-requires-target: agent '{}' does not resolve provider and model",
                 resolved.agent.id()
             ));
@@ -80,7 +80,7 @@ fn emit_snapshots_after_agent_exit(
     let Some(session) = snapshot_session(resolved) else {
         if emit.is_some() {
             return Err(miette!(
-                help = "this agent profile cannot capture a native session. Configure `agents.<id>.session` in settings.json, or drop snapshot emission for this state.",
+                help = session_capture_help(),
                 "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
                 current_state,
                 resolved.agent.id()
@@ -91,7 +91,7 @@ fn emit_snapshots_after_agent_exit(
     let Some(layout) = snapshot_session_layout(session) else {
         if emit.is_some() {
             return Err(miette!(
-                help = "this agent profile cannot capture a native session. Configure `agents.<id>.session` in settings.json, or drop snapshot emission for this state.",
+                help = session_capture_help(),
                 "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
                 current_state,
                 resolved.agent.id()
@@ -107,7 +107,7 @@ fn emit_snapshots_after_agent_exit(
     if !snapshot_emit_session_supported(session) {
         if emit.is_some() {
             return Err(miette!(
-                help = "this agent profile cannot capture a native session. Configure `agents.<id>.session` in settings.json, or drop snapshot emission for this state.",
+                help = session_capture_help(),
                 "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout",
                 current_state,
                 resolved.agent.id()
@@ -122,7 +122,7 @@ fn emit_snapshots_after_agent_exit(
     }
     let Some(session_layout) = snapshot_layout_manifest(session) else {
         return Err(miette!(
-            help = "this agent profile cannot capture a native session. Configure `agents.<id>.session` in settings.json, or drop snapshot emission for this state.",
+            help = session_capture_help(),
             "unsupported-snapshot-session: agent '{}' has an incomplete snapshot session layout",
             resolved.agent.id()
         ));
@@ -132,7 +132,7 @@ fn emit_snapshots_after_agent_exit(
     else {
         if should_emit_named {
             return Err(miette!(
-                help = "this agent profile cannot capture a native session. Configure `agents.<id>.session` in settings.json, or drop snapshot emission for this state.",
+                help = session_capture_help(),
                 "unsupported-snapshot-session: state '{}' declares snapshot.emit but agent '{}' did not produce a supported native session transcript",
                 current_state,
                 resolved.agent.id()
@@ -350,7 +350,7 @@ fn resolve_inherit_snapshot_source(
         let targets = scoped.iter().map(|record| &record.target_slug).collect::<BTreeSet<_>>();
         if targets.len() > 1 {
             return Err(miette!(
-                help = "more than one cached generation matches. Narrow it with snapshot.inherit.select in the state machine, or prune with: rhei snapshot gc",
+                help = snapshot_ambiguous_help(),
                 "ambiguous-lineage: snapshot.inherit '{}' matched multiple targets; add snapshot.inherit.select.target",
                 inherit.name
             ));
@@ -393,7 +393,7 @@ fn resolve_inherit_snapshot_source(
         0 => Ok(None),
         1 => Ok(scoped.into_iter().next()),
         _ => Err(miette!(
-            help = "more than one cached generation matches. Narrow it with snapshot.inherit.select in the state machine, or prune with: rhei snapshot gc",
+            help = snapshot_ambiguous_help(),
             "ambiguous-lineage: snapshot.inherit '{}' matched multiple cached generations",
             inherit.name
         )),

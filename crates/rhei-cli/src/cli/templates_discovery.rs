@@ -116,7 +116,7 @@
     fn nearest_project_template_root() -> MietteResult<Option<PathBuf>> {
         let cwd = std::env::current_dir()
             .map_err(|e| miette!(
-                help = "re-run from a directory that still exists.",
+                help = cwd_help(),
                 "failed to determine working directory: {e}"
             ))?;
         let mut dir = Some(cwd.as_path());
@@ -223,7 +223,7 @@
         let dir_name =
             template_dir.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
                 miette!(
-                    help = "pass an explicit destination with --output <dir>",
+                    help = template_manifest_help(),
                     "template path '{}' has no directory name", template_dir.display()
                 )
             })?;
@@ -254,7 +254,7 @@
 
         let cwd = std::env::current_dir()
             .map_err(|err| miette!(
-                help = "re-run from a directory that still exists.",
+                help = cwd_help(),
                 "failed to determine working directory: {err}"
             ))?;
         let mut seen = HashSet::new();
@@ -475,7 +475,7 @@
     ) -> MietteResult<BTreeMap<String, serde_json::Value>> {
         let cwd = std::env::current_dir()
             .map_err(|err| miette!(
-                help = "re-run from a directory that still exists.",
+                help = cwd_help(),
                 "failed to determine working directory: {err}"
             ))?;
         let mut raw_values: BTreeMap<String, YamlValue> = BTreeMap::new();
@@ -553,28 +553,92 @@
             ));
         }
 
+        // §FS-rhei-errors.1.1: a rejected value is the same failure class as a
+        // missing one, so a three-input mistake costs one round trip, not three.
         let mut resolved = BTreeMap::new();
+        let mut rejected = Vec::new();
         for input in &manifest.inputs {
             let value = if let Some(raw) = raw_values.get(&input.name) {
-                coerce_template_input_value(input, raw, &cwd, false)?
+                coerce_template_input_value(input, raw, &cwd, false)
             } else if let Some(default) = input.schema.default.as_ref() {
-                coerce_template_input_value(input, default, &cwd, true)?
+                coerce_template_input_value(input, default, &cwd, true)
             } else {
-                empty_template_value(&input.schema)
+                Ok(empty_template_value(&input.schema))
             };
 
-            validate_resolved_value(template_ref, &input.name, &input.schema, &value)?;
+            let value = match value {
+                Ok(value) => value,
+                Err(report) => {
+                    rejected.push(report);
+                    continue;
+                }
+            };
+
+            if let Err(report) = validate_resolved_value(&input.name, &input.schema, &value) {
+                rejected.push(report);
+                continue;
+            }
 
             resolved.insert(input.name.clone(), value);
+        }
+        if !rejected.is_empty() {
+            return Err(rejected_template_inputs_report(rejected, template_ref));
         }
 
         Ok(resolved)
     }
 
+    /// Fold the per-input rejections into one diagnostic, keeping each input's
+    /// own message and its own remedy. §FS-rhei-errors.1.1
+    fn rejected_template_inputs_report(rejected: Vec<Report>, template_ref: &str) -> Report {
+        // One bad input is already a complete diagnostic; wrapping it would only
+        // bury its remedy under a summary line.
+        if rejected.len() == 1 {
+            let report = rejected.into_iter().next().expect("exactly one rejection");
+            return with_list_inputs_pointer(&report, template_ref);
+        }
+
+        // Each remedy sits under the failure it repairs, so a reader does not
+        // have to match a list of messages against a list of fixes by position.
+        let listed = rejected
+            .iter()
+            .map(|report| {
+                let mut entry = format!("  {report}");
+                if let Some(help) = report.help() {
+                    for line in help.to_string().lines() {
+                        entry.push_str("\n      ");
+                        entry.push_str(line.trim());
+                    }
+                }
+                entry
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        miette!(
+            help = format!(
+                "fix each value above, then re-run. See what every input accepts: {}",
+                list_inputs_command(template_ref)
+            ),
+            "{} inputs were rejected:\n{listed}",
+            rejected.len()
+        )
+    }
+
+    /// The same report with `--list-inputs` appended to its help. Added here,
+    /// not by each check, so a batch prints it once. §FS-rhei-errors.1.2
+    fn with_list_inputs_pointer(report: &Report, template_ref: &str) -> Report {
+        let pointer =
+            format!("See what every input accepts: {}", list_inputs_command(template_ref));
+        let help = match report.help() {
+            Some(help) => format!("{help}\n{pointer}"),
+            None => pointer,
+        };
+        miette!(help = help, "{report}")
+    }
+
     /// Check a resolved scalar against the named `format` its input declares,
     /// so the failure names the input the user typed. §FS-rhei-errors.3.1
     fn validate_template_input_format(
-        template_ref: &str,
         label: &str,
         format: TemplateInputFormat,
         rendered: &str,
@@ -582,10 +646,16 @@
         match format {
             TemplateInputFormat::ExecutionTarget => {
                 rhei_validator::parse_execution_target(rendered).map_err(|err| {
+                    // §FS-rhei-errors.1.2: the example is keyed to the input the
+                    // user typed. A hardcoded `agent=` would paste back as
+                    // "template has no input named 'agent'".
                     miette!(
                         help = format!(
-                            "{err}.\nSee what this input accepts: {}",
-                            list_inputs_command(template_ref)
+                            "{err}.\nA corrected value for this input: {}",
+                            shell_assignment(
+                                label,
+                                &rhei_validator::execution_target_example(rendered)
+                            )
                         ),
                         "input '{}' is not a valid execution target: '{}'",
                         label,
@@ -637,9 +707,13 @@
             &placeholders,
         );
 
+        // Name the input most likely to hold prose, not merely the first string
+        // one: suggesting `--set-file subject=<path>` for a one-word title while
+        // the essay-length brief sits below it reads as noise.
         let long_value_hint = missing
             .iter()
-            .find(|input| matches!(input.value_type(), TemplateInputType::String))
+            .filter(|input| matches!(input.value_type(), TemplateInputType::String))
+            .max_by_key(|input| input.description.chars().count())
             .map(|input| {
                 format!(
                     "\nFor a long value, read it from a file: --set-file {}=<path>",
@@ -682,7 +756,6 @@
     /// top-level inputs. Patterns are guaranteed valid here because
     /// `validate_template_value_schema` compiled them at manifest-load time.
     fn validate_resolved_value(
-        template_ref: &str,
         label: &str,
         schema: &TemplateValueSchema,
         value: &serde_json::Value,
@@ -704,11 +777,7 @@
             })?;
             if !regex.is_match(&rendered) {
                 return Err(miette!(
-                    help = format!(
-                        "'{rendered}' is rejected by the input's own pattern. See what it \
-                         accepts: {}",
-                        list_inputs_command(template_ref)
-                    ),
+                    help = format!("'{rendered}' is rejected by the input's own pattern."),
                     "input '{}' does not match validation pattern '{}'",
                     label,
                     pattern
@@ -726,7 +795,7 @@
                     label
                 )
             })?;
-            validate_template_input_format(template_ref, label, format, &rendered)?;
+            validate_template_input_format(label, format, &rendered)?;
         }
 
         match schema.value_type {
@@ -736,7 +805,6 @@
                 {
                     for (idx, element) in elements.iter().enumerate() {
                         validate_resolved_value(
-                            template_ref,
                             &format!("{label}[{idx}]"),
                             items,
                             element,
@@ -749,7 +817,6 @@
                     for (property, property_schema) in &schema.properties {
                         if let Some(element) = map.get(property) {
                             validate_resolved_value(
-                                template_ref,
                                 &format!("{label}.{property}"),
                                 property_schema,
                                 element,

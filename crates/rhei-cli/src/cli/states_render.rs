@@ -441,7 +441,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
     }
     let cwd = std::env::current_dir()
         .map_err(|err| miette!(
-            help = "re-run from a directory that still exists.",
+            help = cwd_help(),
             "failed to read the current directory: {err}"
         ))?;
     let mut dir = Some(cwd.as_path());
@@ -943,7 +943,8 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
     }
     if let Some(error) = duplicate_task_error {
         return Err(miette!(
-            help = "check the workspace path and re-run: rhei validate <workspace>",
+            help = "two task files in tasks/ declare the same id. Renumber one of them, then \
+                    re-check with: rhei validate <workspace>",
             "{error}"
         ));
     }
@@ -1096,7 +1097,7 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
         Config::default(),
     )
     .map_err(|err| miette!(
-        help = "--watch needs an OS file-watch handle. Re-run without --watch, or raise the inotify limits.",
+        help = watch_help(),
         "failed to initialize file watcher: {err}"
     ))?;
 
@@ -1104,7 +1105,7 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
         watcher
             .watch(&root.path, root.mode)
             .map_err(|err| miette!(
-                help = "--watch needs an OS file-watch handle. Re-run without --watch, or raise the inotify limits.",
+                help = watch_help(),
                 "failed to watch '{}': {err}", root.path.display()
             ))?;
     }
@@ -1119,7 +1120,7 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
                 continue;
             }
             Err(err) => return Err(miette!(
-                help = "--watch needs an OS file-watch handle. Re-run without --watch, or raise the inotify limits.",
+                help = watch_help(),
                 "watch channel disconnected: {err}"
             )),
         };

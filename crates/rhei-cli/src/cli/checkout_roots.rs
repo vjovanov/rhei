@@ -24,7 +24,7 @@ fn resolve_agent_checkout_root(
 
     let cwd = std::env::current_dir()
         .map_err(|err| miette!(
-            help = "re-run from a directory that still exists.",
+            help = cwd_help(),
             "failed to determine current working directory: {err}"
         ))?;
     Ok(AgentCheckoutRoot { path: cwd, worktree_root: None })

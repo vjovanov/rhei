@@ -54,15 +54,15 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|err| miette!(
-            help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+            help = temp_write_help(),
             "failed to create temp file: {err}"
         ))?;
     tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
     tmp.persist(path).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 
@@ -105,15 +105,15 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|err| miette!(
-            help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+            help = temp_write_help(),
             "failed to create temp file: {err}"
         ))?;
     tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
     tmp.persist(path).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 
@@ -332,7 +332,7 @@ fn append_result_entry(
     let results_dir = workspace_root.join("runtime").join("results");
     fs::create_dir_all(&results_dir)
         .map_err(|err| miette!(
-            help = "rhei records results and transitions under runtime/. Check that the workspace directory is writable.",
+            help = runtime_dir_help(),
             "failed to create runtime/results directory: {err}"
         ))?;
     let result_file = results_dir.join(format!("{}.md", task_id));
@@ -343,24 +343,25 @@ fn append_result_entry(
         .append(true)
         .open(&result_file)
         .map_err(|err| miette!(
-            help = "rhei records results under runtime/results/. Check that directory is writable.",
+            help = runtime_results_help(),
             "failed to open result file: {err}"
         ))?;
 
-    writeln!(file, "## Result").map_err(|err| miette!(
-        help = "rhei records results under runtime/results/. Check that directory is writable.",
-        "failed to write result entry: {err}"
-    ))?;
+    writeln!(file, "## Result")
+        .map_err(|err| miette!(
+            help = runtime_results_help(),
+            "failed to write result entry: {err}"
+        ))?;
     writeln!(file).map_err(|err| miette!(
-        help = "rhei records results under runtime/results/. Check that directory is writable.",
+        help = runtime_results_help(),
         "failed to write result entry: {err}"
     ))?;
     writeln!(file, "{}", msg).map_err(|err| miette!(
-        help = "rhei records results under runtime/results/. Check that directory is writable.",
+        help = runtime_results_help(),
         "failed to write result entry: {err}"
     ))?;
     writeln!(file).map_err(|err| miette!(
-        help = "rhei records results under runtime/results/. Check that directory is writable.",
+        help = runtime_results_help(),
         "failed to write result entry: {err}"
     ))?;
 
@@ -378,7 +379,7 @@ fn append_state_transition_log_entry(
     let runtime_dir = workspace_root.join("runtime");
     fs::create_dir_all(&runtime_dir)
         .map_err(|err| miette!(
-            help = "rhei records results and transitions under runtime/. Check that the workspace directory is writable.",
+            help = runtime_dir_help(),
             "failed to create runtime directory: {err}"
         ))?;
     let transitions_file = runtime_dir.join("state-transitions.log");
@@ -389,13 +390,13 @@ fn append_state_transition_log_entry(
         .append(true)
         .open(&transitions_file)
         .map_err(|err| miette!(
-            help = "rhei appends to runtime/state-transitions.log. Check that directory is writable.",
+            help = transition_log_help(),
             "failed to open state transition log: {err}"
         ))?;
 
     writeln!(file, "{} {}@{}", task_id, from, to)
         .map_err(|err| miette!(
-            help = "rhei appends to runtime/state-transitions.log. Check that directory is writable.",
+            help = transition_log_help(),
             "failed to write state transition log entry: {err}"
         ))?;
 
@@ -439,7 +440,7 @@ fn write_task_assignee(
     if current_state != expected_state {
         let _ = fs2::FileExt::unlock(&handle);
         return Err(miette!(
-            help = "someone moved the task since you looked. Re-read its current state with: rhei list <plan>",
+            help = task_moved_help(),
             "conflict: Task {} is in state '{}', expected '{}'",
             qualified_id,
             task.state,
@@ -481,16 +482,16 @@ fn write_task_assignee(
     let parent = task_file.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|err| miette!(
-            help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+            help = temp_write_help(),
             "failed to create temp file: {err}"
         ))?;
     tmp.write_all(rewritten.as_bytes())
         .map_err(|err| miette!(
-            help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+            help = temp_write_help(),
             "failed to write temp file: {err}"
         ))?;
     tmp.persist(task_file).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 
@@ -517,7 +518,7 @@ fn parse_claim_task_from_raw(
     }
 
     Err(miette!(
-        help = "list the task ids in this plan with: rhei list <plan>",
+        help = task_id_help(),
         "task '{}' not found in {}", task_id, task_file.display()
     ))
 }
@@ -602,7 +603,7 @@ fn rewrite_task_completion(
     }
     if !target_found {
         return Err(miette!(
-            help = "list the task ids in this plan with: rhei list <plan>",
+            help = task_id_help(),
             "task '{}' not found in {}", task_id, task_file.display()
         ));
     }
@@ -616,15 +617,15 @@ fn rewrite_task_completion(
     let parent = task_file.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|err| miette!(
-            help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+            help = temp_write_help(),
             "failed to create temp file: {err}"
         ))?;
     tmp.write_all(output.as_bytes()).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
     tmp.persist(task_file).map_err(|err| miette!(
-        help = "rhei writes plan edits through a temp file in the same directory. Check that directory is writable and has free space.",
+        help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 

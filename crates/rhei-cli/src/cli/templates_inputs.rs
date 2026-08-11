@@ -469,6 +469,16 @@
         }
     }
 
+    /// A default rendered the way the user would supply it on a command line:
+    /// one line, flow style, shell-quoted. §FS-rhei-errors.2
+    fn compact_default_assignment(input: &TemplateInputDef) -> Option<String> {
+        let default = input.schema.default.as_ref()?;
+        // `serde_json` emits flow style for both sequences and mappings, which
+        // is the syntax `rhei instantiate` parses a value back out of.
+        let compact = serde_json::to_string(default).ok()?;
+        Some(shell_assignment(&input.name, &compact))
+    }
+
     fn print_template_inputs(manifest: &TemplateManifest, template_ref: &str) {
         println!("Template: {}", manifest.name);
         println!("Version: {}", manifest.version_string());
@@ -508,6 +518,11 @@
                 for line in default.lines() {
                     println!("      {line}");
                 }
+                // §FS-rhei-errors.2: the block above is readable but its
+                // scalars are bare YAML, so follow it with a pasteable form.
+                if let Some(compact) = compact_default_assignment(input) {
+                    println!("    copy: {compact}");
+                }
             }
             if let Some(pattern) = input.schema.validate.as_deref() {
                 println!("    validate: {}", pattern);
@@ -533,22 +548,51 @@
         );
     }
 
+    /// Where a materialization writes, and how a destination inside it may be
+    /// named in an error. A `--dry-run` temp directory is removed before the
+    /// user could look at it, so its paths must not appear. §FS-rhei-errors.4
+    struct MaterializeTarget<'a> {
+        root: &'a Path,
+        /// True when `root` is scratch space the user neither chose nor keeps.
+        scratch: bool,
+    }
+
+    impl MaterializeTarget<'_> {
+        /// A diagnostic for a filesystem failure at `dest`.
+        fn io_report(&self, dest: &Path, action: &str, err: std::io::Error) -> Report {
+            if !self.scratch {
+                return file_io_report(dest, action, err);
+            }
+            // Name the file by its place in the template, which the user can
+            // open, rather than by a temp path that no longer exists.
+            let relative = dest.strip_prefix(self.root).unwrap_or(dest);
+            miette!(
+                help = "--dry-run renders into a temp directory. Check that $TMPDIR exists, \
+                        is writable, and has free space.",
+                "{action} '{}' while rendering the template: {err}",
+                relative.display()
+            )
+        }
+    }
+
     fn materialize_template(
         template_dir: &Path,
         layout: TemplateLayout,
         output_dir: &Path,
         values: &BTreeMap<String, serde_json::Value>,
+        scratch: bool,
     ) -> MietteResult<MaterializedTemplate> {
+        let target = MaterializeTarget { root: output_dir, scratch };
         fs::create_dir_all(output_dir)
-            .map_err(|err| file_io_report(output_dir, "failed to create output directory", err))?;
+            .map_err(|err| target.io_report(output_dir, "failed to create output directory", err))?;
         let root_permissions = fs::metadata(template_dir)
             .map_err(|err| file_io_report(template_dir, "failed to read template metadata", err))?
             .permissions();
         fs::set_permissions(output_dir, root_permissions).map_err(|err| {
-            file_io_report(output_dir, "failed to preserve output directory permissions", err)
+            target.io_report(output_dir, "failed to preserve output directory permissions", err)
         })?;
 
-        materialize_template_dir(template_dir, output_dir, template_dir, values)?;
+        materialize_template_dir(template_dir, output_dir, template_dir, values, &target)?;
 
         Ok(MaterializedTemplate { layout, output_dir: output_dir.to_path_buf() })
     }
@@ -558,6 +602,7 @@
         dest_dir: &Path,
         template_root: &Path,
         values: &BTreeMap<String, serde_json::Value>,
+        target: &MaterializeTarget<'_>,
     ) -> MietteResult<()> {
         let mut entries = fs::read_dir(src_dir)
             .map_err(|err| file_io_report(src_dir, "failed to read template directory", err))?
@@ -586,7 +631,7 @@
             let dest_path = if at_template_root && name_str == "settings.json" {
                 let settings_dir = dest_dir.join(".agents").join("rhei");
                 fs::create_dir_all(&settings_dir).map_err(|err| {
-                    file_io_report(&settings_dir, "failed to create .agents/rhei directory", err)
+                    target.io_report(&settings_dir, "failed to create .agents/rhei directory", err)
                 })?;
                 settings_dir.join("settings.json")
             } else {
@@ -598,12 +643,12 @@
 
             if metadata.is_dir() {
                 fs::create_dir_all(&dest_path).map_err(|err| {
-                    file_io_report(&dest_path, "failed to create output directory", err)
+                    target.io_report(&dest_path, "failed to create output directory", err)
                 })?;
                 fs::set_permissions(&dest_path, metadata.permissions()).map_err(|err| {
-                    file_io_report(&dest_path, "failed to preserve directory permissions", err)
+                    target.io_report(&dest_path, "failed to preserve directory permissions", err)
                 })?;
-                materialize_template_dir(&src_path, &dest_path, template_root, values)?;
+                materialize_template_dir(&src_path, &dest_path, template_root, values, target)?;
                 continue;
             }
 
@@ -624,21 +669,15 @@
                     })?;
                 }
                 fs::write(&dest_path, rendered).map_err(|err| {
-                    file_io_report(&dest_path, "failed to write output file", err)
+                    target.io_report(&dest_path, "failed to write output file", err)
                 })?;
             } else {
-                fs::copy(&src_path, &dest_path).map_err(|err| {
-                    miette!(
-                        help = "check that the destination is writable and has free space.",
-                        "failed to copy '{}' to '{}': {err}",
-                        src_path.display(),
-                        dest_path.display()
-                    )
-                })?;
+                fs::copy(&src_path, &dest_path)
+                    .map_err(|err| target.io_report(&dest_path, "failed to copy into", err))?;
             }
 
             fs::set_permissions(&dest_path, metadata.permissions()).map_err(|err| {
-                file_io_report(&dest_path, "failed to preserve file permissions", err)
+                target.io_report(&dest_path, "failed to preserve file permissions", err)
             })?;
         }
 

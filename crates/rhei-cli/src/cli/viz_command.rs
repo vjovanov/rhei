@@ -18,7 +18,7 @@ fn viz_command(
 
     let plans = rhei_viz::collect_plans(input, &key, state_machine)
         .map_err(|err| miette!(
-            help = "check the path and re-run: rhei viz <plan-or-directory>",
+            help = viz_path_help(),
             "failed to collect plans from {}: {err}", input.display()
         ))?;
     if plans.is_empty() {
@@ -37,15 +37,9 @@ fn viz_command(
     let out = output.map(Path::to_path_buf).unwrap_or_else(|| default_viz_output(input));
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|err| miette!(
-                help = "check the path and re-run: rhei viz <plan-or-directory>",
-                "failed to create {}: {err}", parent.display()
-            ))?;
+            .map_err(|err| file_io_report(parent, "failed to create", err))?;
     }
-    std::fs::write(&out, html).map_err(|err| miette!(
-        help = "check the path and re-run: rhei viz <plan-or-directory>",
-        "failed to write {}: {err}", out.display()
-    ))?;
+    std::fs::write(&out, html).map_err(|err| file_io_report(&out, "failed to write", err))?;
     println!("Wrote flow visualization to {}", out.display());
 
     if open {

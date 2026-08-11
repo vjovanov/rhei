@@ -48,7 +48,7 @@
         let cwd = std::env::current_dir()
             .map_err(|err| {
                 miette!(
-                    help = "re-run from a directory that still exists.",
+                    help = cwd_help(),
                     "failed to determine working directory: {err}"
                 )
             })?;
@@ -92,8 +92,16 @@
             .map(|dir| dir.path().join("instantiate-output"))
             .unwrap_or_else(|| output_dir.clone());
 
+        // §FS-rhei-errors.4: a --dry-run target is scratch space the user never
+        // chose and never sees, so failures there name template-relative paths.
         let materialized =
-            match materialize_template(template_dir, layout, &target_dir, &resolved_values) {
+            match materialize_template(
+                template_dir,
+                layout,
+                &target_dir,
+                &resolved_values,
+                dry_run,
+            ) {
                 Ok(materialized) => materialized,
                 Err(err) => {
                     if !dry_run {

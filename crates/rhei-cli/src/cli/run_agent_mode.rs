@@ -112,13 +112,13 @@ fn select_snapshot_override_run_invocation(
     let candidate_lines = format_snapshot_override_candidates(&candidates);
     if selected.is_empty() {
         return Err(miette!(
-            help = "the candidates above are the snapshot.inherit invocations this run offers. Pass one of them, or drop --from-snapshot.",
+            help = snapshot_candidates_help(),
             "--from-snapshot did not match an active snapshot.inherit invocation; candidates:\n{}",
             candidate_lines
         ));
     }
     Err(miette!(
-        help = "the candidates above are the snapshot.inherit invocations this run offers. Pass one of them, or drop --from-snapshot.",
+        help = snapshot_candidates_help(),
         "--from-snapshot is ambiguous; matched {} active snapshot.inherit invocations:\n{}\nretry with --task <id> and --target <slug>",
         selected.len(),
         format_snapshot_override_candidates(&selected)
@@ -433,7 +433,7 @@ fn spawn_parallel_agent_work_item(
             emit_run_message(sink, rhei_tui::MessageLevel::Error, format!("  error: {message}"));
             if !opts.continue_on_error() {
                 return Err(miette!(
-                    help = "inspect the run with the report it printed, fix the cause, and re-run: rhei run <plan>",
+                    help = run_report_help(),
                     "{message}"
                 ));
             }
@@ -1316,7 +1316,7 @@ fn handle_parallel_program_completion(
                 );
                 if !opts.continue_on_error() {
                     return Err(miette!(
-                        help = "the program state failed. Its log is under runtime/logs/; fix the cause, then re-run.",
+                        help = program_state_failed_help(),
                         "program exited with code {} for Task {}. Use --continue-on-error to skip failures.",
                         exit_code,
                         task_id_str
@@ -1628,7 +1628,7 @@ fn run_agent_mode(
                         None => "no agent configured.".to_string(),
                     };
                     return Err(miette!(
-                        help = "inspect the run with the report it printed, fix the cause, and re-run: rhei run <plan>",
+                        help = run_report_help(),
                         "{header}\n\nSet one of:\n  \u{2022} defaults.agent in {}/{} or ~/.config/rhei/settings.json\n  \u{2022} the state's `agent:` in states.yaml\n  \u{2022} {model_remediation}\n  \u{2022} --agent <AGENT> on the rhei run command line (e.g. rhei run {} --agent claude-code)\n\nBuilt-in agents: claude-code, codex, gemini, cursor, kilocode, pi",
                         workspace_root.display(),
                         PROJECT_SETTINGS_RELATIVE_PATH,
@@ -1708,7 +1708,7 @@ fn run_agent_mode(
                     continue;
                 }
                 return Err(miette!(
-                    help = "inspect the run with the report it printed, fix the cause, and re-run: rhei run <plan>",
+                    help = run_report_help(),
                     "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
                      use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
                     task_id_str,
@@ -2086,7 +2086,7 @@ fn run_agent_mode(
                             );
                             if !opts.continue_on_error() {
                                 return Err(miette!(
-                                    help = "the program state failed. Its log is under runtime/logs/; fix the cause, then re-run.",
+                                    help = program_state_failed_help(),
                                     "program exited with code {} for Task {}. Use --continue-on-error to skip failures.",
                                     exit_code,
                                     task_id_str
@@ -2288,7 +2288,7 @@ fn run_agent_mode(
                     run_error!("  error: {message}");
                     if !opts.continue_on_error() {
                         return Err(miette!(
-                            help = "inspect the run with the report it printed, fix the cause, and re-run: rhei run <plan>",
+                            help = run_report_help(),
                             "{message}"
                         ));
                     }
@@ -2765,7 +2765,7 @@ fn run_agent_mode(
                             }
                         } else if !opts.continue_on_error() {
                             return Err(miette!(
-                                help = "inspect the run with the report it printed, fix the cause, and re-run: rhei run <plan>",
+                                help = run_report_help(),
                                 "agent '{}' exited with code {} for Task {}. \
                                  Use --continue-on-error to skip failures.",
                                 resolved.agent.id(),
@@ -3313,7 +3313,7 @@ fn run_agent_mode(
                                 }
                             } else if !opts.continue_on_error() {
                                 return Err(miette!(
-                                    help = "inspect the run with the report it printed, fix the cause, and re-run: rhei run <plan>",
+                                    help = run_report_help(),
                                     "agent exited with code {code} for Task {task_id_str}. \
                                      Use --continue-on-error to skip failures."
                                 ));
@@ -3509,7 +3509,7 @@ fn run_agent_mode(
             && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, &machines.set, &rhei_scope)
         {
             return Err(miette!(
-                help = "every remaining task is blocked, gated, or assigned. See what is left with: rhei list <plan>",
+                help = nothing_claimable_help(),
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"
             ));
         }

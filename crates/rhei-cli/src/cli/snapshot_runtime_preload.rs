@@ -160,7 +160,7 @@ fn preload_snapshot_inherit_before_spawn(
     if source.completion == "timeout" && !opts.override_inherit() {
         if required {
             return Err(miette!(
-                help = "that snapshot cannot be resumed by this agent. Pick another with: rhei snapshot list, or run the state without --from-snapshot.",
+                help = snapshot_resume_help(),
                 "incompatible-snapshot: selected snapshot {} completed by timeout and is not preloadable",
                 source.display_ref()
             ));
@@ -177,7 +177,7 @@ fn preload_snapshot_inherit_before_spawn(
     {
         if required {
             return Err(miette!(
-                help = "that snapshot cannot be resumed by this agent. Pick another with: rhei snapshot list, or run the state without --from-snapshot.",
+                help = snapshot_resume_help(),
                 "incompatible-snapshot: selected snapshot {} is not native-compatible with agent '{}'",
                 source.display_ref(),
                 resolved.agent.id()
@@ -286,7 +286,7 @@ fn validate_snapshot_override_contract(
 ) -> MietteResult<()> {
     if record.snapshot_name != inherit.name {
         return Err(miette!(
-            help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+            help = snapshot_inherit_help(),
             "--from-snapshot selected snapshot name '{}', but snapshot.inherit requires '{}'",
             record.snapshot_name,
             inherit.name
@@ -297,7 +297,7 @@ fn validate_snapshot_override_contract(
         "self" => {
             if record.task_id != task_id {
                 return Err(miette!(
-                    help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                    help = snapshot_inherit_help(),
                     "--from-snapshot selected task '{}', but snapshot.inherit.from: self requires task '{}'",
                     record.task_id,
                     task_id
@@ -305,7 +305,7 @@ fn validate_snapshot_override_contract(
             }
             if record.emitting_state == current_state && record.visit >= visit_count {
                 return Err(miette!(
-                    help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                    help = snapshot_inherit_help(),
                     "--from-snapshot selected {} from the current or future visit; snapshot.inherit.from: self only permits prior visits",
                     record.display_ref()
                 ));
@@ -315,7 +315,7 @@ fn validate_snapshot_override_contract(
             let ancestors = ancestor_task_ids(&task_id);
             if !ancestors.iter().any(|ancestor| ancestor == &record.task_id) {
                 return Err(miette!(
-                    help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                    help = snapshot_inherit_help(),
                     "--from-snapshot selected task '{}', but snapshot.inherit.from: ancestor requires an ancestor of task '{}'",
                     record.task_id,
                     task_id
@@ -335,7 +335,7 @@ fn validate_snapshot_override_contract(
         if let Some(state) = select.state.as_deref() {
             if record.emitting_state != state {
                 return Err(miette!(
-                    help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                    help = snapshot_inherit_help(),
                     "--from-snapshot selected emitting state '{}', but snapshot.inherit.select.state requires '{}'",
                     record.emitting_state,
                     state
@@ -346,7 +346,7 @@ fn validate_snapshot_override_contract(
             let required_target = if target == "same" { target_slug } else { target };
             if record.target_slug != required_target {
                 return Err(miette!(
-                    help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                    help = snapshot_inherit_help(),
                     "--from-snapshot selected target '{}', but snapshot.inherit.select.target requires '{}'",
                     record.target_slug,
                     required_target
@@ -388,7 +388,7 @@ fn validate_snapshot_override_contract(
             )?;
         } else if !record.is_current {
             return Err(miette!(
-                help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                help = snapshot_inherit_help(),
                 "--from-snapshot selected {}, but snapshot.inherit.select.generation defaults to current",
                 record.display_ref()
             ));
@@ -405,7 +405,7 @@ fn validate_snapshot_override_contract(
         )?;
         if !record.is_current {
             return Err(miette!(
-                help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                help = snapshot_inherit_help(),
                 "--from-snapshot selected {}, but snapshot.inherit.select.generation defaults to current",
                 record.display_ref()
             ));
@@ -416,7 +416,7 @@ fn validate_snapshot_override_contract(
         && !snapshot_record_native_compatible(record, resolved)
     {
         return Err(miette!(
-            help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+            help = snapshot_inherit_help(),
             "--from-snapshot selected snapshot {} is not native-compatible with agent '{}'",
             record.display_ref(),
             resolved.agent.id()
@@ -439,7 +439,7 @@ fn validate_snapshot_override_visit(
     if let Some(required_visit) = yaml_selector_u64(visit) {
         if record.visit != required_visit {
             return Err(miette!(
-                help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                help = snapshot_inherit_help(),
                 "--from-snapshot selected visit {}, but snapshot.inherit.select.visit requires {}",
                 record.visit,
                 required_visit
@@ -457,7 +457,7 @@ fn validate_snapshot_override_visit(
         let latest_visit = candidates.iter().map(|candidate| candidate.visit).max();
         if latest_visit != Some(record.visit) {
             return Err(miette!(
-                help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                help = snapshot_inherit_help(),
                 "--from-snapshot selected visit {}, but snapshot.inherit.select.visit requires latest visit {}",
                 record.visit,
                 latest_visit.unwrap_or(record.visit)
@@ -488,7 +488,7 @@ fn validate_snapshot_override_default_visit(
     let latest_visit = candidates.iter().map(|candidate| candidate.visit).max();
     if latest_visit != Some(record.visit) {
         return Err(miette!(
-            help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+            help = snapshot_inherit_help(),
             "--from-snapshot selected visit {}, but snapshot.inherit.select.visit defaults to latest visit {}",
             record.visit,
             latest_visit.unwrap_or(record.visit)
@@ -511,7 +511,7 @@ fn validate_snapshot_override_generation(
     if let Some(required_generation) = yaml_selector_u64(generation) {
         if record.generation != required_generation {
             return Err(miette!(
-                help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                help = snapshot_inherit_help(),
                 "--from-snapshot selected generation {}, but snapshot.inherit.select.generation requires {}",
                 record.generation,
                 required_generation
@@ -530,7 +530,7 @@ fn validate_snapshot_override_generation(
         let latest_generation = candidates.iter().map(|candidate| candidate.generation).max();
         if latest_generation != Some(record.generation) {
             return Err(miette!(
-                help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+                help = snapshot_inherit_help(),
                 "--from-snapshot selected generation {}, but snapshot.inherit.select.generation requires latest generation {}",
                 record.generation,
                 latest_generation.unwrap_or(record.generation)
@@ -538,7 +538,7 @@ fn validate_snapshot_override_generation(
         }
     } else if yaml_selector_string(generation) == Some("current") && !record.is_current {
         return Err(miette!(
-            help = "the override does not satisfy the state's snapshot.inherit contract. Pick a snapshot that does — list them with: rhei snapshot list — or relax snapshot.inherit in the state machine.",
+            help = snapshot_inherit_help(),
             "--from-snapshot selected {}, but snapshot.inherit.select.generation requires current",
             record.display_ref()
         ));

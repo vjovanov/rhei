@@ -111,7 +111,7 @@ fn drain_agent_output_reader(
         Ok(Ok(())) => Ok(()),
         Ok(Err(err)) => {
             Err(miette!(
-                help = "check the agent's command and flags in settings.json: rhei diag",
+                help = agent_command_help(),
                 "failed to capture agent {}: {err}", agent_stream_label(stream)
             ))
         }
@@ -153,7 +153,7 @@ fn spawn_and_wait_agent(
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| miette!(
-                help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+                help = agent_log_help(),
                 "failed to create log directory '{}': {e}", parent.display()
             ))?;
     }
@@ -161,7 +161,7 @@ fn spawn_and_wait_agent(
     let log_file = Arc::new(Mutex::new(
         fs::File::create(log_path)
             .map_err(|e| miette!(
-                help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+                help = agent_log_help(),
                 "failed to create log file '{}': {e}", log_path.display()
             ))?,
     ));
@@ -217,7 +217,7 @@ fn spawn_and_wait_agent(
         f.flush()
     })
     .map_err(|e| miette!(
-        help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+        help = agent_log_help(),
         "failed to write log header '{}': {e}", log_path.display()
     ))?;
 
@@ -378,7 +378,7 @@ fn spawn_and_wait_agent(
                                 let _ = child.kill(); // SIGKILL
                                 break child.wait().map_err(|e| {
                                     miette!(
-                                        help = "check the agent's command and flags in settings.json: rhei diag",
+                                        help = agent_command_help(),
                                         "failed to wait for agent after kill: {e}"
                                     )
                                 });
@@ -388,14 +388,14 @@ fn spawn_and_wait_agent(
                     std::thread::sleep(Duration::from_millis(500));
                 }
                 Err(e) => break Err(miette!(
-                    help = "check the agent's command and flags in settings.json: rhei diag",
+                    help = agent_command_help(),
                     "error waiting for agent: {e}"
                 )),
             }
         }
     } else {
         child.wait().map_err(|e| miette!(
-            help = "check the agent's command and flags in settings.json: rhei diag",
+            help = agent_command_help(),
             "failed to wait for agent: {e}"
         ))
     }?;
@@ -442,7 +442,7 @@ fn spawn_and_wait_agent(
         f.flush()
     })
     .map_err(|e| miette!(
-        help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+        help = agent_log_help(),
         "failed to append to log file '{}': {e}", log_path.display()
     ))?;
 

@@ -443,10 +443,7 @@ fn install_claude_code(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root.ok_or_else(|| miette!(
-            help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-            "--local requires a project root"
-        ))?.join(".claude")
+        require_project_root(project_root)?.join(".claude")
     } else {
         home_dir()?.join(".claude")
     };
@@ -498,10 +495,7 @@ fn install_claude_code(
 /// Inject or replace a `# rhei` section in a CLAUDE.md file.
 fn inject_claude_md_section(file: &Path, content: &str, dry_run: bool) -> MietteResult<()> {
     let existing = if file.exists() {
-        fs::read_to_string(file).map_err(|e| miette!(
-            help = "check the destination is writable, then re-run",
-            "failed to read '{}': {e}", file.display()
-        ))?
+        fs::read_to_string(file).map_err(|e| file_io_report(file, "failed to read", e))?
     } else {
         String::new()
     };
@@ -546,16 +540,9 @@ fn inject_claude_md_section(file: &Path, content: &str, dry_run: bool) -> Miette
 
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| miette!(
-                help = "check the destination is writable, then re-run",
-                "failed to create directory '{}': {e}", parent.display()
-            ))?;
+            .map_err(|e| file_io_report(parent, "failed to create directory", e))?;
     }
-    fs::write(file, &final_content)
-        .map_err(|e| miette!(
-            help = "check the destination is writable, then re-run",
-            "failed to write '{}': {e}", file.display()
-        ))?;
+    fs::write(file, &final_content).map_err(|e| file_io_report(file, "failed to write", e))?;
 
     Ok(())
 }

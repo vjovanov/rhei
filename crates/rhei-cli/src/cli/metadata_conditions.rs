@@ -161,7 +161,7 @@ fn resolve_condition_operand(
             let Some(_) = machine.states.get(current_state).and_then(|def| def.poll.as_ref())
             else {
                 return Err(miette!(
-                    help = "pollAttempts and pollMaxAttempts exist only inside a state that declares `poll:`. Use a different operand, or make the state a poll state.",
+                    help = poll_operand_help(),
                     "condition operand 'pollAttempts' is only available on poll states"
                 ));
             };
@@ -181,7 +181,7 @@ fn resolve_condition_operand(
                 .map(|poll| poll.max_attempts)
                 .ok_or_else(|| {
                     miette!(
-                        help = "pollAttempts and pollMaxAttempts exist only inside a state that declares `poll:`. Use a different operand, or make the state a poll state.",
+                        help = poll_operand_help(),
                         "condition operand 'pollMaxAttempts' is only available on poll states"
                     )
                 })?;

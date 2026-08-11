@@ -19,10 +19,7 @@ fn install_cursor(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root.ok_or_else(|| miette!(
-            help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-            "--local requires a project root"
-        ))?.join(".cursor")
+        require_project_root(project_root)?.join(".cursor")
     } else {
         home_dir()?.join(".cursor")
     };
@@ -67,10 +64,7 @@ fn install_rules_dir_agent(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root.ok_or_else(|| miette!(
-            help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-            "--local requires a project root"
-        ))?.join(dir_name)
+        require_project_root(project_root)?.join(dir_name)
     } else {
         home_dir()?.join(dir_name)
     };
@@ -114,11 +108,7 @@ fn install_windsurf(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let file = if local {
-        project_root
-            .ok_or_else(|| miette!(
-                help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                "--local requires a project root"
-            ))?
+        require_project_root(project_root)?
             .join(".windsurfrules")
     } else {
         // Check alternative global path first.
@@ -148,11 +138,7 @@ fn install_copilot(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let file = if local {
-        project_root
-            .ok_or_else(|| miette!(
-                help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                "--local requires a project root"
-            ))?
+        require_project_root(project_root)?
             .join(".github/copilot-instructions.md")
     } else {
         home_dir()?.join(".github/copilot-instructions.md")
@@ -177,10 +163,7 @@ fn install_codex(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root.ok_or_else(|| miette!(
-            help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-            "--local requires a project root"
-        ))?.join(".agents")
+        require_project_root(project_root)?.join(".agents")
     } else {
         home_dir()?.join(".agents")
     };
@@ -229,11 +212,7 @@ fn uninstall_agent(
     match agent {
         Agent::ClaudeCode => {
             let base = if local {
-                project_root
-                    .ok_or_else(|| miette!(
-                        help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                        "--local requires a project root"
-                    ))?
+                require_project_root(project_root)?
                     .join(".claude")
             } else {
                 home_dir()?.join(".claude")
@@ -251,11 +230,7 @@ fn uninstall_agent(
         }
         Agent::Cursor => {
             let base = if local {
-                project_root
-                    .ok_or_else(|| miette!(
-                        help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                        "--local requires a project root"
-                    ))?
+                require_project_root(project_root)?
                     .join(".cursor")
             } else {
                 home_dir()?.join(".cursor")
@@ -268,11 +243,7 @@ fn uninstall_agent(
         }
         Agent::Windsurf => {
             let file = if local {
-                project_root
-                    .ok_or_else(|| miette!(
-                        help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                        "--local requires a project root"
-                    ))?
+                require_project_root(project_root)?
                     .join(".windsurfrules")
             } else {
                 let alt = home_dir()?.join(".codeium/windsurf/memories/global_rules.md");
@@ -286,11 +257,7 @@ fn uninstall_agent(
         }
         Agent::Copilot => {
             let file = if local {
-                project_root
-                    .ok_or_else(|| miette!(
-                        help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                        "--local requires a project root"
-                    ))?
+                require_project_root(project_root)?
                     .join(".github/copilot-instructions.md")
             } else {
                 home_dir()?.join(".github/copilot-instructions.md")
@@ -299,11 +266,7 @@ fn uninstall_agent(
         }
         Agent::Codex => {
             let base = if local {
-                project_root
-                    .ok_or_else(|| miette!(
-                        help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                        "--local requires a project root"
-                    ))?
+                require_project_root(project_root)?
                     .join(".agents")
             } else {
                 home_dir()?.join(".agents")
@@ -322,11 +285,7 @@ fn uninstall_agent(
                 _ => unreachable!(),
             };
             let base = if local {
-                project_root
-                    .ok_or_else(|| miette!(
-                        help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
-                        "--local requires a project root"
-                    ))?
+                require_project_root(project_root)?
                     .join(dir_name)
             } else {
                 home_dir()?.join(dir_name)
@@ -394,22 +353,15 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> MietteResult<()> {
     for entry in fs::read_dir(src)
         .map_err(|e| file_io_report(src, "failed to read directory", e))?
     {
-        let entry = entry.map_err(|e| miette!(
-            help = "check that the file exists and is readable, then re-run. Preview what would change with: rhei install-skills --dry-run",
-            "failed to read dir entry: {e}"
-        ))?;
+        let entry = entry.map_err(|e| file_io_report(src, "failed to read directory entry in", e))?;
         let src_path = entry.path();
         let dest_path = dest.join(entry.file_name());
 
         if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dest_path)?;
         } else {
-            fs::copy(&src_path, &dest_path).map_err(|e| {
-                miette!(
-                    help = "see the supported targets and flags with: rhei install-skills --help",
-                    "failed to copy '{}' → '{}': {e}", src_path.display(), dest_path.display()
-                )
-            })?;
+            fs::copy(&src_path, &dest_path)
+                .map_err(|e| file_io_report(&dest_path, "failed to write", e))?;
         }
     }
 
@@ -444,12 +396,8 @@ fn link_skill(src: &Path, dest: &Path, dry_run: bool) -> MietteResult<()> {
 
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(src, dest).map_err(|e| {
-            miette!(
-                help = "see the supported targets and flags with: rhei install-skills --help",
-                "failed to symlink '{}' → '{}': {e}", dest.display(), src.display()
-            )
-        })?;
+        std::os::unix::fs::symlink(src, dest)
+            .map_err(|e| file_io_report(dest, "failed to symlink", e))?;
         println!("  ✓ {} → {}", dest.display(), src.display());
         Ok(())
     }
@@ -457,7 +405,7 @@ fn link_skill(src: &Path, dest: &Path, dry_run: bool) -> MietteResult<()> {
     #[cfg(not(unix))]
     {
         Err(miette!(
-            help = "see the supported targets and flags with: rhei install-skills --help",
+            help = "drop --link and rhei will copy the skill files instead.",
             "symlinks are only supported on Unix platforms"
         ))
     }
