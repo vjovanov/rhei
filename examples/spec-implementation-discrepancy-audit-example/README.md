@@ -36,8 +36,8 @@ rhei run examples/spec-implementation-discrepancy-audit-example --dry-run
 
 ```bash
 rm -rf examples/spec-implementation-discrepancy-audit-example
-rhei instantiate .agents/rhei/templates/spec-implementation-discrepancy-audit \
-  --values .agents/rhei/templates/spec-implementation-discrepancy-audit/.example-values.yaml \
+rhei instantiate crates/rhei-cli/templates/spec-implementation-discrepancy-audit \
+  --values crates/rhei-cli/templates/spec-implementation-discrepancy-audit/.example-values.yaml \
   --output examples/spec-implementation-discrepancy-audit-example
 ```
 

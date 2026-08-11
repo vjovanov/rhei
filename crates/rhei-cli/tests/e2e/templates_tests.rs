@@ -301,6 +301,68 @@ Say hello to {{target}}.
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// Report paths compare against `current_dir`, which resolves symlinks, so a
+// symlinked parent made every path fall back to its absolute spelling — macOS
+// resolves `/tmp` and `/var` into `/private`. §FS-rhei-templates.6.1.3
+#[cfg(unix)]
+#[test]
+fn instantiate_report_is_relative_under_a_symlinked_working_directory() {
+    let real = unique_temp_dir("templates-symlinked-real");
+    let link = unique_temp_dir("templates-symlinked-link").join("workdir");
+    std::os::unix::fs::symlink(&real, &link).expect("symlink the working directory");
+
+    let template_dir = link.join("hello-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: hello-template
+version: 1.0.0
+description: Simple hello-world template
+inputs:
+  - name: target
+    description: Greeting target
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Hello {{target}}
+
+## Tasks
+
+### Task 1: Greet {{target}}
+**State:** pending
+"#,
+    );
+
+    let output_dir = link.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--set",
+            "target=World",
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &link,
+    );
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("--output output"),
+        "the output path should render relative to the symlinked working directory; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        !result.stdout.contains(&format!("--output {}", output_dir.display())),
+        "the absolute spelling should not appear; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(&real).expect("cleanup");
+}
+
 #[test]
 fn instantiate_prints_output_tree_task_tail_and_stop_reason() {
     let dir = unique_temp_dir("templates-instantiate-summary");

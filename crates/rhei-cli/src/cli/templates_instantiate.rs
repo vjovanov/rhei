@@ -240,10 +240,27 @@
         let Ok(cwd) = std::env::current_dir() else {
             return path.to_path_buf();
         };
-        match path.strip_prefix(&cwd) {
-            Ok(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
-            Ok(rel) => rel.to_path_buf(),
-            Err(_) => path.to_path_buf(),
+        if let Some(relative) = strip_to_relative(path, &cwd) {
+            return relative;
+        }
+        // `current_dir` reports the resolved path, so a symlinked parent makes
+        // the comparison above miss and the report falls back to absolute
+        // spelling for a path that is in fact inside the working directory —
+        // macOS resolves `/tmp` and `/var` into `/private`, so every report
+        // written from a temporary directory there took that fallback.
+        let (Ok(resolved_path), Ok(resolved_cwd)) = (path.canonicalize(), cwd.canonicalize())
+        else {
+            return path.to_path_buf();
+        };
+        strip_to_relative(&resolved_path, &resolved_cwd).unwrap_or_else(|| path.to_path_buf())
+    }
+
+    /// `path` expressed relative to `base`, or `None` when it is not under it.
+    fn strip_to_relative(path: &Path, base: &Path) -> Option<PathBuf> {
+        match path.strip_prefix(base) {
+            Ok(rel) if rel.as_os_str().is_empty() => Some(PathBuf::from(".")),
+            Ok(rel) => Some(rel.to_path_buf()),
+            Err(_) => None,
         }
     }
 

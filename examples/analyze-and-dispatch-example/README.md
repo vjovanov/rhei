@@ -1,7 +1,7 @@
 # analyze-and-dispatch — example
 
 A pre-rendered instantiation of the
-[`analyze-and-dispatch`](../../.agents/rhei/templates/analyze-and-dispatch/)
+[`analyze-and-dispatch`](../../crates/rhei-cli/templates/analyze-and-dispatch/)
 template. This is the canonical reference for **dynamic (agent-driven) task
 creation**: a single coordinator task analyzes a subject and writes the
 follow-up tasks into the workspace at run time.
@@ -58,8 +58,8 @@ rm -rf "$(dirname "$tmp")"
 
 ```bash
 rm -rf examples/analyze-and-dispatch-example
-rhei instantiate .agents/rhei/templates/analyze-and-dispatch \
-  --values .agents/rhei/templates/analyze-and-dispatch/.example-values.yaml \
+rhei instantiate crates/rhei-cli/templates/analyze-and-dispatch \
+  --values crates/rhei-cli/templates/analyze-and-dispatch/.example-values.yaml \
   --output examples/analyze-and-dispatch-example
 ```
 

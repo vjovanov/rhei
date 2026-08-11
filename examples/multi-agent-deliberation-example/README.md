@@ -1,7 +1,7 @@
 # multi-agent-deliberation — example
 
 A pre-rendered instantiation of the
-[`multi-agent-deliberation`](../../.agents/rhei/templates/multi-agent-deliberation/)
+[`multi-agent-deliberation`](../../crates/rhei-cli/templates/multi-agent-deliberation/)
 template. This example is a smoke test for the workflow shape: one splitter task
 starts in `split-points`; at runtime it creates point tasks and a final
 aggregation task.
@@ -35,8 +35,8 @@ after `Task split` executes and appends concrete `point-<slug>` tasks.
 
 ```bash
 rm -rf examples/multi-agent-deliberation-example
-rhei instantiate .agents/rhei/templates/multi-agent-deliberation \
-  --values .agents/rhei/templates/multi-agent-deliberation/.example-values.yaml \
+rhei instantiate crates/rhei-cli/templates/multi-agent-deliberation \
+  --values crates/rhei-cli/templates/multi-agent-deliberation/.example-values.yaml \
   --output examples/multi-agent-deliberation-example
 ```
 

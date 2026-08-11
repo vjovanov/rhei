@@ -1,7 +1,7 @@
 # spec-review — example
 
 A pre-rendered instantiation of the
-[`spec-review`](../../.agents/rhei/templates/spec-review/) template, used as a
+[`spec-review`](../../crates/rhei-cli/templates/spec-review/) template, used as a
 smoke test that the template produces a valid workspace. This is the canonical
 **counted-loop** reference: one task that runs `review → fix` twice and then
 completes.
@@ -32,8 +32,8 @@ rhei run examples/spec-review-example --dry-run
 
 ```bash
 rm -rf examples/spec-review-example
-rhei instantiate .agents/rhei/templates/spec-review \
-  --values .agents/rhei/templates/spec-review/.example-values.yaml \
+rhei instantiate crates/rhei-cli/templates/spec-review \
+  --values crates/rhei-cli/templates/spec-review/.example-values.yaml \
   --output examples/spec-review-example
 ```
 
