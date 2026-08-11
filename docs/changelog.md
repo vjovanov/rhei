@@ -67,7 +67,7 @@
   validates the pairing yet: a `**Consumes:**` reference with no matching
   `**Provides:**`, a producer that is not a prior, and a declared export that
   was never written all read as a missing file and are silently skipped.
-  §FS-rhei-plan-language.3.12 §FS-rhei-agents.3
+  PR #49 §FS-rhei-plan-language.3.12 §FS-rhei-agents.3
 
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
   template that splits a discussion into points, collects proposals and
