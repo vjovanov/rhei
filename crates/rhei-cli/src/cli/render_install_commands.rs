@@ -313,14 +313,12 @@ fn install_skills_command(
 
     let project_root = if local { Some(find_project_root()?) } else { None };
 
-    // Resolve all skill sources up front.
-    let mut skill_sources: Vec<(String, PathBuf)> = Vec::new();
-    if !uninstall {
-        for skill in skills {
-            let source = resolve_skill_source(skill)?;
-            skill_sources.push((skill.clone(), source));
-        }
-    }
+    // Resolve all skill sources up front. `resolved` owns any extraction of the
+    // embedded skills, so it has to outlive every install below.
+    let resolved =
+        if uninstall { None } else { Some(resolve_skill_sources(skills, link)?) };
+    let skill_sources: &[(String, PathBuf)] =
+        resolved.as_ref().map(|r| r.sources.as_slice()).unwrap_or(&[]);
 
     for ag in &agents {
         let label = agent_label(ag);
@@ -330,7 +328,7 @@ fn install_skills_command(
         let result = if uninstall {
             uninstall_agent(ag, local, dry_run, skills, project_root.as_deref())
         } else {
-            install_agent(ag, local, link, dry_run, &skill_sources, project_root.as_deref())
+            install_agent(ag, local, link, dry_run, skill_sources, project_root.as_deref())
         };
 
         match result {
@@ -499,33 +497,22 @@ fn inject_claude_md_section(file: &Path, content: &str, dry_run: bool) -> Miette
         String::new()
     };
 
-    // Check for existing `# rhei` section and replace it.
+    // Replace an existing `# rhei` section in place, taking only the block
+    // itself: the rest of the file is the user's. §FS-rhei-install-skills.4.5
     let lines: Vec<&str> = existing.lines().collect();
     let mut new_lines: Vec<String> = Vec::new();
-    let mut in_rhei_block = false;
     let mut replaced = false;
+    let mut index = 0;
 
-    for line in &lines {
-        if !in_rhei_block {
-            if *line == "# rhei" || *line == "## rhei" {
-                in_rhei_block = true;
-                // Insert new content here.
-                for cl in content.lines() {
-                    new_lines.push(cl.to_string());
-                }
-                replaced = true;
-                continue;
-            }
-            new_lines.push(line.to_string());
-        } else {
-            // Check if we've hit a new heading of equal or higher level.
-            let level = line.chars().take_while(|&c| c == '#').count();
-            if level > 0 && level <= 2 && !line.starts_with("###") {
-                in_rhei_block = false;
-                new_lines.push(line.to_string());
-            }
-            // Skip lines in the old rhei block.
+    while index < lines.len() {
+        if !replaced && (lines[index] == "# rhei" || lines[index] == "## rhei") {
+            new_lines.extend(content.lines().map(ToOwned::to_owned));
+            replaced = true;
+            index = claude_md_block_end(&lines, index);
+            continue;
         }
+        new_lines.push(lines[index].to_string());
+        index += 1;
     }
 
     if !replaced {

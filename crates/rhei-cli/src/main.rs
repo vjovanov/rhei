@@ -13,6 +13,7 @@ mod templates {
     include!("cli/templates_inputs.rs");
 }
 
+include!("cli/skills_builtin.rs");
 include!("cli/states_render.rs");
 include!("cli/metadata_conditions.rs");
 include!("cli/metadata_rewrite.rs");

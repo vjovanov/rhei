@@ -716,3 +716,39 @@ states:
         // A similarly-named sibling that is not a `runtime` directory still matches.
         assert!(path_matches(Path::new("/proj/runtime-notes.rhei.md"), &targets));
     }
+
+    /// A skill compiled into the binary but missing from the `--skills` default
+    /// reaches only users who read the flag docs and type its name;
+    /// `rhei-template-writer` shipped that way. §FS-rhei-install-skills.2
+    #[test]
+    fn default_skills_covers_every_builtin() {
+        let command = cli_command();
+        let install = command
+            .get_subcommands()
+            .find(|sub| sub.get_name() == "install-skills")
+            .expect("install-skills subcommand");
+        let arg = install
+            .get_arguments()
+            .find(|arg| arg.get_id() == "skills")
+            .expect("--skills argument");
+
+        let mut defaults: Vec<String> = arg
+            .get_default_values()
+            .iter()
+            .flat_map(|value| {
+                value
+                    .to_string_lossy()
+                    .split(',')
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<String>>()
+            })
+            .collect();
+        defaults.sort();
+
+        assert_eq!(
+            defaults,
+            builtin_skill_names(),
+            "the --skills default in cli_declarations.rs and the skills embedded from \
+             crates/rhei-cli/skills/ have drifted apart"
+        );
+    }

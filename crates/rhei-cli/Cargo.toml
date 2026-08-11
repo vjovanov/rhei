@@ -8,9 +8,10 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Command-line driver for the Rhei agent runtime."
-# The built-in templates are compiled into the binary (§FS-rhei-templates.1), so
-# they must travel with the published package, not just the git checkout.
-include = ["src/**/*", "templates/**/*"]
+# The built-in templates and skills are compiled into the binary
+# (§FS-rhei-templates.1, §FS-rhei-install-skills.4.3), so they must travel with
+# the published package, not just the git checkout.
+include = ["src/**/*", "templates/**/*", "skills/**/*"]
 
 [dependencies]
 rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }

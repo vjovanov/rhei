@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Compile the skills into the binary, so `rhei install-skills` works from an
+  installed `rhei`. The command resolved skills by walking up from the binary
+  for a repo root, which a `cargo install`ed or npm-installed `rhei` does not
+  have — so the one command whose whole job is installing files failed with
+  "could not find skill source directory", and failed that way even when run
+  from inside a rhei checkout, because the current directory was never
+  consulted. The skills now ship inside the CLI package and are embedded like
+  the built-in templates; a checkout's copy still wins when there is one, so
+  editing a skill and installing it installs the edit. `--link`, which cannot
+  point at a temporary extraction, now says so and names the paths that would
+  satisfy it instead of writing dangling symlinks.
+  §FS-rhei-install-skills.4.3 §FS-rhei-install-skills.4.4
+- Stop `install-skills` from deleting the lines after its own block in
+  `CLAUDE.md`. Both the update and the uninstall path treated the `# rhei`
+  section as running to the next heading, so anything a user kept in between —
+  a blank line, another tool's `<!-- >>> ... >>> -->` marker, a paragraph under
+  no heading — was silently removed from a file rhei does not own. Installing
+  over an existing block ate the opening marker of the next tool's block,
+  leaving that block unterminated. The generated section is contiguous, so it
+  now ends at the first blank line (or the next heading of equal or higher
+  level, whichever comes first) and everything past that boundary is left
+  alone. §FS-rhei-install-skills.4.5
+- Install `rhei-template-writer` by default. The skill shipped in the repo but
+  was absent from the `--skills` default, from the registration block, and from
+  shell completion, so it reached only users who knew its name and typed it —
+  and `rhei install-skills` left every other user without the skill for
+  authoring templates. The default is now every skill the binary carries, and a
+  test fails when the two drift apart. A misspelled `--skills` name now lists
+  the skills that do exist rather than reporting a missing directory.
+  §FS-rhei-install-skills.2
+
 - Make the state machine a property of the rhei, defaulted by the project.
   One machine governed a whole Panta project, so the second template a user
   instantiated was refused, a rhei that declared a different machine was a

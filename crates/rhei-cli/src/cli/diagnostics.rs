@@ -39,47 +39,91 @@ fn relative_path(from_dir: &Path, to_path: &Path) -> PathBuf {
     result
 }
 
-/// Locate the source directory for a named skill.
-///
-/// Search order:
-/// 1. Installed path: `<binary>/../share/rhei/skills/<skill_name>/`
-/// 2. Dev-build fallback: walk up from the binary looking for `Cargo.toml`
-///    (the repo root), then check `skills/<skill_name>/`.
-fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
-    // 1. Binary-relative installed path.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(bin_dir) = exe.parent() {
-            let installed = bin_dir.join("../share/rhei/skills").join(skill_name);
-            if installed.is_dir() {
-                return installed
-                    .canonicalize()
-                    .map_err(|e| miette!("failed to canonicalize '{}': {e}", installed.display()));
-            }
+/// The path a checkout or packaged asset directory offers for a named skill,
+/// if either has one; otherwise the embedded copy. §FS-rhei-install-skills.4.3
+fn filesystem_skill_source(skill_name: &str) -> Option<PathBuf> {
+    // A directory only counts when it holds `SKILL.md`, so a leftover empty
+    // directory cannot shadow the embedded copy with an unreadable install.
+    let usable = |dir: PathBuf| -> Option<PathBuf> {
+        if dir.join("SKILL.md").is_file() {
+            dir.canonicalize().ok()
+        } else {
+            None
+        }
+    };
+
+    // 1. A packaged asset directory installed alongside the binary.
+    let exe = std::env::current_exe().ok();
+    if let Some(bin_dir) = exe.as_deref().and_then(Path::parent) {
+        if let Some(found) = usable(bin_dir.join("../share/rhei/skills").join(skill_name)) {
+            return Some(found);
         }
     }
 
-    // 2. Dev-build fallback: walk up from binary to find repo root (Cargo.toml).
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(|p| p.to_path_buf());
+    // 2. A checkout, found from the binary (a dev build under `target/`) or
+    //    from the current directory (an installed binary run inside a
+    //    checkout, where the skills being edited are the ones to install).
+    let starts = [exe.as_deref().and_then(Path::parent).map(Path::to_path_buf), std::env::current_dir().ok()];
+    for start in starts.into_iter().flatten() {
+        let mut dir = Some(start);
         while let Some(d) = dir {
-            if d.join("Cargo.toml").is_file() {
-                let dev_path = d.join("skills").join(skill_name);
-                if dev_path.is_dir() {
-                    return dev_path.canonicalize().map_err(|e| {
-                        miette!("failed to canonicalize '{}': {e}", dev_path.display())
-                    });
-                }
-                break;
+            if let Some(found) = usable(d.join("crates/rhei-cli/skills").join(skill_name)) {
+                return Some(found);
             }
-            dir = d.parent().map(|p| p.to_path_buf());
+            dir = d.parent().map(Path::to_path_buf);
         }
     }
 
-    Err(miette!(
-        "could not find skill source directory for '{}'. Searched relative to the rhei binary \
-         (../share/rhei/skills/{0}/) and the repo root (skills/{0}/).",
-        skill_name
-    ))
+    None
+}
+
+/// Skill directories resolved for one `install-skills` run.
+///
+/// Embedded skills are materialized into `_extraction`, which must outlive the
+/// install: dropping it deletes the very directories `sources` points at.
+struct ResolvedSkills {
+    sources: Vec<(String, PathBuf)>,
+    _extraction: Option<tempfile::TempDir>,
+}
+
+/// Locate every requested skill, preferring a filesystem copy and falling back
+/// to the copy compiled into this binary. §FS-rhei-install-skills.4.3
+fn resolve_skill_sources(skills: &[String], link: bool) -> MietteResult<ResolvedSkills> {
+    let mut sources = Vec::new();
+    let mut extraction: Option<tempfile::TempDir> = None;
+
+    for skill in skills {
+        if let Some(found) = filesystem_skill_source(skill) {
+            sources.push((skill.clone(), found));
+            continue;
+        }
+        if !builtin_skill_exists(skill) {
+            return Err(unknown_skill_error(skill));
+        }
+        // A symlink into a temporary extraction dangles as soon as the command
+        // exits, so `--link` needs a real source. §FS-rhei-install-skills.4.4
+        if link {
+            return Err(miette!(
+                "--link needs skill files on disk, but '{skill}' is only available as the copy \
+                 embedded in this binary. Searched '<binary>/../share/rhei/skills/{skill}/' and \
+                 'crates/rhei-cli/skills/{skill}/' up from both the binary and the current \
+                 directory. Run from a rhei checkout, or drop --link to copy the embedded skill."
+            ));
+        }
+
+        let temp = match extraction {
+            Some(ref t) => t,
+            None => extraction.insert(
+                tempfile::Builder::new()
+                    .prefix("rhei-builtin-skills-")
+                    .tempdir()
+                    .map_err(|err| miette!("failed to create a temporary directory: {err}"))?,
+            ),
+        };
+        sources.push((skill.clone(), materialize_builtin_skill(skill, temp.path())?));
+    }
+
+    Ok(ResolvedSkills { sources, _extraction: extraction })
 }
 
 /// Find the project root by walking up from the current directory.
@@ -157,6 +201,27 @@ fn inject_marked_section(file: &Path, content: &str, dry_run: bool) -> MietteRes
     Ok(())
 }
 
+/// Whether `line` opens a `# rhei` / `## rhei` registration block.
+fn is_rhei_heading(line: &str) -> bool {
+    (line.starts_with("# rhei") || line.starts_with("## rhei")) && !line.starts_with("###")
+}
+
+/// Index of the first line after the `# rhei` block starting at `heading`. The
+/// block is contiguous, so a blank line ends it; scanning on to the next
+/// heading would delete what a user keeps between. §FS-rhei-install-skills.4.5
+fn claude_md_block_end(lines: &[&str], heading: usize) -> usize {
+    let heading_level = lines[heading].chars().take_while(|&c| c == '#').count();
+    lines
+        .iter()
+        .enumerate()
+        .skip(heading + 1)
+        .find(|(_, line)| {
+            let level = line.chars().take_while(|&c| c == '#').count();
+            line.trim().is_empty() || (level > 0 && level <= heading_level)
+        })
+        .map_or(lines.len(), |(index, _)| index)
+}
+
 /// Remove the `<!-- rhei:start -->` … `<!-- rhei:end -->` block from a file.
 ///
 /// Also handles the `# rhei` heading-based block used by Claude Code's
@@ -195,32 +260,26 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
         result = format!("{}{}", &result[..block_start], &result[block_end..]);
     }
 
-    // Remove `# rhei` heading block (Claude Code).
+    // Remove the `# rhei` heading block (Claude Code), and only that block —
+    // whatever follows it belongs to the user. §FS-rhei-install-skills.4.5
     let lines: Vec<&str> = result.lines().collect();
     let mut new_lines: Vec<&str> = Vec::new();
-    let mut in_rhei_block = false;
-    let mut rhei_heading_level = 0usize;
+    let mut index = 0;
 
-    for line in &lines {
-        if !in_rhei_block {
-            // Detect `# rhei` or `## rhei` heading.
-            if (line.starts_with("# rhei") || line.starts_with("## rhei"))
-                && !line.starts_with("###")
-            {
-                in_rhei_block = true;
-                rhei_heading_level = line.chars().take_while(|&c| c == '#').count();
-                continue;
-            }
-            new_lines.push(line);
-        } else {
-            // Check if this line is a heading of equal or higher level.
-            let level = line.chars().take_while(|&c| c == '#').count();
-            if level > 0 && level <= rhei_heading_level {
-                in_rhei_block = false;
-                new_lines.push(line);
-            }
-            // Otherwise skip the line (part of the rhei block).
+    while index < lines.len() {
+        if is_rhei_heading(lines[index]) {
+            let end = claude_md_block_end(&lines, index);
+            // Drop the blank line that separated the block from what follows,
+            // so removing the section does not leave a growing gap behind.
+            index = if lines.get(end).is_some_and(|line| line.trim().is_empty()) {
+                end + 1
+            } else {
+                end
+            };
+            continue;
         }
+        new_lines.push(lines[index]);
+        index += 1;
     }
 
     let final_content = if new_lines.is_empty() {

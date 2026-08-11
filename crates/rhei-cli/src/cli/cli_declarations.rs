@@ -570,7 +570,9 @@ enum Commands {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer",
+            // Every embedded skill, kept in step with the binary's own set by
+            // `default_skills_covers_every_builtin`. §FS-rhei-install-skills.2
+            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer,rhei-template-writer",
             add = ArgValueCompleter::new(complete_skill_name)
         )]
         skills: Vec<String>,
