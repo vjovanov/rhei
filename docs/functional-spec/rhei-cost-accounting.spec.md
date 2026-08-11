@@ -204,7 +204,7 @@ Built-in extractor requirements:
 | --- | --- |
 | `claude-code` | Use the most structured usage output available from Claude Code. |
 | `codex` | Run `codex exec --json`; extract `turn.completed.usage` from JSONL stdout and normalize it into `runtime/accounting/captures/*.jsonl`. Do not depend on Codex snapshot support. |
-| `pi` | Parse Pi JSONL/session usage when available. Accounting-only session data belongs under `runtime/accounting/`, not snapshot cache paths. |
+| `pi` | Run `pi --mode json`; extract each assistant `message_end.message.usage` event and normalize it into `runtime/accounting/captures/*.jsonl`. Ignore the duplicate message usage carried by `turn_end` and `agent_end`. Do not depend on Pi snapshot session data. |
 
 If an upstream CLI changes format, the extractor records `extractor-failed`
 with a concise diagnostic. It must not guess from nearby human-readable text.
