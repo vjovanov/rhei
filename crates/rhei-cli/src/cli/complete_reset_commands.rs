@@ -26,7 +26,9 @@ fn split_ticket_target(
     if is_ticket_id_shaped(&raw) {
         return Ok((None, Some(raw.into_owned())));
     }
-    Err(miette!("plan '{}' does not exist", positional.display()))
+    Err(miette!(
+help = io_error_help(&positional, std::io::ErrorKind::NotFound),
+"plan '{}' does not exist", positional.display()))
 }
 
 /// Split `rhei complete`'s positional, where the ticket is mandatory.
@@ -38,6 +40,7 @@ fn split_complete_ticket_target(
     match split_ticket_target(input, task)? {
         (plan, Some(task)) => Ok((plan, task)),
         (Some(plan), None) => Err(miette!(
+            help = ticket_id_required_help(),
             "'{}' is a plan path; name the ticket too: \
              `rhei complete <ticket-id> --result <message>` \
              (or `rhei complete {} --task <ticket-id> --result <message>`)",
@@ -45,6 +48,8 @@ fn split_complete_ticket_target(
             plan.display(),
         )),
         (None, None) => Err(miette!(
+help = ticket_id_required_help(),
+
             "name the ticket to complete: `rhei complete <ticket-id> --result <message>` \
              (or `--task <ticket-id>`)"
         )),
@@ -60,6 +65,7 @@ fn split_transition_ticket_target(
     match split_ticket_target(input, task)? {
         (plan, Some(task)) => Ok((plan, task)),
         (Some(plan), None) => Err(miette!(
+            help = ticket_id_required_help(),
             "'{}' is a plan path; name the ticket too: \
              `rhei transition <ticket-id> --from <state> --to <state>` \
              (or `rhei transition {} --task <ticket-id> --from <state> --to <state>`)",
@@ -67,6 +73,8 @@ fn split_transition_ticket_target(
             plan.display(),
         )),
         (None, None) => Err(miette!(
+help = ticket_id_required_help(),
+
             "name the ticket to transition: \
              `rhei transition <ticket-id> --from <state> --to <state>` \
              (or `--task <ticket-id>`)"
@@ -174,6 +182,8 @@ fn complete_command(
     let blocked_by = blocking_priors(task, &state_map, &machines.set);
     if !blocked_by.is_empty() {
         return Err(miette!(
+help = "finish the blocking priors first, or move this ticket deliberately with: rhei transition <ticket-id> --from <state> --to <state>",
+
             "Task {} cannot be completed while its prerequisites are unsatisfied.\nBlocking priors: {}\n\
              Complete them first, or use `rhei transition` for a deliberate out-of-order move.",
             task_id_str,
@@ -287,6 +297,8 @@ fn reset_command(
         // for `-y` instead of assuming consent nobody gave.
         if !stdin_is_interactive() {
             return Err(miette!(
+help = "re-run with -y to confirm, or --dry-run to preview what it would clear.",
+
                 "`rhei reset` destroys runtime state and stdin is not a terminal, so it cannot \
                  ask for confirmation. Re-run with `-y` to confirm, or `--dry-run` to preview."
             ));
@@ -423,11 +435,15 @@ fn stdin_is_interactive() -> bool {
 fn confirm(question: &str) -> MietteResult<bool> {
     use std::io::Write;
     print!("{question} [y/N] ");
-    std::io::stdout().flush().map_err(|err| miette!("failed to write prompt: {err}"))?;
+    std::io::stdout().flush().map_err(|err| miette!(
+help = internal_error_help(),
+"failed to write prompt: {err}"))?;
     let mut answer = String::new();
     std::io::stdin()
         .read_line(&mut answer)
-        .map_err(|err| miette!("failed to read confirmation: {err}"))?;
+        .map_err(|err| miette!(
+help = "re-run with -y to confirm without a prompt.",
+"failed to read confirmation: {err}"))?;
     Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
 }
 

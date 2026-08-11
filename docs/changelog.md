@@ -17,7 +17,10 @@
   corrects so it pastes back, candidate lists name each id once and stop at
   eight, and `--agent` given a full selector says which flags carry the mode and
   the model instead of sending the user to define an agent named
-  `claude-code:some-model`.
+  `claude-code:some-model`. A correction is offered in a form the CLI accepts:
+  a scalar nested in an array is named through its enclosing input rather than
+  as a `reviewers[0]=…` assignment that does not exist. Coverage is now enforced
+  by a test rather than by review.
   §FS-rhei-errors.1 §FS-rhei-errors.2 §FS-rhei-errors.3.1 §FS-rhei-errors.4
   §FS-rhei-errors.5 §FS-rhei-errors.6 §FS-rhei-templates.3.1
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in

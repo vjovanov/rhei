@@ -89,14 +89,21 @@
             return Ok(vec![(required[0].name.clone(), values[0].clone())]);
         }
 
+        // Every input here is optional or defaulted, so there is no list of
+        // names to hand back; the naming rule still is.
+        let named = required
+            .iter()
+            .map(|input| format!("{}=<value>", input.name))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let lead = if named.is_empty() {
+            "supply values as KEY=VALUE".to_string()
+        } else {
+            format!("name each value: {named}")
+        };
         Err(miette!(
             help = format!(
-                "name each value: {}. List every input with: rhei instantiate {} --list-inputs",
-                required
-                    .iter()
-                    .map(|input| format!("{}=<value>", input.name))
-                    .collect::<Vec<_>>()
-                    .join(" "),
+                "{lead}. List every input with: rhei instantiate {} --list-inputs",
                 manifest.name
             ),
             "template '{}' does not accept positional inputs",
@@ -564,13 +571,18 @@
                 return file_io_report(dest, action, err);
             }
             // Name the file by its place in the template, which the user can
-            // open, rather than by a temp path that no longer exists.
+            // open, rather than by a temp path that no longer exists. The root
+            // itself has no such place, so it is named for what it is.
             let relative = dest.strip_prefix(self.root).unwrap_or(dest);
+            let named = if relative.as_os_str().is_empty() {
+                "the scratch output directory".to_string()
+            } else {
+                format!("'{}'", relative.display())
+            };
             miette!(
                 help = "--dry-run renders into a temp directory. Check that $TMPDIR exists, \
                         is writable, and has free space.",
-                "{action} '{}' while rendering the template: {err}",
-                relative.display()
+                "{action} {named} while rendering the template: {err}"
             )
         }
     }

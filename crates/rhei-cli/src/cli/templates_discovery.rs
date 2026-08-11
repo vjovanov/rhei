@@ -569,13 +569,13 @@
             let value = match value {
                 Ok(value) => value,
                 Err(report) => {
-                    rejected.push(report);
+                    rejected.push((input.name.clone(), report));
                     continue;
                 }
             };
 
             if let Err(report) = validate_resolved_value(&input.name, &input.schema, &value) {
-                rejected.push(report);
+                rejected.push((input.name.clone(), report));
                 continue;
             }
 
@@ -590,33 +590,42 @@
 
     /// Fold the per-input rejections into one diagnostic, keeping each input's
     /// own message and its own remedy. §FS-rhei-errors.1.1
-    fn rejected_template_inputs_report(rejected: Vec<Report>, template_ref: &str) -> Report {
+    fn rejected_template_inputs_report(
+        rejected: Vec<(String, Report)>,
+        template_ref: &str,
+    ) -> Report {
         // One bad input is already a complete diagnostic; wrapping it would only
         // bury its remedy under a summary line.
         if rejected.len() == 1 {
-            let report = rejected.into_iter().next().expect("exactly one rejection");
+            let (_, report) = rejected.into_iter().next().expect("exactly one rejection");
             return with_list_inputs_pointer(&report, template_ref);
         }
 
-        // Each remedy sits under the failure it repairs, so a reader does not
-        // have to match a list of messages against a list of fixes by position.
         let listed = rejected
             .iter()
-            .map(|report| {
-                let mut entry = format!("  {report}");
-                if let Some(help) = report.help() {
-                    for line in help.to_string().lines() {
-                        entry.push_str("\n      ");
-                        entry.push_str(line.trim());
-                    }
-                }
-                entry
+            .map(|(_, report)| format!("  {report}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Remedies go in the help block, not the message: miette re-indents a
+        // wrapped help line and does not re-indent a wrapped message line, so a
+        // remedy nested into the message loses its nesting on a narrow terminal.
+        // Each is prefixed with the input it repairs, which is what pairs it
+        // with its failure now that the two are no longer adjacent.
+        let remedies = rejected
+            .iter()
+            .filter_map(|(name, report)| {
+                report.help().map(|help| {
+                    let text = help.to_string();
+                    let joined =
+                        text.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+                    format!("{name}: {joined}")
+                })
             })
             .collect::<Vec<_>>()
             .join("\n");
         miette!(
             help = format!(
-                "fix each value above, then re-run. See what every input accepts: {}",
+                "{remedies}\nSee what every input accepts: {}",
                 list_inputs_command(template_ref)
             ),
             "{} inputs were rejected:\n{listed}",
@@ -646,16 +655,12 @@
         match format {
             TemplateInputFormat::ExecutionTarget => {
                 rhei_validator::parse_execution_target(rendered).map_err(|err| {
-                    // §FS-rhei-errors.1.2: the example is keyed to the input the
-                    // user typed. A hardcoded `agent=` would paste back as
-                    // "template has no input named 'agent'".
+                    // §FS-rhei-errors.1.2: the example is keyed to what the
+                    // user can actually type, not to the label.
                     miette!(
                         help = format!(
-                            "{err}.\nA corrected value for this input: {}",
-                            shell_assignment(
-                                label,
-                                &rhei_validator::execution_target_example(rendered)
-                            )
+                            "{err}.\n{}",
+                            execution_target_repair_example(label, rendered)
                         ),
                         "input '{}' is not a valid execution target: '{}'",
                         label,
@@ -665,6 +670,23 @@
                 Ok(())
             }
         }
+    }
+
+    /// A corrected value for `label`, written the way the user would supply it:
+    /// an assignment for a top-level input, and for a nested scalar the value
+    /// alone, since `reviewers[0]=…` is not CLI syntax. §FS-rhei-errors.1.2
+    fn execution_target_repair_example(label: &str, rendered: &str) -> String {
+        let example = rhei_validator::execution_target_example(rendered);
+        let nested = label.contains('[') || label.contains('.');
+        if !nested {
+            return format!("A corrected value for this input: {}", shell_assignment(label, &example));
+        }
+        let root = label.split(['[', '.']).next().unwrap_or(label);
+        format!(
+            "A corrected value for '{label}': {}. Supply it inside the whole '{root}' value, \
+             which is written as one YAML or JSON literal.",
+            shell_quote(&example)
+        )
     }
 
     /// The command that lists a template's inputs, quoted for paste.

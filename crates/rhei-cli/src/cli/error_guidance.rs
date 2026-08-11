@@ -482,6 +482,29 @@ fn snapshot_ambiguous_help() -> &'static str {
      in the state machine, or prune with: rhei snapshot gc"
 }
 
+/// Help for unpacking something embedded in the binary into scratch space.
+fn embedded_extraction_help() -> &'static str {
+    "built-in skills and templates are unpacked into a temp directory. Check that \
+     $TMPDIR exists, is writable, and has free space."
+}
+
+/// Help for a `rhei init` conflict, which every message already names a flag for.
+fn init_conflict_help() -> &'static str {
+    "inspect what is already here with: rhei list, then re-run init with the flag \
+     named above."
+}
+
+/// Help for a command that needs a ticket id it was not given.
+fn ticket_id_required_help() -> &'static str {
+    "ticket ids are the bold `Task <id>` values in the plan. List them with: rhei list <plan>"
+}
+
+/// Help for a `--rhei` scope that excludes what the command was asked to touch.
+fn rhei_scope_help() -> &'static str {
+    "drop --rhei to search the whole project, or name the rhei that owns the ticket. \
+     List the rheis with: rhei list"
+}
+
 /// Help for `--local` used where no project root could be found.
 fn local_install_help() -> &'static str {
     "--local writes into the current project. Run it inside a git repository or a \

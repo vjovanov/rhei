@@ -735,28 +735,26 @@
     ) -> Report {
         if explicit_output {
             return miette!(
-                "output path '{}' already exists. Pass a `--output` path that does not exist \
-                 yet, or remove that directory first.",
+                help = format!(
+                    "pass a --output path that does not exist yet, or remove that one: rm -rf {}",
+                    shell_quote(&output_dir.display().to_string())
+                ),
+                "output path '{}' already exists",
                 output_dir.display()
             );
         }
         let suggestion = relative_to_cwd(&next_free_sibling(output_dir));
-        let args = input_args
-            .iter()
-            .map(|arg| shell_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let args = if args.is_empty() { String::new() } else { format!(" {args}") };
+        let mut parts = vec!["rhei".to_string(), "instantiate".to_string(), template.to_string()];
+        parts.extend(input_args.iter().cloned());
+        parts.push("--output".to_string());
+        parts.push(suggestion.display().to_string());
         miette!(
+            help = format!("name it for what it is about:\n  {}", shell_command(&parts)),
             "'{}' already exists, so template '{}' has already been instantiated here under \
              that name. A second copy needs its own directory, because the directory name \
-             becomes the rhei id every one of its ticket ids is prefixed with. Name it for \
-             what it is about:\n  rhei instantiate {}{} --output {}",
+             becomes the rhei id every one of its ticket ids is prefixed with.",
             output_dir.display(),
-            template,
-            template,
-            args,
-            suggestion.display()
+            template
         )
     }
 

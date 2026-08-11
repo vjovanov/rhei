@@ -384,3 +384,127 @@ fn suggested_commands_are_never_wrapped_mid_command() {
         result.stderr
     );
 }
+
+/// A template whose execution-target input is nested inside an array, so the
+/// repair example cannot be a plain `name=value` assignment. §FS-rhei-errors.1.2
+fn write_nested_target_template(dir: &std::path::Path) {
+    let template_dir = dir.join(".agents/rhei/templates/nested");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: nested
+version: 1.0.0
+description: Template whose execution targets live inside an array
+inputs:
+  - name: reviewers
+    description: Agents that review
+    type: array
+    items:
+      type: string
+      format: execution-target
+    default:
+      - claude-code:m
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        "# Rhei: nested\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n",
+    );
+}
+
+#[test]
+fn a_nested_scalar_is_not_offered_an_assignment_it_cannot_have() {
+    let dir = unique_temp_dir("errors-nested-repair");
+    write_nested_target_template(&dir);
+
+    let result = run_raw(&["instantiate", "nested", "reviewers=[nomodel]", "--dry-run"], &dir);
+    assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
+
+    // The label is path-qualified, and there is no `reviewers[0]=…` CLI syntax —
+    // suggesting one reproduces the very bug this rule exists to prevent.
+    assert!(
+        result.stderr.contains("reviewers[0]"),
+        "the failure should name the element; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("reviewers[0]='"),
+        "a nested scalar must not be offered an assignment form; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        result.stderr.contains("whole 'reviewers' value"),
+        "the remedy should point at the whole input; got:\n{}",
+        result.stderr
+    );
+}
+
+#[test]
+fn a_template_with_no_required_inputs_still_states_the_naming_rule() {
+    let dir = unique_temp_dir("errors-no-required");
+    write_nested_target_template(&dir);
+
+    // Every input is defaulted, so there is no list of names to hand back.
+    let result = run_raw(&["instantiate", "nested", "somepositional", "--dry-run"], &dir);
+    assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
+    assert!(
+        result.stderr.contains("supply values as KEY=VALUE"),
+        "expected the naming rule; got:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("name each value: ."),
+        "an empty list must not be rendered into the help; got:\n{}",
+        result.stderr
+    );
+}
+
+#[test]
+fn batched_remedies_are_labelled_and_survive_a_narrow_terminal() {
+    let dir = unique_temp_dir("errors-batched-labels");
+    write_agent_template(&dir);
+
+    let result = run_raw(
+        &[
+            "instantiate",
+            "guided",
+            "subject=a",
+            "brief=b",
+            "worker_agent=bad",
+            "reviewers=not-a-list",
+            "--dry-run",
+        ],
+        &dir,
+    );
+    assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
+
+    // Remedies live in the help block, which miette re-indents on wrap, and each
+    // names the input it repairs now that it is no longer adjacent to it.
+    assert!(result.stderr.contains("worker_agent:"), "got:\n{}", result.stderr);
+    assert!(result.stderr.contains("reviewers:"), "got:\n{}", result.stderr);
+}
+
+#[test]
+fn instantiating_over_an_existing_directory_suggests_a_free_name() {
+    let dir = unique_temp_dir("errors-collision");
+    write_agent_template(&dir);
+
+    let first = run_raw(&["instantiate", "guided", "subject=a", "brief=b"], &dir);
+    assert_success(&first);
+
+    let second = run_raw(&["instantiate", "guided", "subject=a", "brief=b"], &dir);
+    assert!(!second.status.success(), "the second instantiation should fail: {}", second.stdout);
+    // §FS-rhei-errors.1.2: the remedy is a command, on the help line.
+    assert!(
+        second.stderr.contains("help:"),
+        "the collision must carry a help line; got:\n{}",
+        second.stderr
+    );
+    assert!(
+        second.stderr.contains("--output") && second.stderr.contains("guided-2"),
+        "expected a free sibling to be suggested; got:\n{}",
+        second.stderr
+    );
+}

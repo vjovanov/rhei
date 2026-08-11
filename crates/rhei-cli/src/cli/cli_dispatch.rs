@@ -477,6 +477,8 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             // plan-taking command that never infers an omitted target.
             let Some(input) = input else {
                 return Err(miette!(
+help = "preview it first: rhei reset <plan-or-project> --dry-run",
+
                     "`rhei reset` rewrites every in-scope ticket to the initial state \
                      and deletes runtime artifacts, so it never infers its target. \
                      Name the plan or project explicitly: `rhei reset <plan-or-project>`"

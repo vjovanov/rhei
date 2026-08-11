@@ -47,6 +47,12 @@ A runnable command reproduces the invocation the user actually typed — the
 arguments they already supplied plus the correction — so it can be pasted
 without re-deriving anything.
 
+A correction is offered in a form the CLI accepts. A value the user can assign
+is shown as the assignment; a scalar nested inside an array or object has no
+assignment syntax of its own, so the correction names the enclosing input and
+shows the corrected value alone. A suggestion that pastes back as a *different*
+error is worse than none, because it costs a round trip to discover that.
+
 Errors that cannot be user-caused (broken internal invariants) carry help that
 says so and asks for a bug report; they never invent a remedy.
 
@@ -66,7 +72,14 @@ both is still one name.
 ## 2. Copy-Paste Safety
 
 Any command Rhei prints — in an error, a help line, or a success summary — must
-survive being pasted into an interactive shell.
+survive being pasted into an interactive shell: every value parses as the single
+argument Rhei meant, and no token is ever split across lines.
+
+A command wider than the terminal still wraps, at a space. Rejoining two lines
+is a visible, recoverable inconvenience; a path or selector broken mid-token is
+neither, which is why the renderer breaks only at spaces. Suggestions are kept
+short for the same reason — paths are printed relative to the working directory
+when they sit beneath it.
 
 Values are POSIX-quoted whenever they contain characters outside
 `[A-Za-z0-9_.,:/@%+=-]`, and whenever they begin with `=`, which zsh expands to
@@ -130,6 +143,10 @@ consumers see the same next action as humans:
 The contract applies to every diagnostic `rhei` prints on a failing exit path.
 Filesystem failures derive their help from the underlying error kind (missing
 path, permission, already-exists) and always name the path.
+
+Coverage is a property of the whole binary rather than of any one call site, so
+it is enforced by a test that fails when a diagnostic is raised without help,
+not left to review.
 
 Help is derived from the failure, never assigned by the area of code it sits
 in. A remedy that does not act on the reported failure — telling the user to

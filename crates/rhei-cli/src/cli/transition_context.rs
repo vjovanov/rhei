@@ -321,7 +321,9 @@ fn parse_metadata_from_raw(path: &Path, raw: &str) -> MietteResult<Option<Metada
         }
         _ => {
             let rhei = rhei_core::parse(raw)
-                .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
+                .map_err(|err| miette!(
+help = plan_authoring_help(),
+"{}: {}", path.display(), err.message))?;
             Ok(rhei.metadata)
         }
     }

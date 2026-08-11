@@ -473,6 +473,8 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
                         .map(|name| name.to_string_lossy().into_owned())
                         .collect();
                     return Err(miette!(
+help = "run `rhei init --here` to make the directory a project, or pass one of the rheis above.",
+
                         "{} holds {} rheis ({}) but no `index.panta.md`, so there is no \
                          single plan to pick. Pass one explicitly, or run `rhei init` to \
                          make the directory a project (writes index.panta.md)",
@@ -505,6 +507,8 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         ));
     }
     Err(miette!(
+help = "pass a plan path, or run `rhei init` to make this directory a project.",
+
         "no Rhei plan found: neither {} nor any parent directory contains an \
          `index.panta.md` project manifest, a workspace `index.rhei.md`, or a \
          `*.rhei.md` plan file. Pass a plan path (`rhei <command> path/to/plan.rhei.md`) \
@@ -606,6 +610,8 @@ fn resolve_rhei_scope(loaded: &LoadedPlan, selected: &[String]) -> MietteResult<
         let name = name.trim();
         if !available.contains(name) {
             return Err(miette!(
+                help = did_you_mean(name, &loaded.rhei_ids)
+                    .unwrap_or_else(|| "this project holds no rheis.".to_string()),
                 "unknown rhei '{}'; this project has: {}",
                 name,
                 loaded.rhei_ids.join(", ")
@@ -660,6 +666,8 @@ fn resolve_cli_task_id(
     if find_task_by_id(&loaded.rhei.tasks, &target).is_some() {
         if !task_in_rhei_scope(scope, task_id_str) {
             return Err(miette!(
+help = rhei_scope_help(),
+
                 "task '{}' is outside the --rhei scope ({})",
                 task_id_str,
                 scope_label(scope)
@@ -678,6 +686,8 @@ fn resolve_cli_task_id(
         .collect();
     match candidates.len() {
         0 if scope.is_some() => Err(miette!(
+help = rhei_scope_help(),
+
             "task '{}' not found in the --rhei scope ({})",
             task_id_str,
             scope_label(scope)
@@ -691,12 +701,16 @@ fn resolve_cli_task_id(
                 // Nothing close enough to suggest — name the next step rather
                 // than leaving a dead end.
                 Err(miette!(
+help = task_id_help(),
+
                     "task '{}' not found in this {}; `rhei list` shows every ticket id",
                     task_id_str,
                     scope_noun
                 ))
             } else {
                 Err(miette!(
+help = task_id_help(),
+
                     "task '{}' not found in this {}; closest ids: {}",
                     task_id_str,
                     scope_noun,
@@ -706,6 +720,8 @@ fn resolve_cli_task_id(
         }
         1 => Ok(candidates.into_iter().next().expect("one candidate")),
         _ => Err(miette!(
+help = "a qualified id is <rhei>.<ticket>. Copy one from: rhei list",
+
             "task id '{}' is ambiguous across rheis; use a qualified id: {}",
             task_id_str,
             candidates.join(", ")

@@ -76,7 +76,9 @@ fn write_completion_script(
     };
     writer
         .write_all(script.as_bytes())
-        .map_err(|err| miette!("failed to write {} completions: {err}", shell.as_str()))
+        .map_err(|err| miette!(
+help = "completions are written to stdout; redirect them to a file your shell sources.",
+"failed to write {} completions: {err}", shell.as_str()))
 }
 
 /// Falls back to the shell detected from `$SHELL` when none was given. §FS-rhei-completions.2

@@ -13,6 +13,8 @@ fn release_command(
 ) -> MietteResult<()> {
     if task_id_str.is_some() == all {
         return Err(miette!(
+help = ticket_id_required_help(),
+
             "`rhei release` takes either one ticket — `rhei release <ticket-id>`, or \
              `--task <id>` — or `--all`, which sweeps every claimed ticket in scope"
         ));
@@ -90,9 +92,13 @@ fn release_target_by_id(
     let task_id_str = resolve_cli_task_id(loaded, task_id_str, scope)?;
     let target_id = parse_task_id(&task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+        .ok_or_else(|| miette!(
+help = task_id_help(),
+"task '{}' not found in the plan", task_id_str))?;
     let Some(assignee) = task.assignee.clone() else {
         return Err(miette!(
+help = "nothing to release. See who holds what with: rhei list <plan>",
+
             "Task {} holds no claim — it has no **Assignee:** to release",
             task_id_str
         ));
@@ -170,12 +176,16 @@ fn remove_task_assignee(
     }
 
     if !target_found {
-        return Err(miette!("task '{}' not found in {}", qualified_id, task_file.display()));
+        return Err(miette!(
+help = task_id_help(),
+"task '{}' not found in {}", qualified_id, task_file.display()));
     }
     if !removed {
         // The parse said the ticket was claimed, so a missing line means the
         // file moved under us — better to say so than to report a no-op write.
         return Err(miette!(
+help = task_moved_help(),
+
             "task '{}' has no **Assignee:** line in {}; the file changed since it was read",
             qualified_id,
             task_file.display()

@@ -40,7 +40,9 @@ pub(crate) fn materialize_builtin_skill(name: &str, root: &Path) -> MietteResult
 
     let out_root = root.join(name);
     fs::create_dir_all(&out_root)
-        .map_err(|err| miette!("failed to create '{}': {err}", out_root.display()))?;
+        .map_err(|err| miette!(
+help = embedded_extraction_help(),
+"failed to create '{}': {err}", out_root.display()))?;
 
     // Entries carry paths relative to the embedded root
     // (`rhei-plan-writer/references/default-states.md`), so stripping the
@@ -51,14 +53,20 @@ pub(crate) fn materialize_builtin_skill(name: &str, root: &Path) -> MietteResult
         let relative = file
             .path()
             .strip_prefix(name)
-            .map_err(|_| miette!("built-in skill '{name}' has an unexpected entry"))?;
+            .map_err(|_| miette!(
+help = internal_error_help(),
+"built-in skill '{name}' has an unexpected entry"))?;
         let out = out_root.join(relative);
         if let Some(parent) = out.parent() {
             fs::create_dir_all(parent)
-                .map_err(|err| miette!("failed to create '{}': {err}", parent.display()))?;
+                .map_err(|err| miette!(
+help = embedded_extraction_help(),
+"failed to create '{}': {err}", parent.display()))?;
         }
         fs::write(&out, file.contents())
-            .map_err(|err| miette!("failed to write '{}': {err}", out.display()))?;
+            .map_err(|err| miette!(
+help = embedded_extraction_help(),
+"failed to write '{}': {err}", out.display()))?;
     }
 
     Ok(out_root)

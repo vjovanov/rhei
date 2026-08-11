@@ -286,6 +286,8 @@ fn format_dry_run_manual_only(task_id: &str, from: &str, to: &str) -> String {
 /// so this only carries the count and the fix.
 fn manual_only_dry_run_error(reported: &[String]) -> miette::Report {
     miette!(
+help = "claim one with: rhei next <plan>",
+
         "{} task(s) reported above are in a manual-only initial state and cannot be advanced \
          by `rhei run`. Claim each with `rhei next`, do the work, then finish with \
          `rhei complete`.",
@@ -303,6 +305,8 @@ fn manual_only_dry_run_error(reported: &[String]) -> miette::Report {
 // §FS-rhei-run.4
 fn dry_run_halt_error() -> miette::Report {
     miette!(
+help = nothing_claimable_help(),
+
         "`rhei run` would halt here: nothing is schedulable and the tickets reported above \
          need a human. This is the same outcome the real run reaches."
     )

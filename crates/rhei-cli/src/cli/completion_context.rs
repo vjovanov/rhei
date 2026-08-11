@@ -314,6 +314,8 @@ fn resolve_state_machines_for_loaded_plan(
         }
         if let Some(override_path) = state_machine_path {
             return Err(miette!(
+help = "--state-machine replaces resolution for the whole scope. Narrow the scope with --rhei, or drop the override and let each rhei resolve its own machine.",
+
                 "--state-machine '{}' declares '{}', but rhei '{rhei_id}' declares state \
                  machine '{machine_name}'. The override replaces resolution for the whole \
                  scope; it cannot reinterpret that rhei's states under another machine. \
@@ -376,6 +378,8 @@ fn resolve_declared_rhei_machine(
 
     match matches.len() {
         0 => Err(miette!(
+help = states_declaration_help(),
+
             "rhei '{rhei_id}' declares state machine '{machine_name}', but no states file \
              declaring it was found in the rhei's root, the project root, or any other \
              rhei root. Add a `states.yaml` declaring '{machine_name}' next to the rhei, \
@@ -389,6 +393,8 @@ fn resolve_declared_rhei_machine(
             let paths: Vec<String> =
                 matches.iter().map(|(path, _)| format!("'{}'", path.display())).collect();
             Err(miette!(
+help = states_declaration_help(),
+
                 "rhei '{rhei_id}' declares state machine '{machine_name}', and more than one \
                  root holds a states file declaring it: {}.\nMove the definitive file to the \
                  rhei's own root or pass --state-machine <path>.",
@@ -743,7 +749,11 @@ fn list_command(
             for machine in machines.distinct() {
                 available.extend(machine.allowed_states());
             }
+            let known =
+                available.iter().map(|state| state.to_string()).collect::<Vec<_>>();
             return Err(miette!(
+                help = did_you_mean(requested, &known)
+                    .unwrap_or_else(|| "this machine declares no states.".to_string()),
                 "unknown state '{}'; states in this {}: {}",
                 requested,
                 if loaded.is_panta_project() { "project" } else { "plan" },

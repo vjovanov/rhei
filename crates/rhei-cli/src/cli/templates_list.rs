@@ -294,7 +294,9 @@
         if let Some(template) = templates.iter().find(|t| t.manifest.name == reference) {
             if as_json {
                 let rendered = serde_json::to_string_pretty(&template_json_entry(template))
-                    .map_err(|err| miette!("failed to serialize template detail: {err}"))?;
+                    .map_err(|err| miette!(
+help = internal_error_help(),
+"failed to serialize template detail: {err}"))?;
                 println!("{rendered}");
                 return Ok(());
             }
@@ -320,7 +322,9 @@
             // A directory reference has no discovery tier to report.
             value["source"] = serde_json::Value::Null;
             let rendered = serde_json::to_string_pretty(&value)
-                .map_err(|err| miette!("failed to serialize template detail: {err}"))?;
+                .map_err(|err| miette!(
+help = internal_error_help(),
+"failed to serialize template detail: {err}"))?;
             println!("{rendered}");
             return Ok(());
         }
