@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Measure Pi token usage. Pi was listed as an accounting-supported agent but
+  was wired to the generic structured-capture contract, which stock Pi does not
+  emit — so every Pi invocation recorded `no-usage-emitted` even though Pi
+  reports measured usage in its JSONL. Pi now runs with `--mode json` and its
+  assistant `message_end.message.usage` events feed the same normalized
+  capture, invocation record, rollup, and monitoring path as Codex. The
+  duplicate usage Pi repeats in `turn_end` and `agent_end` is ignored so each
+  provider call is counted once, and live monitoring renders assistant text
+  with a compact usage line instead of the full event stream — the complete
+  JSONL stays in the agent log. PR #51 §FS-rhei-cost-accounting.4
+
 - Compile the skills into the binary, so `rhei install-skills` works from an
   installed `rhei`. The command resolved skills by walking up from the binary
   for a repo root, which a `cargo install`ed or npm-installed `rhei` does not
