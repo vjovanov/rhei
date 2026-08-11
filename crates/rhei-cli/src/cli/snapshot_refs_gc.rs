@@ -43,7 +43,10 @@ fn resolve_snapshot_ref(
     }
 
     match matches.len() {
-        0 => Err(miette!("snapshot reference '{reference}' did not match any cached generation")),
+        0 => Err(miette!(
+            help = snapshot_reference_help(),
+            "snapshot reference '{reference}' did not match any cached generation"
+        )),
         1 => Ok(matches.remove(0)),
         _ => Err(ambiguous_snapshot_report(reference, &matches)),
     }
@@ -70,6 +73,7 @@ fn resolve_snapshot_path_ref(
     })?;
     if !canonical.starts_with(&cache_root) {
         return Err(miette!(
+            help = "the snapshot cache root comes from settings.json. Check it with: rhei diag",
             "snapshot path '{}' is outside the configured cache '{}'",
             candidate.display(),
             ctx.cache_root.display()
@@ -79,7 +83,10 @@ fn resolve_snapshot_path_ref(
         file_io_report(&canonical.join("manifest.json"), "failed to read snapshot manifest", err)
     })?;
     let manifest = serde_json::from_str(&raw).map_err(|err| {
-        miette!("failed to parse snapshot manifest '{}': {err}", canonical.display())
+        miette!(
+            help = snapshot_help(),
+            "failed to parse snapshot manifest '{}': {err}", canonical.display()
+        )
     })?;
     snapshot_record_from_manifest(&ctx.cache_root, &canonical.join("manifest.json"), manifest)
 }
@@ -91,7 +98,10 @@ fn parse_snapshot_ref(
     let (body, generation) = match reference.rsplit_once("/g") {
         Some((body, n)) => {
             let generation = n.parse::<u64>().map_err(|_| {
-                miette!("snapshot reference '{reference}' has invalid generation '/g{n}'")
+                miette!(
+                    help = snapshot_reference_help(),
+                    "snapshot reference '{reference}' has invalid generation '/g{n}'"
+                )
             })?;
             (body, Some(generation))
         }
@@ -100,6 +110,7 @@ fn parse_snapshot_ref(
     let parts: Vec<&str> = body.split(':').collect();
     if parts.len() < 2 || parts.len() > 4 || parts.iter().any(|part| part.is_empty()) {
         return Err(miette!(
+            help = snapshot_reference_help(),
             "snapshot reference '{reference}' must use <task>:<name>[:<state>][@<visit>][:<target>][/g<N>]"
         ));
     }
@@ -151,11 +162,15 @@ fn split_visit<'a>(segment: &'a str, reference: &str) -> MietteResult<(&'a str, 
         Some((prefix, visit)) => {
             if prefix.is_empty() {
                 return Err(miette!(
+                    help = snapshot_reference_help(),
                     "snapshot reference '{reference}' has an empty state before '@'"
                 ));
             }
             let visit = visit.parse::<u64>().map_err(|_| {
-                miette!("snapshot reference '{reference}' has invalid visit '@{visit}'")
+                miette!(
+                    help = snapshot_reference_help(),
+                    "snapshot reference '{reference}' has invalid visit '@{visit}'"
+                )
             })?;
             Ok((prefix, Some(visit)))
         }
@@ -185,6 +200,7 @@ fn select_current_records(
     for (identity, group) in grouped {
         let Some(current) = group.iter().find(|record| record.is_current).cloned() else {
             return Err(miette!(
+                help = snapshot_reference_help(),
                 "snapshot reference '{reference}' matched cached generations for {}, but none is marked current; retry with /g<N> or repair the current pointer",
                 snapshot_identity_ref(&identity)
             ));
@@ -214,6 +230,7 @@ fn ambiguous_snapshot_report(reference: &str, matches: &[SnapshotRecord]) -> Rep
         .collect::<Vec<_>>()
         .join("\n");
     miette!(
+        help = snapshot_reference_help(),
         "snapshot reference '{reference}' is ambiguous; matched {} candidates:\n{}\nretry with explicit --task, --name, --state, --target, or --generation selectors",
         sorted.len(),
         candidates
@@ -233,15 +250,20 @@ fn snapshot_gc_command(
     force: bool,
 ) -> MietteResult<()> {
     if keep_generations == Some(0) {
-        return Err(miette!("--keep-generations must be at least 1"));
+        return Err(miette!(
+            help = "--keep-generations keeps at least one generation per lineage; pass 1 or more.",
+            "--keep-generations must be at least 1"
+        ));
     }
     if older_than.is_none() && keep_generations.is_none() && !orphaned {
         return Err(miette!(
+            help = "choose what to delete: --older-than <dur>, --keep-generations <n>, or --orphaned.",
             "snapshot gc requires a deletion policy: pass --older-than, --keep-generations, or --orphaned"
         ));
     }
     if !force && run_lock_is_held(&ctx.workspace_root)? {
         return Err(miette!(
+            help = "a run is in progress and may still write snapshots. Wait for it to finish, or pass --force.",
             "refusing to garbage-collect snapshots while .rhei/run.lock is held; stop the run first or pass --force"
         ));
     }
@@ -287,6 +309,7 @@ fn snapshot_gc_command(
             .collect();
         if !protected.is_empty() {
             return Err(miette!(
+                help = snapshot_help(),
                 "refusing to garbage-collect snapshots selected by active snapshot.inherit rules: {}. Stop the run or pass --force to acknowledge the risk.",
                 protected.join(", ")
             ));
@@ -447,7 +470,10 @@ fn refresh_current_links(
         let current = identity_dir.join("current");
         if let Some(newest) = records.first() {
             let target = newest.path.file_name().and_then(OsStr::to_str).ok_or_else(|| {
-                miette!("invalid snapshot generation path '{}'", newest.path.display())
+                miette!(
+                    help = "this cached snapshot is corrupt. Remove it with: rhei snapshot gc --orphaned",
+                    "invalid snapshot generation path '{}'", newest.path.display()
+                )
             })?;
             replace_current_symlink(&identity_dir, target)?;
         } else if current.exists() || current.is_symlink() {

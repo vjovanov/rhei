@@ -33,6 +33,7 @@ inputs:
   - name: agent
     description: Agent target that creates each worktree and does the work inside it.
     type: string
+    format: execution-target
     default: claude-code[yolo]:anthropic:claude-opus-4-7
 
   - name: branch_prefix

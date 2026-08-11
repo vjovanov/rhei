@@ -21,7 +21,9 @@ fn init_command(
     let host = match dir {
         Some(dir) => dir.to_path_buf(),
         None => std::env::current_dir()
-            .map_err(|err| miette!("failed to read the current directory: {err}"))?,
+            .map_err(|err| miette!(
+help = cwd_help(),
+"failed to read the current directory: {err}"))?,
     };
     let project = if here { host.clone() } else { host.join("panta") };
 
@@ -30,6 +32,8 @@ fn init_command(
     // every target resolution to the host manifest and never be reachable.
     if !here && host.join("index.panta.md").is_file() {
         return Err(miette!(
+help = init_conflict_help(),
+
             "{} is already a Panta project itself: index.panta.md exists at the host. \
              Re-run with `--force --here` to re-initialize it in place; a new `panta/` \
              project inside it would be shadowed by the host manifest",
@@ -45,6 +49,8 @@ fn init_command(
         && conventional.join("index.panta.md").is_file()
     {
         return Err(miette!(
+help = init_conflict_help(),
+
             "{} already holds a Panta project at {}: an adopted host project would \
              shadow it — every inferred target would resolve to the host manifest. \
              Keep using the project at {}, or move its contents into the host and \
@@ -58,6 +64,8 @@ fn init_command(
     // which rewrites the manifest and updates companion files in place.
     if project.join("index.panta.md").is_file() && !force {
         return Err(miette!(
+help = init_conflict_help(),
+
             "{} is already a Panta project: index.panta.md exists. Re-run with \
              `--force` to overwrite the manifest",
             project.display()
@@ -74,6 +82,8 @@ fn init_command(
                 .map(|name| name.to_string_lossy().into_owned())
                 .collect();
             return Err(miette!(
+help = init_conflict_help(),
+
                 "{} already holds {} rhei(s) ({}) that a `panta/` project would not \
                  discover. Re-run with `--here` to adopt them in place, or move them \
                  into panta/ first",
@@ -85,7 +95,7 @@ fn init_command(
     }
 
     fs::create_dir_all(&project)
-        .map_err(|err| miette!("failed to create {}: {err}", project.display()))?;
+        .map_err(|err| file_io_report(&project, "failed to create", err))?;
 
     // §FS-rhei-init.2: nested projects are almost always a mistake.
     if let Some(outer) = enclosing_panta_project(&project) {
@@ -108,7 +118,7 @@ fn init_command(
     let contents = format!("# Panta: {title}\n");
     let manifest = project.join("index.panta.md");
     fs::write(&manifest, contents)
-        .map_err(|err| miette!("failed to write {}: {err}", manifest.display()))?;
+        .map_err(|err| file_io_report(&manifest, "failed to write", err))?;
 
     // §FS-rhei-init.3: default mode ignores the project folder at the host and
     // self-contains the output rules inside it, so un-ignoring the plans later
@@ -217,7 +227,7 @@ fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<bool> {
         out.push_str(entry);
         out.push('\n');
     }
-    fs::write(&path, out).map_err(|err| miette!("failed to write {}: {err}", path.display()))?;
+    fs::write(&path, out).map_err(|err| file_io_report(&path, "failed to write", err))?;
     Ok(true)
 }
 
@@ -259,7 +269,7 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
         return Ok((false, path));
     }
     fs::write(&path, updated)
-        .map_err(|err| miette!("failed to write {}: {err}", path.display()))?;
+        .map_err(|err| file_io_report(&path, "failed to write", err))?;
     Ok((true, path))
 }
 

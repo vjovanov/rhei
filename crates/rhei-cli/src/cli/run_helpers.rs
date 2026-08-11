@@ -143,7 +143,10 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
         YamlValue::Mapping(mapping) => {
             let command = mapping
                 .get(yaml_key("command"))
-                .ok_or_else(|| miette!("program object must include a 'command' field"))?;
+                .ok_or_else(|| miette!(
+                    help = state_machine_help(),
+                    "program object must include a 'command' field"
+                ))?;
             let command = match command {
                 YamlValue::String(value) => ProgramCommand::Shell(value.clone()),
                 YamlValue::Sequence(items) => ProgramCommand::Exec(
@@ -152,11 +155,17 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
                         .map(|item| {
                             item.as_str()
                                 .map(str::to_string)
-                                .ok_or_else(|| miette!("program.command entries must be strings"))
+                                .ok_or_else(|| miette!(
+                                    help = state_machine_help(),
+                                    "program.command entries must be strings"
+                                ))
                         })
                         .collect::<MietteResult<Vec<_>>>()?,
                 ),
-                _ => return Err(miette!("program.command must be a string or string array")),
+                _ => return Err(miette!(
+                    help = state_machine_help(),
+                    "program.command must be a string or string array"
+                )),
             };
 
             let env = mapping
@@ -167,7 +176,10 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
                         .map(|(key, value)| {
                             let key = key
                                 .as_str()
-                                .ok_or_else(|| miette!("program.env keys must be strings"))?;
+                                .ok_or_else(|| miette!(
+                                    help = state_machine_help(),
+                                    "program.env keys must be strings"
+                                ))?;
                             let value = match value {
                                 YamlValue::Null => String::new(),
                                 YamlValue::Bool(value) => value.to_string(),
@@ -175,6 +187,7 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
                                 YamlValue::String(value) => value.clone(),
                                 _ => {
                                     return Err(miette!(
+                                        help = state_machine_help(),
                                         "program.env values must be strings, numbers, booleans, or null"
                                     ))
                                 }
@@ -182,7 +195,10 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
                             Ok((key.to_string(), value))
                         })
                         .collect::<MietteResult<BTreeMap<_, _>>>(),
-                    _ => Err(miette!("program.env must be a mapping")),
+                    _ => Err(miette!(
+                        help = state_machine_help(),
+                        "program.env must be a mapping"
+                    )),
                 })
                 .transpose()?
                 .unwrap_or_default();
@@ -193,7 +209,10 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
                     value
                         .as_str()
                         .map(str::to_string)
-                        .ok_or_else(|| miette!("program.working_directory must be a string"))
+                        .ok_or_else(|| miette!(
+                            help = state_machine_help(),
+                            "program.working_directory must be a string"
+                        ))
                 })
                 .transpose()?;
 
@@ -204,7 +223,10 @@ fn parse_program_spec(value: &YamlValue) -> MietteResult<ProgramSpec> {
 
             Ok(ProgramSpec { command, env, working_directory, shell })
         }
-        _ => Err(miette!("program must be a string or object")),
+        _ => Err(miette!(
+            help = state_machine_help(),
+            "program must be a string or object"
+        )),
     }
 }
 
@@ -221,7 +243,10 @@ fn resolve_program(
     let state_def = machine
         .states
         .get(state_name)
-        .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
+        .ok_or_else(|| miette!(
+            help = internal_error_help(),
+            "state '{}' missing from loaded machine", state_name
+        ))?;
     let Some(program_value) = state_def.program.as_ref() else {
         return Ok(None);
     };

@@ -76,7 +76,9 @@ fn write_completion_script(
     };
     writer
         .write_all(script.as_bytes())
-        .map_err(|err| miette!("failed to write {} completions: {err}", shell.as_str()))
+        .map_err(|err| miette!(
+help = "completions are written to stdout; redirect them to a file your shell sources.",
+"failed to write {} completions: {err}", shell.as_str()))
 }
 
 /// Falls back to the shell detected from `$SHELL` when none was given. §FS-rhei-completions.2
@@ -144,7 +146,10 @@ fn write_completion_registration(
         .unwrap_or_else(|| "rhei".to_string());
     completion_env_completer(shell)
         .write_registration("COMPLETE", command.get_name(), "rhei", &completer, writer)
-        .map_err(|err| miette!("failed to generate {} completions: {err}", shell.as_str()))
+        .map_err(|err| miette!(
+            help = "see how to enable completions with: rhei completions --help",
+            "failed to generate {} completions: {err}", shell.as_str()
+        ))
 }
 
 fn completion_env_completer(shell: CompletionShell) -> &'static dyn EnvCompleter {

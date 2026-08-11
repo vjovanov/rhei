@@ -3,6 +3,7 @@ include!("cli/cli_declarations.rs");
 include!("cli/cli_dispatch.rs");
 include!("cli/completion_candidates.rs");
 include!("cli/completion_context.rs");
+include!("cli/error_guidance.rs");
 
 mod templates {
     include!("cli/templates_builtin.rs");
@@ -62,6 +63,7 @@ include!("cli/diagnostics.rs");
 #[cfg(test)]
 mod tests {
     include!("cli/tests_cli_render.rs");
+    include!("cli/tests_error_guidance.rs");
     include!("cli/tests_complete_reset_tooling.rs");
     include!("cli/tests_agent_resolution.rs");
     include!("cli/tests_agent_execution_validation.rs");

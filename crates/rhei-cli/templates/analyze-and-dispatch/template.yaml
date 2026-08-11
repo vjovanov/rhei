@@ -21,11 +21,13 @@ inputs:
   - name: coordinator_agent
     description: Agent that performs the analysis and writes the follow-up task files. Use a capable model — it owns the decomposition.
     type: string
+    format: execution-target
     default: claude-code[yolo]:anthropic:claude-opus-4-7
 
   - name: worker_agent
     description: Agent that handles each spawned work item.
     type: string
+    format: execution-target
     default: claude-code[yolo]:anthropic:claude-opus-4-7
 
   - name: max_tasks

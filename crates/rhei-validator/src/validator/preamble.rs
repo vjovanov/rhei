@@ -394,19 +394,52 @@ impl ExecutionTarget {
     }
 }
 
+/// A concrete, corrected selector shaped from what the caller typed. Callers own
+/// the left-hand side, so this never guesses a `key=` prefix. §FS-rhei-errors.1.2
+pub fn execution_target_example(selector: &str) -> String {
+    let head = selector.split(':').next().unwrap_or_default().trim();
+    let agent = head.split('[').next().unwrap_or_default().trim();
+    let agent = if agent.is_empty() { "<agent>" } else { agent };
+    format!("{agent}[yolo]:openai:gpt-5.5")
+}
+
+/// The accepted selector shapes plus a repair of what the caller typed, quoted
+/// because a `[mode]` segment is a zsh glob. §FS-rhei-errors.1.2
+fn execution_target_repair(selector: &str) -> String {
+    // Unquoted, `codex[yolo]:openai:gpt-5.5` dies with `no matches found`
+    // before rhei ever runs.
+    let head = selector.split(':').next().unwrap_or_default().trim();
+    let head = if head.is_empty() { "<agent>" } else { head };
+    format!(
+        "write it as '{head}:<model>' or '{head}:<provider>:<model>' \
+         (a mode goes in brackets: '{head}[<mode>]:<provider>:<model>'). \
+         A selector carrying a mode must be quoted in the shell, e.g. \
+         '{}'",
+        execution_target_example(selector)
+    )
+}
+
 /// Parse an inline execution target selector.
 pub fn parse_execution_target(selector: &str) -> Result<ExecutionTarget, String> {
     let selector = selector.trim();
     if selector.is_empty() {
-        return Err("execution target selector must not be empty".to_string());
+        return Err(
+            "execution target selector must not be empty; write it as '<agent>:<model>', \
+             e.g. 'claude-code:claude-opus-4-7'"
+                .to_string(),
+        );
     }
 
     let parts: Vec<&str> = selector.split(':').collect();
     if parts.len() != 2 && parts.len() != 3 {
+        let problem = if parts.len() == 1 {
+            "is missing the model"
+        } else {
+            "has too many ':'-separated segments"
+        };
         return Err(format!(
-            "execution target selector '{selector}' must use '<agent>:<model>', \
-             '<agent>[<mode>]:<model>', '<agent>:<provider>:<model>', or \
-             '<agent>[<mode>]:<provider>:<model>'"
+            "execution target selector '{selector}' {problem}; {}",
+            execution_target_repair(selector)
         ));
     }
 
@@ -419,13 +452,16 @@ pub fn parse_execution_target(selector: &str) -> Result<ExecutionTarget, String>
 
     if model.is_empty() {
         return Err(format!(
-            "execution target selector '{selector}' must include a non-empty model"
+            "execution target selector '{selector}' is missing the model after ':'; {}",
+            execution_target_repair(selector)
         ));
     }
     if let Some(provider) = provider {
         if provider.is_empty() {
             return Err(format!(
-                "execution target selector '{selector}' must include a non-empty provider"
+                "execution target selector '{selector}' is missing the provider between the \
+                 agent and the model; {}",
+                execution_target_repair(selector)
             ));
         }
     }
@@ -433,24 +469,29 @@ pub fn parse_execution_target(selector: &str) -> Result<ExecutionTarget, String>
     let (agent, mode) = if let Some(open) = head.find('[') {
         if !head.ends_with(']') {
             return Err(format!(
-                "execution target selector '{selector}' has an unterminated mode segment"
+                "execution target selector '{selector}' has an unterminated mode segment; \
+                 close the bracket and {}",
+                execution_target_repair(selector)
             ));
         }
         let agent = head[..open].trim();
         let mode = head[open + 1..head.len() - 1].trim();
         if agent.is_empty() {
             return Err(format!(
-                "execution target selector '{selector}' must include a non-empty agent"
+                "execution target selector '{selector}' is missing the agent before '['; {}",
+                execution_target_repair(selector)
             ));
         }
         if mode.is_empty() {
             return Err(format!(
-                "execution target selector '{selector}' must include a non-empty mode"
+                "execution target selector '{selector}' has an empty '[]' mode; name a mode \
+                 the agent declares, or drop the brackets entirely"
             ));
         }
         if mode.contains('[') || mode.contains(']') {
             return Err(format!(
-                "execution target selector '{selector}' contains nested mode brackets"
+                "execution target selector '{selector}' contains nested mode brackets; a mode \
+                 is a single bracketed name, e.g. 'claude-code[yolo]:claude-opus-4-7'"
             ));
         }
         (agent, Some(mode))
@@ -458,12 +499,14 @@ pub fn parse_execution_target(selector: &str) -> Result<ExecutionTarget, String>
         let agent = head.trim();
         if agent.is_empty() {
             return Err(format!(
-                "execution target selector '{selector}' must include a non-empty agent"
+                "execution target selector '{selector}' is missing the agent; {}",
+                execution_target_repair(selector)
             ));
         }
         if agent.contains(']') {
             return Err(format!(
-                "execution target selector '{selector}' contains an unexpected ']'"
+                "execution target selector '{selector}' contains an unexpected ']'; a mode \
+                 must open with '[' too, e.g. 'claude-code[yolo]:claude-opus-4-7'"
             ));
         }
         (agent, None)

@@ -74,8 +74,8 @@ fn templates_with_a_name_shows_the_template_detail() {
         "Template: spec-review",
         "spec (string, required)",
         "Source: built-in",
-        "Instantiate with:",
-        "rhei instantiate spec-review --set spec=<value>",
+        "Instantiate it with:",
+        "rhei instantiate spec-review spec='<value>'",
     ] {
         assert!(
             result.stdout.contains(expected),

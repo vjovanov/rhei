@@ -9,23 +9,31 @@
 /// run's workspace from `plan` and reports the delivery outcome. §FS-rhei-viz.5
 fn intervene_command(plan: &Path, task: &str, slot: Option<u16>, message: &str) -> MietteResult<()> {
     if message.trim().is_empty() {
-        return Err(miette!("refusing to send an empty intervention message"));
+        return Err(miette!(
+            help = "pass the message to deliver: rhei intervene <plan> <task> --message <text>",
+            "refusing to send an empty intervention message"
+        ));
     }
     let workspace = execution_workspace_root(plan);
     let addr_file = workspace.join("runtime").join("dashboard.json");
     let raw = std::fs::read_to_string(&addr_file).map_err(|_| {
         miette!(
+            help = dashboard_required_help(),
             "no live dashboard found at {} — start one with `rhei run {} --dashboard`",
             addr_file.display(),
             plan.display()
         )
     })?;
     let url = parse_dashboard_url(&raw)
-        .ok_or_else(|| miette!("could not read the dashboard URL from {}", addr_file.display()))?;
+        .ok_or_else(|| miette!(
+            help = dashboard_required_help(),
+            "could not read the dashboard URL from {}", addr_file.display()
+        ))?;
 
     let body = serde_json::json!({ "task_id": task, "slot": slot, "message": message }).to_string();
     let reply = post_intervene(&url, &body).map_err(|err| {
         miette!(
+            help = dashboard_required_help(),
             "could not reach the live dashboard at {url}: {err}\n\
              The run may have ended; `rhei intervene` only works while `rhei run --dashboard` is live."
         )
@@ -39,6 +47,7 @@ fn intervene_command(plan: &Path, task: &str, slot: Option<u16>, message: &str) 
         Ok(())
     } else {
         Err(miette!(
+            help = "the dashboard rejected the message. Check the task is still running: rhei list <plan>",
             "intervention not delivered: {}",
             reply.error.unwrap_or_else(|| "unknown error".to_string())
         ))

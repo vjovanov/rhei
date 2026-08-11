@@ -23,7 +23,10 @@ fn resolve_agent_checkout_root(
     }
 
     let cwd = std::env::current_dir()
-        .map_err(|err| miette!("failed to determine current working directory: {err}"))?;
+        .map_err(|err| miette!(
+            help = cwd_help(),
+            "failed to determine current working directory: {err}"
+        ))?;
     Ok(AgentCheckoutRoot { path: cwd, worktree_root: None })
 }
 
@@ -41,11 +44,15 @@ fn read_task_worktree_root(rhei_root: &Path, task_id: &str) -> MietteResult<Opti
         file_io_report(&ref_path, "failed to read task worktree reference", err)
     })?;
     let parsed: TaskWorktreeRef = serde_yaml::from_str(&raw)
-        .map_err(|err| miette!("failed to parse task worktree reference '{}': {err}", ref_path.display()))?;
+        .map_err(|err| miette!(
+            help = worktree_ref_help(),
+            "failed to parse task worktree reference '{}': {err}", ref_path.display()
+        ))?;
 
     // §FS-rhei-agents.4: worktree refs must point at absolute git worktree roots.
     if !parsed.path.is_absolute() {
         return Err(miette!(
+            help = worktree_ref_help(),
             "task worktree reference '{}' must contain an absolute path",
             ref_path.display()
         ));
@@ -55,6 +62,7 @@ fn read_task_worktree_root(rhei_root: &Path, task_id: &str) -> MietteResult<Opti
     })?;
     if !worktree_root.is_dir() {
         return Err(miette!(
+            help = worktree_ref_help(),
             "task worktree reference '{}' points to a non-directory path '{}'",
             ref_path.display(),
             worktree_root.display()
@@ -64,6 +72,7 @@ fn read_task_worktree_root(rhei_root: &Path, task_id: &str) -> MietteResult<Opti
     let git_root = git_toplevel_required(&worktree_root)?;
     if git_root != worktree_root {
         return Err(miette!(
+            help = worktree_ref_help(),
             "task worktree reference '{}' points to '{}', but that path's git root is '{}'",
             ref_path.display(),
             worktree_root.display(),
@@ -80,6 +89,7 @@ fn git_toplevel(path: &Path) -> Option<PathBuf> {
 fn git_toplevel_required(path: &Path) -> MietteResult<PathBuf> {
     git_toplevel_output(path).map_err(|message| {
         miette!(
+            help = worktree_ref_help(),
             "task worktree root '{}' is not a valid git worktree: {message}",
             path.display()
         )

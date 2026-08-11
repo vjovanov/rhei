@@ -284,11 +284,12 @@ fn command_wants_json(command: &Commands) -> bool {
 }
 
 fn emit_json_error(err: &miette::Report) {
-    let payload = serde_json::json!({
-        "error": {
-            "message": err.to_string(),
-        }
-    });
+    // §FS-rhei-errors.5: machine consumers get the same next action as humans.
+    let mut error = serde_json::json!({ "message": err.to_string() });
+    if let Some(help) = err.help() {
+        error["help"] = serde_json::Value::String(help.to_string());
+    }
+    let payload = serde_json::json!({ "error": error });
     let serialized = serde_json::to_string(&payload)
         .unwrap_or_else(|_| format!("{{\"error\":{{\"message\":{:?}}}}}", err.to_string()));
     eprintln!("{serialized}");
@@ -476,6 +477,8 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             // plan-taking command that never infers an omitted target.
             let Some(input) = input else {
                 return Err(miette!(
+help = "preview it first: rhei reset <plan-or-project> --dry-run",
+
                     "`rhei reset` rewrites every in-scope ticket to the initial state \
                      and deletes runtime artifacts, so it never infers its target. \
                      Name the plan or project explicitly: `rhei reset <plan-or-project>`"

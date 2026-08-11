@@ -26,7 +26,9 @@ fn split_ticket_target(
     if is_ticket_id_shaped(&raw) {
         return Ok((None, Some(raw.into_owned())));
     }
-    Err(miette!("plan '{}' does not exist", positional.display()))
+    Err(miette!(
+help = io_error_help(&positional, std::io::ErrorKind::NotFound),
+"plan '{}' does not exist", positional.display()))
 }
 
 /// Split `rhei complete`'s positional, where the ticket is mandatory.
@@ -38,6 +40,7 @@ fn split_complete_ticket_target(
     match split_ticket_target(input, task)? {
         (plan, Some(task)) => Ok((plan, task)),
         (Some(plan), None) => Err(miette!(
+            help = ticket_id_required_help(),
             "'{}' is a plan path; name the ticket too: \
              `rhei complete <ticket-id> --result <message>` \
              (or `rhei complete {} --task <ticket-id> --result <message>`)",
@@ -45,6 +48,8 @@ fn split_complete_ticket_target(
             plan.display(),
         )),
         (None, None) => Err(miette!(
+help = ticket_id_required_help(),
+
             "name the ticket to complete: `rhei complete <ticket-id> --result <message>` \
              (or `--task <ticket-id>`)"
         )),
@@ -60,6 +65,7 @@ fn split_transition_ticket_target(
     match split_ticket_target(input, task)? {
         (plan, Some(task)) => Ok((plan, task)),
         (Some(plan), None) => Err(miette!(
+            help = ticket_id_required_help(),
             "'{}' is a plan path; name the ticket too: \
              `rhei transition <ticket-id> --from <state> --to <state>` \
              (or `rhei transition {} --task <ticket-id> --from <state> --to <state>`)",
@@ -67,6 +73,8 @@ fn split_transition_ticket_target(
             plan.display(),
         )),
         (None, None) => Err(miette!(
+help = ticket_id_required_help(),
+
             "name the ticket to transition: \
              `rhei transition <ticket-id> --from <state> --to <state>` \
              (or `--task <ticket-id>`)"
@@ -130,13 +138,17 @@ fn complete_command(
     // Find the task and its current state.
     let target_id = parse_task_id(task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+        .ok_or_else(|| miette!(
+            help = task_id_help(),
+            "task '{}' not found in the plan", task_id_str
+        ))?;
     let current_state_raw = task.state.as_str();
     let current_state = normalized_state_name(current_state_raw, &machine);
 
     // Reject tasks already in a terminal state.
     if is_terminal_state(current_state_raw, &machine) {
         return Err(miette!(
+            help = "nothing to do — the task is finished. Reopen it with: rhei reset <plan> <task>",
             "Task {} is already in terminal state '{}'",
             task_id_str,
             current_state_raw
@@ -144,6 +156,7 @@ fn complete_command(
     }
     if machine.states.get(&current_state).map(|def| def.gating).unwrap_or(false) {
         return Err(miette!(
+            help = "a human gate is released explicitly: rhei transition <plan> <task> --to <state>",
             "Task {} cannot be completed from gating state '{}'; use an explicit human transition",
             task_id_str,
             current_state
@@ -153,6 +166,7 @@ fn complete_command(
     let open_children = non_terminal_descendants(task, &machine);
     if !open_children.is_empty() {
         return Err(miette!(
+            help = "finish or cancel the children first; a parent completes when they do.",
             "Task {} cannot be completed while child tasks remain non-terminal.\nOffending children: {}",
             task_id_str,
             open_children.join(", ")
@@ -168,6 +182,8 @@ fn complete_command(
     let blocked_by = blocking_priors(task, &state_map, &machines.set);
     if !blocked_by.is_empty() {
         return Err(miette!(
+help = "finish the blocking priors first, or move this ticket deliberately with: rhei transition <ticket-id> --from <state> --to <state>",
+
             "Task {} cannot be completed while its prerequisites are unsatisfied.\nBlocking priors: {}\n\
              Complete them first, or use `rhei transition` for a deliberate out-of-order move.",
             task_id_str,
@@ -179,6 +195,7 @@ fn complete_command(
     // a single declared transition from the current state.
     let to_state = find_completion_state(&current_state, &machine).ok_or_else(|| {
         miette!(
+            help = "the machine declares no terminal edge from that state. List the edges with: rhei states",
             "no transition to a terminal state available from '{}' for Task {}",
             current_state_raw,
             task_id_str
@@ -204,6 +221,7 @@ fn complete_command(
     )?;
     if !is_successful_completion_state(&effective_to, &machine) {
         return Err(miette!(
+            help = "inspect the machine and the task's state with: rhei states",
             "Task {} was redirected to '{}', which is not a successful completion state; completion artifacts were not written",
             task_id_str,
             effective_to
@@ -279,6 +297,8 @@ fn reset_command(
         // for `-y` instead of assuming consent nobody gave.
         if !stdin_is_interactive() {
             return Err(miette!(
+help = "re-run with -y to confirm, or --dry-run to preview what it would clear.",
+
                 "`rhei reset` destroys runtime state and stdin is not a terminal, so it cannot \
                  ask for confirmation. Re-run with `-y` to confirm, or `--dry-run` to preview."
             ));
@@ -415,11 +435,15 @@ fn stdin_is_interactive() -> bool {
 fn confirm(question: &str) -> MietteResult<bool> {
     use std::io::Write;
     print!("{question} [y/N] ");
-    std::io::stdout().flush().map_err(|err| miette!("failed to write prompt: {err}"))?;
+    std::io::stdout().flush().map_err(|err| miette!(
+help = internal_error_help(),
+"failed to write prompt: {err}"))?;
     let mut answer = String::new();
     std::io::stdin()
         .read_line(&mut answer)
-        .map_err(|err| miette!("failed to read confirmation: {err}"))?;
+        .map_err(|err| miette!(
+help = "re-run with -y to confirm without a prompt.",
+"failed to read confirmation: {err}"))?;
     Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
 }
 
@@ -721,9 +745,13 @@ fn initial_state_name(machine: &rhei_validator::StateMachine) -> MietteResult<St
         .collect::<Vec<_>>();
 
     match initial_states.as_slice() {
-        [] => Err(miette!("state machine '{}' does not declare an initial state", machine.name)),
+        [] => Err(miette!(
+            help = state_machine_help(),
+            "state machine '{}' does not declare an initial state", machine.name
+        )),
         [initial] => Ok(initial.clone()),
         many => Err(miette!(
+            help = state_machine_help(),
             "state machine '{}' declares multiple legacy initial states: {}",
             machine.name,
             many.join(", ")

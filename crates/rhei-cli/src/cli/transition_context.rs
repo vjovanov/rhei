@@ -250,9 +250,18 @@ fn unix_to_utc_components(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
 fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|err| miette!("failed to create temp file: {err}"))?;
-    tmp.write_all(content.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
-    tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+        .map_err(|err| miette!(
+            help = temp_write_help(),
+            "failed to create temp file: {err}"
+        ))?;
+    tmp.write_all(content.as_bytes()).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to write temp file: {err}"
+    ))?;
+    tmp.persist(path).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to persist temp file: {err}"
+    ))?;
     Ok(())
 }
 
@@ -312,7 +321,9 @@ fn parse_metadata_from_raw(path: &Path, raw: &str) -> MietteResult<Option<Metada
         }
         _ => {
             let rhei = rhei_core::parse(raw)
-                .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
+                .map_err(|err| miette!(
+help = plan_authoring_help(),
+"{}: {}", path.display(), err.message))?;
             Ok(rhei.metadata)
         }
     }
@@ -330,7 +341,11 @@ struct MetadataManifest {
 fn parse_metadata_manifest(path: &Path, raw: &str) -> MietteResult<MetadataManifest> {
     if path.file_name().and_then(|name| name.to_str()) == Some(workspace::PANTA_INDEX_FILE) {
         let manifest = rhei_core::parser::parse_panta_manifest(raw).map_err(|err| {
-            miette!("failed to parse Panta manifest for transition metadata: {}", err.message)
+            miette!(
+                help = plan_authoring_help(),
+                "failed to parse Panta manifest for transition metadata: {}",
+                err.message
+            )
         })?;
         return Ok(MetadataManifest {
             structure: manifest.structure,
@@ -338,7 +353,11 @@ fn parse_metadata_manifest(path: &Path, raw: &str) -> MietteResult<MetadataManif
         });
     }
     let index = rhei_core::parser::parse_workspace_index(raw).map_err(|err| {
-        miette!("failed to parse workspace index for transition metadata: {}", err.message)
+        miette!(
+            help = plan_authoring_help(),
+            "failed to parse workspace index for transition metadata: {}",
+            err.message
+        )
     })?;
     Ok(MetadataManifest { structure: index.structure, metadata: index.metadata })
 }

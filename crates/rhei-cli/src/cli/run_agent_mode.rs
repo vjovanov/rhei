@@ -112,11 +112,13 @@ fn select_snapshot_override_run_invocation(
     let candidate_lines = format_snapshot_override_candidates(&candidates);
     if selected.is_empty() {
         return Err(miette!(
+            help = snapshot_candidates_help(),
             "--from-snapshot did not match an active snapshot.inherit invocation; candidates:\n{}",
             candidate_lines
         ));
     }
     Err(miette!(
+        help = snapshot_candidates_help(),
         "--from-snapshot is ambiguous; matched {} active snapshot.inherit invocations:\n{}\nretry with --task <id> and --target <slug>",
         selected.len(),
         format_snapshot_override_candidates(&selected)
@@ -213,7 +215,10 @@ fn collect_ready_agent_work_items(
         let invocations = resolve_agent_invocations(machine, &current_state, settings, opts)?;
         if invocations.is_empty() {
             if state_declares_autonomous_agent_work(state_def) {
-                return Err(miette!("no agent configured for ready state '{}'", current_state));
+                return Err(miette!(
+                    help = "give the state an `agent:` or `target:` in the state machine, or run it yourself with: rhei next <plan>",
+                    "no agent configured for ready state '{}'", current_state
+                ));
             }
             continue;
         }
@@ -427,7 +432,10 @@ fn spawn_parallel_agent_work_item(
                 format_required_tooling_error(&item.task_id_str, &item.current_state, &gate.required);
             emit_run_message(sink, rhei_tui::MessageLevel::Error, format!("  error: {message}"));
             if !opts.continue_on_error() {
-                return Err(miette!("{message}"));
+                return Err(miette!(
+                    help = run_report_help(),
+                    "{message}"
+                ));
             }
         }
         return Ok(if fired {
@@ -1308,6 +1316,7 @@ fn handle_parallel_program_completion(
                 );
                 if !opts.continue_on_error() {
                     return Err(miette!(
+                        help = program_state_failed_help(),
                         "program exited with code {} for Task {}. Use --continue-on-error to skip failures.",
                         exit_code,
                         task_id_str
@@ -1567,7 +1576,10 @@ fn run_agent_mode(
             let state_def = machine
                 .states
                 .get(&current_state)
-                .ok_or_else(|| miette!("state '{}' missing from loaded machine", current_state))?;
+                .ok_or_else(|| miette!(
+                    help = internal_error_help(),
+                    "state '{}' missing from loaded machine", current_state
+                ))?;
 
             if state_def.program.is_some() {
                 if opts.no_program() {
@@ -1616,6 +1628,7 @@ fn run_agent_mode(
                         None => "no agent configured.".to_string(),
                     };
                     return Err(miette!(
+                        help = run_report_help(),
                         "{header}\n\nSet one of:\n  \u{2022} defaults.agent in {}/{} or ~/.config/rhei/settings.json\n  \u{2022} the state's `agent:` in states.yaml\n  \u{2022} {model_remediation}\n  \u{2022} --agent <AGENT> on the rhei run command line (e.g. rhei run {} --agent claude-code)\n\nBuilt-in agents: claude-code, codex, gemini, cursor, kilocode, pi",
                         workspace_root.display(),
                         PROJECT_SETTINGS_RELATIVE_PATH,
@@ -1695,6 +1708,7 @@ fn run_agent_mode(
                     continue;
                 }
                 return Err(miette!(
+                    help = run_report_help(),
                     "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
                      use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
                     task_id_str,
@@ -2072,6 +2086,7 @@ fn run_agent_mode(
                             );
                             if !opts.continue_on_error() {
                                 return Err(miette!(
+                                    help = program_state_failed_help(),
                                     "program exited with code {} for Task {}. Use --continue-on-error to skip failures.",
                                     exit_code,
                                     task_id_str
@@ -2272,7 +2287,10 @@ fn run_agent_mode(
                         format_required_tooling_error(task_id_str, current_state, &gate.required);
                     run_error!("  error: {message}");
                     if !opts.continue_on_error() {
-                        return Err(miette!("{message}"));
+                        return Err(miette!(
+                            help = run_report_help(),
+                            "{message}"
+                        ));
                     }
                 }
                 sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
@@ -2446,7 +2464,10 @@ fn run_agent_mode(
                 Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
                     agents_spawned += 1;
                     let state_def = machine.states.get(current_state).ok_or_else(|| {
-                        miette!("state '{}' missing from loaded machine", current_state)
+                        miette!(
+                            help = internal_error_help(),
+                            "state '{}' missing from loaded machine", current_state
+                        )
                     })?;
                     let outputs_ok = status.success()
                         && state_outputs_exist_for_resolved_invocation(
@@ -2744,6 +2765,7 @@ fn run_agent_mode(
                             }
                         } else if !opts.continue_on_error() {
                             return Err(miette!(
+                                help = run_report_help(),
                                 "agent '{}' exited with code {} for Task {}. \
                                  Use --continue-on-error to skip failures.",
                                 resolved.agent.id(),
@@ -2897,7 +2919,10 @@ fn run_agent_mode(
                             &mut active_invocation_counts,
                             &mut active_state_counts,
                         );
-                        let err = miette!("agent thread panicked");
+                        let err = miette!(
+                            help = internal_error_help(),
+                            "agent thread panicked"
+                        );
                         run_error!("  error for task {}: {}", task_id_str, err);
                         if !opts.continue_on_error() {
                             return Err(err);
@@ -3288,6 +3313,7 @@ fn run_agent_mode(
                                 }
                             } else if !opts.continue_on_error() {
                                 return Err(miette!(
+                                    help = run_report_help(),
                                     "agent exited with code {code} for Task {task_id_str}. \
                                      Use --continue-on-error to skip failures."
                                 ));
@@ -3337,7 +3363,10 @@ fn run_agent_mode(
 
             for handle in handles {
                 if handle.join().is_err() {
-                    let err = miette!("agent thread panicked");
+                    let err = miette!(
+                        help = internal_error_help(),
+                        "agent thread panicked"
+                    );
                     run_error!("  error: {}", err);
                     if !opts.continue_on_error() {
                         return Err(err);
@@ -3480,6 +3509,7 @@ fn run_agent_mode(
             && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, &machines.set, &rhei_scope)
         {
             return Err(miette!(
+                help = nothing_claimable_help(),
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"
             ));
         }

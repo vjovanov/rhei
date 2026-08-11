@@ -412,33 +412,6 @@ fn halted_task_report(
     (lines, needs_human)
 }
 
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    if value.bytes().all(|byte| {
-        matches!(
-            byte,
-            b'a'..=b'z'
-                | b'A'..=b'Z'
-                | b'0'..=b'9'
-                | b'_'
-                | b'-'
-                | b'.'
-                | b'/'
-                | b':'
-                | b'@'
-                | b'%'
-                | b'+'
-                | b'='
-                | b','
-        )
-    }) {
-        return value.to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
 fn transition_command_lines(
     task: &rhei_core::ast::Task,
     state_name: &str,
@@ -915,6 +888,7 @@ fn try_auto_advance_task(
                     .unwrap_or(u64::MAX)
         {
             return Err(miette!(
+                help = "the poll state ran out of attempts without a transition becoming applicable. Raise its `poll.max_attempts`, or fix the condition the poll waits on: rhei states",
                 "polling exhausted with no matching non-self-loop transition for Task {} in state '{}'",
                 task_id_str,
                 current_state

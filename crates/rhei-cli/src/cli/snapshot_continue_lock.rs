@@ -8,6 +8,7 @@ fn snapshot_continue_command(
 ) -> MietteResult<()> {
     let Some(_run_lock) = try_acquire_run_lock(&ctx.workspace_root)? else {
         return Err(miette!(
+            help = "a run is in progress. Wait for it to finish, or stop it, then retry.",
             "rhei snapshot continue cannot run while .rhei/run.lock is held; stop the run first"
         ));
     };
@@ -21,18 +22,21 @@ fn snapshot_continue_command(
     let resolved = resolve_snapshot_continue_agent(ctx, &record)?;
     let Some(session) = resolved.profile.session.as_ref() else {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' does not expose a resume strategy, session layout, and interactive continuation profile",
             resolved.agent.id()
         ));
     };
     if !profile_supports_interactive_continue(&resolved.profile.session) {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' does not expose a resume strategy, session layout, and interactive continuation profile",
             resolved.agent.id()
         ));
     }
     if !no_capture && snapshot_session_string(session, "session_dir_flag").is_none() {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' cannot capture interactive continuation without session_dir_flag",
             resolved.agent.id()
         ));
@@ -41,6 +45,7 @@ fn snapshot_continue_command(
     // Reject settings drift before staging or claiming parent lineage. §FS-rhei-snapshots
     if let Some(reason) = snapshot_record_native_incompatibility(&record, &resolved) {
         return Err(miette!(
+            help = snapshot_help(),
             "incompatible-snapshot: selected snapshot {} is not native-compatible with agent '{}': {}",
             record.display_ref(),
             resolved.agent.id(),
@@ -73,6 +78,7 @@ fn snapshot_continue_command(
         Ok(())
     } else {
         Err(miette!(
+            help = "the continued agent failed. Its output is above; re-run after fixing the cause.",
             "snapshot continue agent '{}' exited with status {}",
             resolved.agent.id(),
             status
@@ -119,9 +125,13 @@ fn resolve_snapshot_continue_agent(
 ) -> MietteResult<ResolvedAgent> {
     let selector = snapshot_record_target_selector(record)?;
     let target = parse_execution_target(&selector)
-        .map_err(|err| miette!("snapshot target selector '{}' is invalid: {}", selector, err))?;
+        .map_err(|err| miette!(
+            help = snapshot_target_help(),
+            "snapshot target selector '{}' is invalid: {}", selector, err
+        ))?;
     if !ctx.settings.agents.contains_key(target.agent.as_str()) {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' is not configured",
             target.agent
         ));
@@ -139,6 +149,7 @@ fn snapshot_record_target_selector(record: &SnapshotRecord) -> MietteResult<Stri
         .map(str::to_string)
         .ok_or_else(|| {
             miette!(
+                help = snapshot_target_help(),
                 "invalid snapshot manifest for {}: missing target.selector",
                 record.display_ref()
             )
@@ -183,6 +194,7 @@ fn prepare_snapshot_continue_preload(
         }
     } else {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent profile has no supported snapshot resume or fork strategy"
         ));
     }
@@ -228,6 +240,7 @@ fn spawn_snapshot_continue_agent(
     let command_parts = snapshot_interactive_command(resolved, session)?;
     let (program, base_args) = command_parts.split_first().ok_or_else(|| {
         miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' interactive command is empty",
             resolved.agent.id()
         )
@@ -287,7 +300,10 @@ fn spawn_snapshot_continue_agent(
         .stderr(std::process::Stdio::inherit());
     let status = cmd
         .status()
-        .map_err(|err| miette!("failed to spawn agent '{}': {err}", resolved.agent.id()))?;
+        .map_err(|err| miette!(
+            help = "check the agent command in settings.json resolves on PATH: rhei diag",
+            "failed to spawn agent '{}': {err}", resolved.agent.id()
+        ))?;
     Ok(status)
 }
 
@@ -297,6 +313,7 @@ fn snapshot_interactive_command(
 ) -> MietteResult<Vec<String>> {
     let Some(interactive) = session.get("interactive") else {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' has no interactive continuation profile",
             resolved.agent.id()
         ));
@@ -307,12 +324,14 @@ fn snapshot_interactive_command(
             .map(|item| {
                 item.as_str().map(str::to_string).ok_or_else(|| {
                     miette!(
+                        help = session_capture_resume_help(),
                         "unsupported-snapshot-session: interactive.command must contain strings"
                     )
                 })
             })
             .collect(),
         Some(_) => Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: interactive.command must be an array of strings"
         )),
         None => Ok(resolved.profile.command.clone()),
@@ -328,11 +347,15 @@ fn snapshot_interactive_args(session: &serde_json::Value) -> MietteResult<Vec<St
             .iter()
             .map(|item| {
                 item.as_str().map(str::to_string).ok_or_else(|| {
-                    miette!("unsupported-snapshot-session: interactive.args must contain strings")
+                    miette!(
+                        help = session_capture_resume_help(),
+                        "unsupported-snapshot-session: interactive.args must contain strings"
+                    )
                 })
             })
             .collect(),
         Some(_) => Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: interactive.args must be an array of strings"
         )),
         None => Ok(Vec::new()),
@@ -350,12 +373,14 @@ fn capture_snapshot_continue_generation(
 ) -> MietteResult<SnapshotRecord> {
     let layout = snapshot_session_layout(session).ok_or_else(|| {
         miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' has no supported snapshot session layout",
             resolved.agent.id()
         )
     })?;
     let Some(session_layout) = snapshot_layout_manifest(session) else {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' has an incomplete snapshot session layout",
             resolved.agent.id()
         ));
@@ -368,6 +393,7 @@ fn capture_snapshot_continue_generation(
         )?
     else {
         return Err(miette!(
+            help = session_capture_resume_help(),
             "unsupported-snapshot-session: agent '{}' did not produce a supported native session transcript",
             resolved.agent.id()
         ));
@@ -443,7 +469,10 @@ fn transcript_source_for_snapshot_continue(
         .file_stem()
         .and_then(OsStr::to_str)
         .ok_or_else(|| {
-            miette!("unsupported-snapshot-session: snapshot continue transcript has no session id")
+            miette!(
+                help = session_capture_resume_help(),
+                "unsupported-snapshot-session: snapshot continue transcript has no session id"
+            )
         })?
         .to_string();
     Ok(Some((path, ext, session_id)))
@@ -474,9 +503,15 @@ fn parse_snapshot_duration_secs(value: &str) -> MietteResult<u64> {
         return Ok(secs);
     }
     let Some(days) = value.strip_suffix('d').and_then(|n| n.parse::<u64>().ok()) else {
-        return Err(miette!("invalid duration '{value}' (expected e.g. 7d, 4h, 30m, 10s)"));
+        return Err(miette!(
+            help = duration_format_help(),
+            "invalid duration '{value}' (expected e.g. 7d, 4h, 30m, 10s)"
+        ));
     };
-    days.checked_mul(86_400).ok_or_else(|| miette!("duration '{value}' is too large"))
+    days.checked_mul(86_400).ok_or_else(|| miette!(
+        help = duration_format_help(),
+        "duration '{value}' is too large"
+    ))
 }
 
 fn snapshot_age_secs(record: &SnapshotRecord, now: std::time::SystemTime) -> Option<u64> {

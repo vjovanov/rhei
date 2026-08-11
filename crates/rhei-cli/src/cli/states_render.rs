@@ -423,6 +423,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         if !input.exists() {
             if looks_like_task_id(&input) {
                 return Err(miette!(
+                    help = "this argument takes a plan or project path, not a ticket id.",
                     "'{}' is not a path. This argument takes a plan or project; select a \
                      ticket with `--task {}` and let the plan resolve on its own.",
                     input.display(),
@@ -430,6 +431,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
                 ));
             }
             return Err(miette!(
+                help = io_error_help(&input, std::io::ErrorKind::NotFound),
                 "no plan or project at '{}'. Pass a `.rhei.md` file, a workspace \
                  directory, or omit the argument to use the enclosing project.",
                 input.display()
@@ -438,7 +440,10 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         return Ok(input);
     }
     let cwd = std::env::current_dir()
-        .map_err(|err| miette!("failed to read the current directory: {err}"))?;
+        .map_err(|err| miette!(
+            help = cwd_help(),
+            "failed to read the current directory: {err}"
+        ))?;
     let mut dir = Some(cwd.as_path());
     while let Some(current) = dir {
         if current.join(workspace::PANTA_INDEX_FILE).is_file() {
@@ -468,6 +473,8 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
                         .map(|name| name.to_string_lossy().into_owned())
                         .collect();
                     return Err(miette!(
+help = "run `rhei init --here` to make the directory a project, or pass one of the rheis above.",
+
                         "{} holds {} rheis ({}) but no `index.panta.md`, so there is no \
                          single plan to pick. Pass one explicitly, or run `rhei init` to \
                          make the directory a project (writes index.panta.md)",
@@ -491,6 +498,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
             .collect::<Vec<_>>()
             .join("\n");
         return Err(miette!(
+            help = "run the command against one of the paths listed above, or cd into it.",
             "no Rhei plan found at or above {}. Target resolution only walks up, but there \
              {} below it:\n{}",
             cwd.display(),
@@ -499,6 +507,8 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         ));
     }
     Err(miette!(
+help = "pass a plan path, or run `rhei init` to make this directory a project.",
+
         "no Rhei plan found: neither {} nor any parent directory contains an \
          `index.panta.md` project manifest, a workspace `index.rhei.md`, or a \
          `*.rhei.md` plan file. Pass a plan path (`rhei <command> path/to/plan.rhei.md`) \
@@ -600,6 +610,8 @@ fn resolve_rhei_scope(loaded: &LoadedPlan, selected: &[String]) -> MietteResult<
         let name = name.trim();
         if !available.contains(name) {
             return Err(miette!(
+                help = did_you_mean(name, &loaded.rhei_ids)
+                    .unwrap_or_else(|| "this project holds no rheis.".to_string()),
                 "unknown rhei '{}'; this project has: {}",
                 name,
                 loaded.rhei_ids.join(", ")
@@ -654,6 +666,8 @@ fn resolve_cli_task_id(
     if find_task_by_id(&loaded.rhei.tasks, &target).is_some() {
         if !task_in_rhei_scope(scope, task_id_str) {
             return Err(miette!(
+help = rhei_scope_help(),
+
                 "task '{}' is outside the --rhei scope ({})",
                 task_id_str,
                 scope_label(scope)
@@ -672,6 +686,8 @@ fn resolve_cli_task_id(
         .collect();
     match candidates.len() {
         0 if scope.is_some() => Err(miette!(
+help = rhei_scope_help(),
+
             "task '{}' not found in the --rhei scope ({})",
             task_id_str,
             scope_label(scope)
@@ -685,12 +701,16 @@ fn resolve_cli_task_id(
                 // Nothing close enough to suggest — name the next step rather
                 // than leaving a dead end.
                 Err(miette!(
+help = task_id_help(),
+
                     "task '{}' not found in this {}; `rhei list` shows every ticket id",
                     task_id_str,
                     scope_noun
                 ))
             } else {
                 Err(miette!(
+help = task_id_help(),
+
                     "task '{}' not found in this {}; closest ids: {}",
                     task_id_str,
                     scope_noun,
@@ -700,6 +720,8 @@ fn resolve_cli_task_id(
         }
         1 => Ok(candidates.into_iter().next().expect("one candidate")),
         _ => Err(miette!(
+help = "a qualified id is <rhei>.<ticket>. Copy one from: rhei list",
+
             "task id '{}' is ambiguous across rheis; use a qualified id: {}",
             task_id_str,
             candidates.join(", ")
@@ -936,7 +958,11 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         return Err(workspace_parse_errors_report(&parse_error_groups));
     }
     if let Some(error) = duplicate_task_error {
-        return Err(miette!("{error}"));
+        return Err(miette!(
+            help = "two task files in tasks/ declare the same id. Renumber one of them, then \
+                    re-check with: rhei validate <workspace>",
+            "{error}"
+        ));
     }
 
     // An empty workspace is a valid, empty rhei; `rhei validate` warns rather
@@ -1086,12 +1112,18 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
         },
         Config::default(),
     )
-    .map_err(|err| miette!("failed to initialize file watcher: {err}"))?;
+    .map_err(|err| miette!(
+        help = watch_help(),
+        "failed to initialize file watcher: {err}"
+    ))?;
 
     for root in &watch_plan.roots {
         watcher
             .watch(&root.path, root.mode)
-            .map_err(|err| miette!("failed to watch '{}': {err}", root.path.display()))?;
+            .map_err(|err| miette!(
+                help = watch_help(),
+                "failed to watch '{}': {err}", root.path.display()
+            ))?;
     }
 
     run_validation_pass(input, state_machine);
@@ -1103,7 +1135,10 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
                 eprintln!("watch error: {err}");
                 continue;
             }
-            Err(err) => return Err(miette!("watch channel disconnected: {err}")),
+            Err(err) => return Err(miette!(
+                help = watch_help(),
+                "watch channel disconnected: {err}"
+            )),
         };
 
         if !should_revalidate(&event, &watch_plan.targets) {

@@ -120,6 +120,10 @@
         default: Option<YamlValue>,
         #[serde(default)]
         validate: Option<String>,
+        /// Built-in value check applied at instantiation time.
+        /// §FS-rhei-templates.3.1
+        #[serde(default)]
+        format: Option<TemplateInputFormat>,
         #[serde(default)]
         items: Option<Box<TemplateValueSchema>>,
         #[serde(default)]
@@ -129,6 +133,22 @@
     impl TemplateValueSchema {
         fn is_required(&self) -> bool {
             self.required.unwrap_or(self.default.is_none())
+        }
+    }
+
+    /// A named value check a template input can declare, applied where the
+    /// user typed the value, not in the rendered file. §FS-rhei-errors.3.1
+    #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq)]
+    #[serde(rename_all = "kebab-case")]
+    enum TemplateInputFormat {
+        ExecutionTarget,
+    }
+
+    impl TemplateInputFormat {
+        fn as_str(self) -> &'static str {
+            match self {
+                TemplateInputFormat::ExecutionTarget => "execution-target",
+            }
         }
     }
 
@@ -204,7 +224,10 @@
         if as_json {
             let payload = templates.iter().map(template_json_entry).collect::<Vec<_>>();
             let rendered = serde_json::to_string_pretty(&payload)
-                .map_err(|err| miette!("failed to serialize template listing: {err}"))?;
+                .map_err(|err| miette!(
+                    help = internal_error_help(),
+                    "failed to serialize template listing: {err}"
+                ))?;
             println!("{rendered}");
             return Ok(());
         }
@@ -271,16 +294,17 @@
         if let Some(template) = templates.iter().find(|t| t.manifest.name == reference) {
             if as_json {
                 let rendered = serde_json::to_string_pretty(&template_json_entry(template))
-                    .map_err(|err| miette!("failed to serialize template detail: {err}"))?;
+                    .map_err(|err| miette!(
+help = internal_error_help(),
+"failed to serialize template detail: {err}"))?;
                 println!("{rendered}");
                 return Ok(());
             }
-            print_template_inputs(&template.manifest);
             println!("Source: {}", template.source.as_str());
             if template.source != TemplateSource::Builtin {
                 println!("Path: {}", template.path.display());
             }
-            print_instantiate_hint(&template.manifest);
+            print_template_inputs(&template.manifest, reference);
             return Ok(());
         }
 
@@ -298,29 +322,15 @@
             // A directory reference has no discovery tier to report.
             value["source"] = serde_json::Value::Null;
             let rendered = serde_json::to_string_pretty(&value)
-                .map_err(|err| miette!("failed to serialize template detail: {err}"))?;
+                .map_err(|err| miette!(
+help = internal_error_help(),
+"failed to serialize template detail: {err}"))?;
             println!("{rendered}");
             return Ok(());
         }
-        print_template_inputs(&manifest);
         println!("Path: {}", resolved.path().display());
-        print_instantiate_hint(&manifest);
+        print_template_inputs(&manifest, reference);
         Ok(())
-    }
-
-    /// The next command a reader of the detail view reaches for, with every
-    /// required input spelled out. §FS-rhei-templates.6.3
-    fn print_instantiate_hint(manifest: &TemplateManifest) {
-        use std::fmt::Write as _;
-        let required = manifest.inputs.iter().filter(|input| input.is_required()).fold(
-            String::new(),
-            |mut out, input| {
-                let _ = write!(out, " --set {}=<value>", input.name);
-                out
-            },
-        );
-        println!("Instantiate with:");
-        println!("  rhei instantiate {}{required}", manifest.name);
     }
 
     pub(super) fn complete_template_reference(current: &OsStr) -> Vec<CompletionCandidate> {

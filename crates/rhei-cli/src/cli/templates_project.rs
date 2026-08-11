@@ -132,7 +132,9 @@
             })?;
         }
         let rendered = serde_json::to_string_pretty(&merged)
-            .map_err(|err| miette!("failed to render merged settings: {err}"))?;
+            .map_err(|err| miette!(
+help = template_manifest_help(),
+"failed to render merged settings: {err}"))?;
         fs::write(&target, format!("{rendered}\n"))
             .map_err(|err| file_io_report(&target, "failed to write project settings", err))?;
 
@@ -149,7 +151,9 @@
         let content = fs::read_to_string(path)
             .map_err(|err| file_io_report(path, "failed to read settings", err))?;
         serde_json::from_str(&content)
-            .map_err(|err| miette!("failed to parse {}: {err}", path.display()))
+            .map_err(|err| miette!(
+help = settings_help(),
+"failed to parse {}: {err}", path.display()))
     }
 
     /// Deep-merge `incoming` into `target`, recording which leaf keys were added

@@ -43,7 +43,10 @@ fn build_program_command(
         command
     } else {
         let ProgramCommand::Exec(args) = &resolved.program.command else {
-            return Err(miette!("program command cannot disable shell when command is a string"));
+            return Err(miette!(
+                help = state_machine_help(),
+                "program command cannot disable shell when command is a string"
+            ));
         };
         let rendered = args
             .iter()
@@ -106,6 +109,7 @@ fn build_program_command(
             );
             if artifact_relative_path_escapes_root(&relative) {
                 return Err(miette!(
+                    help = "artifact paths are workspace-relative. Remove the leading '/' or the '..' segments from this artifact's path in the state machine.",
                     "input artifact '{}' expands to '{}' which escapes the workspace root",
                     artifact.name,
                     relative
@@ -130,11 +134,17 @@ fn spawn_and_wait_program(
 ) -> MietteResult<ProgramSpawnOutcome> {
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| miette!("failed to create log directory '{}': {e}", parent.display()))?;
+            .map_err(|e| miette!(
+                help = program_log_help(),
+                "failed to create log directory '{}': {e}", parent.display()
+            ))?;
     }
 
     let log_file = fs::File::create(log_path)
-        .map_err(|e| miette!("failed to create log file '{}': {e}", log_path.display()))?;
+        .map_err(|e| miette!(
+            help = program_log_help(),
+            "failed to create log file '{}': {e}", log_path.display()
+        ))?;
     {
         use std::io::Write as _;
         let mut f = &log_file;
@@ -160,12 +170,21 @@ fn spawn_and_wait_program(
     }
 
     let log_stdout =
-        log_file.try_clone().map_err(|e| miette!("failed to clone log file handle: {e}"))?;
+        log_file.try_clone().map_err(|e| miette!(
+            help = program_log_help(),
+            "failed to clone log file handle: {e}"
+        ))?;
     let log_stderr =
-        log_file.try_clone().map_err(|e| miette!("failed to clone log file handle: {e}"))?;
+        log_file.try_clone().map_err(|e| miette!(
+            help = program_log_help(),
+            "failed to clone log file handle: {e}"
+        ))?;
     let mut cmd = build_program_command(resolved, render_context)?;
     cmd.stdout(log_stdout).stderr(log_stderr);
-    let mut child = cmd.spawn().map_err(|e| miette!("failed to spawn program: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| miette!(
+        help = "the program state could not start its command. Check the command exists and is executable, then re-run.",
+        "failed to spawn program: {e}"
+    ))?;
     let start = Instant::now();
     let mut timed_out = false;
 
@@ -184,18 +203,27 @@ fn spawn_and_wait_program(
                             _ => {
                                 let _ = child.kill();
                                 break child.wait().map_err(|e| {
-                                    miette!("failed to wait for program after kill: {e}")
+                                    miette!(
+                                        help = internal_error_help(),
+                                        "failed to wait for program after kill: {e}"
+                                    )
                                 });
                             }
                         }
                     }
                     std::thread::sleep(Duration::from_millis(200));
                 }
-                Err(e) => break Err(miette!("error waiting for program: {e}")),
+                Err(e) => break Err(miette!(
+                    help = internal_error_help(),
+                    "error waiting for program: {e}"
+                )),
             }
         }
     } else {
-        child.wait().map_err(|e| miette!("failed to wait for program: {e}"))
+        child.wait().map_err(|e| miette!(
+            help = internal_error_help(),
+            "failed to wait for program: {e}"
+        ))
     }?;
 
     {
@@ -203,7 +231,10 @@ fn spawn_and_wait_program(
         let mut f = fs::OpenOptions::new()
             .append(true)
             .open(log_path)
-            .map_err(|e| miette!("failed to append to log file: {e}"))?;
+            .map_err(|e| miette!(
+                help = program_log_help(),
+                "failed to append to log file: {e}"
+            ))?;
         if timed_out {
             if let Some(timeout_secs) = resolved.timeout_secs {
                 let _ = writeln!(

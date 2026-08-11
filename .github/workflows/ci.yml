@@ -47,7 +47,7 @@ jobs:
 
       - name: Install grund
         shell: bash
-        run: cargo +stable install grund --locked
+        run: cargo +stable install grund --version 0.8.0 --locked
 
       - name: grund config validate
         run: grund config validate

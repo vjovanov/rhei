@@ -53,9 +53,18 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
 
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|err| miette!("failed to create temp file: {err}"))?;
-    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
-    tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+        .map_err(|err| miette!(
+            help = temp_write_help(),
+            "failed to create temp file: {err}"
+        ))?;
+    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to write temp file: {err}"
+    ))?;
+    tmp.persist(path).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to persist temp file: {err}"
+    ))?;
 
     let _ = fs2::FileExt::unlock(&file);
     Ok(())
@@ -72,12 +81,18 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
     let metadata = if workspace_index {
         rhei_core::parser::parse_workspace_index(&raw)
             .map_err(|err| {
-                miette!("failed to parse workspace index for metadata reset: {}", err.message)
+                miette!(
+                    help = plan_authoring_help(),
+                    "failed to parse workspace index for metadata reset: {}", err.message
+                )
             })?
             .metadata
     } else {
         rhei_core::parse(&raw)
-            .map_err(|err| miette!("failed to parse plan for metadata reset: {}", err.message))?
+            .map_err(|err| miette!(
+                help = plan_authoring_help(),
+                "failed to parse plan for metadata reset: {}", err.message
+            ))?
             .metadata
     };
 
@@ -89,9 +104,18 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
 
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|err| miette!("failed to create temp file: {err}"))?;
-    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
-    tmp.persist(path).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+        .map_err(|err| miette!(
+            help = temp_write_help(),
+            "failed to create temp file: {err}"
+        ))?;
+    tmp.write_all(new_raw.as_bytes()).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to write temp file: {err}"
+    ))?;
+    tmp.persist(path).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to persist temp file: {err}"
+    ))?;
 
     let _ = fs2::FileExt::unlock(&file);
     Ok(())
@@ -160,7 +184,10 @@ fn rewrite_all_states_to_initial(
     for line in &lines {
         if let Some(captures) = task_heading_re.captures(line) {
             if expecting_state.is_some() {
-                return Err(miette!("could not find **State:** line before the next task header"));
+                return Err(miette!(
+                    help = plan_authoring_help(),
+                    "could not find **State:** line before the next task header"
+                ));
             }
             let heading = captures.get(1).expect("heading capture").as_str();
             let kind = captures.get(2).expect("kind capture").as_str().to_ascii_lowercase();
@@ -186,10 +213,16 @@ fn rewrite_all_states_to_initial(
     }
 
     if expecting_state.is_some() {
-        return Err(miette!("could not find **State:** line at the end of the plan"));
+        return Err(miette!(
+            help = plan_authoring_help(),
+            "could not find **State:** line at the end of the plan"
+        ));
     }
     if rewrites == 0 {
-        return Err(miette!("found no task state metadata to reset"));
+        return Err(miette!(
+            help = "this plan declares no task **State:** lines to reset. Check you passed the right plan.",
+            "found no task state metadata to reset"
+        ));
     }
 
     let mut output = result.join("\n");
@@ -298,7 +331,10 @@ fn append_result_entry(
 
     let results_dir = workspace_root.join("runtime").join("results");
     fs::create_dir_all(&results_dir)
-        .map_err(|err| miette!("failed to create runtime/results directory: {err}"))?;
+        .map_err(|err| miette!(
+            help = runtime_dir_help(),
+            "failed to create runtime/results directory: {err}"
+        ))?;
     let result_file = results_dir.join(format!("{}.md", task_id));
 
     use std::fs::OpenOptions;
@@ -306,12 +342,28 @@ fn append_result_entry(
         .create(true)
         .append(true)
         .open(&result_file)
-        .map_err(|err| miette!("failed to open result file: {err}"))?;
+        .map_err(|err| miette!(
+            help = runtime_results_help(),
+            "failed to open result file: {err}"
+        ))?;
 
-    writeln!(file, "## Result").map_err(|err| miette!("failed to write result entry: {err}"))?;
-    writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
-    writeln!(file, "{}", msg).map_err(|err| miette!("failed to write result entry: {err}"))?;
-    writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
+    writeln!(file, "## Result")
+        .map_err(|err| miette!(
+            help = runtime_results_help(),
+            "failed to write result entry: {err}"
+        ))?;
+    writeln!(file).map_err(|err| miette!(
+        help = runtime_results_help(),
+        "failed to write result entry: {err}"
+    ))?;
+    writeln!(file, "{}", msg).map_err(|err| miette!(
+        help = runtime_results_help(),
+        "failed to write result entry: {err}"
+    ))?;
+    writeln!(file).map_err(|err| miette!(
+        help = runtime_results_help(),
+        "failed to write result entry: {err}"
+    ))?;
 
     Ok(())
 }
@@ -326,7 +378,10 @@ fn append_state_transition_log_entry(
 ) -> MietteResult<()> {
     let runtime_dir = workspace_root.join("runtime");
     fs::create_dir_all(&runtime_dir)
-        .map_err(|err| miette!("failed to create runtime directory: {err}"))?;
+        .map_err(|err| miette!(
+            help = runtime_dir_help(),
+            "failed to create runtime directory: {err}"
+        ))?;
     let transitions_file = runtime_dir.join("state-transitions.log");
 
     use std::fs::OpenOptions;
@@ -334,10 +389,16 @@ fn append_state_transition_log_entry(
         .create(true)
         .append(true)
         .open(&transitions_file)
-        .map_err(|err| miette!("failed to open state transition log: {err}"))?;
+        .map_err(|err| miette!(
+            help = transition_log_help(),
+            "failed to open state transition log: {err}"
+        ))?;
 
     writeln!(file, "{} {}@{}", task_id, from, to)
-        .map_err(|err| miette!("failed to write state transition log entry: {err}"))?;
+        .map_err(|err| miette!(
+            help = transition_log_help(),
+            "failed to write state transition log entry: {err}"
+        ))?;
 
     Ok(())
 }
@@ -379,6 +440,7 @@ fn write_task_assignee(
     if current_state != expected_state {
         let _ = fs2::FileExt::unlock(&handle);
         return Err(miette!(
+            help = task_moved_help(),
             "conflict: Task {} is in state '{}', expected '{}'",
             qualified_id,
             task.state,
@@ -387,7 +449,10 @@ fn write_task_assignee(
     }
     if let Some(existing) = task.assignee.as_deref() {
         let _ = fs2::FileExt::unlock(&handle);
-        return Err(miette!("Task {} is already assigned to {}", qualified_id, existing));
+        return Err(miette!(
+            help = "release it by deleting the **Assignee:** line from the task, or work on a different task.",
+            "Task {} is already assigned to {}", qualified_id, existing
+        ));
     }
     // §AR-rhei-panta.2: `{task_id}` artifact templates render the qualified
     // id — the same paths transition-time checks and agents see.
@@ -416,10 +481,19 @@ fn write_task_assignee(
 
     let parent = task_file.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|err| miette!("failed to create temp file: {err}"))?;
+        .map_err(|err| miette!(
+            help = temp_write_help(),
+            "failed to create temp file: {err}"
+        ))?;
     tmp.write_all(rewritten.as_bytes())
-        .map_err(|err| miette!("failed to write temp file: {err}"))?;
-    tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+        .map_err(|err| miette!(
+            help = temp_write_help(),
+            "failed to write temp file: {err}"
+        ))?;
+    tmp.persist(task_file).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to persist temp file: {err}"
+    ))?;
 
     let _ = fs2::FileExt::unlock(&handle);
     Ok(())
@@ -443,7 +517,10 @@ fn parse_claim_task_from_raw(
         }
     }
 
-    Err(miette!("task '{}' not found in {}", task_id, task_file.display()))
+    Err(miette!(
+        help = task_id_help(),
+        "task '{}' not found in {}", task_id, task_file.display()
+    ))
 }
 
 /// Rewrite a task's markdown after completion: remove `**Assignee:**` and,
@@ -525,7 +602,10 @@ fn rewrite_task_completion(
         result_lines.push(result_line);
     }
     if !target_found {
-        return Err(miette!("task '{}' not found in {}", task_id, task_file.display()));
+        return Err(miette!(
+            help = task_id_help(),
+            "task '{}' not found in {}", task_id, task_file.display()
+        ));
     }
 
     let mut output = result_lines.join("\n");
@@ -536,9 +616,18 @@ fn rewrite_task_completion(
     // Atomic write.
     let parent = task_file.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|err| miette!("failed to create temp file: {err}"))?;
-    tmp.write_all(output.as_bytes()).map_err(|err| miette!("failed to write temp file: {err}"))?;
-    tmp.persist(task_file).map_err(|err| miette!("failed to persist temp file: {err}"))?;
+        .map_err(|err| miette!(
+            help = temp_write_help(),
+            "failed to create temp file: {err}"
+        ))?;
+    tmp.write_all(output.as_bytes()).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to write temp file: {err}"
+    ))?;
+    tmp.persist(task_file).map_err(|err| miette!(
+        help = temp_write_help(),
+        "failed to persist temp file: {err}"
+    ))?;
 
     Ok(())
 }

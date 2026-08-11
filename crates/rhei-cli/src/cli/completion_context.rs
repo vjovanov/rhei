@@ -122,7 +122,10 @@ fn current_task_state(plan: &Path, task_id: &str) -> MietteResult<String> {
         .into_iter()
         .find(|task| task.id.to_string() == task_id)
         .map(|task| task.state.clone())
-        .ok_or_else(|| miette!("task '{}' not found in {}", task_id, plan.display()))
+        .ok_or_else(|| miette!(
+            help = task_id_help(),
+            "task '{}' not found in {}", task_id, plan.display()
+        ))
 }
 
 fn xdg_data_home() -> MietteResult<PathBuf> {
@@ -143,8 +146,10 @@ fn xdg_config_home() -> MietteResult<PathBuf> {
 /// built-in default when no path was given.
 fn load_state_machine(path: Option<&Path>) -> MietteResult<rhei_validator::StateMachine> {
     match path {
+        // §FS-rhei-errors.1.2: a bad state machine says which file to edit and
+        // how to re-check it, not just that loading failed.
         Some(p) => rhei_validator::StateMachine::from_yaml_file(p)
-            .map_err(|err| file_io_report(p, "failed to load states", err)),
+            .map_err(|err| state_machine_load_report(p, err)),
         None => Ok(rhei_validator::StateMachine::builtin_default()),
     }
 }
@@ -309,6 +314,8 @@ fn resolve_state_machines_for_loaded_plan(
         }
         if let Some(override_path) = state_machine_path {
             return Err(miette!(
+help = "--state-machine replaces resolution for the whole scope. Narrow the scope with --rhei, or drop the override and let each rhei resolve its own machine.",
+
                 "--state-machine '{}' declares '{}', but rhei '{rhei_id}' declares state \
                  machine '{machine_name}'. The override replaces resolution for the whole \
                  scope; it cannot reinterpret that rhei's states under another machine. \
@@ -371,6 +378,8 @@ fn resolve_declared_rhei_machine(
 
     match matches.len() {
         0 => Err(miette!(
+help = states_declaration_help(),
+
             "rhei '{rhei_id}' declares state machine '{machine_name}', but no states file \
              declaring it was found in the rhei's root, the project root, or any other \
              rhei root. Add a `states.yaml` declaring '{machine_name}' next to the rhei, \
@@ -384,6 +393,8 @@ fn resolve_declared_rhei_machine(
             let paths: Vec<String> =
                 matches.iter().map(|(path, _)| format!("'{}'", path.display())).collect();
             Err(miette!(
+help = states_declaration_help(),
+
                 "rhei '{rhei_id}' declares state machine '{machine_name}', and more than one \
                  root holds a states file declaring it: {}.\nMove the definitive file to the \
                  rhei's own root or pass --state-machine <path>.",
@@ -423,6 +434,7 @@ fn resolve_state_machine_for_loaded_plan(
         let machine = load_state_machine(Some(path))?;
         if loaded.rhei.states_declared && machine.name != loaded.rhei.states.trim() {
             return Err(miette!(
+                help = states_declaration_help(),
                 "plan declares state machine '{}', but --state-machine '{}' declares '{}'",
                 loaded.rhei.states.trim(),
                 path.display(),
@@ -473,6 +485,7 @@ fn resolve_state_machine_for_loaded_plan(
             let paths: Vec<String> =
                 matches.iter().map(|(path, _)| format!("'{}'", path.display())).collect();
             return Err(miette!(
+                help = states_declaration_help(),
                 "plan declares state machine '{}', and more than one rhei root holds a \
                  states file declaring it: {}.\nMove the definitive file to the project \
                  root or pass --state-machine <path>.",
@@ -485,12 +498,14 @@ fn resolve_state_machine_for_loaded_plan(
         }
         return Err(match mismatch {
             Some(found) => miette!(
+                help = states_declaration_help(),
                 "plan declares state machine '{}', but auto-discovered states file '{}' declares '{}', and no rhei root holds a states file declaring it.\nUse --state-machine <path> to override the default location.",
                 declared_name,
                 candidate.display(),
                 found
             ),
             None => miette!(
+                help = states_declaration_help(),
                 "plan declares state machine '{}', but no auto-discovered states file was found at '{}' or, by name, in any rhei root.\nUse --state-machine <path> to override the default location.",
                 declared_name,
                 candidate.display()
@@ -600,15 +615,17 @@ fn states_command(
         // a heterogeneous project renders as an array, default first.
         // §FS-rhei-states-cmd.5
         let rendered = if groups.len() == 1 {
-            render_state_machine_json(&groups[0].resolved.machine)
-                .map_err(|err| miette!("failed to serialize state machine: {err}"))?
+            render_state_machine_json(&groups[0].resolved.machine).map_err(|err| {
+                miette!(help = internal_error_help(), "failed to serialize state machine: {err}")
+            })?
         } else {
             let values = groups
                 .iter()
                 .map(|group| render_state_machine_json_value(&group.resolved.machine))
                 .collect::<Vec<_>>();
-            serde_json::to_string_pretty(&values)
-                .map_err(|err| miette!("failed to serialize state machines: {err}"))?
+            serde_json::to_string_pretty(&values).map_err(|err| {
+                miette!(help = internal_error_help(), "failed to serialize state machines: {err}")
+            })?
         };
         println!("{rendered}");
         return Ok(());
@@ -732,7 +749,11 @@ fn list_command(
             for machine in machines.distinct() {
                 available.extend(machine.allowed_states());
             }
+            let known =
+                available.iter().map(|state| state.to_string()).collect::<Vec<_>>();
             return Err(miette!(
+                help = did_you_mean(requested, &known)
+                    .unwrap_or_else(|| "this machine declares no states.".to_string()),
                 "unknown state '{}'; states in this {}: {}",
                 requested,
                 if loaded.is_panta_project() { "project" } else { "plan" },
@@ -878,7 +899,10 @@ fn list_command(
             })
             .collect();
         let rendered = serde_json::to_string_pretty(&payload)
-            .map_err(|err| miette!("failed to serialize task list: {err}"))?;
+            .map_err(|err| miette!(
+                help = internal_error_help(),
+                "failed to serialize task list: {err}"
+            ))?;
         println!("{rendered}");
         return Ok(());
     }

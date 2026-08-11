@@ -1401,7 +1401,10 @@ fn write_json_atomic(path: &Path, value: &impl serde::Serialize) -> MietteResult
     }
     let staging = unique_staging_path(path);
     let text = serde_json::to_string_pretty(value)
-        .map_err(|err| miette!("failed to serialize accounting artifact '{}': {err}", path.display()))?;
+        .map_err(|err| miette!(
+            help = "rhei writes token accounting under runtime/. Check that directory is writable.",
+            "failed to serialize accounting artifact '{}': {err}", path.display()
+        ))?;
     fs::write(&staging, text)
         .map_err(|err| file_io_report(&staging, "failed to write accounting staging file", err))?;
     fs::rename(&staging, path)

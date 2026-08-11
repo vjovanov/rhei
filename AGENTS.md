@@ -26,7 +26,7 @@ cargo test --workspace --all-targets --no-fail-fast
 
 
 <!-- BEGIN GRUND MANAGED BLOCK -->
-## Grounding with grund (v4)
+## Grounding with grund (v6)
 
 This project uses [`grund`](https://github.com/vjovanov/grund): every spec, goal, decision, and end-to-end test has a stable ID `<KIND>-<slug>[.<section>]` (`KIND ∈ {GND, GOAL, FS, AR, DF, DA, ADR, E2E, RM}`), cited with the marker `§` — e.g. `<§>FS-user-login.3.1` (the `FS-user-login` here is a shape illustration, not a real ID in this repo, hence the `<§>` escape). Type `$$` in a grund-aware editor and it becomes `§`. Bare ID-shaped tokens are ignored — `[reference] strict = true` is set in `.agents/grund.toml`, so only `§`-prefixed citations are checked.
 
@@ -76,6 +76,10 @@ Declarations are heading lines `# FS-user-login: …` in markdown. In a code doc
 ### Citation directions
 
 Specs cite goals, architecture cites specs, code and executable tests cite the specs they realize.
+
+### Clickable citations
+
+On repository web surfaces, link `§<ID>` to the PR branch in PR bodies, the reviewed commit in reviews, an exact commit for permalinks, and the default branch otherwise; fall back to plain when unsure.
 <!-- END GRUND MANAGED BLOCK -->
 ## Rhei
 

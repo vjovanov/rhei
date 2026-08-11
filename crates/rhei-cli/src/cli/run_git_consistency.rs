@@ -42,6 +42,7 @@ impl RunGitConsistencyGuard {
         }
 
         Err(miette!(
+            help = git_worktree_help(),
             "rhei run observed HEAD move from {} to {}, but tracked Rhei-owned plan/result paths remain uncommitted:\n  {}\n\nThe worktree reflects the latest orchestrator transitions, but HEAD does not. Commit or revert these paths before treating HEAD as durable plan state.",
             short_git_head(head_before),
             short_git_head(&head_after),
@@ -84,10 +85,14 @@ fn git_dirty_tracked_paths(repo_root: &Path, paths: &[PathBuf]) -> MietteResult<
 
     let output = command
         .output()
-        .map_err(|err| miette!("failed to inspect git worktree status: {err}"))?;
+        .map_err(|err| miette!(
+            help = git_worktree_help(),
+            "failed to inspect git worktree status: {err}"
+        ))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(miette!(
+            help = git_worktree_help(),
             "failed to inspect git worktree status: {}",
             if stderr.is_empty() {
                 output.status.to_string()
