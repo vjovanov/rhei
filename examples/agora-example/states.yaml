@@ -28,27 +28,23 @@
 #             -> resolve-point -> completed
 #   final:    final-solution -> present-to-human -> human-review -> completed
 
-name: multi-agent-deliberation
+name: agora
 version: 1.0.0
-{% if target_agents %}
-{% else %}
-{{ target_agents_must_contain_at_least_one_entry }}
-{% endif %}
 
 states:
   split-points:
     description: Split the input discussion into separate decision-point tasks.
-    target: {{splitter_agent}}
+    target: codex[yolo]:openai:gpt-5.5
     instructions: |
       Split Task {task_id}: {task_title}.
 
-      Read the input discussion in the task body. Create at most {{max_points}}
+      Read the input discussion in the task body. Create at most 4
       decision-point tasks unless separating more points is necessary to avoid
       merging unrelated decisions.
 
       Write a point manifest to `{output.point-manifest.path}` with this shape:
 
-      # Discussion Points - {{discussion_title}}
+      # Discussion Points - Choose the default export format
 
       - point-<slug>: <point title>
         - Source: <short quote or reference from the input discussion>
@@ -66,7 +62,7 @@ states:
 
       Append `tasks/99-final-solution.md` with a final task:
 
-      ### Task final-solution: Produce final solution for {{discussion_title}}
+      ### Task final-solution: Produce final solution for Choose the default export format
       **State:** final-solution
       **Prior:** Task point-<slug-1>, Task point-<slug-2>, ...
 
@@ -74,16 +70,20 @@ states:
       placeholders, ellipses, empty prior entries, or duplicate task ids.
     outputs:
       - name: point-manifest
-        path: {{output_dir}}/points-manifest.md
+        path: runtime/agora/points-manifest.md
         description: Stable list of generated discussion points
 
   propose-solutions:
     description: Configured target agents independently propose a solution for one point.
     concurrent: true
     all_targets:
-{% for agent in target_agents %}
-      - {{ agent.selector }}
-{% endfor %}
+
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+
+      - codex[yolo]:openai:gpt-5.5
+
+      - gemini[yolo]:google:gemini-3.1-pro-preview
+
     personality: |
       You are {target}. Propose your own solution for this discussion point.
       Do not imitate the other agents. Be concise, concrete, and explicit about
@@ -103,19 +103,27 @@ states:
       - Rejection criteria: <when this proposal should not be used>
     outputs:
       - name: proposal
-        path: {{output_dir}}/points/{task_id}/proposals/{target.slug}.md
+        path: runtime/agora/points/{task_id}/proposals/{target.slug}.md
         description: One target agent's proposal for this discussion point
 
   aggregate-disagreements:
     description: Aggregate proposals, tag agreements and disagreements, and frame the discussion.
     concurrent: true
-    target: {{point_aggregator_agent}}
+    target: codex[yolo]:openai:gpt-5.5
     inputs:
-{% for agent in target_agents %}
-      - name: {{ agent.id }}-proposal
-        path: {{output_dir}}/points/{task_id}/proposals/{{ agent.selector|slug }}.md
-        description: Proposal from {{ agent.id }}
-{% endfor %}
+
+      - name: claude-proposal
+        path: runtime/agora/points/{task_id}/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Proposal from claude
+
+      - name: codex-proposal
+        path: runtime/agora/points/{task_id}/proposals/codex-yolo-openai-gpt-5.5.md
+        description: Proposal from codex
+
+      - name: gemini-proposal
+        path: runtime/agora/points/{task_id}/proposals/gemini-yolo-google-gemini-3.1-pro-preview.md
+        description: Proposal from gemini
+
     personality: |
       You are the point aggregator. Preserve disagreement instead of smoothing
       it away. Tag exactly where proposals differ and what evidence could
@@ -124,9 +132,13 @@ states:
       Aggregate proposals for Task {task_id}: {task_title}.
 
       Read:
-{% for agent in target_agents %}
-      - `{input.{{ agent.id }}-proposal.path}`
-{% endfor %}
+
+      - `{input.claude-proposal.path}`
+
+      - `{input.codex-proposal.path}`
+
+      - `{input.gemini-proposal.path}`
+
 
       Write `{output.disagreement-map.path}` with:
 
@@ -152,25 +164,37 @@ states:
       disagreements and to converge where possible.
     outputs:
       - name: disagreement-map
-        path: {{output_dir}}/points/{task_id}/disagreement-map.md
+        path: runtime/agora/points/{task_id}/disagreement-map.md
         description: Aggregated proposals with tagged agreements and disagreements
 
   discuss-point:
     description: Configured target agents discuss the tagged disagreements for one point.
     concurrent: true
     all_targets:
-{% for agent in target_agents %}
-      - {{ agent.selector }}
-{% endfor %}
+
+      - claude-code[yolo]:anthropic:claude-opus-4-7
+
+      - codex[yolo]:openai:gpt-5.5
+
+      - gemini[yolo]:google:gemini-3.1-pro-preview
+
     inputs:
       - name: disagreement-map
-        path: {{output_dir}}/points/{task_id}/disagreement-map.md
+        path: runtime/agora/points/{task_id}/disagreement-map.md
         description: Tagged disagreements and discussion prompt for this point
-{% for agent in target_agents %}
-      - name: {{ agent.id }}-proposal
-        path: {{output_dir}}/points/{task_id}/proposals/{{ agent.selector|slug }}.md
-        description: Proposal from {{ agent.id }}
-{% endfor %}
+
+      - name: claude-proposal
+        path: runtime/agora/points/{task_id}/proposals/claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Proposal from claude
+
+      - name: codex-proposal
+        path: runtime/agora/points/{task_id}/proposals/codex-yolo-openai-gpt-5.5.md
+        description: Proposal from codex
+
+      - name: gemini-proposal
+        path: runtime/agora/points/{task_id}/proposals/gemini-yolo-google-gemini-3.1-pro-preview.md
+        description: Proposal from gemini
+
     personality: |
       You are {target}. Respond to the disagreement map directly. Keep useful
       parts of your original proposal, concede weak points, and focus on
@@ -190,22 +214,30 @@ states:
       - Reason: <why this recommendation best handles the tagged disagreements>
     outputs:
       - name: discussion-note
-        path: {{output_dir}}/points/{task_id}/discussion/{target.slug}.md
+        path: runtime/agora/points/{task_id}/discussion/{target.slug}.md
         description: One target agent's response to the disagreement map
 
   resolve-point:
     description: Aggregate the discussion and choose the best solution for one point.
     concurrent: true
-    target: {{point_aggregator_agent}}
+    target: codex[yolo]:openai:gpt-5.5
     inputs:
       - name: disagreement-map
-        path: {{output_dir}}/points/{task_id}/disagreement-map.md
+        path: runtime/agora/points/{task_id}/disagreement-map.md
         description: Tagged disagreements for this point
-{% for agent in target_agents %}
-      - name: {{ agent.id }}-discussion
-        path: {{output_dir}}/points/{task_id}/discussion/{{ agent.selector|slug }}.md
-        description: Discussion response from {{ agent.id }}
-{% endfor %}
+
+      - name: claude-discussion
+        path: runtime/agora/points/{task_id}/discussion/claude-code-yolo-anthropic-claude-opus-4-7.md
+        description: Discussion response from claude
+
+      - name: codex-discussion
+        path: runtime/agora/points/{task_id}/discussion/codex-yolo-openai-gpt-5.5.md
+        description: Discussion response from codex
+
+      - name: gemini-discussion
+        path: runtime/agora/points/{task_id}/discussion/gemini-yolo-google-gemini-3.1-pro-preview.md
+        description: Discussion response from gemini
+
     personality: |
       You are the point resolver. Choose the solution that best fits the
       evidence and constraints. Do not vote-count blindly; explain why the
@@ -225,24 +257,24 @@ states:
       - Effect on final solution: <how this point constrains the final answer>
     outputs:
       - name: point-decision
-        path: {{output_dir}}/points/{task_id}/point-decision.md
+        path: runtime/agora/points/{task_id}/point-decision.md
         description: Chosen solution and rationale for this point
 
   final-solution:
     description: Synthesize all resolved point decisions into one final solution.
-    target: {{final_aggregator_agent}}
+    target: codex[yolo]:openai:gpt-5.5
     personality: |
       You are the final aggregator. Produce one coherent answer from the point
       decisions. Keep the answer practical and note dependencies between points.
     instructions: |
       Produce the final solution for Task {task_id}: {task_title}.
 
-      Read the generated point manifest at `{{output_dir}}/points-manifest.md`
-      and every point decision under `{{output_dir}}/points/*/point-decision.md`.
+      Read the generated point manifest at `runtime/agora/points-manifest.md`
+      and every point decision under `runtime/agora/points/*/point-decision.md`.
 
       Write `{output.final-solution.path}` with:
 
-      # Final Solution - {{discussion_title}}
+      # Final Solution - Choose the default export format
 
       ## Recommendation
       <the final proposed solution>
@@ -260,15 +292,15 @@ states:
       - <risk or uncertainty, or none>
     outputs:
       - name: final-solution
-        path: {{output_dir}}/final-solution.md
+        path: runtime/agora/final-solution.md
         description: Final proposed solution across all discussion points
 
   present-to-human:
     description: Write the simplest human-readable presentation of the final solution.
-    target: {{presentation_agent}}
+    target: claude-code[yolo]:anthropic:claude-opus-4-7
     inputs:
       - name: final-solution
-        path: {{output_dir}}/final-solution.md
+        path: runtime/agora/final-solution.md
         description: Final proposed solution and rationale
     personality: |
       You are preparing the decision for a human reader. Prefer simple language,
@@ -295,7 +327,7 @@ states:
       - <anything the human should confirm before accepting>
     outputs:
       - name: human-summary
-        path: {{output_dir}}/human-summary.md
+        path: runtime/agora/human-summary.md
         description: Human-facing presentation of the recommended solution
 
   human-review:
@@ -304,7 +336,7 @@ states:
     instructions: |
       Do not transition out of this state autonomously.
 
-      A human reads `{{output_dir}}/human-summary.md` and decides whether to
+      A human reads `runtime/agora/human-summary.md` and decides whether to
       accept the proposed solution. The human may transition this task to
       `completed` after accepting it, or to `cancelled` if the deliberation
       should be abandoned.
@@ -368,7 +400,7 @@ profiles:
     allowed:
       - completed
 
-  deliberation-task:
+  agora-task:
     initial: split-points
     allowed:
       - split-points
@@ -384,6 +416,6 @@ profiles:
 
 node_policy:
   root: workspace
-  default: deliberation-task
+  default: agora-task
   by_type:
-    task: deliberation-task
+    task: agora-task

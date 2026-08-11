@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Rename the `multi-agent-deliberation` template to `agora`. The built-in
+  template that splits a discussion into points, collects proposals and
+  disagreements, and resolves each one carried the one name in the library
+  taken from its activity rather than from the Greek lane the product is named
+  in — `rhei`, `panta`, `basin`. It is now `agora`, the assembly place, across
+  the template directory and id, the state-machine `name:` and the
+  `**States:**` declarations that select it, the `deliberation-task` node kind,
+  the `plan_title` and `runtime/agora` `output_dir` defaults, and
+  `examples/agora-example/`. Instantiate it as `rhei instantiate agora`; the
+  old name is gone. Prose that calls the activity a deliberation is unchanged,
+  because the agora is where the deliberation happens — which is why the name
+  was chosen. PR #56
+
 - Measure Pi token usage. Pi was listed as an accounting-supported agent but
   was wired to the generic structured-capture contract, which stock Pi does not
   emit — so every Pi invocation recorded `no-usage-emitted` even though Pi

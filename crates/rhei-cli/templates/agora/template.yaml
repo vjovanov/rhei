@@ -1,4 +1,4 @@
-name: multi-agent-deliberation
+name: agora
 version: 1.0.0
 description: Split a discussion into points, gather multi-agent proposals and disagreements, discuss each point, and present a final human-readable decision.
 
@@ -6,7 +6,7 @@ inputs:
   - name: plan_title
     description: Title of the instantiated deliberation workspace
     type: string
-    default: Multi-Agent Deliberation
+    default: Agora
 
   - name: discussion_title
     description: Short title for the discussion being resolved
@@ -71,4 +71,4 @@ inputs:
   - name: output_dir
     description: Directory for deliberation artifacts inside the workspace
     type: string
-    default: runtime/deliberation
+    default: runtime/agora
