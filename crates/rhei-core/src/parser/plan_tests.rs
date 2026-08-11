@@ -601,3 +601,164 @@ fn errors_on_depth_over_structure_max_levels() {
     let err = parse(input).unwrap_err();
     assert!(err.message.contains("exceeds `structure.maxLevels`"));
 }
+
+/// Exports are a plan-level handoff: the producer names what it publishes and
+/// the consumer names what it reads, both in task metadata.
+/// §FS-rhei-plan-language.3.12
+#[test]
+fn parses_provides_and_consumes_metadata() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Design the API
+**State:** completed
+**Provides:** api-contract, error-codes
+
+### Task 2: Implement the client
+**State:** pending
+**Prior:** Task 1
+**Consumes:** 1:api-contract, 1:error-codes
+"#;
+
+    let rhei = parse(input).expect("exports parse");
+
+    assert_eq!(rhei.tasks[0].provides, vec!["api-contract", "error-codes"]);
+    assert!(rhei.tasks[0].consumes.is_empty());
+
+    let consumer = &rhei.tasks[1];
+    assert!(consumer.provides.is_empty());
+    assert_eq!(
+        consumer.consumes.iter().map(|c| c.task.to_string()).collect::<Vec<_>>(),
+        ["1", "1"]
+    );
+    assert_eq!(
+        consumer.consumes.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+        ["api-contract", "error-codes"]
+    );
+}
+
+#[test]
+fn provides_before_state_is_parse_error() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**Provides:** api-contract
+**State:** pending
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("**State:** must appear before **Provides:**"));
+}
+
+#[test]
+fn consumes_before_state_is_parse_error() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**Consumes:** 2:api-contract
+**State:** pending
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("**State:** must appear before **Consumes:**"));
+}
+
+/// A consumer that names no export has nothing to resolve, and the shape it is
+/// most often confused with is `**Prior:**`.
+#[test]
+fn errors_on_consumes_reference_without_an_export_name() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Consumes:** 2
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(
+        err.message.contains("expected '<task-id>:<export-name>'"),
+        "error should show the reference shape, got: {}",
+        err.message
+    );
+}
+
+/// An export name keys a path segment, so spaces and slashes cannot be part of
+/// one.
+#[test]
+fn errors_on_provides_name_that_cannot_key_a_path() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Provides:** api contract
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(
+        err.message.contains("Malformed **Provides:** name"),
+        "error should name the bad export, got: {}",
+        err.message
+    );
+}
+
+/// Two exports under one name leave a consumer no way to say which it meant.
+#[test]
+fn errors_on_duplicate_provided_export_name() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Provides:** api-contract, api-contract
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(
+        err.message.contains("provides 'api-contract' more than once"),
+        "error should point at the duplicate, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn errors_on_duplicate_consumed_export() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Consumes:** 2:api-contract, 2:api-contract
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(
+        err.message.contains("consumes '2:api-contract' more than once"),
+        "error should point at the duplicate, got: {}",
+        err.message
+    );
+}
+
+/// The metadata block is closed, so the new fields have to be listed in the
+/// error that enumerates it. §FS-rhei-plan-language.2
+#[test]
+fn unknown_metadata_error_lists_the_export_fields() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+**Provide:** api-contract
+"#;
+
+    let err = parse(input).unwrap_err();
+    assert!(err.message.contains("Unknown metadata field '**Provide:**'"), "{}", err.message);
+    assert!(
+        err.message.contains("**Provides:**") && err.message.contains("**Consumes:**"),
+        "error should list both export fields, got: {}",
+        err.message
+    );
+}

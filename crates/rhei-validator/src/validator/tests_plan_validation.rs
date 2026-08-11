@@ -56,6 +56,8 @@ states:
             state: state.to_string(),
             prior_kinds: vec![None; prior.len()],
             prior,
+            provides: Vec::new(),
+            consumes: Vec::new(),
             assignee: None,
             model: None,
             target: None,

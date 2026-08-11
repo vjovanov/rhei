@@ -452,6 +452,7 @@ fn spawn_parallel_agent_work_item(
     let checkout_root = resolve_agent_checkout_root(workspace_root, &item.task_id_str)?;
     let render_context = RuntimeTemplateContext {
         workspace_root,
+        task_roots: Some(&loaded.task_roots),
         checkout_root: &checkout_root.path,
         plan_path: &callback_paths.plan_path,
         state_machine_path: callback_paths.state_machine_path.as_deref(),
@@ -722,6 +723,7 @@ fn spawn_parallel_program_work_item(
 
     let resolved_for_thread = item.resolved.clone();
     let workspace_root_for_thread = workspace_root.to_path_buf();
+    let task_roots_for_thread = loaded.task_roots.clone();
     let callback_paths_for_thread = callback_paths.clone();
     let plan_title_for_thread = loaded.rhei.title.clone();
     let task_for_thread = task.clone();
@@ -740,6 +742,7 @@ fn spawn_parallel_program_work_item(
         let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root_for_thread,
+                task_roots: Some(&task_roots_for_thread),
                 checkout_root: &workspace_root_for_thread,
                 plan_path: &callback_paths_for_thread.plan_path,
                 state_machine_path: callback_paths_for_thread.state_machine_path.as_deref(),
@@ -1895,6 +1898,7 @@ fn run_agent_mode(
                 let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
                 let render_context = RuntimeTemplateContext {
                     workspace_root: &task_workspace_root,
+                    task_roots: Some(&loaded.task_roots),
                     checkout_root: &task_workspace_root,
                     plan_path: &callback_paths.plan_path,
                     state_machine_path: callback_paths.state_machine_path.as_deref(),
@@ -2337,6 +2341,7 @@ fn run_agent_mode(
             let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
             let render_context = RuntimeTemplateContext {
                 workspace_root: &task_workspace_root,
+                task_roots: Some(&loaded.task_roots),
                 checkout_root: &checkout_root.path,
                 plan_path: &callback_paths.plan_path,
                 state_machine_path: callback_paths.state_machine_path.as_deref(),

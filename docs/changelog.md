@@ -54,6 +54,20 @@
   matching the required-tooling gate: `--continue-on-error` moves on to the
   next task, and without it the run still aborts. PR #49
   §FS-rhei-states.3.2 §FS-rhei-run.3
+- Hand work product between tasks with `**Provides:**` and `**Consumes:**`. A
+  task publishes a named export (`**Provides:** api-contract`), a dependent
+  task reads it (`**Consumes:** auth.1:api-contract`), and Rhei injects the
+  content into the consuming agent's prompt while telling the producing agent
+  the path to write. Exports live at `runtime/exports/<task-id>/<name>.md`
+  under the owning rhei's execution root, so a cross-rhei prior's export
+  resolves where that rhei keeps it. This is a plan-level handoff on purpose:
+  the dependency graph orders it, so producer and consumer need not share a
+  state machine or a workflow phase — unlike state handoffs, which carry notes
+  between the states of one task and are declared in `states.yaml`. Nothing
+  validates the pairing yet: a `**Consumes:**` reference with no matching
+  `**Provides:**`, a producer that is not a prior, and a declared export that
+  was never written all read as a missing file and are silently skipped.
+  §FS-rhei-plan-language.3.12 §FS-rhei-agents.3
 
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
   template that splits a discussion into points, collects proposals and

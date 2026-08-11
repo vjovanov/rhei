@@ -4,7 +4,7 @@
 //! matches the `<kind> <id>: <title>` shape, plus section, state, and prior
 //! metadata tokens.
 
-use crate::ast::TaskId;
+use crate::ast::{ConsumedExport, TaskId};
 use crate::text::parse_task_id;
 use crate::tokens::Token;
 use regex::Regex;
@@ -17,6 +17,7 @@ pub struct Tokenizer<'a> {
     re_tasks: Regex,
     re_node_header: Regex,
     re_prior_ref: Regex,
+    re_consumes_ref: Regex,
     re_states: Regex,
     re_state: Regex,
     re_assignee: Regex,
@@ -47,6 +48,11 @@ impl<'a> Tokenizer<'a> {
         let re_prior_ref =
             Regex::new(&format!(r#"^([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})$"#)).unwrap();
 
+        // For "**Consumes:** auth.1:api-contract" — captures task id + export
+        // name. §FS-rhei-plan-language.3.12
+        let re_consumes_ref =
+            Regex::new(&format!(r#"^({task_id_pattern}):([A-Za-z0-9][A-Za-z0-9._-]*)$"#)).unwrap();
+
         // For "**States:** name" (must be checked before re_state)
         let re_states = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
 
@@ -68,6 +74,7 @@ impl<'a> Tokenizer<'a> {
             re_tasks,
             re_node_header,
             re_prior_ref,
+            re_consumes_ref,
             re_states,
             re_state,
             re_assignee,
@@ -167,6 +174,35 @@ impl<'a> Iterator for Tokenizer<'a> {
                     .filter_map(|c| c.get(2).and_then(|m| parse_task_id(m.as_str())))
                     .collect::<Vec<TaskId>>();
                 return Some(Token::MetadataPrior { task_ids: ids });
+            }
+
+            // Metadata: Provides §FS-rhei-plan-language.3.12
+            if line.starts_with("**Provides:**") {
+                let names = line
+                    .strip_prefix("**Provides:**")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|item| item.trim())
+                    .filter(|item| !item.is_empty())
+                    .map(|item| item.to_string())
+                    .collect::<Vec<String>>();
+                return Some(Token::MetadataProvides { names });
+            }
+
+            // Metadata: Consumes §FS-rhei-plan-language.3.12
+            if line.starts_with("**Consumes:**") {
+                let exports = line
+                    .strip_prefix("**Consumes:**")
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter_map(|item| self.re_consumes_ref.captures(item.trim()))
+                    .filter_map(|c| {
+                        let task = c.get(1).and_then(|m| parse_task_id(m.as_str()))?;
+                        let name = c.get(2)?.as_str().to_string();
+                        Some(ConsumedExport { task, name })
+                    })
+                    .collect::<Vec<ConsumedExport>>();
+                return Some(Token::MetadataConsumes { exports });
             }
 
             // Metadata: Assignee

@@ -1,5 +1,11 @@
 struct RuntimeTemplateContext<'a> {
     workspace_root: &'a Path,
+    /// Execution root of every ticket in the loaded project, keyed by qualified
+    /// id. `None` outside a Panta project, where one root owns every ticket.
+    /// Lets prompt composition read a *prior's* artifacts from the rhei that
+    /// owns them.
+    // §FS-rhei-panta.6.1: artifacts live under the owning rhei's root.
+    task_roots: Option<&'a HashMap<String, PathBuf>>,
     checkout_root: &'a Path,
     plan_path: &'a Path,
     state_machine_path: Option<&'a Path>,

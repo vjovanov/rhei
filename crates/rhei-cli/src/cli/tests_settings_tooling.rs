@@ -663,6 +663,7 @@ states:
         assert_eq!(gate.tooling.skills.len(), 1);
 
         let render_context = RuntimeTemplateContext {
+            task_roots: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace/plan.rhei.md"),

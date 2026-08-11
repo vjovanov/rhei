@@ -3,7 +3,7 @@
 //! These tokens cover the lexical elements defined in the plan language
 //! specification. Fielded variants mirror the specification exactly.
 
-use crate::ast::TaskId;
+use crate::ast::{ConsumedExport, TaskId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
@@ -29,6 +29,14 @@ pub enum Token {
 
     /// Metadata "Prior": `**Prior:** <kind> <id>, <kind> <id>, ...`.
     MetadataPrior { task_ids: Vec<TaskId> },
+
+    /// Metadata "Provides": `**Provides:** <name>, <name>, ...`.
+    // §FS-rhei-plan-language.3.12: Task exports.
+    MetadataProvides { names: Vec<String> },
+
+    /// Metadata "Consumes": `**Consumes:** <task-id>:<name>, ...`.
+    // §FS-rhei-plan-language.3.12: Task exports.
+    MetadataConsumes { exports: Vec<ConsumedExport> },
 
     /// Metadata "State": `**State:** <state>`.
     MetadataState { state: String },
