@@ -22,8 +22,61 @@ fn completions_command(
     }
 
     let mut stdout = std::io::stdout();
-    write_completion_registration(shell, &mut stdout)?;
+    write_completion_script(shell, &mut stdout)?;
     Ok(())
+}
+
+/// How to enable the generated script, as comments in the script itself. §FS-rhei-completions.5
+fn completion_header(shell: CompletionShell) -> String {
+    let (source_line, rc_file) = match shell {
+        CompletionShell::Bash => ("source <(rhei completions bash)", "~/.bashrc"),
+        CompletionShell::Zsh => ("source <(rhei completions zsh)", "~/.zshrc"),
+        CompletionShell::Fish => {
+            ("rhei completions fish | source", "~/.config/fish/config.fish")
+        }
+        CompletionShell::PowerShell => {
+            ("rhei completions powershell | Out-String | Invoke-Expression", "$PROFILE")
+        }
+        CompletionShell::Elvish => {
+            ("eval (rhei completions elvish | slurp)", "~/.config/elvish/rc.elv")
+        }
+    };
+    let mut header = format!(
+        "# rhei completions for {shell}.\n\
+         # Enable in the current shell:\n\
+         #   {source_line}\n\
+         # Enable permanently: add that line to {rc_file}, or install a completion file:\n\
+         #   rhei completions {shell} --install\n",
+        shell = shell.as_str(),
+    );
+    if matches!(shell, CompletionShell::Zsh) {
+        header.push_str(
+            "#   (installs to ~/.zfunc; make sure ~/.zfunc is on fpath before compinit)\n",
+        );
+    }
+    header
+}
+
+/// Writes the comment header plus the registration script, keeping a `#compdef`
+/// directive on the first line so the Zsh output stays autoloadable. §FS-rhei-completions.5
+fn write_completion_script(
+    shell: CompletionShell,
+    writer: &mut dyn std::io::Write,
+) -> MietteResult<()> {
+    let mut registration = Vec::new();
+    write_completion_registration(shell, &mut registration)?;
+    let registration = String::from_utf8_lossy(&registration);
+    let header = completion_header(shell);
+
+    let script = match registration.split_once('\n') {
+        Some((first, rest)) if first.starts_with("#compdef") => {
+            format!("{first}\n{header}{rest}")
+        }
+        _ => format!("{header}{registration}"),
+    };
+    writer
+        .write_all(script.as_bytes())
+        .map_err(|err| miette!("failed to write {} completions: {err}", shell.as_str()))
 }
 
 /// Falls back to the shell detected from `$SHELL` when none was given. §FS-rhei-completions.2
@@ -63,7 +116,7 @@ fn write_completion_file(shell: CompletionShell, path: &Path) -> MietteResult<()
     }
 
     let mut buffer = Vec::new();
-    write_completion_registration(shell, &mut buffer)?;
+    write_completion_script(shell, &mut buffer)?;
 
     let parent = path
         .parent()

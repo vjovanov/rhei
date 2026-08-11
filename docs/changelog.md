@@ -331,6 +331,10 @@
 - Align the runtime commands on the project/ticket vocabulary the docs use, and
   give the no-work and unknown-ticket messages the next step `rhei list`
   already offers.
+- Start every generated completion script with a comment header that shows how
+  to enable it: the source-in-current-shell one-liner, the rc file for
+  permanent use, and the `--install` alternative; for zsh the `#compdef rhei`
+  directive stays on the first line. PR #61 §FS-rhei-completions.5
 
 - Make the shell argument to `rhei completions` optional: detect it from
   `$SHELL` when omitted, and on detection failure list the supported shells

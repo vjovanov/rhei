@@ -74,6 +74,18 @@ Rhei supports the notable interactive shells covered by `clap_complete`:
 ## 5. Output Contract
 
 - The command prints only the completion script to stdout.
+- The generated script is self-documenting: it starts with a short comment
+  header that names the target shell and shows, as copy-pasteable commands, how
+  to enable completions — the source-in-current-shell one-liner, the rc file to
+  add it to for permanent use, and the `rhei completions <shell> --install`
+  alternative. All supported shells use `#` line comments, so the same header
+  format applies everywhere.
+- For Zsh the `#compdef rhei` directive stays on the first line — `compinit`
+  only recognizes autoloadable completion files by their first line — and the
+  comment header follows it. The Zsh header also notes that the `--install`
+  target `~/.zfunc` must be on `fpath` before `compinit` runs.
+- Installed files (`--install`, `--output`) contain the same script, header
+  included.
 - Diagnostics and parse errors are written to stderr through the normal CLI error path.
 - Unless `--install` or `--output` is passed, the command does not create, modify, or remove files.
 - With `--install`, the command creates parent directories as needed, overwrites the target completion file atomically enough for normal CLI use, and prints the installed path to stdout.
