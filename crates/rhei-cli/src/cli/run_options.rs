@@ -356,10 +356,24 @@ fn transition_dashboard_gate(
 ) -> MietteResult<String> {
     let loaded = load_plan(input)?;
     let task = find_task_by_id_str(&loaded.rhei.tasks, task_id_str)
-        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+        .ok_or_else(|| {
+            miette!(
+                help = format!(
+                    "list the task ids in this plan with: rhei list {}",
+                    shell_quote(&input.display().to_string())
+                ),
+                "task '{}' not found in the plan",
+                task_id_str
+            )
+        })?;
     let current_state = normalized_state_name(task.state.as_str(), machine);
     if current_state != from {
         return Err(miette!(
+            help = format!(
+                "someone moved the task since you looked. Re-read its current state with: \
+                 rhei list {}",
+                shell_quote(&input.display().to_string())
+            ),
             "conflict: Task {} is in state '{}', expected '{}'",
             task_id_str,
             task.state,
@@ -368,6 +382,9 @@ fn transition_dashboard_gate(
     }
     if !machine.states.get(&current_state).map(|def| def.gating).unwrap_or(false) {
         return Err(miette!(
+            help = "only human-gate states are released this way. Advance a non-gating state \
+                    with `rhei transition` or let `rhei run` drive it. See which states gate \
+                    with: rhei states",
             "Task {} is in state '{}', which is not a gating state",
             task_id_str,
             current_state
@@ -377,6 +394,10 @@ fn transition_dashboard_gate(
         machine.transitions().iter().any(|rule| rule.from.0 == from && rule.to.0 == to);
     if !explicit_transition {
         return Err(miette!(
+            help = format!(
+                "the state machine declares no '{from}' -> '{to}' edge. List the edges \
+                 leaving '{from}' with: rhei states"
+            ),
             "transition from '{}' to '{}' is not an explicit human-gate transition",
             from,
             to

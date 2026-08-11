@@ -322,12 +322,21 @@ fn load_settings_document(path: &Path) -> MietteResult<SettingsDocument> {
             return Ok(empty_settings_document());
         }
         Err(err) => {
-            return Err(miette!("failed to read settings '{}': {err}", path.display()));
+            return Err(miette!(
+                help = settings_help(),
+                "failed to read settings '{}': {err}", path.display()
+            ));
         }
     };
     let raw: serde_json::Value = serde_json::from_str(&contents)
-        .map_err(|err| miette!("failed to parse settings '{}': {err}", path.display()))?;
+        .map_err(|err| miette!(
+            help = settings_help(),
+            "failed to parse settings '{}': {err}", path.display()
+        ))?;
     let typed: RheiSettings = serde_json::from_value(raw.clone())
-        .map_err(|err| miette!("failed to decode settings '{}': {err}", path.display()))?;
+        .map_err(|err| miette!(
+            help = settings_help(),
+            "failed to decode settings '{}': {err}", path.display()
+        ))?;
     Ok(SettingsDocument { raw, typed })
 }

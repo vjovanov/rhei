@@ -3,6 +3,7 @@ include!("cli/cli_declarations.rs");
 include!("cli/cli_dispatch.rs");
 include!("cli/completion_candidates.rs");
 include!("cli/completion_context.rs");
+include!("cli/error_guidance.rs");
 
 mod templates {
     include!("cli/templates_builtin.rs");

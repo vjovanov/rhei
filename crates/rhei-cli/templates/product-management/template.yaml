@@ -36,6 +36,7 @@ inputs:
           type: string
         selector:
           type: string
+          format: execution-target
     default:
       - id: claude
         label: Claude PM entries
@@ -46,11 +47,13 @@ inputs:
   - name: smart_target
     description: Stronger agent that deduplicates, validates, prioritizes, and turns PM entries into an implementation slice.
     type: string
+    format: execution-target
     default: codex[xhigh]:openai:gpt-5.5
 
   - name: implementation_target
     description: Cheaper implementation agent that applies the accepted slice each pass.
     type: string
+    format: execution-target
     default: codex[medium]:openai:gpt-5.4-mini
 
   - name: loop_passes

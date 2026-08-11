@@ -30,6 +30,7 @@ fn ensure_task_profile_allows_state(
     }
 
     Err(miette!(
+        help = "the task's node profile restricts which states it may enter. Change the task's profile, or widen the profile in the state machine.",
         "Task {} cannot enter state '{}': state is not allowed by its resolved profile. Profile allows: [{}]",
         task_id_str,
         state,
@@ -56,11 +57,17 @@ fn execute_transition_with_origin(
     // Validate that both `from` and `to` are valid states.
     if !machine.is_valid_state(from) {
         let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
-        return Err(miette!("'{}' is not a valid state. Allowed: [{}]", from, allowed));
+        return Err(miette!(
+            help = "pick a state the machine declares. List them with: rhei states",
+            "'{}' is not a valid state. Allowed: [{}]", from, allowed
+        ));
     }
     if !machine.is_valid_state(to) {
         let allowed = machine.allowed_states().collect::<Vec<_>>().join(", ");
-        return Err(miette!("'{}' is not a valid state. Allowed: [{}]", to, allowed));
+        return Err(miette!(
+            help = "pick a state the machine declares. List them with: rhei states",
+            "'{}' is not a valid state. Allowed: [{}]", to, allowed
+        ));
     }
 
     // Open the file(s) with an exclusive lock for the duration of the operation.
@@ -113,7 +120,10 @@ fn execute_transition_with_origin(
     let metadata = if task_file == metadata_file {
         rhei_core::parse(&metadata_raw)
             .map_err(|err| {
-                miette!("failed to parse plan for transition metadata: {}", err.message)
+                miette!(
+                    help = plan_authoring_help(),
+                    "failed to parse plan for transition metadata: {}", err.message
+                )
             })?
             .metadata
     } else {
@@ -130,6 +140,7 @@ fn execute_transition_with_origin(
         }
         let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
+            help = "someone moved the task since you looked. Re-read its current state with: rhei list <plan>",
             "conflict: Task {} is in state '{}', expected '{}'",
             files.artifact_id,
             current_state_raw,
@@ -162,6 +173,7 @@ fn execute_transition_with_origin(
         }
         let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
+            help = "the machine declares no such edge. List the edges with: rhei states",
             "transition from '{}' to '{}' is not allowed by the state machine",
             from,
             to
@@ -214,6 +226,7 @@ fn execute_transition_with_origin(
             )
         };
         return Err(miette!(
+            help = "the edge exists but its condition is unmet. Inspect the machine with: rhei states",
             "transition from '{}' to '{}' is not currently applicable: {}. {}",
             from,
             to,
@@ -225,7 +238,10 @@ fn execute_transition_with_origin(
     let from_state_def = machine
         .states
         .get(from)
-        .ok_or_else(|| miette!("state '{}' missing from loaded machine", from))?;
+        .ok_or_else(|| miette!(
+            help = internal_error_help(),
+            "state '{}' missing from loaded machine", from
+        ))?;
 
     let from_invocations = resolve_agent_invocations_for_task(
         machine,
@@ -284,7 +300,10 @@ fn execute_transition_with_origin(
                     agent,
                     context_json: Some(&context_json),
                 };
-                let result = executor.execute(cb, &ctx).map_err(|e| miette!("{e}"))?;
+                let result = executor.execute(cb, &ctx).map_err(|e| miette!(
+                    help = state_machine_help(),
+                    "{e}"
+                ))?;
                 if !result.success {
                     if let Some(task_handle) = &task_handle {
                         let _ = fs2::FileExt::unlock(task_handle);
@@ -295,6 +314,7 @@ fn execute_transition_with_origin(
                         .clone()
                         .unwrap_or_else(|| "transition rejected by callback".to_string());
                     return Err(miette!(
+                        help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
                         "on_leave callback '{}' rejected the transition: {message}",
                         cb.0
                     ));
@@ -322,7 +342,10 @@ fn execute_transition_with_origin(
                 let _ = fs2::FileExt::unlock(task_handle);
             }
             let _ = fs2::FileExt::unlock(&metadata_handle);
-            return Err(miette!("on_leave callback redirected to unknown state '{}'", redirect));
+            return Err(miette!(
+                help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                "on_leave callback redirected to unknown state '{}'", redirect
+            ));
         } else if let Err(err) = ensure_task_profile_allows_state(
             machine,
             files.artifact_id,
@@ -347,6 +370,7 @@ fn execute_transition_with_origin(
             }
             let _ = fs2::FileExt::unlock(&metadata_handle);
             return Err(miette!(
+                help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
                 "on_leave callback redirected to '{}', but no transition from '{}' to '{}' is declared",
                 redirect,
                 from,
@@ -362,7 +386,10 @@ fn execute_transition_with_origin(
     let to_state_def = machine
         .states
         .get(to)
-        .ok_or_else(|| miette!("state '{}' missing from loaded machine", to))?;
+        .ok_or_else(|| miette!(
+            help = internal_error_help(),
+            "state '{}' missing from loaded machine", to
+        ))?;
 
     let mut updated_metadata =
         update_metadata_for_transition(metadata_for_checks, &metadata_key, to, machine)
@@ -470,7 +497,10 @@ fn execute_transition_with_origin(
     if !no_callbacks {
         if let Some(ref cb) = matching_rule.on_enter {
             let executor = ShellCallbackExecutor;
-            let result = executor.execute(cb, &callback_ctx).map_err(|e| miette!("{e}"))?;
+            let result = executor.execute(cb, &callback_ctx).map_err(|e| miette!(
+                help = state_machine_help(),
+                "{e}"
+            ))?;
             if !result.success {
                 // Spec §Example 8: on_enter failure rolls back the state
                 // write to the original, then the error_handling policy
@@ -490,11 +520,15 @@ fn execute_transition_with_origin(
                     result.error.clone().unwrap_or_else(|| "on_enter callback failed".to_string());
                 if rollback_err.is_some() || task_rollback_err.is_some() {
                     return Err(miette!(
+                        help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
                         "on_enter callback '{}' failed ({message}); rollback also failed — plan file may be inconsistent",
                         cb.0
                     ));
                 }
-                return Err(miette!("on_enter callback '{}' failed: {message}", cb.0));
+                return Err(miette!(
+                    help = "the callback command is declared in the state machine. Fix the command or the state it redirects to, then retry the transition.",
+                    "on_enter callback '{}' failed: {message}", cb.0
+                ));
             }
         }
     }
@@ -541,7 +575,10 @@ fn find_task_transition_info(
         }
     }
 
-    Err(miette!("task '{}' not found in {}", task_id_str, file_path.display()))
+    Err(miette!(
+        help = "list the task ids in this plan with: rhei list <plan>",
+        "task '{}' not found in {}", task_id_str, file_path.display()
+    ))
 }
 
 // ─── Agent Configuration ──────────────────────────────────────────────

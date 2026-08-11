@@ -4,25 +4,44 @@ fn resolve_target_agent(
     settings: &RheiSettings,
 ) -> MietteResult<ResolvedAgent> {
     let target = parse_execution_target(selector)
-        .map_err(|err| miette!("invalid target selector '{}': {}", selector, err))?;
+        .map_err(|err| miette!(help = err, "invalid target selector '{}'", selector))?;
     let agent = AgentConfig::from(target.agent.clone());
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
+        // §FS-rhei-errors.1.3: name the near miss before listing everything.
+        let known = settings
+            .agents
+            .keys()
+            .chain(built_in_agents().keys())
+            .cloned()
+            .collect::<Vec<_>>();
         miette!(
-            "agent '{}' is not defined. Add an entry to agents.<id> in \
-             .agents/rhei/settings.json or ~/.config/rhei/settings.json, or \
-             reference one of the built-in ids ({}).",
-            agent.id(),
-            built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            help = format!(
+                "{}Define it under `agents.<id>` in .agents/rhei/settings.json or \
+                 ~/.config/rhei/settings.json. Built-in ids: {}.",
+                did_you_mean(agent.id(), &known)
+                    .map(|hint| format!("{hint} "))
+                    .unwrap_or_default(),
+                built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+            "agent '{}' is not defined",
+            agent.id()
         )
     })?;
 
     if let Some(mode) = target.mode.as_deref() {
         if !profile.modes.contains_key(mode) {
+            let modes = profile.modes.keys().cloned().collect::<Vec<_>>();
             return Err(miette!(
-                "agent '{}' has no mode '{}'. Available modes: {}.",
+                help = match did_you_mean(mode, &modes) {
+                    Some(hint) => hint,
+                    None => format!(
+                        "agent '{}' declares no modes; drop the brackets from the selector.",
+                        agent.id()
+                    ),
+                },
+                "agent '{}' has no mode '{}'",
                 agent.id(),
-                mode,
-                profile.modes.keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                mode
             ));
         }
     }
@@ -68,7 +87,7 @@ fn resolve_target_agent_with_model_override(
     model_override: &str,
 ) -> MietteResult<ResolvedAgent> {
     let mut target = parse_execution_target(selector)
-        .map_err(|err| miette!("invalid target selector '{}': {}", selector, err))?;
+        .map_err(|err| miette!(help = err, "invalid target selector '{}'", selector))?;
     target.model = model_override.to_string();
     // §FS-rhei-plan-language.3.11: `**Model:**` preserves state target agent/mode/provider.
     resolve_target_agent(&target.selector(), state_def, settings)
@@ -100,11 +119,14 @@ fn resolve_legacy_agent_with_model(
 
     let model_profile = match model.as_deref() {
         Some(id) => Some(settings.models.get(id).ok_or_else(|| {
+            let known = settings.models.keys().cloned().collect::<Vec<_>>();
             miette!(
-                "model '{}' is not defined in settings.models. Add a models.{} entry \
-                 to .agents/rhei/settings.json or ~/.config/rhei/settings.json, or remove \
-                 the model selection.",
-                id,
+                help = format!(
+                    "{}Add a `models.{id}` entry to .agents/rhei/settings.json or \
+                     ~/.config/rhei/settings.json, or drop the model selection.",
+                    did_you_mean(id, &known).map(|hint| format!("{hint} ")).unwrap_or_default()
+                ),
+                "model '{}' is not defined in settings.models",
                 id
             )
         })?),
@@ -130,12 +152,24 @@ fn resolve_legacy_agent_with_model(
     };
 
     let profile = settings.agents.get(agent.id()).cloned().ok_or_else(|| {
+        // §FS-rhei-errors.1.3: name the near miss before listing everything.
+        let known = settings
+            .agents
+            .keys()
+            .chain(built_in_agents().keys())
+            .cloned()
+            .collect::<Vec<_>>();
         miette!(
-            "agent '{}' is not defined. Add an entry to agents.<id> in \
-             .agents/rhei/settings.json or ~/.config/rhei/settings.json, or \
-             reference one of the built-in ids ({}).",
-            agent.id(),
-            built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            help = format!(
+                "{}Define it under `agents.<id>` in .agents/rhei/settings.json or \
+                 ~/.config/rhei/settings.json. Built-in ids: {}.",
+                did_you_mean(agent.id(), &known)
+                    .map(|hint| format!("{hint} "))
+                    .unwrap_or_default(),
+                built_in_agents().keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+            "agent '{}' is not defined",
+            agent.id()
         )
     })?;
 
@@ -153,11 +187,18 @@ fn resolve_legacy_agent_with_model(
 
     if let Some(name) = &mode {
         if !profile.modes.is_empty() && !profile.modes.contains_key(name) {
+            let modes = profile.modes.keys().cloned().collect::<Vec<_>>();
             return Err(miette!(
-                "agent '{}' has no mode '{}'. Available modes: {}.",
+                help = match did_you_mean(name, &modes) {
+                    Some(hint) => hint,
+                    None => format!(
+                        "agent '{}' declares no modes; drop the brackets from the selector.",
+                        agent.id()
+                    ),
+                },
+                "agent '{}' has no mode '{}'",
                 agent.id(),
-                name,
-                profile.modes.keys().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                name
             ));
         }
     }
@@ -229,6 +270,9 @@ fn resolve_agent_invocations_for_task(
         if task_target_override.is_some() || task_model_override.is_some() {
             if !state_def.all_targets.is_empty() || !state_def.all_models.is_empty() {
                 return Err(miette!(
+                    help = "a fanout state runs one pass per declared target, so a per-task \
+                            override has nothing to override. Remove the task's execution \
+                            override, or point the task at a non-fanout state.",
                     "Task {} declares a task execution override but state '{}' is a fanout state",
                     task.map(|task| task.id.to_string())
                         .unwrap_or_else(|| "<unknown>".to_string()),
@@ -237,6 +281,10 @@ fn resolve_agent_invocations_for_task(
             }
             if state_def.target_locked {
                 return Err(miette!(
+                    help = format!(
+                        "remove the task's execution override, or set `target_locked: false` \
+                         on state '{state_name}' in the state machine."
+                    ),
                     "Task {} declares a task execution override but state '{}' has target_locked: true",
                     task.map(|task| task.id.to_string())
                         .unwrap_or_else(|| "<unknown>".to_string()),
@@ -395,14 +443,16 @@ fn ensure_orchestrator_timeout(resolved: &ResolvedAgent, state_name: &str) -> Mi
         return Ok(());
     }
     Err(miette!(
+        help = format!(
+            "set `agent_timeout` on the state, on `models.<id>.agents.{}.timeout`, on \
+             `agents.{}.timeout`, or on `defaults.agent_timeout` in settings.json.",
+            resolved.agent.id(),
+            resolved.agent.id()
+        ),
         "state '{}' is driven by `rhei run` (orchestrator completion authority) \
          but no `agent_timeout` resolves for agent '{}'. Deterministic completion \
-         requires a finite timeout. Set `agent_timeout` on the state, on \
-         `models.<id>.agents.{}.timeout`, on `agents.{}.timeout`, or on \
-         `defaults.agent_timeout` in settings.json.",
+         requires a finite timeout.",
         state_name,
-        resolved.agent.id(),
-        resolved.agent.id(),
         resolved.agent.id(),
     ))
 }

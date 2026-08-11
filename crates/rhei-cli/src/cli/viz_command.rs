@@ -17,9 +17,15 @@ fn viz_command(
         .to_string();
 
     let plans = rhei_viz::collect_plans(input, &key, state_machine)
-        .map_err(|err| miette!("failed to collect plans from {}: {err}", input.display()))?;
+        .map_err(|err| miette!(
+            help = "check the path and re-run: rhei viz <plan-or-directory>",
+            "failed to collect plans from {}: {err}", input.display()
+        ))?;
     if plans.is_empty() {
-        return Err(miette!("no .rhei.md plans found at {}", input.display()));
+        return Err(miette!(
+            help = "point rhei viz at a .rhei.md plan or a directory that contains one.",
+            "no .rhei.md plans found at {}", input.display()
+        ));
     }
 
     // A member rhei renders its project's graph, filtered to its own tickets:
@@ -31,9 +37,15 @@ fn viz_command(
     let out = output.map(Path::to_path_buf).unwrap_or_else(|| default_viz_output(input));
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|err| miette!("failed to create {}: {err}", parent.display()))?;
+            .map_err(|err| miette!(
+                help = "check the path and re-run: rhei viz <plan-or-directory>",
+                "failed to create {}: {err}", parent.display()
+            ))?;
     }
-    std::fs::write(&out, html).map_err(|err| miette!("failed to write {}: {err}", out.display()))?;
+    std::fs::write(&out, html).map_err(|err| miette!(
+        help = "check the path and re-run: rhei viz <plan-or-directory>",
+        "failed to write {}: {err}", out.display()
+    ))?;
     println!("Wrote flow visualization to {}", out.display());
 
     if open {
@@ -71,5 +83,8 @@ fn open_in_browser(path: &Path) -> MietteResult<()> {
         .stderr(std::process::Stdio::null())
         .spawn()
         .map(|_| ())
-        .map_err(|err| miette!("failed to open browser: {err}"))
+        .map_err(|err| miette!(
+            help = "the visualization was written to disk; open that file yourself, or re-run with --no-open.",
+            "failed to open browser: {err}"
+        ))
 }

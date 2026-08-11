@@ -154,7 +154,7 @@ fn render_command(
         no_metadata,
         no_content,
     )
-    .map_err(|err| miette!("{err}"))?;
+    .map_err(|err| miette!(help = internal_error_help(), "{err}"))?;
     println!("{rendered}");
     Ok(())
 }
@@ -395,7 +395,10 @@ fn agent_label(agent: &Agent) -> &'static str {
 fn home_dir() -> MietteResult<PathBuf> {
     std::env::var("HOME")
         .map(PathBuf::from)
-        .map_err(|_| miette!("HOME environment variable not set"))
+        .map_err(|_| miette!(
+            help = "rhei writes user-level files under $HOME. Set HOME, or install into the project with --local.",
+            "HOME environment variable not set"
+        ))
 }
 
 /// Install skills for a single agent.
@@ -440,7 +443,10 @@ fn install_claude_code(
     project_root: Option<&Path>,
 ) -> MietteResult<()> {
     let base = if local {
-        project_root.ok_or_else(|| miette!("--local requires a project root"))?.join(".claude")
+        project_root.ok_or_else(|| miette!(
+            help = "--local writes into the current project. Run it inside a git repository or a Panta project, or install for your user with --user.",
+            "--local requires a project root"
+        ))?.join(".claude")
     } else {
         home_dir()?.join(".claude")
     };
@@ -492,7 +498,10 @@ fn install_claude_code(
 /// Inject or replace a `# rhei` section in a CLAUDE.md file.
 fn inject_claude_md_section(file: &Path, content: &str, dry_run: bool) -> MietteResult<()> {
     let existing = if file.exists() {
-        fs::read_to_string(file).map_err(|e| miette!("failed to read '{}': {e}", file.display()))?
+        fs::read_to_string(file).map_err(|e| miette!(
+            help = "check the destination is writable, then re-run",
+            "failed to read '{}': {e}", file.display()
+        ))?
     } else {
         String::new()
     };
@@ -537,10 +546,16 @@ fn inject_claude_md_section(file: &Path, content: &str, dry_run: bool) -> Miette
 
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| miette!("failed to create directory '{}': {e}", parent.display()))?;
+            .map_err(|e| miette!(
+                help = "check the destination is writable, then re-run",
+                "failed to create directory '{}': {e}", parent.display()
+            ))?;
     }
     fs::write(file, &final_content)
-        .map_err(|e| miette!("failed to write '{}': {e}", file.display()))?;
+        .map_err(|e| miette!(
+            help = "check the destination is writable, then re-run",
+            "failed to write '{}': {e}", file.display()
+        ))?;
 
     Ok(())
 }

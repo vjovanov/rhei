@@ -65,7 +65,12 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
     }
 
     if already_present {
-        return Err(miette!("Task {} already has an **Assignee:** line", task_id));
+        return Err(miette!(
+            help = "someone already claimed it. Release it by deleting the **Assignee:** line, \
+                    or claim a different task.",
+            "Task {} already has an **Assignee:** line",
+            task_id
+        ));
     }
     if inserted {
         let mut output = result.join("\n");
@@ -77,6 +82,8 @@ fn insert_task_assignee(raw: &str, task_id: &str, assignee: &str) -> MietteResul
 
     let Some(meta_idx) = last_metadata_idx else {
         return Err(miette!(
+            help = "every task needs a `**State:** <state>` line under its heading. Add one, \
+                    then re-run: rhei validate <plan>",
             "could not find **State:**/**Prior:** metadata line for Task {} in the markdown",
             task_id
         ));
@@ -232,7 +239,12 @@ fn rewrite_task_state(raw: &str, task_id: &str, new_state: &str) -> MietteResult
     }
 
     if !state_replaced {
-        return Err(miette!("could not find **State:** line for Task {} in the markdown", task_id));
+        return Err(miette!(
+            help = "add a `**State:** <state>` line under the task heading, then re-run: \
+                    rhei validate <plan>",
+            "could not find **State:** line for Task {} in the markdown",
+            task_id
+        ));
     }
 
     // Preserve trailing newline if original had one.
@@ -276,15 +288,41 @@ fn next_command(
     let (task_id_str, current_state_raw, current_state, task_workspace_root) = if let Some(tid) = resolved_filter.as_deref() {
         let target_id = parse_task_id(tid);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-            .ok_or_else(|| miette!("task '{}' not found in the plan", tid))?;
+            .ok_or_else(|| {
+                miette!(
+                    help = format!(
+                        "list the task ids in this plan with: rhei list {}",
+                        shell_quote(&input.display().to_string())
+                    ),
+                    "task '{}' not found in the plan",
+                    tid
+                )
+            })?;
         if !task.children.is_empty() {
             return Err(miette!(
-                "Task {} is a rollup with child tasks and cannot be claimed directly; claim one of its leaf tasks instead",
+                help = format!(
+                    "a parent task advances when its children do. Pick one of: {}",
+                    task.children
+                        .iter()
+                        .map(|child| child.id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                "Task {} is a rollup with child tasks and cannot be claimed directly",
                 tid
             ));
         }
         if let Some(assignee) = task.assignee.as_deref() {
-            return Err(miette!("Task {} is already assigned to {}", tid, assignee));
+            return Err(miette!(
+                help = format!(
+                    "release it by deleting the **Assignee:** line from Task {tid}, or claim \
+                     whatever is ready instead: rhei next {}",
+                    shell_quote(&input.display().to_string())
+                ),
+                "Task {} is already assigned to {}",
+                tid,
+                assignee
+            ));
         }
         let machine = machines.for_task_str(tid);
         let state_name = normalized_state_name(task.state.as_str(), machine);
@@ -304,6 +342,10 @@ fn next_command(
                     .map(|prior| format!("; waiting on {}", prior))
                     .unwrap_or_default();
                 return Err(miette!(
+                    help = format!(
+                        "finish the prerequisite first, or see what is claimable now: rhei list {}",
+                        shell_quote(&input.display().to_string())
+                    ),
                     "Task {} is blocked by incomplete prerequisites{}",
                     tid,
                     detail
@@ -313,7 +355,9 @@ fn next_command(
         let state_def = machine
             .states
             .get(&state_name)
-            .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
+            .ok_or_else(|| {
+                miette!(help = internal_error_help(), "state '{}' missing from loaded machine", state_name)
+            })?;
         let settings = load_merged_settings(&workspace_root)?;
         let task_workspace_root = loaded.task_root(tid, &workspace_root);
         ensure_state_inputs_exist_for_transition(
@@ -342,6 +386,7 @@ fn next_command(
         );
         if ready.is_empty() {
             return Err(miette!(
+                help = "see every task and its state with: rhei list <plan>",
                 "{}",
                 diagnose_no_claimable(
                     &loaded.rhei,
@@ -358,7 +403,9 @@ fn next_command(
         let state_def = machine
             .states
             .get(&state_name)
-            .ok_or_else(|| miette!("state '{}' missing from loaded machine", state_name))?;
+            .ok_or_else(|| {
+                miette!(help = internal_error_help(), "state '{}' missing from loaded machine", state_name)
+            })?;
         let settings = load_merged_settings(&workspace_root)?;
         let task_workspace_root = loaded.task_root(&task.id.to_string(), &workspace_root);
         ensure_state_inputs_exist_for_transition(
@@ -387,12 +434,23 @@ fn next_command(
     let machine = machines.for_task_str(&task_id_str);
     let callback_paths = machines.callbacks_for_str(&task_id_str);
     let selected_task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+        .ok_or_else(|| {
+            miette!(
+                help = format!(
+                    "list the task ids in this plan with: rhei list {}",
+                    shell_quote(&input.display().to_string())
+                ),
+                "task '{}' not found in the plan",
+                task_id_str
+            )
+        })?;
     let is_initial = task_is_in_initial_state(selected_task, &current_state, machine);
     let current_state_def = machine
         .states
         .get(&current_state)
-        .ok_or_else(|| miette!("state '{}' missing from loaded machine", current_state))?;
+        .ok_or_else(|| {
+            miette!(help = internal_error_help(), "state '{}' missing from loaded machine", current_state)
+        })?;
     // §FS-rhei-next.3: claim initial states in place when the next edge is terminal completion.
     let auto_transition_initial = is_initial
         && !state_declares_autonomous_execution(current_state_def)
@@ -404,9 +462,25 @@ fn next_command(
         // Advance from a setup-only initial state (for example planning -> pending).
         let target_id = parse_task_id(&task_id_str);
         let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-            .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+            .ok_or_else(|| {
+                miette!(
+                    help = format!(
+                        "list the task ids in this plan with: rhei list {}",
+                        shell_quote(&input.display().to_string())
+                    ),
+                    "task '{}' not found in the plan",
+                    task_id_str
+                )
+            })?;
         let to_state = find_next_transition(task, &loaded.rhei, machine)?.ok_or_else(|| {
-            miette!("no forward transition available from state '{}'", current_state_raw)
+            miette!(
+                help = format!(
+                    "no transition leaves '{current_state_raw}'. See the machine's edges with: \
+                     rhei states"
+                ),
+                "no forward transition available from state '{}'",
+                current_state_raw
+            )
         })?;
         let effective_to = execute_transition(
             TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
@@ -432,7 +506,9 @@ fn next_command(
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-        .ok_or_else(|| miette!("task '{}' not found after transition", task_id_str))?;
+        .ok_or_else(|| {
+            miette!(help = internal_error_help(), "task '{}' not found after transition", task_id_str)
+        })?;
 
     // Resolve agent/model for display. `next` should still print the next
     // task even when the state's agent is misconfigured, so demote resolution
@@ -464,7 +540,10 @@ fn next_command(
         let final_state_def = machine
             .states
             .get(&final_state)
-            .ok_or_else(|| miette!("state '{}' missing from loaded machine", final_state))?;
+            .ok_or_else(|| miette!(
+                help = internal_error_help(),
+                "state '{}' missing from loaded machine", final_state
+            ))?;
         write_task_assignee(
             &route.task_file,
             &route.local_id,

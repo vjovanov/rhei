@@ -32,6 +32,8 @@ fn ensure_state_inputs_exist(
         );
         if artifact_relative_path_escapes_root(&relative) {
             return Err(miette!(
+                help = "artifact paths are workspace-relative. Remove the leading '/' or the \
+                        '..' segments from this artifact's `path` in the state machine.",
                 "{context}\nInput artifact '{}' expands to '{}' which escapes the workspace root",
                 artifact.name,
                 relative
@@ -68,6 +70,12 @@ fn ensure_state_inputs_exist(
                 String::new()
             };
             return Err(miette!(
+                help = format!(
+                    "the state cannot start until that file exists. Produce it in the previous \
+                     state, or mark the input `optional: true` in the state machine. Expected \
+                     at: {}",
+                    path.display()
+                ),
                 "{context}\nMissing required input artifact: {} ({}){}",
                 artifact.name,
                 relative,
@@ -109,6 +117,8 @@ fn ensure_state_outputs_exist(
         );
         if artifact_relative_path_escapes_root(&relative) {
             return Err(miette!(
+                help = "artifact paths are workspace-relative. Remove the leading '/' or the \
+                        '..' segments from this artifact's `path` in the state machine.",
                 "Task {} cannot leave state {}.\nOutput artifact '{}' expands to '{}' which escapes the workspace root",
                 task_id,
                 state_name,
@@ -118,6 +128,11 @@ fn ensure_state_outputs_exist(
         }
         if !path.exists() {
             return Err(miette!(
+                help = format!(
+                    "the state's work is not finished until that file exists. Write it, then \
+                     retry the transition. Expected at: {}",
+                    path.display()
+                ),
                 "Task {} cannot leave state {}.\nMissing required output artifact: {} ({})",
                 task_id,
                 state_name,

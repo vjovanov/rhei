@@ -2826,7 +2826,7 @@ fn project_machine_resolution_surfaces_a_broken_rhei_root_states_file() {
     assert!(!output.status.success(), "a broken candidate machine file must fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("failed to load states"),
+        stderr.contains("failed to parse state machine"),
         "the parse failure should surface, not a misleading not-found: {stderr}"
     );
 

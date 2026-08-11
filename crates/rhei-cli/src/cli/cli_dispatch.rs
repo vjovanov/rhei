@@ -284,11 +284,12 @@ fn command_wants_json(command: &Commands) -> bool {
 }
 
 fn emit_json_error(err: &miette::Report) {
-    let payload = serde_json::json!({
-        "error": {
-            "message": err.to_string(),
-        }
-    });
+    // §FS-rhei-errors.5: machine consumers get the same next action as humans.
+    let mut error = serde_json::json!({ "message": err.to_string() });
+    if let Some(help) = err.help() {
+        error["help"] = serde_json::Value::String(help.to_string());
+    }
+    let payload = serde_json::json!({ "error": error });
     let serialized = serde_json::to_string(&payload)
         .unwrap_or_else(|_| format!("{{\"error\":{{\"message\":{:?}}}}}", err.to_string()));
     eprintln!("{serialized}");

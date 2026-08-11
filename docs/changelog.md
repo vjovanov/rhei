@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Give every failing `rhei` command a next action. Errors now carry a `help:`
+  line with a runnable command; missing template inputs are reported all at once
+  with a suggestion that echoes the arguments already supplied; unknown
+  templates, inputs, agents, modes, models, and object properties suggest the
+  closest match; filesystem failures say whether the path, its directory, or the
+  permissions are the problem; and JSON error output carries the same help.
+  Every command Rhei prints is now POSIX-quoted, so an execution target such as
+  `agent='codex[yolo]:openai:gpt-5.5'` survives paste into zsh instead of dying
+  on glob expansion. Template inputs may declare `format: execution-target`,
+  which validates the selector where the user typed it instead of failing later
+  against a rendered `states.yaml` the user never wrote.
+  §FS-rhei-errors.1 §FS-rhei-errors.2
+  §FS-rhei-errors.3.1 §FS-rhei-errors.5 §FS-rhei-templates.3.1
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
   template that splits a discussion into points, collects proposals and
   disagreements, and resolves each one carried the one name in the library

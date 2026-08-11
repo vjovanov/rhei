@@ -423,6 +423,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         if !input.exists() {
             if looks_like_task_id(&input) {
                 return Err(miette!(
+                    help = "this argument takes a plan or project path, not a ticket id.",
                     "'{}' is not a path. This argument takes a plan or project; select a \
                      ticket with `--task {}` and let the plan resolve on its own.",
                     input.display(),
@@ -430,6 +431,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
                 ));
             }
             return Err(miette!(
+                help = io_error_help(&input, std::io::ErrorKind::NotFound),
                 "no plan or project at '{}'. Pass a `.rhei.md` file, a workspace \
                  directory, or omit the argument to use the enclosing project.",
                 input.display()
@@ -438,7 +440,10 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
         return Ok(input);
     }
     let cwd = std::env::current_dir()
-        .map_err(|err| miette!("failed to read the current directory: {err}"))?;
+        .map_err(|err| miette!(
+            help = "re-run from a directory that still exists.",
+            "failed to read the current directory: {err}"
+        ))?;
     let mut dir = Some(cwd.as_path());
     while let Some(current) = dir {
         if current.join(workspace::PANTA_INDEX_FILE).is_file() {
@@ -491,6 +496,7 @@ fn resolve_plan_path(input: Option<PathBuf>) -> MietteResult<PathBuf> {
             .collect::<Vec<_>>()
             .join("\n");
         return Err(miette!(
+            help = "run the command against one of the paths listed above, or cd into it.",
             "no Rhei plan found at or above {}. Target resolution only walks up, but there \
              {} below it:\n{}",
             cwd.display(),
@@ -936,7 +942,10 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         return Err(workspace_parse_errors_report(&parse_error_groups));
     }
     if let Some(error) = duplicate_task_error {
-        return Err(miette!("{error}"));
+        return Err(miette!(
+            help = "check the workspace path and re-run: rhei validate <workspace>",
+            "{error}"
+        ));
     }
 
     // An empty workspace is a valid, empty rhei; `rhei validate` warns rather
@@ -1086,12 +1095,18 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
         },
         Config::default(),
     )
-    .map_err(|err| miette!("failed to initialize file watcher: {err}"))?;
+    .map_err(|err| miette!(
+        help = "--watch needs an OS file-watch handle. Re-run without --watch, or raise the inotify limits.",
+        "failed to initialize file watcher: {err}"
+    ))?;
 
     for root in &watch_plan.roots {
         watcher
             .watch(&root.path, root.mode)
-            .map_err(|err| miette!("failed to watch '{}': {err}", root.path.display()))?;
+            .map_err(|err| miette!(
+                help = "--watch needs an OS file-watch handle. Re-run without --watch, or raise the inotify limits.",
+                "failed to watch '{}': {err}", root.path.display()
+            ))?;
     }
 
     run_validation_pass(input, state_machine);
@@ -1103,7 +1118,10 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
                 eprintln!("watch error: {err}");
                 continue;
             }
-            Err(err) => return Err(miette!("watch channel disconnected: {err}")),
+            Err(err) => return Err(miette!(
+                help = "--watch needs an OS file-watch handle. Re-run without --watch, or raise the inotify limits.",
+                "watch channel disconnected: {err}"
+            )),
         };
 
         if !should_revalidate(&event, &watch_plan.targets) {

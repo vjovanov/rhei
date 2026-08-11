@@ -67,9 +67,11 @@ pub(crate) fn materialize_builtin_skill(name: &str, root: &Path) -> MietteResult
 /// Error for a `--skills` name no source can satisfy, naming what does exist.
 /// §FS-rhei-install-skills.4.3
 pub(crate) fn unknown_skill_error(name: &str) -> miette::Report {
+    // §FS-rhei-errors.1.3
     miette!(
-        "no skill named '{name}'. This binary carries: {}.",
-        builtin_skill_names().join(", ")
+        help = did_you_mean(name, &builtin_skill_names())
+            .unwrap_or_else(|| "this binary carries no skills.".to_string()),
+        "no skill named '{name}'",
     )
 }
 

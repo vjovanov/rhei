@@ -110,9 +110,15 @@ fn drain_agent_output_reader(
     match handle.join() {
         Ok(Ok(())) => Ok(()),
         Ok(Err(err)) => {
-            Err(miette!("failed to capture agent {}: {err}", agent_stream_label(stream)))
+            Err(miette!(
+                help = "check the agent's command and flags in settings.json: rhei diag",
+                "failed to capture agent {}: {err}", agent_stream_label(stream)
+            ))
         }
-        Err(_) => Err(miette!("agent {} capture thread panicked", agent_stream_label(stream))),
+        Err(_) => Err(miette!(
+            help = internal_error_help(),
+            "agent {} capture thread panicked", agent_stream_label(stream)
+        )),
     }
 }
 
@@ -146,12 +152,18 @@ fn spawn_and_wait_agent(
     // Ensure log directory exists.
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| miette!("failed to create log directory '{}': {e}", parent.display()))?;
+            .map_err(|e| miette!(
+                help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+                "failed to create log directory '{}': {e}", parent.display()
+            ))?;
     }
 
     let log_file = Arc::new(Mutex::new(
         fs::File::create(log_path)
-            .map_err(|e| miette!("failed to create log file '{}': {e}", log_path.display()))?,
+            .map_err(|e| miette!(
+                help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+                "failed to create log file '{}': {e}", log_path.display()
+            ))?,
     ));
 
     // §FS-rhei-agents.8: Agent log header format.
@@ -204,7 +216,10 @@ fn spawn_and_wait_agent(
         writeln!(f, "===\n")?;
         f.flush()
     })
-    .map_err(|e| miette!("failed to write log header '{}': {e}", log_path.display()))?;
+    .map_err(|e| miette!(
+        help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+        "failed to write log header '{}': {e}", log_path.display()
+    ))?;
 
     // Emit spawn-time warnings for tooling the agent profile cannot wire.
     // §FS-rhei-agents.1.1.5 §FS-rhei-agents.6: Spawn-time tooling warnings.
@@ -257,7 +272,10 @@ fn spawn_and_wait_agent(
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
     let mut child =
-        cmd.spawn().map_err(|e| miette!("failed to spawn agent '{}': {e}", resolved.agent.id()))?;
+        cmd.spawn().map_err(|e| miette!(
+            help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
+            "failed to spawn agent '{}': {e}", resolved.agent.id()
+        ))?;
 
     let stdout_handle = child.stdout.take().map(|stdout| {
         spawn_agent_output_reader(
@@ -359,18 +377,27 @@ fn spawn_and_wait_agent(
                             _ => {
                                 let _ = child.kill(); // SIGKILL
                                 break child.wait().map_err(|e| {
-                                    miette!("failed to wait for agent after kill: {e}")
+                                    miette!(
+                                        help = "check the agent's command and flags in settings.json: rhei diag",
+                                        "failed to wait for agent after kill: {e}"
+                                    )
                                 });
                             }
                         }
                     }
                     std::thread::sleep(Duration::from_millis(500));
                 }
-                Err(e) => break Err(miette!("error waiting for agent: {e}")),
+                Err(e) => break Err(miette!(
+                    help = "check the agent's command and flags in settings.json: rhei diag",
+                    "error waiting for agent: {e}"
+                )),
             }
         }
     } else {
-        child.wait().map_err(|e| miette!("failed to wait for agent: {e}"))
+        child.wait().map_err(|e| miette!(
+            help = "check the agent's command and flags in settings.json: rhei diag",
+            "failed to wait for agent: {e}"
+        ))
     }?;
 
     // The agent has exited: drop its intervene registration, which ends the
@@ -414,7 +441,10 @@ fn spawn_and_wait_agent(
         writeln!(f, "===")?;
         f.flush()
     })
-    .map_err(|e| miette!("failed to append to log file '{}': {e}", log_path.display()))?;
+    .map_err(|e| miette!(
+        help = "agent output is logged under runtime/logs/. Check that directory is writable.",
+        "failed to append to log file '{}': {e}", log_path.display()
+    ))?;
 
     Ok(AgentSpawnOutcome {
         status,

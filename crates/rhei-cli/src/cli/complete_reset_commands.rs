@@ -130,13 +130,17 @@ fn complete_command(
     // Find the task and its current state.
     let target_id = parse_task_id(task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
-        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+        .ok_or_else(|| miette!(
+            help = "list the task ids in this plan with: rhei list <plan>",
+            "task '{}' not found in the plan", task_id_str
+        ))?;
     let current_state_raw = task.state.as_str();
     let current_state = normalized_state_name(current_state_raw, &machine);
 
     // Reject tasks already in a terminal state.
     if is_terminal_state(current_state_raw, &machine) {
         return Err(miette!(
+            help = "nothing to do — the task is finished. Reopen it with: rhei reset <plan> <task>",
             "Task {} is already in terminal state '{}'",
             task_id_str,
             current_state_raw
@@ -144,6 +148,7 @@ fn complete_command(
     }
     if machine.states.get(&current_state).map(|def| def.gating).unwrap_or(false) {
         return Err(miette!(
+            help = "a human gate is released explicitly: rhei transition <plan> <task> --to <state>",
             "Task {} cannot be completed from gating state '{}'; use an explicit human transition",
             task_id_str,
             current_state
@@ -153,6 +158,7 @@ fn complete_command(
     let open_children = non_terminal_descendants(task, &machine);
     if !open_children.is_empty() {
         return Err(miette!(
+            help = "finish or cancel the children first; a parent completes when they do.",
             "Task {} cannot be completed while child tasks remain non-terminal.\nOffending children: {}",
             task_id_str,
             open_children.join(", ")
@@ -179,6 +185,7 @@ fn complete_command(
     // a single declared transition from the current state.
     let to_state = find_completion_state(&current_state, &machine).ok_or_else(|| {
         miette!(
+            help = "the machine declares no terminal edge from that state. List the edges with: rhei states",
             "no transition to a terminal state available from '{}' for Task {}",
             current_state_raw,
             task_id_str
@@ -204,6 +211,7 @@ fn complete_command(
     )?;
     if !is_successful_completion_state(&effective_to, &machine) {
         return Err(miette!(
+            help = "inspect the machine and the task's state with: rhei states",
             "Task {} was redirected to '{}', which is not a successful completion state; completion artifacts were not written",
             task_id_str,
             effective_to
@@ -721,9 +729,13 @@ fn initial_state_name(machine: &rhei_validator::StateMachine) -> MietteResult<St
         .collect::<Vec<_>>();
 
     match initial_states.as_slice() {
-        [] => Err(miette!("state machine '{}' does not declare an initial state", machine.name)),
+        [] => Err(miette!(
+            help = state_machine_help(),
+            "state machine '{}' does not declare an initial state", machine.name
+        )),
         [initial] => Ok(initial.clone()),
         many => Err(miette!(
+            help = state_machine_help(),
             "state machine '{}' declares multiple legacy initial states: {}",
             machine.name,
             many.join(", ")

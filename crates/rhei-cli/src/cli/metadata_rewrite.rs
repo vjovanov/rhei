@@ -1,6 +1,9 @@
 fn render_frontmatter_yaml(metadata: &Metadata) -> MietteResult<String> {
     let mut rendered = serde_yaml::to_string(metadata)
-        .map_err(|err| miette!("failed to serialize frontmatter: {err}"))?;
+        .map_err(|err| miette!(
+            help = internal_error_help(),
+            "failed to serialize frontmatter: {err}"
+        ))?;
     if let Some(stripped) = rendered.strip_prefix("---\n") {
         rendered = stripped.to_string();
     }
@@ -19,7 +22,10 @@ fn rewrite_frontmatter(raw: &str, metadata: &Metadata) -> MietteResult<String> {
             line.starts_with("# Rhei:") || line.starts_with("# Panta:")
         })
         .ok_or_else(|| {
-            miette!("could not find a '# Rhei:' or '# Panta:' header when rewriting frontmatter")
+            miette!(
+                help = plan_authoring_help(),
+                "could not find a '# Rhei:' or '# Panta:' header when rewriting frontmatter"
+            )
         })?;
 
     let mut idx = header_index + 1;
@@ -41,7 +47,10 @@ fn rewrite_frontmatter(raw: &str, metadata: &Metadata) -> MietteResult<String> {
             end += 1;
         }
         if end == lines.len() {
-            return Err(miette!("unterminated YAML frontmatter in plan source"));
+            return Err(miette!(
+                help = plan_authoring_help(),
+                "unterminated YAML frontmatter in plan source"
+            ));
         }
         end += 1;
         while end < lines.len() && lines[end].trim().is_empty() {

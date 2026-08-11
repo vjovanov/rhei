@@ -95,6 +95,7 @@ inputs:
     positional: <integer>       # Optional 1-based positional CLI slot for short
                                #   `rhei instantiate <template> <value>` input
     validate: <regex>          # Optional regex the value must match
+    format: <execution-target>  # Optional named format checked at instantiation time
     items:                     # Required for `type: array`
       type: <...>
       ...
@@ -126,6 +127,7 @@ inputs:
 - For `type: array` and `type: object`, positional values, `KEY=VALUE`, `--set KEY=...`, and `--set-file KEY=...` values are parsed as YAML/JSON snippets before validation.
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
 - `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value. It is enforced on every scalar it is declared on, including scalars nested inside `object` `properties` and `array` `items`; a failing match aborts instantiation with a path-qualified error (for example, `input 'agents[0].id' does not match validation pattern '…'`).
+- `format`, when present, names a built-in value check applied at instantiation time, before any file is rendered. The only format in v1 is `execution-target`, which parses the value as an execution target selector (§FS-rhei-agents) and reports a malformed value against the input the user supplied rather than against the rendered state machine (§FS-rhei-errors.3.1). Like `validate`, it is only valid on scalar input types and is enforced on nested `properties` and `items` scalars. `format` and `validate` may be combined; both must pass.
 
 ## 4. Template-Shipped Settings
 
@@ -730,6 +732,7 @@ Each `inputs[]` entry is a YAML mapping with these fields:
 | `default` | YAML value | No | Must be compatible with `type`; mutually exclusive with `required: true`. |
 | `positional` | positive integer | No | Optional 1-based CLI positional input slot. Values must be unique and contiguous starting at `1`. |
 | `validate` | string | No | Rust `regex`-crate pattern, matched against the fully rendered value. |
+| `format` | `execution-target` | No | Built-in value check applied at instantiation time. |
 
 ## 10. File Extension
 

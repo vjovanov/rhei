@@ -1,4 +1,5 @@
 mod completions_tests;
+mod error_guidance_tests;
 mod examples_tests;
 mod install_skills_tests;
 mod next_tests;

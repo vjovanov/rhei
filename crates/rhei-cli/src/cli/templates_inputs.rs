@@ -19,8 +19,18 @@
             if let Some((key, rhs)) = value.split_once('=') {
                 if ident.is_match(key) {
                     if !declared_inputs.contains(key) {
+                        // §FS-rhei-errors.1.3
+                        let names =
+                            manifest.inputs.iter().map(|i| i.name.clone()).collect::<Vec<_>>();
                         return Err(miette!(
-                            "template '{}' does not declare an input named '{}'",
+                            help = format!(
+                                "{}List every input with: rhei instantiate {} --list-inputs",
+                                did_you_mean(key, &names)
+                                    .map(|hint| format!("{hint} "))
+                                    .unwrap_or_default(),
+                                manifest.name
+                            ),
+                            "template '{}' has no input named '{}'",
                             manifest.name,
                             key
                         ));
@@ -57,7 +67,13 @@
                 let position = idx + 1;
                 let Some(input) = positional_inputs.get(&position) else {
                     return Err(miette!(
-                        "template '{}' does not declare positional input {}",
+                        help = format!(
+                            "this template takes {} positional value(s). Name the rest \
+                             explicitly as KEY=VALUE — see: rhei instantiate {} --list-inputs",
+                            positional_inputs.len(),
+                            manifest.name
+                        ),
+                        "template '{}' has no positional slot {}",
                         manifest.name,
                         position
                     ));
@@ -74,7 +90,16 @@
         }
 
         Err(miette!(
-            "template '{}' does not accept positional inputs; use KEY=VALUE or --set",
+            help = format!(
+                "name each value: {}. List every input with: rhei instantiate {} --list-inputs",
+                required
+                    .iter()
+                    .map(|input| format!("{}=<value>", input.name))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                manifest.name
+            ),
+            "template '{}' does not accept positional inputs",
             manifest.name
         ))
     }
@@ -87,11 +112,20 @@
         }
 
         let value: YamlValue = serde_yaml::from_str(&raw)
-            .map_err(|err| miette!("failed to parse values file '{}': {err}", path.display()))?;
+            .map_err(|err| {
+                miette!(
+                    help = "a --values file is a YAML or JSON object mapping input names to \
+                            values. Fix the syntax at the position above.",
+                    "failed to parse values file '{}': {err}",
+                    path.display()
+                )
+            })?;
         let mapping = match value {
             YamlValue::Mapping(mapping) => mapping,
             _ => {
                 return Err(miette!(
+                    help = "write one `input_name: value` pair per line at the top level of \
+                            the file.",
                     "values file '{}' must contain a YAML or JSON object at the top level",
                     path.display()
                 ))
@@ -101,7 +135,11 @@
         let mut values = BTreeMap::new();
         for (key, value) in mapping {
             let Some(key) = key.as_str() else {
-                return Err(miette!("values file '{}' contains a non-string key", path.display()));
+                return Err(miette!(
+                    help = "every top-level key must be an input name, written as plain text.",
+                    "values file '{}' contains a non-string key",
+                    path.display()
+                ));
             };
             values.insert(key.to_string(), value);
         }
@@ -111,11 +149,20 @@
 
     fn parse_assignment(value: &str, flag_name: &str) -> MietteResult<(String, String)> {
         let Some((key, value)) = value.split_once('=') else {
-            return Err(miette!("{} expects KEY=VALUE, got '{}'", flag_name, value));
+            return Err(miette!(
+                help = format!("write it as {} <input>=<value>", flag_name),
+                "{} expects KEY=VALUE, got '{}'",
+                flag_name,
+                value
+            ));
         };
         let key = key.trim();
         if key.is_empty() {
-            return Err(miette!("{} expects a non-empty key", flag_name));
+            return Err(miette!(
+                help = format!("name the input before the '=': {} <input>=<value>", flag_name),
+                "{} expects a non-empty key",
+                flag_name
+            ));
         }
         Ok((key.to_string(), value.to_string()))
     }
@@ -146,45 +193,101 @@
             TemplateInputType::String => match raw {
                 YamlValue::Null => serde_json::Value::String(String::new()),
                 YamlValue::String(value) => serde_json::Value::String(value.clone()),
-                _ => return Err(miette!("{} for '{}' must be a string", source, label)),
+                _ => {
+                    return Err(miette!(
+                        help = format!("supply it as text, e.g. {label}='some text'"),
+                        "{} for '{}' must be a string",
+                        source,
+                        label
+                    ))
+                }
             },
             TemplateInputType::Number => match raw {
                 YamlValue::Number(value) => serde_json::to_value(value)
-                    .map_err(|err| miette!("failed to serialize number for '{}': {err}", label))?,
+                    .map_err(|err| miette!(
+                        help = template_manifest_help(),
+                        "failed to serialize number for '{}': {err}", label
+                    ))?,
                 YamlValue::String(value) => {
                     let trimmed = value.trim();
                     let number_re = Regex::new(r"^-?\d+(?:\.\d+)?$")
                         .expect("number validation regex should be valid");
                     if !number_re.is_match(trimmed) {
-                        return Err(miette!("{} for '{}' must be a number", source, label));
+                        return Err(miette!(
+                            help = format!("supply a plain number, e.g. {label}=3"),
+                            "{} for '{}' must be a number, got '{}'",
+                            source,
+                            label,
+                            trimmed
+                        ));
                     }
                     let parsed: YamlValue = serde_yaml::from_str(trimmed).map_err(|err| {
-                        miette!("{} for '{}' must be a number: {err}", source, label)
+                        miette!(
+                            help = template_manifest_help(),
+                            "{} for '{}' must be a number: {err}", source, label
+                        )
                     })?;
                     serde_json::to_value(parsed).map_err(|err| {
-                        miette!("failed to serialize number for '{}': {err}", label)
+                        miette!(
+                            help = template_manifest_help(),
+                            "failed to serialize number for '{}': {err}", label
+                        )
                     })?
                 }
-                _ => return Err(miette!("{} for '{}' must be a number", source, label)),
+                _ => {
+                    return Err(miette!(
+                        help = format!("supply a plain number, e.g. {label}=3"),
+                        "{} for '{}' must be a number",
+                        source,
+                        label
+                    ))
+                }
             },
             TemplateInputType::Boolean => match raw {
                 YamlValue::Bool(value) => serde_json::Value::Bool(*value),
                 YamlValue::String(value) => match value.trim() {
                     "true" => serde_json::Value::Bool(true),
                     "false" => serde_json::Value::Bool(false),
-                    _ => return Err(miette!("{} for '{}' must be true or false", source, label)),
+                    other => {
+                        return Err(miette!(
+                            help = format!("supply {label}=true or {label}=false"),
+                            "{} for '{}' must be true or false, got '{}'",
+                            source,
+                            label,
+                            other
+                        ))
+                    }
                 },
-                _ => return Err(miette!("{} for '{}' must be true or false", source, label)),
+                _ => {
+                    return Err(miette!(
+                        help = format!("supply {label}=true or {label}=false"),
+                        "{} for '{}' must be true or false",
+                        source,
+                        label
+                    ))
+                }
             },
             TemplateInputType::Path => match raw {
                 YamlValue::String(value) => {
                     if value.is_empty() {
-                        return Err(miette!("{} for '{}' must not be empty", source, label));
+                        return Err(miette!(
+                            help = format!("supply a path, e.g. {label}=./some/dir"),
+                            "{} for '{}' must not be empty",
+                            source,
+                            label
+                        ));
                     }
                     let path = PathBuf::from(value);
                     let resolved = if path.is_absolute() { path } else { cwd.join(path) };
                     if !from_default && !resolved.exists() {
+                        // §FS-rhei-errors.6: a path input is resolved against the
+                        // caller's cwd, so say which directory it was resolved from.
                         return Err(miette!(
+                            help = format!(
+                                "create it first, or point the input somewhere that exists. \
+                                 Relative values resolve against {}",
+                                cwd.display()
+                            ),
                             "{} for '{}' refers to a path that does not exist: {}",
                             source,
                             label,
@@ -193,12 +296,24 @@
                     }
                     serde_json::Value::String(resolved.display().to_string())
                 }
-                _ => return Err(miette!("{} for '{}' must be a path string", source, label)),
+                _ => {
+                    return Err(miette!(
+                        help = format!("supply a path, e.g. {label}=./some/dir"),
+                        "{} for '{}' must be a path string",
+                        source,
+                        label
+                    ))
+                }
             },
             TemplateInputType::Array => {
                 let sequence = parse_template_sequence(label, raw, source)?;
                 let item_schema = schema.items.as_deref().ok_or_else(|| {
-                    miette!("{} for '{}' requires an items schema", source, label)
+                    miette!(
+                        help = internal_error_help(),
+                        "{} for '{}' requires an items schema",
+                        source,
+                        label
+                    )
                 })?;
                 let mut items = Vec::with_capacity(sequence.len());
                 for (idx, item) in sequence.iter().enumerate() {
@@ -218,13 +333,25 @@
                 for (key_value, value) in mapping {
                     let Some(key) = key_value.as_str() else {
                         return Err(miette!(
+                            help = format!(
+                                "write {label} as an object whose keys are property names, \
+                                 e.g. {label}='{{key: value}}'"
+                            ),
                             "{} for '{}' contains a non-string key",
                             source,
                             label
                         ));
                     };
                     let property_schema = schema.properties.get(key).ok_or_else(|| {
-                        miette!("{} for '{}' contains unknown property '{}'", source, label, key)
+                        let known = schema.properties.keys().cloned().collect::<Vec<_>>();
+                        miette!(
+                            help = did_you_mean(key, &known)
+                                .unwrap_or_else(|| format!("'{label}' declares no properties")),
+                            "{} for '{}' contains unknown property '{}'",
+                            source,
+                            label,
+                            key
+                        )
                     })?;
                     object.insert(
                         key.to_string(),
@@ -242,6 +369,9 @@
                         );
                     } else if property_schema.is_required() {
                         return Err(miette!(
+                            help = format!(
+                                "add it to the value, e.g. {label}='{{{property}: <value>}}'"
+                            ),
                             "{} for '{}' is missing required property '{}'",
                             source,
                             label,
@@ -265,7 +395,12 @@
     ) -> MietteResult<Vec<YamlValue>> {
         match parse_structured_template_value(raw, "array", label, source)? {
             YamlValue::Sequence(values) => Ok(values),
-            _ => Err(miette!("{} for '{}' must be an array", source, label)),
+            _ => Err(miette!(
+                help = format!("write it as a YAML or JSON list, e.g. {label}='[one, two]'"),
+                "{} for '{}' must be an array",
+                source,
+                label
+            )),
         }
     }
 
@@ -276,7 +411,12 @@
     ) -> MietteResult<YamlMapping> {
         match parse_structured_template_value(raw, "object", label, source)? {
             YamlValue::Mapping(values) => Ok(values),
-            _ => Err(miette!("{} for '{}' must be an object", source, label)),
+            _ => Err(miette!(
+                help = format!("write it as a YAML or JSON object, e.g. {label}='{{key: value}}'"),
+                "{} for '{}' must be an object",
+                source,
+                label
+            )),
         }
     }
 
@@ -289,6 +429,15 @@
         match raw {
             YamlValue::String(text) => serde_yaml::from_str::<YamlValue>(text).map_err(|err| {
                 miette!(
+                    help = format!(
+                        "{label} takes a YAML or JSON {expected} on the command line, e.g. \
+                         {}",
+                        if expected == "array" {
+                            format!("{label}='[one, two]'")
+                        } else {
+                            format!("{label}='{{key: value}}'")
+                        }
+                    ),
                     "{} for '{}' must be valid YAML or JSON {} syntax: {err}",
                     source,
                     label,
@@ -320,13 +469,16 @@
         }
     }
 
-    fn print_template_inputs(manifest: &TemplateManifest) {
+    fn print_template_inputs(manifest: &TemplateManifest, template_ref: &str) {
         println!("Template: {}", manifest.name);
         println!("Version: {}", manifest.version_string());
         println!("Description: {}", manifest.description);
 
         if manifest.inputs.is_empty() {
             println!("Inputs: none");
+            println!();
+            println!("Instantiate it with:");
+            println!("  {}", shell_command(["rhei", "instantiate", template_ref]));
             return;
         }
 
@@ -336,15 +488,16 @@
             // single-line `(type, default=…)` parenthetical simply tore apart.
             // Scalars stay inline; anything taller gets its own block.
             let rendered_default = input.schema.default.as_ref().map(format_version);
-            let block_default = rendered_default
-                .as_deref()
-                .filter(|rendered| rendered.contains('\n') || rendered.len() > 40);
+            let block_default =
+                rendered_default.as_deref().filter(|rendered| rendered.contains('\n'));
             let requirement = if input.is_required() {
                 "required".to_string()
             } else if block_default.is_some() {
-                "optional".to_string()
+                "default below".to_string()
             } else if let Some(default) = rendered_default.as_deref() {
-                format!("default={default}")
+                // §FS-rhei-errors.2: this listing is where users copy values
+                // from, and a `[mode]` selector is a glob in zsh unquoted.
+                format!("default={}", shell_quote(default))
             } else {
                 "optional".to_string()
             };
@@ -359,7 +512,25 @@
             if let Some(pattern) = input.schema.validate.as_deref() {
                 println!("    validate: {}", pattern);
             }
+            if let Some(format) = input.schema.format {
+                println!("    format: {}", format.as_str());
+            }
         }
+
+        // End on the command, not on the inventory.
+        // §FS-rhei-errors.1.2 §FS-rhei-templates.6.3
+        let required = manifest
+            .inputs
+            .iter()
+            .filter(|input| input.is_required() && input.schema.default.is_none())
+            .map(|input| format!("{}={}", input.name, template_input_placeholder(input)))
+            .collect::<Vec<_>>();
+        println!();
+        println!("Instantiate it with:");
+        println!(
+            "  {}",
+            format_template_instantiation_command(template_ref, &[], &[], &[], &[], None, &required)
+        );
     }
 
     fn materialize_template(
@@ -391,7 +562,10 @@
         let mut entries = fs::read_dir(src_dir)
             .map_err(|err| file_io_report(src_dir, "failed to read template directory", err))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| miette!("failed to read dir entry in '{}': {err}", src_dir.display()))?;
+            .map_err(|err| miette!(
+                help = "check that the template directory is readable.",
+                "failed to read dir entry in '{}': {err}", src_dir.display()
+            ))?;
         entries.sort_by_key(|entry| entry.file_name());
 
         for entry in entries {
@@ -444,6 +618,7 @@
                 if at_template_root && name_str == "settings.json" {
                     serde_json::from_str::<serde_json::Value>(&rendered).map_err(|err| {
                         miette!(
+                            help = "the template's settings.json is malformed once inputs are substituted. Fix the template file, then re-run.",
                             "template settings.json is not valid JSON after instantiation: {err}"
                         )
                     })?;
@@ -454,6 +629,7 @@
             } else {
                 fs::copy(&src_path, &dest_path).map_err(|err| {
                     miette!(
+                        help = "check that the destination is writable and has free space.",
                         "failed to copy '{}' to '{}': {err}",
                         src_path.display(),
                         dest_path.display()
@@ -493,9 +669,15 @@
 
         let template = env
             .template_from_str(&preprocessed)
-            .map_err(|err| miette!("failed to parse template '{}': {err}", path.display()))?;
+            .map_err(|err| miette!(
+                help = "this template's text contains an invalid {{ }} expression. Fix the template file, then re-run.",
+                "failed to parse template '{}': {err}", path.display()
+            ))?;
         let rendered = template
             .render(values)
-            .map_err(|err| miette!("failed to render template '{}': {err}", path.display()))?;
+            .map_err(|err| miette!(
+                help = "this template references an input it does not declare, or applies a filter to the wrong type. Fix the template file, then re-run.",
+                "failed to render template '{}': {err}", path.display()
+            ))?;
         Ok(rendered.replace(literal_open, "{{"))
     }

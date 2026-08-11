@@ -5,6 +5,8 @@
             "builtin" | "built-in" => Ok(TemplateSourceFilter::Builtin),
             "all" => Ok(TemplateSourceFilter::All),
             other => Err(miette!(
+                help = "pass --source project, --source user, --source builtin, or \
+                        --source all.",
                 "invalid template source '{}'. Expected one of: project, user, builtin, all",
                 other
             )),
@@ -49,7 +51,10 @@
                 .map_err(|err| file_io_report(&root, "failed to read template directory", err))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| {
-                    miette!("failed to read dir entry in '{}': {err}", root.display())
+                    miette!(
+                        help = "check that the templates directory is readable, then re-run: rhei templates",
+                        "failed to read dir entry in '{}': {err}", root.display()
+                    )
                 })?;
             entries.sort_by_key(|entry| entry.file_name());
 
@@ -110,7 +115,10 @@
 
     fn nearest_project_template_root() -> MietteResult<Option<PathBuf>> {
         let cwd = std::env::current_dir()
-            .map_err(|e| miette!("failed to determine working directory: {e}"))?;
+            .map_err(|e| miette!(
+                help = "re-run from a directory that still exists.",
+                "failed to determine working directory: {e}"
+            ))?;
         let mut dir = Some(cwd.as_path());
         while let Some(current) = dir {
             let candidate = current.join(".agents").join("rhei").join("templates");
@@ -142,7 +150,13 @@
         if template_reference_is_path(reference) {
             let path = PathBuf::from(reference);
             if !path.is_dir() {
-                return Err(miette!("template directory '{}' does not exist", path.display()));
+                return Err(miette!(
+                    help = "a template reference containing '/' is treated as a path. Point it at \
+                            the directory holding template.yaml, or drop the '/' to use a \
+                            template by name: rhei templates",
+                    "template directory '{}' does not exist",
+                    path.display()
+                ));
             }
             return Ok(ResolvedTemplate { path, _extracted: None });
         }
@@ -166,20 +180,19 @@
             }
         }
 
-        let suggestion = closest_template_name(reference)?;
-        if let Some(name) = suggestion {
-            // §FS-rhei-templates.6.1.2: named-template lookup reports a close discovered match.
-            return Err(miette!(
-                "template '{}' not found among project, user, or built-in templates. \
-                 Did you mean '{}'?",
-                reference,
-                name
-            ));
-        }
+        let names = discover_templates(TemplateSourceFilter::All)?
+            .into_iter()
+            .map(|template| template.manifest.name)
+            .collect::<Vec<_>>();
 
+        // §FS-rhei-templates.6.1.2: named-template lookup reports a close discovered match.
+        // §FS-rhei-errors.1.3: and when nothing is close, it says how to see the list.
+        let hint = nearest_match(reference, &names)
+            .map(|name| format!("Did you mean '{name}'? "))
+            .unwrap_or_default();
         Err(miette!(
-            "template '{}' not found among project, user, or built-in templates. \
-             `rhei templates` lists what is available",
+            help = format!("{hint}List the templates you can instantiate with: rhei templates"),
+            "template '{}' not found among project, user, or built-in templates",
             reference
         ))
     }
@@ -189,73 +202,16 @@
         path.is_absolute() || reference.contains('/') || reference.starts_with('.')
     }
 
-    fn closest_template_name(reference: &str) -> MietteResult<Option<String>> {
-        let reference = reference.trim();
-        if reference.is_empty() {
-            return Ok(None);
-        }
-
-        let closest = discover_templates(TemplateSourceFilter::All)?
-            .into_iter()
-            .map(|template| {
-                let name = template.manifest.name;
-                let distance = template_name_distance(reference, &name);
-                (name, distance)
-            })
-            .min_by(|(left_name, left_distance), (right_name, right_distance)| {
-                left_distance.cmp(right_distance).then_with(|| left_name.cmp(right_name))
-            });
-
-        let Some((name, distance)) = closest else {
-            return Ok(None);
-        };
-
-        let threshold = std::cmp::max(2, reference.chars().count() / 3);
-        Ok((distance <= threshold).then_some(name))
-    }
-
-    fn template_name_distance(left: &str, right: &str) -> usize {
-        let left = left.to_ascii_lowercase();
-        let right = right.to_ascii_lowercase();
-        levenshtein_distance(&left, &right)
-    }
-
-    fn levenshtein_distance(left: &str, right: &str) -> usize {
-        if left == right {
-            return 0;
-        }
-        if left.is_empty() {
-            return right.chars().count();
-        }
-        if right.is_empty() {
-            return left.chars().count();
-        }
-
-        let right_chars = right.chars().collect::<Vec<_>>();
-        let mut previous = (0..=right_chars.len()).collect::<Vec<_>>();
-        let mut current = vec![0; right_chars.len() + 1];
-
-        for (left_index, left_char) in left.chars().enumerate() {
-            current[0] = left_index + 1;
-            for (right_index, right_char) in right_chars.iter().enumerate() {
-                let insertion = current[right_index] + 1;
-                let deletion = previous[right_index + 1] + 1;
-                let substitution = previous[right_index] + usize::from(left_char != *right_char);
-                current[right_index + 1] = insertion.min(deletion).min(substitution);
-            }
-            std::mem::swap(&mut previous, &mut current);
-        }
-
-        previous[right_chars.len()]
-    }
-
     fn load_template_manifest(template_dir: &Path) -> MietteResult<TemplateManifest> {
         let manifest_path = template_dir.join("template.yaml");
         let raw = fs::read_to_string(&manifest_path).map_err(|err| {
             file_io_report(&manifest_path, "failed to read template manifest", err)
         })?;
         let manifest: TemplateManifest = serde_yaml::from_str(&raw)
-            .map_err(|err| miette!("failed to parse '{}': {err}", manifest_path.display()))?;
+            .map_err(|err| miette!(
+                help = template_manifest_help(),
+                "failed to parse '{}': {err}", manifest_path.display()
+            ))?;
         validate_template_manifest(&manifest, template_dir)?;
         Ok(manifest)
     }
@@ -266,36 +222,48 @@
     ) -> MietteResult<()> {
         let dir_name =
             template_dir.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
-                miette!("template path '{}' has no directory name", template_dir.display())
+                miette!(
+                    help = "pass an explicit destination with --output <dir>",
+                    "template path '{}' has no directory name", template_dir.display()
+                )
             })?;
         let ident = Regex::new(r"^[A-Za-z][A-Za-z0-9_-]*$")
             .expect("template identifier regex should be valid");
 
         if manifest.name != dir_name {
             return Err(miette!(
+                help = template_manifest_help(),
                 "template manifest name '{}' does not match directory '{}'",
                 manifest.name,
                 dir_name
             ));
         }
         if !ident.is_match(&manifest.name) {
-            return Err(miette!("template name '{}' is not a valid identifier", manifest.name));
+            return Err(miette!(
+                help = template_manifest_help(),
+                "template name '{}' is not a valid identifier", manifest.name
+            ));
         }
         if manifest.description.trim().is_empty() {
             return Err(miette!(
+                help = template_manifest_help(),
                 "template '{}' must include a non-empty description",
                 manifest.name
             ));
         }
 
         let cwd = std::env::current_dir()
-            .map_err(|err| miette!("failed to determine working directory: {err}"))?;
+            .map_err(|err| miette!(
+                help = "re-run from a directory that still exists.",
+                "failed to determine working directory: {err}"
+            ))?;
         let mut seen = HashSet::new();
         let mut positional_indexes = Vec::new();
 
         for input in &manifest.inputs {
             if !ident.is_match(&input.name) {
                 return Err(miette!(
+                    help = template_manifest_help(),
                     "template '{}' input '{}' is not a valid identifier",
                     manifest.name,
                     input.name
@@ -303,6 +271,7 @@
             }
             if !seen.insert(input.name.as_str()) {
                 return Err(miette!(
+                    help = template_manifest_help(),
                     "template '{}' declares duplicate input '{}'",
                     manifest.name,
                     input.name
@@ -310,6 +279,7 @@
             }
             if input.description.trim().is_empty() {
                 return Err(miette!(
+                    help = template_manifest_help(),
                     "template '{}' input '{}' must include a description",
                     manifest.name,
                     input.name
@@ -318,6 +288,7 @@
             if let Some(index) = input.positional {
                 if index == 0 {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' input '{}' positional index must be >= 1",
                         manifest.name,
                         input.name
@@ -327,6 +298,7 @@
             }
             if input.schema.required == Some(true) && input.schema.default.is_some() {
                 return Err(miette!(
+                    help = template_manifest_help(),
                     "template '{}' input '{}' cannot set both required: true and default",
                     manifest.name,
                     input.name
@@ -343,6 +315,7 @@
             let expected = expected + 1;
             if *actual != expected {
                 return Err(miette!(
+                    help = template_manifest_help(),
                     "template '{}' input '{}' declares positional {}, but positional indexes must be unique and contiguous starting at 1",
                     manifest.name,
                     name,
@@ -364,6 +337,7 @@
         if let Some(pattern) = schema.validate.as_deref() {
             if matches!(schema.value_type, TemplateInputType::Array | TemplateInputType::Object) {
                 return Err(miette!(
+                    help = template_manifest_help(),
                     "template '{}' input '{}' cannot set validate on {} values",
                     template_name,
                     label,
@@ -372,6 +346,7 @@
             }
             let _ = compile_full_match_regex(pattern).map_err(|err| {
                 miette!(
+                    help = template_manifest_help(),
                     "template '{}' input '{}' has invalid validate regex: {err}",
                     template_name,
                     label
@@ -379,10 +354,28 @@
             })?;
         }
 
+        if let Some(format) = schema.format {
+            if matches!(schema.value_type, TemplateInputType::Array | TemplateInputType::Object) {
+                return Err(miette!(
+                    help = format!(
+                        "move `format: {}` onto the scalar it applies to — the array's `items` \
+                         entry or the object property — instead of the {} itself.",
+                        format.as_str(),
+                        schema.value_type.as_str()
+                    ),
+                    "template '{}' input '{}' cannot set format on {} values",
+                    template_name,
+                    label,
+                    schema.value_type.as_str()
+                ));
+            }
+        }
+
         match schema.value_type {
             TemplateInputType::Array => {
                 let Some(items) = schema.items.as_deref() else {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' input '{}' with type array must declare items",
                         template_name,
                         label
@@ -390,6 +383,7 @@
                 };
                 if !schema.properties.is_empty() {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' input '{}' with type array cannot declare properties",
                         template_name,
                         label
@@ -400,6 +394,7 @@
             TemplateInputType::Object => {
                 if schema.items.is_some() {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' input '{}' with type object cannot declare items",
                         template_name,
                         label
@@ -416,6 +411,7 @@
             _ => {
                 if schema.items.is_some() {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' input '{}' with type {} cannot declare items",
                         template_name,
                         label,
@@ -424,6 +420,7 @@
                 }
                 if !schema.properties.is_empty() {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' input '{}' with type {} cannot declare properties",
                         template_name,
                         label,
@@ -448,6 +445,7 @@
                 let tasks_dir = template_dir.join("tasks");
                 if !tasks_dir.is_dir() {
                     return Err(miette!(
+                        help = template_manifest_help(),
                         "template '{}' is a workspace template but is missing tasks/",
                         template_dir.display()
                     ));
@@ -455,10 +453,12 @@
                 Ok(TemplateLayout::Workspace)
             }
             (true, true) => Err(miette!(
+                help = template_manifest_help(),
                 "template '{}' contains both plan.rhei.md and index.rhei.md",
                 template_dir.display()
             )),
             (false, false) => Err(miette!(
+                help = template_manifest_help(),
                 "template '{}' must contain either plan.rhei.md or index.rhei.md",
                 template_dir.display()
             )),
@@ -467,13 +467,17 @@
 
     fn collect_template_inputs(
         manifest: &TemplateManifest,
+        template_ref: &str,
         values_files: &[PathBuf],
         input_args: &[String],
         set_values: &[String],
         set_files: &[String],
     ) -> MietteResult<BTreeMap<String, serde_json::Value>> {
         let cwd = std::env::current_dir()
-            .map_err(|err| miette!("failed to determine working directory: {err}"))?;
+            .map_err(|err| miette!(
+                help = "re-run from a directory that still exists.",
+                "failed to determine working directory: {err}"
+            ))?;
         let mut raw_values: BTreeMap<String, YamlValue> = BTreeMap::new();
 
         for values_file in values_files {
@@ -505,49 +509,47 @@
         }
 
         let declared_inputs =
-            manifest.inputs.iter().map(|input| input.name.as_str()).collect::<HashSet<_>>();
+            manifest.inputs.iter().map(|input| input.name.clone()).collect::<Vec<_>>();
         for key in raw_values.keys() {
-            if !declared_inputs.contains(key.as_str()) {
+            if !declared_inputs.iter().any(|name| name == key) {
+                // §FS-rhei-errors.1.3: name the near miss instead of leaving the
+                // user to diff their spelling against `--list-inputs` output.
                 return Err(miette!(
-                    "template '{}' does not declare an input named '{}'",
+                    help = format!(
+                        "{}List every input with: {}",
+                        did_you_mean(key, &declared_inputs)
+                            .map(|hint| format!("{hint} "))
+                            .unwrap_or_default(),
+                        list_inputs_command(template_ref)
+                    ),
+                    "template '{}' has no input named '{}'",
                     manifest.name,
                     key
                 ));
             }
         }
 
-        // Report every missing input at once and name the command that lists
-        // them. One-at-a-time made supplying inputs a guessing loop: each
-        // attempt bought exactly one more field name. §FS-rhei-templates.6.1.1
+        // Report every missing input at once: one at a time turns supplying
+        // inputs into a guessing loop where each attempt buys exactly one more
+        // field name. §FS-rhei-templates.6.1.1 §FS-rhei-errors.1.1
         let missing = manifest
             .inputs
             .iter()
             .filter(|input| {
                 input.is_required()
-                    && !raw_values.contains_key(&input.name)
                     && input.schema.default.is_none()
+                    && !raw_values.contains_key(&input.name)
             })
             .collect::<Vec<_>>();
         if !missing.is_empty() {
-            let noun = if missing.len() == 1 { "input" } else { "inputs" };
-            let listed = missing
-                .iter()
-                .map(|input| format!("  {} — {}", input.name, input.description))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let example = missing
-                .iter()
-                .map(|input| format!("{}=<value>", input.name))
-                .collect::<Vec<_>>()
-                .join(" ");
-            return Err(miette!(
-                "template '{}' requires {} {} not supplied:\n{}\nSupply them as `{}`.\nList every input with `rhei instantiate {} --list-inputs`.",
-                manifest.name,
-                missing.len(),
-                noun,
-                listed,
-                example,
-                manifest.name
+            return Err(missing_template_inputs_report(
+                manifest,
+                template_ref,
+                &missing,
+                values_files,
+                input_args,
+                set_values,
+                set_files,
             ));
         }
 
@@ -561,12 +563,116 @@
                 empty_template_value(&input.schema)
             };
 
-            validate_resolved_value(&input.name, &input.schema, &value)?;
+            validate_resolved_value(template_ref, &input.name, &input.schema, &value)?;
 
             resolved.insert(input.name.clone(), value);
         }
 
         Ok(resolved)
+    }
+
+    /// Check a resolved scalar against the named `format` its input declares,
+    /// so the failure names the input the user typed. §FS-rhei-errors.3.1
+    fn validate_template_input_format(
+        template_ref: &str,
+        label: &str,
+        format: TemplateInputFormat,
+        rendered: &str,
+    ) -> MietteResult<()> {
+        match format {
+            TemplateInputFormat::ExecutionTarget => {
+                rhei_validator::parse_execution_target(rendered).map_err(|err| {
+                    miette!(
+                        help = format!(
+                            "{err}.\nSee what this input accepts: {}",
+                            list_inputs_command(template_ref)
+                        ),
+                        "input '{}' is not a valid execution target: '{}'",
+                        label,
+                        rendered
+                    )
+                })?;
+                Ok(())
+            }
+        }
+    }
+
+    /// The command that lists a template's inputs, quoted for paste.
+    fn list_inputs_command(template_ref: &str) -> String {
+        shell_command(["rhei", "instantiate", template_ref, "--list-inputs"])
+    }
+
+    /// Build the "you are missing these inputs" diagnostic: every missing name
+    /// with its description, and a runnable command that carries the arguments
+    /// already supplied. §FS-rhei-errors.1
+    #[allow(clippy::too_many_arguments)]
+    fn missing_template_inputs_report(
+        manifest: &TemplateManifest,
+        template_ref: &str,
+        missing: &[&TemplateInputDef],
+        values_files: &[PathBuf],
+        input_args: &[String],
+        set_values: &[String],
+        set_files: &[String],
+    ) -> Report {
+        let listed = missing
+            .iter()
+            .map(|input| {
+                format!("  {} ({}) — {}", input.name, input.value_type().as_str(), input.description)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let placeholders = missing
+            .iter()
+            .map(|input| format!("{}={}", input.name, template_input_placeholder(input)))
+            .collect::<Vec<_>>();
+        let command = format_template_instantiation_command(
+            template_ref,
+            input_args,
+            set_values,
+            set_files,
+            values_files,
+            None,
+            &placeholders,
+        );
+
+        let long_value_hint = missing
+            .iter()
+            .find(|input| matches!(input.value_type(), TemplateInputType::String))
+            .map(|input| {
+                format!(
+                    "\nFor a long value, read it from a file: --set-file {}=<path>",
+                    input.name
+                )
+            })
+            .unwrap_or_default();
+
+        let noun = if missing.len() == 1 { "input" } else { "inputs" };
+        miette!(
+            help = format!(
+                "replace each <…> and run:\n  {command}{long_value_hint}\nList every input \
+                 with: {}",
+                list_inputs_command(template_ref)
+            ),
+            "template '{}' is missing {} required {noun}:\n{listed}",
+            manifest.name,
+            missing.len()
+        )
+    }
+
+    /// A placeholder that shows the shape of a value rather than the word
+    /// "value" — arrays and objects are supplied as YAML/JSON snippets, and a
+    /// user who is told `<value>` will guess wrong.
+    fn template_input_placeholder(input: &TemplateInputDef) -> String {
+        match input.value_type() {
+            TemplateInputType::Number => "<number>".to_string(),
+            TemplateInputType::Boolean => "<true|false>".to_string(),
+            TemplateInputType::Path => "<path>".to_string(),
+            TemplateInputType::Array => "<[item, item]>".to_string(),
+            TemplateInputType::Object => "<{key: value}>".to_string(),
+            TemplateInputType::String => "<value>".to_string(),
+        }
     }
 
     /// Enforce each scalar `validate` pattern in `schema` against the matching
@@ -576,26 +682,51 @@
     /// top-level inputs. Patterns are guaranteed valid here because
     /// `validate_template_value_schema` compiled them at manifest-load time.
     fn validate_resolved_value(
+        template_ref: &str,
         label: &str,
         schema: &TemplateValueSchema,
         value: &serde_json::Value,
     ) -> MietteResult<()> {
         if let Some(pattern) = schema.validate.as_deref() {
-            let regex = compile_full_match_regex(pattern)
-                .map_err(|err| miette!("input '{}' has invalid validate regex: {err}", label))?;
+            let regex = compile_full_match_regex(pattern).map_err(|err| {
+                miette!(
+                    help = internal_error_help(),
+                    "input '{}' has invalid validate regex: {err}",
+                    label
+                )
+            })?;
             let rendered = scalar_template_value_as_string(value).ok_or_else(|| {
                 miette!(
+                    help = internal_error_help(),
                     "input '{}' uses validate but did not resolve to a scalar string value",
                     label
                 )
             })?;
             if !regex.is_match(&rendered) {
                 return Err(miette!(
+                    help = format!(
+                        "'{rendered}' is rejected by the input's own pattern. See what it \
+                         accepts: {}",
+                        list_inputs_command(template_ref)
+                    ),
                     "input '{}' does not match validation pattern '{}'",
                     label,
                     pattern
                 ));
             }
+        }
+
+        // §FS-rhei-errors.3.1: a named format fails here, against the input the
+        // user typed, instead of later against a rendered file they never wrote.
+        if let Some(format) = schema.format {
+            let rendered = scalar_template_value_as_string(value).ok_or_else(|| {
+                miette!(
+                    help = internal_error_help(),
+                    "input '{}' uses format but did not resolve to a scalar value",
+                    label
+                )
+            })?;
+            validate_template_input_format(template_ref, label, format, &rendered)?;
         }
 
         match schema.value_type {
@@ -604,7 +735,12 @@
                     (schema.items.as_deref(), value)
                 {
                     for (idx, element) in elements.iter().enumerate() {
-                        validate_resolved_value(&format!("{label}[{idx}]"), items, element)?;
+                        validate_resolved_value(
+                            template_ref,
+                            &format!("{label}[{idx}]"),
+                            items,
+                            element,
+                        )?;
                     }
                 }
             }
@@ -613,6 +749,7 @@
                     for (property, property_schema) in &schema.properties {
                         if let Some(element) = map.get(property) {
                             validate_resolved_value(
+                                template_ref,
                                 &format!("{label}.{property}"),
                                 property_schema,
                                 element,

@@ -150,7 +150,10 @@ fn resolve_condition_operand(
         ) as i64),
         "visits" => {
             let limit = state_visit_limit(machine, current_state).ok_or_else(|| {
-                miette!("state '{}' does not declare a visit limit", current_state)
+                miette!(
+                    help = "add `max_visits:` to the state, or drop the visit condition from the transition.",
+                    "state '{}' does not declare a visit limit", current_state
+                )
             })?;
             Ok(limit as i64)
         }
@@ -158,6 +161,7 @@ fn resolve_condition_operand(
             let Some(_) = machine.states.get(current_state).and_then(|def| def.poll.as_ref())
             else {
                 return Err(miette!(
+                    help = "pollAttempts and pollMaxAttempts exist only inside a state that declares `poll:`. Use a different operand, or make the state a poll state.",
                     "condition operand 'pollAttempts' is only available on poll states"
                 ));
             };
@@ -176,13 +180,19 @@ fn resolve_condition_operand(
                 .and_then(|def| def.poll.as_ref())
                 .map(|poll| poll.max_attempts)
                 .ok_or_else(|| {
-                    miette!("condition operand 'pollMaxAttempts' is only available on poll states")
+                    miette!(
+                        help = "pollAttempts and pollMaxAttempts exist only inside a state that declares `poll:`. Use a different operand, or make the state a poll state.",
+                        "condition operand 'pollMaxAttempts' is only available on poll states"
+                    )
                 })?;
             Ok(i64::from(limit))
         }
         other => {
             let value = task_metadata_number(metadata, task_id, other).ok_or_else(|| {
-                miette!("condition operand '{}' is not available in task metadata", other)
+                miette!(
+                    help = "transition conditions read task metadata fields. Check the operand name against the state machine spec, then re-run: rhei validate <plan>",
+                    "condition operand '{}' is not available in task metadata", other
+                )
             })?;
             Ok(value as i64)
         }
@@ -200,6 +210,7 @@ fn evaluate_transition_condition(
     let parts = condition.split_whitespace().collect::<Vec<_>>();
     if parts.len() != 3 {
         return Err(miette!(
+            help = "write the condition as `<lhs> <op> <rhs>`, e.g. `visits >= 2`.",
             "unsupported transition condition '{}'; expected '<lhs> <op> <rhs>'",
             condition
         ));
@@ -231,6 +242,7 @@ fn evaluate_transition_condition(
         "!=" => lhs != rhs,
         op => {
             return Err(miette!(
+                help = "conditions use one of == != < <= > >=.",
                 "unsupported operator '{}' in transition condition '{}'",
                 op,
                 condition

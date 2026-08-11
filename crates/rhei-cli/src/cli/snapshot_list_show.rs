@@ -129,7 +129,10 @@ fn read_snapshot_records(cache_root: &Path) -> MietteResult<Vec<SnapshotRecord>>
             file_io_report(&manifest_path, "failed to read snapshot manifest", err)
         })?;
         let manifest: serde_json::Value = serde_json::from_str(&raw).map_err(|err| {
-            miette!("failed to parse snapshot manifest '{}': {err}", manifest_path.display())
+            miette!(
+                help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
+                "failed to parse snapshot manifest '{}': {err}", manifest_path.display()
+            )
         })?;
         if let Some(record) = snapshot_record_from_manifest(cache_root, &manifest_path, manifest)? {
             records.push(record);
@@ -238,6 +241,7 @@ fn validate_snapshot_manifest_schema(
     let version = manifest.get("version").and_then(serde_json::Value::as_u64);
     if version != Some(1) {
         return Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': version must be 1",
             manifest_path.display()
         ));
@@ -260,6 +264,7 @@ fn validate_snapshot_manifest_schema(
     ] {
         if manifest.get(key).and_then(serde_json::Value::as_str).is_none() {
             return Err(miette!(
+                help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
                 "invalid snapshot manifest '{}': missing string field '{}'",
                 manifest_path.display(),
                 key
@@ -273,6 +278,7 @@ fn validate_snapshot_manifest_schema(
             .is_none_or(|value| key != "transcript_bytes" && value == 0)
         {
             return Err(miette!(
+                help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
                 "invalid snapshot manifest '{}': missing positive integer field '{}'",
                 manifest_path.display(),
                 key
@@ -281,6 +287,7 @@ fn validate_snapshot_manifest_schema(
     }
     let target = manifest.get("target").ok_or_else(|| {
         miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': missing object field 'target'",
             manifest_path.display()
         )
@@ -288,6 +295,7 @@ fn validate_snapshot_manifest_schema(
     for key in ["selector", "slug"] {
         if target.get(key).and_then(serde_json::Value::as_str).is_none() {
             return Err(miette!(
+                help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
                 "invalid snapshot manifest '{}': missing string field 'target.{}'",
                 manifest_path.display(),
                 key
@@ -296,12 +304,14 @@ fn validate_snapshot_manifest_schema(
     }
     if !target.get("resolved").is_some_and(serde_json::Value::is_object) {
         return Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': missing object field 'target.resolved'",
             manifest_path.display()
         ));
     }
     let session_layout = manifest.get("session_layout").ok_or_else(|| {
         miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': missing object field 'session_layout'",
             manifest_path.display()
         )
@@ -310,12 +320,14 @@ fn validate_snapshot_manifest_schema(
         || session_layout.get("ext").and_then(serde_json::Value::as_str).is_none()
     {
         return Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': session_layout requires kind and ext",
             manifest_path.display()
         ));
     }
     if !manifest.get("parent_ref").is_some_and(|value| value.is_null() || value.is_object()) {
         return Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': parent_ref must be object or null",
             manifest_path.display()
         ));
@@ -331,6 +343,7 @@ fn validate_snapshot_manifest_schema(
     if generation_dir.file_name().and_then(OsStr::to_str) != Some(format!("g{generation}").as_str())
     {
         return Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': generation does not match path",
             manifest_path.display()
         ));
@@ -370,6 +383,7 @@ fn validate_snapshot_manifest_schema(
         || target_slug != path_target
     {
         return Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': identity fields do not match path",
             manifest_path.display()
         ));
@@ -386,12 +400,14 @@ fn validate_snapshot_manifest_completion(
         "orchestrator" if matches!(completion, "success" | "failure" | "timeout") => Ok(()),
         "operator" if matches!(completion, "success" | "failure") => Ok(()),
         "orchestrator" | "operator" => Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': completion '{}' is not valid for produced_by '{}'",
             manifest_path.display(),
             completion,
             produced_by
         )),
         _ => Err(miette!(
+            help = "this cached snapshot is corrupt. Delete its generation directory and re-record it: rhei snapshot gc --orphaned",
             "invalid snapshot manifest '{}': produced_by must be 'orchestrator' or 'operator'",
             manifest_path.display()
         )),
@@ -421,7 +437,10 @@ fn print_snapshot_list(
             println!(
                 "{}",
                 serde_json::to_string_pretty(&payload)
-                    .map_err(|err| miette!("failed to serialize snapshot list: {err}"))?
+                    .map_err(|err| miette!(
+                        help = internal_error_help(),
+                        "failed to serialize snapshot list: {err}"
+                    ))?
             );
         }
         SnapshotListFormat::Text => {
@@ -459,7 +478,10 @@ fn print_snapshot_show(record: &SnapshotRecord) -> MietteResult<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(&record.manifest)
-            .map_err(|err| miette!("failed to serialize snapshot manifest: {err}"))?
+            .map_err(|err| miette!(
+                help = internal_error_help(),
+                "failed to serialize snapshot manifest: {err}"
+            ))?
     );
     println!();
     println!("transcript preview:");

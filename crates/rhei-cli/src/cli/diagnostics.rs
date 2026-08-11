@@ -104,10 +104,11 @@ fn resolve_skill_sources(skills: &[String], link: bool) -> MietteResult<Resolved
         // exits, so `--link` needs a real source. §FS-rhei-install-skills.4.4
         if link {
             return Err(miette!(
+                help = "run from a rhei checkout, or drop --link to copy the embedded skill.",
                 "--link needs skill files on disk, but '{skill}' is only available as the copy \
                  embedded in this binary. Searched '<binary>/../share/rhei/skills/{skill}/' and \
                  'crates/rhei-cli/skills/{skill}/' up from both the binary and the current \
-                 directory. Run from a rhei checkout, or drop --link to copy the embedded skill."
+                 directory."
             ));
         }
 
@@ -117,7 +118,11 @@ fn resolve_skill_sources(skills: &[String], link: bool) -> MietteResult<Resolved
                 tempfile::Builder::new()
                     .prefix("rhei-builtin-skills-")
                     .tempdir()
-                    .map_err(|err| miette!("failed to create a temporary directory: {err}"))?,
+                    .map_err(|err| miette!(
+                        help = "embedded skills are unpacked into a temp directory. Check that \
+                                $TMPDIR exists and is writable.",
+                        "failed to create a temporary directory: {err}"
+                    ))?,
             ),
         };
         sources.push((skill.clone(), materialize_builtin_skill(skill, temp.path())?));
@@ -133,7 +138,10 @@ fn resolve_skill_sources(skills: &[String], link: bool) -> MietteResult<Resolved
 /// if no marker is found.
 fn find_project_root() -> MietteResult<PathBuf> {
     let cwd = std::env::current_dir()
-        .map_err(|e| miette!("failed to determine working directory: {e}"))?;
+        .map_err(|e| miette!(
+            help = "re-run from a directory that still exists.",
+            "failed to determine working directory: {e}"
+        ))?;
 
     let markers = [".git", "Cargo.toml", "package.json", "pyproject.toml", "go.mod"];
     let mut dir = Some(cwd.as_path());
@@ -161,7 +169,7 @@ fn inject_marked_section(file: &Path, content: &str, dry_run: bool) -> MietteRes
     let end_marker = "<!-- rhei:end -->";
 
     let existing = if file.exists() {
-        fs::read_to_string(file).map_err(|e| miette!("failed to read '{}': {e}", file.display()))?
+        fs::read_to_string(file).map_err(|e| file_io_report(file, "failed to read", e))?
     } else {
         String::new()
     };
@@ -193,10 +201,10 @@ fn inject_marked_section(file: &Path, content: &str, dry_run: bool) -> MietteRes
 
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| miette!("failed to create directory '{}': {e}", parent.display()))?;
+            .map_err(|e| file_io_report(parent, "failed to create directory", e))?;
     }
     fs::write(file, &new_content)
-        .map_err(|e| miette!("failed to write '{}': {e}", file.display()))?;
+        .map_err(|e| file_io_report(file, "failed to write", e))?;
 
     Ok(())
 }
@@ -233,7 +241,7 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
     }
 
     let content = fs::read_to_string(file)
-        .map_err(|e| miette!("failed to read '{}': {e}", file.display()))?;
+        .map_err(|e| file_io_report(file, "failed to read", e))?;
 
     let start_marker = "<!-- rhei:start -->";
     let end_marker = "<!-- rhei:end -->";
@@ -302,7 +310,7 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
     }
 
     fs::write(file, &final_content)
-        .map_err(|e| miette!("failed to write '{}': {e}", file.display()))?;
+        .map_err(|e| file_io_report(file, "failed to write", e))?;
 
     Ok(())
 }
@@ -331,7 +339,10 @@ fn display_path(path: &Path) -> String {
 
 /// Convert a parser error into an Elm-style diagnostic report.
 fn parse_report(path: &Path, input: &str, err: &rhei_core::parser::ParseError) -> Report {
-    miette!("{}", render_parse_diagnostic(path, input, err))
+    miette!(
+        help = plan_authoring_help(),
+        "{}", render_parse_diagnostic(path, input, err)
+    )
 }
 
 /// Convert one or more parser errors into an Elm-style diagnostic report.
@@ -344,7 +355,10 @@ fn parse_errors_report(
     input: &str,
     errors: &[rhei_core::parser::ParseError],
 ) -> Report {
-    miette!("{}", render_multi_parse_diagnostic(path, input, errors))
+    miette!(
+        help = plan_authoring_help(),
+        "{}", render_multi_parse_diagnostic(path, input, errors)
+    )
 }
 
 struct ParseErrorGroup {
@@ -354,7 +368,10 @@ struct ParseErrorGroup {
 }
 
 fn workspace_parse_errors_report(groups: &[ParseErrorGroup]) -> Report {
-    miette!("{}", render_workspace_parse_diagnostic(groups))
+    miette!(
+        help = plan_authoring_help(),
+        "{}", render_workspace_parse_diagnostic(groups)
+    )
 }
 
 fn render_workspace_parse_diagnostic(groups: &[ParseErrorGroup]) -> String {
@@ -447,11 +464,11 @@ fn render_multi_parse_diagnostic(
 // §FS-rhei-validate.4.2: parse diagnostics read the same in both scopes.
 fn nested_parse_report(err: &rhei_core::parser::ParseError) -> Report {
     let Some(path) = err.file.as_deref() else {
-        return miette!("{}", err.message);
+        return miette!(help = plan_authoring_help(), "{}", err.message);
     };
     let Ok(source) = std::fs::read_to_string(path) else {
         // The file moved or is unreadable; the message still stands on its own.
-        return miette!("{}: {}", path.display(), err.message);
+        return miette!(help = plan_authoring_help(), "{}: {}", path.display(), err.message);
     };
     // The project loader stops at the first error per entry, so the diagnostic
     // that actually explains the mistake — the structural one recovery reaches
@@ -506,14 +523,46 @@ fn owning_structure(path: &Path) -> Option<rhei_core::ast::Structure> {
     }
 }
 
-/// Convert file I/O failures into a consistent diagnostic message.
-fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Report {
-    miette!("{action} '{}': {err}", path.display())
+/// Anything a filesystem operation may fail with.
+///
+/// Implemented for `std::io::Error` so [`file_io_report`] can turn the error
+/// kind into a concrete remedy, and for plain strings so callers that already
+/// rendered their cause keep working.
+trait FileIoCause: std::fmt::Display {
+    fn io_kind(&self) -> Option<std::io::ErrorKind> {
+        None
+    }
+}
+
+impl FileIoCause for std::io::Error {
+    fn io_kind(&self) -> Option<std::io::ErrorKind> {
+        Some(self.kind())
+    }
+}
+
+impl FileIoCause for &std::io::Error {
+    fn io_kind(&self) -> Option<std::io::ErrorKind> {
+        Some((*self).kind())
+    }
+}
+
+impl FileIoCause for String {}
+
+impl FileIoCause for &str {}
+
+/// Convert file I/O failures into a diagnostic that names the path and the
+/// remedy for that error kind. §FS-rhei-errors.6
+fn file_io_report(path: &Path, action: &str, err: impl FileIoCause) -> Report {
+    let help = io_error_help(path, err.io_kind().unwrap_or(std::io::ErrorKind::Other));
+    miette!(help = help, "{action} '{}': {err}", path.display())
 }
 
 /// Convert validation errors into a single CLI-facing diagnostic report.
 fn validation_report(input: &Path, state_machine: Option<&Path>, errors: &[String]) -> Report {
-    miette!("{}", render_validation_diagnostic(input, state_machine, errors))
+    miette!(
+        help = "fix the errors above, then re-check with: rhei validate <plan>",
+        "{}", render_validation_diagnostic(input, state_machine, errors)
+    )
 }
 
 fn render_parse_diagnostic(

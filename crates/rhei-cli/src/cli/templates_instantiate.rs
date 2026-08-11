@@ -13,7 +13,11 @@
         list_inputs: bool,
     ) -> MietteResult<()> {
         if execute && dry_run {
-            return Err(miette!("--execute cannot be used together with --dry-run"));
+            return Err(miette!(
+                help = "--dry-run renders and validates without writing anything, so there is \
+                        nothing for --execute to run. Drop one of them.",
+                "--execute cannot be used together with --dry-run"
+            ));
         }
 
         let Some(template) = template else {
@@ -26,7 +30,7 @@
         let manifest = load_template_manifest(template_dir)?;
 
         if list_inputs {
-            print_template_inputs(&manifest);
+            print_template_inputs(&manifest, template);
             return Ok(());
         }
 
@@ -35,15 +39,25 @@
             template_input_args_without_execute_args(input_args, execute_args)?;
         let resolved_values = collect_template_inputs(
             &manifest,
+            template,
             values_files,
             &template_input_args,
             set_values,
             set_files,
         )?;
         let cwd = std::env::current_dir()
-            .map_err(|err| miette!("failed to determine working directory: {err}"))?;
+            .map_err(|err| {
+                miette!(
+                    help = "re-run from a directory that still exists.",
+                    "failed to determine working directory: {err}"
+                )
+            })?;
         let template_name = template_dir.file_name().ok_or_else(|| {
-            miette!("template path '{}' has no directory name", template_dir.display())
+            miette!(
+                help = "pass an explicit destination with --output <dir>",
+                "template path '{}' has no directory name",
+                template_dir.display()
+            )
         })?;
         // Inside a project the default home is the project itself; defaulting
         // to the working directory dropped the workspace where discovery never
@@ -65,7 +79,10 @@
         let scratch = if dry_run {
             Some(
                 tempfile::tempdir()
-                    .map_err(|err| miette!("failed to create temporary output directory: {err}"))?,
+                    .map_err(|err| miette!(
+                        help = "--dry-run renders into a temp directory. Check that $TMPDIR exists and is writable.",
+                        "failed to create temporary output directory: {err}"
+                    ))?,
             )
         } else {
             None
@@ -298,6 +315,7 @@
         }
         if input_args.len() < execute_args.len() {
             return Err(miette!(
+                help = internal_error_help(),
                 "internal error: execute arguments were not present in parsed template inputs"
             ));
         }
@@ -305,6 +323,7 @@
         let split_at = input_args.len() - execute_args.len();
         if input_args[split_at..] != *execute_args {
             return Err(miette!(
+                help = internal_error_help(),
                 "internal error: execute arguments did not match trailing parsed template inputs"
             ));
         }
@@ -323,9 +342,19 @@
             vec!["rhei".to_string(), "run".to_string(), entrypoint.display().to_string()];
         args.extend(execute_args.iter().cloned());
 
-        let cli = Cli::try_parse_from(args).map_err(|err| miette!("{}", err.to_string()))?;
+        let cli = Cli::try_parse_from(args).map_err(|err| {
+            miette!(
+                help = "everything after --execute is passed to `rhei run`. See its flags with: \
+                        rhei run --help",
+                "{}",
+                err.to_string()
+            )
+        })?;
         let Commands::Run { standalone, agent, program, snapshot, .. } = cli.command else {
-            return Err(miette!("internal error: execute arguments did not parse as run options"));
+            return Err(miette!(
+                help = internal_error_help(),
+                "internal error: execute arguments did not parse as run options"
+            ));
         };
         Ok((standalone, agent, program, snapshot).into())
     }
@@ -407,7 +436,10 @@
         let mut entries = fs::read_dir(root)
             .map_err(|err| file_io_report(root, "failed to read instantiated output tree", err))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| miette!("failed to read dir entry in '{}': {err}", root.display()))?;
+            .map_err(|err| miette!(
+                help = "check that the instantiated output directory is readable.",
+                "failed to read dir entry in '{}': {err}", root.display()
+            ))?;
         entries.sort_by_key(|entry| entry.file_name());
 
         let count = entries.len();
@@ -635,18 +667,22 @@
                 set_values,
                 set_files,
                 values_files,
-                output_dir,
+                Some(output_dir),
+                &[],
             )
         );
     }
 
+    /// Rebuild the `rhei instantiate` invocation the user made, plus any
+    /// `extra_inputs`, so a suggestion pastes as-is. §FS-rhei-errors.1.2
     fn format_template_instantiation_command(
         template: &str,
         input_args: &[String],
         set_values: &[String],
         set_files: &[String],
         values_files: &[PathBuf],
-        output_dir: &Path,
+        output_dir: Option<&Path>,
+        extra_inputs: &[String],
     ) -> String {
         let mut parts = vec!["rhei".to_string(), "instantiate".to_string(), template.to_string()];
         for values_file in values_files {
@@ -654,6 +690,7 @@
             parts.push(values_file.display().to_string());
         }
         parts.extend(input_args.iter().cloned());
+        parts.extend(extra_inputs.iter().cloned());
         for value in set_values {
             parts.push("--set".to_string());
             parts.push(value.clone());
@@ -662,37 +699,14 @@
             parts.push("--set-file".to_string());
             parts.push(value.clone());
         }
-        parts.push("--output".to_string());
-        parts.push(display_path(output_dir).display().to_string());
-
-        parts.iter().map(|part| shell_quote(part)).collect::<Vec<_>>().join(" ")
-    }
-
-    fn shell_quote(value: &str) -> String {
-        if value.is_empty() {
-            return "''".to_string();
+        if let Some(output_dir) = output_dir {
+            parts.push("--output".to_string());
+            parts.push(display_path(output_dir).display().to_string());
         }
-        if value.bytes().all(|byte| {
-            matches!(
-                byte,
-                b'a'..=b'z'
-                    | b'A'..=b'Z'
-                    | b'0'..=b'9'
-                    | b'_'
-                    | b'-'
-                    | b'.'
-                    | b'/'
-                    | b':'
-                    | b'@'
-                    | b'%'
-                    | b'+'
-                    | b'='
-                    | b','
-            )
-        }) {
-            return value.to_string();
-        }
-        format!("'{}'", value.replace('\'', "'\"'\"'"))
+
+        // §FS-rhei-errors.2: printed commands are pasted into a shell, and a
+        // selector like `codex[yolo]:openai:gpt-5.5` is a zsh glob unquoted.
+        shell_command(&parts)
     }
 
     /// The error for `rhei instantiate` when the output directory is taken.
