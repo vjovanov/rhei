@@ -181,7 +181,11 @@ fn parse_manifest(input: &str, header_name: &str, frontmatter_kind: &str) -> Res
 
         if let Some(cap) = re_section_header.captures(line) {
             let section_title = cap.get(1).unwrap().as_str().trim().to_string();
-            content.push(ContentSection { title: section_title, content: String::new() });
+            content.push(ContentSection {
+                title: section_title,
+                content: String::new(),
+                rhei: None,
+            });
             continue;
         }
 

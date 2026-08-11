@@ -178,7 +178,7 @@ fn cli_validate_reports_invalid_state_as_semantic_failure() {
     assert_validation_failure(
         &result,
         &[
-            &["Task 1", "has invalid state", "blocked", "Allowed:"],
+            &["Task plan.1", "has invalid state", "blocked", "Allowed:"],
             &["completed"],
             &["pending"],
             &["in-", "progress"],
@@ -197,7 +197,7 @@ fn cli_validate_reports_missing_dependency_as_semantic_failure() {
 
     assert_validation_failure(
         &result,
-        &[&["Task 1", "depends on missing Task 99"]],
+        &[&["Task plan.1", "depends on missing Task plan.99"]],
         &["failed to parse", "Malformed task heading"],
     );
 }
@@ -212,7 +212,7 @@ fn cli_validate_reports_parent_as_prior_as_semantic_failure() {
 
     assert_validation_failure(
         &result,
-        &[&["Task fetch-prs.ci-failure-5227", "cannot list ancestor Task fetch-prs", "Prior"]],
+        &[&["Task plan.fetch-prs.ci-failure-5227", "cannot list ancestor", "plan.fetch-prs", "Prior"]],
         &["failed to parse", "Malformed task heading"],
     );
 }
@@ -295,3 +295,68 @@ fn malformed_state_metadata_reports_parse_error_instead_of_missing_state_validat
 }
 
 // ---- Transition command integration tests ----
+
+/// An unrecognized `**Field:**` in a task's metadata block is a parse error,
+/// not content: swallowing it dropped mistyped `**Prior:**` lines into a plan
+/// that validated green and ran out of order. §FS-rhei-plan-language.2
+#[test]
+fn unknown_metadata_field_in_the_metadata_block_is_rejected() {
+    let result = run_validate(
+        "# Rhei: Typo\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n\
+         **Priorr:** Task 2\n\n### Task 2: Two\n**State:** pending\n",
+        fixtures::TEST_STATE_MACHINE,
+        "unknown-metadata-field",
+    );
+
+    assert!(!result.status.success(), "a mistyped metadata field should fail validation");
+    let stderr = normalize_for_assertions(&result.stderr);
+    assert!(
+        stderr.contains("Unknown metadata field '**Priorr:**'"),
+        "error should name the unknown field, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("**State:**") && stderr.contains("**Prior:**"),
+        "error should list the recognized fields, got:\n{stderr}"
+    );
+}
+
+/// The same line past a blank line is ordinary bold prose and stays content.
+#[test]
+fn bold_label_in_task_content_is_not_a_metadata_field() {
+    let result = run_validate(
+        "# Rhei: Prose\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n\n\
+         **Owner:** alice\n",
+        fixtures::TEST_STATE_MACHINE,
+        "bold-label-content",
+    );
+
+    assert!(
+        result.status.success(),
+        "bold text after a blank line is content\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+}
+
+/// A single file declaring one id twice must not report "defined in both X and
+/// X", and must point at the redeclaration.
+#[test]
+fn duplicate_id_in_one_file_names_the_line() {
+    let result = run_validate(
+        "# Rhei: Dup\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n\n\
+         ### Task 1: Duplicate\n**State:** pending\n",
+        fixtures::TEST_STATE_MACHINE,
+        "duplicate-id-one-file",
+    );
+
+    assert!(!result.status.success(), "a duplicate id should fail validation");
+    let stderr = normalize_for_assertions(&result.stderr);
+    assert!(
+        stderr.contains("declared twice in"),
+        "error should say the id is declared twice in one file, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("line 8") && stderr.contains("### Task 1: Duplicate"),
+        "error should point at the redeclaration, got:\n{stderr}"
+    );
+}

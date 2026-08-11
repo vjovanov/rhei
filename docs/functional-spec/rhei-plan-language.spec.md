@@ -166,6 +166,17 @@ lexicographic comparison. A discovered task file must parse as
 `workspace_task_file` and contain at least one root task node; empty Markdown
 files and prose-only Markdown files under `tasks/` are invalid task files.
 
+A workspace that discovers **no** task files is a valid, empty rhei — not an
+error. It is the state a workspace passes through between being created and
+receiving its first ticket, and the same state a living workspace starts from
+before its coordinator appends work. Failing the load instead would let one
+freshly created directory break `rhei list` and `rhei validate` for every
+sibling rhei in the project, so an empty rhei is treated exactly as an empty
+project is (§FS-rhei-panta.6): read commands report zero tickets and succeed.
+Because a mistyped `tasks/` directory is otherwise indistinguishable from a
+deliberately empty one, `rhei validate` reports the emptiness as a **warning**
+naming the rhei and where its task files must live (§FS-rhei-validate.4).
+
 In a Directory Workspace, all tasks are parsed and merged into a single global
 task graph at runtime. Dependency validation (`**Prior:**`) resolves globally
 across all discovered task files under `tasks/`. The merged plan order is the
@@ -188,11 +199,14 @@ State-machine resolution is normative for all commands:
    effective value; if the effective field is omitted, the loaded file's `name`
    becomes the active state-machine name for this invocation.
 2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
-   resolved per rhei. A declaration in the rhei itself wins. If the rhei omits
-   `**States:**`, it inherits the declaration from `index.panta.md` when that
-   manifest declares one. The inherited declaration is resolved from the Panta
-   project root (`<project>/states.yaml`) unless `--state-machine` supplied an
-   override.
+   resolved per rhei. A declaration in the rhei itself wins — the rhei runs
+   under the machine it names, which may differ from its siblings'
+   (§AR-rhei-panta.4). Its definition file resolves from the rhei's own
+   execution root (`<rhei>/states.yaml`) when that file's `name` matches, then
+   by the project-level name-match rules. If the rhei omits `**States:**`, it
+   inherits the declaration from `index.panta.md` when that manifest declares
+   one. The inherited declaration is resolved from the Panta project root
+   (`<project>/states.yaml`) unless `--state-machine` supplied an override.
 3. When `**States:**` is omitted after Panta inheritance has been applied, the
    plan or rhei uses the built-in `rhei` state machine. Sibling, workspace, or
    project `states.yaml` files are ignored in this case.
@@ -203,8 +217,11 @@ State-machine resolution is normative for all commands:
 5. When a non-`rhei` `**States:** <name>` is declared and no override is
    supplied, the CLI resolves the file from a sibling `states.yaml` for a
    single-file plan, from `<workspace>/states.yaml` for a Directory Workspace,
-   or from `<project>/states.yaml` when the declaration was inherited from
-   `index.panta.md`. That file must exist and its `name` must match `<name>`.
+   from the declaring rhei's execution root for a member rhei's own
+   declaration, or from `<project>/states.yaml` when the declaration was
+   inherited from `index.panta.md` — falling back, in every project case, to a
+   unique `name`-match among the project's candidate roots (§AR-rhei-panta.4).
+   A resolved file's `name` must match `<name>`.
 6. A declared non-`rhei` state machine without a matching auto-discovered file
    is a validation error; it never falls back to the built-in machine.
 
@@ -396,6 +413,15 @@ task_id_segment = NUMBER | IDENTIFIER ;
    command strips the assignee on completion. A task may declare at most one
    execution override — either `**Model:**` or `**Target:**`, never both. See
    section 3.11. *)
+(* The metadata block is closed: `**State:**`, `**Prior:**`, `**Assignee:**`,
+   `**Model:**`, and `**Target:**` are the only fields. A `**<name>:**` line
+   with any other name, appearing in the block before a blank line has
+   separated it from the heading, is a parse error naming the unknown field.
+   Accepting it as content silently discards it, and the field authors most
+   often mistype is `**Prior:**` — a dropped dependency leaves a plan that
+   validates green and executes in the wrong order, with nothing to point at.
+   Past a blank line the same line is ordinary bold text and is kept as task
+   content. *)
 metadata        = state_field, [ prior_field ], [ assignee_field ],
                   [ execution_override ] ;
 
@@ -419,7 +445,10 @@ target_selector = { ANY_CHAR - NEWLINE }+ ;
 (* Result block links a terminal task to its runtime result/audit file.
    It is inserted by the `complete` command after task content and before child
    tasks. The link text is the task id itself, and the target is always
-   runtime/results/<task-id>.md. *)
+   runtime/results/<task-id>.md. The grammar is form-agnostic: `complete`
+   writes the project-qualified id, and the legacy rhei-local id still parses
+   in plans completed before ticket ids gained their rhei prefix. Text and
+   target must agree — see section 3.8. *)
 result_block    = "> **Result:** ", "[", task_id, "](", result_path, ")", NEWLINE ;
 
 result_path     = "runtime/results/", task_id, ".md" ;
@@ -430,7 +459,12 @@ prior_field     = "**Prior:** ", task_ref_list, NEWLINE ;
 
 task_ref_list   = task_ref, { ", ", task_ref } ;
 
-task_ref        = node_kind_keyword, " ", task_id ;
+(* The kind keyword is decoration: a reference resolves on its task_id alone,
+   so the bare form is accepted too. It exists because every surface that
+   *prints* a dependency prints the id by itself — `rhei list` renders
+   `(prior: auth.2)` — and an author who pastes that back must not be met with
+   a parse error. Writers emit the kind-prefixed form; readers accept both. *)
+task_ref        = [ node_kind_keyword, " " ], task_id ;
 
 (* State values have two rendered forms:
    - bare form for canonical names that match IDENTIFIER exactly
@@ -546,9 +580,17 @@ field for that purpose.
 When frontmatter defines a `structure` map, the following keys are meaningful
 to this specification:
 
-- `structure.maxLevels` — maximum allowed task depth, counted from level 1 at
-  `### <kind> ...`. Valid values are `1` through `4`. If omitted, the default
-  is `2`.
+- `structure.maxLevels` — maximum allowed **ticket depth**, counted from
+  depth 1 at `### <kind> ...` (`#### ` is 2, `##### ` is 3, `###### ` is 4).
+  Valid values are `1` through `4`. If omitted, the default is `2`, so a plan
+  may nest one level of subtasks without declaring anything. This is the same
+  number `rhei list --json` reports as a ticket's `depth`.
+
+  Ticket depth is **not** the project-tree level used by node policy and the
+  Plan Root Model below, which counts the virtual Panta root as level 0 and
+  rheis as level 1 — so ticket depth 1 is project level 2. `maxLevels` and
+  `depth` always speak in ticket depth; `node_policy` selectors and the reserved
+  `panta`/`rhei` kinds always speak in project level.
 - `structure.nodeKinds` — allowed node-kind keywords for task nodes. Values
   must be unique `IDENTIFIER`s. Parsing and validation normalize them
   case-insensitively. If omitted, the default is `[task]`.
@@ -619,7 +661,14 @@ Directory Workspace example:
 ```
 
 When a dependency reference includes a node kind, that kind must match the
-declared kind of the referenced node.
+declared kind of the referenced node. A kind keyword that is not a declared
+node kind of the plan is reported as such; when the reference also resolves to
+no task, the error additionally suggests that the author may have pasted a task
+*title* — `**Prior:** Design schema` parses as kind `Design`, id `schema` — and
+points at referencing the task by id instead. Both checks run in the validator
+rather than the parser: a reference may point across rheis in a Panta project
+(§FS-rhei-panta.6), so the set of declared kinds and the referenced node's kind
+are only known once the whole project is loaded.
 
 Invalid child dependency example:
 
@@ -852,11 +901,23 @@ structure:
 ### 3.8. Result Block Consistency
 
 When a task contains a `> **Result:**` block, that block must describe the
-enclosing task itself:
+enclosing task itself. Text and target are validated **as a pair**: both name
+the same ticket, in the same form.
 
-- The link text must equal the enclosing task's `task_id`.
-- The target path must be exactly `runtime/results/<task-id>.md` using that
-  same id.
+- The link text must equal the enclosing task's `task_id`, and the target path
+  must be `runtime/results/<task-id>.md` using that same id.
+- Because every ticket gained a rhei prefix when bare rheis became implicit
+  Pantas (§FS-rhei-panta.6.3), the id may be written in either form: the
+  project-qualified id (`[auth.1](runtime/results/auth.1.md)`) that commands
+  write from here on, or the **legacy rhei-local** id
+  (`[1](runtime/results/1.md)`) left in plans completed before that change.
+  Both validate; there is no migration pass, and no command rewrites the
+  result link of a ticket it is not completing. `rhei complete` refreshes the
+  completed ticket's link to the qualified artifact it writes
+  (§FS-rhei-panta.6.3).
+- A link that **mixes** the two forms (`[auth.1](runtime/results/1.md)`), or
+  names any other id, is an error — it would point at an artifact that does not
+  hold this ticket's result.
 
 A result block is optional syntax, but it has a lifecycle invariant:
 
@@ -873,14 +934,24 @@ A result block is optional syntax, but it has a lifecycle invariant:
 
 Example:
 
+In a rhei whose id is `web` (from `web.rhei.md` or the directory `web/`):
+
 ```markdown
 ### Task api: Build API
 **State:** completed
-> **Result:** [api](runtime/results/api.md)    ← Valid
+> **Result:** [web.api](runtime/results/web.api.md)  ← Valid (qualified)
 
 ### Task ui: Build UI
 **State:** completed
-> **Result:** [api](runtime/results/api.md)    ← ERROR: references a different task id
+> **Result:** [ui](runtime/results/ui.md)            ← Valid (legacy rhei-local)
+
+### Task docs: Write docs
+**State:** completed
+> **Result:** [web.docs](runtime/results/docs.md)    ← ERROR: mixes the two forms
+
+### Task cli: Build CLI
+**State:** completed
+> **Result:** [web.api](runtime/results/web.api.md)  ← ERROR: references a different task id
 ```
 
 `result_block` is validated by this task-local rule rather than by the general
@@ -1122,7 +1193,11 @@ The language cannot be fully described by a context-free grammar alone; semantic
 
 ## 7. File Extension
 
-The recommended file extension for Rhei Plan documents is `.rhei.md` or simply `.md` when the context is clear.
+A single-file Rhei Plan document must use the `.rhei.md` extension: the file
+stem is the rhei id that prefixes every ticket (§AR-rhei-panta.3), so a plan
+without the suffix has no id and the loader rejects it. The bare `.md`
+extension remains only for task files under a Directory Workspace's `tasks/`
+directory (and basin task files), whose owning rhei supplies the id.
 
 ## 8. CLI Command Groups
 

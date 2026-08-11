@@ -26,6 +26,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-next | `rhei next` command behavior |
 | §FS-rhei-transition-cmd | `rhei transition` command behavior |
 | §FS-rhei-complete | `rhei complete` command behavior |
+| §FS-rhei-release | `rhei release` command behavior |
 | §FS-rhei-reset | `rhei reset` command behavior |
 | §FS-rhei-list | `rhei list` command behavior |
 | §FS-rhei-viz | Flow visualization: the primary plan/machine visualization surface |

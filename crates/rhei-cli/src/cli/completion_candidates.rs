@@ -273,9 +273,10 @@ fn complete_template_source(current: &OsStr) -> Vec<CompletionCandidate> {
     static_completion(
         current,
         &[
-            ("all", "Project and user templates"),
+            ("all", "Project, user, and built-in templates"),
             ("project", "Project templates only"),
             ("user", "User templates only"),
+            ("builtin", "Templates shipped with the rhei binary"),
         ],
     )
 }
@@ -326,6 +327,7 @@ fn complete_skill_name(current: &OsStr) -> Vec<CompletionCandidate> {
             ("rhei-plan-writer", "Create and refactor Rhei Plan documents"),
             ("rhei-plan-worker", "Execute tasks in Rhei Plan documents"),
             ("rhei-state-machine-writer", "Design custom Rhei state machines"),
+            ("rhei-template-writer", "Create and edit reusable Rhei Templates"),
         ],
     )
 }
@@ -377,13 +379,15 @@ fn complete_model_name(current: &OsStr) -> Vec<CompletionCandidate> {
     if let Some(model) = load_merged_settings_for_completion(&completion_workspace_root()).model {
         models.insert(model);
     }
-    if let Some(machine) = completion_state_machine() {
-        models.extend(machine.models);
-        for state in machine.states.values() {
-            if let Some(model) = state.model.as_ref() {
-                models.insert(model.clone());
+    if let Some(machines) = completion_state_machines() {
+        for machine in machines.distinct() {
+            models.extend(machine.models.iter().cloned());
+            for state in machine.states.values() {
+                if let Some(model) = state.model.as_ref() {
+                    models.insert(model.clone());
+                }
+                models.extend(state.all_models.iter().cloned());
             }
-            models.extend(state.all_models.iter().cloned());
         }
     }
     models
@@ -464,6 +468,24 @@ fn complete_task_id(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+/// Complete `--rhei` values with the loaded project's rhei ids.
+/// §FS-rhei-panta.6
+fn complete_rhei_id(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(plan) = completion_plan_path() else {
+        return Vec::new();
+    };
+    let prefix = current.to_string_lossy();
+    let Ok(loaded) = load_plan(&plan) else {
+        return Vec::new();
+    };
+    loaded
+        .rhei_ids
+        .iter()
+        .filter(|id| id.starts_with(prefix.as_ref()))
+        .map(|id| CompletionCandidate::new(id.clone()))
+        .collect()
+}
+
 fn complete_transition_from_state(current: &OsStr) -> Vec<CompletionCandidate> {
     if let (Some(plan), Some(task_id)) = (completion_plan_path(), completion_option_value("task")) {
         if let Ok(state) = current_task_state(&plan, &task_id) {
@@ -478,9 +500,14 @@ fn complete_transition_from_state(current: &OsStr) -> Vec<CompletionCandidate> {
 }
 
 fn complete_transition_to_state(current: &OsStr) -> Vec<CompletionCandidate> {
-    let Some(machine) = completion_state_machine() else {
+    let Some(machines) = completion_state_machines() else {
         return Vec::new();
     };
+    // A transition targets one ticket; its owning machine names the states.
+    // §DA-per-rhei-state-machines
+    let machine = completion_option_value("task")
+        .map(|task| machines.for_task_str(&task).clone())
+        .unwrap_or_else(|| machines.default.clone());
     let from = completion_option_value("from").or_else(|| {
         completion_plan_path()
             .zip(completion_option_value("task"))
@@ -530,27 +557,37 @@ fn complete_state_name(current: &OsStr) -> Vec<CompletionCandidate> {
 }
 
 fn complete_state_name_with_prefix(prefix: &str) -> Vec<(String, Option<String>)> {
-    let Some(machine) = completion_state_machine() else {
+    let Some(machines) = completion_state_machines() else {
         return Vec::new();
     };
-    machine
-        .states
-        .iter()
-        .filter(|(state, _)| state.starts_with(prefix))
-        .map(|(state, def)| (state.clone(), def.description.clone()))
-        .collect()
+    // Completion offers the union across every machine in scope; the target
+    // command validates against the right ticket's machine.
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for machine in machines.distinct() {
+        for (state, def) in &machine.states {
+            if state.starts_with(prefix) && seen.insert(state.clone()) {
+                out.push((state.clone(), def.description.clone()));
+            }
+        }
+    }
+    out
 }
 
-fn completion_state_machine() -> Option<rhei_validator::StateMachine> {
+fn completion_state_machines() -> Option<rhei_validator::MachineSet> {
     let state_machine = completion_option_value("state-machine").map(PathBuf::from);
     let plan = completion_plan_path();
     match (plan.as_deref(), state_machine.as_deref()) {
         (Some(plan), sm) => load_plan(plan)
             .ok()
-            .and_then(|loaded| resolve_state_machine_for_loaded_plan(plan, &loaded, sm).ok())
-            .map(|resolved| resolved.machine),
-        (None, Some(sm)) => load_state_machine(Some(sm)).ok(),
-        (None, None) => Some(rhei_validator::StateMachine::builtin_default()),
+            .and_then(|loaded| resolve_state_machines_for_loaded_plan(plan, &loaded, sm).ok())
+            .map(|resolved| resolved.validator_set()),
+        (None, Some(sm)) => {
+            load_state_machine(Some(sm)).ok().map(rhei_validator::MachineSet::single)
+        }
+        (None, None) => {
+            Some(rhei_validator::MachineSet::single(rhei_validator::StateMachine::builtin_default()))
+        }
     }
 }
 

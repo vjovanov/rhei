@@ -25,12 +25,28 @@ Templates are resolved in order, first match wins:
 |----------|----------|-------|
 | 1 | `<project>/.agents/rhei/templates/<name>/` | Project-local |
 | 2 | `~/.agents/rhei/templates/<name>/` | User-global |
+| 3 | compiled into the `rhei` binary | Built-in |
 
 The `<name>` is the directory name and serves as the template identifier used in CLI commands.
 
+**Built-in templates** ship inside the binary. They are the tier every install
+has: a fresh `cargo install` — or a downloaded release binary — must be able to
+run `rhei templates` and `rhei instantiate` without first authoring a template
+or cloning a repository. Shipping them as files beside the binary would make the
+feature depend on an installation layout that no distribution channel
+guarantees, so the library is embedded at compile time instead.
+
+Because built-ins sit last in the search order, a project or user template of
+the same name shadows one, which is how a built-in is customized: copy it into
+`.agents/rhei/templates/<name>/` and edit.
+
+A built-in is extracted to a temporary directory when it is instantiated, so
+every later step — manifest validation, layout detection, rendering — sees an
+ordinary template directory and behaves identically for all three tiers.
+
 Discovery errors are handled per command:
 
-- `rhei templates` skips unreadable or invalid template directories and prints a warning naming the skipped path.
+- `rhei templates` skips unreadable or invalid template directories and prints a warning naming the skipped path. `--source` selects a tier: `project`, `user`, `builtin`, or `all`.
 - `rhei instantiate <name>` fails if the matched template directory is unreadable or invalid.
 - `rhei instantiate <path>` fails if the explicit template path is unreadable or invalid.
 
@@ -50,7 +66,16 @@ Discovery errors are handled per command:
 └── ...                    # Additional files (text rendered; binary copied)
 ```
 
-A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error.
+A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error. For single-file templates the entry-point filename also determines the ticket-id prefix of every instantiated workspace: the file stem is the rhei id, so `plan.rhei.md` yields tickets `plan.1`, `plan.2`, ..., regardless of the `--output` directory name.
+
+**A template's task ids must not repeat the template name.** Every ticket id is
+already qualified by its rhei (§FS-rhei-panta.5), and for an instantiated
+template the rhei id is the output directory — the template's own name by
+default. A task authored as `### Task spec-review:` inside the `spec-review`
+template therefore reads as `spec-review.spec-review` in every listing, error,
+and artifact path (`runtime/reviews/task-spec-review.spec-review-review-1.md`).
+Name the task for the step it performs — `review`, `loop`, `coordinate` — and
+let the prefix say which rhei it belongs to.
 
 ## 3. Manifest Schema (`template.yaml`)
 
@@ -119,6 +144,12 @@ host secrets.
 On instantiation the rendered file is written to `.agents/rhei/settings.json`
 in the output tree, where `rhei run` and `rhei validate` automatically pick it
 up and compose it over the user's global `~/.config/rhei/settings.json`.
+
+When the output joins a Panta project the file is **hoisted to the project**
+instead (§6.2): settings resolve once, at the root the plan loads from, and for
+a member rhei that root is the project, not the workspace. Left in the
+workspace, a template's own agent registry was silently unread, and the
+template's own default targets then failed validation as unknown agents.
 
 Example:
 
@@ -225,9 +256,10 @@ Options:
   --values <file>              Load input values from a YAML or JSON file (repeatable;
                                  later files, then input args / --set, then --set-file
                                  override earlier values)
-  --output <path>              Output directory (default: ./<template-name>/ where
+  --output <path>              Output directory (default: <project>/<template-name>/
+                                 inside a Panta project, else ./<template-name>/, where
                                  <template-name> is the directory basename of the
-                                 resolved template)
+                                 resolved template — see §6.2)
   --execute                    Instantiate and immediately begin execution
   --dry-run                    Show what would be generated without writing files
   --keep-on-error              Keep output directory on validation failure
@@ -343,6 +375,14 @@ Stopped:
   <stop reason>
 ```
 
+Paths in the report — the `Output:` line, the `Files` root, the `Stopped`
+follow-up commands, the placement report, and the reproducible invocation's
+`--output` — render relative to the working directory whenever they sit inside
+it. The report is read, and its commands pasted, from that directory:
+`rhei next panta/product-management` is what a reader actually types, where the
+absolute form merely restates where they already are. Paths outside the working
+directory stay absolute.
+
 `Files` prints the full instantiated output tree, including hidden files that
 were generated by instantiation such as `.agents/rhei/settings.json`. The root line
 uses the user-requested `--output` path. In `--dry-run`, this is still the
@@ -380,19 +420,114 @@ their own recent definitions when they are among the last five tasks.
 | 0 | Success |
 | 1 | Any instantiation error, including template lookup failure, missing or invalid inputs, unresolved instantiation variables, output-path conflicts, validation failure, or `--execute` runtime failure surfaced by the CLI |
 
-### 6.2. `rhei templates`
+### 6.2. Instantiating inside a Panta project
 
-List available templates.
+A template is not a free-floating directory. Dropped next to `index.panta.md`
+it becomes a member rhei: it keeps the state machine it declares
+(§FS-rhei-panta.6), but the project — not the workspace — owns the one
+settings root (§FS-rhei-agents.1.1) that governs it. `rhei instantiate`
+therefore resolves the enclosing project before writing, and reconciles with
+it.
+
+**Default output.** Run inside a project, a template's default output is
+`<project>/<template-name>/` — the project is the default home for a new rhei
+(§FS-rhei-panta.2), the same place the empty-project message points at.
+Defaulting to the working directory instead dropped the workspace where
+discovery never looks, so the command reported success and `rhei list` still
+said the project had no tickets. Outside a project the default stays
+`./<template-name>/`.
+
+**A taken output directory is a naming problem, and the error says so.** The
+default output is the template's own name, and a rhei's id *is* its directory
+name (§AR-rhei-panta.1), so instantiating the same template a second time in
+one project always collides. That second instantiation is not an edge case —
+it is reviewing a second spec, auditing a second subject, running a second
+release checklist, the most likely next thing anyone does with a template. The
+error therefore names the cause, explains that the directory name becomes the
+rhei id prefixing every ticket id, and prints a ready command with a free name
+filled in:
+
+```text
+'panta/spec-review' already exists, so template 'spec-review' has already been
+instantiated here under that name. A second copy needs its own directory,
+because the directory name becomes the rhei id every one of its ticket ids is
+prefixed with. Name it for what it is about:
+  rhei instantiate spec-review spec=docs/payments.spec.md --output panta/spec-review-2
+```
+
+A bare `output path '…' already exists` left the user to rediscover `--output`
+and to guess whether a second copy was supported at all. An explicit
+`--output` that is taken keeps the short form — the caller chose that path, so
+the only news is that it exists.
+
+**State machines compose; nothing to reconcile.** The state machine is a
+property of the rhei, defaulted by the project (§AR-rhei-panta.4,
+§FS-rhei-panta.6): a template that declares its own machine lands as a member
+running under it, its `states.yaml` staying in the workspace root where
+per-rhei resolution finds it, and the project manifest is never edited. A
+template that declares nothing inherits the project default. Ten templates
+with ten machines coexist in one project — each is a distinct process, and
+that is the product's normal shape, not an edge case.
+
+Two earlier mechanisms are deliberately gone. *Refusal* — rejecting a template
+whose machine differed from the project's — walled off every template but the
+first, contradicting the multi-routine pitch. *Adoption* — writing the first
+template's machine into `index.panta.md` as the project default — silently
+re-governed every later plain rhei: a hand-written `launch.rhei.md` on
+`pending`/`completed` then validated against the template's machine and
+failed. Both existed only to police a uniformity the model no longer requires.
+
+**Settings hoist.** A template's bundled `settings.json` (§4) is written to the
+*project's* `.agents/rhei/settings.json` rather than the workspace's, merged
+key-by-key into whatever is already there. Values the project already defines
+always win — a template must not quietly redefine an agent the operator
+configured — and both the added keys and the kept ones are reported. No copy is
+left in the workspace, where nothing would read it.
+
+**Standalone output inside a git repository.** A standalone workspace — what
+`--output` outside any project produces — lands outside any project, so
+no init-managed ignore rule covers it: `git status` reports it as untracked
+even when the repository gitignores `panta/` on the position that planning
+state is working material (§FS-rhei-init.3). Instantiation does not edit
+`.gitignore` itself — a standalone workspace is deliberately also how
+committed, versioned workspaces (checked-in examples) are produced, so the
+versioning call belongs to the user. Instead, when the standalone output sits
+inside a git repository and is not already ignored, the summary states that
+the workspace is untracked and names the `.gitignore` entry that would ignore
+it. No note is printed for output that is already ignored, outside any
+repository, or a member of a project.
+
+**Validation scope.** A member rhei is validated *through its project*, because
+that is the only context in which its machine and settings resolve. Validating
+the workspace in isolation is what let `rhei instantiate` print
+"Validation succeeded" for output that made every project-scoped command fail.
+
+**Output that the project cannot see.** An `--output` path under the project
+but not directly next to `index.panta.md` is not a member: discovery never
+recurses (§AR-rhei-panta.1). That is allowed, but warned about, naming the
+member path that would have worked.
+
+### 6.3. `rhei templates`
+
+List available templates, or show one template in detail.
 
 ```
-rhei templates [options]
+rhei templates [template] [options]
 
 Options:
   --json                       Output as JSON
   --source <project|user|all>  Filter by source (default: all)
 ```
 
-Prints a table of discovered templates with name, version, description, source path, and required input count.
+Without a positional, prints a table of discovered templates with name,
+version, description, source path, and required input count.
+
+With a template name (or a path to a template directory), prints that
+template's detail: source, path, and the same input schema
+`rhei instantiate <template> --list-inputs` prints, followed by an
+instantiation hint. Naming a template is the natural gesture after reading
+the list — it must answer with the template, not an argument error. `--json`
+emits the single template as one object in the list's entry shape.
 
 When discovery encounters an invalid template directory, `rhei templates` skips it and prints a warning instead of failing the entire listing.
 

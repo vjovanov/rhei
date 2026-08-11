@@ -59,6 +59,7 @@ fn build_program_command(
     cmd.current_dir(working_dir)
         .env("RHEI_PLAN_PATH", render_context.plan_path)
         .env("RHEI_TASK_ID", render_context.task.id.to_string())
+        .env("RHEI_TASK_ID_LOCAL", rhei_local_id_of(render_context.task))
         .env("RHEI_STATE", render_context.state_name)
         .env(
             "RHEI_VISIT_COUNT",

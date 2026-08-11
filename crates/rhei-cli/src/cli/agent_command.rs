@@ -157,6 +157,7 @@ fn build_agent_command(
         .env("RHEI_ROOT", rhei_root)
         .env("RHEI_CHECKOUT_ROOT", checkout_root)
         .env("RHEI_TASK_ID", task_id)
+        .env("RHEI_TASK_ID_LOCAL", rhei_local_id_str(task_id))
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())
         .env("RHEI_AGENT", id);

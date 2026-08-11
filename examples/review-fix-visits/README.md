@@ -11,12 +11,16 @@ The flow is:
 1. `review-loop` starts in `review`.
 2. The workflow begins in `review`, which declares `visits: 2`.
 3. The `append-review` callback runs on every exit from `review` and appends to
-   `runtime/reviews/task-review-loop-review.md`.
+   `runtime/reviews/task-review-fix-visits.review-loop-review.md` (callbacks see
+   the project-qualified ticket id in `RHEI_TASK_ID`, and `{task_id}` in the
+   declared `runtime/reviews/task-{task_id}-review-{visit_count}.md` outputs
+   renders the same qualified id).
 4. After each review pass the task transitions to `fix`.
 5. The `fix` state also declares `visits: 2`, so the first fix pass returns to
    `review-2` and the second fix pass transitions to `completed`.
 6. The `write-fix` callback reads the accumulated review artifact and updates
-   `runtime/fixes/task-review-loop-fix.md` on each exit from `fix`.
+   `runtime/fixes/task-review-fix-visits.review-loop-fix.md` on each exit from
+   `fix`.
 
 Validate the workspace from the repository root:
 

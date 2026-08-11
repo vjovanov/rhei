@@ -9,10 +9,18 @@ fn render_frontmatter_yaml(metadata: &Metadata) -> MietteResult<String> {
 
 fn rewrite_frontmatter(raw: &str, metadata: &Metadata) -> MietteResult<String> {
     let lines = raw.lines().collect::<Vec<_>>();
+    // Both manifest forms carry frontmatter in the same position, and the
+    // Panta manifest owns basin tickets' runtime metadata
+    // (§FS-rhei-panta.6.1), so it must be rewritable too.
     let header_index = lines
         .iter()
-        .position(|line| line.trim_start().starts_with("# Rhei:"))
-        .ok_or_else(|| miette!("could not find '# Rhei:' header when rewriting frontmatter"))?;
+        .position(|line| {
+            let line = line.trim_start();
+            line.starts_with("# Rhei:") || line.starts_with("# Panta:")
+        })
+        .ok_or_else(|| {
+            miette!("could not find a '# Rhei:' or '# Panta:' header when rewriting frontmatter")
+        })?;
 
     let mut idx = header_index + 1;
     while idx < lines.len() && lines[idx].trim().is_empty() {

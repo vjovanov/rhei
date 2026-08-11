@@ -185,6 +185,31 @@ pub fn render_inline(boot_json: &str) -> String {
     FLOW_ASSET.replace(BOOT_PLACEHOLDER, &escape_json_for_html_script(boot_json))
 }
 
+/// Prepend a visible caveat banner to a rendered page. A limitation announced
+/// only on stderr is gone once the terminal scrolls, so anything that makes the
+/// graph incomplete must travel inside the file. §FS-rhei-viz.7.3
+pub fn with_page_notice(html: &str, notice: &str) -> String {
+    let banner = format!(
+        "<div role=\"note\" style=\"padding:10px 16px;background:var(--surface-2);\
+         border-bottom:1px solid var(--hairline);color:var(--dim);\
+         font:12px/1.5 var(--mono)\">{}</div>",
+        escape_html_text(notice)
+    );
+    match html.find("<body>") {
+        Some(index) => {
+            let split = index + "<body>".len();
+            format!("{}\n{}{}", &html[..split], banner, &html[split..])
+        }
+        // No recognizable body tag: prepending still keeps the notice visible
+        // rather than dropping it.
+        None => format!("{banner}{html}"),
+    }
+}
+
+fn escape_html_text(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// Convenience wrapper to render a single plan under a given key.
 pub fn render_static_one(key: &str, model: &VizModel) -> String {
     let mut bundle = BTreeMap::new();

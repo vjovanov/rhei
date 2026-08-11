@@ -92,7 +92,7 @@ The selected node is reflected in the URL hash, so a page can be **deep-linked**
 to a specific node: opening the surface with `#<node-id>` selects that node and
 opens its surroundings instead of the default live-leading view, and the
 inspector head offers a "copy link" affordance that yields such a URL. This makes
-the static artifact addressable for async review ("see task 3.1 here"). Hash
+the static artifact addressable for async review ("see task auth.3.1 here"). Hash
 updates use history replacement so keyboard navigation does not flood browser
 history; editing the hash or using back/forward reselects.
 
@@ -339,6 +339,30 @@ artifact (§7.1) reuses; it is also what the `rhei viz` command renders.
 directory — the same location the run-end freeze (§7.1) writes to, so generating
 a view never drops an HTML file beside a checked-in plan. `--output <FILE>`
 overrides the location.
+
+Tickets carry the same project-qualified ids the rest of the CLI uses
+(`auth.1`), including for a bare rhei rendered directly (§AR-rhei-panta.2).
+
+### 7.3. Panta projects render as one graph
+
+Pointed at a project directory, `rhei viz` loads the merged project
+(§AR-rhei-panta.2) and renders **one** graph: every rhei's tickets in the
+single project-qualified id space, cross-rhei `**Prior:**` edges drawn like any
+other edge, and Directory Workspace rheis included alongside single-file ones.
+Per-task state history is read under each ticket's owning rhei execution root,
+not the project root, because that is where a project keeps its ledgers
+(§AR-rhei-panta.5).
+
+Pointed at a **member rhei** of a project, `rhei viz` renders that project
+narrowed to the named rhei (§FS-rhei-panta.6). Narrowing keeps the one-hop
+neighbours a kept ticket's `**Prior:**` points at, and the ancestors a kept
+ticket hangs from. Dropping the far end of a cross-rhei edge would erase the
+dependency rather than scope it, leaving a page that reads as if the ticket had
+no prerequisite at all — the specific misrepresentation this view exists to
+prevent.
+
+A page therefore never needs a limitation banner: what it renders is the graph
+the rest of the CLI operates on.
 
 ## 8. Data Contract
 

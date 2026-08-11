@@ -84,6 +84,20 @@ impl StateMachine {
         &self.transitions
     }
 
+    /// Stable content fingerprint. Two machines share one only when they are
+    /// the same definition, field for field.
+    ///
+    /// Name and version do **not** identify a machine. Instantiating one
+    /// template twice bakes each instantiation's inputs into its own
+    /// `states.yaml` while both keep the template's `name` and `version`, so
+    /// grouping by name silently merged distinct machines: every surface that
+    /// walks the distinct set then reported one rhei's states — and one rhei's
+    /// baked-in prompts — as though they governed all of them.
+    // §FS-rhei-states-cmd.3: machine identity is content, not name.
+    pub fn fingerprint(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| self.name.clone())
+    }
+
     fn validate_model_configuration(&self) -> Result<(), StateMachineLoadError> {
         let mut seen = HashSet::new();
         for model in &self.models {

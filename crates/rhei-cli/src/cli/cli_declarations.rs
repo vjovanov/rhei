@@ -81,9 +81,11 @@ Execution:
   snapshot    Inspect, prune, or continue from session snapshots
   next        Transition the next ready task to the next state
   complete    Complete a task: transition to terminal state, write ledger/result,\n              link it from the task, and remove the assignee
+  release     Drop a ticket's assignee so abandoned work can be claimed again
   reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
 Setup:
+  init            Set up a Panta project in a gitignored `panta/` folder (or in place with --here)
   install-skills  Install rhei skills into AI coding agent configuration directories
   completions     Generate shell completion scripts
 
@@ -95,9 +97,12 @@ Options:
 {options}"
 )]
 struct Cli {
+    // The flag stays accepted before the subcommand for compatibility, but it
+    // is no longer `global`: propagating it advertised `--state-machine` in the
+    // help of seven commands that never read it. Consuming subcommands declare
+    // their own copy below, and it wins when both are given.
     #[arg(
         long,
-        global = true,
         value_name = "PATH",
         help = "Path to a states YAML file (uses built-in default when omitted)",
         add = ArgValueCompleter::new(complete_yaml_path)
@@ -115,22 +120,54 @@ fn cli_command() -> clap::Command {
 /// Supported CLI subcommands.
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Set up a Panta project in a gitignored `panta/` folder (or in place
+    /// with --here)
+    Init {
+        /// Host directory (default: current directory; created when missing).
+        /// The project is created at <DIR>/panta/, or <DIR> itself with --here
+        #[arg(value_name = "DIR")]
+        dir: Option<PathBuf>,
+        /// Make DIR itself the project — the mode for adopting a directory
+        /// of existing, versioned plans
+        #[arg(long)]
+        here: bool,
+        /// Project title (default: derived from the host directory name)
+        #[arg(long, value_name = "TITLE")]
+        title: Option<String>,
+        /// Skip the AGENTS.md agent-discovery note
+        #[arg(long)]
+        no_agents: bool,
+        /// Re-initialize an existing project: overwrite the manifest,
+        /// update companion files in place
+        #[arg(long)]
+        force: bool,
+    },
     /// Validate a markdown plan against the configured states
     Validate {
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
         /// Re-run validation when the plan or states file changes
         #[arg(long)]
         watch: bool,
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
     },
     /// Render a markdown plan into a selected output format
     Render {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Output format
-        #[arg(long, value_enum)]
+        // Spelling the choices into the value name puts them in the
+        // missing-argument error too, not only in `--help`.
+        #[arg(long, value_enum, value_name = "json|github|progress")]
         format: RenderFormat,
         /// Pretty-print JSON output
         #[arg(long)]
@@ -147,15 +184,34 @@ enum Commands {
     },
     /// Print the states and allowed transitions for the configured state machine
     States {
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
+        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
         /// Emit the state machine as JSON instead of plain text
         #[arg(long)]
         json: bool,
     },
     /// List tasks in a plan with optional filters
     List {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
         /// Filter by state (repeatable; comma-separated list also accepted)
         #[arg(
             long,
@@ -216,12 +272,20 @@ enum Commands {
     },
     /// Atomically transition a task from one state to another (compare-and-swap)
     Transition {
-        /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
-        /// Task identifier (number or name)
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Ticket id to transition (`auth.1`, `3`), or path to the markdown
+        /// plan file (.rhei.md). An id-shaped argument that names no existing
+        /// path is the ticket, with the plan inferred from the working
+        /// directory; omitted, the nearest enclosing project, workspace, or
+        /// lone plan is used
+        #[arg(value_name = "TICKET_OR_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
+        /// Task identifier (number or name); alternative to naming the ticket
+        /// positionally
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
-        task: String,
+        task: Option<String>,
         /// Expected current state of the task
         #[arg(long, add = ArgValueCompleter::new(complete_transition_from_state))]
         from: String,
@@ -234,9 +298,13 @@ enum Commands {
     },
     /// Execute a plan by advancing tasks through the state machine in dependency order
     Run {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         #[command(flatten)]
         standalone: StandaloneExecutionFlags,
         #[command(flatten)]
@@ -270,7 +338,7 @@ enum Commands {
     Cost {
         /// Path to the markdown plan file (.rhei.md) or workspace directory
         #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Show direct and subtree accounting for one task id
         #[arg(long, value_name = "ID", add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
@@ -283,9 +351,13 @@ enum Commands {
     },
     /// Render a self-contained HTML flow visualization of a plan or workspace
     Viz {
-        /// Path to the markdown plan file (.rhei.md) or a workspace directory
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md) or a workspace directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Write the HTML here (default: runtime/<input>.html, or runtime/rhei-viz.html for a workspace)
         #[arg(long, short, value_name = "FILE")]
         output: Option<PathBuf>,
@@ -295,15 +367,22 @@ enum Commands {
     },
     /// Inspect, prune, or continue from session snapshots
     Snapshot {
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
         #[command(subcommand)]
         command: SnapshotCommand,
     },
-    /// List available templates
+    /// List available templates, or show one template in detail
     Templates {
+        /// Template name (or path to a template directory) to show in detail;
+        /// omitted, all discovered templates are listed
+        #[arg(value_name = "TEMPLATE", add = ArgValueCompleter::new(templates::complete_template_reference))]
+        template: Option<String>,
         /// Emit the template list as JSON instead of plain text
         #[arg(long)]
         json: bool,
-        /// Filter by discovery source: project, user, or all
+        /// Filter by discovery source: project, user, builtin, or all
         #[arg(
             long,
             default_value = "all",
@@ -369,12 +448,20 @@ enum Commands {
     /// forward one step, and prints the task details with state-machine
     /// instructions so an agent knows exactly what to do.
     Next {
-        /// Path to the markdown plan file (.rhei.md)
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
+        /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
         /// Target a specific task instead of auto-selecting
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
         /// Emit output as JSON for machine consumption
         #[arg(long)]
         json: bool,
@@ -389,12 +476,20 @@ enum Commands {
     /// Complete a task: transition to terminal state, write the state ledger and
     /// result artifact, link it from the task, and remove the assignee.
     Complete {
-        /// Path to the markdown plan file (.rhei.md)
-        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
-        /// Task identifier (number or name)
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Ticket id to complete (`auth.1`, `3`), or path to the markdown plan
+        /// file (.rhei.md). An id-shaped argument that names no existing path
+        /// is the ticket, with the plan inferred from the working directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is
+        /// used
+        #[arg(value_name = "TICKET_OR_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
+        /// Task identifier (number or name); alternative to naming the ticket
+        /// positionally
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
-        task: String,
+        task: Option<String>,
         /// Result message written to `runtime/results/<task-id>.md`
         #[arg(long)]
         result: String,
@@ -402,11 +497,55 @@ enum Commands {
         #[arg(long)]
         no_callbacks: bool,
     },
-    /// Reset a plan or workspace to the initial state
+    /// Release a claim: drop `**Assignee:**` from a ticket so it can be picked
+    /// up again, leaving its state and artifacts untouched
+    Release {
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Ticket id to release (`auth.1`, `3`), or path to the markdown plan
+        /// file (.rhei.md). An id-shaped argument that names no existing path
+        /// is the ticket, with the plan inferred from the working directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is
+        /// used
+        #[arg(value_name = "TICKET_OR_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
+        /// Ticket to release; alternative to naming it positionally. Omit with
+        /// --all to release every claimed ticket
+        #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
+        task: Option<String>,
+        /// Release every claimed non-terminal ticket in scope
+        #[arg(long)]
+        all: bool,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id is
+        /// its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
+        /// Report what would be released without changing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Reset every ticket in a rhei or project to the initial state and remove
+    /// runtime output
     Reset {
-        /// Path to the markdown plan file (.rhei.md) or workspace directory
+        /// Path to a states YAML file (uses built-in default when omitted)
+        #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
+        state_machine: Option<PathBuf>,
+        /// Path to the markdown plan file (.rhei.md), workspace directory, or
+        /// project. Reset destroys runtime state, so its target is never
+        /// inferred
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
-        input: PathBuf,
+        input: Option<PathBuf>,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
+        /// Report what would be reset and removed without changing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the interactive confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
     /// Print versions for the CLI and related crates
     Version,
@@ -431,7 +570,9 @@ enum Commands {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer",
+            // Every embedded skill, kept in step with the binary's own set by
+            // `default_skills_covers_every_builtin`. §FS-rhei-install-skills.2
+            default_value = "rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer,rhei-template-writer",
             add = ArgValueCompleter::new(complete_skill_name)
         )]
         skills: Vec<String>,

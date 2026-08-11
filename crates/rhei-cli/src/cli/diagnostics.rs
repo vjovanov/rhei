@@ -39,47 +39,91 @@ fn relative_path(from_dir: &Path, to_path: &Path) -> PathBuf {
     result
 }
 
-/// Locate the source directory for a named skill.
-///
-/// Search order:
-/// 1. Installed path: `<binary>/../share/rhei/skills/<skill_name>/`
-/// 2. Dev-build fallback: walk up from the binary looking for `Cargo.toml`
-///    (the repo root), then check `skills/<skill_name>/`.
-fn resolve_skill_source(skill_name: &str) -> MietteResult<PathBuf> {
-    // 1. Binary-relative installed path.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(bin_dir) = exe.parent() {
-            let installed = bin_dir.join("../share/rhei/skills").join(skill_name);
-            if installed.is_dir() {
-                return installed
-                    .canonicalize()
-                    .map_err(|e| miette!("failed to canonicalize '{}': {e}", installed.display()));
-            }
+/// The path a checkout or packaged asset directory offers for a named skill,
+/// if either has one; otherwise the embedded copy. §FS-rhei-install-skills.4.3
+fn filesystem_skill_source(skill_name: &str) -> Option<PathBuf> {
+    // A directory only counts when it holds `SKILL.md`, so a leftover empty
+    // directory cannot shadow the embedded copy with an unreadable install.
+    let usable = |dir: PathBuf| -> Option<PathBuf> {
+        if dir.join("SKILL.md").is_file() {
+            dir.canonicalize().ok()
+        } else {
+            None
+        }
+    };
+
+    // 1. A packaged asset directory installed alongside the binary.
+    let exe = std::env::current_exe().ok();
+    if let Some(bin_dir) = exe.as_deref().and_then(Path::parent) {
+        if let Some(found) = usable(bin_dir.join("../share/rhei/skills").join(skill_name)) {
+            return Some(found);
         }
     }
 
-    // 2. Dev-build fallback: walk up from binary to find repo root (Cargo.toml).
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(|p| p.to_path_buf());
+    // 2. A checkout, found from the binary (a dev build under `target/`) or
+    //    from the current directory (an installed binary run inside a
+    //    checkout, where the skills being edited are the ones to install).
+    let starts = [exe.as_deref().and_then(Path::parent).map(Path::to_path_buf), std::env::current_dir().ok()];
+    for start in starts.into_iter().flatten() {
+        let mut dir = Some(start);
         while let Some(d) = dir {
-            if d.join("Cargo.toml").is_file() {
-                let dev_path = d.join("skills").join(skill_name);
-                if dev_path.is_dir() {
-                    return dev_path.canonicalize().map_err(|e| {
-                        miette!("failed to canonicalize '{}': {e}", dev_path.display())
-                    });
-                }
-                break;
+            if let Some(found) = usable(d.join("crates/rhei-cli/skills").join(skill_name)) {
+                return Some(found);
             }
-            dir = d.parent().map(|p| p.to_path_buf());
+            dir = d.parent().map(Path::to_path_buf);
         }
     }
 
-    Err(miette!(
-        "could not find skill source directory for '{}'. Searched relative to the rhei binary \
-         (../share/rhei/skills/{0}/) and the repo root (skills/{0}/).",
-        skill_name
-    ))
+    None
+}
+
+/// Skill directories resolved for one `install-skills` run.
+///
+/// Embedded skills are materialized into `_extraction`, which must outlive the
+/// install: dropping it deletes the very directories `sources` points at.
+struct ResolvedSkills {
+    sources: Vec<(String, PathBuf)>,
+    _extraction: Option<tempfile::TempDir>,
+}
+
+/// Locate every requested skill, preferring a filesystem copy and falling back
+/// to the copy compiled into this binary. §FS-rhei-install-skills.4.3
+fn resolve_skill_sources(skills: &[String], link: bool) -> MietteResult<ResolvedSkills> {
+    let mut sources = Vec::new();
+    let mut extraction: Option<tempfile::TempDir> = None;
+
+    for skill in skills {
+        if let Some(found) = filesystem_skill_source(skill) {
+            sources.push((skill.clone(), found));
+            continue;
+        }
+        if !builtin_skill_exists(skill) {
+            return Err(unknown_skill_error(skill));
+        }
+        // A symlink into a temporary extraction dangles as soon as the command
+        // exits, so `--link` needs a real source. §FS-rhei-install-skills.4.4
+        if link {
+            return Err(miette!(
+                "--link needs skill files on disk, but '{skill}' is only available as the copy \
+                 embedded in this binary. Searched '<binary>/../share/rhei/skills/{skill}/' and \
+                 'crates/rhei-cli/skills/{skill}/' up from both the binary and the current \
+                 directory. Run from a rhei checkout, or drop --link to copy the embedded skill."
+            ));
+        }
+
+        let temp = match extraction {
+            Some(ref t) => t,
+            None => extraction.insert(
+                tempfile::Builder::new()
+                    .prefix("rhei-builtin-skills-")
+                    .tempdir()
+                    .map_err(|err| miette!("failed to create a temporary directory: {err}"))?,
+            ),
+        };
+        sources.push((skill.clone(), materialize_builtin_skill(skill, temp.path())?));
+    }
+
+    Ok(ResolvedSkills { sources, _extraction: extraction })
 }
 
 /// Find the project root by walking up from the current directory.
@@ -157,6 +201,27 @@ fn inject_marked_section(file: &Path, content: &str, dry_run: bool) -> MietteRes
     Ok(())
 }
 
+/// Whether `line` opens a `# rhei` / `## rhei` registration block.
+fn is_rhei_heading(line: &str) -> bool {
+    (line.starts_with("# rhei") || line.starts_with("## rhei")) && !line.starts_with("###")
+}
+
+/// Index of the first line after the `# rhei` block starting at `heading`. The
+/// block is contiguous, so a blank line ends it; scanning on to the next
+/// heading would delete what a user keeps between. §FS-rhei-install-skills.4.5
+fn claude_md_block_end(lines: &[&str], heading: usize) -> usize {
+    let heading_level = lines[heading].chars().take_while(|&c| c == '#').count();
+    lines
+        .iter()
+        .enumerate()
+        .skip(heading + 1)
+        .find(|(_, line)| {
+            let level = line.chars().take_while(|&c| c == '#').count();
+            line.trim().is_empty() || (level > 0 && level <= heading_level)
+        })
+        .map_or(lines.len(), |(index, _)| index)
+}
+
 /// Remove the `<!-- rhei:start -->` … `<!-- rhei:end -->` block from a file.
 ///
 /// Also handles the `# rhei` heading-based block used by Claude Code's
@@ -195,32 +260,26 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
         result = format!("{}{}", &result[..block_start], &result[block_end..]);
     }
 
-    // Remove `# rhei` heading block (Claude Code).
+    // Remove the `# rhei` heading block (Claude Code), and only that block —
+    // whatever follows it belongs to the user. §FS-rhei-install-skills.4.5
     let lines: Vec<&str> = result.lines().collect();
     let mut new_lines: Vec<&str> = Vec::new();
-    let mut in_rhei_block = false;
-    let mut rhei_heading_level = 0usize;
+    let mut index = 0;
 
-    for line in &lines {
-        if !in_rhei_block {
-            // Detect `# rhei` or `## rhei` heading.
-            if (line.starts_with("# rhei") || line.starts_with("## rhei"))
-                && !line.starts_with("###")
-            {
-                in_rhei_block = true;
-                rhei_heading_level = line.chars().take_while(|&c| c == '#').count();
-                continue;
-            }
-            new_lines.push(line);
-        } else {
-            // Check if this line is a heading of equal or higher level.
-            let level = line.chars().take_while(|&c| c == '#').count();
-            if level > 0 && level <= rhei_heading_level {
-                in_rhei_block = false;
-                new_lines.push(line);
-            }
-            // Otherwise skip the line (part of the rhei block).
+    while index < lines.len() {
+        if is_rhei_heading(lines[index]) {
+            let end = claude_md_block_end(&lines, index);
+            // Drop the blank line that separated the block from what follows,
+            // so removing the section does not leave a growing gap behind.
+            index = if lines.get(end).is_some_and(|line| line.trim().is_empty()) {
+                end + 1
+            } else {
+                end
+            };
+            continue;
         }
+        new_lines.push(lines[index]);
+        index += 1;
     }
 
     let final_content = if new_lines.is_empty() {
@@ -246,6 +305,28 @@ fn remove_marked_section(file: &Path, dry_run: bool) -> MietteResult<()> {
         .map_err(|e| miette!("failed to write '{}': {e}", file.display()))?;
 
     Ok(())
+}
+
+/// Render a plan path for a diagnostic header.
+///
+/// Prefers the form relative to the invocation directory when it is shorter:
+/// a project loader hands back absolute paths, and an absolute path wraps
+/// across the miette gutter into something no editor jump-to-file recognises.
+fn display_path(path: &Path) -> String {
+    let absolute = path.display().to_string();
+    let Ok(cwd) = std::env::current_dir() else {
+        return absolute;
+    };
+    let relative = relative_path(&cwd, path).display().to_string();
+    // An empty relative path means the target *is* the invocation directory.
+    if relative.is_empty() {
+        return ".".to_string();
+    }
+    if relative.len() < absolute.len() {
+        relative
+    } else {
+        absolute
+    }
 }
 
 /// Convert a parser error into an Elm-style diagnostic report.
@@ -291,7 +372,7 @@ fn render_workspace_parse_diagnostic(groups: &[ParseErrorGroup]) -> String {
     let mut index = 1usize;
     for group in groups {
         lines.push(String::new());
-        lines.push(format!("{}:", group.path.display()));
+        lines.push(format!("{}:", display_path(&group.path)));
         for err in &group.errors {
             match err.line {
                 Some(line_number) => {
@@ -327,7 +408,7 @@ fn render_multi_parse_diagnostic(
 
     let mut lines = vec![
         "-- PARSE ERROR ----------------------------".to_string(),
-        format!("in {}", path.display()),
+        format!("in {}", display_path(path)),
     ];
     lines.push(String::new());
     lines
@@ -354,6 +435,77 @@ fn render_multi_parse_diagnostic(
     lines.join("\n")
 }
 
+/// Report a parse error raised while loading a multi-document plan (a Panta
+/// project, a Directory Workspace).
+///
+/// When the error names the file its line belongs to and that file still
+/// reads, this renders the same code frame a single-file plan gets, and
+/// re-parses the file to recover the *full* error set. The point is that
+/// `rhei validate` inside a project must not be less helpful than
+/// `rhei validate <that same file>` — the project form is the one `rhei init`
+/// steers every new author toward.
+// §FS-rhei-validate.4.2: parse diagnostics read the same in both scopes.
+fn nested_parse_report(err: &rhei_core::parser::ParseError) -> Report {
+    let Some(path) = err.file.as_deref() else {
+        return miette!("{}", err.message);
+    };
+    let Ok(source) = std::fs::read_to_string(path) else {
+        // The file moved or is unreadable; the message still stands on its own.
+        return miette!("{}: {}", path.display(), err.message);
+    };
+    // The project loader stops at the first error per entry, so the diagnostic
+    // that actually explains the mistake — the structural one recovery reaches
+    // last — would otherwise never be printed.
+    let collected = collect_parse_errors(path, &source);
+    if collected.len() > 1 && collected.iter().any(|other| other.message == err.message) {
+        return parse_errors_report(path, &source, &collected);
+    }
+    parse_report(path, &source, err)
+}
+
+/// Re-parse `path` with the error-collecting parser that matches its role in a
+/// project, so a nested failure can be reported with the same completeness as
+/// `rhei validate <path>`.
+///
+/// Returns an empty vector when the file's role is not one this can reproduce;
+/// the caller then falls back to the single error it already has.
+fn collect_parse_errors(path: &Path, source: &str) -> Vec<rhei_core::parser::ParseError> {
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+
+    // A single-file rhei parses as a whole plan.
+    if name.ends_with(".rhei.md") && name != "index.rhei.md" {
+        return rhei_core::parser::parse_collect(source).1;
+    }
+
+    // A workspace task file or a basin ticket file parses as bare task nodes,
+    // against the structure of the document that owns it.
+    let Some(structure) = owning_structure(path) else {
+        return Vec::new();
+    };
+    rhei_core::parser::parse_workspace_tasks_collect_with_structure(source, &structure).1
+}
+
+/// Structure governing a bare task file: its Directory Workspace index, or the
+/// project manifest when the file is a basin ticket. §FS-rhei-panta.2
+fn owning_structure(path: &Path) -> Option<rhei_core::ast::Structure> {
+    let parent = path.parent()?;
+    // `tasks/` files may nest, so walk up to the workspace root.
+    let mut dir = parent;
+    loop {
+        let index = dir.join("index.rhei.md");
+        if index.is_file() {
+            let raw = std::fs::read_to_string(&index).ok()?;
+            return Some(rhei_core::parser::parse_workspace_index(&raw).ok()?.structure);
+        }
+        let manifest = dir.join(rhei_core::workspace::PANTA_INDEX_FILE);
+        if manifest.is_file() {
+            let raw = std::fs::read_to_string(&manifest).ok()?;
+            return Some(rhei_core::parser::parse_panta_manifest(&raw).ok()?.structure);
+        }
+        dir = dir.parent()?;
+    }
+}
+
 /// Convert file I/O failures into a consistent diagnostic message.
 fn file_io_report(path: &Path, action: &str, err: impl std::fmt::Display) -> Report {
     miette!("{action} '{}': {err}", path.display())
@@ -371,7 +523,7 @@ fn render_parse_diagnostic(
 ) -> String {
     let mut lines = vec![
         "-- PARSE ERROR ----------------------------".to_string(),
-        format!("in {}", path.display()),
+        format!("in {}", display_path(path)),
     ];
     lines.push(String::new());
     lines.push("I got stuck while reading this markdown plan.".to_string());
@@ -404,7 +556,7 @@ fn render_validation_diagnostic(
 ) -> String {
     let mut lines = vec![
         "-- VALIDATION ERROR ----------------------".to_string(),
-        format!("in {}", input.display()),
+        format!("in {}", display_path(input)),
     ];
     lines.push(String::new());
     lines.push(format!(
@@ -433,4 +585,31 @@ fn format_validation_errors(errors: &[String]) -> String {
 
 fn line_text(input: &str, line_number: usize) -> Option<&str> {
     input.lines().nth(line_number.saturating_sub(1))
+}
+
+/// One line naming both routes to a first rhei, for messages with no room.
+/// Saying only *where* the file goes left the harder half — what belongs
+/// inside it — unstated just when an author needs it. §FS-rhei-panta.6
+fn add_a_rhei_hint() -> &'static str {
+    "add one with `rhei instantiate <template>` (`rhei templates` lists them), or by hand as a \
+     `<id>.rhei.md` file next to index.panta.md"
+}
+
+/// The same two routes with room to show what a hand-written plan looks like.
+/// §FS-rhei-panta.6
+fn add_a_rhei_help() -> String {
+    [
+        "Add a rhei either way:",
+        "  from a template  `rhei templates` lists them; `rhei instantiate <name>` writes one",
+        "                   into this project, keeping the template's own state machine",
+        "  by hand          create `<id>.rhei.md` next to index.panta.md:",
+        "",
+        "                       # Rhei: <title>",
+        "",
+        "                       ## Tasks",
+        "",
+        "                       ### Task 1: <first ticket>",
+        "                       **State:** pending",
+    ]
+    .join("\n")
 }

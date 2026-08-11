@@ -94,14 +94,49 @@ The commands that coordinate through the state machine:
 
 | Command            | What it does                                                                    |
 |--------------------|---------------------------------------------------------------------------------|
-| `rhei run`         | Drives the full plan forward under orchestrator authority                       |
-| `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only)    |
+| `rhei init`        | Sets up a Panta project in a gitignored `panta/` folder (or in place with `--here`): manifest, ignore rules, agent-discovery note (§FS-rhei-init) |
+| `rhei run`         | Drives the full plan forward under orchestrator authority (`--rhei <id>` narrows a project-scoped run) |
+| `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only, `--rhei <id>` to narrow) |
 | `rhei transition`  | Atomically changes a task's state via compare-and-swap                          |
 | `rhei complete`    | Terminal transition invoked by a manual worker; records result, releases claim  |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
 | `rhei snapshot`    | Lists, shows, prunes, or continues from session snapshots captured by `rhei run` |
 
 `rhei run` and the manual-worker flow (`next` / `transition` / `complete`) are mutually exclusive per execution — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives. The typical manual-worker loop is `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
+
+Ticket ids in command output are project-qualified — `<rhei-id>.<task-id>`, e.g. `plan.1` for a single-file `plan.rhei.md` — and `rhei list` accepts the same `--rhei <id>` narrowing as `run`, `next`, and `reset` (§FS-rhei-panta.6).
+
+#### Naming a ticket
+
+Every command that acts on one ticket accepts it the same two ways: as the
+first positional argument (`rhei complete auth.1`, `rhei release auth.1`,
+`rhei transition auth.1 --from …`) or through `--task`. The positional slot on
+these commands is a *ticket or plan*: an argument that names an existing path
+is the plan, and an id-shaped argument that names no path is the ticket, with
+the plan resolved from the working directory as usual (§FS-rhei-complete.2.1).
+`--task` always names the ticket, which leaves the positional free to name the
+plan for a caller that wants to be explicit about both.
+
+One shape across the family matters more than the shape chosen. These commands
+are used in sequence on the same ticket — claim it, advance it, finish it, or
+hand it back — and a caller that has just typed `rhei complete auth.1` has no
+way to guess that `rhei release auth.1` is a path error rather than the same
+gesture. `rhei next` is the exception that proves the rule: it *selects* a
+ticket rather than being given one, so it has no ticket argument at all.
+
+#### Output streams
+
+Human-readable output, machine formats (`--json`, `--format json`), and the
+rendered documents all go to stdout; diagnostics and warnings go to stderr, so
+`rhei list 2>/dev/null` is a clean ticket listing even when a rhei fails to
+load (§FS-rhei-panta.6).
+
+A consumer may stop reading stdout before a command finishes writing it —
+`rhei list | head`, `rhei states | grep -q`, quitting a pager. That is normal
+shell usage, not a failure: the command stops writing and exits without a
+panic, a stack trace, or a diagnostic, exactly as `ls | head` does. Reporting
+an internal error there would make every pipeline into `head` look like a bug
+in the plan.
 
 The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
 `rhei run --from-snapshot` is the run-time override surface for ad-hoc

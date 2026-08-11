@@ -18,8 +18,10 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let re_states_decl = Regex::new(r#"^\*\*States:\*\*\s+(.+)$"#).unwrap();
     let re_state = Regex::new(r#"^\*\*State:\*\*\s*(.+)$"#).unwrap();
     let re_state_like = Regex::new(r#"^\*\*State\b.*$"#).unwrap();
+    // The kind keyword is optional decoration; accepting the bare form lets an
+    // author paste back the id every surface prints. §FS-rhei-plan-language.5
     let re_prior_ref =
-        Regex::new(&format!(r#"^([A-Za-z][A-Za-z0-9_-]*)\s+({task_id_pattern})$"#)).unwrap();
+        Regex::new(&format!(r#"^(?:([A-Za-z][A-Za-z0-9_-]*)\s+)?({task_id_pattern})$"#)).unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
     let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
     let re_assignee_like = Regex::new(r#"^\*\*Assignee\b.*$"#).unwrap();
@@ -27,6 +29,10 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let re_model_like = Regex::new(r#"^\*\*Model(?::\*\*\s*|\*\*.*)$"#).unwrap();
     let re_target = Regex::new(r#"^\*\*Target:\*\*\s*(.+)$"#).unwrap();
     let re_target_like = Regex::new(r#"^\*\*Target(?::\*\*\s*|\*\*.*)$"#).unwrap();
+    // Any `**Word:**` line opening a task's metadata block. Recognized fields
+    // are matched before this, so what reaches it is a field name Rhei does
+    // not know — almost always a misspelling of one it does.
+    let re_unknown_metadata = Regex::new(r#"^\*\*([A-Za-z][A-Za-z0-9 _-]*):\*\*"#).unwrap();
     let re_h2_heading = Regex::new(r#"^##\s+\S.*$"#).unwrap();
     let re_section_header = Regex::new(r#"^##\s+(.+)$"#).unwrap();
 
@@ -100,6 +106,7 @@ pub fn parse(input: &str) -> Result<Rhei> {
         if line.is_empty() {
             if in_tasks_section {
                 if let Some(top) = node_stack.last_mut() {
+                    top.blank_line_seen = true;
                     top.content.push('\n');
                 }
             } else if in_code_block {
@@ -174,8 +181,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 pre_tasks_h2_seen = true;
                 if let Some(cap) = re_section_header.captures(line) {
                     let section_title = cap.get(1).unwrap().as_str().trim().to_string();
-                    rhei_content
-                        .push(ContentSection { title: section_title, content: String::new() });
+                    rhei_content.push(ContentSection {
+                        title: section_title,
+                        content: String::new(),
+                        rhei: None,
+                    });
                 }
                 continue;
             }
@@ -220,10 +230,19 @@ pub fn parse(input: &str) -> Result<Rhei> {
 
             let kind_canonical = kind_raw.to_ascii_lowercase();
             if !structure.accepts_kind(&kind_canonical) {
+                // Naming the fault without the fix sends the author hunting:
+                // node kinds are declared in the plan's own frontmatter, which
+                // is not where a heading error makes anyone look.
                 return Err(ParseError::new(
                     format!(
-                        "unknown node kind `{}` at heading; declared kinds are {:?}",
-                        kind_raw, structure.node_kinds
+                        "unknown node kind `{}` at heading; this plan declares {:?}. \
+                         Add it to `structure.nodeKinds` in the plan's YAML frontmatter \
+                         (`structure:` / `  nodeKinds: [{}, {}]`), or use one of the \
+                         declared kinds",
+                        kind_raw,
+                        structure.node_kinds,
+                        structure.node_kinds.join(", "),
+                        kind_canonical
                     ),
                     Some(line_number),
                 ));
@@ -303,12 +322,14 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 level,
                 state: None,
                 prior: Vec::new(),
+                prior_kinds: Vec::new(),
                 assignee: None,
                 model: None,
                 target: None,
                 content: String::new(),
                 children: Vec::new(),
                 metadata_closed: false,
+                blank_line_seen: false,
                 heading_line: line_number,
             });
             continue;
@@ -375,29 +396,42 @@ pub fn parse(input: &str) -> Result<Rhei> {
             }
             let prior_value = line.strip_prefix("**Prior:**").unwrap_or_default();
             let mut ids = Vec::new();
+            let mut kinds = Vec::new();
             for item in prior_value.split(',') {
                 let item = item.trim();
                 let Some(caps) = re_prior_ref.captures(item) else {
                     return Err(ParseError::new(
-                        "Malformed metadata field: expected '**Prior:** Task <id>'",
+                        format!(
+                            "Malformed **Prior:** reference '{item}': expected a task id \
+                             (`**Prior:** 1`, `**Prior:** auth.2`), optionally prefixed with \
+                             its node kind (`**Prior:** Task auth.2`); separate several with \
+                             commas"
+                        ),
                         Some(line_number),
                     ));
                 };
                 let Some(id) = caps.get(2).and_then(|m| parse_task_id(m.as_str())) else {
                     return Err(ParseError::new(
-                        "Malformed metadata field: expected '**Prior:** Task <id>'",
+                        format!(
+                            "Malformed **Prior:** reference '{item}': '{}' is not a valid task id",
+                            caps.get(2).map(|m| m.as_str()).unwrap_or(item)
+                        ),
                         Some(line_number),
                     ));
                 };
                 ids.push(id);
+                // Kept as authored; the validator checks it against the
+                // referenced node's kind. §FS-rhei-plan-language.3.1
+                kinds.push(caps.get(1).map(|m| m.as_str().to_string()));
             }
             if ids.is_empty() {
                 return Err(ParseError::new(
-                    "Malformed metadata field: expected '**Prior:** Task <id>'",
+                    "Empty **Prior:** field: name at least one task id, or drop the line",
                     Some(line_number),
                 ));
             }
             top.prior.extend(ids);
+            top.prior_kinds.extend(kinds);
             continue;
         }
 
@@ -548,6 +582,27 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 "Tasks section must be the final '##' chapter and appear as '## Tasks'",
                 Some(line_number),
             ));
+        }
+
+        // An unrecognized `**Field:**` where metadata goes is a typo, not
+        // prose: falling through to content drops a mistyped `**Priorr:**`
+        // and leaves a green plan with no dependency. §FS-rhei-plan-language.2
+        if let Some(top) = node_stack.last() {
+            if !top.metadata_closed && !top.blank_line_seen {
+                if let Some(caps) = re_unknown_metadata.captures(line) {
+                    let field = caps.get(1).unwrap().as_str();
+                    return Err(ParseError::new(
+                        format!(
+                            "Unknown metadata field '**{field}:**' for Task {}. Task metadata \
+                             is one of **State:**, **Prior:**, **Assignee:**, **Model:**, \
+                             **Target:**. Leave a blank line before this line to keep it as \
+                             task content.",
+                            top.id
+                        ),
+                        Some(line_number),
+                    ));
+                }
+            }
         }
 
         // Content line: append to the innermost open node.

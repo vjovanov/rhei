@@ -317,11 +317,12 @@ fn snapshot_generation_protected_by_active_inherit(
     ctx: &SnapshotCommandContext,
 ) -> bool {
     for task in flatten_tasks(&ctx.loaded.rhei) {
-        let current_state = normalized_state_name(task.state.as_str(), &ctx.machine);
-        if is_terminal_state(&current_state, &ctx.machine) {
+        let machine = ctx.machines.for_task(&task.id);
+        let current_state = normalized_state_name(task.state.as_str(), machine);
+        if is_terminal_state(&current_state, machine) {
             continue;
         }
-        let Some(state_def) = ctx.machine.states.get(&current_state) else {
+        let Some(state_def) = machine.states.get(&current_state) else {
             continue;
         };
         let Some(inherit) =

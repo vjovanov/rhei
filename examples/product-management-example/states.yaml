@@ -30,7 +30,7 @@
 #
 # Per-task paths
 # --------------
-#   product-management-loop:
+#   loop:
 #     (product-run -> aggregate-validate -> implement) x 2
 #     -> completed
 

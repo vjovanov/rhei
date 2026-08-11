@@ -108,7 +108,9 @@ fn preload_snapshot_inherit_before_spawn(
             plan_path: input.to_path_buf(),
             cache_root: cache_root.clone(),
             loaded,
-            machine: machine.clone(),
+            // Single-ticket context: the preloading ticket's machine stands
+            // in for the set. §DA-per-rhei-state-machines
+            machines: rhei_validator::MachineSet::single(machine.clone()),
             settings: settings.clone(),
         };
         // `--target` has already selected the inheriting invocation. Source

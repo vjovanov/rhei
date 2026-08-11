@@ -340,7 +340,9 @@ case "$command_name" in
         consolidate
         ;;
     execute-task)
-        case "${RHEI_TASK_ID:-}" in
+        # Dispatch on the rhei-local heading id; RHEI_TASK_ID is the
+        # project-qualified form (e.g. `living-review-loop.verify-cache-key`).
+        case "${RHEI_TASK_ID_LOCAL:-}" in
             verify-cache-key)
                 verify_cache_key
                 ;;
@@ -357,7 +359,7 @@ case "$command_name" in
                 fix_timeout_details
                 ;;
             *)
-                echo "unknown task id for execute-task: ${RHEI_TASK_ID:-}" >&2
+                echo "unknown task id for execute-task: ${RHEI_TASK_ID_LOCAL:-}" >&2
                 exit 1
                 ;;
         esac

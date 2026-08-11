@@ -223,10 +223,12 @@ High-level context.
             ContentSection {
                 title: "Overview".to_string(),
                 content: "High-level context.".to_string(),
+                rhei: None,
             },
             ContentSection {
                 title: "Requirements".to_string(),
                 content: "- Preserve audit logs\n- Support approvals".to_string(),
+                rhei: None,
             },
         ]
     );
@@ -420,8 +422,37 @@ fn rejects_prior_id_segments_with_leading_zeroes_instead_of_partial_match() {
 "#;
 
     let err = parse(input).unwrap_err();
-    assert!(err.message.contains("Malformed metadata field"));
+    assert!(
+        err.message.contains("Malformed **Prior:** reference 'Task 01'"),
+        "the error must quote what was written; got: {}",
+        err.message
+    );
     assert_eq!(err.line, Some(9));
+}
+
+/// §FS-rhei-plan-language.5: every surface that prints a dependency prints the
+/// bare id (`rhei list` renders `(prior: auth.2)`), so pasting that back must
+/// parse. The kind keyword is decoration the parser already discarded.
+#[test]
+fn accepts_prior_references_with_and_without_the_kind_keyword() {
+    let input = r#"# Rhei: Example
+## Tasks
+
+### Task 1: Alpha
+**State:** pending
+
+### Task 2: Beta
+**State:** pending
+**Prior:** 1
+
+### Task 3: Gamma
+**State:** pending
+**Prior:** Task 1, 2
+"#;
+
+    let rhei = parse(input).expect("bare and prefixed prior refs both parse");
+    assert_eq!(rhei.tasks[1].prior.iter().map(|id| id.to_string()).collect::<Vec<_>>(), ["1"]);
+    assert_eq!(rhei.tasks[2].prior.iter().map(|id| id.to_string()).collect::<Vec<_>>(), ["1", "2"]);
 }
 
 #[test]

@@ -1,4 +1,3 @@
-
 /// Flags that control standalone execution behavior for `rhei run`.
 #[derive(Args, Clone, Debug, Default)]
 #[command(next_help_heading = "Standalone Execution")]
@@ -15,6 +14,10 @@ struct StandaloneExecutionFlags {
     /// Maximum number of agents to run concurrently (0 = unlimited)
     #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
     parallel: usize,
+    /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+    /// is its file stem or directory name; default is the whole project
+    #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+    rhei: Vec<String>,
     /// Force TUI mode even when stdout is not detected as a TTY
     #[arg(long, conflicts_with = "no_tui")]
     tui: bool,
@@ -106,6 +109,18 @@ impl RunOptions {
         self.standalone.parallel
     }
 
+    /// Rhei ids this invocation is narrowed to; empty means the whole project.
+    /// §FS-rhei-panta.6
+    fn rhei_scope(&self) -> &[String] {
+        &self.standalone.rhei
+    }
+
+    /// Adopt the scope implied by the resolved target — the rhei a member-plan
+    /// path pointed at — when `--rhei` did not already set one. §FS-rhei-panta.6
+    fn narrow_to(&mut self, scope: Vec<String>) {
+        self.standalone.rhei = scope;
+    }
+
     fn frontend_kind(&self) -> rhei_tui::FrontendKind {
         if self.standalone.tui {
             rhei_tui::FrontendKind::Tui
@@ -186,28 +201,24 @@ struct ActiveRunFrontend {
 
 struct RunGateTransitionSink {
     input: PathBuf,
-    machine: rhei_validator::StateMachine,
-    callback_paths: CallbackPaths,
+    machines: ExecutionMachines,
     no_callbacks: bool,
 }
 
 impl RunGateTransitionSink {
-    fn new(
-        input: PathBuf,
-        machine: rhei_validator::StateMachine,
-        callback_paths: CallbackPaths,
-        no_callbacks: bool,
-    ) -> Self {
-        Self { input, machine, callback_paths, no_callbacks }
+    fn new(input: PathBuf, machines: ExecutionMachines, no_callbacks: bool) -> Self {
+        Self { input, machines, no_callbacks }
     }
 }
 
 impl rhei_tui::GateTransitionSink for RunGateTransitionSink {
     fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+        // A gate decision lands on one ticket: its own machine and callback
+        // base execute the human transition. §DA-per-rhei-state-machines
         transition_dashboard_gate(
             &self.input,
-            &self.machine,
-            &self.callback_paths,
+            self.machines.for_task_str(task_id),
+            self.machines.callbacks_for_str(task_id),
             task_id,
             from,
             to,
@@ -247,11 +258,10 @@ impl ActiveRunFrontend {
 fn start_run_frontend(
     workspace_root: &Path,
     plan_input: &Path,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
-    machine: &rhei_validator::StateMachine,
 ) -> ActiveRunFrontend {
     if opts.dry_run() {
         return ActiveRunFrontend {
@@ -268,15 +278,14 @@ fn start_run_frontend(
     // so the TUI render thread and dashboard share one run model and the same
     // intervene/gate boundaries; neither parses plans itself. §FS-rhei-run-tui.1.5
     let plan_path = plan_input.to_path_buf();
-    let loader_machine = machine.clone();
+    let loader_machines = machines.set.clone();
     let loader: rhei_tui::PlanLoader =
-        Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machine));
+        Arc::new(move || load_plan_for_dashboard(&plan_path, &loader_machines));
     // AR §7: the intervene registry the run loop registers agents into.
     let registry = Arc::new(RunInterveneSink::new(workspace_root.join("runtime")));
     let gate = Arc::new(RunGateTransitionSink::new(
         plan_input.to_path_buf(),
-        machine.clone(),
-        callback_paths.clone(),
+        machines.clone(),
         opts.no_callbacks(),
     ));
 
@@ -326,8 +335,7 @@ fn start_run_frontend(
     // render per-task driver/duration regardless of dashboard state.
     // §FS-rhei-run-report.3
     let summary = Arc::new(SummarySink::new());
-    let mut inner: Vec<Arc<dyn rhei_tui::EventSink>> =
-        vec![frontend.sink.clone(), summary.clone()];
+    let mut inner: Vec<Arc<dyn rhei_tui::EventSink>> = vec![frontend.sink.clone(), summary.clone()];
     if let Some(dashboard) = &dashboard {
         inner.push(dashboard.clone());
     }
@@ -375,23 +383,23 @@ fn transition_dashboard_gate(
         ));
     }
 
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles {
+            task_file: &route.task_file,
+            metadata_file: &route.metadata_file,
+            metadata_id: &route.metadata_id,
+            artifact_root: &route.execution_root,
+            artifact_id: task_id_str,
+        },
         callback_paths,
         machine,
-        task_id_str,
+        &route.local_id,
         from,
         to,
         no_callbacks,
     )?;
-    let root = result_workspace_root(input, &task_file);
-    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
+    append_result_entry(&route.execution_root, task_id_str, from, &effective_to, None)?;
     Ok(effective_to)
 }
 
@@ -401,15 +409,19 @@ fn transition_dashboard_gate(
 /// `None` and let the dashboard fall back to the last good model. AR §5.2.
 fn load_plan_for_dashboard(
     plan_path: &Path,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> Option<rhei_viz_model::VizModel> {
     let loaded = load_plan(plan_path).ok()?;
-    let workspace_root = if workspace::is_workspace(plan_path) {
-        plan_path
-    } else {
-        plan_path.parent().unwrap_or_else(|| Path::new("."))
-    };
-    Some(rhei_viz::build_with_history(&loaded.rhei, machine, workspace_root))
+    // Any directory input — workspace or Panta project — is its own execution
+    // root; per-task roots route each ticket's history to its owning rhei,
+    // which is where a project run writes its ledgers. §AR-rhei-panta.5
+    let default_root = execution_workspace_root(plan_path);
+    Some(rhei_viz::build_set_with_history_roots(
+        &loaded.rhei,
+        machines,
+        &default_root,
+        &loaded.task_roots,
+    ))
 }
 
 impl

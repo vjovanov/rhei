@@ -438,7 +438,11 @@ All snapshots live under the plan workspace cache:
 ```
 
 `<task-id>` follows the encoding in §FS-rhei-plan-language (single segment or
-dotted form). `<snapshot-name>` is the reserved literal `_state` for
+dotted form) and is the project-qualified ticket id (§FS-rhei-panta.6), so its
+leading segment is always the owning rhei's id (`plan.1.2` for a single-file
+`plan.rhei.md`). Caches produced before qualification are keyed by the bare
+rhei-local id, no longer resolve, and surface as orphaned; `rhei snapshot gc`
+prunes them. `<snapshot-name>` is the reserved literal `_state` for
 auto-emitted snapshots, or the value of `snapshot.emit.name` for named
 snapshots; the leading underscore in `_state` guarantees no collision with
 author names (which must match `^[a-z][a-z0-9-]*$`). `<emitting-state>` is
@@ -533,7 +537,7 @@ operator-driven concurrency without ever reusing a generation number.
   "rhei_version": "x.y.z",
 
   "snapshot_name": "implementation",
-  "task_id": "1.2.3",
+  "task_id": "plan.1.2.3",
   "emitting_state": "pending",
   "visit": 1,
   "generation": 1,
@@ -564,7 +568,7 @@ operator-driven concurrency without ever reusing a generation number.
   "transcript_bytes": 142387,
 
   "parent_ref": {
-    "task_id": "1.2",
+    "task_id": "plan.1.2",
     "snapshot_name": "research",
     "emitting_state": "draft",
     "visit": 1,

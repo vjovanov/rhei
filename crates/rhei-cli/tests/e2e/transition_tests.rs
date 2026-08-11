@@ -180,10 +180,11 @@ transitions:
 
     let result = run_transition(&plan_path, &machine_path, "1", "draft", "review");
     assert!(!result.status.success(), "transition should fail when target input is missing");
-    assert!(
-        result.stderr.contains("Missing required input artifact: findings (runtime/findings/1.md)"),
-        "expected missing input artifact error; got:\n{}",
-        result.stderr
+    // §FS-rhei-panta.6: artifact paths render the project-qualified id.
+    assert_stderr_contains(&result, "Task plan.1 cannot enter state review.");
+    assert_stderr_contains(
+        &result,
+        "Missing required input artifact: findings (runtime/findings/plan.1.md)",
     );
     assert_task_state(&plan_path, &machine_path, "1", "draft");
 

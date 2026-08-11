@@ -219,7 +219,10 @@ transitions:
         fs::read_to_string(&capture_path).expect("callback should have written stdin payload");
     let parsed: serde_json::Value =
         serde_json::from_str(&captured).expect("captured payload should be JSON");
-    assert_eq!(parsed["task"]["id"], "1");
+    // §FS-rhei-panta.6: callbacks see the qualified id; the heading id rides
+    // along as `localId`.
+    assert_eq!(parsed["task"]["id"], "plan.1");
+    assert_eq!(parsed["task"]["localId"], "1");
     assert_eq!(parsed["task"]["title"], "Alpha");
     assert_eq!(parsed["transition"]["from"], "pending");
     assert_eq!(parsed["transition"]["to"], "in-progress");

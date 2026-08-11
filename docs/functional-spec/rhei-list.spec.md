@@ -8,16 +8,19 @@ timestamps).
 ## 1. Usage
 
 ```bash
-rhei list <RHEI_PLAN> [FILTERS] [--limit N] [--json]
+rhei list <RHEI_PLAN> [FILTERS] [--rhei <RHEI_ID>] [--limit N] [--json]
 ```
 
-`<RHEI_PLAN>` is a single-file plan or a Directory Workspace path.
+`<RHEI_PLAN>` is a single-file plan, a Directory Workspace, or a Panta project
+directory. Listing is project-wide: filters apply across every rhei, and
+`--rhei` narrows the listing to named rheis (§FS-rhei-panta.6.4).
 
 ## 2. Options
 
 | Flag                     | Description                                                                       |
 |--------------------------|-----------------------------------------------------------------------------------|
-| `--state <STATE>`        | Filter by state. Repeatable; comma-separated also accepted. Aliases are normalized through the resolved state machine. |
+| `--rhei <RHEI_ID>`       | Only tickets in the named rheis. Repeatable. An id that names no rhei in the project is an error listing the available ids. §FS-rhei-panta.6.4 |
+| `--state <STATE>`        | Filter by state. Repeatable; comma-separated also accepted. Aliases are normalized per owning machine. A state no loaded machine declares is an error (§2.1). |
 | `--assignee <ASSIGNEE>`  | Exact `**Assignee:**` match. Mutually exclusive with `--no-assignee`.            |
 | `--no-assignee`          | Only tasks with no `**Assignee:**` field.                                         |
 | `--kind <KIND>`          | Filter by node kind (e.g. `task`, `bug`, `spec`). Case-insensitive.               |
@@ -27,38 +30,90 @@ rhei list <RHEI_PLAN> [FILTERS] [--limit N] [--json]
 | `--contains <TEXT>`      | Case-insensitive substring match against task title and content body.             |
 | `--terminal`             | Only tasks whose state is terminal in the resolved state machine.                 |
 | `--non-terminal`         | Only tasks whose state is non-terminal. Mutually exclusive with `--terminal`.     |
-| `--ready`                | Only tasks whose `**Prior:**` set is satisfied and whose state is non-terminal and non-gating. Mutually exclusive with `--blocked`. |
+| `--ready`                | Only **leaf** tasks whose `**Prior:**` set is satisfied and whose state is non-terminal and non-gating — the claimable set (§3.1). Mutually exclusive with `--blocked`. |
 | `--blocked`              | Only non-terminal tasks with at least one unsatisfied prerequisite.               |
 | `--limit <N>`            | Cap the number of printed tasks. `0` means no limit (default).                    |
 | `--json`                 | Emit a JSON array instead of human-readable text.                                 |
 
 Filters combine with logical AND. Empty result sets are not an error.
 
+### 2.1. Filter values that name nothing
+
+A filter *value* that cannot exist is a different thing from a filter that
+matches nothing, and the two must not look alike. `--rhei` already draws that
+line: an id naming no rhei is an error listing the available ids "rather than a
+silently empty scope" (§FS-rhei-panta.6). `--state` follows the same rule — a
+value no loaded machine declares is an error naming the states that do exist:
+
+```text
+unknown state 'in-reveiw'; states in this project: cancelled, completed, fix, pending, review
+```
+
+A silent `(no tasks match the given filters)` reads as "no work is in that
+state", which is exactly the wrong conclusion to hand someone whose state was
+renamed out from under a script, or who typed it slightly wrong.
+
+Validation is against every machine the project loads, not the `--rhei` scope.
+A project runs one machine per rhei (§AR-rhei-panta.4), so `--rhei billing
+--state review` names a state that genuinely exists while no in-scope ticket
+can hold it. That is an honest empty result, not a mistake.
+
+`--assignee` takes no such check: any string is a legitimate assignee, and
+there is no declared set to check it against.
+
 ## 3. Behavior
 
-1. Load the plan and resolve the state machine the same way `rhei validate` does
-   (auto-discovery, `**States:**` field, `--state-machine` override).
+1. Load the plan and resolve each rhei's state machine the same way
+   `rhei validate` does (auto-discovery, `**States:**` field,
+   `--state-machine` override). A project resolves one machine per rhei
+   (§AR-rhei-panta.4), and every state judgment below — normalization,
+   terminality, gating — uses the machine of the rhei that owns the ticket.
 2. Walk the task tree in source order, recording each task with its parent id.
 3. Apply filters in order; normalize `--state` values and the task's own state
-   through the state machine so aliases match.
+   through that ticket's machine so aliases match.
 4. For `--ready` / `--blocked`, evaluate prerequisites against the current
    plan state using the same dependency rule as `rhei next` (terminal,
    non-cancelled).
 5. Apply `--limit` after filtering.
+
+### 3.1. What `--ready` means
+
+`--ready` answers "what work could be picked up", so it lists exactly the set
+`rhei next` draws from — including the **leaf-only** rule that command applies.
+A ticket with children is a container whose state rolls up from them; `rhei next`
+never claims one, so listing it as ready offers work that cannot be handed out
+and inflates every count taken from the listing.
+
+`--ready` reports *readiness*, not *availability*: a ready ticket that already
+carries an `**Assignee:**` is still listed, because whether someone has claimed
+it is a separate question with its own filters. Compose them for the narrower
+answer — `rhei list --ready --no-assignee` is the unclaimed ready work.
 6. Emit the result. The plan file is **not** modified and no lock is acquired.
 
 ## 4. Output
 
 ### 4.1. Text (default)
 
-One task per line, indented two spaces per depth level, in source order:
+One task per line, indented two spaces per depth level *within its rhei* — the
+Panta qualification segment adds no indentation, so top-level tickets stay
+flush-left — in source order:
 
 ```text
-Task 1: Define pipeline contracts [pending]
-  Task 1.1: Capture deployment events [pending]
-Task 2: Bootstrap environments [pending] (prior: 1)
-Task 3: Roll out release bot [in-progress] (prior: 1, 2) @claude-code
+Task release.1: Define pipeline contracts [pending]
+  Task release.1.1: Capture deployment events [pending]
+Task release.2: Bootstrap environments [pending] (prior: release.1)
+Task release.3: Roll out release bot [in-progress] (prior: release.1, release.2) @claude-code
 ```
+
+Ticket ids are project-qualified, including for a bare rhei loaded directly:
+`release.rhei.md` is the single rhei of an implicit Panta with the id `release`
+(§FS-rhei-panta.6, §AR-rhei-panta.3).
+
+Tickets print in the merged graph's source order: discovered rheis in
+deterministic discovery order, with the `basin` rhei's tickets last because the
+basin loads after every discovered rhei (§FS-rhei-panta.4). No rhei-level
+headings or visual de-emphasis are applied; rhei-level grouping is deferred
+(§FS-rhei-panta.3).
 
 The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 `@<assignee>` suffix is omitted when the task is unclaimed.
@@ -74,12 +129,12 @@ parent id when present.
 ```json
 [
   {
-    "id": "2",
+    "id": "release.2",
     "kind": "task",
     "title": "Bootstrap environments",
     "state": "draft",
     "assignee": null,
-    "prior": ["1"],
+    "prior": ["release.1"],
     "parent": null,
     "depth": 1
   }
@@ -88,7 +143,8 @@ parent id when present.
 
 Fields are stable: `id`, `kind`, `title`, `state` (raw, as authored), `assignee`
 (string or `null`), `prior` (array of id strings), `parent` (string or `null`),
-`depth` (1-based segment count).
+`depth` (1-based depth within the owning rhei — a top-level ticket is `1`; the
+Panta qualification segment does not count).
 
 ## Relationship to Other Commands
 

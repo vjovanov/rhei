@@ -153,6 +153,15 @@ impl From<String> for TaskId {
 pub struct ContentSection {
     pub title: String,
     pub content: String,
+    /// Rhei that contributed this section, set when a Panta project merges its
+    /// rheis into one graph. `None` for a section authored on the project
+    /// manifest itself, or for any plan loaded outside a project.
+    ///
+    /// Renderers need it to put a ticket back under the rhei it came from: the
+    /// merged task list is flat, and a heading block followed by every rhei's
+    /// tickets in one run is not a document anyone can read.
+    // §AR-rhei-panta.3: merged ticket ids are qualified by their owning rhei.
+    pub rhei: Option<String>,
 }
 
 /// Plan-level structural configuration.
@@ -205,6 +214,11 @@ pub struct Task {
     pub state: String,
     /// Prior dependencies as full task ids.
     pub prior: Vec<TaskId>,
+    /// Node-kind keyword authored on each `**Prior:**` reference, aligned
+    /// index-for-index with `prior` (`None` for bare references), kept as
+    /// authored so errors can quote the source.
+    // §FS-rhei-plan-language.3.1: validated against the referenced node's kind.
+    pub prior_kinds: Vec<Option<String>>,
     /// Assignee value captured from the optional `**Assignee:**` metadata
     /// field. `None` when the field is absent.
     pub assignee: Option<String>,

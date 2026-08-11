@@ -1,0 +1,190 @@
+// `rhei release` — drop a ticket's `**Assignee:**` so abandoned work can be
+// picked up again, without touching its state, artifacts, or ledger.
+// §FS-rhei-release
+
+/// Execute the `release` subcommand.
+fn release_command(
+    input: &Path,
+    state_machine_path: Option<&Path>,
+    task_id_str: Option<&str>,
+    all: bool,
+    rhei_scope: &[String],
+    dry_run: bool,
+) -> MietteResult<()> {
+    if task_id_str.is_some() == all {
+        return Err(miette!(
+            "`rhei release` takes either one ticket — `rhei release <ticket-id>`, or \
+             `--task <id>` — or `--all`, which sweeps every claimed ticket in scope"
+        ));
+    }
+
+    let input_buf = normalize_workspace_input(input);
+    let input = input_buf.as_path();
+    let loaded = load_plan(input)?;
+    let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = resolved.validator_set();
+
+    let targets = match task_id_str {
+        Some(id) => vec![release_target_by_id(&loaded, id, &scope, &machines)?],
+        None => {
+            report_panta_scope_narrowed(&loaded, "release", &scope);
+            claimed_tickets(&loaded, &machines, &scope)
+        }
+    };
+
+    if targets.is_empty() {
+        println!("No claimed tickets to release.");
+        return Ok(());
+    }
+
+    for target in &targets {
+        let verb = if dry_run { "Would release" } else { "Released" };
+        println!("{verb} Task {} (was assigned to {})", target.id, target.assignee);
+        // `next` only claims from the initial state, so a ticket released from
+        // a later one is unclaimed but not yet re-claimable. Say so rather than
+        // rolling the state back: the transition happened, its callbacks ran,
+        // and discarding that silently would lose the record of it.
+        if let Some(initial) = target.initial_state.as_deref() {
+            if normalized_state_name(&target.state, machines.for_task_str(&target.id)) != initial {
+                println!(
+                    "  note: still in '{}'. `rhei next` claims from '{}', so move it back with \
+                     `rhei transition --task {} --from {} --to {}` if it should be picked up \
+                     again.",
+                    target.state, initial, target.id, target.state, initial
+                );
+            }
+        }
+    }
+
+    if dry_run {
+        println!("\nDry run — nothing was changed.");
+        return Ok(());
+    }
+
+    for target in &targets {
+        remove_task_assignee(&target.file, &target.local_id, &target.id)?;
+    }
+    Ok(())
+}
+
+/// A ticket whose claim `rhei release` will drop.
+struct ReleaseTarget {
+    id: String,
+    local_id: String,
+    assignee: String,
+    state: String,
+    /// The state `rhei next` claims this ticket's node kind from, when the
+    /// machine defines one.
+    initial_state: Option<String>,
+    file: PathBuf,
+}
+
+/// Resolve an explicit `--task` target, refusing a ticket that holds no claim.
+fn release_target_by_id(
+    loaded: &LoadedPlan,
+    task_id_str: &str,
+    scope: &RheiScope,
+    machines: &rhei_validator::MachineSet,
+) -> MietteResult<ReleaseTarget> {
+    let task_id_str = resolve_cli_task_id(loaded, task_id_str, scope)?;
+    let target_id = parse_task_id(&task_id_str);
+    let task = find_task_by_id(&loaded.rhei.tasks, &target_id)
+        .ok_or_else(|| miette!("task '{}' not found in the plan", task_id_str))?;
+    let Some(assignee) = task.assignee.clone() else {
+        return Err(miette!(
+            "Task {} holds no claim — it has no **Assignee:** to release",
+            task_id_str
+        ));
+    };
+    Ok(release_target(loaded, task, assignee, machines.for_task(&task.id)))
+}
+
+/// Every claimed, non-terminal ticket in scope.
+fn claimed_tickets(
+    loaded: &LoadedPlan,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+) -> Vec<ReleaseTarget> {
+    let mut all = Vec::new();
+    collect_plan_tasks(&loaded.rhei.tasks, &mut all);
+    all.into_iter()
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        // A terminal ticket keeping an assignee is a record of who finished it,
+        // not a claim blocking anyone; a sweep must not erase that.
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
+        .filter_map(|task| {
+            task.assignee
+                .clone()
+                .map(|assignee| release_target(loaded, task, assignee, machines.for_task(&task.id)))
+        })
+        .collect()
+}
+
+fn release_target(
+    loaded: &LoadedPlan,
+    task: &rhei_core::ast::Task,
+    assignee: String,
+    machine: &rhei_validator::StateMachine,
+) -> ReleaseTarget {
+    let id = task.id.to_string();
+    let file = loaded.task_file(&id, Path::new("."));
+    ReleaseTarget {
+        local_id: rhei_local_id_of(task),
+        id,
+        assignee,
+        state: task.state.clone(),
+        initial_state: initial_state_for_node(machine, &task.kind, task.profile_level()).ok(),
+        file,
+    }
+}
+
+/// Drop the target task's `**Assignee:**` line, leaving every other line alone.
+///
+/// Task files are addressed by the rhei-local id they were authored with, so a
+/// heading match uses that rather than the project-qualified id.
+fn remove_task_assignee(
+    task_file: &Path,
+    local_id: &str,
+    qualified_id: &str,
+) -> MietteResult<()> {
+    let raw = fs::read_to_string(task_file)
+        .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
+
+    let mut out: Vec<String> = Vec::with_capacity(raw.lines().count());
+    let mut in_target_task = false;
+    let mut target_found = false;
+    let mut removed = false;
+    let mut in_code_block = false;
+
+    for line in raw.lines() {
+        if let Some((_, id)) = node_heading_outside_code(line, &mut in_code_block) {
+            in_target_task = id == local_id;
+            target_found |= in_target_task;
+        }
+        if !in_code_block && in_target_task && line.starts_with("**Assignee:**") {
+            removed = true;
+            continue;
+        }
+        out.push(line.to_string());
+    }
+
+    if !target_found {
+        return Err(miette!("task '{}' not found in {}", qualified_id, task_file.display()));
+    }
+    if !removed {
+        // The parse said the ticket was claimed, so a missing line means the
+        // file moved under us — better to say so than to report a no-op write.
+        return Err(miette!(
+            "task '{}' has no **Assignee:** line in {}; the file changed since it was read",
+            qualified_id,
+            task_file.display()
+        ));
+    }
+
+    let mut output = out.join("\n");
+    if raw.ends_with('\n') {
+        output.push('\n');
+    }
+    write_file_atomic(task_file, &output)
+}

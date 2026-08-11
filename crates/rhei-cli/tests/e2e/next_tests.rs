@@ -47,7 +47,7 @@ transitions:
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
-    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["task_id"], "plan.1");
     assert_eq!(json["state"], "review");
     assert_eq!(json["from_state"], "draft");
     assert!(
@@ -98,7 +98,7 @@ transitions:
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
-    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["task_id"], "plan.1");
     assert_eq!(json["state"], "pending");
     assert_eq!(json["from_state"], "pending");
     assert_eq!(json["instructions"], "Do the task.");
@@ -112,7 +112,7 @@ transitions:
     let second = run_cli_without_machine("next", &plan_path, &["--no-callbacks", "--json"]);
     assert!(!second.status.success(), "second next should not reclaim manually assigned task");
     assert!(
-        second.stderr.contains("Task 1 (pending, assignee manual)"),
+        second.stderr.contains("Task plan.1 (pending, assignee manual)"),
         "expected assigned task diagnostic; got:\n{}",
         second.stderr
     );
@@ -182,7 +182,7 @@ Configure the build system.
     let json: serde_json::Value =
         serde_json::from_str(&result.stdout).expect("stdout should be valid JSON");
 
-    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["task_id"], "plan.1");
     assert_eq!(json["title"], "Setup environment");
     assert_eq!(json["from_state"], "draft");
     assert_eq!(json["state"], "pending");
@@ -239,7 +239,7 @@ transitions:
         text_result.stdout
     );
     assert!(
-        text_result.stdout.contains("## Task 1: Teach concurrency"),
+        text_result.stdout.contains("## Task plan.1: Teach concurrency"),
         "expected task heading in text output; got:\n{}",
         text_result.stdout
     );
@@ -253,7 +253,7 @@ transitions:
     assert_success(&json_result);
     let json: serde_json::Value = serde_json::from_str(&json_result.stdout).expect("parse JSON");
     assert_eq!(json["personality"], "You are an MIT professor.");
-    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["task_id"], "plan-json.1");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -301,7 +301,7 @@ transitions:
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
     assert_success(&result);
     assert!(
-        result.stdout.contains("Review pass 1 of 2 for Task 1: Review cache layer."),
+        result.stdout.contains("Review pass 1 of 2 for Task plan.1: Review cache layer."),
         "expected visit/task placeholders to resolve; got:\n{}",
         result.stdout
     );
@@ -311,7 +311,7 @@ transitions:
         result.stdout
     );
     assert!(
-        result.stdout.contains("runtime/findings/1-1.md"),
+        result.stdout.contains("runtime/findings/plan.1-1.md"),
         "expected output artifact path placeholder to resolve; got:\n{}",
         result.stdout
     );
@@ -359,7 +359,7 @@ transitions:
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
-    assert_eq!(json["task_id"], "coordinate");
+    assert_eq!(json["task_id"], "plan.coordinate");
     assert_eq!(json["from_state"], "split");
     assert_eq!(json["state"], "split");
     assert!(
@@ -411,7 +411,7 @@ transitions:
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert_success(&result);
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("next JSON");
-    assert_eq!(json["task_id"], "1");
+    assert_eq!(json["task_id"], "plan.1");
     assert_eq!(json["agent"], "codex");
 
     let claimed = fs::read_to_string(&plan_path).expect("read claimed plan");
@@ -422,13 +422,8 @@ transitions:
 
     let duplicate = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!duplicate.status.success(), "assigned task should not be claimable again");
-    assert!(
-        duplicate.stderr.contains("currently in progress")
-            && duplicate.stderr.contains("Task 1")
-            && duplicate.stderr.contains("pending, assignee codex"),
-        "expected in-progress assigned diagnostic; got:\n{}",
-        duplicate.stderr
-    );
+    assert_stderr_contains(&duplicate, "currently in progress");
+    assert_stderr_contains(&duplicate, "Task plan.1 (pending, assignee codex)");
 
     let complete = run_cli(
         "complete",
@@ -462,7 +457,7 @@ fn next_task_rejects_already_assigned_task() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
     assert!(!result.status.success(), "assigned task should be rejected");
     assert!(
-        result.stderr.contains("Task 1 is already assigned to codex"),
+        result.stderr.contains("Task plan.1 is already assigned to codex"),
         "expected assigned-task error; got:\n{}",
         result.stderr
     );
@@ -526,7 +521,7 @@ fn next_no_claimable_mid_workflow_lists_transition_commands() {
     let stderr = normalize_miette_stderr(&result.stderr);
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
-        stderr.contains("Task 1 is mid-workflow in state 'pending'"),
+        stderr.contains("Task plan.1 is mid-workflow in state 'pending'"),
         "expected mid-workflow diagnostic; got:\n{}",
         result.stderr
     );
@@ -536,12 +531,12 @@ fn next_no_claimable_mid_workflow_lists_transition_commands() {
         result.stderr
     );
     assert!(
-        stderr.contains("--task 1 --from=pending --to=completed"),
+        stderr.contains("--task plan.1 --from=pending --to=completed"),
         "expected concrete completed transition command; got:\n{}",
         result.stderr
     );
     assert!(
-        stderr.contains("--task 1 --from=pending --to=cancelled"),
+        stderr.contains("--task plan.1 --from=pending --to=cancelled"),
         "expected concrete cancelled transition command; got:\n{}",
         result.stderr
     );
@@ -579,7 +574,7 @@ transitions:
     let stderr = normalize_miette_stderr(&result.stderr);
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
-        stderr.contains("Task 1 is mid-workflow in state 'in progress'"),
+        stderr.contains("Task plan.1 is mid-workflow in state 'in progress'"),
         "expected mid-workflow diagnostic; got:\n{}",
         result.stderr
     );
@@ -638,7 +633,7 @@ transitions:
     let stderr = normalize_miette_stderr(&result.stderr);
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
-        stderr.contains("--task 1 --from=fix --to=fix"),
+        stderr.contains("--task plan.1 --from=fix --to=fix"),
         "expected applicable self-loop transition command; got:\n{}",
         result.stderr
     );
@@ -723,12 +718,9 @@ transitions:
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "human-gated task should not be claimable");
-    assert!(
-        result
-            .stderr
-            .contains("Blocked: 1 task(s) waiting on human action: Task 1 (human-review)."),
-        "expected human-gate diagnostic; got:\n{}",
-        result.stderr
+    assert_stderr_contains(
+        &result,
+        "Blocked: 1 task(s) waiting on human action: Task plan.1 (human-review).",
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -830,7 +822,7 @@ transitions:
         "custom node assignee should be removed; got:\n{content}"
     );
     assert!(
-        content.contains("> **Result:** [cache-key](runtime/results/cache-key.md)"),
+        content.contains("> **Result:** [plan.cache-key](runtime/results/plan.cache-key.md)"),
         "custom node result link should be inserted; got:\n{content}"
     );
 
@@ -902,7 +894,7 @@ transitions:
         "child assignee should be removed; got:\n{content}"
     );
     assert!(
-        content.contains("> **Result:** [1.1](runtime/results/1.1.md)"),
+        content.contains("> **Result:** [plan.1.1](runtime/results/plan.1.1.md)"),
         "child result link should be inserted; got:\n{content}"
     );
 
@@ -918,7 +910,7 @@ fn next_respects_dependency_order() {
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
-    assert_eq!(json["task_id"], "1", "first next should pick Task 1");
+    assert_eq!(json["task_id"], "plan.1", "first next should pick Task 1");
     assert_task_state(&plan_path, &machine_path, "1", "pending");
     assert_task_state(&plan_path, &machine_path, "2", "draft");
     assert_task_state(&plan_path, &machine_path, "3", "draft");
@@ -949,7 +941,7 @@ fn next_respects_dependency_order() {
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert_success(&result);
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
-    assert_eq!(json["task_id"], "2", "after completing Task 1, next picks Task 2");
+    assert_eq!(json["task_id"], "plan.2", "after completing Task 1, next picks Task 2");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1000,7 +992,7 @@ fn next_auto_claims_leaf_child_not_parent_rollup() {
     assert_success(&result);
 
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
-    assert_eq!(json["task_id"], "1.1");
+    assert_eq!(json["task_id"], "plan.1.1");
     let children = json["children"].as_array().expect("children should be array");
     assert!(children.is_empty(), "claimed leaf task should not expose child tasks");
     let content = fs::read_to_string(&plan_path).expect("read plan");
@@ -1051,23 +1043,15 @@ fn next_does_not_allow_cancelled_prerequisite_to_unblock_dependents() {
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "cancelled prerequisite should keep Task 2 blocked");
-    assert!(
-        result.stderr.contains("Task 2 waiting on Task 1 (cancelled)")
-            && result.stderr.contains("blocked")
-            && result.stderr.contains("incomplete prerequisites"),
-        "expected blocking-prior diagnostic; got:\n{}",
-        result.stderr
-    );
+    assert_stderr_contains(&result, "Task plan.2 waiting on Task plan.1 (cancelled)");
+    assert_stderr_contains(&result, "blocked");
+    assert_stderr_contains(&result, "incomplete prerequisites");
 
     let targeted = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "2"]);
     assert!(!targeted.status.success(), "targeted next should still respect blocked prerequisites");
-    assert!(
-        targeted.stderr.contains("blocked by incomplete prerequisites")
-            && targeted.stderr.contains("waiting on Task 1")
-            && targeted.stderr.contains("(cancelled)"),
-        "expected blocked-prerequisite error; got:\n{}",
-        targeted.stderr
-    );
+    assert_stderr_contains(&targeted, "blocked by incomplete prerequisites");
+    assert_stderr_contains(&targeted, "waiting on Task plan.1");
+    assert_stderr_contains(&targeted, "(cancelled)");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1112,7 +1096,7 @@ transitions:
     );
     assert_task_state(&plan_path, &machine_path, "1", "active");
     assert!(
-        !dir.join("runtime/results/1.md").exists(),
+        !dir.join("runtime/results/plan.1.md").exists(),
         "result file should not be written on failure"
     );
 
@@ -1156,12 +1140,14 @@ transitions:
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
     assert!(!result.status.success(), "next should fail when current-state input is missing");
     assert!(
-        result.stderr.contains("Task 1 cannot be claimed in state fix."),
+        result.stderr.contains("Task plan.1 cannot be claimed in state fix."),
         "expected explicit claim failure; got:\n{}",
         result.stderr
     );
     assert!(
-        result.stderr.contains("Missing required input artifact: findings (runtime/findings/1.md)"),
+        result
+            .stderr
+            .contains("Missing required input artifact: findings (runtime/findings/plan.1.md)"),
         "expected missing artifact detail; got:\n{}",
         result.stderr
     );
@@ -1206,21 +1192,15 @@ transitions:
         &["--task", "1", "--result", "done", "--no-callbacks"],
     );
     assert!(!result.status.success(), "complete should fail when required output is missing");
-    assert!(
-        result.stderr.contains("Task 1 cannot leave state review."),
-        "expected explicit leave failure; got:\n{}",
-        result.stderr
-    );
-    assert!(
-        result
-            .stderr
-            .contains("Missing required output artifact: findings (runtime/findings/1.md)"),
-        "expected missing artifact detail; got:\n{}",
-        result.stderr
+    // §FS-rhei-panta.6: diagnostics and artifact paths use the qualified id.
+    assert_stderr_contains(&result, "Task plan.1 cannot leave state review.");
+    assert_stderr_contains(
+        &result,
+        "Missing required output artifact: findings (runtime/findings/plan.1.md)",
     );
     assert_task_state(&plan_path, &machine_path, "1", "review");
     assert!(
-        !dir.join("runtime/results/1.md").exists(),
+        !dir.join("runtime/results/plan.1.md").exists(),
         "result file should not be written on failure"
     );
 

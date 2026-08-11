@@ -70,7 +70,7 @@ enum ParallelProgramSpawnOutcome {
 }
 
 fn select_snapshot_override_run_invocation(
-    machine: &rhei_validator::StateMachine,
+    machines: &ExecutionMachines,
     opts: &RunOptions,
     invocations: &[(String, String, String, ResolvedAgent)],
 ) -> MietteResult<Option<SnapshotOverrideRunSelection>> {
@@ -80,7 +80,8 @@ fn select_snapshot_override_run_invocation(
 
     let mut candidates = Vec::new();
     for (task_id, _raw_state, current_state, resolved) in invocations {
-        let declares_inherit = machine
+        let declares_inherit = machines
+            .for_task_str(task_id)
             .states
             .get(current_state)
             .and_then(|state| state.snapshot.as_ref())
@@ -173,7 +174,7 @@ fn emit_run_message(
 #[allow(clippy::too_many_arguments)]
 fn collect_ready_agent_work_items(
     loaded: &LoadedPlan,
-    machine: &rhei_validator::StateMachine,
+    machines: &ExecutionMachines,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
@@ -184,12 +185,18 @@ fn collect_ready_agent_work_items(
     let mut state_claimant: HashMap<String, String> = HashMap::new();
     let mut deferred: BTreeSet<String> = BTreeSet::new();
 
-    for task in find_runnable_tasks(&loaded.rhei, machine, workspace_root) {
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(&loaded.rhei, &machines.set, workspace_root),
+        &rhei_scope,
+    ) {
         let task_id_str = task.id.to_string();
         if active_task_ids.contains(&task_id_str) {
             continue;
         }
 
+        let machine = machines.for_task(&task.id);
         let current_state_raw = task.state.as_str().to_string();
         let current_state = normalized_state_name(&current_state_raw, machine);
         let Some(state_def) = machine.states.get(&current_state) else {
@@ -275,7 +282,7 @@ fn collect_ready_agent_work_items(
 #[allow(clippy::too_many_arguments)]
 fn collect_ready_program_work_items(
     loaded: &LoadedPlan,
-    machine: &rhei_validator::StateMachine,
+    machines: &ExecutionMachines,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
@@ -286,12 +293,18 @@ fn collect_ready_program_work_items(
     let mut state_claimant: HashMap<String, String> = HashMap::new();
     let mut deferred: BTreeSet<String> = BTreeSet::new();
 
-    for task in find_runnable_tasks(&loaded.rhei, machine, workspace_root) {
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(&loaded.rhei, &machines.set, workspace_root),
+        &rhei_scope,
+    ) {
         let task_id_str = task.id.to_string();
         if active_task_ids.contains(&task_id_str) {
             continue;
         }
 
+        let machine = machines.for_task(&task.id);
         let current_state_raw = task.state.as_str().to_string();
         let current_state = normalized_state_name(&current_state_raw, machine);
         let Some(state_def) = machine.states.get(&current_state) else {
@@ -349,8 +362,7 @@ fn spawn_parallel_agent_work_item(
     slot: rhei_tui::Slot,
     tx: std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
@@ -361,8 +373,17 @@ fn spawn_parallel_agent_work_item(
 ) -> MietteResult<ParallelAgentSpawnOutcome> {
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&item.task_id_str);
+    // The item's owning rhei supplies its machine and callback base.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(&item.task_id_str);
+    let callback_paths = machines.callbacks_for_str(&item.task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
     let Some(task) = task else { return Ok(ParallelAgentSpawnOutcome::Skipped) };
+
+    // Attribute the spawned unit to its owning rhei: prompts, logs, and
+    // artifacts resolve against that rhei's execution root. §FS-rhei-panta.6.2
+    let task_workspace_root = loaded.task_root(&item.task_id_str, workspace_root);
+    let workspace_root = task_workspace_root.as_path();
 
     let tooling = resolve_tooling(machine, &item.current_state, settings);
     let gate = gate_tooling_for_agent(&item.resolved, &tooling);
@@ -376,8 +397,7 @@ fn spawn_parallel_agent_work_item(
         if !mcp_unavailable.is_empty() {
             match fire_tooling_unavailable_transition(
                 input,
-                machine,
-                callback_paths,
+                machines,
                 &item.task_id_str,
                 &item.current_state,
                 ToolingKind::Mcp,
@@ -391,8 +411,7 @@ fn spawn_parallel_agent_work_item(
         if !fired && !skill_unavailable.is_empty() {
             match fire_tooling_unavailable_transition(
                 input,
-                machine,
-                callback_paths,
+                machines,
                 &item.task_id_str,
                 &item.current_state,
                 ToolingKind::Skill,
@@ -636,16 +655,23 @@ fn spawn_parallel_program_work_item(
     slot: rhei_tui::Slot,
     tx: std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     workspace_root: &Path,
     runtime_dir: &Path,
     sink: &Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<ParallelProgramSpawnOutcome> {
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&item.task_id_str);
+    // The item's owning rhei supplies its machine and callback base.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(&item.task_id_str);
+    let callback_paths = machines.callbacks_for_str(&item.task_id_str);
     let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
     let Some(task) = task else { return Ok(ParallelProgramSpawnOutcome::Skipped) };
+
+    // Programs run against the owning rhei's execution root. §FS-rhei-panta.6.2
+    let task_workspace_root = loaded.task_root(&item.task_id_str, workspace_root);
+    let workspace_root = task_workspace_root.as_path();
 
     let log = program_log_path(runtime_dir, &item.task_id_str, &item.current_state);
     emit_run_message(
@@ -775,8 +801,7 @@ fn schedule_agent_work_items(
     max_new_tasks: usize,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
@@ -808,8 +833,7 @@ fn schedule_agent_work_items(
             slot,
             tx.clone(),
             input,
-            machine,
-            callback_paths,
+            machines,
             settings,
             opts,
             workspace_root,
@@ -820,7 +844,8 @@ fn schedule_agent_work_items(
         )? {
             ParallelAgentSpawnOutcome::Spawned(spawned_agent) => {
                 *active_invocation_counts.entry(spawned_agent.task_id_str.clone()).or_insert(0) += 1;
-                if !machine
+                if !machines
+                    .for_task_str(&spawned_agent.task_id_str)
                     .states
                     .get(&spawned_agent.state_name)
                     .map(|state| state.concurrent)
@@ -850,8 +875,7 @@ fn schedule_program_work_items(
     max_new_tasks: usize,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     workspace_root: &Path,
     runtime_dir: &Path,
     sink: &Arc<dyn rhei_tui::EventSink>,
@@ -879,8 +903,7 @@ fn schedule_program_work_items(
             slot,
             tx.clone(),
             input,
-            machine,
-            callback_paths,
+            machines,
             workspace_root,
             runtime_dir,
             sink,
@@ -889,7 +912,8 @@ fn schedule_program_work_items(
                 *active_invocation_counts
                     .entry(spawned_program.task_id_str.clone())
                     .or_insert(0) += 1;
-                if !machine
+                if !machines
+                    .for_task_str(&spawned_program.task_id_str)
                     .states
                     .get(&spawned_program.state_name)
                     .map(|state| state.concurrent)
@@ -938,8 +962,7 @@ fn refill_parallel_worker_pool(
     task_limit: usize,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
@@ -968,7 +991,7 @@ fn refill_parallel_worker_pool(
     let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
     let (program_items, program_deferred) = collect_ready_program_work_items(
         &reloaded,
-        machine,
+        machines,
         settings,
         opts,
         workspace_root,
@@ -993,8 +1016,7 @@ fn refill_parallel_worker_pool(
         task_capacity,
         tx,
         input,
-        machine,
-        callback_paths,
+        machines,
         workspace_root,
         runtime_dir,
         sink,
@@ -1019,7 +1041,7 @@ fn refill_parallel_worker_pool(
     let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
     let (agent_items, agent_deferred) = collect_ready_agent_work_items(
         &reloaded,
-        machine,
+        machines,
         settings,
         opts,
         workspace_root,
@@ -1051,14 +1073,13 @@ fn refill_parallel_worker_pool(
         })
         .collect::<Vec<_>>();
     let snapshot_override_selection =
-        select_snapshot_override_run_invocation(machine, opts, &refill_candidates)?;
+        select_snapshot_override_run_invocation(machines, opts, &refill_candidates)?;
     let agent_outcome = schedule_agent_work_items(
         agent_items,
         task_capacity,
         tx,
         input,
-        machine,
-        callback_paths,
+        machines,
         settings,
         opts,
         workspace_root,
@@ -1086,8 +1107,7 @@ struct ParallelProgramCompletionEffect {
 
 fn handle_parallel_program_completion(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     opts: &RunOptions,
     workspace_root: &Path,
     sink: &Arc<dyn rhei_tui::EventSink>,
@@ -1099,6 +1119,10 @@ fn handle_parallel_program_completion(
         result,
         slot: _,
     } = completion;
+    // The completed item's owning rhei supplies its machine and callback base.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(&task_id_str);
+    let callback_paths = machines.callbacks_for_str(&task_id_str);
 
     match result {
         Ok(program_outcome) => {
@@ -1129,8 +1153,7 @@ fn handle_parallel_program_completion(
             if program_outcome.timed_out {
                 match fire_timeout_transition(
                     input,
-                    machine,
-                    callback_paths,
+                    machines,
                     &task_id_str,
                     &state_name,
                     program_outcome.timeout_secs,
@@ -1219,8 +1242,8 @@ fn handle_parallel_program_completion(
                     }
                 }
                 if record_poll_self_loop_if_needed(
+                    &reloaded,
                     input,
-                    reloaded.rhei.metadata.as_ref(),
                     machine,
                     task,
                     &state_name,
@@ -1239,20 +1262,18 @@ fn handle_parallel_program_completion(
                         program_spawned: true,
                     });
                 }
-                let task_file = reloaded.task_file(&task_id_str, input);
-                let metadata_file = if workspace::is_workspace(input) {
-                    input.join("index.rhei.md")
-                } else {
-                    task_file.clone()
-                };
+                let route = reloaded.task_route(&task_id_str, input);
                 execute_system_program_exit_transition(
                     TransitionFiles {
-                        task_file: &task_file,
-                        metadata_file: &metadata_file,
+                        task_file: &route.task_file,
+                        metadata_file: &route.metadata_file,
+                        metadata_id: &route.metadata_id,
+                        artifact_root: &route.execution_root,
+                        artifact_id: &task_id_str,
                     },
                     callback_paths,
                     machine,
-                    &task_id_str,
+                    &route.local_id,
                     &state_name,
                     &to_state,
                     exit_code,
@@ -1315,8 +1336,7 @@ fn handle_parallel_program_completion(
 /// Agent-driven execution mode: spawn coding agents for tasks.
 fn run_agent_mode(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     settings: &RheiSettings,
     opts: &RunOptions,
     max_parallel: usize,
@@ -1324,6 +1344,7 @@ fn run_agent_mode(
     use rhei_tui::{MessageLevel, RunEvent, RunSummary, TaskOutcome};
     use std::time::{Instant as TuiInstant, SystemTime};
 
+    let callback_paths = &machines.default_callbacks;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
@@ -1336,14 +1357,14 @@ fn run_agent_mode(
 
     let (initial_total_tasks, initial_states) = {
         let loaded = load_plan(input)?;
-        (total_task_count(&loaded.rhei), collect_initial_states(&loaded.rhei, machine))
+        (total_task_count(&loaded.rhei), collect_initial_states(&loaded.rhei, &machines.set))
     };
     // §FS-rhei-run-report.1: declared before the frontend so it drops *after* the
     // terminal is restored; the happy path disarms it once the full report is
     // written, so it only fires when the run returns early with an error.
     let mut report_guard = RunReportGuard {
         input,
-        machine,
+        machines: &machines.set,
         runtime_dir: runtime_dir.clone(),
         run_started,
         run_started_wall,
@@ -1361,11 +1382,10 @@ fn run_agent_mode(
     let frontend = start_run_frontend(
         &workspace_root,
         input,
-        callback_paths,
+        machines,
         opts,
         frontend_parallel,
         initial_total_tasks,
-        machine,
     );
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration
@@ -1415,7 +1435,7 @@ fn run_agent_mode(
     }
 
     let loaded = load_plan(input)?;
-    let initial_terminal_count = terminal_task_count(&loaded.rhei, machine);
+    let initial_terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
     run_info!(
         "Running {} '{}' with {} task(s) ({} terminal at start).",
         if workspace::is_workspace(input) { "workspace" } else { "plan" },
@@ -1431,16 +1451,34 @@ fn run_agent_mode(
     let mut pass = 0u32;
     // One-time notice so the gate-wait below does not spam the journal each tick.
     let mut awaiting_gate_announced = false;
+    // Manual-only tasks reported by a dry run; the command still exits
+    // non-zero once the scan is complete. §FS-rhei-run.4
+    let mut manual_only_dry_run: Vec<String> = Vec::new();
+    // Set when the pass loop found nothing to schedule and at least one
+    // remaining ticket needs a human, so a dry run ends the way the real run
+    // does. §FS-rhei-run.4
+    let mut halted_needs_human = false;
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    if rhei_scope.is_some() {
+        // The pre-launch stdout scope report is hidden while the TUI holds
+        // the alternate screen, so the journal repeats it where an
+        // interactive run can see it. §FS-rhei-panta.6
+        run_info!("Scope: narrowed to {}", scope_label(&rhei_scope));
+    }
 
     loop {
         let loaded = load_plan(input)?;
-        let ready = find_runnable_tasks(&loaded.rhei, machine, &workspace_root);
+        let ready = narrow_to_rhei_scope(
+            find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
+            &rhei_scope,
+        );
         if ready.is_empty() {
             if !opts.dry_run() {
                 // Interactive TUI: stay alive only when human gates are the
                 // remaining blocker, so unrelated stuck work still reaches the
                 // normal halt/error path. §FS-rhei-run-tui.1.5.5
-                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, machine) {
+                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, &machines.set, &rhei_scope) {
                     if !awaiting_gate_announced {
                         run_info!(
                             "Waiting for human gate decisions — resolve a gate in the UI, or press Ctrl+C to stop."
@@ -1450,7 +1488,9 @@ fn run_agent_mode(
                     std::thread::sleep(Duration::from_millis(500));
                     continue;
                 }
-                if let Some(deadline) = earliest_pending_poll_deadline(&loaded.rhei, machine) {
+                if let Some(deadline) =
+                    earliest_pending_poll_deadline(&loaded.rhei, &machines.set, &rhei_scope)
+                {
                     let sleep_secs = deadline.saturating_sub(current_unix_secs()).max(1);
                     run_info!(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
@@ -1460,13 +1500,27 @@ fn run_agent_mode(
                     continue;
                 }
             }
+            // Nothing schedulable on the first pass: without this the loop
+            // exits having explained nothing, and a dry run reported success
+            // on a project the real run halts on. §FS-rhei-run.4
+            if pass == 0 {
+                let (lines, needs_human) =
+                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope);
+                if !lines.is_empty() {
+                    run_info!("\nNothing to schedule. Why each remaining ticket is not moving:");
+                    for line in &lines {
+                        run_info!("  {line}");
+                    }
+                }
+                halted_needs_human = needs_human;
+            }
             break;
         }
         // Made progress this pass; re-arm the gate-wait notice for any later gate.
         awaiting_gate_announced = false;
 
         pass += 1;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         sink.emit(RunEvent::PassStarted {
             pass,
             ready: ready.iter().map(|t| t.id.to_string()).collect(),
@@ -1479,6 +1533,13 @@ fn run_agent_mode(
             total_task_count(&loaded.rhei)
         );
         run_info!("Ready: {}", format_ready_tasks(&ready));
+        // A ticket someone already claimed is ready but unschedulable; saying
+        // nothing made it look like it was not ready at all. §FS-rhei-run.3
+        let held =
+            narrow_to_rhei_scope(find_held_tasks(&loaded.rhei, &machines.set, &workspace_root), &rhei_scope);
+        if !held.is_empty() {
+            run_info!("Held by an assignee, so not scheduled: {}", format_held_tasks(&held));
+        }
 
         // Collect tasks that can be advanced autonomously.
         let plan_title = loaded.rhei.title.clone();
@@ -1488,6 +1549,8 @@ fn run_agent_mode(
 
         for task in &ready {
             let task_id_str = task.id.to_string();
+            // The ticket's own machine governs its advance. §DA-per-rhei-state-machines
+            let machine = machines.for_task(&task.id);
             let current_state_raw = task.state.as_str().to_string();
             let current_state = normalized_state_name(&current_state_raw, machine);
 
@@ -1616,11 +1679,21 @@ fn run_agent_mode(
         for (task_id_str, current_state_raw, current_state) in &callback_tasks {
             let loaded = load_plan(input)?;
             let target_id = parse_task_id(task_id_str);
+            let machine = machines.for_task_str(task_id_str);
+            let callback_paths = machines.callbacks_for_str(task_id_str);
             let task = match find_task_by_id(&loaded.rhei.tasks, &target_id) {
                 Some(t) => t,
                 None => continue,
             };
             if let Some(to_state) = manual_initial_terminal_transition(task, &loaded.rhei, machine)? {
+                // A dry run reports and keeps scanning; only a real run must
+                // stop before touching the task. §FS-rhei-run.4
+                if opts.dry_run() {
+                    let line = format_dry_run_manual_only(task_id_str, current_state, &to_state);
+                    run_info!("{}", line);
+                    manual_only_dry_run.push(line);
+                    continue;
+                }
                 return Err(miette!(
                     "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
                      use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
@@ -1641,8 +1714,8 @@ fn run_agent_mode(
             }
 
             if record_poll_self_loop_if_needed(
+                &loaded,
                 input,
-                loaded.rhei.metadata.as_ref(),
                 machine,
                 task,
                 current_state,
@@ -1660,25 +1733,19 @@ fn run_agent_mode(
 
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
-            let task_file = loaded.task_file(task_id_str, input);
-            let metadata_file = if workspace::is_workspace(input) {
-                input.join("index.rhei.md")
-            } else {
-                task_file.clone()
-            };
+            let route = loaded.task_route(task_id_str, input);
             match execute_transition(
-                TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
                 callback_paths,
                 machine,
-                task_id_str,
+                &route.local_id,
                 current_state,
                 &to_state,
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
                     append_transition_audit_entry(
-                        input,
-                        &task_file,
+                        &route.execution_root,
                         task_id_str,
                         current_state,
                         &effective_to,
@@ -1712,8 +1779,12 @@ fn run_agent_mode(
             let mut state_claimant: HashMap<String, String> = HashMap::new();
             let mut deferred: BTreeSet<String> = BTreeSet::new();
             for entry in program_tasks {
-                let is_concurrent =
-                    machine.states.get(&entry.2).map(|d| d.concurrent).unwrap_or(false);
+                let is_concurrent = machines
+                    .for_task_str(&entry.0)
+                    .states
+                    .get(&entry.2)
+                    .map(|d| d.concurrent)
+                    .unwrap_or(false);
                 if is_concurrent {
                     filtered.push(entry);
                     continue;
@@ -1746,6 +1817,7 @@ fn run_agent_mode(
                 for (task_id_str, current_state_raw, current_state, resolved) in &program_tasks {
                     let loaded = load_plan(input)?;
                     let target_id = parse_task_id(task_id_str);
+                    let machine = machines.for_task_str(task_id_str);
                     if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
                         if let Some(to_state) = find_program_exit_transition(
                             machine,
@@ -1773,11 +1845,15 @@ fn run_agent_mode(
             for (task_id_str, _current_state_raw, current_state, resolved) in &program_tasks {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
+                let machine = machines.for_task_str(task_id_str);
+                let callback_paths = machines.callbacks_for_str(task_id_str);
                 let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
                 let Some(task) = task else { continue };
+                // §FS-rhei-panta.6.2: programs run against the owning rhei's root.
+                let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
                 let render_context = RuntimeTemplateContext {
-                    workspace_root: &workspace_root,
-                    checkout_root: &workspace_root,
+                    workspace_root: &task_workspace_root,
+                    checkout_root: &task_workspace_root,
                     plan_path: &callback_paths.plan_path,
                     state_machine_path: callback_paths.state_machine_path.as_deref(),
                     plan_title: &plan_title,
@@ -1870,8 +1946,7 @@ fn run_agent_mode(
                         if program_outcome.timed_out {
                             match fire_timeout_transition(
                                 input,
-                                machine,
-                                callback_paths,
+                                machines,
                                 task_id_str,
                                 current_state,
                                 program_outcome.timeout_secs,
@@ -1938,8 +2013,8 @@ fn run_agent_mode(
                                 }
                             }
                             if record_poll_self_loop_if_needed(
+                                &loaded,
                                 input,
-                                loaded.rhei.metadata.as_ref(),
                                 machine,
                                 task,
                                 current_state,
@@ -1953,28 +2028,25 @@ fn run_agent_mode(
                                 advanced_any = true;
                                 continue;
                             }
-                            let task_file = loaded.task_file(task_id_str, input);
-                            let metadata_file = if workspace::is_workspace(input) {
-                                input.join("index.rhei.md")
-                            } else {
-                                task_file.clone()
-                            };
+                            let route = loaded.task_route(task_id_str, input);
                             let effective_to = execute_system_program_exit_transition(
                                 TransitionFiles {
-                                    task_file: &task_file,
-                                    metadata_file: &metadata_file,
+                                    task_file: &route.task_file,
+                                    metadata_file: &route.metadata_file,
+                                    metadata_id: &route.metadata_id,
+                                    artifact_root: &route.execution_root,
+                                    artifact_id: task_id_str,
                                 },
                                 callback_paths,
                                 machine,
-                                task_id_str,
+                                &route.local_id,
                                 current_state,
                                 &to_state,
                                 exit_code,
                                 opts.no_callbacks(),
                             )?;
                             append_transition_audit_entry(
-                                input,
-                                &task_file,
+                                &route.execution_root,
                                 task_id_str,
                                 current_state,
                                 &effective_to,
@@ -2041,8 +2113,12 @@ fn run_agent_mode(
             let mut state_claimant: HashMap<String, String> = HashMap::new();
             let mut deferred: BTreeSet<String> = BTreeSet::new();
             for entry in agent_tasks {
-                let is_concurrent =
-                    machine.states.get(&entry.2).map(|d| d.concurrent).unwrap_or(false);
+                let is_concurrent = machines
+                    .for_task_str(&entry.0)
+                    .states
+                    .get(&entry.2)
+                    .map(|d| d.concurrent)
+                    .unwrap_or(false);
                 if is_concurrent {
                     filtered.push(entry);
                     continue;
@@ -2085,13 +2161,14 @@ fn run_agent_mode(
         }
         let batch_size = batch.len();
         let snapshot_override_selection =
-            select_snapshot_override_run_invocation(machine, opts, &agent_tasks)?;
+            select_snapshot_override_run_invocation(machines, opts, &agent_tasks)?;
 
         if opts.dry_run() {
             if run_programs_in_worker_pool {
                 for (task_id_str, current_state_raw, current_state, resolved) in &program_tasks {
                     let loaded = load_plan(input)?;
                     let target_id = parse_task_id(task_id_str);
+                    let machine = machines.for_task_str(task_id_str);
                     if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
                         if let Some(to_state) = find_program_exit_transition(
                             machine,
@@ -2116,6 +2193,7 @@ fn run_agent_mode(
             for (task_id_str, current_state_raw, current_state, resolved) in &batch {
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
+                let machine = machines.for_task_str(task_id_str);
                 if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
                     if let Some(to_state) = find_next_transition(task, &loaded.rhei, machine)? {
                         run_info!(
@@ -2141,6 +2219,8 @@ fn run_agent_mode(
             let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
             let loaded = load_plan(input)?;
             let target_id = parse_task_id(task_id_str);
+            let machine = machines.for_task_str(task_id_str);
+            let callback_paths = machines.callbacks_for_str(task_id_str);
             let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
             let Some(task) = task else { continue };
 
@@ -2156,8 +2236,7 @@ fn run_agent_mode(
                 if !mcp_unavailable.is_empty() {
                     match fire_tooling_unavailable_transition(
                         input,
-                        machine,
-                        callback_paths,
+                        machines,
                         task_id_str,
                         current_state,
                         ToolingKind::Mcp,
@@ -2174,8 +2253,7 @@ fn run_agent_mode(
                 if !fired && !skill_unavailable.is_empty() {
                     match fire_tooling_unavailable_transition(
                         input,
-                        machine,
-                        callback_paths,
+                        machines,
                         task_id_str,
                         current_state,
                         ToolingKind::Skill,
@@ -2204,9 +2282,11 @@ fn run_agent_mode(
                 continue;
             }
             let tooling = gate.tooling;
-            let checkout_root = resolve_agent_checkout_root(&workspace_root, task_id_str)?;
+            // §FS-rhei-panta.6.2: the agent works in the owning rhei's root.
+            let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
+            let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
             let render_context = RuntimeTemplateContext {
-                workspace_root: &workspace_root,
+                workspace_root: &task_workspace_root,
                 checkout_root: &checkout_root.path,
                 plan_path: &callback_paths.plan_path,
                 state_machine_path: callback_paths.state_machine_path.as_deref(),
@@ -2258,7 +2338,7 @@ fn run_agent_mode(
             // orchestration ordering is encoded in code.
             let snapshot_preload = preload_snapshot_inherit_before_spawn(
                 input,
-                &workspace_root,
+                &task_workspace_root,
                 machine,
                 task,
                 current_state,
@@ -2286,7 +2366,7 @@ fn run_agent_mode(
             let spawn_result = spawn_and_wait_agent(
                 resolved,
                 &prompt,
-                &workspace_root,
+                &task_workspace_root,
                 &checkout_root.path,
                 checkout_root.worktree_root.as_deref(),
                 &callback_paths.plan_path,
@@ -2335,7 +2415,7 @@ fn run_agent_mode(
             });
             // §FS-rhei-cost-accounting.4: Extraction happens after agent exit.
             match record_agent_accounting_invocation(AgentAccountingInvocation {
-                workspace_root: &workspace_root,
+                workspace_root: &task_workspace_root,
                 task,
                 state: current_state,
                 resolved,
@@ -2563,8 +2643,7 @@ fn run_agent_mode(
                             };
                         match try_auto_advance_task(
                             input,
-                            machine,
-                            callback_paths,
+                            machines,
                             task_id_str,
                             state_before,
                             opts.no_callbacks(),
@@ -2623,8 +2702,7 @@ fn run_agent_mode(
                         if let Some(to_state) = failure_selected_to_state.as_deref() {
                             match fire_selected_timeout_transition(
                                 input,
-                                machine,
-                                callback_paths,
+                                machines,
                                 task_id_str,
                                 state_before,
                                 to_state,
@@ -2653,8 +2731,7 @@ fn run_agent_mode(
                         if let Some(to_state) = failure_selected_to_state.as_deref() {
                             match fire_agent_exit_transition(
                                 input,
-                                machine,
-                                callback_paths,
+                                machines,
                                 task_id_str,
                                 state_before,
                                 to_state,
@@ -2710,8 +2787,7 @@ fn run_agent_mode(
                 task_limit,
                 &tx,
                 input,
-                machine,
-                callback_paths,
+                machines,
                 &workspace_root,
                 &runtime_dir,
                 &sink,
@@ -2742,8 +2818,7 @@ fn run_agent_mode(
                 agent_capacity,
                 &tx,
                 input,
-                machine,
-                callback_paths,
+                machines,
                 settings,
                 opts,
                 &workspace_root,
@@ -2776,8 +2851,7 @@ fn run_agent_mode(
                         );
                         let effect = handle_parallel_program_completion(
                             input,
-                            machine,
-                            callback_paths,
+                            machines,
                             opts,
                             &workspace_root,
                             &sink,
@@ -2792,8 +2866,7 @@ fn run_agent_mode(
                             task_limit,
                             &tx,
                             input,
-                            machine,
-                            callback_paths,
+                            machines,
                             settings,
                             opts,
                             &workspace_root,
@@ -2856,6 +2929,10 @@ fn run_agent_mode(
                     accounting_warning,
                     slot: _,
                 } = completion;
+                // The completed ticket's own machine drives its post-exit
+                // handling; callbacks resolve inside each helper from the
+                // same set. §DA-per-rhei-state-machines
+                let machine = machines.for_task_str(&task_id_str);
                 // §FS-rhei-cost-accounting.11: Parallel accounting failures still warn.
                 if let Some(warning) = accounting_warning {
                     run_warn!("  warning: failed to record accounting: {}", warning);
@@ -3085,8 +3162,7 @@ fn run_agent_mode(
                                         };
                                     try_auto_advance_task(
                                         input,
-                                        machine,
-                                        callback_paths,
+                                        machines,
                                         &task_id_str,
                                         &state_name,
                                         opts.no_callbacks(),
@@ -3095,8 +3171,7 @@ fn run_agent_mode(
                                 } else {
                                     try_auto_advance_task(
                                         input,
-                                        machine,
-                                        callback_paths,
+                                        machines,
                                         &task_id_str,
                                         &state_name,
                                         opts.no_callbacks(),
@@ -3171,8 +3246,7 @@ fn run_agent_mode(
                             if let Some(to_state) = failure_selected_to_state.as_deref() {
                                 match fire_selected_timeout_transition(
                                     input,
-                                    machine,
-                                    callback_paths,
+                                    machines,
                                     &task_id_str,
                                     &state_name,
                                     to_state,
@@ -3201,8 +3275,7 @@ fn run_agent_mode(
                             if let Some(to_state) = failure_selected_to_state.as_deref() {
                                 match fire_agent_exit_transition(
                                     input,
-                                    machine,
-                                    callback_paths,
+                                    machines,
                                     &task_id_str,
                                     &state_name,
                                     to_state,
@@ -3245,8 +3318,7 @@ fn run_agent_mode(
                     task_limit,
                     &tx,
                     input,
-                    machine,
-                    callback_paths,
+                    machines,
                     settings,
                     opts,
                     &workspace_root,
@@ -3288,14 +3360,23 @@ fn run_agent_mode(
         // but the wording matches the agent-spec example so existing
         // tooling that greps for this exact phrase keeps working.
         run_info!("\nDry run complete - no agents were spawned.");
+        if !manual_only_dry_run.is_empty() {
+            return Err(manual_only_dry_run_error(&manual_only_dry_run));
+        }
+        // The real run halts here; so must the prediction of it.
+        // §FS-rhei-run.4
+        if halted_needs_human {
+            return Err(dry_run_halt_error());
+        }
         (0usize, 0usize)
     } else if agents_spawned == 0 && programs_spawned == 0 {
         if callback_transitions_made == 0 {
-            run_info!("No tasks could be advanced.");
+            let loaded = load_plan(input)?;
+            run_info!("{}", no_advancement_summary(&loaded.rhei, &machines.set, &rhei_scope));
             (0usize, 0usize)
         } else {
             let loaded = load_plan(input)?;
-            let terminal_count = terminal_task_count(&loaded.rhei, machine);
+            let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
             let total_tasks = total_task_count(&loaded.rhei);
             run_info!(
                 "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
@@ -3313,7 +3394,7 @@ fn run_agent_mode(
         }
     } else {
         let loaded = load_plan(input)?;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
         run_info!(
             "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
@@ -3366,7 +3447,7 @@ fn run_agent_mode(
     // guard so its fallback only fires on an early error.
     emit_run_report(
         input,
-        machine,
+        &machines.set,
         &summary_sink,
         &runtime_dir,
         RunStats {
@@ -3393,9 +3474,10 @@ fn run_agent_mode(
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
-        if terminal_count < total_task_count(&loaded.rhei)
-            && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine)
+        // §FS-rhei-panta.6.1: a narrowed run halts on in-scope work only —
+        // out-of-scope tickets left non-terminal are not a failure.
+        if scoped_unfinished_task_exists(&loaded.rhei, &machines.set, &rhei_scope)
+            && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, &machines.set, &rhei_scope)
         {
             return Err(miette!(
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"

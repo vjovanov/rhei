@@ -80,22 +80,49 @@ Status: completed. `rhei validate` now accumulates recoverable parse errors for
 single-file plans and Directory Workspace task files so authors can fix a batch
 of markdown mistakes without repeated parse/repair cycles. §FS-rhei-plan-language §FS-rhei-validate
 
+## Completed: Panta Default Execution Model
+
+Status: completed. Every load path yields a Panta-rooted graph: a bare rhei is
+the single rhei of an implicit Panta with its id derived from the source
+location, mutation is project-wide with rewrites routed to each owning rhei, and
+`--rhei` narrows project-scoped invocations.
+
+Originally delivered with one deliberate limit — one state machine governed a
+whole project — since lifted: the machine is per-rhei, defaulted by the
+manifest (§DA-per-rhei-state-machines). §FS-rhei-panta §AR-rhei-panta
+
 ## Planned: CLI UX and Release Polish
 
 Status: planned. This section is the canonical home for useful follow-up work
 from the April 2026 PM review and the product-management pre-release pass. The
 old notes are historical; this roadmap owns the remaining backlog.
 
-- Graduate Panta from read-only project loading to project-wide mutation:
-  route state, assignee, result, runtime, and artifact rewrites to each owning
-  rhei; resolve per-rhei state machines during execution; and replace the
-  current mutating-command rejection with scoped project execution. §FS-rhei-panta §AR-rhei-panta
+- ~~Resolve per-rhei state machines during execution so heterogeneous rheis can
+  run under their own machines, with each cross-rhei prior judged against the
+  prior's own machine.~~ Done: the machine is a per-rhei property defaulted by
+  the manifest, cross-rhei priors are judged under the prior's own machine, and
+  templates with distinct machines coexist in one project.
+  §DA-per-rhei-state-machines §AR-rhei-panta.4 §FS-rhei-panta.6
+- Add a `rhei new` command that creates a rhei under Panta without a location
+  argument. Today a rhei is added by creating a `<id>.rhei.md` file or a
+  workspace directory in the project directory. §FS-rhei-panta.2
+- Add rhei-level presentation to listing and monitoring: group tickets under
+  rhei headings with a per-rhei status rollup, and render the `basin` rhei
+  de-emphasized (dimmed or collapsed) while keeping its last-place ordering.
+  Today `rhei list` prints a flat qualified-id listing with basin's tickets
+  last. §FS-rhei-panta.3 §FS-rhei-panta.4 §FS-rhei-list.4.1
+- Materialize rhei nodes in the merged graph so `node_policy.rhei` can bind a
+  profile to the rhei tier and let a profiled rhei carry state and roll up like
+  a non-leaf ticket. Today the key has no effect because the graph contains no
+  rhei nodes. §FS-rhei-panta.6.3 §FS-rhei-states.9
+- Give `rhei viz` rhei-level *presentation*: visually grouped top-level bands
+  per rhei with the `basin` group last and de-emphasized. The merged project
+  graph and its cross-rhei edges already render; what is missing is the grouping
+  chrome around them. §FS-rhei-viz.7.3 §FS-rhei-panta.6.4
 - Validate child-rhei content-section links under Panta: carry a per-section
   link base so a rhei's own content sections resolve against that rhei's
   execution root, not the project root. Today only task-content links are
   checked per rhei; rhei-level content sections are dropped at merge. §FS-rhei-plan-language.3.6 §AR-rhei-panta.5
-- Treat a bare rhei as the single rhei of an implicit Panta so every load path
-  yields a Panta-rooted graph, matching the target load model. §AR-rhei-panta
 - Make failed `rhei complete` attempts from loop states explain the exact
   blocked transition condition and the currently available next transitions. §FS-rhei-complete §FS-rhei-transitions
 - Decide and normalize `rhei transition` result-file behavior: either stop

@@ -75,7 +75,8 @@ Program subprocesses inherit the same base environment as agent subprocesses:
 | Variable | Value |
 |----------|-------|
 | `RHEI_PLAN_PATH` | Absolute path to the plan file or workspace directory |
-| `RHEI_TASK_ID` | Current task identifier |
+| `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
+| `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
 | `RHEI_STATE` | Current state name |
 | `RHEI_VISIT_COUNT` | Current visit number (for counted-loop states) |
 | `RHEI_INPUT_<NAME>_EXISTS` | `true` or `false` — whether the declared input artifact exists on disk. Set for every declared input, required or optional. `<NAME>` is the artifact `name` uppercased with hyphens and spaces replaced by underscores (e.g., `continuation-notes` → `RHEI_INPUT_CONTINUATION_NOTES_EXISTS`). |
@@ -292,14 +293,14 @@ Programs respect the same independence rules as agents in parallel mode. Indepen
 Pass 1: 2 ready, 0 terminal, 5 total.
 
 Would run: npm run build
-  Task 1: Build the project [draft -> build]
+  Task app.1: Build the project [draft -> build]
   Timeout: 10m
-  Log: runtime/logs/task-1-build.log
+  Log: runtime/logs/task-app.1-build.log
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
-  Task 3: Write documentation [draft -> pending]
+  Task app.3: Write documentation [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
-  Log: runtime/logs/task-3-pending.log
+  Log: runtime/logs/task-app.3-pending.log
 
 Dry run complete - nothing was executed.
 ```

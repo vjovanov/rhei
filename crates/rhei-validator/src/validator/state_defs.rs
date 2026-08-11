@@ -239,7 +239,8 @@ pub struct Profile {
 // §FS-rhei-states.9.2: Node-policy resolution order.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NodePolicy {
-    /// Profile bound to the plan-root node (always the `rhei` kind).
+    /// Profile bound to the project-root node (the virtual `panta` root of
+    /// every load; a bare rhei is its one-rhei implicit Panta). §AR-rhei-panta.2
     pub root: String,
     /// Fallback profile for non-root nodes that match neither `overrides`
     /// nor `by_type`.
@@ -286,7 +287,7 @@ impl NodePolicyMatch {
 ///
 /// `version` is stored as [`serde_yaml::Value`] so the repository can accept
 /// either numeric or string YAML values without imposing a stricter schema.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StateMachine {
     /// Human-readable states definition name.
     pub name: String,

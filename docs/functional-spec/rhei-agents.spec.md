@@ -671,7 +671,8 @@ callback environment:
 | `RHEI_ROOT` | Absolute path to the Rhei artifact root: the plan-file directory for a single-file plan, or the workspace directory for a Directory Workspace |
 | `RHEI_CHECKOUT_ROOT` | Absolute path to the checkout directory used as the agent subprocess working directory |
 | `RHEI_WORKTREE_ROOT` | Absolute path to the task git worktree when the task is running from a worktree reference; unset otherwise |
-| `RHEI_TASK_ID` | Current task identifier |
+| `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
+| `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
 | `RHEI_STATE` | Current state name |
 | `RHEI_MODEL` | Model profile id, if configured |
 | `RHEI_MODEL_PROVIDER` | Resolved provider id, if configured |
@@ -1058,14 +1059,14 @@ missing line means the state declared no entries of that kind.
 Pass 1: 2 ready, 0 terminal, 5 total.
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
-  Task 1: Set up database schema [draft -> pending]
+  Task app.1: Set up database schema [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
-  Log: runtime/logs/task-1-pending.log
+  Log: runtime/logs/task-app.1-pending.log
 
 Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
-  Task 3: Write frontend components [draft -> pending]
+  Task app.3: Write frontend components [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
-  Log: runtime/logs/task-3-pending.log
+  Log: runtime/logs/task-app.3-pending.log
 
 Dry run complete - no agents were spawned.
 ```

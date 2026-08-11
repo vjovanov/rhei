@@ -5,14 +5,40 @@ Select and optionally claim the next eligible task from a plan.
 ## 1. Usage
 
 ```bash
-rhei next <RHEI_PLAN> [--peek]
+rhei next <RHEI_PLAN> [--peek] [--task <ID>] [--rhei <RHEI_ID>]
 ```
 
 ## 2. Options
 
-| Flag     | Required | Default | Description                                            |
-|----------|----------|---------|--------------------------------------------------------|
-| `--peek` | No       | false   | Print the next claimable task without transitioning it |
+| Flag               | Required | Default | Description                                                        |
+|--------------------|----------|---------|--------------------------------------------------------------------|
+| `--peek`           | No       | false   | Print the next claimable task without transitioning it             |
+| `--task <ID>`      | No       |         | Target a specific ticket instead of auto-selecting. See §2.1.      |
+| `--rhei <RHEI_ID>` | No       | all     | Narrow candidate selection to the named rheis (repeatable). §2.2.  |
+
+### 2.1. Ticket Targets
+
+`--task` accepts either the project-qualified ticket id (`auth.1`) or a
+rhei-local shorthand (`1`). A shorthand resolves only when exactly one in-scope
+rhei contains that ticket; when more than one does, the error names the
+qualified candidates. Output, artifacts, and ledgers always use the qualified
+id regardless of how the target was written (§FS-rhei-panta.6).
+
+A ticket named explicitly with `--task` must itself be in scope: targeting a
+ticket outside `--rhei` is an error rather than a silent widening.
+
+### 2.2. Project Scope (`--rhei`)
+
+`rhei next` reads the whole project by default, since every load yields a
+Panta-rooted graph and a bare rhei is the single rhei of its implicit Panta.
+`--rhei <RHEI_ID>` is repeatable and narrows which tickets are **candidates**;
+it never narrows where their priors resolve, so a candidate may still be
+blocked by a prior in a rhei outside the scope. The no-work diagnostic names
+the scope and marks such a prior as out of scope (§FS-rhei-panta.6.1).
+
+An id that names no rhei in the project is an error listing the available rhei
+ids. Claim mode writes `**Assignee:**` into the owning rhei's file, resolved
+through the source map.
 
 ## 3. Default Behavior (Claim Mode)
 
@@ -68,6 +94,28 @@ If no claimable task exists, print a status summary (see [No Tasks Ready](#5-no-
 
 ### 3.2. Output (claim mode)
 
+The first line reports the claim, because taking the claim is what the command
+just did. When the claim also advanced the state it names both; when the ticket
+stays put it names the assignee written:
+
+```text
+Task auth.1 claimed: 'draft' -> 'pending'
+Task auth.1 claimed by manual (stays in 'pending')
+```
+
+The second form is not an edge case — it is *every* claim under the built-in
+machine, whose initial state is also its working state (§3). Reporting only
+`Task auth.1 (already in 'pending')` there described the state the caller could
+already see and said nothing about the `**Assignee:**` write, which is the
+whole point of claiming: the durable mark that stops a second worker taking the
+same ticket. `rhei release` already announces the mirror-image action
+(`Released Task auth.1 (was assigned to manual)`).
+
+In `--json`, the same fact is a `claimed_as` field, present exactly when this
+invocation took the claim — absent under `--peek` and absent when the ticket was
+already assigned, so a scripted worker can tell a claim from a look without
+re-reading the plan.
+
 Template variables in `instructions` and `personality` are resolved before output. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) for the full variable namespace and resolution rules.
 
 ```text
@@ -86,8 +134,8 @@ error instead of silently skipping the task.
 Example:
 
 ```text
-Error: Task review-cache-key cannot be claimed in state agent-review-fix.
-Missing required input artifact: findings (runtime/findings/review-cache-key.md)
+Error: Task auth.review-cache-key cannot be claimed in state agent-review-fix.
+Missing required input artifact: findings (runtime/findings/auth.review-cache-key.md)
 ```
 
 ## 4. Peek Mode (`--peek`)
@@ -127,7 +175,9 @@ action is:
 | One or more otherwise-ready tasks are in a gating state | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...` |
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
-| Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: Task <ID> waiting on Task <PRIOR> (<state>) blocked by incomplete prerequisites.` |
+| Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
+| Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
+| Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
 
 These distinct messages allow a PM or orchestrator to tell apart a finished
 plan, a human gate, fully in-flight work, manual transition selection, and
@@ -148,7 +198,7 @@ When a state declares an `agent` field (or an agent is resolved from project/glo
 
 ```json
 {
-  "task_id": "3",
+  "task_id": "auth.3",
   "title": "Implement caching layer",
   "state": "pending",
   "agent": "claude-code",
@@ -165,7 +215,7 @@ from JSON output when no agent or model is configured.
 In text output mode, the agent is shown after the state line:
 
 ```text
-Task 3: Implement caching layer
+Task auth.3: Implement caching layer
 State: pending
 Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 
@@ -182,4 +232,5 @@ Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 - [Transition Command](rhei-transition-cmd.spec.md) — `rhei transition` behavioral contract
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract
 - [Run Command](rhei-run.spec.md) — `rhei run` behavioral contract
+- [Release Command](rhei-release.spec.md) — dropping a claim this command wrote
 - [Reset Command](rhei-reset.spec.md) — `rhei reset` behavioral contract

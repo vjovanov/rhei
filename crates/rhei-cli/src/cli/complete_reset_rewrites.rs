@@ -1,11 +1,31 @@
-fn reset_target_files(loaded: &LoadedPlan, input: &Path) -> Vec<PathBuf> {
+/// The plan files a reset rewrites, each paired with a sample qualified task
+/// id from that file — the handle its owning rhei's machine resolves through.
+/// §DA-per-rhei-state-machines
+fn reset_target_files(
+    loaded: &LoadedPlan,
+    input: &Path,
+    scope: &RheiScope,
+) -> Vec<(PathBuf, String)> {
     if loaded.task_sources.is_empty() {
-        return vec![input.to_path_buf()];
+        // Only a bare plan file is itself the rewrite target; an empty
+        // project or workspace has no plan files to rewrite — resetting it
+        // is a no-op, not an error. §FS-rhei-panta.6
+        return if input.is_file() {
+            vec![(input.to_path_buf(), String::new())]
+        } else {
+            Vec::new()
+        };
     }
 
-    let mut files = loaded.task_sources.values().cloned().collect::<Vec<_>>();
+    // §FS-rhei-panta.6.4: `--rhei` narrows which rheis are reset.
+    let mut files = loaded
+        .task_sources
+        .iter()
+        .filter(|(task_id, _)| task_in_rhei_scope(scope, task_id))
+        .map(|(task_id, path)| (path.clone(), task_id.clone()))
+        .collect::<Vec<_>>();
     files.sort();
-    files.dedup();
+    files.dedup_by(|a, b| a.0 == b.0);
     files
 }
 
@@ -258,15 +278,6 @@ fn title_case_kind(kind: &str) -> String {
     out
 }
 
-/// Resolve the workspace root for result file placement.
-fn result_workspace_root(input: &Path, task_file: &Path) -> PathBuf {
-    if workspace::is_workspace(input) {
-        input.to_path_buf()
-    } else {
-        task_file.parent().unwrap_or(Path::new(".")).to_path_buf()
-    }
-}
-
 /// Append a state-transition entry to the central transition ledger and, when a
 /// completion message is present, to `runtime/results/<task-id>.md`.
 ///
@@ -297,8 +308,7 @@ fn append_result_entry(
         .open(&result_file)
         .map_err(|err| miette!("failed to open result file: {err}"))?;
 
-    writeln!(file, "## Result")
-        .map_err(|err| miette!("failed to write result entry: {err}"))?;
+    writeln!(file, "## Result").map_err(|err| miette!("failed to write result entry: {err}"))?;
     writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
     writeln!(file, "{}", msg).map_err(|err| miette!("failed to write result entry: {err}"))?;
     writeln!(file).map_err(|err| miette!("failed to write result entry: {err}"))?;
@@ -349,6 +359,7 @@ struct TaskAssigneeClaimContext<'a> {
 fn write_task_assignee(
     task_file: &Path,
     task_id: &str,
+    qualified_id: &str,
     expected_state: &str,
     machine: &rhei_validator::StateMachine,
     claim: TaskAssigneeClaimContext<'_>,
@@ -369,31 +380,36 @@ fn write_task_assignee(
         let _ = fs2::FileExt::unlock(&handle);
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
-            task_id,
+            qualified_id,
             task.state,
             expected_state
         ));
     }
     if let Some(existing) = task.assignee.as_deref() {
         let _ = fs2::FileExt::unlock(&handle);
-        return Err(miette!("Task {} is already assigned to {}", task_id, existing));
+        return Err(miette!("Task {} is already assigned to {}", qualified_id, existing));
     }
+    // §AR-rhei-panta.2: `{task_id}` artifact templates render the qualified
+    // id — the same paths transition-time checks and agents see.
     ensure_state_inputs_exist_for_transition(
         claim.workspace_root,
         Some(&task),
-        task_id,
+        qualified_id,
         &current_state,
         claim.state_def,
+        // `claim.metadata` is the merged project graph's, so `stateVisits`
+        // is keyed by the qualified id — not the rhei-local id the raw file
+        // parse yields. §AR-rhei-panta.2
         Some(render_visit_count(
             claim.metadata,
-            &task.id,
+            &parse_task_id(qualified_id),
             &current_state,
             task.state.as_str(),
             machine,
         )),
         machine,
         claim.settings,
-        &format!("Task {} cannot be claimed in state {}.", task_id, current_state),
+        &format!("Task {} cannot be claimed in state {}.", qualified_id, current_state),
     )?;
 
     let rewritten = insert_task_assignee(&raw, task_id, assignee)?;
@@ -431,6 +447,14 @@ fn parse_claim_task_from_raw(
 }
 
 /// Rewrite a task's markdown after completion: remove `**Assignee:**` and,
+/// Drop blank lines from the end of `lines` so the caller controls the exact
+/// separation it wants.
+fn trim_trailing_blank_lines(lines: &mut Vec<String>) {
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+}
+
 /// when `insert_link` is true, append a `> **Result:** [link_text](link_path)`
 /// line to the task body.
 ///
@@ -458,8 +482,14 @@ fn rewrite_task_completion(
     for line in &lines {
         let heading = node_heading_outside_code(line, &mut in_code_block);
         if in_target_task && !link_inserted && heading.is_some() {
+            // Exactly one blank line on each side: the task body already ends
+            // with the blank that separates it from the next heading, so
+            // pushing another produced a double blank above the result block
+            // and left the following heading butted against it.
+            trim_trailing_blank_lines(&mut result_lines);
             result_lines.push(String::new());
             result_lines.push(result_line.clone());
+            result_lines.push(String::new());
             link_inserted = true;
         }
 
@@ -473,14 +503,24 @@ fn rewrite_task_completion(
             continue;
         }
         if !in_code_block && in_target_task && line.starts_with("> **Result:**") {
+            // §FS-rhei-panta.6.3: completion owns this ticket's result link.
+            // An existing (possibly legacy rhei-local) link is refreshed to
+            // the file this completion actually wrote.
+            if !link_inserted {
+                result_lines.push(result_line.clone());
+                link_inserted = true;
+                continue;
+            }
             link_inserted = true;
         }
 
         result_lines.push(line.to_string());
     }
 
-    // If the target task is the last element in the file, append here.
+    // If the target task is the last element in the file, append here. No
+    // trailing blank: the final newline is restored from the source below.
     if in_target_task && !link_inserted {
+        trim_trailing_blank_lines(&mut result_lines);
         result_lines.push(String::new());
         result_lines.push(result_line);
     }

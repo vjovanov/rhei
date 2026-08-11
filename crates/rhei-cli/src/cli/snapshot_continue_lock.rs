@@ -531,11 +531,12 @@ fn is_snapshot_orphaned(record: &SnapshotRecord, ctx: &SnapshotCommandContext) -
     if !task_exists {
         return true;
     }
-    if !ctx.machine.states.contains_key(&record.emitting_state) {
+    let machine = ctx.machines.for_task_str(&record.task_id);
+    if !machine.states.contains_key(&record.emitting_state) {
         return true;
     }
     let Ok(slugs) =
-        effective_target_slugs_for_state(&ctx.machine, &record.emitting_state, &ctx.settings)
+        effective_target_slugs_for_state(machine, &record.emitting_state, &ctx.settings)
     else {
         return true;
     };

@@ -176,7 +176,7 @@ fn transition_succeeds_and_updates_file() {
 
     let result_log = fs::read_to_string(dir.join("runtime/state-transitions.log"))
         .expect("read state transition log");
-    assert!(result_log.contains("1 pending@in-progress"));
+    assert!(result_log.contains("plan.1 pending@in-progress"));
 
     let completed = run_complete(&plan_path, &machine_path, "1", "done");
     assert!(
@@ -187,7 +187,7 @@ fn transition_succeeds_and_updates_file() {
     );
     let updated = fs::read_to_string(&plan_path).expect("read completed plan");
     assert!(
-        updated.contains("> **Result:** [1](runtime/results/1.md)"),
+        updated.contains("> **Result:** [plan.1](runtime/results/plan.1.md)"),
         "completion should link result after transition history was recorded:\n{updated}"
     );
 

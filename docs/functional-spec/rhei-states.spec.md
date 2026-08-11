@@ -3,7 +3,7 @@
 This document defines the default states configuration for tasks in the Rhei
 agent runtime. The authoritative machine-readable form lives in
 [states.yaml](states.yaml); the writer-skill mirror is
-[default-states.md](../../skills/rhei-plan-writer/references/default-states.md).
+[default-states.md](../../crates/rhei-cli/skills/rhei-plan-writer/references/default-states.md).
 
 The built-in `rhei` machine is intentionally minimal. Every node starts in
 `pending`, where the only instruction is "Do the task." The only built-in
@@ -259,7 +259,14 @@ Each artifact definition has this shape:
 
 Supported path template variables:
 
-- `{task_id}` - the current task id as rendered in the plan
+- `{task_id}` - the current ticket's **project-qualified** id (`auth.3`), not
+  the rhei-local id its heading carries in the plan file (§AR-rhei-panta.3)
+- `{task_id_local}` - the ticket id as written in its rhei file's heading
+  (`3`). Use this — never `{task_id}` — in instructions that author new task
+  headings or `**Prior:**` lines into the plan file, since the qualification
+  prefix is applied at load time and must not be authored (§AR-rhei-panta.3)
+- `{rhei_id}` - the owning rhei's id (`auth`); unresolved when the ticket
+  carries no qualification prefix
 - `{state}` - the canonical unsuffixed state name
 - `{visit_count}` - the current visit number for counted-loop states (only available when the state declares `visits`)
 - `{target}` - the current execution target selector (only available when the state declares `target` or `all_targets`)
@@ -351,7 +358,7 @@ When `continuation-notes` is absent (first loop iteration), the resolved
 instructions become:
 
 ```text
-Implement Task 4: Add retry logic.
+Implement Task auth.4: Add retry logic.
 
 This is the first iteration. Start from the task description above.
 
@@ -361,10 +368,10 @@ When finished, transition to `check-continue`.
 When it is present (subsequent iterations):
 
 ```text
-Implement Task 4: Add retry logic.
+Implement Task auth.4: Add retry logic.
 
 A previous iteration left the following notes. Read
-`runtime/continuation/4.md` before starting and address any
+`runtime/continuation/auth.4.md` before starting and address any
 outstanding issues it identifies.
 
 When finished, transition to `check-continue`.
@@ -382,7 +389,9 @@ The `instructions` and `personality` fields support template variable substituti
 
 | Variable | Source | Description | Example Value |
 |----------|--------|-------------|---------------|
-| `{task_id}` | claimed task | Task identifier as rendered in the plan | `3`, `setup` |
+| `{task_id}` | claimed task | Ticket's project-qualified id — the rhei id joined with the rhei-local id, not the plain heading id | `auth.3`, `auth.setup` |
+| `{task_id_local}` | claimed task | Ticket id as written in its rhei file's heading. Required for instructions that author headings or `**Prior:**` lines into the plan file (§AR-rhei-panta.3) | `3`, `setup` |
+| `{rhei_id}` | claimed task | Owning rhei's id (the qualification prefix); unresolved when the ticket carries none | `auth` |
 | `{task_title}` | claimed task | Task title text | `Implement caching layer` |
 | `{state}` | state machine | Canonical unsuffixed state name | `review` |
 | `{visit_count}` | runtime counter | Current visit number for counted-loop states | `2` |
@@ -396,9 +405,9 @@ The `instructions` and `personality` fields support template variable substituti
 | `{agent.mode}` | agent selector | Current agent mode, if one was selected | `yolo` |
 | `{plan_title}` | plan header | Title from the `# Rhei: <title>` header | `Feature Branch CI Pipeline` |
 | `{plan_path}` | filesystem | Path to the plan file | `./ci-pipeline.rhei.md` |
-| `{input.<name>.path}` | artifact contract | Resolved path of a declared input artifact | `runtime/results/3.md` |
+| `{input.<name>.path}` | artifact contract | Resolved path of a declared input artifact | `runtime/results/auth.3.md` |
 | `{input.<name>.exists}` | artifact contract | Whether the input artifact file exists on disk at resolution time | `true`, `false` |
-| `{output.<name>.path}` | artifact contract | Resolved path of a declared output artifact | `runtime/findings/3.md` |
+| `{output.<name>.path}` | artifact contract | Resolved path of a declared output artifact | `runtime/findings/auth.3.md` |
 | `{mcp.<name>.available}` | tooling | Whether the MCP server with id `<name>` started successfully and is attached to the current agent | `true`, `false` |
 | `{skill.<id>.available}` | tooling | Whether the skill with id `<id>` is enabled for the current agent | `true`, `false` |
 | `{meta.<key>}` | task metadata | Value from the task's YAML metadata section | `alice`, `2` |
@@ -457,13 +466,13 @@ states:
         path: runtime/fixes/task-{task_id}-fix-{visit_count}.md
 ```
 
-When `rhei next` claims Task 3 ("Implement caching layer") during the second visit to `fix`, the agent receives:
+When `rhei next` claims Task auth.3 ("Implement caching layer") during the second visit to `fix`, the agent receives:
 
 ```text
-Fix pass 2 of 2 for Task 3: Implement caching layer.
+Fix pass 2 of 2 for Task auth.3: Implement caching layer.
 
-Read `runtime/reviews/task-3-review-2.md`, extract the accumulated review
-findings, and update `runtime/fixes/task-3-fix-2.md`.
+Read `runtime/reviews/task-auth.3-review-2.md`, extract the accumulated review
+findings, and update `runtime/fixes/task-auth.3-fix-2.md`.
 
 Transition back to `review` if 2 < 2.
 Otherwise, transition to `completed`.

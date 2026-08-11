@@ -332,15 +332,30 @@
 
         println!("Inputs:");
         for input in &manifest.inputs {
+            // A structured default renders as multi-line YAML, which a
+            // single-line `(type, default=…)` parenthetical simply tore apart.
+            // Scalars stay inline; anything taller gets its own block.
+            let rendered_default = input.schema.default.as_ref().map(format_version);
+            let block_default = rendered_default
+                .as_deref()
+                .filter(|rendered| rendered.contains('\n') || rendered.len() > 40);
             let requirement = if input.is_required() {
                 "required".to_string()
-            } else if let Some(default) = input.schema.default.as_ref() {
-                format!("default={}", format_version(default))
+            } else if block_default.is_some() {
+                "optional".to_string()
+            } else if let Some(default) = rendered_default.as_deref() {
+                format!("default={default}")
             } else {
                 "optional".to_string()
             };
             println!("  {} ({}, {})", input.name, input.value_type().as_str(), requirement);
             println!("    {}", input.description);
+            if let Some(default) = block_default {
+                println!("    default:");
+                for line in default.lines() {
+                    println!("      {line}");
+                }
+            }
             if let Some(pattern) = input.schema.validate.as_deref() {
                 println!("    validate: {}", pattern);
             }

@@ -40,13 +40,13 @@ be split without making the design harder to understand.
 |---|---|---|
 | `crates/rhei-cli/src/cli/run_agent_mode.rs` | Mechanical extraction from the former CLI monolith; still one orchestration loop. | Split into scheduler, sequential execution, parallel execution, and result handling modules. |
 | `examples/hourly-human-intervention-example/states.yaml` | Example state machine intentionally shows a complete workflow in one file. | Split by template/example support if Rhei gains multi-file state machines. |
-| `.agents/rhei/templates/hourly-human-intervention/states.yaml` | Template state machine mirrors the example as an instantiable workflow. | Split by template support if Rhei gains multi-file state machines. |
-| `.agents/rhei/templates/spec-implementation/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
+| `crates/rhei-cli/templates/hourly-human-intervention/states.yaml` | Template state machine mirrors the example as an instantiable workflow. | Split by template support if Rhei gains multi-file state machines. |
+| `crates/rhei-cli/templates/spec-implementation/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
 | `examples/spec-implementation-example/states.yaml` | Example mirrors the spec-implementation template state machine. | Split by template support if Rhei gains multi-file state machines. |
 | `crates/rhei-cli/tests/e2e/completions_tests.rs` | E2E completion scenarios share setup and assertions. | Split by shell or command group when new cases are added. |
 | `crates/rhei-cli/tests/e2e/templates_tests.rs` | Template E2E scenarios share fixtures and setup. | Split by template command area when new cases are added. |
 | `crates/rhei-cli/tests/e2e/next_tests.rs` | `next` command E2E scenarios share command fixtures. | Split by readiness, assignee, and transition behavior when new cases are added. |
-| `.agents/rhei/templates/changeset-review/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
+| `crates/rhei-cli/templates/changeset-review/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
 | `crates/rhei-cli/tests/e2e/run_tests.rs` | Run-command E2E scenarios share setup and process assertions. | Split by callback, agent, program, and snapshot behavior when new cases are added. |
 | `examples/changeset-review-example/states.yaml` | Example mirrors the changeset-review template state machine. | Split by template support if Rhei gains multi-file state machines. |
 | `crates/rhei-core/src/ast.rs` | AST types are reviewed together as the core language model. | Split workspace/task/state structs if more public fields are added. |

@@ -1,4 +1,4 @@
-### Task product-management-loop: Run product-management loop for Rhei
+### Task loop: Run product-management loop for Rhei
 **State:** product-run
 
 Run 2 product-management passes. Each pass fans out independent

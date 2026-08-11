@@ -39,6 +39,7 @@ pub fn collect_plans(
         plans.insert(key.to_string(), model);
         return Ok(plans);
     }
+
     if !path.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -46,8 +47,35 @@ pub fn collect_plans(
         ));
     }
 
+    if workspace::is_panta_project(path) {
+        // A project renders as one graph: cross-rhei `**Prior:**` edges are
+        // drawn, and Directory Workspace rheis appear alongside single-file
+        // ones. §FS-rhei-viz.7.3
+        let loaded = workspace::load_panta_project(path).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to load Panta project {}: {}", path.display(), err.message),
+            )
+        })?;
+        let machines = resolve_project_machines(path, machine_override, &loaded)?;
+        // Runtime ledgers live under each rhei's own root, not the project's.
+        // §AR-rhei-panta.5
+        let task_roots = loaded
+            .task_roots
+            .iter()
+            .map(|(id, root)| (id.clone(), root.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        plans.insert(
+            key.to_string(),
+            crate::build_set_with_history_roots(&loaded.rhei, &machines, path, &task_roots),
+        );
+        return Ok(plans);
+    }
+
     if workspace::is_workspace(path) {
-        let loaded = workspace::load_workspace(path).map_err(|err| {
+        // §AR-rhei-panta.2: viz renders the same implicit-Panta id space as
+        // the CLI, so workspace tickets carry their qualified ids.
+        let loaded = workspace::load_implicit_panta(path).map_err(|err| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("failed to load workspace {}: {}", path.display(), err.message),
@@ -77,9 +105,73 @@ fn load_plan_file(path: &Path, machine_override: Option<&Path>) -> io::Result<Vi
             format!("failed to parse {}: {}", path.display(), err.message),
         )
     })?;
+    // §AR-rhei-panta.2: viz renders the implicit-Panta id space (`auth.1`).
+    let rhei = workspace::implicit_panta_from_file_rhei(rhei, path)
+        .map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to load {}: {}", path.display(), err.message),
+            )
+        })?
+        .rhei;
     let machine = resolve_machine(path, machine_override, &rhei)?;
     let workspace_root = path.parent().unwrap_or_else(|| Path::new("."));
     Ok(build_with_history(&rhei, &machine, workspace_root))
+}
+
+/// Resolve every machine a project's rheis run under: the manifest default via
+/// [`resolve_machine`], plus each self-declaring rhei's machine from its own
+/// execution root (falling back to the project root). Mirrors CLI resolution.
+// §DA-per-rhei-state-machines §AR-rhei-panta.4
+fn resolve_project_machines(
+    path: &Path,
+    machine_override: Option<&Path>,
+    loaded: &workspace::PantaProject,
+) -> io::Result<rhei_validator::MachineSet> {
+    let default = resolve_machine(path, machine_override, &loaded.rhei)?;
+    let mut per_rhei = std::collections::BTreeMap::new();
+    let mut declared: Vec<(&String, &String)> = loaded.rhei_machines.iter().collect();
+    declared.sort();
+    for (rhei_id, machine_name) in declared {
+        if *machine_name == default.name {
+            continue;
+        }
+        if machine_override.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "--states declares '{}', but rhei '{rhei_id}' declares state machine                      '{machine_name}'; the override cannot reinterpret that rhei's states",
+                    default.name
+                ),
+            ));
+        }
+        let mut candidates = Vec::new();
+        if let Some(root) = loaded.rhei_roots.get(rhei_id) {
+            candidates.push(root.join("states.yaml"));
+        }
+        candidates.push(path.join("states.yaml"));
+        let mut resolved = None;
+        for candidate in candidates {
+            if !candidate.is_file() {
+                continue;
+            }
+            let machine = load_machine(&candidate)?;
+            if machine.name == *machine_name {
+                resolved = Some(machine);
+                break;
+            }
+        }
+        let Some(machine) = resolved else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "rhei '{rhei_id}' declares state machine '{machine_name}', but no states                      file declaring it was found in its root or the project root"
+                ),
+            ));
+        };
+        per_rhei.insert(rhei_id.clone(), machine);
+    }
+    Ok(rhei_validator::MachineSet { default, per_rhei })
 }
 
 /// Resolve the state machine for a plan: an explicit `--states` override wins,
@@ -216,6 +308,41 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans["solo"].plan_state.as_deref(), Some("active"));
         assert!(!plans["solo"].machine.states.is_empty());
+    }
+
+    #[test]
+    fn history_falls_back_to_legacy_rhei_local_ids() {
+        let temp = TempDir::new("legacy-history");
+        let plan = temp.path().join("plan.rhei.md");
+        fs::write(
+            &plan,
+            "# Rhei: Legacy\n**States:** rhei\n\n## Tasks\n\n### Task 1: A\n**State:** in-progress\n",
+        )
+        .unwrap();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        // A ledger written before project qualification keys records by the
+        // rhei-local id, not `plan.1`. §AR-rhei-panta.2
+        fs::write(runtime.join("state-transitions.log"), "1 pending@in-progress\n").unwrap();
+
+        let plans = collect_plans(&plan, "legacy", None).expect("collect");
+        let task = &plans["legacy"].tasks[0];
+        assert_eq!(task.id, "plan.1");
+        assert_eq!(task.history.len(), 1, "legacy local-id history should attach");
+        assert_eq!(task.history[0].from, "pending");
+        assert_eq!(task.history[0].to, "in-progress");
+
+        // A qualified record wins outright; the legacy key is a fallback,
+        // never a merge source.
+        fs::write(
+            runtime.join("state-transitions.log"),
+            "plan.1 pending@completed\n1 pending@in-progress\n",
+        )
+        .unwrap();
+        let plans = collect_plans(&plan, "legacy", None).expect("collect");
+        let task = &plans["legacy"].tasks[0];
+        assert_eq!(task.history.len(), 1);
+        assert_eq!(task.history[0].to, "completed");
     }
 
     #[test]

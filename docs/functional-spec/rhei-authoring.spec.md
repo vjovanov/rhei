@@ -24,6 +24,10 @@ Save this file with a `.rhei.md` extension, then validate it:
 rhei validate my-plan.rhei.md
 ```
 
+The file stem becomes the rhei id that prefixes every ticket id in command
+output (`my-plan.rhei.md` → tickets `my-plan.1`, `my-plan.2`, ...), so choose
+it like an identifier: start with a letter, then letters, digits, `_`, or `-`.
+
 When no `**States:**` field is declared, a standalone plan uses the built-in
 `rhei` state machine. Inside a Panta Project, a rhei that omits `**States:**`
 may inherit the project default from `index.panta.md`.

@@ -1,6 +1,6 @@
 # changeset-review - example
 
-A pre-rendered instantiation of the [`changeset-review`](../../.agents/rhei/templates/changeset-review/)
+A pre-rendered instantiation of the [`changeset-review`](../../crates/rhei-cli/templates/changeset-review/)
 template used as a smoke test that the template produces a valid workspace.
 
 Inputs used when rendering:

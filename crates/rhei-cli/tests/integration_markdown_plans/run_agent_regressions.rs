@@ -199,7 +199,7 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     assert_recorded_path_eq(recorded.lines().next().expect("recorded cwd"), &repo);
     assert_recorded_path_eq(recorded_value(&recorded, "rhei="), &plan_dir);
     assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &repo);
-    assert!(plan_dir.join("runtime/logs/task-1-review.log").exists());
+    assert!(plan_dir.join("runtime/logs/task-plan.1-review.log").exists());
 
     fs::remove_dir_all(root).expect("cleanup");
 }
@@ -311,14 +311,14 @@ printf '%s\n' "$path" > "$RHEI_ROOT/runtime/rendered-artifact-path.txt"
         result.stdout,
         result.stderr
     );
-    let expected = plan_dir.join("runtime/reports/1.md");
+    let expected = plan_dir.join("runtime/reports/plan.1.md");
     assert!(expected.exists(), "required output should be written under RHEI_ROOT");
     let rendered = fs::read_to_string(plan_dir.join("runtime/rendered-artifact-path.txt"))
         .expect("read rendered path");
     // §FS-rhei-agents.4: artifact template paths stay rooted at RHEI_ROOT when cwd is checkout root.
     assert_recorded_path_eq(rendered.trim(), &expected);
     assert!(
-        !repo.join("runtime/reports/1.md").exists(),
+        !repo.join("runtime/reports/plan.1.md").exists(),
         "agent should not write checkout-root runtime artifacts"
     );
 
@@ -410,7 +410,7 @@ fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
     let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
     fs::write(
-        plan_dir.join("runtime/worktree-refs/1.yaml"),
+        plan_dir.join("runtime/worktree-refs/plan.1.yaml"),
         format!("path: {}\nbranch: rhei/task-1\n", worktree.display()),
     )
     .expect("write worktree ref");
@@ -539,7 +539,7 @@ transitions:
     let script = r#"#!/usr/bin/env bash
 set -euo pipefail
 mkdir -p runtime/reports
-printf done > runtime/reports/1.1.md
+printf done > runtime/reports/plan.1.1.md
 "#;
 
     let dir = unique_temp_dir("run-nested-agent-output");
@@ -557,7 +557,10 @@ printf done > runtime/reports/1.1.md
         result.stdout,
         result.stderr
     );
-    assert!(dir.join("runtime/reports/1.1.md").exists(), "agent should write required output");
+    assert!(
+        dir.join("runtime/reports/plan.1.1.md").exists(),
+        "agent should write required output"
+    );
     // §FS-rhei-run.3: Successful agent output on a child task still applies the selected transition.
     let updated = fs::read_to_string(&plan_path).expect("read plan");
     let rhei = parse(&updated).expect("parse plan");
@@ -831,7 +834,7 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
         result.stderr
     );
     assert!(
-        result.stderr.contains("agent exited 0 but task 1 did not advance from 'review'"),
+        result.stderr.contains("agent exited 0 but task plan.1 did not advance from 'review'"),
         "no-transition warning should be shown; got stdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr

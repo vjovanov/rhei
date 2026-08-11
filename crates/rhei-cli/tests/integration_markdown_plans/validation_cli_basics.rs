@@ -98,7 +98,7 @@ fn valid_plan_parses_validates_and_renders_across_crates() {
     assert!(github.contains("- Prior: Task 1, Task 2"));
     assert!(github.contains("#### Task 3.1: Dry run in staging"));
 
-    let progress = ProgressReportOutput { color: false, show_dependencies: true }.to_string(&rhei);
+    let progress = ProgressReportOutput::plain(false, true).to_string(&rhei);
     assert!(progress.contains("Rhei: Release Automation Rollout"));
     assert!(progress.contains("* Task 2: Bootstrap environments  [IN-PROGRESS]"));
     assert!(progress.contains("  - Prior: Task 1, Task 2"));
@@ -124,7 +124,7 @@ fn invalid_plan_reports_cross_component_validation_failures() {
 #[test]
 fn cli_validate_and_render_use_real_fixture_files() {
     let temp_dir = unique_temp_dir("integration-cli");
-    let plan_path = write_fixture_file(&temp_dir, "valid-plan.md", CLI_VALID_PLAN);
+    let plan_path = write_fixture_file(&temp_dir, "valid-plan.rhei.md", CLI_VALID_PLAN);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let validate = Command::new(env!("CARGO_BIN_EXE_rhei"))
@@ -169,7 +169,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
 #[test]
 fn cli_validate_surfaces_validation_errors_for_fixture() {
     let temp_dir = unique_temp_dir("integration-cli-invalid");
-    let plan_path = write_fixture_file(&temp_dir, "invalid-plan.md", fixtures::INVALID_PLAN);
+    let plan_path = write_fixture_file(&temp_dir, "invalid-plan.rhei.md", fixtures::INVALID_PLAN);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
@@ -288,5 +288,28 @@ fn cli_validate_reports_empty_tasks_section_parse_failure() {
         Some("line 3"),
         Some("## Tasks"),
         &["missing mandatory **State:**", "depends on missing Task"],
+    );
+}
+
+/// A bare `rhei` asks for orientation; `rhei <group>` with no subcommand is a
+/// usage error about that group. Answering both with the root help on stdout
+/// and a success exit left no way for a script to tell them apart.
+#[test]
+fn missing_subcommand_under_a_group_is_a_usage_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("snapshot")
+        .output()
+        .expect("rhei command should run");
+
+    assert!(!output.status.success(), "a missing subcommand should not exit successfully");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        "usage errors belong on stderr, got stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Usage: rhei snapshot"),
+        "error should show the subcommand's own usage, got:\n{stderr}"
     );
 }

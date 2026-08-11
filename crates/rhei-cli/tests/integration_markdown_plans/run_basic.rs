@@ -78,13 +78,18 @@ fn run_run_command_in_dir(
 }
 
 fn run_reset_command(plan_path: &Path, machine_path: &Path) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
-        .arg("--state-machine")
-        .arg(machine_path)
-        .arg("reset")
-        .arg(plan_path)
-        .output()
-        .expect("reset command should run");
+    // §FS-rhei-reset.1.2: a test harness has no terminal to confirm on, so it
+    // states the intent the way any unattended caller must.
+    run_reset_command_with_args(plan_path, machine_path, &["-y"])
+}
+
+fn run_reset_command_with_args(plan_path: &Path, machine_path: &Path, args: &[&str]) -> CliRun {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.arg("--state-machine").arg(machine_path).arg("reset").arg(plan_path);
+    for arg in args {
+        cmd.arg(arg);
+    }
+    let output = cmd.output().expect("reset command should run");
 
     CliRun {
         status: output.status,
@@ -272,7 +277,7 @@ fn run_dry_run_shows_transitions_without_changes() {
     );
 
     assert!(
-        result.stdout.contains("would transition: Task 1  pending -> in-progress"),
+        result.stdout.contains("would transition: Task plan.1  pending -> in-progress"),
         "should show what would be transitioned; got:\n{}",
         result.stdout
     );
@@ -331,14 +336,14 @@ transitions:
     assert!(
         result
             .stdout
-            .contains("would transition: Task 1  review -> completed [target=codex-yolo-openai-gpt-5.5]"),
+            .contains("would transition: Task plan.1  review -> completed [target=codex-yolo-openai-gpt-5.5]"),
         "should label the first fanout target; got:\n{}",
         result.stdout
     );
     assert!(
         result
             .stdout
-            .contains("would transition: Task 1  review -> completed [target=codex-yolo-openai-gpt-5.4]"),
+            .contains("would transition: Task plan.1  review -> completed [target=codex-yolo-openai-gpt-5.4]"),
         "should label the second fanout target; got:\n{}",
         result.stdout
     );

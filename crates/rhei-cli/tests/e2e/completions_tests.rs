@@ -417,6 +417,21 @@ fn dynamic_completion_completes_task_ids_and_transition_targets() {
     assert!(tasks.stdout.contains("1\tFirst step [draft]"));
     assert!(tasks.stdout.contains("2\tSecond step [pending]"));
 
+    // §FS-rhei-panta.6: with the plan positional omitted, task ids complete
+    // against the target the command itself would resolve from the cwd.
+    let bare = run_dynamic_completion(&dir, &home, "fish", &["--", "rhei", "next", "--task", ""]);
+    assert!(
+        bare.status.success(),
+        "bare-form task completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        bare.stdout,
+        bare.stderr
+    );
+    assert!(
+        bare.stdout.contains("1\tFirst step [draft]"),
+        "omitted positional should fall back to the resolved plan: {}",
+        bare.stdout
+    );
+
     let targets = run_dynamic_completion(
         &dir,
         &home,

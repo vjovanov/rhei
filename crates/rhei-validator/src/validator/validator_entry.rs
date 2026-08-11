@@ -32,15 +32,78 @@ pub fn parse_task_state(raw: &str, machine: &StateMachine) -> ParsedTaskState {
 // Semantic Validator (Task 5)
 // ========================================
 
-/// Validator configured with a loaded [`StateMachine`].
+/// The state machines governing one loaded plan: the project default plus the
+/// machine of every rhei that declared its own `**States:**`. A ticket's
+/// machine resolves through its owning rhei — the leading segment of its
+/// project-qualified id.
+// §DA-per-rhei-state-machines §AR-rhei-panta.4
+#[derive(Debug, Clone)]
+pub struct MachineSet {
+    /// The project default: the manifest declaration or the built-in machine.
+    pub default: StateMachine,
+    /// Machines of self-declaring rheis, keyed by rhei id.
+    pub per_rhei: BTreeMap<String, StateMachine>,
+}
+
+impl MachineSet {
+    /// A set with no self-declaring rheis — the single-machine case every
+    /// pre-existing entry point still speaks.
+    pub fn single(machine: StateMachine) -> Self {
+        Self { default: machine, per_rhei: BTreeMap::new() }
+    }
+
+    /// The machine governing `id`: its owning rhei's declared machine when
+    /// there is one, the project default otherwise.
+    pub fn for_task(&self, id: &TaskId) -> &StateMachine {
+        if let Some(TaskIdSegment::Named(rhei)) = id.segments.first() {
+            if let Some(machine) = self.per_rhei.get(rhei) {
+                return machine;
+            }
+        }
+        &self.default
+    }
+
+    /// [`for_task`](Self::for_task) over a rendered qualified id (`auth.1`).
+    pub fn for_task_str(&self, task_id: &str) -> &StateMachine {
+        let rhei_id = task_id.split('.').next().unwrap_or(task_id);
+        self.per_rhei.get(rhei_id).unwrap_or(&self.default)
+    }
+
+    /// Every distinct machine in the set, default first. Distinctness is
+    /// content identity, not name: two same-named machines that differ in any
+    /// field are two machines. [`StateMachine::fingerprint`] explains why.
+    pub fn distinct(&self) -> Vec<&StateMachine> {
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut out = vec![&self.default];
+        seen.insert(self.default.fingerprint());
+        for machine in self.per_rhei.values() {
+            if seen.insert(machine.fingerprint()) {
+                out.push(machine);
+            }
+        }
+        out
+    }
+
+    /// Whether one machine governs everything in scope.
+    pub fn is_single(&self) -> bool {
+        self.distinct().len() == 1
+    }
+}
+
+/// Validator configured with the [`MachineSet`] of a loaded plan.
 pub struct Validator {
-    machine: StateMachine,
+    machines: MachineSet,
 }
 
 impl Validator {
     /// Create a validator that will use `machine` for allowed-state checks.
     pub fn new(machine: StateMachine) -> Self {
-        Self { machine }
+        Self { machines: MachineSet::single(machine) }
+    }
+
+    /// Create a validator over a full per-rhei machine set.
+    pub fn with_machines(machines: MachineSet) -> Self {
+        Self { machines }
     }
 
     /// Validate a parsed rhei using the currently configured states.
@@ -57,16 +120,19 @@ impl Validator {
         let mut report = ValidationReport::ok();
 
         let index = build_task_index(rhei);
-        validate_node_policy_against_structure(&self.machine, &rhei.structure, &mut report);
-        validate_state_machine_warnings(&self.machine, &mut report);
+        for machine in self.machines.distinct() {
+            validate_node_policy_against_structure(machine, &rhei.structure, &mut report);
+            validate_state_machine_warnings(machine, &mut report);
+        }
         validate_sibling_uniqueness(rhei, &mut report);
         validate_dependency_integrity(rhei, &index, &mut report);
-        validate_state_consistency(rhei, &self.machine, &mut report);
-        validate_task_execution_overrides(rhei, &self.machine, &mut report);
-        validate_terminal_tree_coherence(rhei, &self.machine, &mut report);
+        validate_prior_order_coherence(rhei, &index, &self.machines, &mut report);
+        validate_state_consistency(rhei, &self.machines, &mut report);
+        validate_task_execution_overrides(rhei, &self.machines, &mut report);
+        validate_terminal_tree_coherence(rhei, &self.machines, &mut report);
         validate_circular_dependencies(rhei, &index, &mut report);
         validate_assignee_nonempty(rhei, &mut report);
-        validate_result_blocks(rhei, &self.machine, &mut report);
+        validate_result_blocks(rhei, &self.machines, &mut report);
 
         if let Some(base) = base_path {
             validate_markdown_links(rhei, base, &mut report);
@@ -79,6 +145,26 @@ impl Validator {
 /// Validate a parsed rhei using an already-loaded [`StateMachine`].
 pub fn validate_with_machine(rhei: &Rhei, machine: &StateMachine) -> ValidationReport {
     Validator::new(machine.clone()).validate(rhei)
+}
+
+/// Validate a parsed rhei whose rheis may run under their own machines.
+/// §DA-per-rhei-state-machines
+pub fn validate_with_machine_set(rhei: &Rhei, machines: &MachineSet) -> ValidationReport {
+    Validator::with_machines(machines.clone()).validate(rhei)
+}
+
+/// Validate with a per-rhei machine set and per-task markdown link bases.
+/// §AR-rhei-panta.5 §DA-per-rhei-state-machines
+pub fn validate_with_machine_set_and_link_bases(
+    rhei: &Rhei,
+    machines: &MachineSet,
+    default_base: &Path,
+    task_bases: &HashMap<String, PathBuf>,
+    section_bases: &[PathBuf],
+) -> ValidationReport {
+    let mut report = Validator::with_machines(machines.clone()).validate_with_base(rhei, None);
+    validate_markdown_links_with_task_bases(rhei, default_base, task_bases, section_bases, &mut report);
+    report
 }
 
 /// Validate a parsed rhei using an already-loaded [`StateMachine`], resolving
@@ -202,15 +288,70 @@ fn validate_dependency_integrity(
     index: &HashMap<TaskId, &Task>,
     report: &mut ValidationReport,
 ) {
+    let rhei_ids = project_rhei_ids(rhei);
+
     fn recurse(
         task: &Task,
         ancestors: &mut Vec<TaskId>,
         index: &HashMap<TaskId, &Task>,
+        rhei_ids: &[String],
+        structure: &Structure,
         report: &mut ValidationReport,
     ) {
-        for dep in &task.prior {
-            if !index.contains_key(dep) {
-                report.errors.push(format!("Task {} depends on missing Task {}", task.id, dep));
+        let mut seen: HashSet<&TaskId> = HashSet::new();
+        for (position, dep) in task.prior.iter().enumerate() {
+            let kind = task.prior_kinds.get(position).and_then(|k| k.as_deref());
+            // A repeated reference is at best noise and at worst a leftover
+            // from an edit that meant to name a different task.
+            // §FS-rhei-plan-language.3.1
+            if !seen.insert(dep) {
+                report.errors.push(format!(
+                    "Task {} lists Task {} more than once in **Prior:**; drop the duplicate",
+                    task.id, dep
+                ));
+            }
+            match (index.get(dep), kind) {
+                // The kind keyword is decoration for the reader, so a wrong
+                // one misleads exactly where it was meant to help.
+                // §FS-rhei-plan-language.3.1
+                (Some(target), Some(kind)) if !target.kind.eq_ignore_ascii_case(kind) => {
+                    let flavor = if structure.accepts_kind(kind) {
+                        String::new()
+                    } else {
+                        format!(
+                            " ('{kind}' is not a declared node kind; declared: {:?})",
+                            structure.node_kinds
+                        )
+                    };
+                    report.errors.push(format!(
+                        "Task {} **Prior:** kind keyword '{kind}' does not match Task {}: \
+                         that node is declared '{}'{flavor}. Use the node's kind or the bare id",
+                        task.id,
+                        dep,
+                        title_case_kind(&target.kind),
+                    ));
+                }
+                // An unknown kind on an unresolvable reference is the shape a
+                // pasted task *title* takes — lead with that common mistake.
+                // §FS-rhei-plan-language.3.1
+                (None, Some(kind)) if !structure.accepts_kind(kind) => {
+                    report.errors.push(format!(
+                        "Task {} has an unresolvable **Prior:** reference: '{kind}' is not a \
+                         declared node kind (declared: {:?}) and no Task {} exists. If the \
+                         reference is a task title, use the task's id instead (`**Prior:** 1`, \
+                         `**Prior:** auth.2`)",
+                        task.id, structure.node_kinds, dep
+                    ));
+                }
+                (None, _) => {
+                    report.errors.push(format!(
+                        "Task {} depends on missing Task {}{}",
+                        task.id,
+                        dep,
+                        missing_prior_hint(&task.id, dep, index, rhei_ids)
+                    ));
+                }
+                _ => {}
             }
             if ancestors.iter().any(|ancestor| ancestor == dep) {
                 report.errors.push(format!(
@@ -221,19 +362,183 @@ fn validate_dependency_integrity(
         }
         ancestors.push(task.id.clone());
         for child in &task.children {
-            recurse(child, ancestors, index, report);
+            recurse(child, ancestors, index, rhei_ids, structure, report);
         }
         ancestors.pop();
     }
 
     let mut ancestors = Vec::new();
     for task in &rhei.tasks {
-        recurse(task, &mut ancestors, index, report);
+        recurse(task, &mut ancestors, index, &rhei_ids, &rhei.structure, report);
     }
 }
 
-fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
+/// Rhei ids of the merged project: the leading segment of every top-level id.
+fn project_rhei_ids(rhei: &Rhei) -> Vec<String> {
+    let mut ids: Vec<String> = rhei
+        .tasks
+        .iter()
+        .filter_map(|task| match task.id.segments.first() {
+            Some(TaskIdSegment::Named(name)) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// Explain a missing prior that resolved to no rhei at all.
+///
+/// A dotted `**Prior:**` whose leading segment names no rhei is kept as the
+/// author wrote it, so the id in the error is quotable back to the source. It is
+/// still ambiguous — a typo'd rhei name or a typo'd local hierarchical id — so
+/// the hint rules out both readings and only offers a correction that resolves.
+// §FS-rhei-validate.4.1: an unresolved prior is reported as the author wrote it.
+fn missing_prior_hint(
+    task: &TaskId,
+    dep: &TaskId,
+    index: &HashMap<TaskId, &Task>,
+    rhei_ids: &[String],
+) -> String {
+    let Some(TaskIdSegment::Named(candidate)) = dep.segments.first() else {
+        return String::new();
+    };
+    // A dep under a known rhei is a plain missing ticket and needs no explaining.
+    if rhei_ids.iter().any(|id| id == candidate) {
+        return String::new();
+    }
+    let citing_rhei = match task.segments.first() {
+        Some(TaskIdSegment::Named(name)) => name.as_str(),
+        _ => return String::new(),
+    };
+    let mut hint = format!(
+        ": no rhei named '{candidate}' in this project (rheis: {}), \
+         and rhei '{citing_rhei}' has no ticket '{dep}'",
+        rhei_ids.join(", ")
+    );
+    if let Some(corrected) = nearest_resolving_id(task, dep, candidate, index, rhei_ids) {
+        hint.push_str(&format!(". Did you mean '{corrected}'?"));
+    }
+    hint
+}
+
+/// Correct `dep`'s leading segment to the nearest rhei id, keeping the
+/// suggestion only when it names a real ticket other than the citing one.
+///
+/// Suggesting an id that does not resolve trades one dead end for another, and
+/// suggesting the citing task itself proposes a self-dependency.
+fn nearest_resolving_id(
+    task: &TaskId,
+    dep: &TaskId,
+    candidate: &str,
+    index: &HashMap<TaskId, &Task>,
+    rhei_ids: &[String],
+) -> Option<TaskId> {
+    let nearest = nearest_rhei_id(candidate, rhei_ids)?;
+    let mut segments = dep.segments.clone();
+    segments[0] = TaskIdSegment::Named(nearest.to_string());
+    let corrected = TaskId::from_segments(segments);
+    (corrected != *task && index.contains_key(&corrected)).then_some(corrected)
+}
+
+/// Closest rhei id to `candidate` within a small edit distance, if any.
+fn nearest_rhei_id<'a>(candidate: &str, rhei_ids: &'a [String]) -> Option<&'a str> {
+    // Below three characters every id is within one edit of every other, so a
+    // "near miss" carries no signal; above it, two edits catches transpositions
+    // and a single slip without pairing unrelated names.
+    let length = candidate.chars().count();
+    if length < 3 {
+        return None;
+    }
+    let budget = 2.min(length.div_ceil(3)).max(1);
+    rhei_ids
+        .iter()
+        .map(|id| (edit_distance(candidate, id), id.as_str()))
+        .filter(|(distance, _)| *distance <= budget)
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, id)| id)
+}
+
+/// Levenshtein distance over chars.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut previous: Vec<usize> = (0..=b.len()).collect();
+    let mut current = vec![0usize; b.len() + 1];
+    for (i, a_char) in a.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, b_char) in b.iter().enumerate() {
+            let substitution = previous[j] + usize::from(a_char != b_char);
+            current[j + 1] = substitution.min(previous[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[b.len()]
+}
+
+/// Warn about tickets that went terminal while a `**Prior:**` is unsatisfied.
+/// A terminal ticket leaves readiness and `--blocked`, so nothing else reveals
+/// it; legitimate authoring reaches it, so warn. §FS-rhei-validate.4
+fn validate_prior_order_coherence(
+    rhei: &Rhei,
+    index: &HashMap<TaskId, &Task>,
+    machines: &MachineSet,
+    report: &mut ValidationReport,
+) {
+    // A prior is judged under the machine of the rhei that owns it: the
+    // target's states mean what its own process says. §FS-rhei-panta.6.1
+    let satisfied = |id: &TaskId| -> bool {
+        index
+            .get(id)
+            .map(|dep| {
+                let machine = machines.for_task(id);
+                let state = parse_task_state(dep.state.as_str(), machine).state;
+                state != "cancelled"
+                    && machine.states.get(&state).map(|def| def.terminal).unwrap_or(false)
+            })
+            .unwrap_or(false)
+    };
+
     for_each_node(rhei, |task| {
+        let machine = machines.for_task(&task.id);
+        let state = parse_task_state(task.state.as_str(), machine).state;
+        // Only a *successful* terminal state is a contradiction: a cancelled
+        // ticket never claimed its prerequisites ran.
+        if state == "cancelled"
+            || !machine.states.get(&state).map(|def| def.terminal).unwrap_or(false)
+        {
+            return;
+        }
+        // A missing prior is already a hard error in dependency integrity;
+        // do not double-report it here.
+        let unmet: Vec<String> = task
+            .prior
+            .iter()
+            .filter(|dep| index.contains_key(*dep) && !satisfied(dep))
+            .map(|dep| {
+                format!(
+                    "Task {} ({})",
+                    dep,
+                    parse_task_state(index[dep].state.as_str(), machines.for_task(dep)).state
+                )
+            })
+            .collect();
+        if !unmet.is_empty() {
+            report.warnings.push(format!(
+                "{} {} is '{}' but its prerequisites are unsatisfied: {}. The plan contradicts its own **Prior:** dependencies.",
+                title_case_kind(&task.kind),
+                task.id,
+                state,
+                unmet.join(", ")
+            ));
+        }
+    });
+}
+
+fn validate_state_consistency(rhei: &Rhei, machines: &MachineSet, report: &mut ValidationReport) {
+    for_each_node(rhei, |task| {
+        let machine = machines.for_task(&task.id);
         let kind_label = title_case_kind(&task.kind);
         let subject = format!("{} {}", kind_label, task.id);
         validate_task_state_instance(&subject, &task.state, machine, report);
@@ -250,13 +555,13 @@ fn validate_state_consistency(rhei: &Rhei, machine: &StateMachine, report: &mut 
 
 fn validate_task_execution_overrides(
     rhei: &Rhei,
-    machine: &StateMachine,
+    machines: &MachineSet,
     report: &mut ValidationReport,
 ) {
     // §FS-rhei-plan-language.3.11: Task execution override validation.
-    let declared_models: HashSet<&str> = machine.models.iter().map(String::as_str).collect();
-
     for_each_node(rhei, |task| {
+        let machine = machines.for_task(&task.id);
+        let declared_models: HashSet<&str> = machine.models.iter().map(String::as_str).collect();
         let subject = format!("{} {}", title_case_kind(&task.kind), task.id);
         let has_model = task.model.is_some();
         let has_target = task.target.is_some();
@@ -450,7 +755,7 @@ fn validate_sibling_uniqueness(rhei: &Rhei, report: &mut ValidationReport) {
 /// its subtree.
 fn validate_terminal_tree_coherence(
     rhei: &Rhei,
-    machine: &StateMachine,
+    machines: &MachineSet,
     report: &mut ValidationReport,
 ) {
     fn is_terminal(state_raw: &str, machine: &StateMachine) -> bool {
@@ -476,6 +781,9 @@ fn validate_terminal_tree_coherence(
     }
 
     for_each_node(rhei, |task| {
+        // A subtree lives inside one rhei, so the top task's machine governs
+        // every descendant. §DA-per-rhei-state-machines
+        let machine = machines.for_task(&task.id);
         if is_terminal(&task.state, machine) {
             check_descendants(task, task, machine, report);
         }

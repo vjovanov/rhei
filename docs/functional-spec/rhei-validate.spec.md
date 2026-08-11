@@ -8,14 +8,28 @@ or orchestrator mutates plan state. §GOAL-rhei-outcomes
 ## 1. Usage
 
 ```bash
-rhei validate <RHEI_PLAN_OR_WORKSPACE>
-rhei validate --watch <RHEI_PLAN_OR_WORKSPACE>
-rhei --state-machine <PATH> validate <RHEI_PLAN_OR_WORKSPACE>
+rhei validate [RHEI_PLAN_OR_WORKSPACE]
+rhei validate --watch [RHEI_PLAN_OR_WORKSPACE]
+rhei --state-machine <PATH> validate [RHEI_PLAN_OR_WORKSPACE]
 ```
 
-`<RHEI_PLAN_OR_WORKSPACE>` may be a single `.rhei.md` file or a Directory
-Workspace root. When a workspace root is passed, validation loads
-`index.rhei.md` and the workspace task files.
+`<RHEI_PLAN_OR_WORKSPACE>` may be a single `.rhei.md` file, a Directory
+Workspace root, or a Panta project directory; omitted, the target is resolved
+by walking up from the current directory (§FS-rhei-panta.6). When a workspace
+root is passed, validation loads `index.rhei.md` and the workspace task files.
+A project target validates the whole merged graph.
+
+### 1.1. Why there is no `--rhei`
+
+Unlike `rhei list`, `rhei run`, and `rhei reset`, `rhei validate` takes no
+`--rhei` narrowing flag. Narrowing those commands selects *tickets to act on*,
+which is well defined. Narrowing validation would have to select *diagnostics
+to report*, and a project's diagnostics are not partitioned by rhei: the state
+machine, merged settings, link bases, and cross-rhei `**Prior:**` resolution
+are all project-wide, and a load failure in one rhei is what stops the others
+from resolving. A flag that filtered the reported subset would hide real
+errors behind an apparently narrower green — the opposite of what validation
+is for. Validate the project; the diagnostics name their own rhei.
 
 ## 2. Options
 
@@ -52,11 +66,68 @@ pass `--state-machine`.
    machine. §FS-rhei-agents §FS-rhei-snapshots
 4. Validate snapshot plan context and report orphaned snapshot diagnostics as
    warnings when a snapshot cache exists. §FS-rhei-snapshot-operations
-5. Exit non-zero when any validation error remains. Warnings do not make the
+5. Report every ticket that reached a successful terminal state while one of
+   its `**Prior:**` dependencies is still unsatisfied as a **warning** naming
+   the ticket and each blocking prior with its state. Such a plan contradicts
+   the dependency semantics it declares, and no other surface reveals it: a
+   terminal ticket drops out of `rhei list --blocked` and out of readiness
+   entirely, so the plan reads as healthy. The condition is reachable through
+   the deliberate `rhei transition` escape hatch
+   (§FS-rhei-transition-cmd.3), by editing a `**Prior:**` onto an
+   already-completed ticket, and by a prior that was later cancelled — all
+   legitimate authoring moves. It is therefore a warning, never an error:
+   validation must surface the inconsistency without making an existing plan
+   unloadable.
+6. Exit non-zero when any validation error remains. Warnings do not make the
    command fail.
 
 `rhei validate` does not acquire task locks, run callbacks, spawn agents,
 spawn programs, create runtime files, or rewrite the plan.
+
+### 4.1. Unresolved `**Prior:**` references
+
+A `**Prior:**` that resolves to no ticket is reported under **the id the author
+wrote**. A dotted reference whose leading segment names no rhei is kept
+unqualified at load precisely so this error can quote the source
+(§AR-rhei-panta.3); reporting it under a citing-rhei prefix would name an id
+that appears in no file and cannot be searched for.
+
+Such a reference is ambiguous — a mistyped rhei name or a mistyped rhei-local
+hierarchical id — so the message rules out both readings: it names the missing
+rhei with the project's rhei ids, and states that the citing rhei has no ticket
+under that id either.
+
+A correction is offered only when it is actionable. The leading segment is
+matched against the project's rhei ids within a small edit distance, and the
+resulting id is suggested only when it **resolves to an existing ticket other
+than the citing task**. A suggestion that does not resolve trades one dead end
+for another, and one that names the citing task proposes a self-dependency.
+Names shorter than three characters yield no suggestion at all: below that
+length every id is within one edit of every other, so a near miss carries no
+signal.
+
+A prior under a *known* rhei is an ordinary missing ticket and is reported
+without further explanation.
+
+### 4.2. Diagnostic parity across scopes
+
+A parse error must read the same whether the plan was reached directly
+(`rhei validate plans/auth.rhei.md`) or through its project (`rhei validate`
+inside a Panta project). Both forms report **every** recoverable problem in the
+offending file, not just the first, and both render the file path relative to
+the invocation directory when that is shorter than the absolute path.
+
+Parity matters most for the errors that cascade. A task heading authored under a
+content section rather than `## Tasks` fails first as *"Metadata field appears
+outside a task"* on a line the author did not get wrong; only the structural
+*"Tasks section must be the final `##` chapter"* diagnostic — which recovery
+reaches last — explains the mistake. Reporting one error per file would hide it
+behind the symptom, in the invocation form `rhei init` steers new authors toward
+(§FS-rhei-init).
+
+The project loader still stops at the first failing rhei entry: a project whose
+second rhei also fails reports the first one, and the next run reports the next.
+Completeness is promised *within* a file, not across a project.
 
 ## 5. Watch Mode
 

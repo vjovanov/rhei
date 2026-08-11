@@ -5,19 +5,39 @@ Atomically advance a task's state using compare-and-swap semantics. `rhei transi
 ## 1. Usage
 
 ```bash
+rhei transition <TICKET_ID> --from <STATE> --to <STATE>
 rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 ```
+
+The positional slot is a *ticket or plan*, on the shared rule every
+single-ticket command follows (§FS-rhei-usage.2): an argument naming an
+existing path is the plan, an id-shaped argument naming no path is the ticket.
+The ticket must be named one way or the other.
 
 ## 2. Options
 
 | Flag             | Required | Default | Description                                                                 |
 |------------------|----------|---------|-----------------------------------------------------------------------------|
-| `--task <ID>`    | Yes      |         | Task identifier (number or name)                                            |
+| `--task <ID>`    | Unless named positionally | | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
 | `--from <STATE>` | Yes      |         | Expected current state (compare-and-swap guard)                             |
 | `--to <STATE>`   | Yes      |         | Target state                                                                |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave` / `on_enter` callbacks registered on the edge  |
 
 State values passed to `--from` and `--to` follow the state-value rendering rules in the [main spec](rhei-plan-language.spec.md#32-state-validity): bare for names that match `IDENTIFIER`, backtick-wrapped otherwise.
+
+### 2.1. Ticket Targets
+
+The ticket target — positional or `--task` — accepts either the
+project-qualified ticket id (`auth.1`, numbers or names in either segment) or a
+rhei-local shorthand (`1`). A shorthand resolves
+only when exactly one rhei in the project contains that ticket; when more than
+one does, the error names the qualified candidates. Output, the result file,
+and the ledger entry always use the qualified id regardless of how the target
+was written (§FS-rhei-panta.6).
+
+`rhei transition` takes no `--rhei` flag: the explicit ticket target already
+names the scope. The rewrite is routed to the file of the rhei that owns the
+ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 
 ## 3. Behavior
 
@@ -37,6 +57,16 @@ State values passed to `--from` and `--to` follow the state-value rendering rule
     file is the central, deterministic audit trail for all task state changes.
 
 `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment and unassignment are owned by `rhei next` and `rhei complete` respectively.
+
+`rhei transition` deliberately does **not** check `**Prior:**` dependencies.
+It is the explicit human-initiated primitive, so it is the escape hatch for
+the moves the scheduling commands refuse: leaving a gating state
+(§FS-rhei-complete.4), and advancing a ticket ahead of an unsatisfied prior.
+`rhei next`, `rhei run`, and `rhei complete` all enforce readiness; a caller
+that reaches for `transition` is stating the out-of-order move is intended.
+Because the resulting plan then contradicts its own declared dependencies,
+`rhei validate` reports it as a warning (§FS-rhei-validate.4) rather than
+letting it pass unremarked.
 
 Counted-visit accounting: if the target state declares a `visits` budget and `--to` is a loop-back re-entry, the runtime increments `metadata.tasks.<id>.stateVisits.<target>` and renders the new visit number in `**State:**` using the `-<n>` suffix. See [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
 
@@ -73,7 +103,7 @@ Task <ID> transitioned: '<from>' -> '<to>' (callbacks skipped)
 | `rhei next --peek` | Read-only: prints the next claimable task without claiming it                   |
 | `rhei transition`  | Atomically changes a task's state; appends entry to result file                 |
 | `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns            |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/` |
+| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
 
 The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 

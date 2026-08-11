@@ -452,6 +452,7 @@ fn state_outputs_exist_for_resolved_invocation(
 fn default_run_options() -> RunOptions {
     RunOptions {
         standalone: StandaloneExecutionFlags {
+            rhei: Vec::new(),
             dry_run: false,
             no_callbacks: false,
             continue_on_error: false,

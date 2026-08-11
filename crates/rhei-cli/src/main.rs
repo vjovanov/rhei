@@ -5,12 +5,15 @@ include!("cli/completion_candidates.rs");
 include!("cli/completion_context.rs");
 
 mod templates {
+    include!("cli/templates_builtin.rs");
     include!("cli/templates_list.rs");
     include!("cli/templates_instantiate.rs");
+    include!("cli/templates_project.rs");
     include!("cli/templates_discovery.rs");
     include!("cli/templates_inputs.rs");
 }
 
+include!("cli/skills_builtin.rs");
 include!("cli/states_render.rs");
 include!("cli/metadata_conditions.rs");
 include!("cli/metadata_rewrite.rs");
@@ -37,6 +40,7 @@ include!("cli/snapshot_records.rs");
 include!("cli/snapshot_list_show.rs");
 include!("cli/snapshot_refs_gc.rs");
 include!("cli/snapshot_continue_lock.rs");
+include!("cli/init_command.rs");
 include!("cli/run_command.rs");
 include!("cli/run_agent_mode.rs");
 include!("cli/run_callback_mode.rs");
@@ -48,6 +52,7 @@ include!("cli/snapshot_runtime_preload.rs");
 include!("cli/next_command.rs");
 include!("cli/complete_reset_commands.rs");
 include!("cli/complete_reset_rewrites.rs");
+include!("cli/release_command.rs");
 include!("cli/render_install_commands.rs");
 include!("cli/install_skill_agents.rs");
 include!("cli/viz_command.rs");

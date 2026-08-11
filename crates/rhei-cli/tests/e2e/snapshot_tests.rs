@@ -199,7 +199,7 @@ transitions:
         list.stdout
     );
 
-    let snapshot_ref = "1:impl:source@1:fake-acme-model-a/g1";
+    let snapshot_ref = "plan.1:impl:source@1:fake-acme-model-a/g1";
     let show = run_snapshot_command(
         &plan_path,
         &machine_path,
@@ -209,7 +209,7 @@ transitions:
     assert!(
         show.stdout.contains("\"snapshot_name\": \"impl\"")
             && show.stdout.contains("\"emitting_state\": \"source\"")
-            && show.stdout.contains("\"session_id\": \"1-source-fake-acme-model-a\"")
+            && show.stdout.contains("\"session_id\": \"plan.1-source-fake-acme-model-a\"")
             && show.stdout.contains("transcript preview:"),
         "expected snapshot show to print manifest and transcript preview; got:\n{}",
         show.stdout
@@ -234,7 +234,7 @@ transitions:
     let agent_log = fs::read_to_string(dir.join("runtime/fake-agent.log")).expect("agent log");
     assert!(
         agent_log.contains("state=review")
-            && agent_log.contains("resume=1-source-fake-acme-model-a")
+            && agent_log.contains("resume=plan.1-source-fake-acme-model-a")
             && agent_log.contains("\"snapshot_name\":\"impl\""),
         "expected inherited run to preload the selected snapshot; got:\n{}",
         agent_log
@@ -247,7 +247,7 @@ transitions:
     );
     assert_success(&continued);
     assert!(
-        continued.stdout.contains("captured 1:impl:source@1:fake-acme-model-a/g2")
+        continued.stdout.contains("captured plan.1:impl:source@1:fake-acme-model-a/g2")
             && continued.stdout.contains("--produced-by operator"),
         "expected snapshot continue to capture an operator generation; got:\n{}",
         continued.stdout
@@ -257,7 +257,7 @@ transitions:
     let operator = run_snapshot_command(
         &plan_path,
         &machine_path,
-        &["show", "1:impl:source@1:fake-acme-model-a/g2", "--plan", &plan_arg],
+        &["show", "plan.1:impl:source@1:fake-acme-model-a/g2", "--plan", &plan_arg],
     );
     assert_success(&operator);
     assert!(

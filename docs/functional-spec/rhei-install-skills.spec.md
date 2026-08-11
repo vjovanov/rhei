@@ -1,6 +1,8 @@
 # FS-rhei-install-skills: `rhei install-skills`
 
-Install rhei skills (plan-writer, plan-worker, state-machine-writer) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
+Install rhei skills (plan-writer, plan-worker, state-machine-writer, template-writer) into the configuration directories of major AI coding agents, so any agent session can invoke them without per-project setup. Supports both global (user-level) and project-local installation.
+
+Every skill the binary carries is installed by default. A skill that ships in a release but not in the default set would reach only the users who read the flag documentation and typed its name, which is not a state any shipped skill should be in.
 
 ## 1. Usage
 
@@ -22,7 +24,7 @@ rhei install-skills --uninstall --agent claude-code
 | `--link` | | Symlink skill files instead of copying (stays up-to-date with rhei releases) |
 | `--uninstall` | | Remove previously installed skills |
 | `--dry-run` | | Print what would be done without changing anything |
-| `--skills <LIST>` | `rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer` | Comma-separated list of skills to install |
+| `--skills <LIST>` | every embedded skill: `rhei-plan-writer,rhei-plan-worker,rhei-state-machine-writer,rhei-template-writer` | Comma-separated list of skills to install |
 
 ## 3. Agent Targets
 
@@ -42,7 +44,8 @@ Each agent has a different configuration layout. The command handles each one. T
 - **rhei-plan-writer** (`~/.claude/skills/rhei-plan-writer/SKILL.md`) — create and validate Rhei Plans. Trigger: `/rhei-plan-writer`
 - **rhei-plan-worker** (`~/.claude/skills/rhei-plan-worker/SKILL.md`) — execute tasks in a Rhei Plan. Trigger: `/rhei-plan-worker <plan>`
 - **rhei-state-machine-writer** (`~/.claude/skills/rhei-state-machine-writer/SKILL.md`) — design custom state machines from project specs and teams. Trigger: `/rhei-state-machine-writer`
-When the user types `/rhei-plan-writer`, `/rhei-plan-worker`, or `/rhei-state-machine-writer`, invoke the Skill tool with the corresponding skill name before doing anything else.
+- **rhei-template-writer** (`~/.claude/skills/rhei-template-writer/SKILL.md`) — create and edit reusable Rhei Templates. Trigger: `/rhei-template-writer`
+When the user types `/rhei-plan-writer`, `/rhei-plan-worker`, `/rhei-state-machine-writer`, or `/rhei-template-writer`, invoke the Skill tool with the corresponding skill name before doing anything else.
 ```
 
 In local mode, the paths in the registration block use relative paths (e.g., `.claude/skills/rhei-plan-writer/SKILL.md`).
@@ -145,15 +148,41 @@ Before writing, remove or replace any existing rhei skill files for the target a
 
 ### 4.3. Resolve skill source
 
-The command finds skill files relative to the `rhei` binary (e.g., `../share/rhei/skills/` for installed binaries, or `skills/` in the repo for dev builds).
+The skills are compiled into the binary, so `install-skills` works from any
+`rhei` — a `cargo install`, an extracted release archive, the npm wrapper —
+with no companion asset directory to locate. Resolution never depends on where
+the binary sits or on the current working directory.
+
+A filesystem copy takes precedence when one is present, so a checkout can
+install the skills it is editing rather than the ones the binary was built
+from. In order:
+
+1. `<binary>/../share/rhei/skills/<skill>/` — a packaged asset directory, for
+   distro packages that install skills alongside the binary.
+2. `<repo>/crates/rhei-cli/skills/<skill>/` — found by walking up from the
+   binary, then from the current directory, to a directory holding
+   `crates/rhei-cli/skills/`. This is the dev-build path.
+3. The embedded copy, materialized into a temporary directory for the duration
+   of the command.
+
+An unknown skill name is an error that lists the skills the binary carries.
 
 ### 4.4. Symlink vs copy
 
 The default behavior copies skill files into the target directory. `--link` symlinks instead — useful during development so skills stay up-to-date with local changes, but requires the rhei source to remain at a stable path.
 
+Because a symlink into a temporary extraction would dangle the moment the
+command exits, `--link` needs one of the filesystem sources in §4.3. When only
+the embedded copy is available, `--link` fails with an error naming the two
+paths that would have satisfied it and pointing at plain copying instead.
+
 ### 4.5. Registration
 
 For agents that require explicit registration (Claude Code's `CLAUDE.md`), the command appends a delimited section. It uses markers (`<!-- rhei:start -->` / `<!-- rhei:end -->` or an `# rhei` heading) so uninstall and updates can find and replace the block idempotently.
+
+The generated `# rhei` block is contiguous — the heading, one bullet per skill, then the trigger sentence — so it ends at the **first blank line**, or at the next heading of equal or higher level, whichever comes first. Everything after that boundary is left untouched on both update and uninstall.
+
+Ending the block at the next heading instead would make rhei delete whatever sits between its own block and that heading. These files are shared: a user's `CLAUDE.md` holds other tools' marker blocks and their own prose, and none of it is rhei's to remove.
 
 ### 4.6. Dry run
 

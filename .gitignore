@@ -6,7 +6,7 @@ scratchpad/
 # Rust build artifacts
 target/
 **/target/
-.rhei/cache/
+**/.rhei/cache/
 
 # JavaScript and Python package artifacts
 node_modules/
@@ -19,3 +19,6 @@ node_modules/
 
 # OS files
 .DS_Store
+
+# Rhei
+panta/

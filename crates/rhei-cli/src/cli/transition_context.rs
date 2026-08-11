@@ -9,6 +9,15 @@ struct CallbackPaths {
 struct TransitionFiles<'a> {
     task_file: &'a Path,
     metadata_file: &'a Path,
+    /// `metadata.tasks.<id>` key inside `metadata_file`. Equal to the ticket's
+    /// rhei-local id except for basin tickets, whose metadata shares the
+    /// project manifest and is therefore qualified. See [`TaskRoute`].
+    metadata_id: &'a str,
+    /// Owning rhei's execution root for artifact resolution. §FS-rhei-panta.6.2
+    artifact_root: &'a Path,
+    /// Project-qualified ticket id rendered into `{task_id}` artifact
+    /// templates and gate messages. §AR-rhei-panta.2
+    artifact_id: &'a str,
 }
 
 fn resolve_callback_paths(
@@ -57,10 +66,12 @@ fn execution_workspace_root(plan_path: &Path) -> PathBuf {
 /// for the initial `on_leave` call, and the accumulated data from `on_leave` for `on_enter`.
 // §FS-rhei-transitions.1: TransitionContext callback payload.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn build_transition_context_json(
     plan: Option<&rhei_core::ast::Rhei>,
     plan_path: &Path,
     task_id_str: &str,
+    qualified_id: &str,
     from_state: &str,
     to_state: &str,
     triggered_by: &str,
@@ -69,11 +80,14 @@ fn build_transition_context_json(
 ) -> serde_json::Value {
     use serde_json::{json, Map, Value};
 
+    // `plan` is the parsed owning rhei file, so the lookup key is the
+    // rhei-local id; the emitted `id` is project-qualified. §FS-rhei-panta.6
     let task_node = plan.and_then(|rhei| find_task_by_id_str(&rhei.tasks, task_id_str));
 
     let task_json = match task_node {
         Some(task) => json!({
-            "id": task_id_to_json(&task.id),
+            "id": qualified_id,
+            "localId": task_id_to_json(&task.id),
             "kind": task.kind,
             "title": task.title,
             "content": task.content,
@@ -81,7 +95,8 @@ fn build_transition_context_json(
             "children": task.children.iter().map(task_summary_json).collect::<Vec<_>>(),
         }),
         None => json!({
-            "id": task_id_str,
+            "id": qualified_id,
+            "localId": task_id_str,
             "metadata": Value::Object(Map::new()),
             "children": Value::Array(Vec::new()),
         }),
@@ -241,21 +256,9 @@ fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
     Ok(())
 }
 
-fn write_plan_metadata(input: &Path, metadata: &Metadata) -> MietteResult<()> {
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        input.to_path_buf()
-    };
-    let raw = fs::read_to_string(&metadata_file)
-        .map_err(|err| file_io_report(&metadata_file, "failed to read plan metadata file", err))?;
-    let updated = rewrite_frontmatter(&raw, metadata)?;
-    write_file_atomic(&metadata_file, &updated)
-}
-
 fn record_poll_self_loop_if_needed(
+    loaded: &LoadedPlan,
     input: &Path,
-    metadata: Option<&Metadata>,
     machine: &rhei_validator::StateMachine,
     task: &rhei_core::ast::Task,
     current_state: &str,
@@ -268,18 +271,76 @@ fn record_poll_self_loop_if_needed(
         return Ok(false);
     };
     let interval = rhei_validator::parse_duration_secs(&poll.interval).unwrap_or(0);
-    let next_attempt_count =
-        current_state_visit_count(metadata, &task.id, current_state, task.state.as_str(), machine)
-            .saturating_add(1);
-    let metadata = set_poll_next_attempt_metadata(
-        metadata,
+    // The attempt count reads from the merged graph (qualified keys).
+    let next_attempt_count = current_state_visit_count(
+        loaded.rhei.metadata.as_ref(),
         &task.id,
+        current_state,
+        task.state.as_str(),
+        machine,
+    )
+    .saturating_add(1);
+    // §FS-rhei-panta.6.1: the write lands in the owning rhei's metadata file
+    // under that file's own key space — the same one the exit-time
+    // clear_poll_state_metadata removes.
+    let route = loaded.task_route(&task.id.to_string(), input);
+    let metadata_key = parse_task_id(&route.metadata_id);
+    let raw = fs::read_to_string(&route.metadata_file).map_err(|err| {
+        file_io_report(&route.metadata_file, "failed to read plan metadata file", err)
+    })?;
+    let on_disk = parse_metadata_from_raw(&route.metadata_file, &raw)?;
+    let updated = set_poll_next_attempt_metadata(
+        on_disk.as_ref(),
+        &metadata_key,
         current_state,
         current_unix_secs().saturating_add(interval),
         next_attempt_count,
     );
-    write_plan_metadata(input, &metadata)?;
+    let rewritten = rewrite_frontmatter(&raw, &updated)?;
+    write_file_atomic(&route.metadata_file, &rewritten)?;
     Ok(true)
+}
+
+/// Parse the frontmatter metadata mapping from a metadata file (a workspace
+/// `index.rhei.md` manifest, a Panta `index.panta.md` manifest, or a
+/// single-file plan). Keys are rhei-local, except in the project manifest,
+/// where basin tickets are keyed by their qualified ids. See [`TaskRoute`].
+fn parse_metadata_from_raw(path: &Path, raw: &str) -> MietteResult<Option<Metadata>> {
+    match path.file_name().and_then(|name| name.to_str()) {
+        Some("index.rhei.md") | Some(workspace::PANTA_INDEX_FILE) => {
+            Ok(parse_metadata_manifest(path, raw)?.metadata)
+        }
+        _ => {
+            let rhei = rhei_core::parse(raw)
+                .map_err(|err| miette!("{}: {}", path.display(), err.message))?;
+            Ok(rhei.metadata)
+        }
+    }
+}
+
+/// Structure and metadata shared by both manifest forms.
+struct MetadataManifest {
+    structure: rhei_core::ast::Structure,
+    metadata: Option<Metadata>,
+}
+
+/// Parse the manifest that owns a ticket's runtime metadata, dispatching on
+/// which index form `path` names. A Panta manifest reaches here only for basin
+/// tickets, which have no index of their own. §FS-rhei-panta.6.1
+fn parse_metadata_manifest(path: &Path, raw: &str) -> MietteResult<MetadataManifest> {
+    if path.file_name().and_then(|name| name.to_str()) == Some(workspace::PANTA_INDEX_FILE) {
+        let manifest = rhei_core::parser::parse_panta_manifest(raw).map_err(|err| {
+            miette!("failed to parse Panta manifest for transition metadata: {}", err.message)
+        })?;
+        return Ok(MetadataManifest {
+            structure: manifest.structure,
+            metadata: manifest.metadata,
+        });
+    }
+    let index = rhei_core::parser::parse_workspace_index(raw).map_err(|err| {
+        miette!("failed to parse workspace index for transition metadata: {}", err.message)
+    })?;
+    Ok(MetadataManifest { structure: index.structure, metadata: index.metadata })
 }
 
 /// Merge `src` object keys into `dst` (last write wins). Non-object `src`

@@ -1,7 +1,7 @@
 # parallel-worktrees — example
 
 A pre-rendered instantiation of the
-[`parallel-worktrees`](../../.agents/rhei/templates/parallel-worktrees/)
+[`parallel-worktrees`](../../crates/rhei-cli/templates/parallel-worktrees/)
 template. This is the canonical reference for two patterns at once:
 
 - **Parallel execution** — three independent tasks (one per target, no
@@ -45,8 +45,8 @@ the whole point of `concurrent: true`.
 
 ```bash
 rm -rf examples/parallel-worktrees-example
-rhei instantiate .agents/rhei/templates/parallel-worktrees \
-  --values .agents/rhei/templates/parallel-worktrees/.example-values.yaml \
+rhei instantiate crates/rhei-cli/templates/parallel-worktrees \
+  --values crates/rhei-cli/templates/parallel-worktrees/.example-values.yaml \
   --output examples/parallel-worktrees-example
 ```
 

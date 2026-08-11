@@ -2,13 +2,13 @@
 /// Callback-only execution mode (legacy behavior, used with --no-agent).
 fn run_callback_mode(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     opts: &RunOptions,
     max_parallel: usize,
 ) -> MietteResult<()> {
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
+    let callback_paths = &machines.default_callbacks;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
@@ -19,12 +19,12 @@ fn run_callback_mode(
     let command = current_command_line();
     let initial = load_plan(input)?;
     let initial_total_tasks = total_task_count(&initial.rhei);
-    let initial_states = collect_initial_states(&initial.rhei, machine);
+    let initial_states = collect_initial_states(&initial.rhei, &machines.set);
     // §FS-rhei-run-report.1: declared before the frontend so it drops after the
     // terminal is restored; disarmed on the happy path (see end of run).
     let mut report_guard = RunReportGuard {
         input,
-        machine,
+        machines: &machines.set,
         runtime_dir: runtime_dir.clone(),
         run_started,
         run_started_wall,
@@ -42,11 +42,10 @@ fn run_callback_mode(
     let frontend = start_run_frontend(
         &workspace_root,
         input,
-        callback_paths,
+        machines,
         opts,
         frontend_parallel,
         initial_total_tasks,
-        machine,
     );
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration
@@ -86,7 +85,7 @@ fn run_callback_mode(
         };
     }
 
-    let initial_terminal_count = terminal_task_count(&initial.rhei, machine);
+    let initial_terminal_count = terminal_task_count(&initial.rhei, &machines.set);
     run_info!(
         "Running {} '{}' with {} task(s) ({} terminal at start).",
         if workspace::is_workspace(input) { "workspace" } else { "plan" },
@@ -101,16 +100,33 @@ fn run_callback_mode(
     let mut visited_ready_states = BTreeSet::<(String, String)>::new();
     // One-time notice so the gate-wait below does not spam the journal each tick.
     let mut awaiting_gate_announced = false;
+    // Manual-only tasks reported by a dry run; the command still exits
+    // non-zero once the scan is complete. §FS-rhei-run.4
+    let mut manual_only_dry_run: Vec<String> = Vec::new();
+    // Set when the pass loop found nothing to schedule and at least one
+    // remaining ticket needs a human. A dry run must end the same way the real
+    // run does, or it is not a prediction. §FS-rhei-run.4
+    let mut halted_needs_human = false;
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    if rhei_scope.is_some() {
+        // Repeat the pre-launch scope report inside the journal so a TUI run
+        // sees it too. §FS-rhei-panta.6
+        run_info!("Scope: narrowed to {}", scope_label(&rhei_scope));
+    }
 
     loop {
         let loaded = load_plan(input)?;
-        let ready = find_runnable_tasks(&loaded.rhei, machine, &workspace_root);
+        let ready = narrow_to_rhei_scope(
+            find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
+            &rhei_scope,
+        );
         if ready.is_empty() {
             if !opts.dry_run() {
                 // Callback-only interactive TUI runs use the same human-gate
                 // surface as agent mode; keep it alive only when gates are the
                 // remaining blocker. §FS-rhei-run-tui.1.5.5
-                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, machine) {
+                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, &machines.set, &rhei_scope) {
                     if !awaiting_gate_announced {
                         run_info!(
                             "Waiting for human gate decisions — resolve a gate in the UI, or press Ctrl+C to stop."
@@ -120,7 +136,9 @@ fn run_callback_mode(
                     std::thread::sleep(Duration::from_millis(500));
                     continue;
                 }
-                if let Some(deadline) = earliest_pending_poll_deadline(&loaded.rhei, machine) {
+                if let Some(deadline) =
+                    earliest_pending_poll_deadline(&loaded.rhei, &machines.set, &rhei_scope)
+                {
                     let sleep_secs = deadline.saturating_sub(current_unix_secs()).max(1);
                     run_info!(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
@@ -130,13 +148,27 @@ fn run_callback_mode(
                     continue;
                 }
             }
+            // Nothing schedulable and nothing advanced: without this the loop
+            // exits having explained nothing, and the dry run reported success
+            // on a project the real run halts on. §FS-rhei-run.4
+            if pass == 0 {
+                let (lines, needs_human) =
+                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope);
+                if !lines.is_empty() {
+                    run_info!("\nNothing to schedule. Why each remaining ticket is not moving:");
+                    for line in &lines {
+                        run_info!("  {line}");
+                    }
+                }
+                halted_needs_human = needs_human;
+            }
             break;
         }
         // Made progress this pass; re-arm the gate-wait notice for any later gate.
         awaiting_gate_announced = false;
 
         pass += 1;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         sink.emit(RunEvent::PassStarted {
             pass,
             ready: ready.iter().map(|task| task.id.to_string()).collect(),
@@ -149,12 +181,23 @@ fn run_callback_mode(
             total_task_count(&loaded.rhei)
         );
         run_info!("Ready: {}", format_ready_tasks(&ready));
+        // A ticket someone already claimed is ready but unschedulable; saying
+        // nothing made it look like it was not ready at all. §FS-rhei-run.3
+        let held =
+            narrow_to_rhei_scope(find_held_tasks(&loaded.rhei, &machines.set, &workspace_root), &rhei_scope);
+        if !held.is_empty() {
+            run_info!("Held by an assignee, so not scheduled: {}", format_held_tasks(&held));
+        }
 
         let mut advanced_any = false;
         let mut stalled_ready_tasks = Vec::new();
 
         for task in &ready {
             let task_id_str = task.id.to_string();
+            // The ticket's own machine and callback base govern its advance.
+            // §DA-per-rhei-state-machines
+            let machine = machines.for_task(&task.id);
+            let callback_paths = machines.callbacks_for_str(&task_id_str);
             let current_state_raw = task.state.as_str();
             let current_state = normalized_state_name(current_state_raw, machine);
             let visit_key = (task_id_str.clone(), current_state_raw.to_string());
@@ -167,6 +210,14 @@ fn run_callback_mode(
                 continue;
             }
             if let Some(to_state) = manual_initial_terminal_transition(task, &loaded.rhei, machine)? {
+                // A dry run reports and keeps scanning; only a real run must
+                // stop before touching the task. §FS-rhei-run.4
+                if opts.dry_run() {
+                    let line = format_dry_run_manual_only(&task_id_str, &current_state, &to_state);
+                    run_info!("{}", line);
+                    manual_only_dry_run.push(line);
+                    continue;
+                }
                 return Err(miette!(
                     "Task {} is in manual-only initial state '{}' with terminal transition to '{}'; \
                      use `rhei next`, do the task, then `rhei complete` instead of `rhei run`.",
@@ -192,8 +243,8 @@ fn run_callback_mode(
 
             visited_ready_states.insert(visit_key);
             if record_poll_self_loop_if_needed(
+                &loaded,
                 input,
-                loaded.rhei.metadata.as_ref(),
                 machine,
                 task,
                 &current_state,
@@ -211,25 +262,19 @@ fn run_callback_mode(
 
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
-            let task_file = loaded.task_file(&task_id_str, input);
-            let metadata_file = if workspace::is_workspace(input) {
-                input.join("index.rhei.md")
-            } else {
-                task_file.clone()
-            };
+            let route = loaded.task_route(&task_id_str, input);
             match execute_transition(
-                TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+                TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
                 callback_paths,
                 machine,
-                &task_id_str,
+                &route.local_id,
                 &current_state,
                 &to_state,
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
                     append_transition_audit_entry(
-                        input,
-                        &task_file,
+                        &route.execution_root,
                         &task_id_str,
                         &current_state,
                         &effective_to,
@@ -282,13 +327,22 @@ fn run_callback_mode(
 
     let (terminal_count, total_tasks) = if opts.dry_run() {
         run_info!("\nDry run complete \u{2014} no changes were made.");
+        if !manual_only_dry_run.is_empty() {
+            return Err(manual_only_dry_run_error(&manual_only_dry_run));
+        }
+        // The real run halts here; so must the prediction of it.
+        // §FS-rhei-run.4
+        if halted_needs_human {
+            return Err(dry_run_halt_error());
+        }
         (0usize, 0usize)
     } else if transitions_made == 0 {
-        run_info!("No tasks could be advanced.");
+        let loaded = load_plan(input)?;
+        run_info!("{}", no_advancement_summary(&loaded.rhei, &machines.set, &rhei_scope));
         (0usize, 0usize)
     } else {
         let loaded = load_plan(input)?;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
+        let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
         run_info!(
             "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
@@ -324,7 +378,7 @@ fn run_callback_mode(
     // callback-only. Disarm the guard so its fallback only fires on early error.
     emit_run_report(
         input,
-        machine,
+        &machines.set,
         &summary_sink,
         &runtime_dir,
         RunStats {
@@ -351,9 +405,10 @@ fn run_callback_mode(
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
-        let terminal_count = terminal_task_count(&loaded.rhei, machine);
-        if terminal_count < total_task_count(&loaded.rhei)
-            && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, machine)
+        // §FS-rhei-panta.6.1: a narrowed run halts on in-scope work only —
+        // out-of-scope tickets left non-terminal are not a failure.
+        if scoped_unfinished_task_exists(&loaded.rhei, &machines.set, &rhei_scope)
+            && !remaining_work_is_only_gating_or_poll_blocked(&loaded.rhei, &machines.set, &rhei_scope)
         {
             return Err(miette!(
                 "rhei run halted with non-terminal tasks remaining and no further advancement possible"

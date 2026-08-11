@@ -359,9 +359,9 @@
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let dir = tempfile::tempdir().expect("tmpdir");
-        let ready = find_ready_tasks(&rhei, &machine, dir.path(), &std::collections::HashMap::new(), false);
+        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), false);
         assert_eq!(ready.len(), 2);
-        let runnable = find_runnable_tasks(&rhei, &machine, dir.path());
+        let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path());
         assert_eq!(
             runnable.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
             vec!["2".to_string()]
@@ -386,7 +386,7 @@
         let dir = tempfile::tempdir().expect("tmpdir");
 
         // §FS-rhei-run-tui.1.5.7: gate-only runs reach the empty-ready wait path.
-        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
     }
 
     #[test]
@@ -428,9 +428,9 @@ transitions:
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
-        assert!(has_pending_human_gate(&rhei, &machine));
-        assert!(!should_wait_for_human_gate(&rhei, &machine));
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(has_pending_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone())));
+        assert!(!should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
 
     #[test]
@@ -470,8 +470,8 @@ transitions:
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
-        assert!(should_wait_for_human_gate(&rhei, &machine));
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
 
     #[test]
@@ -499,9 +499,9 @@ transitions: []
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &machine, dir.path()).is_empty());
-        assert!(!has_pending_human_gate(&rhei, &machine));
-        assert!(!should_wait_for_human_gate(&rhei, &machine));
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(!has_pending_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone())));
+        assert!(!should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
 
     #[test]
@@ -520,12 +520,12 @@ transitions: []
 
         let mut cli_opts = default_run_options();
         cli_opts.agent.agent = Some("codex".to_string());
-        assert!(should_use_agent_mode(&rhei, &bare_machine, &default_settings(), &cli_opts, dir.path())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &default_settings(), &cli_opts, dir.path())
             .expect("cli agent mode selection"));
 
         let mut defaults_agent = default_settings();
         defaults_agent.defaults.agent = Some(AgentConfig::from("codex"));
-        assert!(should_use_agent_mode(&rhei, &bare_machine, &defaults_agent, &default_run_options(), dir.path())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &defaults_agent, &default_run_options(), dir.path())
             .expect("defaults.agent mode selection"));
 
         let mut defaults_model = default_settings();
@@ -539,7 +539,7 @@ transitions: []
                 agents: BTreeMap::new(),
             },
         );
-        assert!(should_use_agent_mode(&rhei, &bare_machine, &defaults_model, &default_run_options(), dir.path())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &defaults_model, &default_run_options(), dir.path())
             .expect("defaults.model mode selection"));
 
         let mut model_default_agent = default_settings();
@@ -552,7 +552,7 @@ transitions: []
                 agents: BTreeMap::new(),
             },
         );
-        assert!(should_use_agent_mode(&rhei, &model_machine, &model_default_agent, &default_run_options(), dir.path())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(model_machine.clone()), &model_default_agent, &default_run_options(), dir.path())
             .expect("models.<id>.default_agent mode selection"));
     }
 

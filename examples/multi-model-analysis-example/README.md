@@ -1,7 +1,7 @@
 # multi-model-analysis — example
 
 A pre-rendered instantiation of the
-[`multi-model-analysis`](../../.agents/rhei/templates/multi-model-analysis/)
+[`multi-model-analysis`](../../crates/rhei-cli/templates/multi-model-analysis/)
 template, used as a smoke test that the template produces a valid workspace.
 This is a canonical **multi-target fan-out** reference: one `analyze` state
 fans out across every entry in the `agents` array (one pass per target,
@@ -35,8 +35,8 @@ rhei run examples/multi-model-analysis-example --parallel 3 --dry-run
 
 ```bash
 rm -rf examples/multi-model-analysis-example
-rhei instantiate .agents/rhei/templates/multi-model-analysis \
-  --values .agents/rhei/templates/multi-model-analysis/.example-values.yaml \
+rhei instantiate crates/rhei-cli/templates/multi-model-analysis \
+  --values crates/rhei-cli/templates/multi-model-analysis/.example-values.yaml \
   --output examples/multi-model-analysis-example
 ```
 

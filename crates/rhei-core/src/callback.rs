@@ -24,8 +24,12 @@ use std::process::{Command, Stdio};
 /// variables.
 #[derive(Debug, Clone)]
 pub struct CallbackContext<'a> {
-    /// Identifier of the task being transitioned.
+    /// Project-qualified identifier of the task being transitioned
+    /// (`auth.1`). §FS-rhei-panta.6
     pub task_id: &'a str,
+    /// The same ticket's id as written in its rhei file's heading (`1`).
+    /// Matches what scripts that edit or grep the plan file need.
+    pub task_id_local: &'a str,
     /// State the task is leaving.
     pub from_state: &'a str,
     /// State the task is entering.
@@ -122,7 +126,8 @@ pub trait CallbackExecutor {
 /// [`CallbackContext::callback_cwd`]. The runtime delivers two channels:
 ///
 /// - **Environment variables** (always present):
-///   - `RHEI_TASK_ID` — the task identifier
+///   - `RHEI_TASK_ID` — the project-qualified task identifier (`auth.1`)
+///   - `RHEI_TASK_ID_LOCAL` — the task id as written in its rhei file (`1`)
 ///   - `RHEI_FROM_STATE` — the state being left
 ///   - `RHEI_TO_STATE` — the state being entered
 ///   - `RHEI_PLAN_PATH` — path to the plan file
@@ -162,6 +167,7 @@ impl CallbackExecutor for ShellCallbackExecutor {
             .arg(command)
             .current_dir(context.callback_cwd)
             .env("RHEI_TASK_ID", context.task_id)
+            .env("RHEI_TASK_ID_LOCAL", context.task_id_local)
             .env("RHEI_FROM_STATE", context.from_state)
             .env("RHEI_TO_STATE", context.to_state)
             .env("RHEI_PLAN_PATH", context.plan_path.as_os_str())
@@ -290,6 +296,7 @@ mod tests {
     fn ctx<'a>(plan_path: &'a Path, cwd: &'a Path) -> CallbackContext<'a> {
         CallbackContext {
             task_id: "1",
+            task_id_local: "1",
             from_state: "pending",
             to_state: "in-progress",
             plan_path,

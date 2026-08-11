@@ -1,6 +1,31 @@
     use super::*;
     use clap::CommandFactory;
 
+    /// The top-level help is a hand-maintained `help_template` string, so a
+    /// newly added subcommand is invisible in `rhei --help` until someone
+    /// remembers to list it. `init` shipped that way. Fail loudly instead.
+    #[test]
+    fn every_subcommand_is_listed_in_the_top_level_help() {
+        let command = cli_command();
+        let help = command.clone().render_help().to_string();
+        // Match a listing entry (`  <name>  <description>`), not a bare
+        // substring: `list` and `run` also occur inside descriptions.
+        let listed = |name: &str| {
+            help.lines().any(|line| {
+                line.starts_with("  ")
+                    && line.trim_start().strip_prefix(name).is_some_and(|rest| {
+                        rest.starts_with(char::is_whitespace) || rest.is_empty()
+                    })
+            })
+        };
+        let missing: Vec<&str> =
+            command.get_subcommands().map(|sub| sub.get_name()).filter(|n| !listed(n)).collect();
+        assert!(
+            missing.is_empty(),
+            "subcommands missing from the `help_template` in cli_declarations.rs: {missing:?}"
+        );
+    }
+
     #[test]
     fn parses_validate_command_with_input() {
         let cli = Cli::try_parse_from(["rhei", "validate", "docs/markdown-plan-compiler.md"])
@@ -8,9 +33,9 @@
 
         assert!(cli.state_machine.is_none());
         match cli.command {
-            Commands::Validate { watch, input } => {
+            Commands::Validate { watch, input, .. } => {
                 assert!(!watch);
-                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+                assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
             }
             other => panic!("expected validate command, got {other:?}"),
         }
@@ -24,9 +49,9 @@
 
         assert!(cli.state_machine.is_none());
         match cli.command {
-            Commands::Validate { watch, input } => {
+            Commands::Validate { watch, input, .. } => {
                 assert!(watch);
-                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+                assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
             }
             other => panic!("expected validate command, got {other:?}"),
         }
@@ -45,8 +70,8 @@
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Render { input, format, pretty, no_color, no_metadata, no_content } => {
-                assert_eq!(input, PathBuf::from("docs/markdown-plan-compiler.md"));
+            Commands::Render { input, format, pretty, no_color, no_metadata, no_content, .. } => {
+                assert_eq!(input, Some(PathBuf::from("docs/markdown-plan-compiler.md")));
                 assert_eq!(format, RenderFormat::Json);
                 assert!(pretty);
                 assert!(!no_color);
@@ -106,8 +131,8 @@
         let cli = Cli::try_parse_from(["rhei", "viz", "plan.rhei.md", "-o", "out.html", "--open"])
             .expect("cli should parse");
         match cli.command {
-            Commands::Viz { input, output, open } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
+            Commands::Viz { input, output, open, .. } => {
+                assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert_eq!(output, Some(PathBuf::from("out.html")));
                 assert!(open);
             }
@@ -116,8 +141,8 @@
 
         let cli = Cli::try_parse_from(["rhei", "viz", "workspace"]).expect("cli should parse");
         match cli.command {
-            Commands::Viz { input, output, open } => {
-                assert_eq!(input, PathBuf::from("workspace"));
+            Commands::Viz { input, output, open, .. } => {
+                assert_eq!(input, Some(PathBuf::from("workspace")));
                 assert!(output.is_none());
                 assert!(!open);
             }
@@ -129,13 +154,13 @@
     fn parses_states_command() {
         let cli = Cli::try_parse_from(["rhei", "states"]).expect("cli should parse");
         match cli.command {
-            Commands::States { json } => assert!(!json),
+            Commands::States { json, .. } => assert!(!json),
             other => panic!("expected states command, got {other:?}"),
         }
 
         let cli = Cli::try_parse_from(["rhei", "states", "--json"]).expect("cli should parse");
         match cli.command {
-            Commands::States { json } => assert!(json),
+            Commands::States { json, .. } => assert!(json),
             other => panic!("expected states command, got {other:?}"),
         }
     }
@@ -233,8 +258,8 @@ transitions: []
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Run { input, standalone, agent, program, snapshot } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
+            Commands::Run { input, standalone, agent, program, snapshot, .. } => {
+                assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
                 assert!(standalone.dry_run);
                 assert!(standalone.no_callbacks);
                 assert!(standalone.continue_on_error);
@@ -324,18 +349,24 @@ transitions: []
         opts.standalone.dry_run = true;
         opts.standalone.dashboard = true;
 
-        let frontend = start_run_frontend(
-            Path::new("."),
-            Path::new("missing-plan.rhei.md"),
-            &CallbackPaths {
+        let machines = ExecutionMachines {
+            set: rhei_validator::MachineSet::single(
+                rhei_validator::StateMachine::builtin_default(),
+            ),
+            default_callbacks: CallbackPaths {
                 plan_path: PathBuf::from("missing-plan.rhei.md"),
                 state_machine_path: None,
                 working_dir: PathBuf::from("."),
             },
+            per_rhei_callbacks: BTreeMap::new(),
+        };
+        let frontend = start_run_frontend(
+            Path::new("."),
+            Path::new("missing-plan.rhei.md"),
+            &machines,
             &opts,
             1,
             0,
-            &rhei_validator::StateMachine::builtin_default(),
         );
 
         assert!(frontend.dashboard.is_none());
@@ -487,8 +518,18 @@ transitions: []
         )
         .expect("parse should succeed");
 
-        let rendered =
-            render_rhei(&rhei, RenderFormat::Json, true, false, false, false).expect("render ok");
+        let rendered = render_rhei(
+            &rhei,
+            BTreeSet::new(),
+            false,
+            Vec::new(),
+            RenderFormat::Json,
+            true,
+            false,
+            false,
+            false,
+        )
+        .expect("render ok");
 
         assert!(rendered.contains("\"title\": \"Smoke\""));
         assert!(rendered.contains("\"tasks\""));
@@ -621,6 +662,7 @@ states:
         let err = rhei_core::parser::ParseError {
             message: "unexpected token".to_string(),
             line: Some(2),
+            file: None,
         };
 
         let rendered = render_parse_diagnostic(Path::new("broken.md"), input, &err);
@@ -673,4 +715,40 @@ states:
 
         // A similarly-named sibling that is not a `runtime` directory still matches.
         assert!(path_matches(Path::new("/proj/runtime-notes.rhei.md"), &targets));
+    }
+
+    /// A skill compiled into the binary but missing from the `--skills` default
+    /// reaches only users who read the flag docs and type its name;
+    /// `rhei-template-writer` shipped that way. §FS-rhei-install-skills.2
+    #[test]
+    fn default_skills_covers_every_builtin() {
+        let command = cli_command();
+        let install = command
+            .get_subcommands()
+            .find(|sub| sub.get_name() == "install-skills")
+            .expect("install-skills subcommand");
+        let arg = install
+            .get_arguments()
+            .find(|arg| arg.get_id() == "skills")
+            .expect("--skills argument");
+
+        let mut defaults: Vec<String> = arg
+            .get_default_values()
+            .iter()
+            .flat_map(|value| {
+                value
+                    .to_string_lossy()
+                    .split(',')
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<String>>()
+            })
+            .collect();
+        defaults.sort();
+
+        assert_eq!(
+            defaults,
+            builtin_skill_names(),
+            "the --skills default in cli_declarations.rs and the skills embedded from \
+             crates/rhei-cli/skills/ have drifted apart"
+        );
     }

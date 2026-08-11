@@ -13,8 +13,27 @@ Rhei is the only agent runtime that combines all of:
   diff, and edit in any editor — not a database, not a chat scratchpad.
 - **Explicit prerequisite DAG.** `**Prior:**` declares dependencies, validated
   for cycles, missing references, and kind mismatches.
-- **Hierarchical tasks** with configurable depth (`maxLevels` 1–4) and custom
-  node kinds (`Task`, `Bug`, `Spike`, …).
+- **Hierarchical tasks** with configurable depth (`structure.maxLevels` 1–4,
+  default 2). A child is the same keyword one heading deeper — `### Task 1:`
+  holds `#### Task 1.1:` — so nesting needs no configuration.
+- **Custom node kinds.** Plans start with `Task` alone; declare
+  `structure.nodeKinds: [task, subtask, bug, spike]` to author `#### Subtask
+  1.1: …`, `### Bug 3: …`, or `### Spike 4: …`. The list *replaces* the
+  default, so keep `task` in it — and add `subtask` if you want that spelling
+  for children. The frontmatter block goes **below** the `# Rhei:` heading (and
+  below `**States:**`), not at the top of the file:
+
+  ```markdown
+  # Rhei: Beta
+
+  ---
+  structure:
+    nodeKinds: [task, subtask, bug, spike]
+    maxLevels: 3
+  ---
+
+  ## Tasks
+  ```
 - **Pluggable YAML state machines.** Define your own states, allowed transitions,
   per-node-kind profiles, and required input/output artifact contracts per
   state — including counted review loops via `visits: n` and `state-2` suffixes.
@@ -34,7 +53,8 @@ Rhei is the only agent runtime that combines all of:
   recurring workflow — code review loops, release checklists, onboarding,
   audits — once as a parameterized template (plan skeleton + state machine +
   typed inputs), then `rhei instantiate` it with concrete values to spin up a
-  ready-to-execute workspace. See
+  ready-to-execute workspace. Ten templates ship inside the binary, so
+  `rhei templates` is populated the moment `rhei` is installed. See
   [`docs/functional-spec/rhei-templates.spec.md`](docs/functional-spec/rhei-templates.spec.md).
 
 See [`docs/functional-spec/comparison.md`](docs/functional-spec/comparison.md) for a detailed comparison against
@@ -204,7 +224,8 @@ rhei completions elvish --install
 ```
 
 Installed completions are dynamic, so `rhei instantiate <TAB>` offers template
-names from `.agents/rhei/templates/` and `~/.agents/rhei/templates/`.
+names from `.agents/rhei/templates/`, `~/.agents/rhei/templates/`, and the
+built-in library shipped with the binary.
 
 See [Tab Completions](docs/functional-spec/tab-completions.md) for shell-specific setup notes,
 default install paths, and system-wide installation.

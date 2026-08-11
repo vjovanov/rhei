@@ -1,38 +1,118 @@
+use std::collections::BTreeSet;
+
 use rhei_core::ast::Task;
 
-use crate::common::{fmt_prior_list, title_case_kind};
+use crate::common::{fmt_prior_list, rhei_groups, title_case_kind, RheiGroup};
 
 pub struct ProgressReportOutput {
     pub color: bool,
     pub show_dependencies: bool,
+    /// Ids of tickets currently in a terminal state, each judged under its
+    /// owning rhei's machine. Empty when no machine was resolved, which
+    /// suppresses the completion summary rather than guessing.
+    // §DA-per-rhei-state-machines: terminal-ness is a per-ticket judgment.
+    pub terminal_ids: BTreeSet<String>,
+    /// Whether the rendered root is a Panta project rather than a single rhei.
+    /// The heading names what the reader is looking at, and calling a project
+    /// "Rhei:" put the same word on two different levels. §FS-rhei-panta.1
+    pub is_project: bool,
 }
 
 impl ProgressReportOutput {
+    /// A progress report with no state machine resolved, so no summary line.
+    pub fn plain(color: bool, show_dependencies: bool) -> Self {
+        Self { color, show_dependencies, terminal_ids: BTreeSet::new(), is_project: false }
+    }
+
     pub fn to_string(&self, rhei: &rhei_core::ast::Rhei) -> String {
         let mut out = String::new();
 
-        out.push_str("Rhei: ");
+        out.push_str(if self.is_project { "Panta: " } else { "Rhei: " });
         out.push_str(&rhei.title);
         out.push('\n');
-
-        for section in &rhei.content_sections {
-            out.push_str(&section.title);
-            out.push_str(":\n");
-            for line in section.content.lines() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    out.push_str("  ");
-                    out.push_str(trimmed);
-                    out.push('\n');
-                }
-            }
+        if let Some(summary) = self.summary_line(rhei) {
+            out.push_str(&summary);
+            out.push('\n');
         }
 
-        for task in &rhei.tasks {
-            self.render_node(task, 0, &mut out);
+        for section in &rhei.content_sections {
+            if section.rhei.is_some() {
+                continue;
+            }
+            self.render_section(&section.title, &section.content, 0, &mut out);
+        }
+
+        let groups = rhei_groups(rhei);
+        if groups.is_empty() {
+            for task in &rhei.tasks {
+                self.render_node(task, 0, &mut out);
+            }
+            return out;
+        }
+
+        for group in &groups {
+            out.push('\n');
+            out.push_str(&group.heading());
+            out.push('\n');
+            for section in &rhei.content_sections {
+                if section.rhei.as_deref() != Some(group.id.as_str()) || section.content.is_empty()
+                {
+                    continue;
+                }
+                self.render_section(
+                    group.section_title(&section.title),
+                    &section.content,
+                    1,
+                    &mut out,
+                );
+            }
+            self.render_group_tasks(rhei, group, &mut out);
         }
 
         out
+    }
+
+    fn render_group_tasks(&self, rhei: &rhei_core::ast::Rhei, group: &RheiGroup, out: &mut String) {
+        let mut empty = true;
+        for task in rhei.tasks.iter().filter(|task| group.owns(task)) {
+            self.render_node(task, 0, out);
+            empty = false;
+        }
+        if empty {
+            out.push_str("  (no tickets yet)\n");
+        }
+    }
+
+    fn render_section(&self, title: &str, content: &str, indent: usize, out: &mut String) {
+        let pad = "  ".repeat(indent);
+        out.push_str(&pad);
+        out.push_str(title);
+        out.push_str(":\n");
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                out.push_str(&pad);
+                out.push_str("  ");
+                out.push_str(trimmed);
+                out.push('\n');
+            }
+        }
+    }
+
+    /// `4/9 tickets done (44%)` — the count the format is named for.
+    ///
+    /// Requires resolved terminal states: "done" is a property of the state
+    /// machine, and a custom machine need not have a state called `completed`.
+    fn summary_line(&self, rhei: &rhei_core::ast::Rhei) -> Option<String> {
+        if self.terminal_ids.is_empty() {
+            return None;
+        }
+        let (total, done) = count_tickets(&rhei.tasks, &self.terminal_ids);
+        if total == 0 {
+            return None;
+        }
+        let percent = done * 100 / total;
+        Some(format!("{done}/{total} tickets done ({percent}%)"))
     }
 
     fn render_node(&self, task: &Task, indent_level: usize, out: &mut String) {
@@ -69,6 +149,22 @@ impl ProgressReportOutput {
     }
 }
 
+/// `(total, in a terminal state)` over every ticket in the tree.
+fn count_tickets(tasks: &[Task], terminal_ids: &BTreeSet<String>) -> (usize, usize) {
+    let mut total = 0;
+    let mut done = 0;
+    for task in tasks {
+        total += 1;
+        if terminal_ids.contains(&task.id.to_string()) {
+            done += 1;
+        }
+        let (child_total, child_done) = count_tickets(&task.children, terminal_ids);
+        total += child_total;
+        done += child_done;
+    }
+    (total, done)
+}
+
 fn badge_for(state_upper: &str, color: bool) -> String {
     if !color {
         return format!("[{}]", state_upper);
@@ -87,5 +183,5 @@ fn badge_for(state_upper: &str, color: bool) -> String {
 
 /// Convenience: render rhei to a colored progress report with dependencies shown.
 pub fn to_progress_report(rhei: &rhei_core::ast::Rhei) -> String {
-    ProgressReportOutput { color: true, show_dependencies: true }.to_string(rhei)
+    ProgressReportOutput::plain(true, true).to_string(rhei)
 }

@@ -22,6 +22,7 @@ Flags are grouped by concern:
 | `--no-callbacks`         | false   | Skip execution of `on_leave` / `on_enter` callbacks                        |
 | `--continue-on-error`    | false   | Continue to the next task when an agent or program exits non-zero          |
 | `--parallel <N>`         | 1       | Maximum number of agents or programs to run concurrently (0 = unlimited)   |
+| `--rhei <RHEI_ID>`       | all     | Narrow this run to the named rheis (repeatable). See §2.5.                  |
 | `--tui`                  | auto    | Force TUI mode even when stdout is not detected as a TTY                   |
 | `--no-tui`               | auto    | Force plain stdout output even when stdout is a TTY                        |
 | `--dashboard`            | auto    | Serve the loopback browser dashboard for this run                          |
@@ -51,6 +52,53 @@ Flags are grouped by concern:
 |--------------------------------|----------------------------------------------------------------------------------|
 | `--no-program`                 | Disable program spawning; use callback-only advancement for program states       |
 | `--program-timeout <DURATION>` | Override the program timeout for this run (applied per program state)            |
+
+### 2.5. Project Scope (`--rhei`)
+
+`rhei run` drives a whole project by default: every load yields a Panta-rooted
+graph, and a bare rhei is simply the single rhei of its implicit Panta
+(§FS-rhei-panta.6.2). `--rhei <RHEI_ID>` is repeatable and narrows the run to
+the named rheis.
+
+- An id that names no rhei in the project is an error listing the available
+  rhei ids.
+- Narrowing selects **candidate** tickets only; it never narrows where their
+  priors resolve. A candidate may still be blocked by a prior in a rhei outside
+  the scope, and the no-work diagnostic names that prior as out of scope
+  (§FS-rhei-panta.6.1).
+- Before spawning, `rhei run` reports its resolved scope and the rheis it will
+  touch, using the shared scope line:
+
+  ```text
+  Scope: `rhei run` narrowed to <N> rheis: <ids>
+  ```
+
+  A one-rhei project has no fan-out to report and stays quiet
+  (§FS-rhei-panta.6). Because a TUI run takes over the screen right after
+  launch, a narrowed run repeats the scope in the run journal
+  (`Scope: narrowed to <ids>`), where the interactive view can show it.
+- `--parallel > 1` stays available on a project, but two tickets of one rhei
+  file are still concurrent work against a single checkout; the run warns and
+  names such a file. Plan-file writes themselves serialize on the file lock.
+  Only **top-level tickets** count toward a file: a subtask always executes
+  inside its ticket's slot, so a file holding one ticket and its subtasks is
+  not shared. When *every* ticket in the run lives in one plan file, parallel
+  slots could only ever schedule same-file tickets — the run then falls back
+  to sequential execution with a warning, exactly as for a bare single-file
+  plan.
+
+### 2.6. Run Lock
+
+At most one live run may drive a rhei's files at a time. A run acquires the
+`.rhei/run.lock` of **every** involved execution root — the target's own root
+plus each contained rhei's execution root — not just the root it was pointed
+at. This is what makes a project-level `rhei run <project>` and a direct
+`rhei run <project>/<rhei>` mutually exclusive: both contend on the member
+rhei's lock. Locks are acquired in one canonical (sorted, absolute) order so
+two multi-root runs cannot deadlock. `--dry-run` takes no locks
+(§4). Narrowing with `--rhei` does not narrow the lock set: a narrowed run
+still locks the whole project, keeping lock behavior independent of scheduling
+scope.
 
 ## 3. Execution Loop
 
@@ -147,6 +195,40 @@ would transition: Task <ID>  <from> -> <to>
 ```
 
 No file lock is acquired, no markdown is rewritten, and no runtime artifacts are created.
+
+A dry run **reports** the manual-only condition of §3 instead of aborting on
+the first task that hits it:
+
+```text
+manual-only: Task <ID>  <from> -> <to> (claim with `rhei next`, finish with `rhei complete`)
+```
+
+The scan continues, so one invocation lists every manual-only task alongside
+every transition that would run; the command still exits non-zero when any
+were reported. Aborting on the first one defeats the purpose of the flag —
+under the built-in machine, whose initial state is manual-only, it made
+`--dry-run` fail before printing anything at all.
+
+**A dry run predicts the real run, including its exit status.** When the scan
+finds nothing schedulable, it reports why each remaining in-scope ticket is not
+moving — the same classification the halt path uses (§FS-rhei-run-report.3.1) —
+and then ends the way `rhei run` would on the same state:
+
+```text
+Nothing to schedule. Why each remaining ticket is not moving:
+  Task auth.1 (pending): claimed by alice — `rhei release auth.1` to hand it back, …
+  Task auth.2 (pending): waiting on Task auth.1 (pending) — finish the prior first
+```
+
+A ticket the scheduler skips is invisible to the transition scan: it produces
+no `would transition:` line and no `manual-only:` line. Without this report a
+dry run over a project whose ready tickets were all claimed printed nothing at
+all and exited zero, while `rhei run` on the identical state halted non-zero —
+so the one command whose job is to answer "what happens if I run this?"
+answered it wrongly, and a wedged queue behind a crashed worker's stale claim
+read as "nothing to do". The dry run exits non-zero whenever the remaining
+tickets need a human; gating states awaiting a decision are a deliberate pause
+and do not by themselves fail it.
 
 ## 5. Parallel Execution
 

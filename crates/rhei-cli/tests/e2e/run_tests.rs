@@ -21,18 +21,60 @@ fn run_builtin_default_refuses_manual_pending_tasks() {
         result.stdout,
         result.stderr
     );
-    assert!(
-        result.stderr.contains("manual-only initial state 'pending'")
-            && result.stderr.contains("rhei next")
-            && result.stderr.contains("rhei complete"),
-        "expected manual workflow diagnostic; got:\n{}",
-        result.stderr
-    );
+    assert_stderr_contains(&result, "Task plan.1 is in manual-only initial state 'pending'");
+    assert_stderr_contains(&result, "rhei next");
+    assert_stderr_contains(&result, "rhei complete");
     let content = fs::read_to_string(&plan_path).expect("read plan after failed run");
     assert!(
         content.contains("**State:** pending") && !content.contains("**State:** completed"),
         "run must not complete manual task; got:\n{}",
         content
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-run.4: `--dry-run` exists to show what would happen. Aborting on
+/// the first manual-only task made it fail before printing anything under the
+/// built-in machine, whose initial state is manual-only.
+#[test]
+fn run_dry_run_reports_every_manual_only_task_instead_of_aborting() {
+    let dir = unique_temp_dir("run-dry-run-manual-pending");
+    let plan = r#"# Rhei: Manual Default
+
+## Tasks
+
+### Task 1: Do manually
+**State:** pending
+
+### Task 2: Also manually
+**State:** pending
+"#;
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+
+    let result = run_cli_without_machine("run", &plan_path, &["--dry-run", "--no-tui"]);
+    assert!(
+        !result.status.success(),
+        "a dry run that found manual-only tasks still exits non-zero\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    for id in ["plan.1", "plan.2"] {
+        assert!(
+            combined.contains(&format!("manual-only: Task {id}")),
+            "the scan must continue and report {id}; got:\n{combined}"
+        );
+    }
+    assert!(
+        combined.contains("rhei next") && combined.contains("rhei complete"),
+        "the report must name the manual worker loop; got:\n{combined}"
+    );
+
+    let content = fs::read_to_string(&plan_path).expect("read plan after dry run");
+    assert!(
+        !content.contains("**State:** completed"),
+        "a dry run must not rewrite the plan; got:\n{content}"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -231,7 +273,9 @@ fn run_bash_agent_team_fixture_to_completion() {
         team_log
     );
 
-    for task_id in &["1", "2", "3"] {
+    // Callbacks receive the project-qualified id, so ticket-keyed artifact
+    // paths carry it — the same key space a narrowed reset matches on.
+    for task_id in &["bash-agent-team.1", "bash-agent-team.2", "bash-agent-team.3"] {
         let artifact_dir = workspace_path.join(format!("runtime/artifacts/task-{task_id}"));
         assert!(
             artifact_dir.join("40-complete.txt").exists(),
@@ -387,14 +431,14 @@ transitions:
         fs::read_to_string(dir.join("runtime/logs/override-agent.log")).expect("read override log");
     assert!(
         log.contains(
-            "task=model-override model=special-model target=mock[yolo]:mock:special-model mode=yolo agent=mock provider=mock name=special-model"
+            "task=plan.model-override model=special-model target=mock[yolo]:mock:special-model mode=yolo agent=mock provider=mock name=special-model"
         ),
         "model override did not preserve state target identity with swapped model; log:\n{}",
         log
     );
     assert!(
         log.contains(
-            "task=target-override model=target-model target=mock[slow]:mock:target-model mode=slow agent=mock provider=mock name=target-model"
+            "task=plan.target-override model=target-model target=mock[slow]:mock:target-model mode=slow agent=mock provider=mock name=target-model"
         ),
         "target override did not replace full identity; log:\n{}",
         log
@@ -437,7 +481,7 @@ states:
     );
     let normalized_stderr = result.stderr.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        normalized_stderr.contains("Task 1 declares a task execution override")
+        normalized_stderr.contains("Task plan.1 declares a task execution override")
             && normalized_stderr.contains("fanout state"),
         "expected fanout validation error; got:\n{}",
         result.stderr
@@ -851,12 +895,12 @@ transitions:
     assert_task_state(&plan_path, &machine_path, "2", "completed");
     assert_task_state(&plan_path, &machine_path, "3", "work");
     assert!(
-        !result.stdout.contains("Task 1 transitioned: 'human-review' → 'completed'"),
+        !result.stdout.contains("Task plan.1 transitioned: 'human-review' → 'completed'"),
         "gating task must not advance autonomously; got:\n{}",
         result.stdout
     );
     assert!(
-        result.stdout.contains("Task 2 transitioned: 'work' → 'completed'"),
+        result.stdout.contains("Task plan.2 transitioned: 'work' → 'completed'"),
         "independent non-gating work should still complete before the run halts; got:\n{}",
         result.stdout
     );
@@ -896,7 +940,7 @@ fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
         example_path.display()
     );
 
-    let template_path = repo_root.join(".agents/rhei/templates/changeset-review/states.yaml");
+    let template_path = repo_root.join("crates/rhei-cli/templates/changeset-review/states.yaml");
     let template = fs::read_to_string(&template_path).expect("read template states.yaml");
     let start = template
         .find("\n  human-review:\n")
@@ -990,7 +1034,8 @@ fn reset_bash_agent_team_fixture_restores_initial_state() {
     let run_result = run_cli("run", &workspace_path, &machine_path, &[]);
     assert_success(&run_result);
 
-    let reset_result = run_cli("reset", &workspace_path, &machine_path, &[]);
+    // §FS-rhei-reset.1.2: no terminal here, so the intent is stated explicitly.
+    let reset_result = run_cli("reset", &workspace_path, &machine_path, &["-y"]);
     assert_success(&reset_result);
 
     assert_all_tasks_in_state(&workspace_path, &machine_path, "pending");
@@ -1073,4 +1118,91 @@ fn run_already_completed_is_noop() {
     assert_eq!(original, after, "file should be unchanged");
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn run_parallel_does_not_warn_for_a_ticket_with_subtasks_in_one_file() {
+    // §FS-rhei-run.2.5: only top-level tickets count toward a file — a ticket
+    // and its subtasks are one schedulable unit, not shared-file concurrency.
+    let (ws, machine_path) = create_workspace(
+        "run-parallel-subtasks",
+        "# Rhei: Subtask Layout\n**States:** integration-test\n",
+        &[
+            (
+                "one.md",
+                "### Task 1: Alpha\n**State:** draft\n\n#### Task 1.1: Detail\n**State:** draft\n",
+            ),
+            ("two.md", "### Task 2: Beta\n**State:** draft\n"),
+        ],
+    );
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert!(
+        !result.stderr.contains("schedules tickets from the same rhei file"),
+        "a ticket plus its subtasks is not a shared file:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("Falling back to sequential"),
+        "a multi-file plan keeps parallelism:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
+}
+
+#[test]
+fn run_parallel_warns_when_one_of_several_files_owns_two_tickets() {
+    let (ws, machine_path) = create_workspace(
+        "run-parallel-shared",
+        "# Rhei: Shared File\n**States:** integration-test\n",
+        &[
+            (
+                "one.md",
+                "### Task 1: Alpha\n**State:** draft\n\n### Task 2: Beta\n**State:** draft\n",
+            ),
+            ("two.md", "### Task 3: Gamma\n**State:** draft\n"),
+        ],
+    );
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert!(
+        result.stderr.contains("schedules tickets from the same rhei file")
+            && result.stderr.contains("one.md"),
+        "two top-level tickets in one of several files should warn and name it:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("Falling back to sequential"),
+        "other files still benefit from parallelism:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
+}
+
+#[test]
+fn run_parallel_falls_back_to_sequential_when_all_tickets_share_one_file() {
+    // §FS-rhei-run.2.5: with every ticket in one plan file, parallel slots
+    // could only schedule same-file tickets — sequential, as for a bare file.
+    let (ws, machine_path) = create_workspace(
+        "run-parallel-single-file",
+        "# Rhei: One File\n**States:** integration-test\n",
+        &[(
+            "one.md",
+            "### Task 1: Alpha\n**State:** draft\n\n### Task 2: Beta\n**State:** draft\n",
+        )],
+    );
+
+    let result = run_cli("run", &ws, &machine_path, &["--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert!(
+        result.stderr.contains("Falling back to sequential execution"),
+        "a single ticket-owning file cannot run in parallel:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
 }

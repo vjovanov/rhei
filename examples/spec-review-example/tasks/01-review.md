@@ -1,4 +1,4 @@
-### Task spec-review: Review specs/template-review-fixture.spec.md
+### Task review: Review specs/template-review-fixture.spec.md
 **State:** review
 
 Review `specs/template-review-fixture.spec.md` for internal consistency, completeness, correctness, and clarity.

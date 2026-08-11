@@ -38,10 +38,40 @@ fn ensure_state_inputs_exist(
             ));
         }
         if !path.exists() {
+            // Pre-qualification artifacts are keyed by the rhei-local id;
+            // when one exists, name it so the fix is one rename away. §FS-rhei-panta.6
+            let local_id = rhei_local_id_str(task_id);
+            let legacy_hint = if local_id != task_id && artifact.path.contains("{task_id}") {
+                let (legacy_relative, legacy_path) = resolve_artifact_path(
+                    workspace_root,
+                    artifact,
+                    local_id,
+                    state_name,
+                    visit_count,
+                    target,
+                    model,
+                    model_provider,
+                    model_name,
+                    agent,
+                    agent_mode,
+                );
+                if legacy_path.exists() {
+                    format!(
+                        "\nA pre-qualification artifact exists at '{legacy_relative}'. \
+                         Ticket ids are now project-qualified; rename it to '{relative}' \
+                         to keep this run's history."
+                    )
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
             return Err(miette!(
-                "{context}\nMissing required input artifact: {} ({})",
+                "{context}\nMissing required input artifact: {} ({}){}",
                 artifact.name,
-                relative
+                relative,
+                legacy_hint
             ));
         }
     }
@@ -107,6 +137,7 @@ fn ensure_state_outputs_exist(
 /// `**State:**` line, and writes the file atomically (temp + rename).
 fn transition_command(
     input: &Path,
+    rhei_scope: &[String],
     state_machine_path: Option<&Path>,
     task_id_str: &str,
     from: &str,
@@ -116,34 +147,30 @@ fn transition_command(
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    reject_panta_mutation(&loaded, "transition")?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machine = resolved.machine;
-    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
+    // No `--rhei` on this command: the explicit ticket target is the scope,
+    // narrowed by the rhei the invocation was pointed at. §FS-rhei-panta.6
+    let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
+    let task_id_str = &resolve_cli_task_id(&loaded, task_id_str, &scope)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let machines = ExecutionMachines::build(&resolved, input)?;
+    // The explicit ticket target's own machine and callback base govern.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
 
-    let task_file = if workspace::is_workspace(input) {
-        loaded.task_file(task_id_str, input)
-    } else {
-        input.to_path_buf()
-    };
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
-        &callback_paths,
-        &machine,
-        task_id_str,
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
+        callback_paths,
+        machine,
+        &route.local_id,
         from,
         to,
         no_callbacks,
     )?;
 
-    let root = result_workspace_root(input, &task_file);
-    append_result_entry(&root, task_id_str, from, &effective_to, None)?;
+    append_result_entry(&route.execution_root, task_id_str, from, &effective_to, None)?;
 
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);
     Ok(())
@@ -182,14 +209,13 @@ fn execute_transition(
 }
 
 /// Append the command-owned central audit entry for a state change that was
-/// already applied by the run orchestrator. §FS-rhei-run.3 §FS-rhei-complete.3.1
+/// already applied by the run orchestrator, into the owning rhei's runtime
+/// ledger. §FS-rhei-run.3 §FS-rhei-complete.3.1
 fn append_transition_audit_entry(
-    input: &Path,
-    task_file: &Path,
+    execution_root: &Path,
     task_id_str: &str,
     from: &str,
     to: &str,
 ) -> MietteResult<()> {
-    let root = result_workspace_root(input, task_file);
-    append_result_entry(&root, task_id_str, from, to, None)
+    append_result_entry(execution_root, task_id_str, from, to, None)
 }

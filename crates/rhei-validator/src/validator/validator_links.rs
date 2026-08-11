@@ -95,7 +95,24 @@ fn validate_one_markdown_link(
     }
 }
 
-fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut ValidationReport) {
+/// The ticket id as it reads inside its own rhei file: the project-qualified
+/// id with the rhei-prefix segments removed. `None` when the task carries no
+/// prefix (already rhei-local). §AR-rhei-panta.3
+fn rhei_local_task_id(task: &Task) -> Option<String> {
+    let prefix = task.profile_depth_offset as usize;
+    if prefix == 0 || task.id.segments.len() <= prefix {
+        return None;
+    }
+    Some(
+        task.id.segments[prefix..]
+            .iter()
+            .map(|segment| segment.to_string())
+            .collect::<Vec<_>>()
+            .join("."),
+    )
+}
+
+fn validate_result_blocks(rhei: &Rhei, machines: &MachineSet, report: &mut ValidationReport) {
     let re = Regex::new(r"^> \*\*Result:\*\* \[([^\]]*)\]\(([^)]+)\)\s*$")
         .expect("valid result block regex");
 
@@ -136,6 +153,7 @@ fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut Vali
             return;
         }
 
+        let machine = machines.for_task(&task.id);
         let parsed = parse_task_state(&task.state, machine);
         let is_terminal =
             machine.states.get(&parsed.state).map(|state| state.terminal).unwrap_or(false);
@@ -148,18 +166,38 @@ fn validate_result_blocks(rhei: &Rhei, machine: &StateMachine, report: &mut Vali
 
         let expected_text = task.id.to_string();
         let expected_target = format!("runtime/results/{}.md", task.id);
+        // §FS-rhei-panta.6.3: text and target validate as a pair — both
+        // qualified or both legacy rhei-local. A mixed link names two
+        // different artifacts and is an error.
+        let legacy_text = rhei_local_task_id(task);
+        let legacy_target = legacy_text.as_ref().map(|id| format!("runtime/results/{id}.md"));
         for (display, target) in valid_blocks {
-            if display != expected_text {
-                report.errors.push(format!(
-                    "{} result block link text must be '{}', got '{}'",
-                    label, expected_text, display
-                ));
+            let qualified = display == expected_text && target == expected_target;
+            let legacy = Some(display.as_str()) == legacy_text.as_deref()
+                && Some(target.as_str()) == legacy_target.as_deref();
+            if qualified || legacy {
+                continue;
             }
-            if target != expected_target {
-                report.errors.push(format!(
-                    "{} result block target must be '{}', got '{}'",
-                    label, expected_target, target
-                ));
+            // Renaming a ticket id is a two-part edit — the link text *and* the
+            // artifact it points at. Naming only the `mv` sent authors round a
+            // second time: they moved the file, the stale link then failed as a
+            // dangling target, and the new error read as a different problem.
+            let rename_hint = format!(
+                ". If this ticket was renamed, do both halves: rewrite the block as \
+                 `> **Result:** [{expected_text}](runtime/results/{expected_text}.md)`, and \
+                 move the artifact to match with \
+                 `mv {target} runtime/results/{expected_text}.md`"
+            );
+            match legacy_text.as_deref() {
+                Some(local) => report.errors.push(format!(
+                    "{} result block must link '[{}](runtime/results/{}.md)' \
+                     (or the legacy '[{}](runtime/results/{}.md)'), got '[{}]({})'{}",
+                    label, expected_text, expected_text, local, local, display, target, rename_hint
+                )),
+                None => report.errors.push(format!(
+                    "{} result block must link '[{}](runtime/results/{}.md)', got '[{}]({})'{}",
+                    label, expected_text, expected_text, display, target, rename_hint
+                )),
             }
         }
     });

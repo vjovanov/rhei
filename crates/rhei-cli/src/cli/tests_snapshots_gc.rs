@@ -189,6 +189,7 @@
         match cli.command {
             Commands::Snapshot {
                 command: SnapshotCommand::List { plan, task, name, state, produced_by, format, .. },
+                ..
             } => {
                 assert_eq!(plan, PathBuf::from("plan"));
                 assert_eq!(task.as_deref(), Some("1"));
@@ -208,7 +209,7 @@
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "pending",
             "review",
             1,
@@ -218,7 +219,7 @@
         );
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "_state",
             "pending",
             1,
@@ -229,7 +230,7 @@
         refresh_current_links(
             &ctx.cache_root,
             [SnapshotIdentity {
-                task_id: "1".to_string(),
+                task_id: "plan.1".to_string(),
                 snapshot_name: "pending".to_string(),
                 emitting_state: "review".to_string(),
                 visit: 1,
@@ -240,7 +241,8 @@
         )
         .expect("current");
 
-        let resolved = resolve_snapshot_ref(&ctx, "1:pending", None, None).expect("resolve ref");
+        let resolved =
+            resolve_snapshot_ref(&ctx, "plan.1:pending", None, None).expect("resolve ref");
         assert_eq!(resolved.snapshot_name, "pending");
         assert_eq!(resolved.emitting_state, "review");
     }
@@ -252,7 +254,7 @@
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -262,7 +264,7 @@
         );
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "review",
             1,
@@ -274,14 +276,14 @@
             &ctx.cache_root,
             [
                 SnapshotIdentity {
-                    task_id: "1".to_string(),
+                    task_id: "plan.1".to_string(),
                     snapshot_name: "impl".to_string(),
                     emitting_state: "pending".to_string(),
                     visit: 1,
                     target_slug: "claude-code-anthropic-model".to_string(),
                 },
                 SnapshotIdentity {
-                    task_id: "1".to_string(),
+                    task_id: "plan.1".to_string(),
                     snapshot_name: "impl".to_string(),
                     emitting_state: "review".to_string(),
                     visit: 1,
@@ -293,11 +295,11 @@
         )
         .expect("current");
 
-        let err = resolve_snapshot_ref(&ctx, "1:impl", None, None).expect_err("ambiguous ref");
+        let err = resolve_snapshot_ref(&ctx, "plan.1:impl", None, None).expect_err("ambiguous ref");
         let msg = err.to_string();
         assert!(msg.contains("ambiguous"));
-        assert!(msg.contains("1:impl:pending@1:claude-code-anthropic-model/g1"));
-        assert!(msg.contains("1:impl:review@1:claude-code-anthropic-model/g1"));
+        assert!(msg.contains("plan.1:impl:pending@1:claude-code-anthropic-model/g1"));
+        assert!(msg.contains("plan.1:impl:review@1:claude-code-anthropic-model/g1"));
     }
 
     #[test]
@@ -307,7 +309,7 @@
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -317,7 +319,7 @@
         );
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -326,14 +328,14 @@
             "orchestrator",
         );
 
-        let err = resolve_snapshot_ref(&ctx, "1:impl:pending", None, None)
+        let err = resolve_snapshot_ref(&ctx, "plan.1:impl:pending", None, None)
             .expect_err("missing current must be rejected");
         let msg = err.to_string();
         assert!(msg.contains("none is marked current"));
         assert!(msg.contains("retry with /g<N>"));
 
-        let resolved =
-            resolve_snapshot_ref(&ctx, "1:impl:pending/g1", None, None).expect("explicit gen");
+        let resolved = resolve_snapshot_ref(&ctx, "plan.1:impl:pending/g1", None, None)
+            .expect("explicit gen");
         assert_eq!(resolved.generation, 1);
     }
 
@@ -344,7 +346,7 @@
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -354,7 +356,7 @@
         );
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -364,7 +366,7 @@
         );
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -378,7 +380,7 @@
 
         let identity = ctx
             .cache_root
-            .join("1")
+            .join("plan.1")
             .join("impl")
             .join("pending")
             .join("1")
@@ -399,7 +401,7 @@
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation(
             &ctx.cache_root,
-            "1.1",
+            "plan.1.1",
             "impl",
             "pending",
             1,
@@ -407,7 +409,8 @@
             1,
             "orchestrator",
         );
-        let record = resolve_snapshot_ref(&ctx, "1.1:impl/g1", None, None).expect("resolve ref");
+        let record =
+            resolve_snapshot_ref(&ctx, "plan.1.1:impl/g1", None, None).expect("resolve ref");
 
         assert!(!is_snapshot_orphaned(&record, &ctx), "child task snapshot must not be orphaned");
     }
@@ -419,7 +422,7 @@
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation_with_created_at(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -430,7 +433,7 @@
         );
         write_snapshot_generation_with_created_at(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -441,7 +444,7 @@
         );
         write_snapshot_generation_with_created_at(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -466,7 +469,7 @@
 
         let identity = ctx
             .cache_root
-            .join("1")
+            .join("plan.1")
             .join("impl")
             .join("pending")
             .join("1")
@@ -519,7 +522,7 @@ transitions:
         let ctx = load_snapshot_context(dir.path(), None).expect("snapshot context");
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -529,7 +532,7 @@ transitions:
         );
         write_snapshot_generation(
             &ctx.cache_root,
-            "1",
+            "plan.1",
             "impl",
             "pending",
             1,
@@ -537,7 +540,8 @@ transitions:
             2,
             "orchestrator",
         );
-        let latest = resolve_snapshot_ref(&ctx, "1:impl/g2", None, None).expect("resolve ref");
+        let latest =
+            resolve_snapshot_ref(&ctx, "plan.1:impl/g2", None, None).expect("resolve ref");
 
         assert!(
             snapshot_generation_protected_by_active_inherit(&latest, &ctx),
@@ -586,7 +590,7 @@ transitions:
         )
         .expect("write states");
         let self_ctx = load_snapshot_context(self_dir.path(), None).expect("snapshot context");
-        for task_id in ["1", "1.1"] {
+        for task_id in ["plan.1", "plan.1.1"] {
             write_snapshot_generation(
                 &self_ctx.cache_root,
                 task_id,
@@ -600,7 +604,7 @@ transitions:
         }
         refresh_current_links(
             &self_ctx.cache_root,
-            ["1", "1.1"]
+            ["plan.1", "plan.1.1"]
                 .into_iter()
                 .map(|task_id| SnapshotIdentity {
                     task_id: task_id.to_string(),
@@ -613,9 +617,9 @@ transitions:
         )
         .expect("current");
         let parent =
-            resolve_snapshot_ref(&self_ctx, "1:impl/g1", None, None).expect("parent snapshot");
-        let child =
-            resolve_snapshot_ref(&self_ctx, "1.1:impl/g1", None, None).expect("child snapshot");
+            resolve_snapshot_ref(&self_ctx, "plan.1:impl/g1", None, None).expect("parent snapshot");
+        let child = resolve_snapshot_ref(&self_ctx, "plan.1.1:impl/g1", None, None)
+            .expect("child snapshot");
         assert!(
             !snapshot_generation_protected_by_active_inherit(&parent, &self_ctx),
             "from: self must not protect ancestor snapshots"
@@ -664,7 +668,7 @@ transitions:
         .expect("write states");
         let ancestor_ctx =
             load_snapshot_context(ancestor_dir.path(), None).expect("snapshot context");
-        for task_id in ["1", "1.1"] {
+        for task_id in ["plan.1", "plan.1.1"] {
             write_snapshot_generation(
                 &ancestor_ctx.cache_root,
                 task_id,
@@ -678,7 +682,7 @@ transitions:
         }
         refresh_current_links(
             &ancestor_ctx.cache_root,
-            ["1", "1.1"]
+            ["plan.1", "plan.1.1"]
                 .into_iter()
                 .map(|task_id| SnapshotIdentity {
                     task_id: task_id.to_string(),
@@ -690,9 +694,9 @@ transitions:
                 .collect(),
         )
         .expect("current");
-        let ancestor_parent = resolve_snapshot_ref(&ancestor_ctx, "1:impl/g1", None, None)
+        let ancestor_parent = resolve_snapshot_ref(&ancestor_ctx, "plan.1:impl/g1", None, None)
             .expect("ancestor parent snapshot");
-        let ancestor_child = resolve_snapshot_ref(&ancestor_ctx, "1.1:impl/g1", None, None)
+        let ancestor_child = resolve_snapshot_ref(&ancestor_ctx, "plan.1.1:impl/g1", None, None)
             .expect("ancestor child snapshot");
         assert!(
             snapshot_generation_protected_by_active_inherit(&ancestor_parent, &ancestor_ctx),

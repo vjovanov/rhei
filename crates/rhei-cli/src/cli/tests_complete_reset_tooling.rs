@@ -121,14 +121,48 @@
         .expect("cli should parse");
 
         match cli.command {
-            Commands::Complete { input, task, result, no_callbacks } => {
-                assert_eq!(input, PathBuf::from("plan.rhei.md"));
-                assert_eq!(task, "3");
+            Commands::Complete { input, task, result, no_callbacks, .. } => {
+                assert_eq!(input, Some(PathBuf::from("plan.rhei.md")));
+                assert_eq!(task.as_deref(), Some("3"));
                 assert_eq!(result, "All tests pass");
                 assert!(!no_callbacks);
             }
             other => panic!("expected complete command, got {other:?}"),
         }
+    }
+
+    /// §FS-rhei-complete.2.1: the positional doubles as the ticket id when it
+    /// is id-shaped and names no existing path.
+    #[test]
+    fn complete_positional_splits_between_ticket_and_plan() {
+        // Id-shaped, no such path: the positional is the ticket.
+        let (input, task) =
+            split_complete_ticket_target(Some(PathBuf::from("auth.1")), None).expect("ticket form");
+        assert_eq!(input, None);
+        assert_eq!(task, "auth.1");
+
+        // --task present: the positional stays the plan path.
+        let (input, task) =
+            split_complete_ticket_target(Some(PathBuf::from("auth.1")), Some("3".to_string()))
+                .expect("legacy form");
+        assert_eq!(input, Some(PathBuf::from("auth.1")));
+        assert_eq!(task, "3");
+
+        // An existing path without --task asks for the ticket.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let plan = dir.path().join("plan.rhei.md");
+        std::fs::write(&plan, "# Rhei: X\n").expect("write");
+        let err = split_complete_ticket_target(Some(plan), None).expect_err("plan without ticket");
+        assert!(err.to_string().contains("name the ticket"), "got: {err}");
+
+        // Neither positional nor --task: the error shows the positional form.
+        let err = split_complete_ticket_target(None, None).expect_err("no ticket at all");
+        assert!(err.to_string().contains("rhei complete <ticket-id>"), "got: {err}");
+
+        // Not id-shaped and not an existing path: reported as a missing plan.
+        let err = split_complete_ticket_target(Some(PathBuf::from("missing/plan.rhei.md")), None)
+            .expect_err("missing plan path");
+        assert!(err.to_string().contains("does not exist"), "got: {err}");
     }
 
     #[test]
@@ -150,8 +184,8 @@
         let cli = Cli::try_parse_from(["rhei", "reset", "workspace"]).expect("cli should parse");
 
         match cli.command {
-            Commands::Reset { input } => {
-                assert_eq!(input, PathBuf::from("workspace"));
+            Commands::Reset { input, .. } => {
+                assert_eq!(input, Some(PathBuf::from("workspace")));
             }
             other => panic!("expected reset command, got {other:?}"),
         }
@@ -231,7 +265,7 @@ transitions:
         )
         .expect("write states");
 
-        let err = complete_command(&plan, Some(&states), "1", "done", true)
+        let err = complete_command(&plan, &[], Some(&states), "1", "done", true)
             .expect_err("gating completion must fail");
         assert!(err.to_string().contains("gating state"), "{err}");
     }
@@ -251,11 +285,13 @@ transitions:
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
         let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
 
+        // The dashboard passes ids from the loaded graph, which implicit Panta
+        // qualifies with the rhei id derived from the plan file stem (`plan`).
         let effective = transition_dashboard_gate(
             &plan,
             &machine,
             &callback_paths,
-            "1",
+            "plan.1",
             "human-review",
             "completed",
             true,
@@ -267,7 +303,7 @@ transitions:
         assert!(updated.contains("**State:** completed"));
         let history =
             fs::read_to_string(dir.path().join("runtime/state-transitions.log")).expect("history");
-        assert!(history.contains("1 human-review@completed"));
+        assert!(history.contains("plan.1 human-review@completed"));
     }
 
     #[test]
@@ -298,6 +334,47 @@ Some work description.
         );
         // State line should remain
         assert!(content.contains("**State:** completed"));
+    }
+
+    #[test]
+    fn rewrite_task_completion_refreshes_existing_legacy_result_link() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = dir.path().join("plan.md");
+        fs::write(
+            &path,
+            r#"# Rhei: Test
+
+## Tasks
+
+### Task 1: Alpha
+**State:** completed
+
+> **Result:** [1](runtime/results/1.md)
+
+Some work description.
+"#,
+        )
+        .expect("write");
+
+        // §FS-rhei-panta.6.3: completion owns this ticket's result link, so a
+        // stale legacy link is replaced by the file this completion wrote.
+        rewrite_task_completion(&path, "1", "plan.1", "runtime/results/plan.1.md", true)
+            .expect("rewrite");
+
+        let content = fs::read_to_string(&path).expect("read");
+        assert!(
+            content.contains("> **Result:** [plan.1](runtime/results/plan.1.md)"),
+            "legacy link should be refreshed: {content}"
+        );
+        assert!(
+            !content.contains("> **Result:** [1](runtime/results/1.md)"),
+            "stale legacy link should be gone: {content}"
+        );
+        assert_eq!(
+            content.matches("> **Result:**").count(),
+            1,
+            "exactly one result block should remain: {content}"
+        );
     }
 
     #[test]
@@ -515,6 +592,7 @@ transitions:
         let err = write_task_assignee(
             &path,
             "1",
+            "plan.1",
             "fix",
             &machine,
             TaskAssigneeClaimContext {

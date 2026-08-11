@@ -1,7 +1,7 @@
 # spec-implementation - example (multi-spec / diff mode)
 
 A pre-rendered instantiation of the
-[`spec-implementation`](../../.agents/rhei/templates/spec-implementation/)
+[`spec-implementation`](../../crates/rhei-cli/templates/spec-implementation/)
 template used as a smoke test that the template produces a valid workspace.
 
 This example exercises **multi-spec mode** (`spec_ref`) — the coordinator
@@ -49,7 +49,7 @@ rhei run examples/spec-implementation-example --dry-run
 
 ```bash
 rm -rf examples/spec-implementation-example
-rhei instantiate .agents/rhei/templates/spec-implementation \
+rhei instantiate crates/rhei-cli/templates/spec-implementation \
   --values examples/spec-implementation-example/instantiation-values.yaml \
   --output examples/spec-implementation-example
 ```

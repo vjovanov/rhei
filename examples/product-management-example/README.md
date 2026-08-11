@@ -1,7 +1,7 @@
 # product-management - example
 
 A pre-rendered instantiation of the
-[`product-management`](../../.agents/rhei/templates/product-management/)
+[`product-management`](../../crates/rhei-cli/templates/product-management/)
 template used as a smoke test that the template produces a valid workspace.
 
 This example uses the default two-pass loop with two PM targets: Claude Code
@@ -53,7 +53,7 @@ rhei run examples/product-management-example --dry-run
 
 ```bash
 rm -rf examples/product-management-example
-rhei instantiate .agents/rhei/templates/product-management \
+rhei instantiate crates/rhei-cli/templates/product-management \
   --values examples/product-management-example/instantiation-values.yaml \
   --output examples/product-management-example
 ```

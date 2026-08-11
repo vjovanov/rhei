@@ -16,6 +16,94 @@ fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
     }
 }
 
+/// §FS-rhei-templates.6.2: a standalone workspace inside a git repository gets
+/// a versioning note when untracked, and stays quiet once it is gitignored —
+/// instantiation never edits `.gitignore` itself.
+#[test]
+fn standalone_instantiation_notes_untracked_workspace_in_git_repo() {
+    let dir = unique_temp_dir("templates-standalone-git");
+    let git = Command::new("git").arg("init").arg("-q").current_dir(&dir).status();
+    if !git.map(|status| status.success()).unwrap_or(false) {
+        eprintln!("skipping: git unavailable");
+        return;
+    }
+    let template_dir = dir.join(".agents/rhei/templates/hello");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        "name: hello\nversion: 1.0.0\ndescription: Hello\ninputs:\n  - name: target\n    description: Greeting target\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        "# Rhei: Hello {{target}}\n\n## Tasks\n\n### Task 1: Greet {{target}}\n**State:** pending\n",
+    );
+
+    let result = run_raw(&["instantiate", "hello", "target=world", "--output", "out"], &dir);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("is not gitignored") && result.stdout.contains("`out/`"),
+        "untracked standalone workspace should get the versioning note; got:\n{}",
+        result.stdout
+    );
+
+    // Once ignored, the note disappears — the user has made the call.
+    fs::write(dir.join(".gitignore"), "out2/\n").expect("write gitignore");
+    let result = run_raw(&["instantiate", "hello", "target=world", "--output", "out2"], &dir);
+    assert_success(&result);
+    assert!(
+        !result.stdout.contains("is not gitignored"),
+        "ignored standalone workspace must not get the note; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.6.3: naming a template after reading the list answers
+/// with its detail — source, input schema, and an instantiation hint — instead
+/// of an argument error.
+#[test]
+fn templates_with_a_name_shows_the_template_detail() {
+    let dir = unique_temp_dir("templates-detail");
+
+    let result = run_raw(&["templates", "spec-review"], &dir);
+    assert_success(&result);
+    for expected in [
+        "Template: spec-review",
+        "spec (string, required)",
+        "Source: built-in",
+        "Instantiate with:",
+        "rhei instantiate spec-review --set spec=<value>",
+    ] {
+        assert!(
+            result.stdout.contains(expected),
+            "detail should contain '{expected}'; got:\n{}",
+            result.stdout
+        );
+    }
+
+    // JSON detail is one object in the list's entry shape.
+    let result = run_raw(&["templates", "spec-review", "--json"], &dir);
+    assert_success(&result);
+    let value: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("detail should be valid JSON");
+    assert_eq!(value["name"], "spec-review", "got:\n{}", result.stdout);
+    assert!(value["inputs"].is_array(), "got:\n{}", result.stdout);
+
+    // A miss still gets the resolver's error, with its suggestion machinery.
+    let result = run_raw(&["templates", "spec-reveiw"], &dir);
+    assert!(!result.status.success(), "unknown template should fail");
+    assert!(
+        result.stderr.contains("Did you mean 'spec-review'?"),
+        "unknown template should suggest the close name; got:\n{}",
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn templates_lists_project_local_templates() {
     let dir = unique_temp_dir("templates-list");
@@ -194,11 +282,12 @@ Say hello to {{target}}.
         "expected instantiate hint in output; got:\n{}",
         result.stdout
     );
+    // §FS-rhei-templates.6.1.3: the repro command renders the output path
+    // relative to the working directory it is pasted from.
     assert!(
         result.stdout.contains(&format!(
-            "rhei instantiate {} --set target=World --output {}",
+            "rhei instantiate {} --set target=World --output output",
             template_dir.display(),
-            output_dir.display()
         )),
         "expected reproducible instantiate command in output; got:\n{}",
         result.stdout
@@ -210,6 +299,68 @@ Say hello to {{target}}.
     assert!(rendered.contains("Say hello to World."));
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+// Report paths compare against `current_dir`, which resolves symlinks, so a
+// symlinked parent made every path fall back to its absolute spelling — macOS
+// resolves `/tmp` and `/var` into `/private`. §FS-rhei-templates.6.1.3
+#[cfg(unix)]
+#[test]
+fn instantiate_report_is_relative_under_a_symlinked_working_directory() {
+    let real = unique_temp_dir("templates-symlinked-real");
+    let link = unique_temp_dir("templates-symlinked-link").join("workdir");
+    std::os::unix::fs::symlink(&real, &link).expect("symlink the working directory");
+
+    let template_dir = link.join("hello-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        r#"name: hello-template
+version: 1.0.0
+description: Simple hello-world template
+inputs:
+  - name: target
+    description: Greeting target
+"#,
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        r#"# Rhei: Hello {{target}}
+
+## Tasks
+
+### Task 1: Greet {{target}}
+**State:** pending
+"#,
+    );
+
+    let output_dir = link.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--set",
+            "target=World",
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &link,
+    );
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("--output output"),
+        "the output path should render relative to the symlinked working directory; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        !result.stdout.contains(&format!("--output {}", output_dir.display())),
+        "the absolute spelling should not appear; got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(&real).expect("cleanup");
 }
 
 #[test]
@@ -279,7 +430,7 @@ Body for step 6.
         result.stdout
     );
     assert!(
-        result.stdout.contains("Task tree:\n  - Task 1: Step 1 [pending]"),
+        result.stdout.contains("Task tree:\n  - Task plan.1: Step 1 [pending]"),
         "expected task tree in instantiate output; got:\n{}",
         result.stdout
     );
@@ -292,16 +443,18 @@ Body for step 6.
             panic!("expected Recent task definitions section; got:\n{}", result.stdout)
         });
     assert!(
-        last_tasks.contains("--- Task 2: Step 2 [pending] ---")
-            && last_tasks.contains("### Task 2: Step 2\n**State:** pending\n\nBody for step 2.")
-            && last_tasks.contains("--- Task 6: Step 6 [pending] ---")
-            && last_tasks.contains("### Task 6: Step 6\n**State:** pending\n\nBody for step 6.")
-            && !last_tasks.contains("Task 1: Step 1 [pending]"),
+        last_tasks.contains("--- Task plan.2: Step 2 [pending] ---")
+            && last_tasks
+                .contains("### Task plan.2: Step 2\n**State:** pending\n\nBody for step 2.")
+            && last_tasks.contains("--- Task plan.6: Step 6 [pending] ---")
+            && last_tasks
+                .contains("### Task plan.6: Step 6\n**State:** pending\n\nBody for step 6.")
+            && !last_tasks.contains("Task plan.1: Step 1 [pending]"),
         "expected the last five rendered task definitions, excluding task 1; got:\n{}",
         last_tasks
     );
     assert!(
-        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task 1: Step 1 [pending]."),
+        result.stdout.contains("Stopped:\n  instantiation stopped before execution; next ready task is Task plan.1: Step 1 [pending]."),
         "expected stop reason in instantiate output; got:\n{}",
         result.stdout
     );
@@ -334,17 +487,17 @@ fn instantiate_project_hourly_human_intervention_template_prints_summary() {
             && result.stdout.contains(".agents/")
             && result.stdout.contains("Task tree:")
             && result.stdout.contains(
-                "Task fetch-issues: Fetch and classify human-intervention issues [fetch]"
+                "Task hourly.fetch-issues: Fetch and classify human-intervention issues [fetch]"
             )
             && result.stdout.contains("Recent task definitions:")
             && result.stdout.contains(
-                "### Task fetch-prs: Fetch and classify human-intervention pull requests"
+                "### Task hourly.fetch-prs: Fetch and classify human-intervention pull requests"
             )
             && result.stdout.contains(
-                "Task fetch-prs: Fetch and classify human-intervention pull requests [fetch]"
+                "Task hourly.fetch-prs: Fetch and classify human-intervention pull requests [fetch]"
             )
             && result.stdout.contains(
-                "Task follow-up-rhei-prs: Follow up on RHEI pull requests [rhei-pr-follow-up]"
+                "Task hourly.follow-up-rhei-prs: Follow up on RHEI pull requests [rhei-pr-follow-up]"
             )
             && result.stdout.contains("Stopped:"),
         "expected hourly template instantiation summary; got:\n{}",
@@ -667,12 +820,13 @@ inputs:
         &dir,
     );
     assert_success(&result);
+    // §FS-rhei-templates.6.1.3: the repro command renders the output path
+    // relative to the working directory it is pasted from.
     assert!(
         result.stdout.contains(&format!(
-            "rhei instantiate {} --values {} --output {}",
+            "rhei instantiate {} --values {} --output output",
             template_dir.display(),
             dir.join("values.yaml").display(),
-            output_dir.display()
         )),
         "expected values-file instantiate command in output; got:\n{}",
         result.stdout
@@ -834,6 +988,351 @@ inputs:
         "error should mention settings.json; got stdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.1: built-in templates ship inside the binary, so a
+/// directory with no `.agents/` and an empty HOME still has a usable library.
+#[test]
+fn templates_ships_a_builtin_library_with_the_binary() {
+    let dir = unique_temp_dir("templates-builtin");
+    let home = dir.join(".home");
+    fs::create_dir_all(&home).expect("create isolated home");
+
+    let run = |args: &[&str]| -> CliRun {
+        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+            .current_dir(&dir)
+            .env("HOME", &home)
+            .args(args)
+            .output()
+            .expect("rhei command should run");
+        CliRun {
+            status: output.status,
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    };
+
+    let listing = run(&["templates"]);
+    assert!(listing.status.success(), "templates should succeed: {}", listing.stderr);
+    assert!(
+        !listing.stdout.contains("No templates found"),
+        "a fresh install must have templates:\n{}",
+        listing.stdout
+    );
+    assert!(
+        listing.stdout.contains("changeset-review") && listing.stdout.contains("built-in"),
+        "built-ins are listed and labelled:\n{}",
+        listing.stdout
+    );
+
+    // A built-in instantiates like any other template, from a directory that
+    // holds no templates of its own.
+    let out = dir.join("out");
+    let instantiated = run(&[
+        "instantiate",
+        "parallel-worktrees",
+        "--set",
+        "task=Bump the linter",
+        "--output",
+        out.to_str().expect("utf-8 path"),
+    ]);
+    assert!(instantiated.status.success(), "instantiate should succeed: {}", instantiated.stderr);
+    assert!(out.join("index.rhei.md").is_file(), "the workspace was rendered");
+    assert!(out.join("states.yaml").is_file(), "the bundled state machine came along");
+    assert!(out.join("tasks").is_dir(), "nested template directories are extracted too");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.1: built-ins sit last in the search order, so a project
+/// template of the same name shadows one — that is how a built-in is customized.
+#[test]
+fn a_project_template_shadows_a_builtin_of_the_same_name() {
+    let dir = unique_temp_dir("templates-shadow");
+    let home = dir.join(".home");
+    fs::create_dir_all(&home).expect("create isolated home");
+    let template_dir = dir.join(".agents/rhei/templates/spec-review");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        "name: spec-review\nversion: 9.9.9\ndescription: Locally overridden spec review\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        "# Rhei: Local\n\n## Tasks\n\n### Task 1: Go\n**State:** pending\n",
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .current_dir(&dir)
+        .env("HOME", &home)
+        .arg("templates")
+        .output()
+        .expect("rhei templates should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Locally overridden spec review"),
+        "the project template wins:\n{stdout}"
+    );
+    assert_eq!(
+        stdout.matches("spec-review").count(),
+        1,
+        "the shadowed built-in is not listed twice:\n{stdout}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A minimal template whose plan declares its own state machine, so placement
+/// inside a project has something to reconcile. §FS-rhei-templates.6.2
+fn write_machine_template(dir: &std::path::Path, name: &str) {
+    let template_dir = dir.join(".agents/rhei/templates").join(name);
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        &format!(
+            r#"name: {name}
+version: 1.0.0
+description: Template declaring the {name} machine
+inputs:
+  - name: subject
+    description: What the task covers
+"#
+        ),
+    );
+    write_fixture_file(
+        &template_dir,
+        "states.yaml",
+        &format!(
+            r#"name: {name}
+version: 1
+states:
+  review:
+    description: Look at it
+    initial: true
+  done:
+    description: Finished
+    final: true
+transitions:
+  - from: review
+    to: done
+"#
+        ),
+    );
+    // A Directory Workspace, because that is what project discovery counts as
+    // a rhei — a single-file template renders a plain directory. §AR-rhei-panta.1
+    write_fixture_file(
+        &template_dir,
+        "index.rhei.md",
+        &format!(
+            r#"# Rhei: {name}
+**States:** {name}
+"#
+        ),
+    );
+    fs::create_dir_all(template_dir.join("tasks")).expect("create tasks dir");
+    write_fixture_file(
+        &template_dir,
+        "tasks/01-review.md",
+        r#"### Task 1: Review {{subject}}
+**State:** review
+"#,
+    );
+}
+
+/// §FS-rhei-templates.6.2: inside a project the default output is the project,
+/// and the member rhei keeps the machine it declares — the manifest stays bare.
+#[test]
+fn instantiate_defaults_into_the_enclosing_project_keeping_its_machine() {
+    let dir = unique_temp_dir("instantiate-project-default");
+    write_machine_template(&dir, "audit");
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+
+    let result = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
+    assert!(
+        result.status.success(),
+        "instantiate should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Added to the Panta project"),
+        "placement must be reported:\n{}",
+        result.stdout
+    );
+    assert!(
+        !result.stdout.contains("Adopted state machine"),
+        "nothing is adopted — the rhei keeps its own machine:\n{}",
+        result.stdout
+    );
+    assert!(dir.join("audit").is_dir(), "output belongs next to index.panta.md");
+
+    let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("read manifest");
+    assert!(!manifest.contains("**States:**"), "manifest stays bare:\n{manifest}");
+
+    // The whole point: the project can be listed and validated afterwards.
+    let listed = run_raw(&["list"], &dir);
+    assert!(listed.status.success(), "list should succeed: {}", listed.stderr);
+    assert!(listed.stdout.contains("audit.1"), "ticket should be listed:\n{}", listed.stdout);
+    assert!(run_raw(&["validate"], &dir).status.success(), "project should validate");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// Like `write_machine_template`, but the review state carries a mock agent
+/// target, so a project composed from these templates can actually `run`.
+fn write_runnable_machine_template(dir: &std::path::Path, name: &str) {
+    write_machine_template(dir, name);
+    let template_dir = dir.join(".agents/rhei/templates").join(name);
+    write_fixture_file(
+        &template_dir,
+        "states.yaml",
+        &format!(
+            r#"name: {name}
+version: 1
+models: [default-model]
+states:
+  review:
+    description: Look at it
+    initial: true
+    target: mock[yolo]:mock:default-model
+    agent_timeout: 5s
+  done:
+    description: Finished
+    final: true
+transitions:
+  - from: review
+    to: done
+"#
+        ),
+    );
+}
+
+/// Project-root settings wiring the `mock` agent the runnable templates
+/// target: a no-op script, so `run` exercises machine dispatch, not agents.
+fn write_mock_agent_settings(dir: &std::path::Path) {
+    let script = write_fixture_file(dir, "mock-agent.sh", "#!/bin/sh\nexit 0\n");
+    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "agents": {{
+    "mock": {{
+      "command": ["sh", {script_json}],
+      "timeout": "5s",
+      "modes": {{ "yolo": [] }}
+    }}
+  }},
+  "models": {{
+    "default-model": {{ "provider": "mock", "model": "default-model", "default_agent": "mock" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+}
+
+/// §FS-rhei-templates.6.2: templates declaring different machines compose in
+/// one project — each member rhei is validated, listed, and run under the
+/// machine it declares. The journey the removed single-machine rule refused.
+
+// §DA-per-rhei-state-machines
+#[test]
+fn instantiate_composes_templates_with_different_machines_into_one_project() {
+    let dir = unique_temp_dir("instantiate-project-compose");
+    write_runnable_machine_template(&dir, "audit");
+    write_runnable_machine_template(&dir, "triage");
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+    write_mock_agent_settings(&dir);
+
+    let first = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
+    assert!(
+        first.status.success(),
+        "the first template should land\nstdout:\n{}\nstderr:\n{}",
+        first.stdout,
+        first.stderr
+    );
+    let second = run_raw(&["instantiate", "triage", "subject=inbox"], &dir);
+    assert!(
+        second.status.success(),
+        "a template with a different machine joins the same project\nstdout:\n{}\nstderr:\n{}",
+        second.stdout,
+        second.stderr
+    );
+
+    let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("read manifest");
+    assert!(!manifest.contains("**States:**"), "no machine is hoisted:\n{manifest}");
+
+    let listed = run_raw(&["list"], &dir);
+    assert!(listed.status.success(), "list should succeed: {}", listed.stderr);
+    assert!(
+        listed.stdout.contains("audit.1") && listed.stdout.contains("triage.1"),
+        "both rheis' tickets should be listed:\n{}",
+        listed.stdout
+    );
+    assert!(run_raw(&["validate"], &dir).status.success(), "project should validate");
+
+    // One run drives both rheis, each ticket under its own machine.
+    let run = run_raw(&["run", "--no-tui", "--no-callbacks"], &dir);
+    assert!(
+        run.status.success(),
+        "run should drive both machines\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+    for rhei in ["audit", "triage"] {
+        let task = fs::read_to_string(dir.join(rhei).join("tasks/01-review.md"))
+            .expect("read ticket after run");
+        assert!(task.contains("**State:** done"), "{rhei}.1 should finish as done:\n{task}");
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-templates.4: a member rhei's settings resolve at the project root,
+/// so a template's bundled registry is hoisted there instead of being ignored.
+#[test]
+fn instantiate_hoists_template_settings_to_the_project_root() {
+    let dir = unique_temp_dir("instantiate-project-settings");
+    write_machine_template(&dir, "audit");
+    write_fixture_file(
+        &dir.join(".agents/rhei/templates/audit"),
+        "settings.json",
+        r#"{
+  "defaults": { "agent_timeout": "42m" },
+  "agents": {
+    "codex": {
+      "command": ["codex", "exec"],
+      "modes": { "xhigh": ["--effort", "xhigh"] }
+    }
+  }
+}
+"#,
+    );
+    assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
+
+    let result = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
+    assert!(result.status.success(), "instantiate should succeed:\n{}", result.stderr);
+    assert!(
+        result.stdout.contains("Merged the template's agent settings"),
+        "the hoist must be reported:\n{}",
+        result.stdout
+    );
+
+    let hoisted = dir.join(".agents/rhei/settings.json");
+    let settings = fs::read_to_string(&hoisted).expect("project settings should exist");
+    assert!(settings.contains("codex"), "the agent registry should land here:\n{settings}");
+    assert!(
+        !dir.join("audit/.agents/rhei/settings.json").exists(),
+        "no dead copy may stay in the workspace, where nothing reads it"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

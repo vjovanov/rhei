@@ -5,10 +5,42 @@ Reset every task in a plan to its resolved profile's `initial` state and remove 
 ## 1. Usage
 
 ```bash
-rhei reset <RHEI_PLAN_OR_WORKSPACE>
+rhei reset <RHEI_PLAN_OR_WORKSPACE> [--rhei <RHEI_ID>] [--dry-run] [--yes]
 ```
 
-`<RHEI_PLAN_OR_WORKSPACE>` may be either a `.rhei.md` file (single-file plan) or a directory workspace root (containing `index.rhei.md` and `tasks/`).
+`<RHEI_PLAN_OR_WORKSPACE>` may be a `.rhei.md` file (single-file plan), a directory workspace root (containing `index.rhei.md` and `tasks/`), or a Panta project directory.
+
+### 1.1. Options
+
+| Flag               | Default | Description                                                                    |
+|--------------------|---------|--------------------------------------------------------------------------------|
+| `--rhei <RHEI_ID>` | all     | Narrow the reset to the named rheis (repeatable). See §2.1. §FS-rhei-panta.6.4 |
+| `--dry-run`        | false   | Report what would be reset and deleted, then exit without changing anything    |
+| `--yes`, `-y`      | false   | Confirm without prompting; required when stdin is not a terminal. See §1.2     |
+
+An id that names no rhei in the project is an error listing the available rhei
+ids.
+
+### 1.2. Confirmation
+
+Reset deletes result artifacts and ledgers that have no other copy: `rhei init`
+gitignores `panta/` by default (§FS-rhei-init), so the destroyed material is
+typically absent from version control.
+
+Before acting, reset prints what it would reset and the runtime directories it
+would delete. That preview precedes every destructive reset, including `--yes`
+and non-interactive invocations: they destroy the same artifacts, so printing
+only on the path that stops to ask would make exactly the unattended runs the
+silent ones.
+
+Unless `--yes` was passed, reset then asks for confirmation and treats any
+answer other than `y`/`yes` as a cancellation, changing nothing. When stdin is
+not a terminal there is no one to ask, so reset **fails** rather than assuming
+consent, naming `--yes` to confirm and `--dry-run` to preview. Unattended
+callers — scripts, CI, and agents driving the CLI — cannot see a prompt, so
+inferring agreement from their silence turned every accidental invocation into
+irreversible loss of material that is typically absent from version control.
+Deliberate automation states the intent once with `--yes`.
 
 ## 2. Behavior
 
@@ -28,6 +60,50 @@ Reset does **not**:
 - Modify the `# Rhei:` title, content sections, `**Prior:**` lines, or task descriptions.
 - Remove user-authored files outside of `runtime/`.
 - Alter the state machine or template source of the plan.
+
+Reset is project-wide by default. Because it destroys runtime state across
+every in-scope rhei, it reports its resolved scope and the affected rheis
+before acting; a one-rhei project has no fan-out to report and stays quiet
+(§FS-rhei-panta.6.4).
+
+### 2.1. Narrowed Reset (`--rhei`)
+
+A narrowed reset must never delete whole `runtime/` trees: sibling single-file
+rheis share one execution root, so removing the tree would destroy an
+out-of-scope rhei's state. Instead it removes exactly what is **keyed by an
+in-scope ticket id**, under that ticket's owning rhei execution root — and,
+when they differ, under the project execution root as well, because
+run-orchestrated logs and captures land there even for tickets owned by a
+subdirectory rhei:
+
+- `runtime/results/<ticket-id>.md`
+- `runtime/logs/task-<ticket-id>-*`
+- every artifact the resolved state machine declares as an `inputs:`/`outputs:`
+  path containing `{task_id}` — a stale output left behind would otherwise
+  satisfy a required input on the next run
+- `runtime/snapshot-sessions/<ticket-id>-*`
+- `runtime/worktree-refs/<ticket-id>.yaml`
+- `runtime/accounting/captures/<ticket-id>-*` and
+  `runtime/accounting/tasks/<ticket-id>.json`
+- the ticket's lines in `runtime/state-transitions.log`, so a reset ticket's
+  recorded history cannot claim a completion its plan no longer holds
+
+Artifact paths that still carry unresolved placeholders after `{task_id}` is
+substituted (`{state}`, `{visit_count}`, `{model}`, …) are matched by the
+literal prefix up to the first remaining placeholder, so `auth.1` never matches
+`auth.10`.
+
+Run-scoped output is **not** ticket-owned — the run report, the dashboard, and
+the accounting rollups describe a run, not a ticket — so a narrowed reset keeps
+it and says so on stdout. Reset without `--rhei` to clear it.
+
+The reported initial states are the states this invocation will actually
+write, resolved over in-scope tickets only. With machines per rhei
+(§AR-rhei-panta.4) a project holds several initial states, and summarizing all
+of them under a narrowed scope named states no in-scope ticket can reach:
+`--rhei billing` announced `(pending, review)` while `review` belonged to
+rheis the command was about to leave alone. A dry run is read as a promise
+about what changes, so it must not describe work outside its own scope.
 
 ## 3. Safety
 
@@ -54,6 +130,22 @@ Reset <N> task(s) (and <M> descendant task(s)) to initial state '<initial>'.
 The second line is `No runtime output was present.` when the `runtime/`
 directory did not exist.
 
+A project-scoped invocation prints its resolved scope first:
+
+```text
+Scope: `rhei reset` operates project-wide across <N> rheis: <ids>
+```
+
+and a narrowed one reports what it deliberately kept after the two summary
+lines:
+
+```text
+Scope: `rhei reset` narrowed to <N> rheis: <ids>
+Reset <N> task(s) to initial state '<initial>'.
+Removed runtime output.
+Kept run-scoped output not owned by any ticket (run report, dashboard, accounting rollups). Reset without `--rhei` to clear it.
+```
+
 ## Relationship to Other Commands
 
 `rhei reset` inverts the forward commands (`next`, `transition`, `complete`, `run`): it returns every task to its profile's `initial` state and removes the `runtime/` directory.
@@ -65,3 +157,4 @@ See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface
 - [Plan Language Specification](rhei-plan-language.spec.md) — plan formats and semantic constraints
 - [States Specification](rhei-states.spec.md) — profile resolution and `initial` state rules
 - [Next Command](rhei-next.spec.md), [Complete Command](rhei-complete.spec.md), [Transition Command](rhei-transition-cmd.spec.md) — forward commands that reset inverts
+- [Release Command](rhei-release.spec.md) — drops one claim without destroying runtime output

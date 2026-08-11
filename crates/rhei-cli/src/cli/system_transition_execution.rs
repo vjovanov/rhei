@@ -91,19 +91,20 @@ fn execute_transition_with_origin(
     };
 
     // Parse to validate structure and find the task.
-    // Try full plan parse first; fall back to workspace task-file parse.
+    // Try full plan parse first; fall back to manifest + task-file parse.
     let target_id = parse_task_id(task_id_str);
-    let workspace_index = if task_file == metadata_file {
+    // The metadata key is the ticket's local id everywhere except the basin,
+    // whose metadata shares the project manifest under qualified ids.
+    let metadata_key = parse_task_id(files.metadata_id);
+    let manifest = if task_file == metadata_file {
         None
     } else {
-        Some(rhei_core::parser::parse_workspace_index(&metadata_raw).map_err(|err| {
-            miette!("failed to parse workspace index for transition metadata: {}", err.message)
-        })?)
+        Some(parse_metadata_manifest(metadata_file, &metadata_raw)?)
     };
     let task_info = find_task_transition_info(
         &task_raw,
         task_file,
-        workspace_index.as_ref().map(|index| &index.structure),
+        manifest.as_ref().map(|index| &index.structure),
         &target_id,
         task_id_str,
     )?;
@@ -116,7 +117,7 @@ fn execute_transition_with_origin(
             })?
             .metadata
     } else {
-        workspace_index.and_then(|index| index.metadata)
+        manifest.and_then(|index| index.metadata)
     };
 
     // Compare-and-swap: verify the task's current state matches `from`.
@@ -130,14 +131,14 @@ fn execute_transition_with_origin(
         let _ = fs2::FileExt::unlock(&metadata_handle);
         return Err(miette!(
             "conflict: Task {} is in state '{}', expected '{}'",
-            task_id_str,
+            files.artifact_id,
             current_state_raw,
             from
         ));
     }
     if let Err(err) = ensure_task_profile_allows_state(
         machine,
-        task_id_str,
+        files.artifact_id,
         &task_info.task.kind,
         task_info.level,
         to,
@@ -169,7 +170,7 @@ fn execute_transition_with_origin(
 
     let normalized_metadata = ensure_current_state_visit_count(
         metadata.as_ref(),
-        &target_id,
+        &metadata_key,
         from,
         &current_state_raw,
         machine,
@@ -180,7 +181,7 @@ fn execute_transition_with_origin(
         matching_rule,
         machine,
         metadata_for_checks,
-        &target_id,
+        &metadata_key,
         from,
         &current_state_raw,
     )? {
@@ -192,14 +193,14 @@ fn execute_transition_with_origin(
             matching_rule,
             machine,
             metadata_for_checks,
-            &target_id,
+            &metadata_key,
             from,
             &current_state_raw,
         );
         let alternatives = applicable_alternatives(
             machine,
             metadata_for_checks,
-            &target_id,
+            &metadata_key,
             from,
             &current_state_raw,
         );
@@ -263,6 +264,7 @@ fn execute_transition_with_origin(
                     plan_for_context.as_ref(),
                     &callback_paths.plan_path,
                     task_id_str,
+                    files.artifact_id,
                     from,
                     to,
                     origin.triggered_by.unwrap_or("user"),
@@ -270,7 +272,10 @@ fn execute_transition_with_origin(
                     &callback_paths.working_dir,
                 );
                 let ctx = CallbackContext {
-                    task_id: task_id_str,
+                    // §FS-rhei-panta.6: callbacks see the qualified id; the
+                    // rhei-local heading id rides along for file edits.
+                    task_id: files.artifact_id,
+                    task_id_local: task_id_str,
                     from_state: from,
                     to_state: to,
                     plan_path: &callback_paths.plan_path,
@@ -320,7 +325,7 @@ fn execute_transition_with_origin(
             return Err(miette!("on_leave callback redirected to unknown state '{}'", redirect));
         } else if let Err(err) = ensure_task_profile_allows_state(
             machine,
-            task_id_str,
+            files.artifact_id,
             &task_info.task.kind,
             task_info.level,
             redirect,
@@ -360,32 +365,35 @@ fn execute_transition_with_origin(
         .ok_or_else(|| miette!("state '{}' missing from loaded machine", to))?;
 
     let mut updated_metadata =
-        update_metadata_for_transition(metadata_for_checks, &target_id, to, machine)
+        update_metadata_for_transition(metadata_for_checks, &metadata_key, to, machine)
             .or_else(|| normalized_metadata.clone());
     if from_state_def.poll.is_some() && to != from {
         updated_metadata = clear_poll_state_metadata(
             updated_metadata.as_ref().or(metadata_for_checks),
-            &target_id,
+            &metadata_key,
             from,
         );
     }
     let from_visit_count = Some(render_visit_count(
         metadata_for_checks,
-        &target_id,
+        &metadata_key,
         from,
         &current_state_raw,
         machine,
     ));
     let to_visit_count = updated_metadata
         .as_ref()
-        .map(|meta| task_visit_count(Some(meta), &target_id, to))
+        .map(|meta| task_visit_count(Some(meta), &metadata_key, to))
         .filter(|count| *count > 0);
 
+    // §AR-rhei-panta.2: artifact templates render the project-qualified id
+    // against the owning rhei's execution root, matching the paths agents and
+    // ready-checks were shown.
     if !origin.skip_source_outputs {
         ensure_state_outputs_exist_for_transition(
-            &workspace_root,
+            files.artifact_root,
             Some(&task_info.task),
-            task_id_str,
+            files.artifact_id,
             from,
             from_state_def,
             from_visit_count,
@@ -394,15 +402,15 @@ fn execute_transition_with_origin(
         )?;
     }
     ensure_state_inputs_exist_for_transition(
-        &workspace_root,
+        files.artifact_root,
         Some(&task_info.task),
-        task_id_str,
+        files.artifact_id,
         to,
         to_state_def,
         to_visit_count,
         machine,
         &settings,
-        &format!("Task {} cannot enter state {}.", task_id_str, to),
+        &format!("Task {} cannot enter state {}.", files.artifact_id, to),
     )?;
 
     let rendered_to_state = format_task_state_value(to, to_visit_count, machine);
@@ -441,6 +449,7 @@ fn execute_transition_with_origin(
         plan_for_context.as_ref(),
         &callback_paths.plan_path,
         task_id_str,
+        files.artifact_id,
         from,
         to,
         triggered_by,
@@ -448,7 +457,8 @@ fn execute_transition_with_origin(
         &callback_paths.working_dir,
     );
     let callback_ctx = CallbackContext {
-        task_id: task_id_str,
+        task_id: files.artifact_id,
+        task_id_local: task_id_str,
         from_state: from,
         to_state: to,
         plan_path: &callback_paths.plan_path,

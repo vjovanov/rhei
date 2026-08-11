@@ -43,7 +43,7 @@ fn state_inputs_exist_for_ready_set(
 /// Returns task references in source order.
 fn find_ready_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
     leaf_only: bool,
@@ -53,10 +53,11 @@ fn find_ready_tasks<'a>(
     let mut all_tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all_tasks);
 
-    // Build a map of every task node's state for dependency lookups. §FS-rhei-run.3
+    // Build a map of every task node's state for dependency lookups, each
+    // normalized under its owning rhei's machine. §FS-rhei-run.3
     let state_map: HashMap<&TaskId, String> = all_tasks
         .iter()
-        .map(|t| (&t.id, normalized_state_name(t.state.as_str(), machine)))
+        .map(|t| (&t.id, normalized_state_name(t.state.as_str(), machines.for_task(&t.id))))
         .collect();
 
     let mut ready = Vec::new();
@@ -65,6 +66,7 @@ fn find_ready_tasks<'a>(
         if leaf_only && !task.children.is_empty() {
             continue;
         }
+        let machine = machines.for_task(&task.id);
         let current_state = task.state.as_str();
 
         // Skip tasks already in a terminal or gating state.
@@ -82,9 +84,13 @@ fn find_ready_tasks<'a>(
             continue;
         }
 
-        // Check that all prior dependencies are satisfied.
+        // Check that all prior dependencies are satisfied — each judged under
+        // the machine of the rhei that owns the prior. §FS-rhei-panta.6.1
         let all_priors_done = task.prior.iter().all(|dep_id| {
-            state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
+            state_map
+                .get(dep_id)
+                .map(|s| dependency_is_satisfied(s, machines.for_task(dep_id)))
+                .unwrap_or(false)
         });
 
         let task_id = task.id.to_string();
@@ -114,13 +120,37 @@ fn find_ready_tasks<'a>(
 /// the orchestrator.
 fn find_runnable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, &std::collections::HashMap::new(), false)
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), false)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
+}
+
+/// Ready tickets `rhei run` will not touch because someone already holds them.
+/// The loop counts only what it can schedule, so a held ticket vanished from
+/// the pass report and read as "not ready". §FS-rhei-run.3
+fn find_held_tasks<'a>(
+    rhei: &'a rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    workspace_root: &Path,
+) -> Vec<&'a rhei_core::ast::Task> {
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), false)
+        .into_iter()
+        .filter(|task| task.assignee.is_some())
+        .collect()
+}
+
+/// One line naming every held ticket and who holds it.
+fn format_held_tasks(held: &[&rhei_core::ast::Task]) -> String {
+    held.iter()
+        .map(|task| {
+            format!("Task {} (assignee {})", task.id, task.assignee.as_deref().unwrap_or("?"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Find tasks that are ready to be claimed by `rhei next` in automatic mode.
@@ -130,14 +160,15 @@ fn find_runnable_tasks<'a>(
 /// indicates it is already claimed by another agent).
 fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machine, workspace_root, task_roots, true)
+    find_ready_tasks(rhei, machines, workspace_root, task_roots, true)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
+            let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
             task_is_in_initial_state(task, &state, machine)
         })
@@ -167,26 +198,218 @@ fn collect_plan_tasks<'a>(
 
 fn plan_state_map<'a>(
     tasks: &[&'a rhei_core::ast::Task],
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
 ) -> std::collections::HashMap<&'a TaskId, String> {
     tasks
         .iter()
-        .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machine)))
+        .map(|task| {
+            (&task.id, normalized_state_name(task.state.as_str(), machines.for_task(&task.id)))
+        })
+        .collect()
+}
+
+/// Every unsatisfied `**Prior:**` of `task` as `Task <id> (<state>)`. Judged
+/// exactly as readiness judges it, so mutation commands and the scheduler
+/// agree on what "blocked" means. §FS-rhei-panta.6.1
+fn blocking_priors(
+    task: &rhei_core::ast::Task,
+    state_map: &std::collections::HashMap<&TaskId, String>,
+    machines: &rhei_validator::MachineSet,
+) -> Vec<String> {
+    task.prior
+        .iter()
+        .filter_map(|dep_id| match state_map.get(dep_id) {
+            Some(state) if !dependency_is_satisfied(state, machines.for_task(dep_id)) => {
+                Some(format!("Task {} ({})", dep_id, state))
+            }
+            None => Some(format!("Task {} (missing)", dep_id)),
+            _ => None,
+        })
         .collect()
 }
 
 fn first_blocking_prior(
     task: &rhei_core::ast::Task,
     state_map: &std::collections::HashMap<&TaskId, String>,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
 ) -> Option<String> {
     task.prior.iter().find_map(|dep_id| match state_map.get(dep_id) {
-        Some(state) if !dependency_is_satisfied(state, machine) => {
-            Some(format!("Task {} ({})", dep_id, state))
+        Some(state) if !dependency_is_satisfied(state, machines.for_task(dep_id)) => {
+            // §FS-rhei-panta.6.1: `--rhei` narrows candidates, never prior
+            // resolution, so name the prior that sits outside the scope
+            // rather than leaving the operator to guess why nothing ran.
+            let outside = if task_in_rhei_scope(scope, &dep_id.to_string()) {
+                ""
+            } else {
+                ", outside the --rhei scope"
+            };
+            Some(format!("Task {} ({}{})", dep_id, state, outside))
         }
         None => Some(format!("Task {} (missing)", dep_id)),
         _ => None,
     })
+}
+
+/// Why one non-terminal ticket is not moving.
+///
+/// `rhei next` already tells a worker exactly which of these applies. Every
+/// `rhei run` surface — the halt message, the dry
+/// run, and the durable report's Attention table — collapsed all of them into
+/// "stalled in non-terminal state <s>" with "inspect logs or mark the task
+/// cancelled" as the advice: wrong for a claimed ticket, wrong for one waiting
+/// on a prior, and pointing at logs a run that spawned nothing never wrote.
+// §FS-rhei-run-report.3.1 §FS-rhei-run.4: one classification, every surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HaltCause {
+    /// A gating state deliberately waiting for a human decision.
+    Gate,
+    /// A live `**Assignee:**`; the scheduler never schedules a claimed ticket.
+    Claimed { assignee: String },
+    /// An unsatisfied `**Prior:**`, already formatted as `Task <id> (<state>)`.
+    BlockedByPrior { prior: String },
+    /// Manual-only initial state: `rhei run` must not advance it.
+    ManualOnly { to: String },
+    /// Non-terminal with no declared outgoing transition to take.
+    NoTransition,
+    /// None of the above — work was possible and the ticket is still here.
+    Stalled,
+}
+
+impl HaltCause {
+    /// The reason and the next action, for the report table and the halt
+    /// diagnostics. Both name concrete commands wherever one exists.
+    fn describe(&self, id: &str, state: &str) -> (String, String) {
+        match self {
+            HaltCause::Gate => (
+                "gating state awaiting review".to_string(),
+                "transition manually when reviewed".to_string(),
+            ),
+            HaltCause::Claimed { assignee } => (
+                format!("claimed by {assignee}"),
+                format!(
+                    "`rhei release {id}` to hand it back, or `rhei complete {id} --result …` \
+                     to finish it"
+                ),
+            ),
+            HaltCause::BlockedByPrior { prior } => (
+                format!("waiting on {prior}"),
+                "finish the prior first".to_string(),
+            ),
+            HaltCause::ManualOnly { to } => (
+                format!("manual-only initial state '{state}' with terminal transition to '{to}'"),
+                format!("`rhei next` to claim, do the work, then `rhei complete {id} --result …`"),
+            ),
+            HaltCause::NoTransition => (
+                format!("no forward transition available from '{state}'"),
+                "declare a transition out of this state, or cancel the ticket".to_string(),
+            ),
+            HaltCause::Stalled => (
+                if state.is_empty() {
+                    "no forward transition available".to_string()
+                } else {
+                    format!("stalled in non-terminal state {state}")
+                },
+                "inspect logs or mark the task cancelled".to_string(),
+            ),
+        }
+    }
+
+    /// Whether this cause is a deliberate pause rather than something wrong.
+    /// A gate is the plan working as authored; the rest need a human to act.
+    fn is_deliberate_pause(&self) -> bool {
+        matches!(self, HaltCause::Gate)
+    }
+}
+
+/// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
+/// the run actually spawned work for, whose failure is the ordinary stalled
+/// case rather than a scheduling one.
+fn classify_halt(
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    state_map: &std::collections::HashMap<&TaskId, String>,
+    scope: &RheiScope,
+    worked: bool,
+) -> HaltCause {
+    let machine = machines.for_task(&task.id);
+    let state = normalized_state_name(task.state.as_str(), machine);
+    if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
+        return HaltCause::Gate;
+    }
+    // A claim outranks a prior: releasing it is the one action that unblocks
+    // the scheduler, and a claimed ticket is skipped before priors are read.
+    if let Some(assignee) = task.assignee.as_deref() {
+        return HaltCause::Claimed { assignee: assignee.to_string() };
+    }
+    if let Some(prior) = first_blocking_prior(task, state_map, machines, scope) {
+        return HaltCause::BlockedByPrior { prior };
+    }
+    if let Ok(Some(to)) = manual_initial_terminal_transition(task, rhei, machine) {
+        return HaltCause::ManualOnly { to };
+    }
+    if worked {
+        return HaltCause::Stalled;
+    }
+    match find_next_transition(task, rhei, machine) {
+        Ok(None) => HaltCause::NoTransition,
+        _ => HaltCause::Stalled,
+    }
+}
+
+/// Every in-scope, non-terminal leaf ticket with why it is not moving, in plan
+/// order — the shared basis for the run's halt diagnostics and the report.
+///
+/// `worked` reports whether the run actually spawned an invocation for a
+/// ticket; those failed at their work rather than at scheduling, so they keep
+/// the generic stalled reading.
+// §FS-rhei-run-report.3.1
+fn classify_halted_tasks<'a>(
+    rhei: &'a rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+    worked: &dyn Fn(&str) -> bool,
+) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
+    let mut all = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all);
+    let state_map = plan_state_map(&all, machines);
+    all.iter()
+        .copied()
+        .filter(|task| task.children.is_empty())
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
+        .map(|task| {
+            let cause =
+                classify_halt(task, rhei, machines, &state_map, scope, worked(&task.id.to_string()));
+            (task, cause)
+        })
+        .collect()
+}
+
+/// One `Task <id> (<state>): <reason> — <next action>` line per halted ticket,
+/// plus whether any of them needs a human to act — which is what makes a run,
+/// real or dry, end non-zero. The caller emits the lines through its own run
+/// journal.
+// §FS-rhei-run.4
+fn halted_task_report(
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+) -> (Vec<String>, bool) {
+    let mut lines = Vec::new();
+    let mut needs_human = false;
+    for (task, cause) in classify_halted_tasks(rhei, machines, scope, &|_| false) {
+        let machine = machines.for_task(&task.id);
+        let state = normalized_state_name(task.state.as_str(), machine);
+        let id = task.id.to_string();
+        let (reason, next) = cause.describe(&id, &state);
+        lines.push(format!("Task {id} ({state}): {reason} \u{2014} {next}"));
+        if !cause.is_deliberate_pause() {
+            needs_human = true;
+        }
+    }
+    (lines, needs_human)
 }
 
 fn shell_quote(value: &str) -> String {
@@ -262,30 +485,62 @@ fn transition_command_lines(
 }
 
 /// Build an actionable error message for `rhei next` when no task can be
-/// auto-claimed.
+/// auto-claimed. Priors resolve project-wide even under `--rhei`, so only the
+/// reported categories narrow — never the state map. §FS-rhei-panta.6.1
 fn diagnose_no_claimable(
     rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
+    machines: &rhei_validator::MachineSet,
     plan_path: &Path,
     state_machine_path: Option<&Path>,
+    scope: &RheiScope,
 ) -> String {
-    let mut all = Vec::new();
-    collect_plan_tasks(&rhei.tasks, &mut all);
+    let mut project = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut project);
+
+    let state_map = plan_state_map(&project, machines);
+
+    let all: Vec<&rhei_core::ast::Task> = project
+        .iter()
+        .copied()
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .collect();
+
+    let scope_suffix = match scope {
+        Some(_) => format!(" in the --rhei scope ({})", scope_label(scope)),
+        None => String::new(),
+    };
 
     if all.is_empty() {
-        return "no tasks are ready to claim (plan has no tasks)".to_string();
+        return match scope {
+            Some(_) => {
+                format!("no tickets are ready to claim{scope_suffix} (no tickets in scope)")
+            }
+            // Match the vocabulary and the next step `rhei list` gives for the
+            // same state; a bare "plan has no tasks" leaves a new user stuck.
+            None if rhei_core::workspace::is_panta_project(plan_path) => {
+                format!(
+                    "no tickets are ready to claim — the project has none yet: {}",
+                    add_a_rhei_hint()
+                )
+            }
+            None => "no tickets are ready to claim — this rhei has none yet".to_string(),
+        };
     }
 
-    let state_map = plan_state_map(&all, machine);
-
-    let non_terminal: Vec<&rhei_core::ast::Task> =
-        all.iter().copied().filter(|t| !is_terminal_state(t.state.as_str(), machine)).collect();
+    let non_terminal: Vec<&rhei_core::ast::Task> = all
+        .iter()
+        .copied()
+        .filter(|t| !is_terminal_state(t.state.as_str(), machines.for_task(&t.id)))
+        .collect();
 
     if non_terminal.is_empty() {
-        return format!(
-            "Plan complete. All {} task(s) are in terminal states.",
-            all.len()
-        );
+        return match scope {
+            Some(_) => format!(
+                "Scope complete. All {} task(s){scope_suffix} are in terminal states.",
+                all.len()
+            ),
+            None => format!("Plan complete. All {} task(s) are in terminal states.", all.len()),
+        };
     }
 
     let leaf_tasks: Vec<&rhei_core::ast::Task> =
@@ -293,17 +548,23 @@ fn diagnose_no_claimable(
     let non_terminal_rollups: Vec<&rhei_core::ast::Task> = all
         .iter()
         .copied()
-        .filter(|task| !task.children.is_empty() && !is_terminal_state(task.state.as_str(), machine))
+        .filter(|task| {
+            !task.children.is_empty()
+                && !is_terminal_state(task.state.as_str(), machines.for_task(&task.id))
+        })
         .collect();
     if !leaf_tasks.is_empty()
-        && leaf_tasks.iter().all(|task| is_terminal_state(task.state.as_str(), machine))
+        && leaf_tasks
+            .iter()
+            .all(|task| is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         && !non_terminal_rollups.is_empty()
     {
         let items: Vec<String> = non_terminal_rollups
             .iter()
             .take(3)
             .map(|task| {
-                let state = normalized_state_name(task.state.as_str(), machine);
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
                 format!("Task {} ({})", task.id, state)
             })
             .collect();
@@ -328,7 +589,10 @@ fn diagnose_no_claimable(
 
     let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
         task.prior.iter().all(|dep_id| {
-            state_map.get(dep_id).map(|s| dependency_is_satisfied(s, machine)).unwrap_or(false)
+            state_map
+                .get(dep_id)
+                .map(|s| dependency_is_satisfied(s, machines.for_task(dep_id)))
+                .unwrap_or(false)
         })
     };
 
@@ -337,6 +601,7 @@ fn diagnose_no_claimable(
         .copied()
         .filter(|task| task.children.is_empty())
         .filter(|task| {
+            let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
             machine.states.get(&state).map(|def| def.gating).unwrap_or(false)
                 && priors_satisfied(task)
@@ -348,7 +613,8 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                let state = normalized_state_name(task.state.as_str(), machine);
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
                 format!("Task {} ({})", task.id, state)
             })
             .collect();
@@ -369,6 +635,7 @@ fn diagnose_no_claimable(
         .iter()
         .copied()
         .filter(|t| {
+            let machine = machines.for_task(&t.id);
             let s = normalized_state_name(t.state.as_str(), machine);
             let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
             !gating && t.assignee.is_some() && priors_satisfied(t)
@@ -380,7 +647,8 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                let state = normalized_state_name(task.state.as_str(), machine);
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
                 let assignee = task.assignee.as_deref().unwrap_or("unknown");
                 format!("Task {} ({}, assignee {})", task.id, state, assignee)
             })
@@ -391,7 +659,8 @@ fn diagnose_no_claimable(
             String::new()
         };
         return format!(
-            "No tasks available to claim. {} task(s) are currently in progress: {}{}.",
+            "No tasks available to claim{}. {} task(s) are currently in progress: {}{}.",
+            scope_suffix,
             assigned_ready.len(),
             items.join(", "),
             suffix
@@ -402,6 +671,7 @@ fn diagnose_no_claimable(
         .iter()
         .copied()
         .filter(|t| {
+            let machine = machines.for_task(&t.id);
             let s = normalized_state_name(t.state.as_str(), machine);
             let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
             !gating && !task_is_in_initial_state(t, &s, machine) && priors_satisfied(t)
@@ -409,6 +679,7 @@ fn diagnose_no_claimable(
         .collect();
 
     if let Some(task) = ready_non_initial.first() {
+        let machine = machines.for_task(&task.id);
         let state_name = normalized_state_name(task.state.as_str(), machine);
         let plan_arg = shell_quote(&plan_path.display().to_string());
         let normalized_metadata = ensure_current_state_visit_count(
@@ -446,7 +717,7 @@ fn diagnose_no_claimable(
             .iter()
             .take(3)
             .map(|task| {
-                if let Some(prior) = first_blocking_prior(task, &state_map, machine) {
+                if let Some(prior) = first_blocking_prior(task, &state_map, machines, scope) {
                     format!("Task {} waiting on {}", task.id, prior)
                 } else {
                     format!("Task {}", task.id)
@@ -459,7 +730,9 @@ fn diagnose_no_claimable(
             String::new()
         };
         return format!(
-            "no tasks are ready to claim: {} blocked by incomplete prerequisites{}.",
+            "no tickets are ready to claim{}: {} ticket(s) blocked by incomplete prerequisites: {}{}.",
+            scope_suffix,
+            blocked.len(),
             ids.join(", "),
             suffix
         );
@@ -467,7 +740,7 @@ fn diagnose_no_claimable(
 
     // Fallback: we found non-terminal tasks with priors satisfied but no
     // other category matched. Keep the legacy phrasing for this edge case.
-    "no tasks are ready to claim".to_string()
+    format!("no tickets are ready to claim{scope_suffix}")
 }
 
 /// Check whether a state is terminal (final) in the state machine.
@@ -606,13 +879,16 @@ type BeforeTransitionCallback<'a> =
 
 fn try_auto_advance_task(
     input: &Path,
-    machine: &rhei_validator::StateMachine,
-    callback_paths: &CallbackPaths,
+    machines: &ExecutionMachines,
     task_id_str: &str,
     current_state: &str,
     no_callbacks: bool,
     mut before_transition: Option<BeforeTransitionCallback<'_>>,
 ) -> MietteResult<Option<String>> {
+    // The advancing ticket's own machine and callback base govern it.
+    // §DA-per-rhei-state-machines
+    let machine = machines.for_task_str(task_id_str);
+    let callback_paths = machines.callbacks_for_str(task_id_str);
     // The spec splits agent exit into:
     //   (5) select the outgoing transition without applying it,
     //   (6) emit snapshots after selection / before application,
@@ -648,8 +924,8 @@ fn try_auto_advance_task(
     };
 
     if record_poll_self_loop_if_needed(
+        &loaded,
         input,
-        loaded.rhei.metadata.as_ref(),
         machine,
         task,
         current_state,
@@ -668,24 +944,19 @@ fn try_auto_advance_task(
     }
     emit_snapshots_after_transition_selection(machine, task, current_state, &to_state);
 
-    // Step 7: apply the selected transition.
-    let task_file = loaded.task_file(task_id_str, input);
-    let metadata_file = if workspace::is_workspace(input) {
-        input.join("index.rhei.md")
-    } else {
-        task_file.clone()
-    };
+    // Step 7: apply the selected transition, routed to the owning rhei.
+    let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
-        TransitionFiles { task_file: &task_file, metadata_file: &metadata_file },
+        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
-        task_id_str,
+        &route.local_id,
         current_state,
         &to_state,
         no_callbacks,
     )?;
-    append_transition_audit_entry(input, &task_file, task_id_str, current_state, &effective_to)?;
+    append_transition_audit_entry(&route.execution_root, task_id_str, current_state, &effective_to)?;
 
     Ok(Some(effective_to))
 }

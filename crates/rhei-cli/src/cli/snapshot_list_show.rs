@@ -77,8 +77,8 @@ fn load_snapshot_context(
     let input_buf = normalize_workspace_input(plan);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
-    let resolved = resolve_state_machine_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let callback_paths = resolve_callback_paths(resolved.path.as_deref(), input)?;
+    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
+    let callback_paths = resolve_callback_paths(resolved.default.path.as_deref(), input)?;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let settings = load_merged_settings(&workspace_root)?;
     let cache_root = snapshot_cache_dir(&settings, &workspace_root);
@@ -87,7 +87,7 @@ fn load_snapshot_context(
         plan_path: callback_paths.plan_path,
         cache_root,
         loaded,
-        machine: resolved.machine,
+        machines: resolved.validator_set(),
         settings,
     })
 }
