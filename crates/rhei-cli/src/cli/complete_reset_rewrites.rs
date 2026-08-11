@@ -435,7 +435,9 @@ fn record_transition_result(
 fn ensure_result_file(workspace_root: &Path, task_id: &str) -> MietteResult<()> {
     let results_dir = workspace_root.join("runtime").join("results");
     fs::create_dir_all(&results_dir)
-        .map_err(|err| miette!("failed to create runtime/results directory: {err}"))?;
+        .map_err(|err| {
+            miette!(help = runtime_results_help(), "failed to create runtime/results directory: {err}")
+        })?;
     let result_file = results_dir.join(format!("{}.md", task_id));
     if result_file.exists() {
         return Ok(());

@@ -537,6 +537,7 @@ fn resolve_state_handoff_sections(
         else {
             if inherit.required {
                 return Err(miette!(
+                    help = handoff_missing_source_help(),
                     "state '{}' requires a handoff from the previous transition, but no transition into this state was recorded for task {}",
                     render_context.state_name,
                     render_context.task.id
@@ -547,6 +548,7 @@ fn resolve_state_handoff_sections(
         let Some(source_def) = render_context.machine.states.get(&source_state) else {
             if inherit.required {
                 return Err(miette!(
+                    help = handoff_missing_source_help(),
                     "state '{}' requires a handoff from previous state '{}', but that state is not in the machine",
                     render_context.state_name,
                     source_state
@@ -564,6 +566,7 @@ fn resolve_state_handoff_sections(
         if artifacts.is_empty() {
             if inherit.required {
                 return Err(miette!(
+                    help = handoff_no_output_help(),
                     "state '{}' requires a handoff from previous state '{}', but no matching handoff output was declared",
                     render_context.state_name,
                     source_state
@@ -573,6 +576,7 @@ fn resolve_state_handoff_sections(
         }
         if artifacts.len() > 1 && inherit.merge.as_deref() != Some("all") {
             return Err(miette!(
+                help = handoff_ambiguous_help(),
                 "state '{}' handoff from previous state '{}' is ambiguous; select a name or set merge: all",
                 render_context.state_name,
                 source_state
@@ -597,6 +601,7 @@ fn resolve_state_handoff_sections(
             else {
                 if inherit.required {
                     return Err(miette!(
+                        help = handoff_empty_artifact_help(),
                         "state '{}' requires handoff '{}' from previous state '{}', but no \
                          handoff artifact with content was found. Looked for:\n{}",
                         render_context.state_name,
