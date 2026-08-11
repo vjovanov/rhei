@@ -20,7 +20,7 @@
   `claude-code:some-model`. A correction is offered in a form the CLI accepts:
   a scalar nested in an array is named through its enclosing input rather than
   as a `reviewers[0]=…` assignment that does not exist. Coverage is now enforced
-  by a test rather than by review.
+  by a test rather than by review. PR #64
   §FS-rhei-errors.1 §FS-rhei-errors.2 §FS-rhei-errors.3.1 §FS-rhei-errors.4
   §FS-rhei-errors.5 §FS-rhei-errors.6 §FS-rhei-templates.3.1
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
