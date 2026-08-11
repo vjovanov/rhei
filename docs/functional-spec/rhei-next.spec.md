@@ -94,6 +94,28 @@ If no claimable task exists, print a status summary (see [No Tasks Ready](#5-no-
 
 ### 3.2. Output (claim mode)
 
+The first line reports the claim, because taking the claim is what the command
+just did. When the claim also advanced the state it names both; when the ticket
+stays put it names the assignee written:
+
+```text
+Task auth.1 claimed: 'draft' -> 'pending'
+Task auth.1 claimed by manual (stays in 'pending')
+```
+
+The second form is not an edge case — it is *every* claim under the built-in
+machine, whose initial state is also its working state (§3). Reporting only
+`Task auth.1 (already in 'pending')` there described the state the caller could
+already see and said nothing about the `**Assignee:**` write, which is the
+whole point of claiming: the durable mark that stops a second worker taking the
+same ticket. `rhei release` already announces the mirror-image action
+(`Released Task auth.1 (was assigned to manual)`).
+
+In `--json`, the same fact is a `claimed_as` field, present exactly when this
+invocation took the claim — absent under `--peek` and absent when the ticket was
+already assigned, so a scripted worker can tell a claim from a look without
+re-reading the plan.
+
 Template variables in `instructions` and `personality` are resolved before output. See [Template Variables](rhei-states.spec.md#4-template-variables-in-instructions-and-personality) for the full variable namespace and resolution rules.
 
 ```text

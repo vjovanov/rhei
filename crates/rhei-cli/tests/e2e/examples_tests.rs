@@ -275,14 +275,10 @@ fn example_spec_review_runs_with_mock_agents() {
     assert_success(&result);
     assert_all_tasks_in_state(&workspace, &machine_path, "completed");
     assert!(workspace.join("specs/template-review-fixture.spec.md").exists());
-    assert!(workspace
-        .join("runtime/reviews/task-spec-review-example.spec-review-review-1.md")
-        .exists());
-    assert!(workspace
-        .join("runtime/reviews/task-spec-review-example.spec-review-review-2.md")
-        .exists());
-    assert!(workspace.join("runtime/fixes/task-spec-review-example.spec-review-fix-1.md").exists());
-    assert!(workspace.join("runtime/fixes/task-spec-review-example.spec-review-fix-2.md").exists());
+    assert!(workspace.join("runtime/reviews/task-spec-review-example.review-review-1.md").exists());
+    assert!(workspace.join("runtime/reviews/task-spec-review-example.review-review-2.md").exists());
+    assert!(workspace.join("runtime/fixes/task-spec-review-example.review-fix-1.md").exists());
+    assert!(workspace.join("runtime/fixes/task-spec-review-example.review-fix-2.md").exists());
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

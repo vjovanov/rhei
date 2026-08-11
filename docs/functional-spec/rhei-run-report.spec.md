@@ -97,6 +97,26 @@ the summary prints five stacked groups:
    action, ordered exactly as the report's Attention section. A trailing
    `… N more in the report` line appears when the list is truncated. The group is
    omitted entirely when no task is halted, rather than printing an empty heading.
+
+   The blocker and next action come from a **plan-wide classification** of why
+   each non-terminal leaf is not moving, in this order: a gating state awaiting
+   a decision; a live `**Assignee:**`; an unsatisfied `**Prior:**`; a
+   manual-only initial state; no declared outgoing transition; anything else.
+   Each names the command that clears it — `rhei release <id>` for a claim,
+   `rhei next` then `rhei complete <id>` for manual-only work, finishing the
+   prior for a dependency. A ticket the run actually spawned work for keeps the
+   generic reading: its problem is the work, not the scheduling.
+
+   The same classification feeds the live halt message and `--dry-run`
+   (§FS-rhei-run.4), so the durable report and the terminal never disagree
+   about one run. They did: the report described a claimed ticket, a
+   prior-blocked ticket, and a manual-only ticket alike as `stalled in
+   non-terminal state <state>` with `inspect logs or mark the task cancelled`,
+   while stderr named the real cause precisely. That advice was wrong three
+   ways — it proposed cancelling work that only needed its claim released or
+   its prior finished, and it pointed at logs that a run spawning nothing never
+   wrote. The report is what survives after the terminal scrolls away, so it is
+   the copy that has to be right.
 4. **Tasks** - the source-order task tree, every task on one aligned row, so the
    operator sees the whole plan's outcome, not only the halted tail. This mirrors
    the report's Task Final States section (§5). Tree and collapse rules are in

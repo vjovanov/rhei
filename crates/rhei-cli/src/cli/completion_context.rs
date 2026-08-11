@@ -192,28 +192,60 @@ impl ResolvedMachineSet {
         }
     }
 
-    /// Distinct resolved machines (by machine name), default first.
-    fn distinct(&self) -> Vec<&ResolvedStateMachine> {
-        let mut seen: HashSet<&str> = HashSet::new();
-        let mut out = vec![&self.default];
-        seen.insert(self.default.machine.name.as_str());
-        for resolved in self.per_rhei.values() {
-            if seen.insert(resolved.machine.name.as_str()) {
-                out.push(resolved);
+    /// One group per distinct machine, default first, each carrying the rhei
+    /// ids that run it. This is what a reader is shown: a `Source:` line names
+    /// one file, so a group that spans two different files would name the
+    /// wrong one for at least one of the rheis it claims.
+    // §FS-rhei-states-cmd.3: one rendered block per genuinely distinct machine.
+    fn machine_groups(&self) -> Vec<MachineGroup<'_>> {
+        let mut out = vec![(
+            self.default.machine.fingerprint(),
+            MachineGroup { resolved: &self.default, rheis: Vec::new() },
+        )];
+        for (rhei_id, resolved) in &self.per_rhei {
+            let fingerprint = resolved.machine.fingerprint();
+            match out.iter_mut().find(|(seen, _)| *seen == fingerprint) {
+                Some((_, group)) => group.rheis.push(rhei_id.as_str()),
+                None => out.push((
+                    fingerprint,
+                    MachineGroup { resolved, rheis: vec![rhei_id.as_str()] },
+                )),
             }
         }
-        out
+        out.into_iter().map(|(_, group)| group).collect()
     }
 
-    /// Rhei ids running each per-rhei machine, keyed by machine name — for
-    /// surfaces that present machines to a reader. §FS-rhei-states-cmd.3
-    fn rheis_by_machine(&self) -> BTreeMap<&str, Vec<&str>> {
-        let mut out: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for (rhei_id, resolved) in &self.per_rhei {
-            out.entry(resolved.machine.name.as_str()).or_default().push(rhei_id.as_str());
+    /// [`machine_groups`](Self::machine_groups) narrowed to named rheis. Every
+    /// group then names its rheis, including one that runs the project default
+    /// — under narrowing "the default" is no longer a statement about the rest
+    /// of the project. An empty scope is the whole project.
+    // §FS-rhei-states-cmd.3: `--rhei` narrows which machines are reported.
+    fn machine_groups_for_scope<'a>(&'a self, scope: &'a [String]) -> Vec<MachineGroup<'a>> {
+        if scope.is_empty() {
+            return self.machine_groups();
         }
-        out
+        let mut out: Vec<(String, MachineGroup<'a>)> = Vec::new();
+        for rhei_id in scope {
+            let resolved = self.per_rhei.get(rhei_id).unwrap_or(&self.default);
+            let fingerprint = resolved.machine.fingerprint();
+            match out.iter_mut().find(|(seen, _)| *seen == fingerprint) {
+                Some((_, group)) => group.rheis.push(rhei_id.as_str()),
+                None => out.push((
+                    fingerprint,
+                    MachineGroup { resolved, rheis: vec![rhei_id.as_str()] },
+                )),
+            }
+        }
+        out.into_iter().map(|(_, group)| group).collect()
     }
+}
+
+/// One distinct machine and the rheis running it. §FS-rhei-states-cmd.3
+struct MachineGroup<'a> {
+    resolved: &'a ResolvedStateMachine,
+    /// Rhei ids that resolved to this exact machine. Empty on the project
+    /// default group, which governs every rhei that declares nothing.
+    rheis: Vec<&'a str>,
 }
 
 /// Everything the execution paths need per rhei: the machine set for state
@@ -480,24 +512,36 @@ fn resolve_state_machine_for_loaded_plan(
 /// honest answer; and an auto-discovered plan that fails to load must not make
 /// `rhei states` unusable while the author is repairing that very plan. An
 /// explicitly named plan is strict, because the user asked about *that* plan.
+///
+/// Returns the resolved machines and the rhei ids the invocation is narrowed
+/// to — from `--rhei`, or from a target that named one member rhei. Empty is
+/// the whole project.
+// §FS-rhei-panta.6: project-wide by default, narrowed by `--rhei`.
 fn resolve_state_machine_for_states_command(
     input: Option<PathBuf>,
     state_machine: Option<&Path>,
-) -> MietteResult<ResolvedMachineSet> {
+    selected_rheis: &[String],
+) -> MietteResult<(ResolvedMachineSet, Vec<String>)> {
     if let Some(path) = state_machine {
         let machine = load_state_machine(Some(path))?;
-        return Ok(ResolvedMachineSet::single(ResolvedStateMachine {
-            machine,
-            path: Some(path.to_path_buf()),
-        }));
+        return Ok((
+            ResolvedMachineSet::single(ResolvedStateMachine {
+                machine,
+                path: Some(path.to_path_buf()),
+            }),
+            Vec::new(),
+        ));
     }
 
     let explicit = input.is_some();
     let builtin = || {
-        ResolvedMachineSet::single(ResolvedStateMachine {
-            machine: rhei_validator::StateMachine::builtin_default(),
-            path: None,
-        })
+        (
+            ResolvedMachineSet::single(ResolvedStateMachine {
+                machine: rhei_validator::StateMachine::builtin_default(),
+                path: None,
+            }),
+            Vec::new(),
+        )
     };
     let target = match resolve_plan_target(input) {
         Ok(target) => target,
@@ -507,12 +551,18 @@ fn resolve_state_machine_for_states_command(
         Err(err) => return Err(err),
     };
 
+    let selected = target.scope_with(selected_rheis);
     let target = target.path;
-    match load_plan(&target)
-        .and_then(|loaded| resolve_state_machines_for_loaded_plan(&target, &loaded, None))
-    {
+    match load_plan(&target).and_then(|loaded| {
+        // Validate the selection against the project before reporting on it,
+        // so an unknown id names the available rheis instead of quietly
+        // narrowing to nothing. §FS-rhei-panta.6
+        let scope = resolve_rhei_scope(&loaded, &selected)?;
+        let resolved = resolve_state_machines_for_loaded_plan(&target, &loaded, None)?;
+        Ok((resolved, scope.map(|ids| ids.into_iter().collect()).unwrap_or_default()))
+    }) {
         Ok(resolved) => Ok(resolved),
-        Err(err) if !explicit => {
+        Err(err) if !explicit && selected_rheis.is_empty() => {
             eprintln!(
                 "warning: could not resolve the state machine from {} ({err}); showing the \
                  built-in default",
@@ -538,22 +588,24 @@ fn state_machine_label(path: Option<&Path>) -> String {
 fn states_command(
     input: Option<PathBuf>,
     state_machine: Option<&Path>,
+    selected_rheis: &[String],
     as_json: bool,
 ) -> MietteResult<()> {
-    let resolved = resolve_state_machine_for_states_command(input, state_machine)?;
+    let (resolved, scope) =
+        resolve_state_machine_for_states_command(input, state_machine, selected_rheis)?;
+    let groups = resolved.machine_groups_for_scope(&scope);
 
     if as_json {
         // JSON keeps its stable single-object shape when one machine governs;
         // a heterogeneous project renders as an array, default first.
         // §FS-rhei-states-cmd.5
-        let distinct = resolved.distinct();
-        let rendered = if distinct.len() == 1 {
-            render_state_machine_json(&resolved.default.machine)
+        let rendered = if groups.len() == 1 {
+            render_state_machine_json(&groups[0].resolved.machine)
                 .map_err(|err| miette!("failed to serialize state machine: {err}"))?
         } else {
-            let values = distinct
+            let values = groups
                 .iter()
-                .map(|entry| render_state_machine_json_value(&entry.machine))
+                .map(|group| render_state_machine_json_value(&group.resolved.machine))
                 .collect::<Vec<_>>();
             serde_json::to_string_pretty(&values)
                 .map_err(|err| miette!("failed to serialize state machines: {err}"))?
@@ -562,20 +614,20 @@ fn states_command(
         return Ok(());
     }
 
-    // Text: the project default first, then each additional distinct machine,
-    // each introduced by its own Source line naming the rheis that run under
-    // it. §FS-rhei-states-cmd.3
-    println!("Source: {}", state_machine_label(resolved.default.path.as_deref()));
-    println!("{}", render_state_machine_text(&resolved.default.machine));
-    let by_machine = resolved.rheis_by_machine();
-    for entry in resolved.distinct().into_iter().skip(1) {
-        let rheis = by_machine
-            .get(entry.machine.name.as_str())
-            .map(|ids| ids.join(", "))
-            .unwrap_or_default();
-        println!();
-        println!("Source: {} (rhei: {})", state_machine_label(entry.path.as_deref()), rheis);
-        println!("{}", render_state_machine_text(&entry.machine));
+    // Text: one block per distinct machine, the project default first. A block
+    // names the rheis running it, except the project-wide default block, whose
+    // reach is "everything that declares nothing". §FS-rhei-states-cmd.3
+    for (index, group) in groups.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+        let label = state_machine_label(group.resolved.path.as_deref());
+        if group.rheis.is_empty() {
+            println!("Source: {label}");
+        } else {
+            println!("Source: {label} (rhei: {})", group.rheis.join(", "));
+        }
+        println!("{}", render_state_machine_text(&group.resolved.machine));
     }
 
     Ok(())
@@ -665,6 +717,29 @@ fn list_command(
                 .unwrap_or(false)
         })
     };
+
+    // Judged against every machine in the project rather than the `--rhei`
+    // scope: a real state no in-scope rhei uses is an honest empty result.
+    // §FS-rhei-list.2.1: a state no machine declares is an error, not silence.
+    for requested in &filters.states {
+        let requested = requested.trim();
+        let known = machines
+            .distinct()
+            .into_iter()
+            .any(|machine| machine.is_valid_state(normalized_state_name(requested, machine)));
+        if !known {
+            let mut available: BTreeSet<&str> = BTreeSet::new();
+            for machine in machines.distinct() {
+                available.extend(machine.allowed_states());
+            }
+            return Err(miette!(
+                "unknown state '{}'; states in this {}: {}",
+                requested,
+                if loaded.is_panta_project() { "project" } else { "plan" },
+                available.into_iter().collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
 
     // Normalize state filter values once per machine so users can pass either
     // canonical names or counted-visit forms; a filter value normalizes under

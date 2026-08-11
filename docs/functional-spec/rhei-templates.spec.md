@@ -68,6 +68,15 @@ Discovery errors are handled per command:
 
 A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error. For single-file templates the entry-point filename also determines the ticket-id prefix of every instantiated workspace: the file stem is the rhei id, so `plan.rhei.md` yields tickets `plan.1`, `plan.2`, ..., regardless of the `--output` directory name.
 
+**A template's task ids must not repeat the template name.** Every ticket id is
+already qualified by its rhei (§FS-rhei-panta.5), and for an instantiated
+template the rhei id is the output directory — the template's own name by
+default. A task authored as `### Task spec-review:` inside the `spec-review`
+template therefore reads as `spec-review.spec-review` in every listing, error,
+and artifact path (`runtime/reviews/task-spec-review.spec-review-review-1.md`).
+Name the task for the step it performs — `review`, `loop`, `coordinate` — and
+let the prefix say which rhei it belongs to.
+
 ## 3. Manifest Schema (`template.yaml`)
 
 ```yaml
@@ -427,6 +436,29 @@ Defaulting to the working directory instead dropped the workspace where
 discovery never looks, so the command reported success and `rhei list` still
 said the project had no tickets. Outside a project the default stays
 `./<template-name>/`.
+
+**A taken output directory is a naming problem, and the error says so.** The
+default output is the template's own name, and a rhei's id *is* its directory
+name (§AR-rhei-panta.1), so instantiating the same template a second time in
+one project always collides. That second instantiation is not an edge case —
+it is reviewing a second spec, auditing a second subject, running a second
+release checklist, the most likely next thing anyone does with a template. The
+error therefore names the cause, explains that the directory name becomes the
+rhei id prefixing every ticket id, and prints a ready command with a free name
+filled in:
+
+```text
+'panta/spec-review' already exists, so template 'spec-review' has already been
+instantiated here under that name. A second copy needs its own directory,
+because the directory name becomes the rhei id every one of its ticket ids is
+prefixed with. Name it for what it is about:
+  rhei instantiate spec-review spec=docs/payments.spec.md --output panta/spec-review-2
+```
+
+A bare `output path '…' already exists` left the user to rediscover `--output`
+and to guess whether a second copy was supported at all. An explicit
+`--output` that is taken keeps the short form — the caller chose that path, so
+the only news is that it exists.
 
 **State machines compose; nothing to reconcile.** The state machine is a
 property of the rhei, defaulted by the project (§AR-rhei-panta.4,

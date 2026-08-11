@@ -13,8 +13,8 @@ fn release_command(
 ) -> MietteResult<()> {
     if task_id_str.is_some() == all {
         return Err(miette!(
-            "`rhei release` takes either `--task <id>` or `--all`: one names a ticket, the \
-             other sweeps every claimed ticket in scope"
+            "`rhei release` takes either one ticket — `rhei release <ticket-id>`, or \
+             `--task <id>` — or `--all`, which sweeps every claimed ticket in scope"
         ));
     }
 

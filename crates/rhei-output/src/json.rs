@@ -4,24 +4,63 @@ use rhei_core::ast::{Rhei, Task, TaskId, TaskIdSegment};
 
 use crate::PlanOutputGenerator;
 
+/// The state machine one rhei of a merged project runs under.
+///
+/// A merged project flattens every rhei's tickets into one qualified task list
+/// while the machine stays a per-rhei property, so the top-level `states` field
+/// alone cannot say what a given task's state name means.
+// §FS-rhei-render.3.1 §DA-per-rhei-state-machines
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RheiMachine {
+    /// Rhei id — the first segment of every ticket id it owns.
+    pub id: String,
+    /// Effective machine name: the rhei's own declaration, or the project
+    /// default when it declares none.
+    pub states: String,
+    /// Whether the rhei declared the machine itself rather than inheriting it.
+    pub declared: bool,
+}
+
+#[derive(Default)]
 pub struct JsonOutput {
     pub pretty: bool,
+    /// Per-rhei machine attribution, in presentation order. Empty for a plan
+    /// that is not a merged project, whose one `states` field already says
+    /// everything.
+    pub rheis: Vec<RheiMachine>,
 }
 
 impl PlanOutputGenerator for JsonOutput {
     fn generate_rhei(&self, rhei: &rhei_core::ast::Rhei) -> serde_json::Value {
-        rhei_json(rhei)
+        rhei_json(rhei, &self.rheis)
     }
 }
 
 /// Convert a parsed Rhei into a serde_json::Value.
 pub fn to_json_value(rhei: &rhei_core::ast::Rhei) -> serde_json::Value {
-    JsonOutput { pretty: false }.generate_rhei(rhei)
+    JsonOutput::default().generate_rhei(rhei)
+}
+
+/// [`to_json_value`] for a merged project, carrying each rhei's machine.
+/// §FS-rhei-render.3.1
+pub fn to_json_value_with_rheis(
+    rhei: &rhei_core::ast::Rhei,
+    rheis: Vec<RheiMachine>,
+) -> serde_json::Value {
+    JsonOutput { pretty: false, rheis }.generate_rhei(rhei)
 }
 
 /// Convert a parsed Rhei into a pretty-printed JSON string.
 pub fn to_json_string_pretty(rhei: &rhei_core::ast::Rhei) -> String {
-    let v = to_json_value(rhei);
+    to_json_string_pretty_with_rheis(rhei, Vec::new())
+}
+
+/// [`to_json_string_pretty`] for a merged project. §FS-rhei-render.3.1
+pub fn to_json_string_pretty_with_rheis(
+    rhei: &rhei_core::ast::Rhei,
+    rheis: Vec<RheiMachine>,
+) -> String {
+    let v = to_json_value_with_rheis(rhei, rheis);
     serde_json::to_string_pretty(&v).expect("pretty JSON serialization")
 }
 
@@ -70,7 +109,7 @@ fn task_json(t: &Task) -> Value {
     Value::Object(obj)
 }
 
-fn rhei_json(rhei: &Rhei) -> Value {
+fn rhei_json(rhei: &Rhei, rheis: &[RheiMachine]) -> Value {
     let content_sections = rhei
         .content_sections
         .iter()
@@ -84,15 +123,44 @@ fn rhei_json(rhei: &Rhei) -> Value {
 
     let tasks = rhei.tasks.iter().map(task_json).collect::<Vec<Value>>();
 
-    json!({
-        "title": rhei.title,
-        "states": rhei.states,
-        "structure": {
+    let mut obj = Map::new();
+    obj.insert("title".to_string(), Value::String(rhei.title.clone()));
+    obj.insert("states".to_string(), Value::String(rhei.states.clone()));
+    // One machine per rhei: the `states` field above is only the project
+    // default. Resolve a task through the first segment of its id.
+    // §FS-rhei-render.3.1
+    if !rheis.is_empty() {
+        obj.insert(
+            "rheis".to_string(),
+            Value::Array(
+                rheis
+                    .iter()
+                    .map(|entry| {
+                        json!({
+                            "id": entry.id,
+                            "states": entry.states,
+                            "states_declared": entry.declared,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    obj.insert(
+        "structure".to_string(),
+        json!({
             "max_levels": rhei.structure.max_levels,
             "node_kinds": rhei.structure.node_kinds,
-        },
-        "frontmatter": rhei.metadata.as_ref().and_then(|metadata| serde_json::to_value(metadata).ok()),
-        "content_sections": content_sections,
-        "tasks": tasks
-    })
+        }),
+    );
+    obj.insert(
+        "frontmatter".to_string(),
+        rhei.metadata
+            .as_ref()
+            .and_then(|metadata| serde_json::to_value(metadata).ok())
+            .unwrap_or(Value::Null),
+    );
+    obj.insert("content_sections".to_string(), Value::Array(content_sections));
+    obj.insert("tasks".to_string(), Value::Array(tasks));
+    Value::Object(obj)
 }

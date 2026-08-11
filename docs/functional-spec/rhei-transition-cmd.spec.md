@@ -5,14 +5,20 @@ Atomically advance a task's state using compare-and-swap semantics. `rhei transi
 ## 1. Usage
 
 ```bash
+rhei transition <TICKET_ID> --from <STATE> --to <STATE>
 rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 ```
+
+The positional slot is a *ticket or plan*, on the shared rule every
+single-ticket command follows (§FS-rhei-usage.2): an argument naming an
+existing path is the plan, an id-shaped argument naming no path is the ticket.
+The ticket must be named one way or the other.
 
 ## 2. Options
 
 | Flag             | Required | Default | Description                                                                 |
 |------------------|----------|---------|-----------------------------------------------------------------------------|
-| `--task <ID>`    | Yes      |         | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
+| `--task <ID>`    | Unless named positionally | | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
 | `--from <STATE>` | Yes      |         | Expected current state (compare-and-swap guard)                             |
 | `--to <STATE>`   | Yes      |         | Target state                                                                |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave` / `on_enter` callbacks registered on the edge  |
@@ -21,8 +27,9 @@ State values passed to `--from` and `--to` follow the state-value rendering rule
 
 ### 2.1. Ticket Targets
 
-`--task` accepts either the project-qualified ticket id (`auth.1`, numbers or
-names in either segment) or a rhei-local shorthand (`1`). A shorthand resolves
+The ticket target — positional or `--task` — accepts either the
+project-qualified ticket id (`auth.1`, numbers or names in either segment) or a
+rhei-local shorthand (`1`). A shorthand resolves
 only when exactly one rhei in the project contains that ticket; when more than
 one does, the error names the qualified candidates. Output, the result file,
 and the ledger entry always use the qualified id regardless of how the target

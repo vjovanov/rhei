@@ -457,8 +457,10 @@ fn next_command(
     // Claim mode only: write `**Assignee:**` to the task file so a second
     // `rhei next` cannot re-claim the same task. Skipped in peek mode and
     // when the task already has an assignee set.
+    let mut claimed_as: Option<String> = None;
     if !peek && task.assignee.is_none() {
         let assignee = agent_id_str.as_deref().unwrap_or("manual");
+        claimed_as = Some(assignee.to_string());
         let final_state_def = machine
             .states
             .get(&final_state)
@@ -513,6 +515,7 @@ fn next_command(
     print_next_output(NextOutput {
         as_json,
         peek,
+        claimed_as: claimed_as.as_deref(),
         task,
         from_state: &current_state_raw,
         to_state: task.state.as_str(),

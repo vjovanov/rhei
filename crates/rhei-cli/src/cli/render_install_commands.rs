@@ -1,6 +1,9 @@
 struct NextOutput<'a> {
     as_json: bool,
     peek: bool,
+    /// The assignee this invocation wrote, when it claimed the ticket. `None`
+    /// under `--peek` and when the ticket was already claimed.
+    claimed_as: Option<&'a str>,
     task: &'a rhei_core::ast::Task,
     from_state: &'a str,
     to_state: &'a str,
@@ -39,6 +42,12 @@ fn print_next_output(output: NextOutput<'_>) {
             "content": output.task.content.trim(),
             "children": children,
         });
+        // Present exactly when this invocation took the claim, so a scripted
+        // worker can tell a claim from a peek without re-reading the plan.
+        // §FS-rhei-next.4
+        if let Some(assignee) = output.claimed_as {
+            obj["claimed_as"] = serde_json::json!(assignee);
+        }
         if let Some(agent) = output.agent_id {
             obj["agent"] = serde_json::json!(agent);
         }
@@ -57,6 +66,14 @@ fn print_next_output(output: NextOutput<'_>) {
             println!(
                 "Task {} claimed: '{}' -> '{}'",
                 output.task.id, output.from_state, output.to_state
+            );
+        } else if let Some(assignee) = output.claimed_as {
+            // A claim that does not move the ticket is still a claim, and
+            // it still wrote the `**Assignee:**` that stops a second worker.
+            // §FS-rhei-next.4: claim mode reports the claim it took.
+            println!(
+                "Task {} claimed by {} (stays in '{}')",
+                output.task.id, assignee, output.to_state
             );
         } else {
             println!("Task {} (already in '{}')", output.task.id, output.to_state);
@@ -130,6 +147,7 @@ fn render_command(
         &rhei,
         terminal_ids,
         loaded.is_panta_project(),
+        rhei_machine_attribution(&loaded, &scope),
         format,
         pretty,
         no_color,
@@ -139,6 +157,35 @@ fn render_command(
     .map_err(|err| miette!("{err}"))?;
     println!("{rendered}");
     Ok(())
+}
+
+/// Each in-scope rhei paired with the machine it actually runs, for the JSON
+/// document's `rheis` array. Empty for a plan that is not a merged project.
+/// §FS-rhei-render.3.1 §DA-per-rhei-state-machines
+fn rhei_machine_attribution(
+    loaded: &LoadedPlan,
+    scope: &RheiScope,
+) -> Vec<rhei_output::RheiMachine> {
+    if !loaded.is_panta_project() {
+        return Vec::new();
+    }
+    loaded
+        .rhei_ids
+        .iter()
+        .filter(|id| scope.as_ref().is_none_or(|ids| ids.contains(id.as_str())))
+        .map(|id| match loaded.rhei_machines.get(id) {
+            Some(declared) => rhei_output::RheiMachine {
+                id: id.clone(),
+                states: declared.clone(),
+                declared: true,
+            },
+            None => rhei_output::RheiMachine {
+                id: id.clone(),
+                states: loaded.rhei.states.clone(),
+                declared: false,
+            },
+        })
+        .collect()
 }
 
 /// Every ticket currently in a terminal state, judged per owning machine, for
@@ -191,6 +238,7 @@ fn render_rhei(
     rhei: &rhei_core::ast::Rhei,
     terminal_ids: BTreeSet<String>,
     is_project: bool,
+    rhei_machines: Vec<rhei_output::RheiMachine>,
     format: RenderFormat,
     pretty: bool,
     no_color: bool,
@@ -200,9 +248,9 @@ fn render_rhei(
     match format {
         RenderFormat::Json => {
             if pretty {
-                Ok(rhei_output::to_json_string_pretty(rhei))
+                Ok(rhei_output::to_json_string_pretty_with_rheis(rhei, rhei_machines))
             } else {
-                let value = rhei_output::to_json_value(rhei);
+                let value = rhei_output::to_json_value_with_rheis(rhei, rhei_machines);
                 serde_json::to_string(&value).context("failed to serialize JSON output")
             }
         }

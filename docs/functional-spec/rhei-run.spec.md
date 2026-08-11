@@ -209,6 +209,27 @@ were reported. Aborting on the first one defeats the purpose of the flag —
 under the built-in machine, whose initial state is manual-only, it made
 `--dry-run` fail before printing anything at all.
 
+**A dry run predicts the real run, including its exit status.** When the scan
+finds nothing schedulable, it reports why each remaining in-scope ticket is not
+moving — the same classification the halt path uses (§FS-rhei-run-report.3.1) —
+and then ends the way `rhei run` would on the same state:
+
+```text
+Nothing to schedule. Why each remaining ticket is not moving:
+  Task auth.1 (pending): claimed by alice — `rhei release auth.1` to hand it back, …
+  Task auth.2 (pending): waiting on Task auth.1 (pending) — finish the prior first
+```
+
+A ticket the scheduler skips is invisible to the transition scan: it produces
+no `would transition:` line and no `manual-only:` line. Without this report a
+dry run over a project whose ready tickets were all claimed printed nothing at
+all and exited zero, while `rhei run` on the identical state halted non-zero —
+so the one command whose job is to answer "what happens if I run this?"
+answered it wrongly, and a wedged queue behind a crashed worker's stale claim
+read as "nothing to do". The dry run exits non-zero whenever the remaining
+tickets need a human; gating states awaiting a decision are a deliberate pause
+and do not by themselves fail it.
+
 ## 5. Parallel Execution
 
 With `--parallel N`, up to `N` subprocesses run concurrently. The orchestrator:

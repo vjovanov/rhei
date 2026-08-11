@@ -191,6 +191,10 @@ enum Commands {
         /// enclosing project, workspace, or lone plan is used
         #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: Option<PathBuf>,
+        /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
+        /// is its file stem or directory name; default is the whole project
+        #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
+        rhei: Vec<String>,
         /// Emit the state machine as JSON instead of plain text
         #[arg(long)]
         json: bool,
@@ -271,13 +275,17 @@ enum Commands {
         /// Path to a states YAML file (uses built-in default when omitted)
         #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
         state_machine: Option<PathBuf>,
-        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
-        /// enclosing project, workspace, or lone plan is used
-        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        /// Ticket id to transition (`auth.1`, `3`), or path to the markdown
+        /// plan file (.rhei.md). An id-shaped argument that names no existing
+        /// path is the ticket, with the plan inferred from the working
+        /// directory; omitted, the nearest enclosing project, workspace, or
+        /// lone plan is used
+        #[arg(value_name = "TICKET_OR_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: Option<PathBuf>,
-        /// Task identifier (number or name)
+        /// Task identifier (number or name); alternative to naming the ticket
+        /// positionally
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
-        task: String,
+        task: Option<String>,
         /// Expected current state of the task
         #[arg(long, add = ArgValueCompleter::new(complete_transition_from_state))]
         from: String,
@@ -495,11 +503,15 @@ enum Commands {
         /// Path to a states YAML file (uses built-in default when omitted)
         #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]
         state_machine: Option<PathBuf>,
-        /// Path to the markdown plan file (.rhei.md); omitted, the nearest
-        /// enclosing project, workspace, or lone plan is used
-        #[arg(value_name = "RHEI_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        /// Ticket id to release (`auth.1`, `3`), or path to the markdown plan
+        /// file (.rhei.md). An id-shaped argument that names no existing path
+        /// is the ticket, with the plan inferred from the working directory;
+        /// omitted, the nearest enclosing project, workspace, or lone plan is
+        /// used
+        #[arg(value_name = "TICKET_OR_PLAN", add = ArgValueCompleter::new(complete_rhei_plan_path))]
         input: Option<PathBuf>,
-        /// Ticket to release; omit with --all to release every claimed ticket
+        /// Ticket to release; alternative to naming it positionally. Omit with
+        /// --all to release every claimed ticket
         #[arg(long, add = ArgValueCompleter::new(complete_task_id))]
         task: Option<String>,
         /// Release every claimed non-terminal ticket in scope

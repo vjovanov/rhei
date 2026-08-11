@@ -554,6 +554,15 @@ impl RunSummaryReport {
     ) -> Self {
         let activity = summary.snapshot();
 
+        // Why each halted ticket is halted, resolved once against the whole
+        // plan. The table below needs the plan's priors and claims, which a
+        // per-task walk cannot see. §FS-rhei-run-report.3.1
+        let halt_causes: HashMap<String, HaltCause> =
+            classify_halted_tasks(rhei, machines, &None, &|id| activity.contains_key(id))
+                .into_iter()
+                .map(|(task, cause)| (task.id.to_string(), cause))
+                .collect();
+
         // Source-order walk that preserves hierarchy depth.
         let mut rows = Vec::new();
         let mut attention = Vec::new();
@@ -564,6 +573,7 @@ impl RunSummaryReport {
             0,
             machines,
             &activity,
+            &halt_causes,
             &mut rows,
             &mut attention,
             &mut counts,
@@ -1046,6 +1056,7 @@ fn collect_rows(
     depth: usize,
     machines: &rhei_validator::MachineSet,
     activity: &HashMap<String, TaskActivity>,
+    halt_causes: &HashMap<String, HaltCause>,
     rows: &mut Vec<TaskRow>,
     attention: &mut Vec<AttentionRow>,
     counts: &mut std::collections::BTreeMap<String, (usize, Marker)>,
@@ -1059,9 +1070,9 @@ fn collect_rows(
         let entry = counts.entry(state.clone()).or_insert((0, marker));
         entry.0 += 1;
 
-        let detail = task_detail(&id, &state, marker, activity);
+        let detail = task_detail(&id, &state, marker, halt_causes, activity);
         if marker.needs_attention() {
-            let (reason, next) = attention_reason(marker, &state);
+            let (reason, next) = attention_reason(marker, &id, &state, halt_causes);
             attention.push(AttentionRow {
                 id: id.clone(),
                 state: state.clone(),
@@ -1072,7 +1083,16 @@ fn collect_rows(
         }
 
         rows.push(TaskRow { depth, id, state, marker, detail });
-        collect_rows(&task.children, depth + 1, machines, activity, rows, attention, counts);
+        collect_rows(
+            &task.children,
+            depth + 1,
+            machines,
+            activity,
+            halt_causes,
+            rows,
+            attention,
+            counts,
+        );
     }
 }
 
@@ -1082,6 +1102,7 @@ fn task_detail(
     id: &str,
     state: &str,
     marker: Marker,
+    halt_causes: &HashMap<String, HaltCause>,
     activity: &HashMap<String, TaskActivity>,
 ) -> Option<String> {
     if let Some(act) = activity.get(id) {
@@ -1107,7 +1128,9 @@ fn task_detail(
         }
     }
     match marker {
-        Marker::Gate | Marker::Attention => Some(attention_reason(marker, state).0),
+        Marker::Gate | Marker::Attention => {
+            Some(attention_reason(marker, id, state, halt_causes).0)
+        }
         _ => None,
     }
 }
@@ -1133,23 +1156,28 @@ fn build_task_accounting_rows(
         .collect()
 }
 
-/// A generic, honest reason and next action for a halted task. Precise blockers
-/// (exit codes, poll counts) depend on scheduler tracking and are filled in by
-/// the durable report. §FS-rhei-run-report.3.1
-fn attention_reason(marker: Marker, state: &str) -> (String, String) {
+/// The reason and next action for a halted task.
+///
+/// The plan-wide classification knows whether the
+/// ticket is claimed, waiting on a prior, or manual-only, and names the command
+/// that clears each. Reporting all three as "stalled in non-terminal state <s>"
+/// and advising "inspect logs or mark the task cancelled" told an operator to
+/// cancel work that only needed a claim released, and pointed at logs a run
+/// that spawned nothing never wrote. The generic pair remains the fallback for
+/// a ticket the classifier does not reach.
+// §FS-rhei-run-report.3.1
+fn attention_reason(
+    marker: Marker,
+    id: &str,
+    state: &str,
+    halt_causes: &HashMap<String, HaltCause>,
+) -> (String, String) {
+    if let Some(cause) = halt_causes.get(id) {
+        return cause.describe(id, state);
+    }
     match marker {
-        Marker::Gate => (
-            "gating state awaiting review".to_string(),
-            "transition manually when reviewed".to_string(),
-        ),
-        _ => {
-            let reason = if state.is_empty() {
-                "no forward transition available".to_string()
-            } else {
-                format!("stalled in non-terminal state {state}")
-            };
-            (reason, "inspect logs or mark the task cancelled".to_string())
-        }
+        Marker::Gate => HaltCause::Gate.describe(id, state),
+        _ => HaltCause::Stalled.describe(id, state),
     }
 }
 

@@ -97,6 +97,14 @@ Run-scoped output is **not** ticket-owned — the run report, the dashboard, and
 the accounting rollups describe a run, not a ticket — so a narrowed reset keeps
 it and says so on stdout. Reset without `--rhei` to clear it.
 
+The reported initial states are the states this invocation will actually
+write, resolved over in-scope tickets only. With machines per rhei
+(§AR-rhei-panta.4) a project holds several initial states, and summarizing all
+of them under a narrowed scope named states no in-scope ticket can reach:
+`--rhei billing` announced `(pending, review)` while `review` belonged to
+rheis the command was about to leave alone. A dry run is read as a promise
+about what changes, so it must not describe work outside its own scope.
+
 ## 3. Safety
 
 Reset is destructive with respect to runtime state. It does not prompt and has no `--dry-run` flag; callers that need a preview should inspect `runtime/` and the current `**State:**` values before invoking it.

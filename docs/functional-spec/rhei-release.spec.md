@@ -22,20 +22,29 @@ makes.
 ## 1. Usage
 
 ```bash
+rhei release <TICKET_ID>
 rhei release [RHEI_PLAN] --task <TASK_ID>
 rhei release [RHEI_PLAN] --all
 rhei release [RHEI_PLAN] --all --rhei billing --dry-run
 ```
 
-`<RHEI_PLAN>` follows the ordinary target rules: omitted, it resolves the
-nearest enclosing project, workspace, or lone plan (§FS-rhei-panta.6).
+The positional slot is a *ticket or plan*, on the shared rule every
+single-ticket command follows (§FS-rhei-usage.2): an argument naming an
+existing path is the plan, an id-shaped argument naming no path is the ticket.
+Omitted, the plan resolves to the nearest enclosing project, workspace, or lone
+plan (§FS-rhei-panta.6).
+
+`rhei release auth.1` and `rhei complete auth.1` are the same gesture aimed at
+different outcomes — hand the ticket back, or finish it — so they take their
+target the same way. Accepting the id only through `--task` here made the
+release path read as a typo of the complete path.
 
 ## 2. Options
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--task <ID>` | One of `--task`/`--all` | | Ticket to release: project-qualified (`auth.1`) or rhei-local (`1`) |
-| `--all` | One of `--task`/`--all` | | Release every claimed non-terminal ticket in scope |
+| `--task <ID>` | One of ticket/`--all` | | Ticket to release: project-qualified (`auth.1`) or rhei-local (`1`); alternative to the positional |
+| `--all` | One of ticket/`--all` | | Release every claimed non-terminal ticket in scope |
 | `--rhei <ID>` | No | whole project | Narrow the sweep to named rheis (repeatable) |
 | `--dry-run` | No | false | Report what would be released without changing anything |
 

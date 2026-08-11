@@ -36,6 +36,29 @@ its project narrowed to that rhei.
 `--format json` emits the parsed plan AST as JSON. Compact JSON is the default;
 `--pretty` emits indented JSON for human inspection.
 
+The top-level `states` field is the machine of the document as authored — for a
+project, the manifest default. A merged project runs **one machine per rhei**
+(§DA-per-rhei-state-machines), so that single field cannot tell a consumer what
+a task's state name means: a project holding two instantiated templates emits
+tasks whose states come from three different machines under one `"states"`.
+Rendering a project therefore adds a `rheis` array, in presentation order, that
+attributes each rhei to the machine it actually runs:
+
+```json
+"states": "rhei",
+"rheis": [
+  { "id": "auth",    "states": "rhei",        "states_declared": false },
+  { "id": "billing", "states": "spec-review", "states_declared": true  }
+]
+```
+
+`states` on an entry is the *effective* machine — the rhei's own declaration,
+or the project default it inherited — and `states_declared` distinguishes the
+two. A consumer resolves any task by taking the first segment of its qualified
+id and looking it up here. The key is absent, not empty, for a plan that is not
+a merged project: a single-file plan or a lone Directory Workspace has one
+machine, and the existing `states` field already names it.
+
 When JSON format is selected, command errors are rendered as a single JSON
 object on stderr so machine consumers do not need to parse two diagnostic
 shapes.
@@ -82,8 +105,9 @@ A plan that is not a merged project — a single-file plan, a Directory Workspac
 loaded on its own — keeps its authored shape: content sections, then one
 `## Tasks` chapter.
 
-`--format json` is unaffected: it emits the AST, and the merged section titles
-are part of that AST.
+`--format json` keeps its flat shape: it emits the AST, and the merged section
+titles are part of that AST. Its only project-specific addition is the `rheis`
+attribution array (§3.1).
 
 ## 4. Behavior
 

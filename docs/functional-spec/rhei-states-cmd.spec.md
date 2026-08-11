@@ -9,6 +9,7 @@ snapshot configuration before executing a plan. §GOAL-rhei-outcomes
 ```bash
 rhei states
 rhei states <RHEI_PLAN>
+rhei states --rhei billing
 rhei states --json
 rhei --state-machine <PATH> states
 ```
@@ -25,7 +26,17 @@ every state name the author is about to type.
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--json` | No | false | Emit the state machine as JSON instead of human-readable text |
+| `--rhei <ID>` | No | whole project | Narrow to named rheis (repeatable), as on `list`, `next`, `run`, and `reset` |
 | `--state-machine <PATH>` | No | resolved from the plan | Global option selecting an explicit states YAML file |
+
+`--rhei` narrows the report to the machines governing the named rheis, on the
+project-wide-by-default rule every command follows (§FS-rhei-panta.6). It is
+the flag this command needs most: a project holding several instantiated
+templates holds several machines, and "what states does *billing* have?" is
+otherwise answered by reading past every other rhei's. An id naming no rhei in
+the project is an error listing the available ids. Under narrowing every block
+names its rheis, including one running the project default — narrowed, "the
+default" is no longer a claim about the rest of the project.
 
 ## 3. Behavior
 
@@ -42,6 +53,23 @@ every state name the author is about to type.
    `Source:` line naming the rheis that run under it — one project, several
    processes, all inspectable from one command.
 5. Print the result to stdout.
+
+Two rheis share a rendered block only when their machines are **identical**,
+field for field — not merely when they share a `name` and `version`. Machine
+identity is content, everywhere the distinct set is walked: this command's
+blocks, its JSON array, the completion candidates, the flow legend, and the
+per-machine settings-reference validation that `validate` and `run` perform.
+
+A template bakes its instantiation inputs into the `states.yaml` it writes, so
+instantiating one template twice — the ordinary way to review two specs, audit
+two subjects, or run two release checklists — produces two machines that differ
+in their state instructions while both keep the template's declared name and
+version. Grouping by name collapsed them and attributed one arbitrary member's
+file to all of them: `rhei states` then printed one rhei's baked-in prompts
+under a `Source:` line naming another rhei's file, and confidently answered
+"what will my agents be told to do?" wrongly for every rhei but one. The
+validation walk skipped the collapsed machines' agent, skill, and MCP
+references entirely.
 
 Discovery failures are non-fatal only when the target was inferred: an
 auto-discovered plan that fails to load reports a warning on stderr and prints

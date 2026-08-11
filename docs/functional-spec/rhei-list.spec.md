@@ -20,7 +20,7 @@ directory. Listing is project-wide: filters apply across every rhei, and
 | Flag                     | Description                                                                       |
 |--------------------------|-----------------------------------------------------------------------------------|
 | `--rhei <RHEI_ID>`       | Only tickets in the named rheis. Repeatable. An id that names no rhei in the project is an error listing the available ids. §FS-rhei-panta.6.4 |
-| `--state <STATE>`        | Filter by state. Repeatable; comma-separated also accepted. Aliases are normalized through the resolved state machine. |
+| `--state <STATE>`        | Filter by state. Repeatable; comma-separated also accepted. Aliases are normalized per owning machine. A state no loaded machine declares is an error (§2.1). |
 | `--assignee <ASSIGNEE>`  | Exact `**Assignee:**` match. Mutually exclusive with `--no-assignee`.            |
 | `--no-assignee`          | Only tasks with no `**Assignee:**` field.                                         |
 | `--kind <KIND>`          | Filter by node kind (e.g. `task`, `bug`, `spec`). Case-insensitive.               |
@@ -37,13 +37,40 @@ directory. Listing is project-wide: filters apply across every rhei, and
 
 Filters combine with logical AND. Empty result sets are not an error.
 
+### 2.1. Filter values that name nothing
+
+A filter *value* that cannot exist is a different thing from a filter that
+matches nothing, and the two must not look alike. `--rhei` already draws that
+line: an id naming no rhei is an error listing the available ids "rather than a
+silently empty scope" (§FS-rhei-panta.6). `--state` follows the same rule — a
+value no loaded machine declares is an error naming the states that do exist:
+
+```text
+unknown state 'in-reveiw'; states in this project: cancelled, completed, fix, pending, review
+```
+
+A silent `(no tasks match the given filters)` reads as "no work is in that
+state", which is exactly the wrong conclusion to hand someone whose state was
+renamed out from under a script, or who typed it slightly wrong.
+
+Validation is against every machine the project loads, not the `--rhei` scope.
+A project runs one machine per rhei (§AR-rhei-panta.4), so `--rhei billing
+--state review` names a state that genuinely exists while no in-scope ticket
+can hold it. That is an honest empty result, not a mistake.
+
+`--assignee` takes no such check: any string is a legitimate assignee, and
+there is no declared set to check it against.
+
 ## 3. Behavior
 
-1. Load the plan and resolve the state machine the same way `rhei validate` does
-   (auto-discovery, `**States:**` field, `--state-machine` override).
+1. Load the plan and resolve each rhei's state machine the same way
+   `rhei validate` does (auto-discovery, `**States:**` field,
+   `--state-machine` override). A project resolves one machine per rhei
+   (§AR-rhei-panta.4), and every state judgment below — normalization,
+   terminality, gating — uses the machine of the rhei that owns the ticket.
 2. Walk the task tree in source order, recording each task with its parent id.
 3. Apply filters in order; normalize `--state` values and the task's own state
-   through the state machine so aliases match.
+   through that ticket's machine so aliases match.
 4. For `--ready` / `--blocked`, evaluate prerequisites against the current
    plan state using the same dependency rule as `rhei next` (terminal,
    non-cancelled).

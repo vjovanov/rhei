@@ -1,4 +1,4 @@
-### Task product-management-loop: Run product-management loop for {{product_name}}
+### Task loop: Run product-management loop for {{product_name}}
 **State:** product-run
 
 Run {{loop_passes}} product-management passes. Each pass fans out independent

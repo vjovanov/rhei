@@ -287,7 +287,7 @@ impl NodePolicyMatch {
 ///
 /// `version` is stored as [`serde_yaml::Value`] so the repository can accept
 /// either numeric or string YAML values without imposing a stricter schema.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StateMachine {
     /// Human-readable states definition name.
     pub name: String,

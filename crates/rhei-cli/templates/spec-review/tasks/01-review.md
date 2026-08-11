@@ -1,4 +1,4 @@
-### Task spec-review: Review {{spec}}
+### Task review: Review {{spec}}
 **State:** review
 
 Review `{{spec}}` for internal consistency, completeness, correctness, and clarity.

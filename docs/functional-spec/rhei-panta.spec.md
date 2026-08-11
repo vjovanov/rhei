@@ -156,6 +156,16 @@ not even `rhei list --rhei <healthy-one>`, which names a rhei that parses
 fine. It therefore skips what it cannot load, prints one warning per skipped
 rhei naming the file and the parse error, and lists everything else.
 
+"Cannot load" covers the rhei's **identity** as well as its contents. An entry
+whose id is malformed, reserved (`basin.rhei.md`), or already taken by another
+entry joins the project no more than one that fails to parse, and the author
+repairing it needs the same view of everything else meanwhile — dropping a
+`basin.rhei.md` into a project otherwise wedged `rhei list` completely. A
+duplicate id skips the colliding entry, not the one that claimed the id first,
+so the healthy half of the collision keeps listing. Every other command still
+fails on all of these: an ambiguous or missing rhei id makes ticket ids
+ambiguous, and no command that resolves a graph can proceed on that.
+
 A command invoked with **no target** resolves one by walking up from the
 current directory, nearest match first. At each level, in order:
 
@@ -208,8 +218,9 @@ An id passed to `--rhei` that names no rhei in the project is an error listing
 the available rhei ids, rather than a silently empty scope.
 
 A ticket target passed to a command (`rhei complete <id>`, `rhei transition
---task <id>`, …) is either the project-qualified id (`auth.1`) or a rhei-local
-shorthand (`1`). A rhei-local target resolves only when exactly one in-scope
+<id>`, `rhei release <id>`, …) is either the project-qualified id (`auth.1`) or
+a rhei-local shorthand (`1`). Every such command takes it the same two ways —
+positionally or through `--task` (§FS-rhei-usage.2). A rhei-local target resolves only when exactly one in-scope
 rhei contains that ticket; ambiguity across rheis is an error that names the
 qualified candidates. Output, artifacts, and ledgers always use the qualified
 id regardless of how the target was written.

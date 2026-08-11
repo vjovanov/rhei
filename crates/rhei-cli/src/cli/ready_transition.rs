@@ -251,6 +251,167 @@ fn first_blocking_prior(
     })
 }
 
+/// Why one non-terminal ticket is not moving.
+///
+/// `rhei next` already tells a worker exactly which of these applies. Every
+/// `rhei run` surface — the halt message, the dry
+/// run, and the durable report's Attention table — collapsed all of them into
+/// "stalled in non-terminal state <s>" with "inspect logs or mark the task
+/// cancelled" as the advice: wrong for a claimed ticket, wrong for one waiting
+/// on a prior, and pointing at logs a run that spawned nothing never wrote.
+// §FS-rhei-run-report.3.1 §FS-rhei-run.4: one classification, every surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HaltCause {
+    /// A gating state deliberately waiting for a human decision.
+    Gate,
+    /// A live `**Assignee:**`; the scheduler never schedules a claimed ticket.
+    Claimed { assignee: String },
+    /// An unsatisfied `**Prior:**`, already formatted as `Task <id> (<state>)`.
+    BlockedByPrior { prior: String },
+    /// Manual-only initial state: `rhei run` must not advance it.
+    ManualOnly { to: String },
+    /// Non-terminal with no declared outgoing transition to take.
+    NoTransition,
+    /// None of the above — work was possible and the ticket is still here.
+    Stalled,
+}
+
+impl HaltCause {
+    /// The reason and the next action, for the report table and the halt
+    /// diagnostics. Both name concrete commands wherever one exists.
+    fn describe(&self, id: &str, state: &str) -> (String, String) {
+        match self {
+            HaltCause::Gate => (
+                "gating state awaiting review".to_string(),
+                "transition manually when reviewed".to_string(),
+            ),
+            HaltCause::Claimed { assignee } => (
+                format!("claimed by {assignee}"),
+                format!(
+                    "`rhei release {id}` to hand it back, or `rhei complete {id} --result …` \
+                     to finish it"
+                ),
+            ),
+            HaltCause::BlockedByPrior { prior } => (
+                format!("waiting on {prior}"),
+                "finish the prior first".to_string(),
+            ),
+            HaltCause::ManualOnly { to } => (
+                format!("manual-only initial state '{state}' with terminal transition to '{to}'"),
+                format!("`rhei next` to claim, do the work, then `rhei complete {id} --result …`"),
+            ),
+            HaltCause::NoTransition => (
+                format!("no forward transition available from '{state}'"),
+                "declare a transition out of this state, or cancel the ticket".to_string(),
+            ),
+            HaltCause::Stalled => (
+                if state.is_empty() {
+                    "no forward transition available".to_string()
+                } else {
+                    format!("stalled in non-terminal state {state}")
+                },
+                "inspect logs or mark the task cancelled".to_string(),
+            ),
+        }
+    }
+
+    /// Whether this cause is a deliberate pause rather than something wrong.
+    /// A gate is the plan working as authored; the rest need a human to act.
+    fn is_deliberate_pause(&self) -> bool {
+        matches!(self, HaltCause::Gate)
+    }
+}
+
+/// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
+/// the run actually spawned work for, whose failure is the ordinary stalled
+/// case rather than a scheduling one.
+fn classify_halt(
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    state_map: &std::collections::HashMap<&TaskId, String>,
+    scope: &RheiScope,
+    worked: bool,
+) -> HaltCause {
+    let machine = machines.for_task(&task.id);
+    let state = normalized_state_name(task.state.as_str(), machine);
+    if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
+        return HaltCause::Gate;
+    }
+    // A claim outranks a prior: releasing it is the one action that unblocks
+    // the scheduler, and a claimed ticket is skipped before priors are read.
+    if let Some(assignee) = task.assignee.as_deref() {
+        return HaltCause::Claimed { assignee: assignee.to_string() };
+    }
+    if let Some(prior) = first_blocking_prior(task, state_map, machines, scope) {
+        return HaltCause::BlockedByPrior { prior };
+    }
+    if let Ok(Some(to)) = manual_initial_terminal_transition(task, rhei, machine) {
+        return HaltCause::ManualOnly { to };
+    }
+    if worked {
+        return HaltCause::Stalled;
+    }
+    match find_next_transition(task, rhei, machine) {
+        Ok(None) => HaltCause::NoTransition,
+        _ => HaltCause::Stalled,
+    }
+}
+
+/// Every in-scope, non-terminal leaf ticket with why it is not moving, in plan
+/// order — the shared basis for the run's halt diagnostics and the report.
+///
+/// `worked` reports whether the run actually spawned an invocation for a
+/// ticket; those failed at their work rather than at scheduling, so they keep
+/// the generic stalled reading.
+// §FS-rhei-run-report.3.1
+fn classify_halted_tasks<'a>(
+    rhei: &'a rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+    worked: &dyn Fn(&str) -> bool,
+) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
+    let mut all = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all);
+    let state_map = plan_state_map(&all, machines);
+    all.iter()
+        .copied()
+        .filter(|task| task.children.is_empty())
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
+        .map(|task| {
+            let cause =
+                classify_halt(task, rhei, machines, &state_map, scope, worked(&task.id.to_string()));
+            (task, cause)
+        })
+        .collect()
+}
+
+/// One `Task <id> (<state>): <reason> — <next action>` line per halted ticket,
+/// plus whether any of them needs a human to act — which is what makes a run,
+/// real or dry, end non-zero. The caller emits the lines through its own run
+/// journal.
+// §FS-rhei-run.4
+fn halted_task_report(
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+) -> (Vec<String>, bool) {
+    let mut lines = Vec::new();
+    let mut needs_human = false;
+    for (task, cause) in classify_halted_tasks(rhei, machines, scope, &|_| false) {
+        let machine = machines.for_task(&task.id);
+        let state = normalized_state_name(task.state.as_str(), machine);
+        let id = task.id.to_string();
+        let (reason, next) = cause.describe(&id, &state);
+        lines.push(format!("Task {id} ({state}): {reason} \u{2014} {next}"));
+        if !cause.is_deliberate_pause() {
+            needs_human = true;
+        }
+    }
+    (lines, needs_human)
+}
+
 fn shell_quote(value: &str) -> String {
     if value.is_empty() {
         return "''".to_string();

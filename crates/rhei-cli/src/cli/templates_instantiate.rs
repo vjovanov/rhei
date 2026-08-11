@@ -50,10 +50,16 @@
         // looks, so no command listed it. §FS-rhei-templates.6.2
         let default_output =
             enclosing_project_for_new_rhei(&cwd).unwrap_or(cwd).join(template_name);
+        let explicit_output = output.is_some();
         let output_dir = output.map(Path::to_path_buf).unwrap_or(default_output);
 
         if !dry_run && output_dir.exists() {
-            return Err(miette!("output path '{}' already exists", output_dir.display()));
+            return Err(instantiate_output_exists_error(
+                &output_dir,
+                template,
+                &template_input_args,
+                explicit_output,
+            ));
         }
 
         let scratch = if dry_run {
@@ -670,4 +676,69 @@
             return value.to_string();
         }
         format!("'{}'", value.replace('\'', "'\"'\"'"))
+    }
+
+    /// The error for `rhei instantiate` when the output directory is taken.
+    ///
+    /// Instantiating the same template twice is the ordinary way to review two
+    /// specs, audit two subjects, or run two release checklists, and it is the
+    /// most likely second thing anyone does with a template. The bare
+    /// `output path '…' already exists` was a dead end at exactly that moment:
+    /// it named no fix, and the reason the collision happens — the default
+    /// output directory is the template's own name, and a rhei's id *is* its
+    /// directory name — is invisible from the message.
+    // §FS-rhei-templates.6.2
+    fn instantiate_output_exists_error(
+        output_dir: &Path,
+        template: &str,
+        input_args: &[String],
+        explicit_output: bool,
+    ) -> Report {
+        if explicit_output {
+            return miette!(
+                "output path '{}' already exists. Pass a `--output` path that does not exist \
+                 yet, or remove that directory first.",
+                output_dir.display()
+            );
+        }
+        let suggestion = relative_to_cwd(&next_free_sibling(output_dir));
+        let args = input_args
+            .iter()
+            .map(|arg| shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let args = if args.is_empty() { String::new() } else { format!(" {args}") };
+        miette!(
+            "'{}' already exists, so template '{}' has already been instantiated here under \
+             that name. A second copy needs its own directory, because the directory name \
+             becomes the rhei id every one of its ticket ids is prefixed with. Name it for \
+             what it is about:\n  rhei instantiate {}{} --output {}",
+            output_dir.display(),
+            template,
+            template,
+            args,
+            suggestion.display()
+        )
+    }
+
+    /// The first `<name>-<n>` beside `path` that nothing occupies, as a
+    /// copy-pasteable starting point when the caller has no better name.
+    fn next_free_sibling(path: &Path) -> PathBuf {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return path.to_path_buf();
+        };
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        (2u32..100)
+            .map(|n| parent.join(format!("{name}-{n}")))
+            .find(|candidate| !candidate.exists())
+            .unwrap_or_else(|| parent.join(format!("{name}-copy")))
+    }
+
+    /// `path` written relative to the working directory when it sits beneath
+    /// it, so a suggested command is short enough to read and paste.
+    fn relative_to_cwd(path: &Path) -> PathBuf {
+        std::env::current_dir()
+            .ok()
+            .and_then(|cwd| path.strip_prefix(cwd).ok().map(Path::to_path_buf))
+            .unwrap_or_else(|| path.to_path_buf())
     }

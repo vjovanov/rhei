@@ -30,7 +30,10 @@ mod json;
 mod progress;
 
 pub use github::{to_github_markdown, GithubIssuesOutput};
-pub use json::{to_json_string_pretty, to_json_value, JsonOutput};
+pub use json::{
+    to_json_string_pretty, to_json_string_pretty_with_rheis, to_json_value,
+    to_json_value_with_rheis, JsonOutput, RheiMachine,
+};
 pub use progress::{to_progress_report, ProgressReportOutput};
 
 /// Plan output generator trait for structured outputs.

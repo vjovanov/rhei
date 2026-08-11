@@ -1454,6 +1454,10 @@ fn run_agent_mode(
     // Manual-only tasks reported by a dry run; the command still exits
     // non-zero once the scan is complete. §FS-rhei-run.4
     let mut manual_only_dry_run: Vec<String> = Vec::new();
+    // Set when the pass loop found nothing to schedule and at least one
+    // remaining ticket needs a human, so a dry run ends the way the real run
+    // does. §FS-rhei-run.4
+    let mut halted_needs_human = false;
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
     if rhei_scope.is_some() {
@@ -1495,6 +1499,20 @@ fn run_agent_mode(
                     std::thread::sleep(Duration::from_secs(sleep_secs));
                     continue;
                 }
+            }
+            // Nothing schedulable on the first pass: without this the loop
+            // exits having explained nothing, and a dry run reported success
+            // on a project the real run halts on. §FS-rhei-run.4
+            if pass == 0 {
+                let (lines, needs_human) =
+                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope);
+                if !lines.is_empty() {
+                    run_info!("\nNothing to schedule. Why each remaining ticket is not moving:");
+                    for line in &lines {
+                        run_info!("  {line}");
+                    }
+                }
+                halted_needs_human = needs_human;
             }
             break;
         }
@@ -3344,6 +3362,11 @@ fn run_agent_mode(
         run_info!("\nDry run complete - no agents were spawned.");
         if !manual_only_dry_run.is_empty() {
             return Err(manual_only_dry_run_error(&manual_only_dry_run));
+        }
+        // The real run halts here; so must the prediction of it.
+        // §FS-rhei-run.4
+        if halted_needs_human {
+            return Err(dry_run_halt_error());
         }
         (0usize, 0usize)
     } else if agents_spawned == 0 && programs_spawned == 0 {

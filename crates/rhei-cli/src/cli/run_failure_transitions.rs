@@ -293,6 +293,21 @@ fn manual_only_dry_run_error(reported: &[String]) -> miette::Report {
     )
 }
 
+/// The error a dry run ends with when it found nothing to schedule and the
+/// remaining tickets need a human.
+///
+/// The per-ticket causes were streamed above. The exit status matters as much
+/// as the lines: a dry run that reported success while `rhei run` on the same
+/// state halts is not a prediction, and the difference showed up as a wedged
+/// queue nobody was warned about.
+// §FS-rhei-run.4
+fn dry_run_halt_error() -> miette::Report {
+    miette!(
+        "`rhei run` would halt here: nothing is schedulable and the tickets reported above \
+         need a human. This is the same outcome the real run reaches."
+    )
+}
+
 fn format_state_counts(rhei: &rhei_core::ast::Rhei) -> String {
     let mut counts = BTreeMap::<&str, usize>::new();
     let mut tasks = Vec::new();

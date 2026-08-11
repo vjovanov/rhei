@@ -518,8 +518,18 @@ transitions: []
         )
         .expect("parse should succeed");
 
-        let rendered =
-            render_rhei(&rhei, BTreeSet::new(), false, RenderFormat::Json, true, false, false, false).expect("render ok");
+        let rendered = render_rhei(
+            &rhei,
+            BTreeSet::new(),
+            false,
+            Vec::new(),
+            RenderFormat::Json,
+            true,
+            false,
+            false,
+            false,
+        )
+        .expect("render ok");
 
         assert!(rendered.contains("\"title\": \"Smoke\""));
         assert!(rendered.contains("\"tasks\""));

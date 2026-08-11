@@ -241,22 +241,44 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
     let mut seen_ids: HashMap<String, PathBuf> = HashMap::new();
     let entries = discover_rhei_entries(dir)?;
     for entry in entries {
-        let id = rhei_id_for_entry(&entry)?;
-        validate_rhei_id(&id, &entry)?;
-        if id == BASIN_RHEI_ID {
-            return Err(basin_id_reserved_error(&entry));
+        // An unusable *id* — malformed, reserved, or already taken — keeps an
+        // entry out of the project exactly as a parse failure does, so a
+        // lenient load skips it the same way. §FS-rhei-panta.6
+        let id = match rhei_id_for_entry(&entry) {
+            Ok(id) => id,
+            Err(err) if lenient => {
+                unloadable.push(format!(
+                    "{} could not be loaded: {}",
+                    entry.display(),
+                    err.message
+                ));
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
+        let id_conflict = match validate_rhei_id(&id, &entry) {
+            Ok(()) if id == BASIN_RHEI_ID => Some(basin_id_reserved_error(&entry)),
+            Ok(()) => seen_ids.get(&id).map(|first| {
+                ParseError::new(
+                    format!(
+                        "duplicate rhei id '{id}' in Panta project: derived from both {} and {}. \
+                         Rename one of them — the id comes from the file stem or directory name",
+                        first.display(),
+                        entry.display()
+                    ),
+                    None,
+                )
+            }),
+            Err(err) => Some(err),
+        };
+        if let Some(err) = id_conflict {
+            if !lenient {
+                return Err(err);
+            }
+            unloadable.push(format!("rhei '{id}' could not be loaded: {}", err.message));
+            continue;
         }
-        if let Some(first) = seen_ids.insert(id.clone(), entry.clone()) {
-            return Err(ParseError::new(
-                format!(
-                    "duplicate rhei id '{id}' in Panta project: derived from both {} and {}. \
-                     Rename one of them — the id comes from the file stem or directory name",
-                    first.display(),
-                    entry.display()
-                ),
-                None,
-            ));
-        }
+        seen_ids.insert(id.clone(), entry.clone());
         let root = rhei_execution_root(&entry);
         // A rhei's own `**States:**` declaration is recorded, not policed:
         // the machine is a per-rhei property defaulted by the manifest.

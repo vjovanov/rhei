@@ -106,6 +106,38 @@ The commands that coordinate through the state machine:
 
 Ticket ids in command output are project-qualified — `<rhei-id>.<task-id>`, e.g. `plan.1` for a single-file `plan.rhei.md` — and `rhei list` accepts the same `--rhei <id>` narrowing as `run`, `next`, and `reset` (§FS-rhei-panta.6).
 
+#### Naming a ticket
+
+Every command that acts on one ticket accepts it the same two ways: as the
+first positional argument (`rhei complete auth.1`, `rhei release auth.1`,
+`rhei transition auth.1 --from …`) or through `--task`. The positional slot on
+these commands is a *ticket or plan*: an argument that names an existing path
+is the plan, and an id-shaped argument that names no path is the ticket, with
+the plan resolved from the working directory as usual (§FS-rhei-complete.2.1).
+`--task` always names the ticket, which leaves the positional free to name the
+plan for a caller that wants to be explicit about both.
+
+One shape across the family matters more than the shape chosen. These commands
+are used in sequence on the same ticket — claim it, advance it, finish it, or
+hand it back — and a caller that has just typed `rhei complete auth.1` has no
+way to guess that `rhei release auth.1` is a path error rather than the same
+gesture. `rhei next` is the exception that proves the rule: it *selects* a
+ticket rather than being given one, so it has no ticket argument at all.
+
+#### Output streams
+
+Human-readable output, machine formats (`--json`, `--format json`), and the
+rendered documents all go to stdout; diagnostics and warnings go to stderr, so
+`rhei list 2>/dev/null` is a clean ticket listing even when a rhei fails to
+load (§FS-rhei-panta.6).
+
+A consumer may stop reading stdout before a command finishes writing it —
+`rhei list | head`, `rhei states | grep -q`, quitting a pager. That is normal
+shell usage, not a failure: the command stops writing and exits without a
+panic, a stack trace, or a diagnostic, exactly as `ls | head` does. Reporting
+an internal error there would make every pipeline into `head` look like a bug
+in the plan.
+
 The `rhei snapshot` family includes `list`, `show`, `gc`, and `continue`.
 `rhei run --from-snapshot` is the run-time override surface for ad-hoc
 snapshot debugging; its constraints are specified in

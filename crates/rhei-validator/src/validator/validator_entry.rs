@@ -69,13 +69,15 @@ impl MachineSet {
         self.per_rhei.get(rhei_id).unwrap_or(&self.default)
     }
 
-    /// Every distinct machine in the set (by name), default first.
+    /// Every distinct machine in the set, default first. Distinctness is
+    /// content identity, not name: two same-named machines that differ in any
+    /// field are two machines. [`StateMachine::fingerprint`] explains why.
     pub fn distinct(&self) -> Vec<&StateMachine> {
-        let mut seen: HashSet<&str> = HashSet::new();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut out = vec![&self.default];
-        seen.insert(self.default.name.as_str());
+        seen.insert(self.default.fingerprint());
         for machine in self.per_rhei.values() {
-            if seen.insert(machine.name.as_str()) {
+            if seen.insert(machine.fingerprint()) {
                 out.push(machine);
             }
         }

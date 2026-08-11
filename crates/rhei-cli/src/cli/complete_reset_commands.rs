@@ -1,36 +1,77 @@
-/// Split `rhei complete`'s positional between the two things it can name:
-/// a plan path or the ticket id itself.
+/// Split the `<TICKET_OR_PLAN>` positional shared by every command that acts
+/// on a single ticket between the two things it can name: a plan path or the
+/// ticket id itself.
+///
+/// Returns the plan target (if one was named) and the ticket (if one was
+/// resolved). A caller that requires a ticket reports its own absence, because
+/// the sentence that helps depends on the command.
+// §FS-rhei-usage.2: one ticket-argument shape across the command family.
+fn split_ticket_target(
+    input: Option<PathBuf>,
+    task: Option<String>,
+) -> MietteResult<(Option<PathBuf>, Option<String>)> {
+    // With --task present the positional is the plan path — legacy behavior.
+    if let Some(task) = task {
+        return Ok((input, Some(task)));
+    }
+    let Some(positional) = input else {
+        return Ok((None, None));
+    };
+    // An existing path wins over id shape, so a plan named like an id never
+    // silently selects a ticket. §FS-rhei-complete.2.1
+    if positional.exists() {
+        return Ok((Some(positional), None));
+    }
+    let raw = positional.to_string_lossy();
+    if is_ticket_id_shaped(&raw) {
+        return Ok((None, Some(raw.into_owned())));
+    }
+    Err(miette!("plan '{}' does not exist", positional.display()))
+}
+
+/// Split `rhei complete`'s positional, where the ticket is mandatory.
 // §FS-rhei-complete.2.1: `rhei complete auth.1 --result "…"` works as pasted.
 fn split_complete_ticket_target(
     input: Option<PathBuf>,
     task: Option<String>,
 ) -> MietteResult<(Option<PathBuf>, String)> {
-    // With --task present the positional is the plan path — legacy behavior.
-    if let Some(task) = task {
-        return Ok((input, task));
-    }
-    let Some(positional) = input else {
-        return Err(miette!(
-            "name the ticket to complete: `rhei complete <ticket-id> --result <message>` \
-             (or `--task <ticket-id>`)"
-        ));
-    };
-    // An existing path wins over id shape, so a plan named like an id never
-    // silently completes a ticket. §FS-rhei-complete.2.1
-    if positional.exists() {
-        return Err(miette!(
+    match split_ticket_target(input, task)? {
+        (plan, Some(task)) => Ok((plan, task)),
+        (Some(plan), None) => Err(miette!(
             "'{}' is a plan path; name the ticket too: \
              `rhei complete <ticket-id> --result <message>` \
              (or `rhei complete {} --task <ticket-id> --result <message>`)",
-            positional.display(),
-            positional.display(),
-        ));
+            plan.display(),
+            plan.display(),
+        )),
+        (None, None) => Err(miette!(
+            "name the ticket to complete: `rhei complete <ticket-id> --result <message>` \
+             (or `--task <ticket-id>`)"
+        )),
     }
-    let raw = positional.to_string_lossy();
-    if is_ticket_id_shaped(&raw) {
-        return Ok((None, raw.into_owned()));
+}
+
+/// Split `rhei transition`'s positional, where the ticket is mandatory.
+/// §FS-rhei-transition-cmd.1
+fn split_transition_ticket_target(
+    input: Option<PathBuf>,
+    task: Option<String>,
+) -> MietteResult<(Option<PathBuf>, String)> {
+    match split_ticket_target(input, task)? {
+        (plan, Some(task)) => Ok((plan, task)),
+        (Some(plan), None) => Err(miette!(
+            "'{}' is a plan path; name the ticket too: \
+             `rhei transition <ticket-id> --from <state> --to <state>` \
+             (or `rhei transition {} --task <ticket-id> --from <state> --to <state>`)",
+            plan.display(),
+            plan.display(),
+        )),
+        (None, None) => Err(miette!(
+            "name the ticket to transition: \
+             `rhei transition <ticket-id> --from <state> --to <state>` \
+             (or `--task <ticket-id>`)"
+        )),
     }
-    Err(miette!("plan '{}' does not exist", positional.display()))
 }
 
 /// Whether `raw` has the shape of a ticket id (`3`, `auth.1`): dot-separated
@@ -205,7 +246,7 @@ fn reset_command(
     report_panta_scope_narrowed(&loaded, "reset", &scope);
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machines = resolved.validator_set();
-    let reset_summary = reset_initial_summary(&loaded.rhei, &machines)?;
+    let reset_summary = reset_initial_summary(&loaded.rhei, &machines, &scope)?;
 
     fn count_nodes(task: &rhei_core::ast::Task) -> usize {
         1 + task.children.iter().map(count_nodes).sum::<usize>()
@@ -625,6 +666,7 @@ fn prune_transition_ledger(root: &Path, task_ids: &BTreeSet<String>) -> MietteRe
 fn reset_initial_summary(
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
 ) -> MietteResult<String> {
     fn collect(
         task: &rhei_core::ast::Task,
@@ -639,7 +681,13 @@ fn reset_initial_summary(
     }
 
     let mut states = BTreeSet::new();
+    // Only the states this invocation will actually write: a narrowed reset
+    // that summarized every machine's initial state named states no in-scope
+    // ticket can reach. §FS-rhei-reset.2.1
     for task in &rhei.tasks {
+        if !task_in_rhei_scope(scope, &task.id.to_string()) {
+            continue;
+        }
         collect(task, machines.for_task(&task.id), &mut states)?;
     }
 

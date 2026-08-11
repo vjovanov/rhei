@@ -173,7 +173,56 @@ fn is_bare_invocation() -> bool {
     std::env::args_os().count() <= 1
 }
 
+/// Conventional status for a process that stopped because a pipe consumer
+/// closed early: `128 + SIGPIPE`, the same value the shell reports for
+/// `yes | head`.
+const EXIT_BROKEN_PIPE: i32 = 141;
+
+/// Leave a pipeline quietly when the consumer stops reading, instead of
+/// surfacing an internal error.
+///
+/// Rust ignores `SIGPIPE` before `main`, so a closed stdout comes back as an
+/// `EPIPE` write error and `println!` panics on it — `rhei list | head` exited
+/// 101 with a stack trace. This intercepts exactly that panic and exits the way
+/// a Unix filter killed by the signal does.
+///
+/// Restoring `SIGPIPE` to `SIG_DFL` process-wide would be the shorter fix and
+/// is the wrong one: this CLI writes to pipes it owns — a callback
+/// subprocess's stdin, an agent's — and there the write returning `EPIPE` is
+/// how a child that exited early gets *reported*. Under `SIG_DFL` those writes
+/// killed `rhei` mid-diagnostic instead, so a transition that should have
+/// failed with an explanation failed with empty stderr.
+// §FS-rhei-usage.2: an early-closed stdout is normal shell usage, not a failure.
+fn install_quiet_broken_pipe_exit() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if is_broken_pipe_panic(info) {
+            std::process::exit(EXIT_BROKEN_PIPE);
+        }
+        previous(info);
+    }));
+}
+
+/// Whether a panic is the standard library's "failed printing to stdout"
+/// broken-pipe panic, rather than a real bug.
+///
+/// Matched on the payload text because that is all the standard library
+/// exposes: the panic carries no typed error. Both halves must match, so a
+/// panic that merely mentions a broken pipe in some other context still
+/// reports normally.
+fn is_broken_pipe_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
+    let payload = info.payload();
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied());
+    message.is_some_and(|message| {
+        message.starts_with("failed printing to std") && message.contains("Broken pipe")
+    })
+}
+
 fn main() {
+    install_quiet_broken_pipe_exit();
     install_diagnostic_handler();
     CompleteEnv::with_factory(cli_command).bin("rhei").complete();
 
@@ -274,8 +323,8 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                 no_content,
             )
         }
-        Commands::States { input, json, state_machine } => {
-            states_command(input, state_machine.or(before_subcommand).as_deref(), json)
+        Commands::States { input, rhei, json, state_machine } => {
+            states_command(input, state_machine.or(before_subcommand).as_deref(), &rhei, json)
         }
         Commands::List {
             input,
@@ -321,6 +370,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             )
         }
         Commands::Transition { input, task, from, to, no_callbacks, state_machine } => {
+            let (input, task) = split_transition_ticket_target(input, task)?;
             let target = resolve_plan_target(input)?;
             transition_command(
                 target.path(),
@@ -410,6 +460,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             )
         }
         Commands::Release { input, task, all, rhei, dry_run, state_machine } => {
+            let (input, task) = split_ticket_target(input, task)?;
             let target = resolve_plan_target(input)?;
             release_command(
                 target.path(),
