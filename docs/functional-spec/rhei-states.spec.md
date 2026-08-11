@@ -457,6 +457,21 @@ states:
           name: implementation
 ```
 
+A handoff artifact path is resolved under the **source** state's execution
+identity, not the successor's. Artifact paths may template `{model}`,
+`{agent}`, `{agent.mode}`, `{target}`, `{target.slug}`, and
+`{model.provider}`, and those belong to the invocation that wrote the file — a
+`review` state on one model inheriting from an `implement` state on another
+must not look under its own model's path. When the source state fans out over
+`all_models` or `all_targets`, each declared identity is tried in declaration
+order and the first artifact with content wins.
+
+An artifact that exists but is empty counts as **no handoff**. The `outputs:`
+contract is existence-only, so an agent that creates its handoff file and
+writes nothing would otherwise hand its successor silence indistinguishable
+from success; under `required: true` that is an error naming every path that
+was tried.
+
 `merge: all` injects every matching handoff artifact from the previous state in
 that state's output declaration order. Each inherited source state renders as
 its own prompt section:

@@ -340,6 +340,94 @@ fn last_recorded_source_state_for_current(
     Ok(found)
 }
 
+/// Resolve one handoff artifact path under a single execution identity.
+fn resolve_source_handoff_path(
+    render_context: &RuntimeTemplateContext<'_>,
+    artifact: &rhei_validator::StateArtifactDef,
+    source_state: &str,
+    visit_count: Option<u64>,
+    identity: &TransitionInvocationContext<'_>,
+) -> (String, PathBuf) {
+    let (target, model, model_provider, model_name, agent, agent_mode) = *identity;
+    resolve_artifact_path(
+        render_context.workspace_root,
+        artifact,
+        &render_context.task.id.to_string(),
+        source_state,
+        visit_count,
+        target,
+        model,
+        model_provider,
+        model_name,
+        agent,
+        agent_mode,
+    )
+}
+
+/// Every path the source state's handoff artifact could occupy, for the error
+/// message when none of them holds content.
+fn source_handoff_candidate_paths(
+    render_context: &RuntimeTemplateContext<'_>,
+    source_def: &rhei_validator::StateDef,
+    artifact: &rhei_validator::StateArtifactDef,
+    source_state: &str,
+    visit_count: Option<u64>,
+) -> Vec<String> {
+    transition_contexts_for_state(source_def, &[])
+        .iter()
+        .map(|identity| {
+            let (_, path) = resolve_source_handoff_path(
+                render_context,
+                artifact,
+                source_state,
+                visit_count,
+                identity,
+            );
+            format!("  {}", path.display())
+        })
+        .collect()
+}
+
+/// Read a source state's handoff artifact, returning its trimmed content.
+///
+/// The path is resolved under the identities the **source** state declares,
+/// not the successor's: a handoff path may template `{model}`, `{agent}`, or
+/// `{target}`, and those belong to the invocation that wrote the file. A state
+/// that fans out over `all_models` leaves one artifact per model, so each
+/// candidate is tried in declaration order.
+///
+/// An empty artifact counts as no handoff. The `outputs:` contract is
+/// existence-only, so an agent that creates the file and writes nothing would
+/// otherwise hand its successor silence that looks exactly like success.
+// §FS-rhei-states.3.2: a handoff resolves under the source state's identity.
+fn read_source_state_handoff(
+    render_context: &RuntimeTemplateContext<'_>,
+    source_def: &rhei_validator::StateDef,
+    artifact: &rhei_validator::StateArtifactDef,
+    source_state: &str,
+    visit_count: Option<u64>,
+) -> MietteResult<Option<String>> {
+    for identity in transition_contexts_for_state(source_def, &[]) {
+        let (_, path) = resolve_source_handoff_path(
+            render_context,
+            artifact,
+            source_state,
+            visit_count,
+            &identity,
+        );
+        if !path.exists() {
+            continue;
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|err| file_io_report(&path, "failed to read state handoff", err))?;
+        if content.trim().is_empty() {
+            continue;
+        }
+        return Ok(Some(content.trim().to_string()));
+    }
+    Ok(None)
+}
+
 fn resolve_state_handoff_sections(
     render_context: &RuntimeTemplateContext<'_>,
 ) -> MietteResult<Vec<PromptHandoffSection>> {
@@ -415,40 +503,34 @@ fn resolve_state_handoff_sections(
                 &source_state,
                 render_context.machine,
             ));
-            let (_, path) = resolve_artifact_path(
-                render_context.workspace_root,
+            let Some(content) = read_source_state_handoff(
+                render_context,
+                source_def,
                 artifact,
-                &render_context.task.id.to_string(),
                 &source_state,
                 source_visit_count,
-                render_context.target,
-                render_context.model,
-                render_context.model_provider,
-                render_context.model_name,
-                render_context.agent,
-                render_context.agent_mode,
-            );
-            if !path.exists() {
+            )?
+            else {
                 if inherit.required {
                     return Err(miette!(
-                        "state '{}' requires handoff '{}' from previous state '{}', but '{}' does not exist",
+                        "state '{}' requires handoff '{}' from previous state '{}', but no \
+                         handoff artifact with content was found. Looked for:\n{}",
                         render_context.state_name,
                         artifact.name,
                         source_state,
-                        path.display()
+                        source_handoff_candidate_paths(
+                            render_context,
+                            source_def,
+                            artifact,
+                            &source_state,
+                            source_visit_count,
+                        )
+                        .join("\n")
                     ));
                 }
                 continue;
-            }
-            let content = fs::read_to_string(&path)
-                .map_err(|err| file_io_report(&path, "failed to read state handoff", err))?;
-            if content.trim().is_empty() {
-                continue;
-            }
-            sections.push(PromptHandoffSection {
-                source_state: source_state.clone(),
-                content: content.trim().to_string(),
-            });
+            };
+            sections.push(PromptHandoffSection { source_state: source_state.clone(), content });
         }
     }
     Ok(sections)

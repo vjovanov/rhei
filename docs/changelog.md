@@ -42,6 +42,19 @@
   by a test rather than by review. PR #64
   §FS-rhei-errors.1 §FS-rhei-errors.2 §FS-rhei-errors.3.1 §FS-rhei-errors.4
   §FS-rhei-errors.5 §FS-rhei-errors.6 §FS-rhei-templates.3.1
+- Fix three ways a state handoff could go missing or take the run down with it.
+  A handoff artifact path that templates the execution identity (`{model}`,
+  `{agent}`, `{target.slug}`) resolved under the *successor's* identity, so a
+  handoff between states on different models looked for a file the producer
+  never wrote; it now resolves under each identity the source state declares.
+  An artifact that exists but is empty now counts as no handoff — `outputs:` is
+  an existence contract, so an agent could satisfy it with a zero-byte file and
+  hand its successor silence that looked exactly like success. And a prompt
+  that cannot be composed now fails its own task instead of the whole pass,
+  matching the required-tooling gate: `--continue-on-error` moves on to the
+  next task, and without it the run still aborts. PR #49
+  §FS-rhei-states.3.2 §FS-rhei-run.3
+
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
   template that splits a discussion into points, collects proposals and
   disagreements, and resolves each one carried the one name in the library

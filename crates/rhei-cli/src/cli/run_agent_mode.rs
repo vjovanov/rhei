@@ -56,6 +56,10 @@ enum ParallelAgentSpawnOutcome {
     Spawned(ParallelAgentSpawned),
     Advanced,
     Skipped,
+    /// The task's prompt could not be composed and the run was told to carry
+    /// on. It must not be scheduled again, or every later pass retries it.
+    // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
+    Unpromptable(String),
 }
 
 struct ParallelProgramSpawned {
@@ -465,7 +469,19 @@ fn spawn_parallel_agent_work_item(
         agent_mode: item.resolved.mode.as_deref(),
         tooling: Some(&tooling),
     };
-    let prompt = compose_agent_prompt(&render_context)?;
+    // Failing the pass would take every healthy sibling down with it.
+    // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
+    let prompt = match compose_agent_prompt(&render_context) {
+        Ok(prompt) => prompt,
+        Err(err) => {
+            let message = format!("Task {} cannot be prompted: {err}", item.task_id_str);
+            emit_run_message(sink, rhei_tui::MessageLevel::Error, format!("  error: {message}"));
+            if !opts.continue_on_error() {
+                return Err(err);
+            }
+            return Ok(ParallelAgentSpawnOutcome::Unpromptable(item.task_id_str.clone()));
+        }
+    };
     let visit_count = render_visit_count(
         loaded.rhei.metadata.as_ref(),
         &task.id,
@@ -807,6 +823,7 @@ struct ParallelScheduleOutcome {
 fn schedule_agent_work_items(
     items: Vec<AgentWorkItem>,
     max_new_tasks: usize,
+    unpromptable: &mut HashSet<String>,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
     input: &Path,
     machines: &ExecutionMachines,
@@ -870,6 +887,10 @@ fn schedule_agent_work_items(
             }
             ParallelAgentSpawnOutcome::Skipped => {
                 free_slots.insert(slot);
+            }
+            ParallelAgentSpawnOutcome::Unpromptable(task_id) => {
+                free_slots.insert(slot);
+                unpromptable.insert(task_id);
             }
         }
     }
@@ -966,6 +987,7 @@ fn release_parallel_worker(
 
 #[allow(clippy::too_many_arguments)]
 fn refill_parallel_worker_pool(
+    unpromptable: &mut HashSet<String>,
     pass: u32,
     task_limit: usize,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
@@ -984,7 +1006,7 @@ fn refill_parallel_worker_pool(
     handles: &mut Vec<std::thread::JoinHandle<()>>,
 ) -> MietteResult<ParallelScheduleOutcome> {
     // Program and agent work share live capacity.
-    // Each completion reloads the ready set. §FS-rhei-run.5 §FS-rhei-programs.6.3
+    // Each completion reloads the ready set. §FS-rhei-run.3 §FS-rhei-programs.6.3
     let task_capacity = if task_limit == usize::MAX {
         usize::MAX
     } else {
@@ -1085,6 +1107,7 @@ fn refill_parallel_worker_pool(
     let agent_outcome = schedule_agent_work_items(
         agent_items,
         task_capacity,
+        unpromptable,
         tx,
         input,
         machines,
@@ -1467,6 +1490,10 @@ fn run_agent_mode(
     // remaining ticket needs a human, so a dry run ends the way the real run
     // does. §FS-rhei-run.4
     let mut halted_needs_human = false;
+    // Left in the ready set, these would be re-picked every pass and the run
+    // would never reach their siblings.
+    // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
+    let mut unpromptable_tasks: HashSet<String> = HashSet::new();
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
     if rhei_scope.is_some() {
@@ -2130,6 +2157,9 @@ fn run_agent_mode(
             let mut state_claimant: HashMap<String, String> = HashMap::new();
             let mut deferred: BTreeSet<String> = BTreeSet::new();
             for entry in agent_tasks {
+                if unpromptable_tasks.contains(&entry.0) {
+                    continue;
+                }
                 let is_concurrent = machines
                     .for_task_str(&entry.0)
                     .states
@@ -2324,7 +2354,20 @@ fn run_agent_mode(
                 agent_mode: resolved.mode.as_deref(),
                 tooling: Some(&tooling),
             };
-            let prompt = compose_agent_prompt(&render_context)?;
+            // Same contract as the parallel scheduler: an uncomposable prompt
+            // fails its own task, not the whole run. §FS-rhei-run.3
+            let prompt = match compose_agent_prompt(&render_context) {
+                Ok(prompt) => prompt,
+                Err(err) => {
+                    run_error!("  error: Task {task_id_str} cannot be prompted: {err}");
+                    if !opts.continue_on_error() {
+                        return Err(err);
+                    }
+                    unpromptable_tasks.insert(task_id_str.clone());
+                    sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
+                    continue;
+                }
+            };
             let visit_count = render_visit_count(
                 loaded.rhei.metadata.as_ref(),
                 &task.id,
@@ -2787,7 +2830,7 @@ fn run_agent_mode(
         } else {
             // Parallel worker pool: each worker reports completion over a
             // channel, and the scheduler refills freed capacity after every
-            // processed result. Re-reading the plan preserves dependency checks. §FS-rhei-run.5
+            // processed result. Re-reading the plan preserves dependency checks. §FS-rhei-run.3
             let (tx, rx) = std::sync::mpsc::channel::<ParallelAgentThreadMessage>();
             let mut handles = Vec::new();
             let mut free_slots: BTreeSet<rhei_tui::Slot> = (0..frontend_parallel).collect();
@@ -2840,6 +2883,7 @@ fn run_agent_mode(
             let schedule_outcome = schedule_agent_work_items(
                 initial_items,
                 agent_capacity,
+                &mut unpromptable_tasks,
                 &tx,
                 input,
                 machines,
@@ -2886,6 +2930,7 @@ fn run_agent_mode(
                         }
                         advanced_any |= effect.advanced;
                         let refill_outcome = refill_parallel_worker_pool(
+                            &mut unpromptable_tasks,
                             pass,
                             task_limit,
                             &tx,
@@ -3342,6 +3387,7 @@ fn run_agent_mode(
                 }
 
                 let refill_outcome = refill_parallel_worker_pool(
+                    &mut unpromptable_tasks,
                     pass,
                     task_limit,
                     &tx,
