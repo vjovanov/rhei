@@ -9,17 +9,10 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
         out.push_str(&format!("Models: {}\n", machine.models.join(", ")));
     }
     if !machine.prompt_templates.is_empty() {
-        out.push_str("Prompt templates:\n");
-        for (name, template) in &machine.prompt_templates {
-            let mut fields = Vec::new();
-            if template.personality.is_some() {
-                fields.push("personality");
-            }
-            if template.instructions.is_some() {
-                fields.push("instructions");
-            }
-            out.push_str(&format!("  {name}: {}\n", fields.join(", ")));
-        }
+        out.push_str(&format!(
+            "Prompt templates: {}\n",
+            machine.prompt_templates.keys().cloned().collect::<Vec<_>>().join(", ")
+        ));
     }
     if let Some(profiles) = machine.profiles.as_ref() {
         out.push_str("Profiles:\n");
@@ -1115,7 +1108,7 @@ fn print_validation_report(warnings: &[String]) {
 
 /// Watch the plan and states files and re-run validation on relevant changes.
 fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
-    let watch_plan = validation_watch_plan(input, state_machine);
+    let mut watch_plan = validation_watch_plan(input, state_machine);
 
     println!(
         "Watch mode started for '{}' (states: {})",
@@ -1135,14 +1128,8 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
         "failed to initialize file watcher: {err}"
     ))?;
 
-    for root in &watch_plan.roots {
-        watcher
-            .watch(&root.path, root.mode)
-            .map_err(|err| miette!(
-                help = watch_help(),
-                "failed to watch '{}': {err}", root.path.display()
-            ))?;
-    }
+    let mut watched = Vec::new();
+    register_watch_roots(&mut watcher, &watch_plan.roots, &mut watched)?;
 
     run_validation_pass(input, state_machine);
 
@@ -1167,7 +1154,32 @@ fn watch_validation_command(input: &Path, state_machine: Option<&Path>) -> Miett
 
         println!("--- change detected, revalidating ---");
         run_validation_pass(input, state_machine);
+
+        // `prompt_templates/` is optional, so the initial plan may have had no
+        // directory to watch recursively. Re-plan after every pass: once the
+        // author creates it, the next pass picks up edits to the files inside
+        // instead of watching a directory that no longer describes the tree.
+        watch_plan = validation_watch_plan(input, state_machine);
+        register_watch_roots(&mut watcher, &watch_plan.roots, &mut watched)?;
     }
+}
+
+/// Watch every planned root that is not already being watched.
+fn register_watch_roots(
+    watcher: &mut RecommendedWatcher,
+    roots: &[WatchRoot],
+    watched: &mut Vec<WatchRoot>,
+) -> MietteResult<()> {
+    for root in roots {
+        if watched.contains(root) {
+            continue;
+        }
+        watcher.watch(&root.path, root.mode).map_err(|err| {
+            miette!(help = watch_help(), "failed to watch '{}': {err}", root.path.display())
+        })?;
+        watched.push(root.clone());
+    }
+    Ok(())
 }
 
 /// Run one validation pass in watch mode, writing any failure to stderr.
@@ -1294,7 +1306,7 @@ fn validation_watch_plan(input: &Path, state_machine: Option<&Path>) -> Validati
     };
     targets.push(WatchTarget::Exact(canonical_watch_path(&watched_state_machine_path)));
     targets.push(WatchTarget::OptionalDescendant(canonical_watch_path(
-        &prompt_templates_dir_for_state_machine_path(&watched_state_machine_path),
+        &rhei_validator::prompt_templates_dir(&watched_state_machine_path),
     )));
 
     let mut roots = Vec::new();
@@ -1352,18 +1364,12 @@ fn watch_auto_state_machine_path(input: &Path) -> PathBuf {
     }
 }
 
-fn prompt_templates_dir_for_state_machine_path(path: &Path) -> PathBuf {
-    path.parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("prompt_templates")
-}
-
 #[cfg(test)]
 fn canonical_watched_paths(input: &Path, state_machine: &Path) -> Vec<WatchTarget> {
     let mut targets = plan_watch_targets(input);
     targets.push(WatchTarget::Exact(canonical_watch_path(state_machine)));
     targets.push(WatchTarget::OptionalDescendant(canonical_watch_path(
-        &prompt_templates_dir_for_state_machine_path(state_machine),
+        &rhei_validator::prompt_templates_dir(state_machine),
     )));
     targets
 }

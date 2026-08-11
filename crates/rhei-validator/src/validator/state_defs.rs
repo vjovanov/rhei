@@ -99,15 +99,16 @@ pub struct StateDef {
 }
 
 /// Reusable agent prompt defined at the state-machine level.
+///
+/// One `prompt_templates/<id>.md` file is one of these: the whole Markdown body
+/// is the reusable instruction text. There is no personality counterpart —
+/// a Markdown file has nowhere to declare one — so role framing stays a
+/// per-state `personality` field.
 // §FS-rhei-states.4.4: Prompt templates provide reusable prompt fragments.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PromptTemplateDef {
-    /// Optional reusable persona/instructions that frame how an agent approaches work.
-    #[serde(default)]
-    pub personality: Option<String>,
-    /// Optional reusable agent-facing instructions.
-    #[serde(default)]
-    pub instructions: Option<String>,
+    /// Reusable agent-facing instructions: the Markdown file's contents.
+    pub instructions: String,
 }
 
 /// Per-state reference to a reusable prompt template.

@@ -16,6 +16,7 @@
 include!("validator/preamble.rs");
 include!("validator/state_defs.rs");
 include!("validator/state_machine_impl.rs");
+include!("validator/state_machine_prompt_templates.rs");
 include!("validator/state_machine_snapshots.rs");
 include!("validator/state_machine_runtime_validation.rs");
 include!("validator/state_machine_profiles.rs");
@@ -31,4 +32,5 @@ mod tests {
     include!("validator/tests_profiles.rs");
     include!("validator/tests_poll.rs");
     include!("validator/tests_snapshots.rs");
+    include!("validator/tests_prompt_templates.rs");
 }

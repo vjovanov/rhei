@@ -615,6 +615,9 @@ Resolution rules:
   both `prompt_template` and inline text, the selected template text is emitted
   first and the inline state text is appended after a blank line. This lets a
   template provide shared guidance while a state adds local detail.
+- A prompt template contributes instructions only. A Markdown file has nowhere
+  to declare role framing, so `personality` stays a per-state field and is never
+  taken from a template.
 - Conditional tags (`{if ...}`, `{else}`, `{endif}`) are control syntax, not
   prompt-template placeholders. Runtime variables should be passed through
   `values`, not written directly in reusable prompt-template text.
