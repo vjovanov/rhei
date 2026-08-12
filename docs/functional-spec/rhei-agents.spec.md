@@ -643,7 +643,15 @@ Under `orchestrator` authority, `rhei run`:
    - Verify every required output artifact exists.
    - If any is missing, the task stays in its current state and the engine
      logs `warning: agent exited 0 but required outputs are missing for task
-     {id} in state '{state}': <name1>, <name2>`. No transition fires.
+     {id} in state '{state}': <name1> (<path1>), <name2> (<path2>)`. No
+     transition fires.
+   - Each entry names the artifact and the **resolved** path that was checked,
+     so a stale or mis-templated path is visible without re-deriving it. When a
+     resolved path still contains an unresolved `{...}` template, the entry is
+     suffixed with ` (unresolved template)` — the path template referenced a
+     variable outside the namespace in
+     [Variable Namespace](rhei-states.spec.md#41-variable-namespace), which is
+     left verbatim by design.
    - Otherwise, evaluate forward transitions in normal selection order and
      execute the first match.
 

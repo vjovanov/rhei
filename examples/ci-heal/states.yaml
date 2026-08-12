@@ -32,7 +32,7 @@ states:
     program:
       command: ".rhei/gh-ci-status.sh"
       env:
-        BRANCH: "{task.metadata.branch}"
+        BRANCH: "{meta.branch}"
         REPORT_PATH: "{output.ci-report.path}"
     program_timeout: 1m
     poll:
@@ -40,7 +40,7 @@ states:
       max_attempts: 30
     outputs:
       - name: ci-report
-        path: "runtime/ci-report/{task.id}.json"
+        path: "runtime/ci-report/{task_id}.json"
 
   analyze-and-fix:
     description: Read the CI report, apply the smallest fix that addresses the first failing job.
@@ -52,26 +52,35 @@ states:
     visits: 5
     instructions: |
       The CI report at {input.ci-report.path} lists failing jobs on branch
-      {task.metadata.branch}. Diagnose the first failing job, make the
+      {meta.branch}. Diagnose the first failing job, make the
       smallest change that fixes it, run the relevant tests locally if
       possible, and write a short summary of what you changed to
       {output.fix-summary.path}. Do not commit or push — the next state
       handles that deterministically. Exit 0 on success.
     inputs:
       - name: ci-report
-        path: "runtime/ci-report/{task.id}.json"
+        path: "runtime/ci-report/{task_id}.json"
     outputs:
       - name: fix-summary
-        path: "runtime/fix-summary/{task.id}.{visit}.md"
+        path: "runtime/fix-summary/{task_id}.{visit_count}.md"
 
   push-fix:
     description: Commit the fix and push to the branch under observation.
+    # `visits` must match analyze-and-fix. {visit_count} is scoped per state and
+    # resolves to 1 in any state that omits `visits`, so without this the
+    # fix-summary path below would pin to `.1.md` on every cycle instead of
+    # tracking the outer loop. Same pattern as the review/fix pair in
+    # §FS-rhei-states.4.2.
+    visits: 5
     program:
       command: ".rhei/commit-and-push.sh"
       env:
-        BRANCH: "{task.metadata.branch}"
-        SUMMARY_PATH: "runtime/fix-summary/{task.id}.{visit}.md"
+        BRANCH: "{meta.branch}"
+        SUMMARY_PATH: "{input.fix-summary.path}"
     program_timeout: 5m
+    inputs:
+      - name: fix-summary
+        path: "runtime/fix-summary/{task_id}.{visit_count}.md"
 
   heal-done:
     description: CI is green; the branch is healed.

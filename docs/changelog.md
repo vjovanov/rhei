@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Name the resolved path when required outputs are missing, and fix the
+  `ci-heal` example that made the gap costly. The warning after a zero-exit
+  with missing outputs listed artifact names only — `…: report` — while the
+  resolved path sat unused in the same function, so a path that resolved
+  somewhere unexpected read as a false negative. Each entry is now
+  `name (resolved/path)`, and a path still holding a `{...}` template is marked
+  `unresolved template`, which points straight at the cause. The cause was
+  shipped in-tree: `examples/ci-heal` used `{task.id}`, `{visit}`, and
+  `{task.metadata.branch}` — the shape of the callback JSON context object, not
+  the template namespace — so paths resolved to literal `{task.id}.json` and the
+  `BRANCH` env var handed to both program states was the string
+  `{task.metadata.branch}`. Path resolution leaves unknown variables verbatim by
+  design, and nothing else caught it, so the example validated clean. The
+  example now uses `{task_id}`, `{visit_count}`, and `{meta.branch}`; its
+  `branch` metadata moved from the task body, where nothing parses it, into the
+  plan's `metadata:` block; and `push-fix` declares the `visits: 5` it needs to
+  read a per-visit artifact, since `{visit_count}` is per-state and falls back
+  to `1` wherever `visits` is absent. Issue #66
+  §FS-rhei-agents.3.2.1 §FS-rhei-states.4.1 §FS-rhei-states.4.2
 - Give every failing `rhei` command a next action. Errors now carry a `help:`
   line with a runnable command; missing template inputs are reported all at once
   with a suggestion that echoes the arguments already supplied; unknown
