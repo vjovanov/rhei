@@ -632,13 +632,17 @@ fn rewrite_task_completion(
     Ok(())
 }
 
-/// Get the instructions text for a given state from the state machine.
+/// Get the effective instructions text for a state from reusable and inline prompts.
+// §FS-rhei-states.4.4: Template prompt text is emitted before inline state text.
 fn state_instructions(machine: &rhei_validator::StateMachine, state: &str) -> String {
     machine
         .states
         .get(state)
-        .and_then(|def| def.instructions.as_deref())
-        .unwrap_or("")
-        .trim()
-        .to_string()
+        .and_then(|def| machine.effective_instructions(def))
+        .unwrap_or_default()
+}
+
+/// Get the effective personality text for a state.
+fn state_personality(machine: &rhei_validator::StateMachine, state: &str) -> Option<String> {
+    machine.effective_personality(machine.states.get(state)?)
 }

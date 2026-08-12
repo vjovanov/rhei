@@ -5,18 +5,37 @@ impl StateMachine {
     }
 
     /// Load a StateMachine from YAML string contents.
+    ///
+    /// Prompt templates are read from a directory beside `states.yaml`, so a
+    /// machine parsed from a string always has an empty template map; use
+    /// [`Self::from_yaml_file`] when states select a `prompt_template`.
     pub fn from_yaml_str(yaml: &str) -> Result<Self, StateMachineLoadError> {
-        reject_explicit_empty_all_targets(yaml)?;
-        let sm: Self = serde_yaml::from_str(yaml)?;
-        sm.validate_model_configuration()?;
-        sm.validate_program_configuration()?;
-        sm.validate_snapshot_configuration()?;
-        sm.validate_tooling_configuration()?;
-        sm.validate_template_conditions()?;
-        sm.validate_poll_configuration()?;
-        sm.validate_profiles_and_node_policy()?;
-        sm.validate_terminal_state_present()?;
-        Ok(sm)
+        Self::parse_unvalidated(yaml)?.validate()
+    }
+
+    /// Parse and run the pre-deserialization rejections shared by every entry
+    /// point, without validating. Both loaders funnel through here so a new
+    /// check cannot be added to one and silently skipped by the other.
+    fn parse_unvalidated(yaml: &str) -> Result<Self, StateMachineLoadError> {
+        // One raw parse feeds every check that has to see the YAML as written
+        // rather than as serde collapsed it.
+        let raw: serde_yaml::Value = serde_yaml::from_str(yaml)?;
+        reject_explicit_empty_all_targets(&raw)?;
+        reject_inline_prompt_templates(&raw)?;
+        Ok(serde_yaml::from_str(yaml)?)
+    }
+
+    fn validate(self) -> Result<Self, StateMachineLoadError> {
+        self.validate_model_configuration()?;
+        self.validate_prompt_templates()?;
+        self.validate_program_configuration()?;
+        self.validate_snapshot_configuration()?;
+        self.validate_tooling_configuration()?;
+        self.validate_template_conditions()?;
+        self.validate_poll_configuration()?;
+        self.validate_profiles_and_node_policy()?;
+        self.validate_terminal_state_present()?;
+        Ok(self)
     }
 
     /// Reject state machines that declare zero terminal states. Without one,
@@ -63,10 +82,16 @@ impl StateMachine {
         profiles.get(policy.root.as_str())
     }
 
-    /// Load a StateMachine from a file path.
+    /// Load a StateMachine from a file path, including the reusable prompt
+    /// templates in its sibling `prompt_templates/` directory.
+    // §FS-rhei-states.4.4: prompt files load with the state machine.
     pub fn from_yaml_file<P: AsRef<Path>>(path: P) -> Result<Self, StateMachineLoadError> {
+        let path = path.as_ref();
         let text = std::fs::read_to_string(path)?;
-        Self::from_yaml_str(&text)
+        let mut sm = Self::parse_unvalidated(&text)?;
+        reject_legacy_prompt_templates_file(path)?;
+        sm.prompt_templates = load_prompt_templates_dir(&prompt_templates_dir(path))?;
+        sm.validate()
     }
 
     /// Returns true if `state` is among the allowed states.
@@ -276,12 +301,13 @@ impl StateMachine {
 
 }
 
-fn reject_explicit_empty_all_targets(yaml: &str) -> Result<(), StateMachineLoadError> {
+fn reject_explicit_empty_all_targets(
+    raw: &serde_yaml::Value,
+) -> Result<(), StateMachineLoadError> {
     // `all_targets` carries `#[serde(default)]`, so serde collapses missing
-    // and explicit-empty into the same empty Vec. Re-parse the raw YAML to
+    // and explicit-empty into the same empty Vec. Inspect the raw YAML to
     // distinguish them and reject `all_targets: []` as authoring sugar that
     // most likely means "I intended to list targets here and forgot."
-    let raw: serde_yaml::Value = serde_yaml::from_str(yaml)?;
     let Some(states) = raw.get("states").and_then(serde_yaml::Value::as_mapping) else {
         return Ok(());
     };

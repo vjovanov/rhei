@@ -117,6 +117,9 @@ focused parts under `crates/rhei-validator/src/validator/`:
   machine declarations.
 - `state_machine_impl` contains `StateMachine` loading, core accessors, and
   model/target validation.
+- `state_machine_prompt_templates` contains reusable prompt template loading,
+  placeholder substitution, effective-prompt composition, and prompt-template
+  validation.
 - `state_machine_snapshots` contains snapshot emit/inherit validation.
 - `state_machine_runtime_validation` contains program, poll, and tooling
   validation.

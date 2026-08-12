@@ -519,7 +519,7 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
             MachineState {
                 name: name.clone(),
                 description: def.description.clone(),
-                instructions: def.instructions.clone(),
+                instructions: machine.effective_instructions(def),
                 visits: def.visits,
                 initial: initials.contains(name),
                 terminal: def.terminal,
