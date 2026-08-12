@@ -785,6 +785,13 @@ fn qualify_task(task: &mut Task, rhei_id: &str, local_ids: &HashSet<TaskId>) {
             *prior = qualify_local_id(prior, rhei_id);
         }
     }
+    // A consumed export names a task, so it qualifies exactly as a prior does.
+    // §FS-rhei-plan-language.3.12
+    for consumed in &mut task.consumes {
+        if local_ids.contains(&consumed.task) || !is_cross_rhei_reference(&consumed.task) {
+            consumed.task = qualify_local_id(&consumed.task, rhei_id);
+        }
+    }
     for child in &mut task.children {
         qualify_task(child, rhei_id, local_ids);
     }

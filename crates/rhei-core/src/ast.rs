@@ -192,6 +192,18 @@ impl Structure {
     }
 }
 
+/// One `**Consumes:** <task-id>:<name>` reference: the task that publishes the
+/// export, and the export's name in that task's `**Provides:**`.
+// §FS-rhei-plan-language.3.12: Exports flow along the dependency graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumedExport {
+    /// Task that publishes the export, as authored (qualified on load for a
+    /// Panta project, exactly as `prior` references are).
+    pub task: TaskId,
+    /// Export name, matching an entry in the producing task's `**Provides:**`.
+    pub name: String,
+}
+
 /// A single node in the task tree.
 ///
 /// Every authored `### Task <id>: ...`, `#### Task <id>: ...`, or equivalent
@@ -219,6 +231,14 @@ pub struct Task {
     /// authored so errors can quote the source.
     // §FS-rhei-plan-language.3.1: validated against the referenced node's kind.
     pub prior_kinds: Vec<Option<String>>,
+    /// Export names this task publishes, from `**Provides:**`, in the order
+    /// they were authored.
+    // §FS-rhei-plan-language.3.12: Task exports are a plan-level handoff.
+    pub provides: Vec<String>,
+    /// Exports this task reads from prior tasks, from `**Consumes:**`, in the
+    /// order they were authored.
+    // §FS-rhei-plan-language.3.12: Task exports are a plan-level handoff.
+    pub consumes: Vec<ConsumedExport>,
     /// Assignee value captured from the optional `**Assignee:**` metadata
     /// field. `None` when the field is absent.
     pub assignee: Option<String>,

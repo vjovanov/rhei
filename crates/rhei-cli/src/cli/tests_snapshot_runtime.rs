@@ -375,6 +375,8 @@ transitions:
             state: "pending".to_string(),
             prior: Vec::new(),
             prior_kinds: Vec::new(),
+            provides: Vec::new(),
+            consumes: Vec::new(),
             assignee: None,
             model: None,
             target: None,

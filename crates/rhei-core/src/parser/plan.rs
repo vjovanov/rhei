@@ -1,4 +1,6 @@
-use crate::ast::{ContentSection, Metadata, Rhei, Structure, Task, MAX_ALLOWED_LEVELS};
+use crate::ast::{
+    ConsumedExport, ContentSection, Metadata, Rhei, Structure, Task, MAX_ALLOWED_LEVELS,
+};
 use crate::text::parse_task_id;
 use regex::Regex;
 
@@ -23,6 +25,14 @@ pub fn parse(input: &str) -> Result<Rhei> {
     let re_prior_ref =
         Regex::new(&format!(r#"^(?:([A-Za-z][A-Za-z0-9_-]*)\s+)?({task_id_pattern})$"#)).unwrap();
     let re_prior_like = Regex::new(r#"^\*\*Prior\b.*$"#).unwrap();
+    // Export names key a file on disk, so they are restricted to what is safe
+    // in a path segment. §FS-rhei-plan-language.3.12
+    let export_name_pattern = r#"[A-Za-z0-9][A-Za-z0-9._-]*"#;
+    let re_export_name = Regex::new(&format!(r#"^{export_name_pattern}$"#)).unwrap();
+    let re_consumes_ref =
+        Regex::new(&format!(r#"^({task_id_pattern}):({export_name_pattern})$"#)).unwrap();
+    let re_provides_like = Regex::new(r#"^\*\*Provides\b.*$"#).unwrap();
+    let re_consumes_like = Regex::new(r#"^\*\*Consumes\b.*$"#).unwrap();
     let re_assignee = Regex::new(r#"^\*\*Assignee:\*\*\s*(.+)$"#).unwrap();
     let re_assignee_like = Regex::new(r#"^\*\*Assignee\b.*$"#).unwrap();
     let re_model = Regex::new(r#"^\*\*Model:\*\*\s*(.+)$"#).unwrap();
@@ -323,6 +333,8 @@ pub fn parse(input: &str) -> Result<Rhei> {
                 state: None,
                 prior: Vec::new(),
                 prior_kinds: Vec::new(),
+                provides: Vec::new(),
+                consumes: Vec::new(),
                 assignee: None,
                 model: None,
                 target: None,
@@ -439,6 +451,162 @@ pub fn parse(input: &str) -> Result<Rhei> {
             if node_stack.last().is_some() {
                 return Err(ParseError::new(
                     "Malformed metadata field: expected '**Prior:** Task <id>'",
+                    Some(line_number),
+                ));
+            }
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        // **Provides:** metadata — export names this task publishes.
+        // §FS-rhei-plan-language.3.12
+        if line.starts_with("**Provides:**") {
+            let Some(top) = node_stack.last_mut() else {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
+            };
+            if top.metadata_closed {
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
+            }
+            if top.state.is_none() {
+                return Err(ParseError::new(
+                    format!("**State:** must appear before **Provides:** for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            let mut names = Vec::new();
+            for item in line.strip_prefix("**Provides:**").unwrap_or_default().split(',') {
+                let item = item.trim();
+                if item.is_empty() {
+                    continue;
+                }
+                if !re_export_name.is_match(item) {
+                    return Err(ParseError::new(
+                        format!(
+                            "Malformed **Provides:** name '{item}': an export name starts with \
+                             a letter or digit and continues with letters, digits, '.', '_', or \
+                             '-' (`**Provides:** api-contract`); separate several with commas"
+                        ),
+                        Some(line_number),
+                    ));
+                }
+                // A repeated name would make the export ambiguous to name in a
+                // consumer, and one of the two writers always loses.
+                if names.iter().any(|seen| seen == item) || top.provides.iter().any(|s| s == item) {
+                    return Err(ParseError::new(
+                        format!(
+                            "Task {} provides '{item}' more than once; drop the duplicate",
+                            top.id
+                        ),
+                        Some(line_number),
+                    ));
+                }
+                names.push(item.to_string());
+            }
+            if names.is_empty() {
+                return Err(ParseError::new(
+                    "Empty **Provides:** field: name at least one export, or drop the line",
+                    Some(line_number),
+                ));
+            }
+            top.provides.extend(names);
+            continue;
+        }
+
+        if re_provides_like.is_match(line) {
+            if node_stack.last().is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Provides:** <export-name>'",
+                    Some(line_number),
+                ));
+            }
+            return Err(ParseError::new(
+                "Metadata field appears outside a task",
+                Some(line_number),
+            ));
+        }
+
+        // **Consumes:** metadata — exports this task reads from prior tasks.
+        // §FS-rhei-plan-language.3.12
+        if line.starts_with("**Consumes:**") {
+            let Some(top) = node_stack.last_mut() else {
+                return Err(ParseError::new(
+                    "Metadata field appears outside a task",
+                    Some(line_number),
+                ));
+            };
+            if top.metadata_closed {
+                return Err(ParseError::new(
+                    "Metadata fields must appear immediately after the task heading before task content",
+                    Some(line_number),
+                ));
+            }
+            if top.state.is_none() {
+                return Err(ParseError::new(
+                    format!("**State:** must appear before **Consumes:** for Task {}", top.id),
+                    Some(line_number),
+                ));
+            }
+            let mut refs = Vec::new();
+            for item in line.strip_prefix("**Consumes:**").unwrap_or_default().split(',') {
+                let item = item.trim();
+                if item.is_empty() {
+                    continue;
+                }
+                let Some(caps) = re_consumes_ref.captures(item) else {
+                    return Err(ParseError::new(
+                        format!(
+                            "Malformed **Consumes:** reference '{item}': expected \
+                             '<task-id>:<export-name>' (`**Consumes:** auth.1:api-contract`); \
+                             separate several with commas"
+                        ),
+                        Some(line_number),
+                    ));
+                };
+                let Some(task) = caps.get(1).and_then(|m| parse_task_id(m.as_str())) else {
+                    return Err(ParseError::new(
+                        format!(
+                            "Malformed **Consumes:** reference '{item}': '{}' is not a valid task id",
+                            caps.get(1).map(|m| m.as_str()).unwrap_or(item)
+                        ),
+                        Some(line_number),
+                    ));
+                };
+                let name = caps.get(2).unwrap().as_str().to_string();
+                if refs.iter().any(|prev: &ConsumedExport| prev.task == task && prev.name == name)
+                    || top.consumes.iter().any(|prev| prev.task == task && prev.name == name)
+                {
+                    return Err(ParseError::new(
+                        format!(
+                            "Task {} consumes '{item}' more than once; drop the duplicate",
+                            top.id
+                        ),
+                        Some(line_number),
+                    ));
+                }
+                refs.push(ConsumedExport { task, name });
+            }
+            if refs.is_empty() {
+                return Err(ParseError::new(
+                    "Empty **Consumes:** field: name at least one export, or drop the line",
+                    Some(line_number),
+                ));
+            }
+            top.consumes.extend(refs);
+            continue;
+        }
+
+        if re_consumes_like.is_match(line) {
+            if node_stack.last().is_some() {
+                return Err(ParseError::new(
+                    "Malformed metadata field: expected '**Consumes:** <task-id>:<export-name>'",
                     Some(line_number),
                 ));
             }
@@ -594,9 +762,9 @@ pub fn parse(input: &str) -> Result<Rhei> {
                     return Err(ParseError::new(
                         format!(
                             "Unknown metadata field '**{field}:**' for Task {}. Task metadata \
-                             is one of **State:**, **Prior:**, **Assignee:**, **Model:**, \
-                             **Target:**. Leave a blank line before this line to keep it as \
-                             task content.",
+                             is one of **State:**, **Prior:**, **Provides:**, **Consumes:**, \
+                             **Assignee:**, **Model:**, **Target:**. Leave a blank line before \
+                             this line to keep it as task content.",
                             top.id
                         ),
                         Some(line_number),

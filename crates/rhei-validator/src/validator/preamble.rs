@@ -103,6 +103,11 @@ pub struct StateArtifactDef {
     pub name: String,
     /// Workspace-relative artifact path template.
     pub path: String,
+    /// Optional artifact role. `handoff` marks an output artifact as
+    /// same-task state handoff prompt context.
+    // §FS-rhei-states.3.2: Handoff artifacts are output artifact roles.
+    #[serde(default)]
+    pub kind: Option<String>,
     /// Optional human-readable description of the artifact.
     #[serde(default)]
     pub description: Option<String>,

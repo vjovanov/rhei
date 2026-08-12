@@ -572,6 +572,7 @@ transitions:
         .expect("machine should parse");
         let task = &rhei.tasks[0];
         let context = RuntimeTemplateContext {
+            task_roots: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace"),
@@ -591,7 +592,7 @@ transitions:
             tooling: None,
         };
 
-        let prompt = compose_agent_prompt(&context);
+        let prompt = compose_agent_prompt(&context).expect("prompt");
 
         // New Rhei Commands section replaces Workflow Notes.
         assert!(prompt.contains("## Rhei Commands"));
@@ -632,6 +633,7 @@ states:
         )
         .expect("machine should parse");
         let context = RuntimeTemplateContext {
+            task_roots: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace"),
@@ -751,4 +753,320 @@ states:
             "the --skills default in cli_declarations.rs and the skills embedded from \
              crates/rhei-cli/skills/ have drifted apart"
         );
+    }
+
+    /// Build a machine whose `implement` state writes a handoff at `path` and
+    /// whose `review` state requires it.
+    fn handoff_machine(
+        models: &str,
+        implement_state: &str,
+        path: &str,
+    ) -> rhei_validator::StateMachine {
+        rhei_validator::StateMachine::from_yaml_str(&format!(
+            r#"
+name: handoff
+version: 1
+{models}
+states:
+  implement:
+    description: implement
+    initial: true
+{implement_state}
+    outputs:
+      - name: implementation
+        kind: handoff
+        path: {path}
+  review:
+    description: review
+    instructions: Review it.
+    handoff:
+      inherit:
+        - from: transition.previous
+          required: true
+  done:
+    description: done
+    final: true
+transitions:
+  - from: implement
+    to: review
+  - from: review
+    to: done
+"#
+        ))
+        .expect("machine should parse")
+    }
+
+    fn handoff_plan() -> rhei_core::ast::Rhei {
+        rhei_core::parse(
+            r#"# Rhei: Handoff
+
+## Tasks
+
+### Task 1: Ship it
+**State:** review
+"#,
+        )
+        .expect("plan should parse")
+    }
+
+    fn handoff_context<'a>(
+        workspace: &'a Path,
+        rhei: &'a rhei_core::ast::Rhei,
+        machine: &'a rhei_validator::StateMachine,
+        model: Option<&'a str>,
+    ) -> RuntimeTemplateContext<'a> {
+        RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace,
+            checkout_root: workspace,
+            plan_path: workspace,
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task: &rhei.tasks[0],
+            state_name: "review",
+            current_state_raw: "review",
+            machine,
+            metadata: None,
+            target: None,
+            model,
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        }
+    }
+
+    fn record_transition(workspace: &Path, line: &str) {
+        let runtime = workspace.join("runtime");
+        std::fs::create_dir_all(&runtime).expect("mkdir runtime");
+        std::fs::write(runtime.join("state-transitions.log"), format!("{line}\n"))
+            .expect("write ledger");
+    }
+
+    /// A handoff path that templates the execution identity belongs to the
+    /// state that *wrote* it. Resolving `{model}` with the successor's model
+    /// looks for a file the producer never wrote. §FS-rhei-states.3.2
+    #[test]
+    fn state_handoff_resolves_under_the_source_states_model() {
+        let rhei = handoff_plan();
+        let machine = handoff_machine(
+            "models:\n  - producer-model\n  - consumer-model",
+            "    model: producer-model",
+            "runtime/handoffs/{task_id}/{state}/{model}/impl.md",
+        );
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        record_transition(workspace.path(), "1 implement@review");
+        let artifact =
+            workspace.path().join("runtime/handoffs/1/implement/producer-model/impl.md");
+        std::fs::create_dir_all(artifact.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&artifact, "Parser rewritten; tests green.\n").expect("write handoff");
+
+        // The successor runs on a different model than the producer did.
+        let context =
+            handoff_context(workspace.path(), &rhei, &machine, Some("consumer-model"));
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+
+        assert!(prompt.contains("## Handoff from implement"), "{prompt}");
+        assert!(prompt.contains("Parser rewritten; tests green."), "{prompt}");
+    }
+
+    /// `outputs:` is an existence contract, so an agent can satisfy it with an
+    /// empty file. A required handoff must not accept that as context.
+    /// §FS-rhei-states.3.2
+    #[test]
+    fn required_state_handoff_rejects_an_empty_artifact() {
+        let rhei = handoff_plan();
+        let machine = handoff_machine("", "", "runtime/handoffs/{task_id}/{state}/impl.md");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        record_transition(workspace.path(), "1 implement@review");
+        let artifact = workspace.path().join("runtime/handoffs/1/implement/impl.md");
+        std::fs::create_dir_all(artifact.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&artifact, "   \n\n").expect("write empty handoff");
+
+        let context = handoff_context(workspace.path(), &rhei, &machine, None);
+        let err = compose_agent_prompt(&context).expect_err("empty handoff should fail");
+        let message = format!("{err:?}");
+
+        assert!(message.contains("no handoff artifact with content"), "{message}");
+        assert!(message.contains("impl.md"), "error should name what it looked for: {message}");
+    }
+
+    /// `transition.previous` reads the central ledger, which is where state
+    /// history lives. §FS-rhei-complete.3.1
+    #[test]
+    fn state_handoff_reads_the_source_state_from_the_transition_ledger() {
+        let rhei = handoff_plan();
+        let machine = handoff_machine("", "", "runtime/handoffs/{task_id}/{state}/impl.md");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let artifact = workspace.path().join("runtime/handoffs/1/implement/impl.md");
+        std::fs::create_dir_all(artifact.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&artifact, "notes\n").expect("write handoff");
+
+        // No ledger entry yet: nothing records how the task reached `review`.
+        let context = handoff_context(workspace.path(), &rhei, &machine, None);
+        let err = compose_agent_prompt(&context).expect_err("no recorded transition");
+        // Match a fragment short enough to survive miette's line wrapping.
+        assert!(
+            format!("{err:?}").contains("transition into this state was recorded"),
+            "{err:?}"
+        );
+
+        // The last entry naming `review` as its destination picks the source.
+        let runtime = workspace.path().join("runtime");
+        std::fs::write(
+            runtime.join("state-transitions.log"),
+            "1 pending@implement\n1 implement@review\n",
+        )
+        .expect("write ledger");
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+        assert!(prompt.contains("## Handoff from implement"), "{prompt}");
+        assert!(prompt.contains("notes"), "{prompt}");
+    }
+
+    /// A consumed export reaches the agent as prompt context, and the exports
+    /// this task publishes are named with the path the agent must write.
+    /// §FS-rhei-agents.3.1
+    #[test]
+    fn compose_agent_prompt_carries_task_exports() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Exports
+
+## Tasks
+
+### Task 1: Design the API
+**State:** done
+**Provides:** api-contract
+
+### Task 2: Implement the client
+**State:** review
+**Prior:** Task 1
+**Consumes:** 1:api-contract
+**Provides:** client-notes
+"#,
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: exports
+version: 1
+states:
+  review:
+    description: review
+    instructions: Implement it.
+    initial: true
+  done:
+    description: done
+    final: true
+transitions:
+  - from: review
+    to: done
+"#,
+        )
+        .expect("machine should parse");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let export = workspace.path().join("runtime/exports/1/api-contract.md");
+        std::fs::create_dir_all(export.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&export, "POST /v1/session returns a token.\n").expect("write export");
+
+        let task = &rhei.tasks[1];
+        let context = RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace.path(),
+            checkout_root: workspace.path(),
+            plan_path: workspace.path(),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "review",
+            current_state_raw: "review",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+
+        assert!(prompt.contains("## Consumed Exports"), "{prompt}");
+        assert!(prompt.contains("### api-contract from Task 1"), "{prompt}");
+        assert!(prompt.contains("POST /v1/session returns a token."), "{prompt}");
+        assert!(prompt.contains("## Exports to Publish"), "{prompt}");
+        assert!(prompt.contains("`runtime/exports/2/client-notes.md`"), "{prompt}");
+    }
+
+    /// An export a prior task never wrote is skipped, not raised: enforcement
+    /// belongs to a validator, and a missing file must not block the spawn.
+    #[test]
+    fn compose_agent_prompt_skips_an_unwritten_export() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Exports
+
+## Tasks
+
+### Task 1: Design the API
+**State:** review
+**Provides:** api-contract
+
+### Task 2: Implement the client
+**State:** review
+**Prior:** Task 1
+**Consumes:** 1:api-contract
+"#,
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: exports
+version: 1
+states:
+  review:
+    description: review
+    instructions: Implement it.
+    initial: true
+  done:
+    description: done
+    final: true
+transitions:
+  - from: review
+    to: done
+"#,
+        )
+        .expect("machine should parse");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let task = &rhei.tasks[1];
+        let context = RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace.path(),
+            checkout_root: workspace.path(),
+            plan_path: workspace.path(),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "review",
+            current_state_raw: "review",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+
+        assert!(!prompt.contains("## Consumed Exports"), "{prompt}");
     }

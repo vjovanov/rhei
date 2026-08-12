@@ -42,6 +42,33 @@
   by a test rather than by review. PR #64
   §FS-rhei-errors.1 §FS-rhei-errors.2 §FS-rhei-errors.3.1 §FS-rhei-errors.4
   §FS-rhei-errors.5 §FS-rhei-errors.6 §FS-rhei-templates.3.1
+- Fix three ways a state handoff could go missing or take the run down with it.
+  A handoff artifact path that templates the execution identity (`{model}`,
+  `{agent}`, `{target.slug}`) resolved under the *successor's* identity, so a
+  handoff between states on different models looked for a file the producer
+  never wrote; it now resolves under each identity the source state declares.
+  An artifact that exists but is empty now counts as no handoff — `outputs:` is
+  an existence contract, so an agent could satisfy it with a zero-byte file and
+  hand its successor silence that looked exactly like success. And a prompt
+  that cannot be composed now fails its own task instead of the whole pass,
+  matching the required-tooling gate: `--continue-on-error` moves on to the
+  next task, and without it the run still aborts. PR #49
+  §FS-rhei-states.3.2 §FS-rhei-run.3
+- Hand work product between tasks with `**Provides:**` and `**Consumes:**`. A
+  task publishes a named export (`**Provides:** api-contract`), a dependent
+  task reads it (`**Consumes:** auth.1:api-contract`), and Rhei injects the
+  content into the consuming agent's prompt while telling the producing agent
+  the path to write. Exports live at `runtime/exports/<task-id>/<name>.md`
+  under the owning rhei's execution root, so a cross-rhei prior's export
+  resolves where that rhei keeps it. This is a plan-level handoff on purpose:
+  the dependency graph orders it, so producer and consumer need not share a
+  state machine or a workflow phase — unlike state handoffs, which carry notes
+  between the states of one task and are declared in `states.yaml`. Nothing
+  validates the pairing yet: a `**Consumes:**` reference with no matching
+  `**Provides:**`, a producer that is not a prior, and a declared export that
+  was never written all read as a missing file and are silently skipped.
+  PR #49 §FS-rhei-plan-language.3.12 §FS-rhei-agents.3
+
 - Rename the `multi-agent-deliberation` template to `agora`. The built-in
   template that splits a discussion into points, collects proposals and
   disagreements, and resolves each one carried the one name in the library

@@ -663,6 +663,7 @@ states:
         assert_eq!(gate.tooling.skills.len(), 1);
 
         let render_context = RuntimeTemplateContext {
+            task_roots: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace/plan.rhei.md"),
@@ -681,7 +682,7 @@ states:
             agent_mode: None,
             tooling: Some(&gate.tooling),
         };
-        let prompt = compose_agent_prompt(&render_context);
+        let prompt = compose_agent_prompt(&render_context).expect("prompt");
         assert!(prompt.contains("mcp=false skill=false"), "{prompt}");
 
         let runtime_dir = tempfile::tempdir().expect("tmpdir");

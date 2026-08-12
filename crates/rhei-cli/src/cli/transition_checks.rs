@@ -183,7 +183,7 @@ fn transition_command(
         no_callbacks,
     )?;
 
-    append_result_entry(&route.execution_root, task_id_str, from, &effective_to, None)?;
+    record_transition_result(&route, machine, task_id_str, from, &effective_to, None)?;
 
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);
     Ok(())
@@ -223,12 +223,14 @@ fn execute_transition(
 
 /// Append the command-owned central audit entry for a state change that was
 /// already applied by the run orchestrator, into the owning rhei's runtime
-/// ledger. §FS-rhei-run.3 §FS-rhei-complete.3.1
+/// ledger, and finalize the task when the move lands in a terminal state.
+// §FS-rhei-run.3 §FS-rhei-complete.3.1: run owns the ledger entry.
 fn append_transition_audit_entry(
-    execution_root: &Path,
+    route: &TaskRoute,
+    machine: &rhei_validator::StateMachine,
     task_id_str: &str,
     from: &str,
     to: &str,
 ) -> MietteResult<()> {
-    append_result_entry(execution_root, task_id_str, from, to, None)
+    record_transition_result(route, machine, task_id_str, from, to, None)
 }

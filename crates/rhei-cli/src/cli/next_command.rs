@@ -492,7 +492,8 @@ fn next_command(
             no_callbacks,
         )?;
         append_transition_audit_entry(
-            &route.execution_root,
+            &route,
+            machine,
             &task_id_str,
             &current_state,
             &effective_to,
@@ -562,6 +563,7 @@ fn next_command(
     let tooling = resolve_tooling(machine, &final_state, &settings);
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
+        task_roots: Some(&loaded.task_roots),
         checkout_root: &task_workspace_root,
         plan_path: &callback_paths.plan_path,
         state_machine_path: callback_paths.state_machine_path.as_deref(),

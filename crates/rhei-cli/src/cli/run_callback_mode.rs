@@ -275,7 +275,8 @@ fn run_callback_mode(
             ) {
                 Ok(effective_to) => {
                     append_transition_audit_entry(
-                        &route.execution_root,
+                        &route,
+                        machine,
                         &task_id_str,
                         &current_state,
                         &effective_to,

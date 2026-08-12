@@ -413,8 +413,9 @@ task_id_segment = NUMBER | IDENTIFIER ;
    command strips the assignee on completion. A task may declare at most one
    execution override — either `**Model:**` or `**Target:**`, never both. See
    section 3.11. *)
-(* The metadata block is closed: `**State:**`, `**Prior:**`, `**Assignee:**`,
-   `**Model:**`, and `**Target:**` are the only fields. A `**<name>:**` line
+(* The metadata block is closed: `**State:**`, `**Prior:**`, `**Provides:**`,
+   `**Consumes:**`, `**Assignee:**`, `**Model:**`, and `**Target:**` are the
+   only fields. A `**<name>:**` line
    with any other name, appearing in the block before a blank line has
    separated it from the heading, is a parse error naming the unknown field.
    Accepting it as content silently discards it, and the field authors most
@@ -422,7 +423,8 @@ task_id_segment = NUMBER | IDENTIFIER ;
    validates green and executes in the wrong order, with nothing to point at.
    Past a blank line the same line is ordinary bold text and is kept as task
    content. *)
-metadata        = state_field, [ prior_field ], [ assignee_field ],
+metadata        = state_field, [ prior_field ], [ provides_field ],
+                  [ consumes_field ], [ assignee_field ],
                   [ execution_override ] ;
 
 assignee_field  = "**Assignee:** ", title, NEWLINE ;
@@ -465,6 +467,22 @@ task_ref_list   = task_ref, { ", ", task_ref } ;
    `(prior: auth.2)` — and an author who pastes that back must not be met with
    a parse error. Writers emit the kind-prefixed form; readers accept both. *)
 task_ref        = [ node_kind_keyword, " " ], task_id ;
+
+(* Task exports: the producer names what it publishes, the consumer names the
+   task and export it reads. Both are plan-level; neither appears in the state
+   machine. See section 3.12. *)
+provides_field  = "**Provides:** ", export_name_list, NEWLINE ;
+
+consumes_field  = "**Consumes:** ", export_ref_list, NEWLINE ;
+
+export_name_list = export_name, { ", ", export_name } ;
+
+export_ref_list = export_ref, { ", ", export_ref } ;
+
+export_ref      = task_id, ":", export_name ;
+
+(* An export name keys a path segment, so it excludes separators and spaces. *)
+export_name     = ( LETTER | DIGIT ), { LETTER | DIGIT | "." | "_" | "-" } ;
 
 (* State values have two rendered forms:
    - bare form for canonical names that match IDENTIFIER exactly
@@ -1103,6 +1121,62 @@ Example — two sibling tasks in the same state, executed with different models:
 Both tasks pass through the same states, but Task 7 runs on `claude-opus-4-7`
 in every agent state while Task 8 uses each state's default model.
 
+### 3.12. Task Exports
+
+A task hands work product to later tasks by publishing a named **export**. The
+producer declares what it publishes and the consumer declares what it reads,
+both in task metadata:
+
+```markdown
+### Task 1: Design the session API
+**State:** completed
+**Provides:** api-contract
+
+### Task 2: Implement the client
+**State:** pending
+**Prior:** Task 1
+**Consumes:** 1:api-contract
+```
+
+An export is a file at a path derived from the producing task's id and the
+export name, under the execution root of the rhei that owns that task:
+
+```text
+runtime/exports/<task-id>/<name>.md
+```
+
+The path is a convention, not a template: it is keyed by the *task*, never by
+the state that happened to write it. A consumer resolves it from the plan graph
+alone, so producer and consumer need not share a state machine, a workflow
+phase, or even a rhei — the export of a cross-rhei prior resolves under that
+prior's own root (§FS-rhei-panta.6.1).
+
+This is a plan-level handoff, deliberately outside the state machine. State
+handoffs (§FS-rhei-states.3.2) carry notes between the states of *one* task and
+are declared in `states.yaml`; exports carry work product between *different*
+tasks and are declared in the plan, because the dependency graph — not the
+workflow — is what orders them.
+
+**Fields.** `**Provides:**` is a comma-separated list of export names.
+`**Consumes:**` is a comma-separated list of `<task-id>:<name>` references. An
+export name starts with a letter or digit and continues with letters, digits,
+`.`, `_`, or `-`, so that it is safe as a path segment. Both fields are
+optional; both follow `**State:**` as every metadata field does. Repeating a
+name within one task's `**Provides:**`, or repeating a reference within one
+task's `**Consumes:**`, is a parse error: the first leaves a consumer no way to
+say which export it meant, the second is a leftover from an edit.
+
+**Runtime semantics.** Rhei injects each consumed export that exists into the
+consuming agent's prompt, and tells a producing agent where to write each
+export it declares (§FS-rhei-agents.3). A consumed export that was never
+written, or that is empty, is skipped: the section is simply absent from the
+prompt.
+
+Rhei does not yet check that a `**Consumes:**` reference resolves to a
+declared `**Provides:**`, that the producer is a prior, or that a declared
+export was written before its producer went terminal. Until it does, a mistyped
+export name reads as a missing file and is silently skipped.
+
 ## 4. Token Types
 
 This section is illustrative and non-normative. A complete implementation must
@@ -1122,6 +1196,8 @@ For lexer implementation, the following token types are a reasonable minimum:
 | `NodeHeader` | `^(###|####|#####|######) <kind> <id>: .*` | `#### Bug 1.2: Config` |
 | `MetadataState` | `\*\*State:\*\* .*` | `**State:** pending` |
 | `MetadataPrior` | `\*\*Prior:\*\* .*` | `**Prior:** Bug 1.2` |
+| `MetadataProvides` | `\*\*Provides:\*\* .*` | `**Provides:** api-contract` |
+| `MetadataConsumes` | `\*\*Consumes:\*\* .*` | `**Consumes:** 1:api-contract` |
 | `MetadataAssignee` | `\*\*Assignee:\*\* .*` | `**Assignee:** alice` |
 | `MetadataModel` | `\*\*Model:\*\* .*` | `**Model:** claude-opus-4-7` |
 | `MetadataTarget` | `\*\*Target:\*\* .*` | `**Target:** codex[safe]:openai:gpt-5-codex` |
@@ -1155,6 +1231,8 @@ struct TaskNode {
     state: String,
     kind: String,
     prior: Vec<TaskId>,
+    provides: Vec<String>,          // export names published (**Provides:**)
+    consumes: Vec<ConsumedExport>,  // exports read from prior tasks (**Consumes:**)
     assignee: Option<String>,
     model: Option<String>,    // per-task model override (**Model:**)
     target: Option<String>,   // per-task full execution identity (**Target:**)
@@ -1176,6 +1254,11 @@ enum TaskIdSegment {
 struct ResultLink {
     task_id: TaskId,
     path: String,
+}
+
+struct ConsumedExport {
+    task: TaskId,
+    name: String,
 }
 ```
 

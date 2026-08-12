@@ -128,6 +128,7 @@ from silently completing fresh tasks without executing them.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#5-parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
    - Resolve the state's target: either an agent subprocess (`agent` or resolved target selector) or a program (`program`).
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
+   - Compose the agent prompt ([Agents Specification — Prompt Composition](rhei-agents.spec.md#3-prompt-composition)). A prompt that cannot be composed — a `required: true` handoff with no content, an unreadable prior result — fails **that task**, not the pass: `rhei run` reports the task and the reason, then applies the same rule as any other task failure, continuing to the next task under `--continue-on-error` and aborting with a non-zero exit code without it. Sibling tasks already spawned in the pass are unaffected.
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), checkout-root working directory, and timeout.
    - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
 4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk.
@@ -150,7 +151,9 @@ from silently completing fresh tasks without executing them.
 8. Apply the selected transition and append one central state-transition entry
    to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. The
    subprocess **must not** call `rhei transition` or `rhei complete`; the
-   orchestrator owns the transition.
+   orchestrator owns the transition. When the effective target is `final:
+   true`, terminal result finalization is performed as defined in
+   [Complete Command — Result File](rhei-complete.spec.md#3-result-file).
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
