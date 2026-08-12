@@ -19,7 +19,7 @@
   `branch` metadata moved from the task body, where nothing parses it, into the
   plan's `metadata:` block; and `push-fix` declares the `visits: 5` it needs to
   read a per-visit artifact, since `{visit_count}` is per-state and falls back
-  to `1` wherever `visits` is absent. Issue #66
+  to `1` wherever `visits` is absent. Issue #66. PR #67
   §FS-rhei-agents.3.2.1 §FS-rhei-states.4.1 §FS-rhei-states.4.2
 - Give every failing `rhei` command a next action. Errors now carry a `help:`
   line with a runnable command; missing template inputs are reported all at once
