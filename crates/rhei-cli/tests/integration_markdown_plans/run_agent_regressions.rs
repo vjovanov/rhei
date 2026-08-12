@@ -672,6 +672,14 @@ transitions:
         result.stdout,
         result.stderr
     );
+    // §FS-rhei-agents.3.2.1: the warning names the resolved path, not just the
+    // artifact name, so a stale or mis-templated path is visible on the first line.
+    assert!(
+        result.stderr.contains("bundle (runtime/bundle.txt)"),
+        "missing-output warning should name the resolved path; got stdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
     assert!(
         result.stderr.contains("non-terminal tasks remaining"),
         "run should report stalled non-terminal work; got stdout:\n{}\nstderr:\n{}",
@@ -754,6 +762,13 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     assert!(
         result.stderr.contains("agent exited 0 but required outputs are missing"),
         "missing-output warning should be shown; got stdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    // §FS-rhei-agents.3.2.1: the warning names the resolved path.
+    assert!(
+        result.stderr.contains("artifact (runtime/artifact.txt)"),
+        "missing-output warning should name the resolved path; got stdout:\n{}\nstderr:\n{}",
         result.stdout,
         result.stderr
     );

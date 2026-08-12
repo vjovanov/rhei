@@ -1,6 +1,13 @@
 # Rhei: CI Watch and Heal
 **States:** ci-watch-and-heal
 
+---
+metadata:
+  tasks:
+    heal-ci:
+      branch: feature/retry-cleanup
+---
+
 ## Overview
 
 Watch GitHub CI for a branch and heal it in place: poll the CI status on a
@@ -79,16 +86,22 @@ Once the `poll:` block is wired through `rhei run` (see
 rhei run examples/ci-heal
 ```
 
-The initial task (`heal-ci`) starts in `ci-watch`. The `branch` metadata
-value feeds the `{task.metadata.branch}` template in the state definitions.
+The initial task (`heal-ci`) starts in `ci-watch`. The `branch` value under
+`metadata.tasks.heal-ci` above feeds the `{meta.branch}` template in the state
+definitions. Task metadata lives in this file's `metadata:` block, keyed by the
+rhei-local task id — a `metadata:` block written inside a task body is prose and
+is never read.
 
 ## Notes
 
 - `ci-watch` and `push-fix` are program states; they're bounded by
   `program_timeout` and produce exit-code-driven transitions. No agent is
   spawned for them.
-- `analyze-and-fix` writes one `fix-summary` per visit (`{task.id}.{visit}.md`)
-  so retries don't overwrite history.
+- `analyze-and-fix` writes one `fix-summary` per visit
+  (`{task_id}.{visit_count}.md`) so retries don't overwrite history.
 - Because `ci-watch` is in the inner loop, its `stateVisits` counter is
   *not* the outer-loop counter — those are scoped per state. The outer loop
   reads `visits` / `visitCount` on `analyze-and-fix`.
+- `push-fix` repeats `visits: 5` for the same reason: `{visit_count}` is
+  per-state and falls back to `1` wherever `visits` is absent, so a consumer
+  of a per-visit artifact has to be counted too. Keep the two budgets equal.

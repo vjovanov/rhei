@@ -117,6 +117,25 @@
         )));
     }
 
+    // §FS-rhei-agents.3.2.1: entries carry the resolved path, and a path that
+    // still holds a `{...}` template is called out as such — that is the signal
+    // the path referenced a variable outside the namespace.
+    #[test]
+    fn missing_required_output_entry_names_resolved_path() {
+        assert_eq!(
+            format_missing_required_output("report", "runtime/report/auth.3.md"),
+            "report (runtime/report/auth.3.md)"
+        );
+    }
+
+    #[test]
+    fn missing_required_output_entry_flags_unresolved_template() {
+        assert_eq!(
+            format_missing_required_output("report", "runtime/report/{task.id}.md"),
+            "report (runtime/report/{task.id}.md, unresolved template)"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn agent_spawn_outcome_carries_resolved_timeout() {

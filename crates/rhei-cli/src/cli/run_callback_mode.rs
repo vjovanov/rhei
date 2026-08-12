@@ -475,8 +475,22 @@ fn emit_exit_zero_missing_required_outputs_warning(
     });
 }
 
+/// Render one missing required output as `name (path)`, flagging a path that
+/// still carries a `{...}` template — that means the path referenced a variable
+/// outside the namespace, which artifact resolution leaves verbatim by design.
+// §FS-rhei-agents.3.2.1: Missing-output warning names the resolved path.
+fn format_missing_required_output(name: &str, relative: &str) -> String {
+    if relative.contains('{') {
+        format!("{name} ({relative}, unresolved template)")
+    } else {
+        format!("{name} ({relative})")
+    }
+}
+
 /// Walk all resolved invocations for this state and collect the union of
-/// required output artifact names that do not exist on disk.
+/// required output artifacts that do not exist on disk, each rendered as
+/// `name (resolved/path)` so the warning points at the file that was checked.
+// §FS-rhei-agents.3.2.1: Missing-output warning names the resolved path.
 fn collect_missing_required_outputs(
     workspace_root: &Path,
     machine: &rhei_validator::StateMachine,
@@ -521,7 +535,7 @@ fn collect_missing_required_outputs(
     };
     for (target, model, model_provider, model_name, agent, agent_mode) in contexts {
         for artifact in &state_def.outputs {
-            let (_, path) = resolve_artifact_path(
+            let (relative, path) = resolve_artifact_path(
                 workspace_root,
                 artifact,
                 &task.id.to_string(),
@@ -534,8 +548,15 @@ fn collect_missing_required_outputs(
                 agent,
                 agent_mode,
             );
-            if !path.exists() && seen.insert(artifact.name.clone()) {
-                missing.push(artifact.name.clone());
+            if path.exists() {
+                continue;
+            }
+            // Dedup on the resolved path, not the name: a fanned-out state
+            // resolves one artifact name to a distinct path per target, and
+            // each missing path is worth naming.
+            let entry = format_missing_required_output(&artifact.name, &relative);
+            if seen.insert(entry.clone()) {
+                missing.push(entry);
             }
         }
     }
@@ -561,7 +582,7 @@ fn collect_missing_required_outputs_for_resolved_invocation(
     let visit_count =
         Some(render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine));
     for artifact in &state_def.outputs {
-        let (_, path) = resolve_artifact_path(
+        let (relative, path) = resolve_artifact_path(
             workspace_root,
             artifact,
             &task.id.to_string(),
@@ -575,7 +596,7 @@ fn collect_missing_required_outputs_for_resolved_invocation(
             resolved.mode.as_deref(),
         );
         if !path.exists() {
-            missing.push(artifact.name.clone());
+            missing.push(format_missing_required_output(&artifact.name, &relative));
         }
     }
     missing
