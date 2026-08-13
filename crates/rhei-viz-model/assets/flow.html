@@ -706,7 +706,8 @@ function renderSurroundings(){
     frag.appendChild(list);
   }
 
-  // artifacts (resolved for this node)
+  // artifacts (resolved for this node); a state with no contracts of its own
+  // borrows the previous state's outputs, labeled. §FS-rhei-viz.4
   if(ms&&((ms.inputs&&ms.inputs.length)||(ms.outputs&&ms.outputs.length))){
     const variants=templateVariants(n,ms);
     frag.appendChild(el("h3",{text:"artifacts"}));
@@ -715,6 +716,18 @@ function renderSurroundings(){
       frag.appendChild(artList(ms.inputs,"in ◂",n,ms,ctx));
       frag.appendChild(artList(ms.outputs,"out ▸",n,ms,ctx));
     });
+  } else if(ms){
+    const prev=(n.history||[]).map(h=>h.from&&h.from.trim()).filter(Boolean).pop();
+    const pms=prev?machineState(IX.plan,prev):null;
+    if(pms&&pms.outputs&&pms.outputs.length){
+      const variants=templateVariants(n,pms);
+      frag.appendChild(el("h3",{text:"artifacts"}));
+      frag.appendChild(el("div",{class:"vlabel",text:"from "+prev}));
+      variants.forEach((ctx,i)=>{
+        if(variants.length>1) frag.appendChild(el("div",{class:"vlabel",text:templateContextLabel(ctx,i)}));
+        frag.appendChild(artList(pms.outputs,"out ▸",n,pms,ctx));
+      });
+    }
   }
 
   box.innerHTML=""; box.appendChild(frag);

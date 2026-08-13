@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Show why a task is parked. A state that declares no artifacts of its own —
+  typically a gating `needs-human` — now borrows the previous state's outputs
+  in the inspector's artifacts section, labeled with the state they come from,
+  in both the browser dashboard and the TUI. The TUI goes further: an artifact
+  row whose path resolves to an existing workspace file is followed by a
+  bounded head excerpt, so the report whose transition parked the node — the
+  question a person must answer — is readable in place instead of requiring a
+  trip through `runtime/`. TUI artifact paths also resolve `{state}` now.
+  §FS-rhei-viz.4 §FS-rhei-run-tui.1.5.3
+
 - Name the resolved path when required outputs are missing, and fix the
   `ci-heal` example that made the gap costly. The warning after a zero-exit
   with missing outputs listed artifact names only — `…: report` — while the

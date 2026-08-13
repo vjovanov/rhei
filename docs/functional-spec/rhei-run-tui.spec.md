@@ -331,6 +331,14 @@ idle: agent processes use the animated live marker, while program processes use
 a static yellow dot. The selected live task shows captured output, elapsed time,
 and latest usage/cost in the inspector (§FS-rhei-viz.5 §FS-rhei-cost-accounting).
 
+Terminal artifact rows cannot be clickable links, so the inspector substitutes
+content for navigation: an artifact row whose path resolves fully (no template
+variable left) to a workspace-relative file that exists is followed by a
+bounded head excerpt — up to 8 non-blank lines, each clamped to the pane's
+clipping rules, with a trailing dim `…` row when the file continues. Paths that escape
+the workspace are never read. The excerpt makes a parked node's report — the
+borrowed previous-state outputs of §FS-rhei-viz.4 — readable in place.
+
 On load, the TUI auto-selects the first running task, then the first
 state-derived active task, then the first task. The only animated element is the
 live spinner, which becomes static under reduced motion (§FS-rhei-viz-ux.4).

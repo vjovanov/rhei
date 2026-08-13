@@ -515,6 +515,109 @@ fn renders_every_view_and_overlay_without_panic() {
     }
 }
 
+/// A verify → needs-human machine where only `verify` declares artifacts, and
+/// one task parked in `needs-human` after leaving `verify`. §FS-rhei-viz.4
+fn parked_model() -> VizModel {
+    let verify = MachineState {
+        outputs: vec![rhei_viz_model::Artifact {
+            name: "verification".into(),
+            path: "runtime/{task_id}.verification.md".into(),
+            description: None,
+            optional: false,
+        }],
+        ..machine_state("verify", false, vec!["needs-human"])
+    };
+    VizModel {
+        plan_title: Some("Parked".into()),
+        plan_state: Some("active".into()),
+        about: None,
+        tasks: vec![TaskRow {
+            id: "1".into(),
+            title: "Alpha".into(),
+            parent: None,
+            depth: 0,
+            state: "needs-human".into(),
+            visit_count: None,
+            prior: vec![],
+            history: vec![rhei_viz_model::StateHistoryEntry {
+                from: "verify".into(),
+                to: "needs-human".into(),
+            }],
+        }],
+        machine: Machine {
+            name: "ci".into(),
+            states: vec![verify, machine_state("needs-human", true, vec![])],
+        },
+    }
+}
+
+#[test]
+fn artifacts_borrow_previous_state_outputs_when_state_declares_none() {
+    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None);
+    state.plan = parked_model();
+    state.refresh_plan();
+    let task = state.task("1").unwrap().clone();
+
+    let rows = super::derive::artifact_rows(&state, &task);
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].input);
+    assert_eq!(rows[0].name, "verification");
+    assert_eq!(rows[0].from_state.as_deref(), Some("verify"));
+
+    let sections = super::derive::inspector_sections(&state, "1");
+    let artifacts = sections
+        .iter()
+        .find(|s| s.kind == super::derive::InspectorSectionKind::Artifacts)
+        .expect("a parked state borrows the previous state's outputs");
+    assert_eq!(artifacts.items.len(), 1);
+    assert_eq!(artifacts.items[0].label, "out ▸ verification");
+}
+
+#[test]
+fn artifacts_prefer_the_states_own_contracts() {
+    let mut plan = parked_model();
+    plan.tasks[0].state = "verify".into();
+    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None);
+    state.plan = plan;
+    state.refresh_plan();
+    let task = state.task("1").unwrap().clone();
+
+    let rows = super::derive::artifact_rows(&state, &task);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].from_state, None);
+}
+
+#[test]
+fn inspector_excerpts_existing_artifact_content() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(workspace.path().join("runtime")).unwrap();
+    std::fs::write(
+        workspace.path().join("runtime/1.verification.md"),
+        "NEEDS-HUMAN: what is this project's check command?\n\nNothing here looked like one.\n",
+    )
+    .unwrap();
+
+    let mut state = UiState::with_context(workspace.path().to_path_buf(), 2, 2, None, None, None);
+    state.plan = parked_model();
+    state.refresh_plan();
+    let task = state.task("1").unwrap().clone();
+
+    let (lines, _) = super::views::inspector_lines(&state, &task, false);
+    let text: Vec<String> = lines
+        .iter()
+        .map(|line| line.spans.iter().map(|s| s.content.clone()).collect::<String>())
+        .collect();
+    assert!(
+        text.iter()
+            .any(|l| l.contains("out ▸ verification runtime/1.verification.md (from verify)")),
+        "artifact row should show the resolved path and its source state: {text:?}"
+    );
+    assert!(
+        text.iter().any(|l| l.contains("NEEDS-HUMAN: what is this project's check command?")),
+        "artifact excerpt should surface the report content: {text:?}"
+    );
+}
+
 #[test]
 fn sanitizes_control_sequences_for_display() {
     assert_eq!(sanitize_terminal_text("\u{1b}[31mred\u{1b}[0m"), "red");

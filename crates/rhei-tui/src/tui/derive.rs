@@ -113,22 +113,19 @@ pub(super) fn inspector_sections(state: &UiState, task_id: &str) -> Vec<Inspecto
         });
     }
 
-    if let Some(machine_state) = state.machine_state(&task.state) {
-        if !machine_state.inputs.is_empty() || !machine_state.outputs.is_empty() {
-            let inputs = machine_state.inputs.iter().map(|artifact| Chip {
-                label: format!("in ◂ {}", artifact.name),
-                action: ChipAction::None,
-            });
-            let outputs = machine_state.outputs.iter().map(|artifact| Chip {
-                label: format!("out ▸ {}", artifact.name),
-                action: ChipAction::None,
-            });
-            sections.push(InspectorSection {
-                kind: InspectorSectionKind::Artifacts,
-                title: "artifacts".to_string(),
-                items: inputs.chain(outputs).collect(),
-            });
-        }
+    let artifacts = artifact_rows(state, task);
+    if !artifacts.is_empty() {
+        sections.push(InspectorSection {
+            kind: InspectorSectionKind::Artifacts,
+            title: "artifacts".to_string(),
+            items: artifacts
+                .iter()
+                .map(|row| Chip {
+                    label: format!("{} {}", row.marker(), row.name),
+                    action: ChipAction::None,
+                })
+                .collect(),
+        });
     }
 
     let children: Vec<Chip> = state
@@ -154,6 +151,71 @@ pub(super) fn inspector_sections(state: &UiState, task_id: &str) -> Vec<Inspecto
     }
 
     sections
+}
+
+/// One inspector artifact row: a declared contract of the current state, or —
+/// via the §FS-rhei-viz.4 fallback — an output borrowed from the previous
+/// state, which then names that state in `from_state`.
+#[derive(Clone)]
+pub(super) struct ArtifactRow {
+    pub(super) input: bool,
+    pub(super) name: String,
+    pub(super) path: String,
+    pub(super) optional: bool,
+    pub(super) from_state: Option<String>,
+}
+
+impl ArtifactRow {
+    pub(super) fn marker(&self) -> &'static str {
+        if self.input {
+            "in ◂"
+        } else {
+            "out ▸"
+        }
+    }
+}
+
+/// The artifact rows for a task: the current state's contracts, or — when the
+/// state declares none — the previous state's outputs, labeled, so a parked
+/// node still shows the report whose transition parked it. §FS-rhei-viz.4
+pub(super) fn artifact_rows(state: &UiState, task: &TaskRow) -> Vec<ArtifactRow> {
+    let Some(current) = state.machine_state(&task.state) else {
+        return Vec::new();
+    };
+    if !current.inputs.is_empty() || !current.outputs.is_empty() {
+        let inputs = current.inputs.iter().map(|artifact| ArtifactRow {
+            input: true,
+            name: artifact.name.clone(),
+            path: artifact.path.clone(),
+            optional: artifact.optional,
+            from_state: None,
+        });
+        let outputs = current.outputs.iter().map(|artifact| ArtifactRow {
+            input: false,
+            name: artifact.name.clone(),
+            path: artifact.path.clone(),
+            optional: artifact.optional,
+            from_state: None,
+        });
+        return inputs.chain(outputs).collect();
+    }
+    let Some(previous) = previous_state_names(task).into_iter().next() else {
+        return Vec::new();
+    };
+    let Some(previous_state) = state.machine_state(&previous) else {
+        return Vec::new();
+    };
+    previous_state
+        .outputs
+        .iter()
+        .map(|artifact| ArtifactRow {
+            input: false,
+            name: artifact.name.clone(),
+            path: artifact.path.clone(),
+            optional: artifact.optional,
+            from_state: Some(previous.clone()),
+        })
+        .collect()
 }
 
 fn previous_state_names(task: &TaskRow) -> Vec<String> {

@@ -203,7 +203,12 @@ the selected task or subtask it shows, top to bottom:
   `done/total ✓` header; shown only for nodes with children.
 - **Artifacts** — the state's input (`in ◂`) and output (`out ▸`) contracts as
   links, with `{task_id}` and visit-count templates resolved for this node and
-  optional artifacts marked.
+  optional artifacts marked. A state that declares no artifacts of its own
+  borrows the previous state's outputs (the state before the current one in the
+  last-state ledger), labeled with the state they come from: a node parked in a
+  declaration-less state — typically a gating `needs-human` — still surfaces
+  the report whose transition parked it, so the inspector answers "why is this
+  waiting" without a trip to the filesystem.
 
 The inspector must remain contained inside its pane at every supported
 breakpoint. Long child ids and titles preserve the state column by truncating

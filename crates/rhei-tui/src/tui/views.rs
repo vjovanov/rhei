@@ -2,6 +2,9 @@
 //! inspector. Each renders the one shared run model under the console language;
 //! view *content* is defined in §FS-rhei-viz and realized here for the terminal.
 
+use std::io::Read;
+use std::path::Path;
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -10,8 +13,8 @@ use ratatui::Frame;
 use rhei_viz_model::{MachineProcessKind, MachineState};
 
 use super::derive::{
-    has_children, inspector_sections, machine_groups, subtree_progress, task_direct, task_subtree,
-    CostRollup, InspectorSectionKind,
+    artifact_rows, has_children, inspector_sections, machine_groups, subtree_progress, task_direct,
+    task_subtree, CostRollup, InspectorSectionKind,
 };
 use super::render::{format_cost_micro, format_tokens, render_list, state_pill};
 use super::state::{FlowFocus, JournalEntry, ProcessKind, TaskRow, UiState};
@@ -144,7 +147,7 @@ fn render_inspector(f: &mut Frame, area: Rect, state: &UiState) {
 /// The surroundings inspector content, in §FS-rhei-viz.4 order. Sections and
 /// items are numbered against `inspector_sections` so focus navigates exactly
 /// where it is drawn.
-fn inspector_lines(
+pub(super) fn inspector_lines(
     state: &UiState,
     task: &TaskRow,
     focused: bool,
@@ -333,31 +336,30 @@ fn inspector_lines(
                 }
             }
             InspectorSectionKind::Artifacts => {
-                if let Some(st) = state.machine_state(&task.state) {
-                    let mut item_idx = 0usize;
-                    for art in &st.inputs {
-                        let opt = if art.optional { " (optional)" } else { "" };
-                        push_item_line(
-                            &mut lines,
-                            &mut focus_row,
-                            &item_context,
-                            item_idx,
-                            &format!("in ◂ {} {}{opt}", art.name, instantiate(&art.path, task)),
-                            false,
-                        );
-                        item_idx += 1;
+                for (item_idx, row) in artifact_rows(state, task).iter().enumerate() {
+                    let opt = if row.optional { " (optional)" } else { "" };
+                    let from = match &row.from_state {
+                        Some(previous) => format!(" (from {previous})"),
+                        None => String::new(),
+                    };
+                    let relative = instantiate(&row.path, task);
+                    push_item_line(
+                        &mut lines,
+                        &mut focus_row,
+                        &item_context,
+                        item_idx,
+                        &format!("{} {} {relative}{opt}{from}", row.marker(), row.name),
+                        false,
+                    );
+                    let (excerpt, truncated) = artifact_excerpt(&state.workspace, &relative);
+                    for text in excerpt {
+                        lines.push(Line::from(vec![
+                            Span::styled("   ▏ ", Style::default().fg(theme.dim())),
+                            Span::raw(text),
+                        ]));
                     }
-                    for art in &st.outputs {
-                        let opt = if art.optional { " (optional)" } else { "" };
-                        push_item_line(
-                            &mut lines,
-                            &mut focus_row,
-                            &item_context,
-                            item_idx,
-                            &format!("out ▸ {} {}{opt}", art.name, instantiate(&art.path, task)),
-                            false,
-                        );
-                        item_idx += 1;
+                    if truncated {
+                        lines.push(dim_line(theme, "   ▏ …"));
                     }
                 }
             }
@@ -434,11 +436,45 @@ fn readiness_line(state: &UiState, task: &TaskRow) -> Line<'static> {
 
 /// Resolve the scalar template variables a node can render without guessing.
 fn instantiate(template: &str, task: &TaskRow) -> String {
-    let mut out = template.replace("{task_id}", &task.id).replace("{task_title}", &task.title);
+    let mut out = template
+        .replace("{task_id}", &task.id)
+        .replace("{task_title}", &task.title)
+        .replace("{state}", &task.state);
     if let Some(visit) = task.visit_count {
         out = out.replace("{visit_count}", &visit.to_string());
     }
     out
+}
+
+/// How many head lines of an artifact the inspector shows in place.
+const ARTIFACT_EXCERPT_LINES: usize = 8;
+/// Bounded read: the excerpt needs a screenful, never the file.
+const ARTIFACT_EXCERPT_BYTES: u64 = 16 * 1024;
+
+/// The head excerpt of a resolved workspace-relative artifact on disk, plus
+/// whether the file continues past it. Unresolved, escaping, absolute, or
+/// unreadable paths yield nothing — the row stays bare. §FS-rhei-run-tui.1.5.3
+fn artifact_excerpt(workspace: &Path, relative: &str) -> (Vec<String>, bool) {
+    if relative.contains('{') || relative.contains("..") || Path::new(relative).is_absolute() {
+        return (Vec::new(), false);
+    }
+    let path = workspace.join(relative);
+    let Ok(file) = std::fs::File::open(&path) else {
+        return (Vec::new(), false);
+    };
+    let mut head = String::new();
+    if file.take(ARTIFACT_EXCERPT_BYTES).read_to_string(&mut head).is_err() {
+        return (Vec::new(), false);
+    }
+    let excerpt: Vec<String> = head
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(ARTIFACT_EXCERPT_LINES)
+        .map(|line| truncate_chars(line, 200))
+        .collect();
+    let shown = head.lines().filter(|line| !line.trim().is_empty()).count();
+    let truncated = shown > ARTIFACT_EXCERPT_LINES || head.len() as u64 == ARTIFACT_EXCERPT_BYTES;
+    (excerpt, truncated)
 }
 
 fn item_selected(state: &UiState, focused: bool, section_idx: usize, item_idx: usize) -> bool {
