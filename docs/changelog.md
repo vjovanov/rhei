@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Move `grund.toml` to the repository root. `grund` probes a bare root
+  `grund.toml` before `.agents/grund.toml`, so the config now sits with the
+  other top-level project config instead of being hidden a directory down.
+  Root discovery arrived in grund 0.9.0, so the CI pin moves off 0.8.0 — 0.8.0
+  looks only under `.agents/` and would fall back to the zero-config defaults
+  rather than failing. `grund init` refreshes the managed block in `AGENTS.md`
+  to v7, which spells the config path without the `.agents/` prefix; the v6
+  block was already stale under 0.9.0. Issue #69. PR #70
+
 - Show why a task is parked. A state that declares no artifacts of its own —
   typically a gating `needs-human` — now borrows the previous state's outputs
   in the inspector's artifacts section, labeled with the state they come from,
