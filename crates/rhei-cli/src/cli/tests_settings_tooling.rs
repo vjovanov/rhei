@@ -703,6 +703,89 @@ transitions:
         assert!(should_wait_for_human_gate(&rhei, &machines, &None));
     }
 
+    /// Two children of one parent, one gated and one waiting on it. Both
+    /// orderings must reach the same verdict: the gate holds the sibling, the
+    /// sibling holds nothing else, and the parent is waiting on a human.
+    ///
+    /// A single *visited* set could not answer this. A revisit is neutral-true
+    /// inside the descendant `.all()` and neutral-false inside the prior
+    /// `.any()`, so whichever child the preorder walk consumed first decided the
+    /// parent's verdict: gate-then-dependent read as stuck and exited one,
+    /// dependent-then-gate read as waiting and exited zero.
+    // §FS-rhei-plan-language.3 §FS-rhei-run-tui.1.5.5
+    #[test]
+    fn human_gate_wait_allows_a_sibling_waiting_on_a_gated_sibling_in_either_order() {
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+
+        // The gate is reached first by the preorder descendant walk.
+        let gate_first = rhei_core::parse(
+            r#"# Rhei: Gated Sibling
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Human review
+**State:** human-review
+
+#### Task 1.2: Waits on the review
+**State:** work
+**Prior:** Task 1.1
+"#,
+        )
+        .expect("parse plan");
+
+        // The dependent is reached first; only the source order differs.
+        let dependent_first = rhei_core::parse(
+            r#"# Rhei: Gated Sibling
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Waits on the review
+**State:** work
+**Prior:** Task 1.2
+
+#### Task 1.2: Human review
+**State:** human-review
+"#,
+        )
+        .expect("parse plan");
+
+        for (label, rhei) in [("gate first", &gate_first), ("dependent first", &dependent_first)] {
+            assert!(
+                remaining_work_is_only_gating_or_poll_blocked(rhei, &machines, &None),
+                "{label}: one gate holds the whole subtree, so nothing is stuck"
+            );
+            assert!(
+                should_wait_for_human_gate(rhei, &machines, &None),
+                "{label}: an interactive run must hold the gate open"
+            );
+        }
+    }
+
     /// The other half of the same walk: a dependent of a parent whose subtree
     /// is genuinely stuck is stuck too, so the run must not sit waiting on a
     /// gate elsewhere in the plan.
