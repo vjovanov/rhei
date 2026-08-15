@@ -101,17 +101,18 @@ states:
       with a clear message. Do NOT merge into the base branch — leave the branch
       for human review.
 
-      Write the final result (branch name, commit SHA, one-line status, and
-      whether the worktree was left in place or removed) to
-      `{output.result.path}`. Transition to `completed`.
+      Write the integration summary (branch name, commit SHA, one-line status,
+      and whether the worktree was left in place or removed) to
+      `{output.summary.path}`. Record why the ticket is finishing in the result
+      file named in your `## Result` section, then transition to `completed`.
     inputs:
       - name: worktree-ref
         path: runtime/worktree-refs/{task_id}.yaml
       - name: change-summary
         path: runtime/summaries/{task_id}-work.md
     outputs:
-      - name: result
-        path: runtime/summaries/{task_id}-result.md
+      - name: summary
+        path: runtime/summaries/{task_id}-summary.md
         description: Branch, commit, and status for this target
 
   completed:

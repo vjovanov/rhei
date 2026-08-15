@@ -33,25 +33,67 @@
   ticket without writing a result fails the completion condition exactly as a
   missing required `outputs:` artifact does — no transition fires, and the
   warning names the result path that was checked. Agents are told: the prompt
-  gains a `## Result` section naming the path whenever a declared transition
-  from the state can finish the ticket, and every agent and program subprocess
-  now gets **`RHEI_RESULT_PATH`**. The engine supplies a message only for
-  outcomes it produced itself — a timeout it fired, tooling it could not start,
-  an exit code it read, or an edge it walked with no subprocess in the state
-  (callback-only advancement, which records plainly that *no worker result was
-  recorded*). It never speaks for a worker that ran, and never for a human: a
-  human gate released from the live dashboard into a terminal state is now
-  **refused**, with the reason naming `rhei transition <id> --from … --to …
-  --result "<why>"`, because the gate block has no message field and a human
-  finishing a ticket by hand is the case where the reason matters most.
+  gains a `## Result` section naming the path whenever a transition *declared
+  from that state by name* can finish the ticket (a `* -> cancelled` wildcard
+  does not count, or the section would land on the first state of every
+  workflow), and every agent and program subprocess now gets
+  **`RHEI_RESULT_PATH`**. The engine supplies a message only for outcomes it
+  produced itself — a timeout it fired, tooling it could not start, an exit code
+  it read, or an edge it walked with no subprocess in the state (callback-only
+  advancement, which records plainly that *no worker result was recorded*). It
+  never speaks for a worker that ran, and never for a human — the human is
+  asked.
+
+  **Human gates carry a result.** Both live surfaces gained a field for it: the
+  browser dashboard's gate block has a single-line **Result** input, marked as
+  needed when the chosen target is terminal, and the TUI's digit choice now
+  opens the same one-line composer intervene uses. What is typed rides the move
+  exactly as `rhei transition --result` does; blank is none, and a terminal
+  release with neither a message nor a result on disk is refused with the
+  equivalent command named. Without this the everyday `agent → human-gate →
+  completed` shape could not be finished from either UI at all.
+
+  **A fanned-out state writes result fragments.** `all_targets` / `all_models`
+  run several workers over one ticket, and one shared result path let the last
+  writer erase every sibling's account while the first satisfied the obligation
+  for all of them. Each invocation is now given
+  `runtime/results/<task-id>/<identity>.md` — in its prompt and in
+  `RHEI_RESULT_PATH` — the completion condition checks *that invocation's own*
+  fragment, and `rhei run` merges the fragments into the ticket's result, one
+  attributed `## Result — <identity>` entry each, before applying a transition
+  that finishes it. A fragment nobody wrote refuses the move and is named.
+
+  **The run report names the missing artifact.** A ticket whose exit-0 worker
+  left required outputs unwritten — the terminal result included, under the
+  artifact name `result` — now reads `worker exited 0 without <name> (<path>)`
+  with "write these, or record the outcome with `rhei transition … --result`" as
+  the next action, instead of "stalled in non-terminal state <s> — inspect logs
+  or mark the task cancelled". A ticket the run never scheduled says that,
+  rather than borrowing the stalled reading.
 
   **Breaking:** a `rhei transition` or a `rhei run` that lands a ticket in a
   terminal state now needs a result. Machines whose terminal edge is driven by
-  an agent or program need that worker to write `RHEI_RESULT_PATH` (agents are
-  told in the prompt); the bundled `ci-heal` probe does this now. Issue #74
+  an agent or program need that worker to write `RHEI_RESULT_PATH`. Agents are
+  told in the prompt, so machines whose terminal edges are agent-driven need no
+  edit — that covers the bundled `analyze-and-dispatch`, `changeset-review`,
+  `hourly-human-intervention`, `spec-implementation`,
+  `spec-implementation-discrepancy-audit`, `spec-review` and
+  `parallel-worktrees` templates and their examples, plus `agora`,
+  `claude-code`, `multi-model-analysis`, `product-management`,
+  `review-fix-visits` and `snapshot-continuation`. **Program**-driven terminal
+  edges have no prompt and were updated here: the `ci-heal` probe
+  (`examples/ci-heal/.rhei/gh-ci-status.sh`) and the canonical UI fixture's
+  mocks (`.agents/rhei/templates/ui-test-canonical/bin/mock-program.sh` and
+  `bin/mock-agent.sh`, mirrored in `examples/ui-test-canonical-example/`), whose
+  `script-check -> completed` edge stalled every terminal ticket until they
+  wrote the file. The `parallel-worktrees` template's `integrate` state also
+  renamed its declared `result` artifact to `summary`
+  (`runtime/summaries/{task_id}-summary.md`): two different files called
+  "result" in one prompt is a trap, not a contract. Issue #74
   §FS-rhei-states.3.3 §FS-rhei-transition-cmd.3.2 §FS-rhei-complete.4
-  §FS-rhei-run.3 §FS-rhei-agents.3 §FS-rhei-agents.3.2 §FS-rhei-agents.4
-  §FS-rhei-programs.2 §FS-rhei-plan-language.3.10 §FS-rhei-viz.5.1
+  §FS-rhei-run.3 §FS-rhei-run-report.3.1 §FS-rhei-run-tui.1.5.5
+  §FS-rhei-agents.3 §FS-rhei-agents.3.2 §FS-rhei-agents.4 §FS-rhei-programs.2
+  §FS-rhei-plan-language.3.10 §FS-rhei-viz.5.1
 
 - Treat a non-leaf task as a task. It has its own state, its own journey, and
   its own result; nothing derives it from its children, and nothing stamps it

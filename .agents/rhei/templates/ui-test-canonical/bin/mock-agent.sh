@@ -84,6 +84,19 @@ append_log() {
         "$(timestamp)" "$task_id" "$state" "$target_slug" "$mode" "$model" "$1" >> "$log_path"
 }
 
+# A worker records why the ticket ends where it does. Rhei hands every
+# subprocess the path in RHEI_RESULT_PATH — this invocation's own fragment when
+# the state fans out — and a `final: true` state is not entered until the
+# ticket's result has content. §FS-rhei-states.3.3 §FS-rhei-agents.4
+write_result() {
+    if [[ -z "${RHEI_RESULT_PATH:-}" ]]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+    printf '## Result\n\nMock agent %s finished task %s in state %s.\n' \
+        "$target_slug" "$task_id" "$state" > "$RHEI_RESULT_PATH"
+}
+
 write_snapshot_transcript() {
     local dir="${session_dir:-${RHEI_SNAPSHOT_SESSION_DIR:-}}"
     if [[ -z "$dir" ]]; then
@@ -164,5 +177,6 @@ case "$state" in
         ;;
 esac
 
+write_result
 append_log "completed"
 printf 'mock agent completed task=%s state=%s target=%s\n' "$task_id" "$state" "$target_slug"
