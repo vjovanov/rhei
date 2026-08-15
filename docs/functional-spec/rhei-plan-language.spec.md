@@ -90,13 +90,13 @@ Tell an agent with the `rhei-plan-worker` skill to work the plan:
 ```
 
 The worker reads the plan, loads the state machine, and enters a loop: claim
-the next eligible leaf task with `rhei next`, work in that task's current state,
+the next eligible task with `rhei next`, work in that task's current state,
 use `rhei transition` when the workflow requires an explicit state change (for
 example `draft` to `pending`), finish with `rhei complete` when the task reaches
 a terminal outcome, and repeat. This manual worker flow is distinct from
 `rhei run` agent mode, where spawned agents do the work of the current state and
 the `rhei run` orchestrator performs the transition after the subprocess exits.
-The worker stops when no eligible leaf tasks remain or a gating state such as
+The worker stops when no eligible tasks remain or a gating state such as
 `human-review` requires a human decision.
 
 The plan file is the single source of truth — multiple agents or humans can read it to see what is done, what is in progress, and what is blocked.
@@ -580,13 +580,26 @@ Throughout this specification, a *terminal state* means any state marked
 terminal state is `completed`.
 
 Throughout this specification, a *leaf task node* means a task node with no
-child task nodes. Only leaf task nodes are claimable by `rhei next`. Non-leaf
-task nodes are structural rollups and result anchors for their descendants; they
-must be excluded from manual claim selection so a parent and child are never
-claimed at the same time. `rhei run` may still execute a non-leaf root task when
-the active state machine models the parent as the workflow owner for its child
-nodes. Non-leaf nodes may be moved to a terminal state only after all
-descendants are terminal.
+child task nodes. A **non-leaf task node is a task in its own right**: it
+carries its own `**State:**`, its own journey through the machine, and its own
+result. Nothing derives a parent's state from its children — no command stamps
+a parent terminal because its descendants are (§FS-rhei-panta.6.3) — because
+once the children are finished the parent may still owe the verification,
+review, or integration its machine declares.
+
+Exactly one invariant ties a parent to its children, and it is a property of
+the graph rather than of any one command: **a task node may enter a terminal
+state only after every one of its descendants is terminal.** Because it is
+structural, it is enforced on the shared transition path, identically for every
+verb that can move a task (§FS-rhei-transition-cmd.3.1); a resting violation is
+a `rhei validate` **error** (§FS-rhei-validate.4).
+
+Work eligibility follows from that invariant: **a non-leaf task node is
+workable only once all of its descendants are terminal.** The same rule governs
+manual claim selection (§FS-rhei-next.3) and autonomous scheduling
+(§FS-rhei-run.3), so a parent and one of its own descendants are never worked
+at the same time, and a parent is never scheduled ahead of the subtree it
+integrates. A leaf task node satisfies the rule trivially.
 
 Dependency readiness requires successful terminal dependencies: a task is ready
 with respect to `**Prior:**` only when every referenced dependency is in a

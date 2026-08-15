@@ -115,7 +115,8 @@ from silently completing fresh tasks without executing them.
 
 1. Load the state machine and plan. Validate.
 2. Scan all task nodes, including child and grandchild tasks, and compute the
-   *ready set*: tasks whose `**Prior:**` are all in successful terminal states
+   *ready set*: tasks all of whose descendants are terminal, whose `**Prior:**`
+   are all in successful terminal states
    (terminal and not `cancelled`), whose current state is non-terminal and
    non-gating, and whose current state's required `inputs:` all exist. Task
    counts, terminal counts, final state summaries, and remaining-work checks
@@ -125,6 +126,17 @@ from silently completing fresh tasks without executing them.
    elapses. See [Next Command](rhei-next.spec.md#3-default-behavior-claim-mode)
    for the manual claimability rule and [Polling States](#51-polling-states) for
    the poll scheduling rule.
+
+   The descendant condition is the same eligibility rule `rhei next` applies
+   (§FS-rhei-next.3), and it is deliberately shared: a non-leaf task is a task
+   in its own right, so the orchestrator schedules it — but only once the
+   subtree it integrates is finished (§FS-rhei-plan-language.3). A parent with
+   an agent state is therefore *not* spawned concurrently with its children;
+   it is spawned after them. Nothing stamps a parent terminal because its
+   descendants are, and a run that tried to would be rejected by the
+   descendants-first guard on the shared transition path
+   (§FS-rhei-transition-cmd.3.1) rather than leaving behind a plan that fails
+   `rhei validate`.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#5-parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
    - Resolve the state's target: either an agent subprocess (`agent` or resolved target selector) or a program (`program`).
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).

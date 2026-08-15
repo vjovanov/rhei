@@ -56,23 +56,30 @@ claim time.
 
 A task is *claimable* when:
 
-1. It is a leaf task node with no child task nodes.
+1. Every descendant task node it has — child, grandchild, or deeper — is in a
+   terminal state. A leaf task node satisfies this trivially.
 2. All tasks listed in its `**Prior:**` field are in successful terminal
    states (`final: true` and not the normalized `cancelled` state).
 3. The task has no `**Assignee:**` field (not already claimed by another agent).
 4. Its current state is not terminal (`final: true`) and not gating (`gating: true`).
 5. All required `inputs` declared on the task's current state exist.
 
-Non-leaf task nodes are structural rollups and result anchors. `rhei next`
-must exclude them from claim selection even when their dependencies and state
-would otherwise make them ready.
+Rule 1 is the eligibility half of the non-leaf model
+(§FS-rhei-plan-language.3): a non-leaf task node is a task in its own right —
+it owns its state, its work, and its result — and nothing advances it on its
+children's behalf, so it must be claimable. It becomes claimable exactly when
+its subtree is terminal, which is also when `rhei run` will schedule it
+(§FS-rhei-run.3). Until then a parent and its own descendant are never worked
+at the same time.
+
+Rule 1 governs `--task` too; see §3.4.
 
 ### 3.1. Behavior
 
 1. Load the state machine and plan. Validate.
-2. Scan leaf tasks in plan order. For each task that satisfies dependency,
-   assignee, and state eligibility, resolve the current state's required
-   `inputs`.
+2. Scan every task node in plan order, leaf and non-leaf alike. For each task
+   that satisfies the descendant, dependency, assignee, and state eligibility
+   rules above, resolve the current state's required `inputs`.
 3. If any required input file for the first otherwise-claimable task is
    missing, stop immediately and fail with an explicit missing-artifact error.
    Do not skip ahead to later tasks.
@@ -146,6 +153,29 @@ Error: Task auth.review-cache-key cannot be claimed in state agent-review-fix.
 Missing required input artifact: findings (runtime/findings/auth.review-cache-key.md)
 ```
 
+### 3.4. Claiming a Non-Leaf Ticket with `--task`
+
+`--task` names a ticket explicitly and bypasses selection, but not the
+descendant rule (§3, rule 1). Targeting a non-leaf ticket whose subtree is
+still open fails, naming every open descendant and pointing at what is
+claimable instead:
+
+```text
+Error: Task plan.2 cannot be claimed while 1 descendant task(s) are still open.
+       Open descendants: Task plan.2.3 ('Wire the cache') [pending]
+```
+
+Once every descendant is terminal the refusal no longer applies and the parent
+is claimed like any other ticket. There is no cascade to wait for: nothing
+advances a parent when its children advance (§FS-rhei-plan-language.3), so a
+refusal that told the caller to wait for the children to "advance the parent"
+would describe a mechanism that does not exist.
+
+Claiming does not advance state (§3), so claiming a parent is exactly that —
+taking the ticket. `rhei transition` and `rhei complete` move it afterwards,
+both subject to the descendants-first guard on the shared transition path
+(§FS-rhei-transition-cmd.3.1).
+
 ## 4. Peek Mode (`--peek`)
 
 With `--peek`, `rhei next` performs a read-only scan and prints the next task that *would* be claimed, without modifying the plan or acquiring a lock. This is safe for PM-style navigation, scripting, and inspection.
@@ -179,13 +209,29 @@ action is:
 | Condition | Message |
 |-----------|---------|
 | All tasks in terminal states | `Plan complete. All <N> task(s) are in terminal states.` |
-| All leaf tasks are terminal but one or more non-leaf rollups remain non-terminal | `Leaf work complete. <N> rollup task(s) can be completed after descendants are terminal: Task <ID> (<state>), ...` |
 | One or more otherwise-ready tasks are in a gating state | `Blocked: <N> task(s) waiting on human action: Task <ID> (<state>), ...` |
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
 | Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
 | Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
 | Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
+| Only non-leaf tasks remain workable-looking, and each still has an open descendant | `no tickets are ready to claim: <N> parent task(s) waiting on open descendants: Task <ID> (<state>) waiting on Task <CHILD> (<state>), ...` |
+
+Every row but the last speaks about a task the caller can act on directly. The
+categories are computed over *workable* tasks — leaves, plus non-leaf tasks
+whose subtree is already terminal (§3, rule 1) — so a parent never masquerades
+as gated, in-progress, or mid-workflow while its children are the real work.
+The last row is the residue: when nothing workable is left and the remaining
+non-terminal tasks are parents whose subtrees are open, the message names the
+parent and the descendant holding it up rather than reporting no reason at all.
+
+There is no "leaf work complete, rollups remain" message. It existed because a
+parent could never be claimed, so the only way to surface one was to wait until
+every leaf in scope was terminal and then name it. Under the eligibility rule a
+parent whose subtree is terminal is simply claimable, and `rhei next` returns
+it as the next ticket — mid-plan, as soon as its own children finish, without
+waiting for unrelated branches. A dependent still blocked on such a parent is
+reported by the prerequisite row, which names the parent and its state.
 
 These distinct messages allow a PM or orchestrator to tell apart a finished
 plan, a human gate, fully in-flight work, manual transition selection, and

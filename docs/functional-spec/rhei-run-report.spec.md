@@ -99,9 +99,16 @@ the summary prints five stacked groups:
    omitted entirely when no task is halted, rather than printing an empty heading.
 
    The blocker and next action come from a **plan-wide classification** of why
-   each non-terminal leaf is not moving, in this order: a gating state awaiting
-   a decision; a live `**Assignee:**`; an unsatisfied `**Prior:**`; a
-   manual-only initial state; no declared outgoing transition; anything else.
+   each non-terminal task node is not moving, in this order: an open descendant
+   subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
+   unsatisfied `**Prior:**`; a manual-only initial state; no declared outgoing
+   transition; anything else. Non-leaf tasks are classified alongside leaves
+   because a non-leaf task is a task in its own right
+   (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
+   waiting on that subtree, which is a structural consequence rather than
+   something a human must fix, so — like a gate — it does not by itself make
+   the run exit non-zero. The descendants named in it do that on their own
+   account.
    Each names the command that clears it — `rhei release <id>` for a claim,
    `rhei next` then `rhei complete <id>` for manual-only work, finishing the
    prior for a dependency. A ticket the run actually spawned work for keeps the

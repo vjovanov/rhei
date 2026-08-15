@@ -249,7 +249,8 @@ under the target's machine (§6.1).
 
 ### 6.1. Readiness and `rhei next`
 
-Readiness is **project-global**. A ticket is ready when it is a claimable leaf
+Readiness is **project-global**. A ticket is ready when it is claimable — its
+own descendants, if any, all terminal (§FS-rhei-next.3) —
 and every `**Prior:**` is terminal-and-not-cancelled, resolved across the whole
 project graph — a ticket in one rhei may be blocked by a ticket in another.
 Terminal status of each prior is judged against the machine of the rhei that
@@ -308,7 +309,9 @@ ticket id, both qualified (`[auth.1](runtime/results/auth.1.md)`) or both
 rhei-local (`[1](runtime/results/1.md)`). A link that mixes the two forms, or
 names any other id, is an error.
 
-`rhei complete` finishes a leaf ticket. A rhei is done when all its tickets are
+`rhei complete` finishes a ticket, leaf or not — a non-leaf ticket is a task in
+its own right and is finished the same way, once its own descendants are
+terminal (§FS-rhei-plan-language.3). A rhei is done when all its tickets are
 terminal, and Panta when all rheis are done, but this status is **derived, not
 stored**: rheis and the virtual Panta have no `**State:**` to write, so no
 cascade stamps `completed` up the tree — doneness is computed on read. Giving a

@@ -30,7 +30,7 @@ directory. Listing is project-wide: filters apply across every rhei, and
 | `--contains <TEXT>`      | Case-insensitive substring match against task title and content body.             |
 | `--terminal`             | Only tasks whose state is terminal in the resolved state machine.                 |
 | `--non-terminal`         | Only tasks whose state is non-terminal. Mutually exclusive with `--terminal`.     |
-| `--ready`                | Only **leaf** tasks whose `**Prior:**` set is satisfied and whose state is non-terminal and non-gating — the claimable set (§3.1). Mutually exclusive with `--blocked`. |
+| `--ready`                | Only tasks whose descendants are all terminal, whose `**Prior:**` set is satisfied, and whose state is non-terminal and non-gating — the claimable set (§3.1). Mutually exclusive with `--blocked`. |
 | `--blocked`              | Only non-terminal tasks with at least one unsatisfied prerequisite.               |
 | `--limit <N>`            | Cap the number of printed tasks. `0` means no limit (default).                    |
 | `--json`                 | Emit a JSON array instead of human-readable text.                                 |
@@ -79,10 +79,11 @@ there is no declared set to check it against.
 ### 3.1. What `--ready` means
 
 `--ready` answers "what work could be picked up", so it lists exactly the set
-`rhei next` draws from — including the **leaf-only** rule that command applies.
-A ticket with children is a container whose state rolls up from them; `rhei next`
-never claims one, so listing it as ready offers work that cannot be handed out
-and inflates every count taken from the listing.
+`rhei next` draws from — including the descendant rule that command applies
+(§FS-rhei-next.3). A ticket whose subtree is still open is not work anyone can
+be handed: its children are. Once every descendant is terminal the parent is
+ordinary claimable work and is listed like any other ticket, because a non-leaf
+ticket is a task in its own right (§FS-rhei-plan-language.3).
 
 `--ready` reports *readiness*, not *availability*: a ready ticket that already
 carries an `**Assignee:**` is still listed, because whether someone has claimed

@@ -46,13 +46,16 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 3. Acquire a file lock on the plan file (single-file plan) or on the task file that contains the task (directory workspace).
 4. Re-read the task's current state under the lock. If it does not equal `--from`, fail with a compare-and-swap conflict error and print the actual current state.
 5. Validate that a declared transition exists from `--from` to `--to` in the active state machine. Reject if the edge is unlisted.
-6. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
-7. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
-8. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
-9. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
-10. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
-11. Write the task file atomically (temp file + rename) and release the lock.
-12. Append one state-transition entry to `runtime/state-transitions.log` as
+6. Apply the descendants-first guard (§3.1). Reject before any callback runs
+   when `--to` is a `final: true` state and the task still has a non-terminal
+   descendant.
+7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
+8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
+9. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
+10. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
+11. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
+12. Write the task file atomically (temp file + rename) and release the lock.
+13. Append one state-transition entry to `runtime/state-transitions.log` as
     `<task-id> <from>@<to>`, creating the `runtime/` directory if needed. The
     file is the central, deterministic audit trail for all task state changes.
 
@@ -69,6 +72,37 @@ Because the resulting plan then contradicts its own declared dependencies,
 letting it pass unremarked.
 
 Counted-visit accounting: if the target state declares a `visits` budget and `--to` is a loop-back re-entry, the runtime increments `metadata.tasks.<id>.stateVisits.<target>` and renders the new visit number in `**State:**` using the `-<n>` suffix. See [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
+
+### 3.1. Descendants-First on Terminal Entry
+
+A transition into a `final: true` state is rejected while the task has any
+non-terminal descendant — child, grandchild, or deeper. The error names the
+target state and every open descendant with its id, title, and current state.
+
+This guard lives on the **shared transition path**, beside compare-and-swap,
+`outputs:`/`inputs:` enforcement, and callbacks. It therefore applies
+identically to every verb that can move a task into a terminal state:
+`rhei transition`, `rhei complete` (§FS-rhei-complete.4), `rhei run`'s
+orchestrator-owned auto-advance (§FS-rhei-run.3), and a callback that redirects
+an edge with `nextState` (§FS-rhei-transitions.3.2) — a redirect is re-checked
+against the effective target, so it cannot smuggle a terminal entry past the
+guard. No command holds a private copy of the rule, and no state machine can
+opt out of it: transition `condition:` expressions see only visit and exit-code
+variables (§FS-rhei-states.2.3), so a machine author has no way to gate a
+parent's terminal edge on its children. The engine must.
+
+The guard is deliberately **not** symmetric with `**Prior:**` readiness, which
+`rhei transition` skips as the human escape hatch (§3). The line between the
+two is the one `rhei validate` already draws: a terminal parent with an open
+descendant is an **error**, an out-of-order prior is a **warning**
+(§FS-rhei-validate.4). `rhei transition` may deliberately produce a warning; it
+must never be able to produce an error. A parent that genuinely must finish
+ahead of its subtree is finished by finishing or cancelling the subtree first —
+`cancelled` is terminal, so an abandoned child satisfies the guard.
+
+`rhei next` is unaffected by this guard because claiming does not advance state
+(§FS-rhei-next.3); it applies the eligibility rule instead
+(§FS-rhei-plan-language.3).
 
 ## 4. Compare-and-Swap Conflicts
 
