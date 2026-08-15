@@ -251,6 +251,7 @@ does not silently drift from the current CLI surface.
 | `transition` | `--task` | Task ids from the selected plan/workspace |
 | `transition` | `--from` | Current task state when `--task` is known; otherwise state names |
 | `transition` | `--to` | Allowed target states from `--from`; when `--task` is known and `--from` is omitted, allowed target states from the task's current state |
+| `transition` | `--result` | No fixed candidates; shell should preserve free text |
 | `transition` | `--no-callbacks` | Static flag completion |
 | `reset` | `RHEI_PLAN` | Rhei plan/workspace path completion |
 | `install-skills` | `--agent` | `claude-code`, `cursor`, `windsurf`, `copilot`, `kilocode`, `pi`, `codex`, `antigravity`, `all` |

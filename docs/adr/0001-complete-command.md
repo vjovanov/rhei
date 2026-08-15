@@ -2,7 +2,16 @@
 
 ## Status
 
-accepted
+accepted; points 3–5 superseded
+
+Steps 3–5 below described `rhei complete` as the owner of the result file, the
+result link, and the assignee removal. They are now properties of entering a
+`final: true` state, enforced identically by every verb on the shared
+transition path — including the requirement that the result be **non-empty**,
+which was the last piece still bound to this command
+(§FS-rhei-states.3.3, §FS-rhei-transition-cmd.3.2). Point 1 is what remains
+genuinely `rhei complete`'s own (§FS-rhei-complete.4.1). The "Decision" text is
+kept as written for the record.
 
 ## Context
 

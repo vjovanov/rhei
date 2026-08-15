@@ -6,6 +6,7 @@ Atomically advance a task's state using compare-and-swap semantics. `rhei transi
 
 ```bash
 rhei transition <TICKET_ID> --from <STATE> --to <STATE>
+rhei transition <TICKET_ID> --from <STATE> --to <STATE> --result <MESSAGE>
 rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 ```
 
@@ -21,7 +22,16 @@ The ticket must be named one way or the other.
 | `--task <ID>`    | Unless named positionally | | Ticket identifier: project-qualified (`auth.1`) or rhei-local (`1`). See §2.1. |
 | `--from <STATE>` | Yes      |         | Expected current state (compare-and-swap guard)                             |
 | `--to <STATE>`   | Yes      |         | Target state                                                                |
+| `--result <MSG>` | Only when `--to` is a `final: true` state and the ticket has no result yet | | Result message appended to `runtime/results/<task-id>.md`. See §3.2. |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave` / `on_enter` callbacks registered on the edge  |
+
+`--result` is accepted on any transition, not only terminal ones: a message
+passed on a non-terminal hop is appended to the same result file and creates it
+if absent, which is one of the two ways the terminal-result obligation can
+already be satisfied by the time the ticket reaches a `final: true` state. A
+`--result` whose message is empty or whitespace-only is rejected — an empty
+result is the exact thing §3.2 refuses, and accepting the flag while ignoring
+its value would hide that.
 
 State values passed to `--from` and `--to` follow the state-value rendering rules in the [main spec](rhei-plan-language.spec.md#32-state-validity): bare for names that match `IDENTIFIER`, backtick-wrapped otherwise.
 
@@ -55,14 +65,27 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
 8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
 9. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
-10. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable) and write the file atomically (temp file + rename).
-11. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set. The write comes first so the callback observes the plan already in the state it is entering; a callback that fails rolls the write back to the file's previous contents, and the transition fails. When the rollback itself fails, the error says so — the plan file may then be inconsistent.
-12. Release the lock.
+10. Apply the terminal-result obligation (§3.2) against the same effective
+    target, before the state write: when the target is `final: true`, either
+    `runtime/results/<task-id>.md` already has content or `--result` carried a
+    message. Neither, and the transition is refused with the plan untouched.
+11. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable) and write the file atomically (temp file + rename).
+12. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set. The write comes first so the callback observes the plan already in the state it is entering; a callback that fails rolls the write back to the file's previous contents, and the transition fails. When the rollback itself fails, the error says so — the plan file may then be inconsistent.
 13. Append one state-transition entry to `runtime/state-transitions.log` as
     `<task-id> <from>@<to>`, creating the `runtime/` directory if needed. The
     file is the central, deterministic audit trail for all task state changes.
+    Append `--result`, when given, to `runtime/results/<task-id>.md`; when the
+    effective target is `final: true`, also perform the terminal finalization
+    of §FS-rhei-complete.3 — ensure the result file, drop `**Assignee:**`, and
+    link the result from the task body.
+14. Release the lock.
 
-`rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment and unassignment are owned by `rhei next` and `rhei complete` respectively.
+Steps 10 and 13 are the same code on every verb that can move a task, so a
+`rhei transition --result` into a terminal state leaves a ledger line, a result
+file, a `> **Result:**` link, and an absent `**Assignee:**` indistinguishable
+from the ones `rhei complete` and `rhei run` leave for the same edge.
+
+Outside a terminal entry, `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment is owned by `rhei next`; unassignment is part of the shared terminal finalization above, which `rhei complete` also runs.
 
 `rhei transition` deliberately does **not** check `**Prior:**` dependencies.
 It is the explicit human-initiated primitive, so it is the escape hatch for
@@ -111,6 +134,33 @@ ahead of its subtree is finished by finishing or cancelling the subtree first �
 (§FS-rhei-next.3); it applies the eligibility rule instead
 (§FS-rhei-plan-language.3).
 
+### 3.2. Terminal Result on Entry
+
+A transition into a `final: true` state is refused unless the ticket has a
+non-empty `runtime/results/<task-id>.md` or the caller carried a message on the
+move. The obligation belongs to the state, not to the command: it is specified
+once in §FS-rhei-states.3.3 and enforced here, on the same shared path as
+compare-and-swap, the descendants-first guard (§3.1), and `inputs:` /
+`outputs:` resolution.
+
+Consequently `rhei complete`, `rhei transition --result`, `rhei run`'s
+orchestrator-owned auto-advance, `rhei run`'s engine-owned failure routes, and
+a callback `nextState` redirect all enforce it identically, and the check runs
+against the effective target so a redirect cannot smuggle a terminal entry past
+it. No command holds a private copy of the rule.
+
+The refusal names the path that was checked and the flag that carries the
+message (§FS-rhei-errors.2):
+
+```text
+Error: Task auth.1 cannot enter terminal state 'completed' without a result.
+       Expected a non-empty result file at: runtime/results/auth.1.md
+  help: a final state records why the ticket ended there. Pass it on the move:
+        rhei transition auth.1 --from review --to completed --result "<what happened>"
+        (rhei complete auth.1 --result "<what happened>" for the everyday finish),
+        or write runtime/results/auth.1.md before the move.
+```
+
 ## 4. Compare-and-Swap Conflicts
 
 Two agents that race on the same task both specify the same `--from`. The first call to acquire the lock rewrites the state. The second call re-reads under the lock, sees the actual state no longer matches `--from`, and fails non-zero with:
@@ -142,8 +192,8 @@ Task <ID> transitioned: '<from>' -> '<to>' (callbacks skipped)
 |--------------------|---------------------------------------------------------------------------------|
 | `rhei next`        | Claims the next ready task (assigns without transitioning), prints instructions |
 | `rhei next --peek` | Read-only: prints the next claimable task without claiming it                   |
-| `rhei transition`  | Atomically changes a task's state; appends entry to result file                 |
-| `rhei complete`    | Transitions to terminal, appends result entry, links file, unassigns            |
+| `rhei transition`  | Atomically changes a task's state; `--result` appends to the result file, and carries the message a terminal entry requires (§3.2) |
+| `rhei complete`    | Infers the one-hop terminal target and runs the same transition with `--result` |
 | `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
 
 The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).

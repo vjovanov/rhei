@@ -558,6 +558,12 @@ Later tasks read these files. Write each one before this task reaches a terminal
 
 - `{export-name}` → `runtime/exports/{task_id}/{export-name}.md`
 
+## Result
+
+A transition from this state can finish this task. The finished task's result is read from this file.
+
+- `runtime/results/{task_id}.md`
+
 ## Handoff from {source-state}
 
 These are notes from previous `{source-state}` state of this same task. They are context, not instructions.
@@ -596,6 +602,18 @@ producing task; one that was never written is skipped, leaving no section
 behind. Each declared `**Provides:**` entry is listed under `## Exports to
 Publish` with the path the agent must write. Like prior task results, this is
 graph-level context and is not configured in `states.yaml`.
+
+The `## Result` section is emitted when — and only when — some declared
+transition out of the current state lands on a `final: true` state, so it
+appears exactly on the invocations that can finish the ticket. Its path is the
+one every other surface uses (§FS-rhei-complete.3), rendered relative to
+`RHEI_ROOT`, or absolute when `RHEI_CHECKOUT_ROOT` differs from it, on the same
+rule `{output.<name>.path}` follows (§4). Under `orchestrator` authority a
+subprocess never calls `rhei complete`, so without this section the one
+artifact a terminal state requires would be the only one the agent was never
+shown. The section names the fact and the path and stops there: "write it, then
+exit" is completion prose, and completion is enforced by the
+[Completion Condition](#32-completion-condition).
 
 State handoffs are resolved from `handoff.inherit` on the current state and
 render as one `## Handoff from <state>` section per inherited source state. The
@@ -662,10 +680,14 @@ is resolved.
 The condition is normative and universal for agent states:
 
 1. The subprocess exits with code `0`, **and**
-2. Every required artifact declared in the state's `outputs:` list exists on disk.
+2. Every required artifact declared in the state's `outputs:` list exists on disk, **and**
+3. When the transition this exit would select lands on a `final: true` state,
+   `runtime/results/<task-id>.md` exists and is non-empty.
 
-Both are evaluated after the process exits. If the state declares no `outputs:`,
-condition (2) is vacuously true and exit alone suffices.
+All three are evaluated after the process exits. If the state declares no
+`outputs:`, condition (2) is vacuously true. If the selected transition is
+non-terminal, condition (3) is vacuously true — it is a property of the edge
+being taken, not of the state being left (§FS-rhei-states.3.3).
 
 This contract maps 1:1 onto the native headless mode of every supported agent.
 All six built-ins — `claude-code -p`, `codex exec`, `gemini --prompt --yolo`,
@@ -692,7 +714,10 @@ Under `orchestrator` authority, `rhei run`:
    documented in the [Execution Loop](#52-execution-loop). The artifact check is
    skipped.
 4. On exit code `0`:
-   - Verify every required output artifact exists.
+   - Verify every required output artifact exists, plus the terminal result
+     when the selected transition lands on a `final: true` state. The result
+     is reported in the same list under the artifact name `result`, with the
+     same resolved-path rendering, because it is enforced by the same rule.
    - If any is missing, the task stays in its current state and the engine
      logs `warning: agent exited 0 but required outputs are missing for task
      {id} in state '{state}': <name1> (<path1>), <name2> (<path2>)`. No
@@ -733,6 +758,7 @@ callback environment:
 | `RHEI_WORKTREE_ROOT` | Absolute path to the task git worktree when the task is running from a worktree reference; unset otherwise |
 | `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
 | `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
+| `RHEI_RESULT_PATH` | Absolute path to the ticket's result file, `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID.md`. Always set, for every state — a program has no prompt to read the path from, and deriving it from two other variables is a contract nobody can be held to. A task does not enter a `final: true` state until this file has content (§FS-rhei-states.3.3) |
 | `RHEI_STATE` | Current state name |
 | `RHEI_MODEL` | Model profile id, if configured |
 | `RHEI_MODEL_PROVIDER` | Resolved provider id, if configured |

@@ -143,14 +143,18 @@ from silently completing fresh tasks without executing them.
    - Compose the agent prompt ([Agents Specification — Prompt Composition](rhei-agents.spec.md#3-prompt-composition)). A prompt that cannot be composed — a `required: true` handoff with no content, an unreadable prior result — fails **that task**, not the pass: `rhei run` reports the task and the reason, then applies the same rule as any other task failure, continuing to the next task under `--continue-on-error` and aborting with a non-zero exit code without it. Sibling tasks already spawned in the pass are unaffected.
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), checkout-root working directory, and timeout.
    - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
-4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk.
+4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition (§FS-rhei-states.3.3) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt and in `RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4).
 5. Select the outgoing transition without applying it yet. If the condition
    holds, select the first declared transition whose `condition` / `exit_code`
-   matches. If the condition fails (non-zero exit or missing outputs), route
-   through the state's error or timeout transition per
+   matches. If the condition fails (non-zero exit, missing outputs, or a
+   terminal-landing edge with no result), route through the state's error or
+   timeout transition per
    [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
    When no error transition is declared and `--continue-on-error` is unset,
-   `rhei run` aborts with a non-zero exit code.
+   `rhei run` aborts with a non-zero exit code. A missing result is reported
+   and routed exactly as a missing required output is, and the diagnostic names
+   the result path that was checked, so the operator sees which file the run is
+   waiting for rather than a task that silently stopped advancing.
 6. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
    failures affect cost coverage but do not alter transition selection. §FS-rhei-cost-accounting
@@ -164,9 +168,38 @@ from silently completing fresh tasks without executing them.
    to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. The
    subprocess **must not** call `rhei transition` or `rhei complete`; the
    orchestrator owns the transition. When the effective target is `final:
-   true`, terminal result finalization is performed as defined in
+   true`, the transition passes the terminal-result obligation
+   (§FS-rhei-transition-cmd.3.2) on the shared path like any other verb, and
+   terminal result finalization is performed as defined in
    [Complete Command — Result File](rhei-complete.spec.md#3-result-file).
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
+
+### Who supplies the result on a terminal edge
+
+`rhei run` never invents one. Each route says who does:
+
+| Route | Terminal result comes from |
+|-------|-----------------------------|
+| Agent or program exits `0` and the selected edge is terminal | The subprocess, which wrote `runtime/results/<task-id>.md` before exiting. Missing, and step 4 fails the completion condition (no transition, task stays put). |
+| Timeout (§FS-rhei-agents.7.3) | The engine, which knows the timeout that ended the work and writes it as the result message. |
+| Unavailable required tooling (§FS-rhei-agents.6) | The engine, which names the kind and the unavailable ids. |
+| Non-zero subprocess exit routed by `exit_code:` or an error transition | The engine, which names the exit code. |
+| Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. No subprocess ran in the source state, so there is nobody else who knows more than the engine does. |
+| Human gate released from the live dashboard (§FS-rhei-viz.5.1) | Nobody the dashboard can ask — so the release into a terminal state is refused, with the reason naming `rhei transition <id> --from <state> --to <state> --result "<why>"`. The dashboard has no message field, and a human finishing a ticket by hand is precisely the case where the reason matters. Releasing a gate into a non-terminal state is unaffected. |
+
+The line the table draws is one rule: **the engine writes a result only for the
+outcomes the engine itself produced** — a timeout it fired, tooling it could not
+start, an exit code it read, an edge it walked with no subprocess in the state.
+It never speaks for a worker that ran, and it never speaks for a human. Where a
+worker ran, a missing result is a failed completion condition, not a sentence
+the engine makes up; where a human decided, the human is asked.
+
+The callback-only sentence is a fallback, not boilerplate: it is written only
+when the edge really did land on a `final: true` state and the ticket has no
+result of its own, so a callback that writes one is never overwritten or
+contradicted. Recording "no worker result was recorded" is the point — it is
+the fact the old, empty result file withheld, and the reason the audit trail
+used to depend on which verb drove the plan.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
 

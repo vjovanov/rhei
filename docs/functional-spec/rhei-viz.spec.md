@@ -271,6 +271,16 @@ task's current state to `from`, validate that `to` is a legal outgoing
 transition, honor callbacks and callback redirects, write the plan through the
 normal atomic transition path, and report the effective target state.
 
+Because it applies the same semantics, it also inherits the terminal-result
+obligation (§FS-rhei-transition-cmd.3.2): a gate choice whose `to` is a `final:
+true` state is **rejected**, and the rejection reason names the equivalent
+`rhei transition <id> --from <state> --to <state> --result "<why>"`. The gate
+block carries no message field, and a human finishing a ticket by hand is the
+case where the reason matters most; inventing "released from the dashboard" on
+the operator's behalf would put provenance where a result belongs. The run is
+unaffected and picks up the out-of-band transition on its next pass. Gate
+choices into non-terminal states are unaffected.
+
 This is the only plan-state mutation allowed from the dashboard. It is available
 only while the loopback dashboard is live and only for tasks currently in a
 gating state. The static and frozen surfaces render gate choices as inert
