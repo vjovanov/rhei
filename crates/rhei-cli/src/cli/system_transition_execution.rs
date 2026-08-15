@@ -100,17 +100,44 @@ fn result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
     artifact_root.join("runtime").join("results").join(format!("{task_id}.md"))
 }
 
+/// Which invocation a result path belongs to: the state that invocation worked,
+/// that state's visit number, and its fan-out identity.
+///
+/// The three travel together because all three key the path, and because the
+/// side that *tells* a worker where to write and the side that later *checks*
+/// and merges must derive it identically. `identity: None` means a state that
+/// runs one invocation, which writes the ticket's result file directly.
+// §FS-rhei-states.3.3
+#[derive(Clone, Copy)]
+struct ResultInvocation<'a> {
+    state: &'a str,
+    visit_count: u64,
+    identity: Option<&'a str>,
+}
+
+impl<'a> ResultInvocation<'a> {
+    /// The ticket-level file: the state runs once, so nothing keys a fragment.
+    fn whole_task() -> Self {
+        Self { state: "", visit_count: 1, identity: None }
+    }
+}
+
 /// Where one invocation writes its account, relative to the artifact root.
 ///
 /// A single-invocation state writes the ticket's result file itself. A
-/// fanned-out state gives every invocation its own fragment keyed by the same
-/// identity the rest of its artifacts are keyed by, because one shared path
-/// would let the last writer erase its siblings and the first writer satisfy
-/// the obligation on everyone's behalf.
+/// fanned-out state gives every invocation its own fragment, keyed the way the
+/// rest of that invocation's artifacts are keyed — state, visit, identity —
+/// because one shared path would let the last writer erase its siblings and the
+/// first writer satisfy the obligation on everyone's behalf, and a path keyed by
+/// identity alone would let a fragment from an earlier fanned-out state, or an
+/// earlier visit of this one, stand in as this invocation's answer.
 // §FS-rhei-states.3.3
-fn result_relative_path(task_id: &str, identity: Option<&str>) -> String {
-    match identity {
-        Some(identity) => format!("runtime/results/{task_id}/{identity}.md"),
+fn result_relative_path(task_id: &str, invocation: ResultInvocation<'_>) -> String {
+    match invocation.identity {
+        Some(identity) => format!(
+            "runtime/results/{task_id}/{}/{}/{identity}.md",
+            invocation.state, invocation.visit_count
+        ),
         None => format!("runtime/results/{task_id}.md"),
     }
 }
@@ -120,23 +147,29 @@ fn result_relative_path(task_id: &str, identity: Option<&str>) -> String {
 fn invocation_result_file_path(
     artifact_root: &Path,
     task_id: &str,
-    identity: Option<&str>,
+    invocation: ResultInvocation<'_>,
 ) -> PathBuf {
-    artifact_root.join(result_relative_path(task_id, identity))
+    artifact_root.join(result_relative_path(task_id, invocation))
 }
 
 /// The per-invocation key a fanned-out state's result fragments are filed
 /// under: the target slug for `all_targets`, the model id for `all_models`.
 ///
 /// `None` for every state that runs one invocation — those keep writing the
-/// ticket's result file directly, so nothing changes for the common case.
-// §FS-rhei-states.3.3 §FS-rhei-transitions.4.2
+/// ticket's result file directly, so nothing changes for the common case. A
+/// `program:` state is one of them however many targets it declares: `rhei run`
+/// spawns a program once per ticket, so demanding a fragment per target would
+/// ask for files nothing can write.
+// §FS-rhei-states.3.3 §FS-rhei-transitions.4.2 §FS-rhei-programs.2
 fn fanout_result_identity(
     state_def: Option<&rhei_validator::StateDef>,
     target: Option<&ExecutionTarget>,
     model: Option<&str>,
 ) -> Option<String> {
     let state_def = state_def?;
+    if state_def.program.is_some() {
+        return None;
+    }
     if !state_def.all_targets.is_empty() {
         return target.map(|target| target.slug());
     }
@@ -152,6 +185,8 @@ fn fanout_result_identity(
 fn fanout_result_fragments(
     artifact_root: &Path,
     task_id: &str,
+    state_name: &str,
+    visit_count: u64,
     state_def: &rhei_validator::StateDef,
     invocations: &[ResolvedAgent],
 ) -> Vec<(String, PathBuf)> {
@@ -163,7 +198,15 @@ fn fanout_result_fragments(
                 resolved.target.as_ref(),
                 resolved.model.as_deref(),
             )?;
-            let path = invocation_result_file_path(artifact_root, task_id, Some(&identity));
+            let path = invocation_result_file_path(
+                artifact_root,
+                task_id,
+                ResultInvocation {
+                    state: state_name,
+                    visit_count,
+                    identity: Some(&identity),
+                },
+            );
             Some((identity, path))
         })
         .collect()
@@ -173,30 +216,38 @@ fn fanout_result_fragments(
 /// result file, one attributed `## Result` entry each, in declared invocation
 /// order.
 ///
-/// Called by `rhei run` after the last invocation and before the transition is
-/// applied, so the shared path sees a single non-empty result carrying every
-/// worker's account instead of whichever invocation happened to write last.
-/// The heading carries the identity and no arrow, so the result-file history
-/// reader (which keys on `<from> → <to>` headings) still reads the file the way
-/// it always did. Entries are **appended**: a ticket that already collected a
-/// result on an earlier hop keeps it, exactly as any other carried message
-/// accumulates.
+/// Called by `rhei run` once every declared invocation has satisfied its own
+/// completion condition and before the transition is applied, so the shared path
+/// sees a single non-empty result carrying every worker's account instead of
+/// whichever invocation happened to write last. The heading carries the identity
+/// and no arrow, so the result-file history reader (which keys on `<from> →
+/// <to>` headings) still reads the file the way it always did.
+///
+/// **Idempotent.** The merged block is a deterministic function of the
+/// fragments, so a block the result file already carries is not appended again:
+/// a move refused after the merge (a target `inputs:` artifact missing, say)
+/// leaves the merge on disk and the next attempt over the same fragments adds
+/// nothing. Fragments that changed since are a different block and do append —
+/// entries accumulate, exactly as any other carried message does, so a result
+/// the ticket collected on an earlier hop is kept.
 ///
 /// Every declared invocation must have written its fragment. This is the same
 /// rule declared `outputs:` follow — those are checked across every invocation
-/// identity on the shared path (`ensure_state_outputs_exist_for_transition`) —
-/// and it is what makes the per-invocation completion condition stick: the
-/// invocations finish in whatever order they finish, so without it the last one
-/// to satisfy *its own* condition would carry a silent sibling over the edge.
+/// identity on the shared path (`ensure_state_outputs_exist_for_transition`).
+/// Under `rhei run` it is a backstop rather than the ordinary path: a silent
+/// invocation fails its own completion condition first
+/// (`task_has_pending_agent_invocations`), so nothing gets this far.
 // §FS-rhei-states.3.3 §FS-rhei-agents.3.2 §FS-rhei-complete.3.2
 fn merge_fanout_result_fragments(
     artifact_root: &Path,
     task_id: &str,
     state_name: &str,
+    visit_count: u64,
     state_def: &rhei_validator::StateDef,
     invocations: &[ResolvedAgent],
 ) -> MietteResult<bool> {
-    let fragments = fanout_result_fragments(artifact_root, task_id, state_def, invocations);
+    let fragments =
+        fanout_result_fragments(artifact_root, task_id, state_name, visit_count, state_def, invocations);
     if fragments.is_empty() {
         return Ok(false);
     }
@@ -231,11 +282,16 @@ fn merge_fanout_result_fragments(
         ));
     }
     let destination = result_file_path(artifact_root, task_id);
+    let mut existing = fs::read_to_string(&destination).unwrap_or_default();
+    // Already merged: the same fragments produce the same block, and this runs
+    // again on every retry of a move that was refused after it. §FS-rhei-states.3.3
+    if existing.contains(&merged) {
+        return Ok(true);
+    }
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| file_io_report(parent, "failed to create runtime/results", err))?;
     }
-    let mut existing = fs::read_to_string(&destination).unwrap_or_default();
     if !existing.trim().is_empty() && !existing.ends_with('\n') {
         existing.push('\n');
     }
@@ -263,9 +319,9 @@ fn absolute_result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
 fn absolute_invocation_result_file_path(
     artifact_root: &Path,
     task_id: &str,
-    identity: Option<&str>,
+    invocation: ResultInvocation<'_>,
 ) -> PathBuf {
-    let path = invocation_result_file_path(artifact_root, task_id, identity);
+    let path = invocation_result_file_path(artifact_root, task_id, invocation);
     std::path::absolute(&path).unwrap_or(path)
 }
 
@@ -283,6 +339,17 @@ fn file_has_content(path: &Path) -> bool {
 // §FS-rhei-states.3.3
 fn task_result_is_present(artifact_root: &Path, task_id: &str) -> bool {
     file_has_content(&result_file_path(artifact_root, task_id))
+}
+
+/// Whether any fan-out invocation of this ticket has left a fragment behind.
+///
+/// Only used to explain a refusal: the fragments are real accounts of real work,
+/// and an operator who sees the ticket-level path named as empty should be told
+/// where the rest of the story is.
+// §FS-rhei-states.3.3
+fn fanout_result_fragments_exist(artifact_root: &Path, task_id: &str) -> bool {
+    let root = artifact_root.join("runtime").join("results").join(task_id);
+    fs::read_dir(&root).map(|mut entries| entries.next().is_some()).unwrap_or(false)
 }
 
 /// Reject an edge into a `final: true` state when nothing says why the ticket
@@ -322,6 +389,18 @@ fn ensure_terminal_result_available(
     // without it they only run from at or below the plan's own directory.
     // §FS-rhei-errors.2
     let plan = plan_arg_for_help(plan_path);
+    // A ticket that fanned out has its workers' accounts on disk as fragments;
+    // only `rhei run` folds them in, so say so rather than let the operator read
+    // the empty ticket-level path as lost work. §FS-rhei-states.3.3
+    let fragments = if fanout_result_fragments_exist(artifact_root, qualified_id) {
+        format!(
+            " This ticket has fan-out result fragments under runtime/results/{qualified_id}/; \
+             `rhei run` merges those into {relative} when it takes the edge, and a manual \
+             finish carries its own --result."
+        )
+    } else {
+        String::new()
+    };
     // Name the file that was checked and the flag that carries the message:
     // "write a result" is the answer, but the user still has to know where.
     // §FS-rhei-errors.2
@@ -331,7 +410,7 @@ fn ensure_terminal_result_available(
              rhei transition {plan} --task {qualified_id} --from {from} --to {to} \
              --result \"<what happened>\" \
              (rhei complete {plan} --task {qualified_id} --result \"<what happened>\" for the \
-             everyday finish), or write {relative} before the move."
+             everyday finish), or write {relative} before the move.{fragments}"
         ),
         "Task {} cannot enter terminal state '{}' without a result.\n\
          Expected a non-empty result file at: {}",

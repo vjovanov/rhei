@@ -678,8 +678,8 @@ fn a_fanned_out_terminal_edge_keeps_every_invocation_s_account() {
     // Each invocation wrote its own fragment, keyed by its identity …
     for identity in ["mock-mock-alpha", "mock-mock-beta"] {
         assert!(
-            dir.join(format!("runtime/results/plan.1/{identity}.md")).exists(),
-            "{identity}: fan-out invocation writes its own fragment"
+            dir.join(format!("runtime/results/plan.1/review/1/{identity}.md")).exists(),
+            "{identity}: fan-out invocation writes its own fragment, keyed by state and visit"
         );
     }
 
@@ -728,7 +728,7 @@ fn a_fanned_out_invocation_that_writes_nothing_fails_its_own_completion_conditio
     );
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
-        combined.contains("plan.1/mock-mock-beta.md"),
+        combined.contains("plan.1/review/1/mock-mock-beta.md"),
         "the warning names the fragment the silent invocation owed; got:\n{combined}"
     );
     assert_task_state(&plan_path, &machine_path, "1", "review");
@@ -736,6 +736,416 @@ fn a_fanned_out_invocation_that_writes_nothing_fails_its_own_completion_conditio
         !dir.join("runtime/results/plan.1.md").exists(),
         "nothing is merged when the state did not finish"
     );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The same fan-out state, but the terminal state demands an `inputs:` artifact
+/// nothing writes, so the move is refused after the fragments are merged. The
+/// merge must survive that and must not re-append itself on the next attempt.
+// §FS-rhei-states.3.3
+const FANOUT_REFUSED_MACHINE: &str = r#"name: fanout-refused
+version: 1
+models:
+  - alpha
+  - beta
+states:
+  review:
+    initial: true
+    description: Every reviewer weighs in
+    all_targets:
+      - "mock:mock:alpha"
+      - "mock:mock:beta"
+    agent_timeout: 10s
+  completed:
+    final: true
+    description: Done
+    inputs:
+      - name: sign-off
+        path: runtime/sign-off/{task_id}.md
+        required: true
+transitions:
+  - from: review
+    to: completed
+"#;
+
+/// A fan-out result is merged **once**, when the last fragment lands — not once
+/// per invocation that exits, and not again on a retry over the same fragments.
+/// Appending per invocation left four entries for a ticket that never moved.
+// §FS-rhei-states.3.3
+#[test]
+fn a_refused_fan_out_move_merges_the_fragments_exactly_once_per_attempt() {
+    let dir = unique_temp_dir("terminal-result-fanout-once");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_REFUSED_MACHINE);
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf '%s reviewed it.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\n",
+    );
+    write_fanout_agent_settings(&dir, &agent);
+
+    let first = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(!first.status.success(), "the missing target input refuses the move");
+    assert_task_state(&plan_path, &machine_path, "1", "review");
+
+    let entries = |label: &str| {
+        let merged = fs::read_to_string(dir.join("runtime/results/plan.1.md"))
+            .unwrap_or_else(|err| panic!("{label}: merged result file: {err}"));
+        assert!(
+            merged.matches("## Result \u{2014} mock-mock-alpha").count() == 1
+                && merged.matches("## Result \u{2014} mock-mock-beta").count() == 1,
+            "{label}: one entry per invocation, no more; got:\n{merged}"
+        );
+    };
+    entries("first pass");
+
+    // A second run rewrites the same fragments, so the merged block is the one
+    // already on disk and nothing is appended.
+    let second = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(!second.status.success(), "still refused");
+    entries("second pass");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// Two fanned-out states over the same targets. Keyed by identity alone, every
+/// `refine` invocation would find `review`'s fragment already on disk, write
+/// nothing, and hand the ticket `review`'s account as its result.
+// §FS-rhei-states.3.3 §FS-rhei-agents.3.2
+const FANOUT_TWO_STATE_MACHINE: &str = r#"name: fanout-two-states
+version: 1
+models:
+  - alpha
+  - beta
+states:
+  review:
+    initial: true
+    description: First look
+    all_targets:
+      - "mock:mock:alpha"
+      - "mock:mock:beta"
+    agent_timeout: 10s
+  refine:
+    description: Second look
+    all_targets:
+      - "mock:mock:alpha"
+      - "mock:mock:beta"
+    agent_timeout: 10s
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: review
+    to: refine
+  - from: refine
+    to: completed
+"#;
+
+#[test]
+fn a_second_fanned_out_state_does_not_inherit_the_first_s_fragments() {
+    let dir = unique_temp_dir("terminal-result-fanout-stale");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TWO_STATE_MACHINE);
+    // Writes only in `review`; `refine` exits 0 having written nothing.
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nif [ \"${RHEI_STATE:-}\" = review ]; then\n\
+         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf 'STALE from review by %s.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\nfi\n",
+    );
+    write_fanout_agent_settings(&dir, &agent);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(
+        !result.status.success(),
+        "`refine` wrote nothing, so it fails its own completion condition\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "refine");
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(
+        combined.contains("plan.1/refine/1/mock-mock-alpha.md"),
+        "the warning names the fragment `refine` owed, under its own state; got:\n{combined}"
+    );
+    assert!(
+        !dir.join("runtime/results/plan.1.md").exists(),
+        "the ticket never finished, so it has no result — least of all `review`'s"
+    );
+    for identity in ["mock-mock-alpha", "mock-mock-beta"] {
+        assert!(
+            dir.join(format!("runtime/results/plan.1/review/{identity}.md")).exists()
+                || dir.join(format!("runtime/results/plan.1/review/1/{identity}.md")).exists(),
+            "{identity}: `review`'s fragment stays where `review` put it"
+        );
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// One invocation finishing is not the state finishing. With a sibling still
+/// running, attempting the merge produced `1 of its fan-out invocation(s) wrote
+/// no result` on a run where nothing was wrong.
+// §FS-rhei-states.3.3
+#[test]
+fn a_slow_fan_out_sibling_does_not_raise_a_false_alarm() {
+    let dir = unique_temp_dir("terminal-result-fanout-slow");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TERMINAL_MACHINE);
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nif [ \"${RHEI_MODEL:-}\" = beta ]; then sleep 2; fi\n\
+         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf '%s reviewed it.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\n",
+    );
+    write_fanout_agent_settings(&dir, &agent);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert_success(&result);
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(
+        !combined.contains("wrote no result"),
+        "a healthy run must not accuse the sibling that had not finished yet; got:\n{combined}"
+    );
+    let merged =
+        fs::read_to_string(dir.join("runtime/results/plan.1.md")).expect("merged result file");
+    assert!(
+        merged.contains("alpha reviewed it.") && merged.contains("beta reviewed it."),
+        "both accounts survive; got:\n{merged}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `rhei run` spawns a program once per ticket, whatever the state declares, so
+/// a program state writes the ticket's result file and is never asked for a
+/// fragment per declared target — files nothing could write.
+// §FS-rhei-states.3.3 §FS-rhei-programs.2
+const PROGRAM_FANOUT_MACHINE: &str = r#"name: program-fanout
+version: 1
+models:
+  - alpha
+  - beta
+states:
+  review:
+    initial: true
+    description: One program, many declared targets
+    all_targets:
+      - "mock:mock:alpha"
+      - "mock:mock:beta"
+    program: >-
+      mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+      && printf 'the program did it.\n' > "$RHEI_RESULT_PATH"
+    program_timeout: 20s
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: review
+    to: completed
+    exit_code: 0
+"#;
+
+#[test]
+fn a_program_state_with_declared_targets_writes_the_ticket_result() {
+    let dir = unique_temp_dir("terminal-result-program-fanout");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", PROGRAM_FANOUT_MACHINE);
+    let agent = write_fixture_file(&dir, "mock-agent.sh", "#!/bin/sh\nset -eu\nexit 0\n");
+    write_fanout_agent_settings(&dir, &agent);
+
+    assert_success(&run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]));
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    let result =
+        fs::read_to_string(dir.join("runtime/results/plan.1.md")).expect("ticket result file");
+    assert!(result.contains("the program did it."), "got:\n{result}");
+    assert!(
+        !dir.join("runtime/results/plan.1").exists(),
+        "a program state files no per-invocation fragments"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A program is a worker: when it exits 0 owing the ticket's result, the run
+/// report must name the file, not fall back to "stalled in non-terminal state".
+// §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1
+const SILENT_PROGRAM_MACHINE: &str = r#"name: silent-program
+version: 1
+states:
+  probe:
+    initial: true
+    description: Exits 0 and writes nothing
+    program: "true"
+    program_timeout: 20s
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: probe
+    to: completed
+    exit_code: 0
+"#;
+
+const SILENT_PROGRAM_PLAN: &str = r#"# Rhei: Silent Program
+
+## Tasks
+
+### Task 1: Probe
+**State:** probe
+"#;
+
+#[test]
+fn a_program_that_owes_the_result_is_reported_as_missing_outputs() {
+    for parallel in ["1", "2"] {
+        let dir = unique_temp_dir(&format!("terminal-result-program-stall-{parallel}"));
+        let plan_path = write_fixture_file(&dir, "plan.rhei.md", SILENT_PROGRAM_PLAN);
+        let machine_path = write_fixture_file(&dir, "states.yaml", SILENT_PROGRAM_MACHINE);
+
+        let result = run_cli(
+            "run",
+            &plan_path,
+            &machine_path,
+            &["--no-tui", "--no-callbacks", "--parallel", parallel],
+        );
+        assert!(!result.status.success(), "--parallel {parallel}: the run halts on the stall");
+        let combined = format!("{}{}", result.stdout, result.stderr);
+        assert!(
+            combined.contains("program exited 0 but required outputs are missing"),
+            "--parallel {parallel}: the console still says `program`; got:\n{combined}"
+        );
+        let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+        assert!(
+            report.contains("worker exited 0 without result ("),
+            "--parallel {parallel}: the report names the artifact the program owed; got:\n{report}"
+        );
+        assert!(
+            !report.contains("stalled in non-terminal state"),
+            "--parallel {parallel}: not the nameless stall; got:\n{report}"
+        );
+        assert!(
+            report.contains("plan.rhei.md --task plan.1 --from probe"),
+            "--parallel {parallel}: the suggested command carries the plan; got:\n{report}"
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+}
+
+/// Sequential mode is the default, and a stall there used to end the whole run:
+/// the pass broke out of the loop, so a healthy ticket mid-workflow never got
+/// its next state and no second pass happened.
+// §FS-rhei-run.3 §FS-rhei-agents.5.2.1
+const SEQUENTIAL_STALL_MACHINE: &str = r#"name: sequential-stall
+version: 1
+states:
+  probe:
+    initial: true
+    description: Advances the ticket into work
+    program: "true"
+    program_timeout: 20s
+  work:
+    description: Agent work
+    agent: mock
+    agent_timeout: 10s
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: probe
+    to: work
+    exit_code: 0
+  - from: work
+    to: completed
+"#;
+
+const SEQUENTIAL_STALL_PLAN: &str = r#"# Rhei: Sequential Stall
+
+## Tasks
+
+### Task 1: Probe then work
+**State:** probe
+
+### Task 2: Silent worker
+**State:** work
+"#;
+
+#[test]
+fn a_sequential_stall_does_not_end_the_run() {
+    let dir = unique_temp_dir("terminal-result-sequential-stall");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", SEQUENTIAL_STALL_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", SEQUENTIAL_STALL_MACHINE);
+    // Task 2 is the silent one; task 1 writes its result and finishes.
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nif [ \"${RHEI_TASK_ID:-}\" != plan.2 ]; then\n\
+         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf '%s finished.\\n' \"$RHEI_TASK_ID\" > \"$RHEI_RESULT_PATH\"\nfi\n",
+    );
+    write_mock_agent_settings(&dir, &agent);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(!result.status.success(), "the run still halts on the ticket that stalled");
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(combined.contains("Pass 2"), "the pass after the stall happens; got:\n{combined}");
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert_task_state(&plan_path, &machine_path, "2", "work");
+    let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        report.contains("| plan.2 | work | worker exited 0 without result ("),
+        "the stalled ticket is reported by the artifact it owes; got:\n{report}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+const THREE_WORKER_PLAN: &str = r#"# Rhei: Three Workers
+
+## Tasks
+
+### Task 1: Worker one
+**State:** work
+
+### Task 2: Silent worker
+**State:** work
+
+### Task 3: Worker three
+**State:** work
+"#;
+
+/// One ticket stalling must not take its siblings down with it, including the
+/// ones a non-concurrent state deferred behind it.
+// §FS-rhei-run.3
+#[test]
+fn a_sequential_stall_leaves_its_siblings_claimable() {
+    let dir = unique_temp_dir("terminal-result-sequential-siblings");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", THREE_WORKER_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", SEQUENTIAL_STALL_MACHINE);
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nif [ \"${RHEI_TASK_ID:-}\" != plan.2 ]; then\n\
+         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf '%s finished.\\n' \"$RHEI_TASK_ID\" > \"$RHEI_RESULT_PATH\"\nfi\n",
+    );
+    write_mock_agent_settings(&dir, &agent);
+
+    let result = run_cli(
+        "run",
+        &plan_path,
+        &machine_path,
+        &["--no-tui", "--no-callbacks", "--parallel", "1"],
+    );
+    assert!(!result.status.success(), "the silent ticket still halts the run");
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert_task_state(&plan_path, &machine_path, "2", "work");
+    assert_task_state(&plan_path, &machine_path, "3", "completed");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

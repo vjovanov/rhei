@@ -157,7 +157,7 @@ Added avatar_url column and migration 0042
 
 `rhei complete <ticket> --result <MSG>` is exactly:
 
-> the readiness checks a scheduling verb owns (points 3–5) + the inferred
+> the readiness checks a scheduling verb owns (points 4–6) + the inferred
 > one-hop terminal target (§4.1) + `rhei transition <ticket> --from <current>
 > --to <inferred> --result <MSG>` on the shared transition path.
 
@@ -180,7 +180,7 @@ Added avatar_url column and migration 0042
    `rhei list --blocked` stops reporting it and the plan reads as healthy.
    A deliberate out-of-order move stays available through the explicit
    human-initiated `rhei transition` (§FS-rhei-transition-cmd.3), the same
-   escape hatch a gating state uses in point 4.
+   escape hatch a gating state uses in point 5.
 7. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
 8. Run the shared transition (§FS-rhei-transition-cmd.3) from the current state
    to that target, carrying `--result`: compare-and-swap under the file lock,

@@ -361,8 +361,12 @@ enum HaltCause {
     /// Distinct from `Stalled` because the remedy is concrete: write these
     /// files, or record the outcome by hand. "Inspect logs or mark the task
     /// cancelled" is advice for a halt nobody can name, and this one is named.
-    // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1
-    MissingOutputs { entries: Vec<String> },
+    ///
+    /// `plan` is the plan argument as the operator would type it, carried here
+    /// so the suggested `rhei transition` runs from wherever they are reading
+    /// the report rather than only from the plan's own directory.
+    // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1 §FS-rhei-errors.2
+    MissingOutputs { entries: Vec<String>, plan: String },
     /// The run never scheduled this ticket: nothing about it is known to have
     /// failed, so it must not borrow the stalled reading.
     // §FS-rhei-run-report.3.1
@@ -407,11 +411,12 @@ impl HaltCause {
             // Name the files. The whole point of this cause is that the operator
             // does not have to go read a log to learn which one is missing.
             // §FS-rhei-run-report.3.1
-            HaltCause::MissingOutputs { entries } => (
+            HaltCause::MissingOutputs { entries, plan } => (
                 format!("worker exited 0 without {}", entries.join(", ")),
                 format!(
                     "write the file(s) above and rerun, or record the outcome with \
-                     `rhei transition {id} --from {state} --to <state> --result …`"
+                     `rhei transition{} --task {id} --from {state} --to <state> --result …`",
+                    if plan.is_empty() { String::new() } else { format!(" {plan}") }
                 ),
             ),
             HaltCause::NotScheduled => (
@@ -437,6 +442,7 @@ impl HaltCause {
 /// the run actually spawned work for, whose failure is the ordinary stalled
 /// case rather than a scheduling one; `missing` carries the required artifacts
 /// its last exit-0 worker left unwritten, when the run recorded any.
+#[allow(clippy::too_many_arguments)]
 fn classify_halt(
     task: &rhei_core::ast::Task,
     rhei: &rhei_core::ast::Rhei,
@@ -445,6 +451,7 @@ fn classify_halt(
     scope: &RheiScope,
     worked: bool,
     missing: Option<Vec<String>>,
+    plan_arg: &str,
 ) -> HaltCause {
     let machine = machines.for_task(&task.id);
     let state = normalized_state_name(task.state.as_str(), machine);
@@ -472,7 +479,9 @@ fn classify_halt(
         // The run knows exactly what the worker did not write; say so instead
         // of pointing at logs. §FS-rhei-run-report.3.1
         return match missing {
-            Some(entries) if !entries.is_empty() => HaltCause::MissingOutputs { entries },
+            Some(entries) if !entries.is_empty() => {
+                HaltCause::MissingOutputs { entries, plan: plan_arg.to_string() }
+            }
             _ => HaltCause::Stalled,
         };
     }
@@ -498,7 +507,8 @@ fn classify_halted_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
     worked: &dyn Fn(&str) -> bool,
-    missing: &dyn Fn(&str) -> Option<Vec<String>>,
+    missing: &dyn Fn(&str, &str) -> Option<Vec<String>>,
+    plan_arg: &str,
 ) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
     let mut all = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all);
@@ -509,8 +519,20 @@ fn classify_halted_tasks<'a>(
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .map(|task| {
             let id = task.id.to_string();
-            let cause =
-                classify_halt(task, rhei, machines, &state_map, scope, worked(&id), missing(&id));
+            // `missing` is asked about the state the ticket is in now, so a
+            // stall it left behind two states ago cannot explain this halt.
+            // §FS-rhei-run-report.3.1
+            let state = normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
+            let cause = classify_halt(
+                task,
+                rhei,
+                machines,
+                &state_map,
+                scope,
+                worked(&id),
+                missing(&id, &state),
+                plan_arg,
+            );
             (task, cause)
         })
         .collect()
@@ -534,11 +556,17 @@ fn halted_task_report(
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
+    plan_path: &Path,
 ) -> (Vec<String>, bool) {
     let mut lines = Vec::new();
+    // Suggested commands carry the plan, so they run from wherever the operator
+    // is reading them. §FS-rhei-errors.2
+    let plan_arg = plan_arg_for_help(plan_path);
     // Pre-launch diagnostics: no run has happened yet, so nothing worked and
     // nothing is known missing. §FS-rhei-run.4
-    for (task, cause) in classify_halted_tasks(rhei, machines, scope, &|_| false, &|_| None) {
+    for (task, cause) in
+        classify_halted_tasks(rhei, machines, scope, &|_| false, &|_, _| None, &plan_arg)
+    {
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         let id = task.id.to_string();
@@ -1055,6 +1083,13 @@ fn try_auto_advance_task(
                 &route.execution_root,
                 task_id_str,
                 current_state,
+                render_visit_count(
+                    loaded.rhei.metadata.as_ref(),
+                    &task.id,
+                    current_state,
+                    task.state.as_str(),
+                    machine,
+                ),
                 state_def,
                 &invocations,
             )?;

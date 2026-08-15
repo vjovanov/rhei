@@ -354,8 +354,10 @@ fn render_composer(f: &mut Frame, area: Rect, state: &UiState, composer: &super:
         ComposerKind::GateResult { from, to, terminal } => (
             format!(" gate result · {} {from}→{to} ", composer.task),
             if *terminal {
-                "   (Enter release · '{to}' is final, so a blank result is refused · Esc cancel)"
-                    .replace("{to}", to)
+                format!(
+                    "   (Enter release · '{to}' is final, so a blank result is refused unless \
+                     the ticket already has one · Esc cancel)"
+                )
             } else {
                 "   (Enter release · empty sends no result · Esc cancel)".to_string()
             },

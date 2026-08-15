@@ -102,7 +102,8 @@ the summary prints five stacked groups:
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
    unsatisfied `**Prior:**`; a manual-only initial state; a worker that ran and
-   left a required artifact unwritten; a ticket the run never scheduled; no
+   left a required artifact unwritten — agent or program alike, since both are
+   workers and both stall the same way; a ticket the run never scheduled; no
    declared outgoing transition; anything else. Non-leaf tasks are classified alongside leaves
    because a non-leaf task is a task in its own right
    (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
@@ -110,6 +111,12 @@ the summary prints five stacked groups:
    something a human must fix, so — like a gate — it does not by itself make
    the run exit non-zero. The descendants named in it do that on their own
    account.
+
+   The artifacts a missing-artifact row names are the ones the ticket's most
+   recent worker left unwritten **in the state the ticket is still sitting
+   in**. A ticket that was spawned again, or that moved on and later halted for
+   an unrelated reason, is classified from scratch: an old stall never explains
+   a new one.
 
    A parent held open **only** by its own subtree is therefore not halted work
    and takes **no Attention row**: it is counted in neither the `N gated ·

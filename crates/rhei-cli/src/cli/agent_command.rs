@@ -166,7 +166,11 @@ fn build_agent_command(
         // §FS-rhei-agents.4 §FS-rhei-states.3.3
         .env(
             "RHEI_RESULT_PATH",
-            absolute_invocation_result_file_path(rhei_root, task_id, result_identity),
+            absolute_invocation_result_file_path(
+                rhei_root,
+                task_id,
+                ResultInvocation { state: state_name, visit_count, identity: result_identity },
+            ),
         )
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())

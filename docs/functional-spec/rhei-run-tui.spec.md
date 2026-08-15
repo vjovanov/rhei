@@ -373,8 +373,10 @@ browser, not separate mutation paths (§FS-rhei-viz.5 §AR-rhei-viz-flow.7).
   message**: `Enter` submits the choice through the gate sink carrying whatever
   was typed, an empty line submits with no message, and `Esc` cancels the move
   entirely. The composer is labelled with the chosen `from → to` and says when
-  the target is terminal, because that is the case a blank line will be refused
-  on (§FS-rhei-states.3.3) — the TUI does not pre-judge it, it lets the server
+  the target is terminal, because that is the case a blank line can be refused
+  on — only when the ticket has no result of its own, which is why the hint
+  reads as a condition and not a rule (§FS-rhei-states.3.3). The TUI does not
+  pre-judge it either: it lets the server
   answer and echoes the reason in the journal, the same as any other rejection.
   Frozen/static surfaces offer no working controls. Interactive runs stay alive
   for non-terminal human gates when the remaining work is gate-blocked or

@@ -765,7 +765,9 @@ function renderGateTransition(node, ms){
   label.appendChild(document.createTextNode("Result"));
   if(anyTerminal){
     label.appendChild(document.createTextNode(" "));
-    label.appendChild(el("span",{class:"gneed",text:"— required to finish the ticket"}));
+    // An existing non-empty result satisfies the obligation too, so this is a
+    // "needed unless" and not a "required". §FS-rhei-states.3.3
+    label.appendChild(el("span",{class:"gneed",text:"— needed to finish the ticket, unless it already has a result"}));
   }
   const resultInput=el("input",{class:"gresult", type:"text",
     placeholder: canAct ? "Why this ticket ended here…" : "Static preview — not delivered"});

@@ -144,17 +144,32 @@ from silently completing fresh tasks without executing them.
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), checkout-root working directory, and timeout.
    - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
 4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition (§FS-rhei-states.3.3) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt and in `RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4).
-5. Select the outgoing transition without applying it yet. If the condition
-   holds, select the first declared transition whose `condition` / `exit_code`
-   matches. If the condition fails (non-zero exit, missing outputs, or a
-   terminal-landing edge with no result), route through the state's error or
-   timeout transition per
-   [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
-   When no error transition is declared and `--continue-on-error` is unset,
-   `rhei run` aborts with a non-zero exit code. A missing result is reported
-   and routed exactly as a missing required output is, and the diagnostic names
-   the result path that was checked, so the operator sees which file the run is
-   waiting for rather than a task that silently stopped advancing.
+5. Select the outgoing transition without applying it yet.
+
+   - **The condition holds.** Select the first declared transition whose
+     `condition` / `exit_code` matches.
+   - **The subprocess exited non-zero, or its timeout fired.** Route through the
+     state's error or timeout transition per
+     [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
+     When no such transition is declared and `--continue-on-error` is unset,
+     `rhei run` aborts with a non-zero exit code.
+   - **The subprocess exited `0` and the completion condition fails** — a
+     required `outputs:` artifact is missing, or the edge this exit selects
+     lands on a `final: true` state and the ticket has no result
+     (§FS-rhei-states.3.3). **No transition fires.** The ticket stays in the
+     state it is in, the engine logs the missing-artifact warning of
+     §FS-rhei-agents.3.2.1 naming every path it checked — the result under the
+     artifact name `result`, so the operator sees which file the run is waiting
+     for rather than a ticket that silently stopped advancing — and records the
+     ticket as halted on missing outputs for the run report
+     (§FS-rhei-run-report.3.1). The stalled ticket is not spawned again for the
+     rest of the pass, and the run **continues with the other claimable
+     tickets**: in sequential mode (`--parallel 1`) exactly as in the worker
+     pool, and with or without `--continue-on-error`, which governs non-zero
+     exits and has nothing to say here. One ticket's failure to finish its own
+     work is never a verdict on the tickets beside it. The run halts only when a
+     pass makes no progress at all (step 9), and then exits non-zero with every
+     stalled ticket named.
 6. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
    failures affect cost coverage but do not alter transition selection. §FS-rhei-cost-accounting
@@ -181,7 +196,7 @@ from silently completing fresh tasks without executing them.
 | Route | Terminal result comes from |
 |-------|-----------------------------|
 | Agent or program exits `0` and the selected edge is terminal | The subprocess, which wrote `runtime/results/<task-id>.md` before exiting. Missing, and step 4 fails the completion condition (no transition, task stays put). |
-| A **fanned-out** state (`all_targets` / `all_models`) whose selected edge is terminal | Every invocation, each into its own fragment `runtime/results/<task-id>/<identity>.md`; the completion condition checks the invocation's own fragment, and `rhei run` merges the fragments into `runtime/results/<task-id>.md` before applying the transition (§FS-rhei-states.3.3). One worker's account never stands in for another's, and no invocation overwrites a sibling. |
+| A **fanned-out** state (`all_targets` / `all_models`) whose selected edge is terminal | Every invocation, each into its own fragment `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md`; the completion condition checks the invocation's own fragment, and once the last fragment lands `rhei run` merges them into `runtime/results/<task-id>.md` before applying the transition, idempotently (§FS-rhei-states.3.3). One worker's account never stands in for another's, and no invocation overwrites a sibling. A `program:` state is not fanned out: it runs once and writes the ticket-level file. |
 | Timeout (§FS-rhei-agents.7.3) | The engine, which knows the timeout that ended the work and writes it as the result message. |
 | Unavailable required tooling (§FS-rhei-agents.6) | The engine, which names the kind and the unavailable ids. |
 | Non-zero subprocess exit routed by `exit_code:` or an error transition | The engine, which names the exit code. |

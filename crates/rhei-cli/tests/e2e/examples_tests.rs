@@ -357,11 +357,12 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         assert!(!body.trim().is_empty(), "{task}: terminal result must have content");
     }
 
-    // The fan-out state gives every invocation its own fragment, so one
-    // reviewer's account never overwrites the other's. §FS-rhei-states.3.3
-    let fragments = workspace.join("runtime/results/ws.full-pipeline");
+    // Every invocation gets its own fragment, keyed by the state and visit it
+    // belongs to, so no reviewer overwrites another and no later state inherits
+    // this one's account. §FS-rhei-states.3.3
+    let fragments = workspace.join("runtime/results/ws.full-pipeline/parallel-review/1");
     let mut names: Vec<String> = fs::read_dir(&fragments)
-        .expect("fan-out result fragments")
+        .unwrap_or_else(|err| panic!("fan-out result fragments at {}: {err}", fragments.display()))
         .map(|entry| entry.expect("fragment entry").file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();

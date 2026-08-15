@@ -541,29 +541,59 @@ obligation on everyone's behalf, so under fan-out each invocation is given a
 per-invocation **result fragment** instead:
 
 ```text
-runtime/results/<task-id>/<identity>.md
+runtime/results/<task-id>/<state>/<visit_count>/<identity>.md
 ```
 
-`<identity>` is the same per-invocation key the state's own artifacts are keyed
-by — the target slug for `all_targets`, the model id for `all_models`. The
-fragment path is what the invocation sees in its prompt and in
+The key is the one the state's own per-invocation artifacts already use, in the
+same order (§FS-rhei-states.3.2): the state being worked, the visit of that
+state, and `<identity>` — the target slug for `all_targets`, the model id for
+`all_models`. All three carry weight. A fragment is one worker's account of one
+invocation of one state, and a ticket may fan out more than once: `review` then
+`refine` over the same targets, or a counted loop that re-enters `review`. Keyed
+by identity alone, every invocation after the first would find a fragment
+already on disk, satisfy its completion condition without writing anything, and
+hand the ticket a stale account under a state it never came from. `<visit_count>`
+alone does not separate them either — an uncounted state renders visit `1` on
+every entry — so the path carries both.
+
+The fragment path is what the invocation sees in its prompt and in
 `RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4), and the completion
 condition (§FS-rhei-agents.3.2) checks *that invocation's own* fragment, exactly
-as it checks that invocation's declared `outputs:`. When the transition selected
-after the last invocation lands on a `final: true` state, `rhei run` merges the
-fragments — in declared invocation order, one `## Result — <identity>` entry
-each — into `runtime/results/<task-id>.md` **before** applying the transition,
-so the shared path sees one non-empty result carrying every worker's account.
-Entries are appended, so a result the ticket collected on an earlier hop is
-kept, not replaced.
+as it checks that invocation's declared `outputs:`. Both sides resolve the path
+through the same rule, so the file a worker is told to write is the file the run
+looks for.
 
-The merge requires **every** declared invocation's fragment, and refuses the
-move naming the ones that are missing. This is the rule declared `outputs:`
-already follow — they are checked across every invocation identity on the edge
-out (§FS-rhei-plan-language.3.10) — and it is what makes the per-invocation
-completion condition hold: invocations finish in whatever order they finish, so
-without it the last one to satisfy *its own* condition would carry a silent
-sibling over the edge.
+**Merged once, when the last fragment lands.** An invocation that owes a
+fragment has not finished, so `rhei run` does not attempt the ticket's
+transition while any declared invocation of the state is still missing one — the
+same reason it does not attempt one while a declared `outputs:` artifact of a
+sibling invocation is missing. When the last fragment lands and the selected
+transition is a `final: true` state, `rhei run` merges the fragments — in
+declared invocation order, one `## Result — <identity>` entry each — into
+`runtime/results/<task-id>.md` **before** applying the transition, so the shared
+path sees one non-empty result carrying every worker's account.
+
+The merge is **idempotent**: the merged block is a deterministic function of the
+fragments, and a block the result file already carries is not appended a second
+time. A move refused *after* the merge — a target state whose `inputs:` are
+missing, say — therefore leaves the merged result on disk, and the next attempt
+over the same fragments adds nothing. Fragments that **changed** since are a new
+account and do append: entries accumulate, so a result the ticket collected on
+an earlier hop is kept, not replaced.
+
+The merge still refuses the move, naming the fragments that are missing, if one
+is absent when it runs. That is the rule declared `outputs:` already follow —
+they are checked across every invocation identity on the edge out
+(§FS-rhei-plan-language.3.10) — and here it is a backstop rather than the
+ordinary path: an invocation that wrote nothing fails its own completion
+condition first, and nobody reaches the merge.
+
+**A `program:` state is not fanned out.** `rhei run` spawns a program once per
+ticket whatever else the state declares, so a program state has one invocation,
+no identity, and writes `runtime/results/<task-id>.md` directly — the path
+`RHEI_RESULT_PATH` holds for it (§FS-rhei-programs.2). Asking a state that runs
+one process for one fragment per declared target would demand files nothing can
+write.
 
 Invocations that are not fanned out are unaffected: they write
 `runtime/results/<task-id>.md` directly.

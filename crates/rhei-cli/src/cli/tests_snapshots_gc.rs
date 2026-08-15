@@ -103,6 +103,7 @@
         let recorder = Arc::new(RecordingSink::default());
         let sink: Arc<dyn rhei_tui::EventSink> = recorder.clone();
         emit_exit_zero_missing_required_outputs_warning(
+            "agent",
             "1",
             "pending",
             &["required-report".to_string()],

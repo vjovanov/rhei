@@ -57,19 +57,44 @@
   run several workers over one ticket, and one shared result path let the last
   writer erase every sibling's account while the first satisfied the obligation
   for all of them. Each invocation is now given
-  `runtime/results/<task-id>/<identity>.md` — in its prompt and in
-  `RHEI_RESULT_PATH` — the completion condition checks *that invocation's own*
-  fragment, and `rhei run` merges the fragments into the ticket's result, one
-  attributed `## Result — <identity>` entry each, before applying a transition
-  that finishes it. A fragment nobody wrote refuses the move and is named.
+  `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md` — in its
+  prompt and in `RHEI_RESULT_PATH` — the completion condition checks *that
+  invocation's own* fragment, and `rhei run` merges the fragments into the
+  ticket's result, one attributed `## Result — <identity>` entry each, before
+  applying a transition that finishes it. The state and the visit are part of
+  the key because a ticket can fan out more than once: keyed by identity alone,
+  every invocation of a second fanned-out state would find the first state's
+  fragment already there, write nothing, pass its own completion condition, and
+  hand the ticket a stale account. The run waits for the last fragment before it
+  attempts the ticket's transition, so the merge happens once rather than once
+  per invocation that exits, and the merge is idempotent: a move refused after it
+  (a missing target `inputs:` artifact, say) leaves the merged result on disk and
+  the next attempt over the same fragments adds nothing. A `program:` state is
+  not fanned out however many targets it declares — `rhei run` spawns a program
+  once per ticket, so it writes the ticket-level result file, and asking it for
+  one fragment per target used to halt the run on files nothing could write.
 
   **The run report names the missing artifact.** A ticket whose exit-0 worker
   left required outputs unwritten — the terminal result included, under the
   artifact name `result` — now reads `worker exited 0 without <name> (<path>)`
-  with "write these, or record the outcome with `rhei transition … --result`" as
-  the next action, instead of "stalled in non-terminal state <s> — inspect logs
-  or mark the task cancelled". A ticket the run never scheduled says that,
-  rather than borrowing the stalled reading.
+  with "write these, or record the outcome with `rhei transition <plan> --task
+  <id> … --result`" as the next action, instead of "stalled in non-terminal
+  state <s> — inspect logs or mark the task cancelled". Programs count: a
+  program that exits `0` owing an artifact is a worker that stalled, and it now
+  reaches the report as one. The row names what the ticket owes only while it is
+  still sitting in the state it stalled in, so an earlier stall never explains a
+  later halt it had nothing to do with. A ticket the run never scheduled says
+  that, rather than borrowing the stalled reading.
+
+  **A stall no longer ends a sequential run.** With the default `--parallel 1`,
+  a worker that exited `0` owing an artifact broke out of the pass loop
+  entirely: the run stopped there, with or without `--continue-on-error`, so a
+  healthy ticket that had just advanced never got its next state and no second
+  pass happened. Both modes now agree — the stalled ticket steps out of the
+  pass, the run carries on with the other claimable tickets (including ones a
+  non-concurrent state had deferred behind it), and the run halts only when a
+  whole pass makes no progress. `--continue-on-error` governs non-zero exits and
+  never entered into this.
 
   **Breaking:** a `rhei transition` or a `rhei run` that lands a ticket in a
   terminal state now needs a result. Machines whose terminal edge is driven by

@@ -277,7 +277,10 @@ the case where the reason matters most, so the block carries a single-line
 **Result** field beside the choices and submits it as the transition's result
 message, exactly as `rhei transition --result` does. The field is always
 offered — a result is legitimate on any hop — and is marked as needed when the
-chosen target is a `final: true` state. It is never filled in on the operator's
+chosen target is a `final: true` state. The marking says *needed*, not
+*required*: a result already on disk satisfies the obligation just as well, and
+labelling the field required would have told the operator a blank release was
+impossible in a case where it succeeds. It is never filled in on the operator's
 behalf: submitting it blank sends no message, and the server refuses a terminal
 release that has neither a message nor a result already on disk, with the
 rejection reason naming `rhei transition <id> --from <state> --to <state>

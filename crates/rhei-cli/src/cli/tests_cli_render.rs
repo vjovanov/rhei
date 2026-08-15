@@ -1220,7 +1220,9 @@ transitions:
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");
-        assert!(prompt.contains("`runtime/results/1/alpha.md`"), "{prompt}");
+        // State and visit key the fragment too, so a later fanned-out state
+        // cannot be answered with this one's account. §FS-rhei-states.3.3
+        assert!(prompt.contains("`runtime/results/1/review/1/alpha.md`"), "{prompt}");
         assert!(!prompt.contains("`runtime/results/1.md`"), "{prompt}");
     }
 

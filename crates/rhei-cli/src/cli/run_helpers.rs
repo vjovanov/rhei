@@ -96,9 +96,23 @@ fn ensure_state_outputs_exist_for_transition(
     Ok(())
 }
 
+/// Whether any invocation of this state still owes the ticket something.
+///
+/// One invocation exiting is not the state finishing: the run must not select a
+/// transition while a sibling is still to write. An invocation is pending when a
+/// declared `outputs:` artifact of *its* identity is missing, or — when the edge
+/// this exit would select finishes the ticket — when its own result fragment is.
+/// Gating on declared outputs alone let a fan-out state with none advance on the
+/// first exit, with the merge then running once per invocation and, on a
+/// terminal edge, once per invocation that arrived after the ticket had left.
+///
+/// `result_root` is the owning rhei's execution root, which is where results
+/// live; declared outputs resolve against `workspace_root`.
+// §FS-rhei-agents.3.2 §FS-rhei-states.3.3 §FS-rhei-panta.6.2
 #[allow(clippy::too_many_arguments)]
 fn task_has_pending_agent_invocations(
     workspace_root: &Path,
+    result_root: &Path,
     task: &rhei_core::ast::Task,
     state_name: &str,
     current_state_raw: &str,
@@ -106,11 +120,8 @@ fn task_has_pending_agent_invocations(
     metadata: Option<&Metadata>,
     state_def: &rhei_validator::StateDef,
     settings: &RheiSettings,
+    selected_to: Option<&str>,
 ) -> MietteResult<bool> {
-    if state_def.outputs.is_empty() {
-        return Ok(false);
-    }
-
     let invocations = resolve_agent_invocations_for_task(
         machine,
         state_name,
@@ -118,8 +129,12 @@ fn task_has_pending_agent_invocations(
         &default_run_options(),
         Some(task),
     )?;
+    let finishes_ticket = selected_to.is_some_and(|to| is_terminal_state(to, machine));
+    let visit_count =
+        render_visit_count(metadata, &task.id, state_name, current_state_raw, machine);
+    let task_id = task.id.to_string();
     Ok(invocations.iter().any(|resolved| {
-        !state_outputs_exist_for_resolved_invocation(
+        if !state_outputs_exist_for_resolved_invocation(
             workspace_root,
             task,
             state_name,
@@ -128,7 +143,23 @@ fn task_has_pending_agent_invocations(
             metadata,
             state_def,
             resolved,
-        )
+        ) {
+            return true;
+        }
+        if !finishes_ticket {
+            return false;
+        }
+        let identity = fanout_result_identity(
+            Some(state_def),
+            resolved.target.as_ref(),
+            resolved.model.as_deref(),
+        );
+        let path = invocation_result_file_path(
+            result_root,
+            &task_id,
+            ResultInvocation { state: state_name, visit_count, identity: identity.as_deref() },
+        );
+        !file_has_content(&path)
     }))
 }
 
@@ -384,26 +415,34 @@ fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String
     }
     let task_id = render_context.task.id.to_string();
     // A fanned-out invocation writes its own fragment, so the path it is shown
-    // is the one its `RHEI_RESULT_PATH` holds. §FS-rhei-states.3.3
+    // is the one its `RHEI_RESULT_PATH` holds — resolved through the same
+    // helper, off the same visit count. §FS-rhei-states.3.3
     let identity = fanout_result_identity(
         render_context.machine.states.get(render_context.state_name),
         render_context.target,
         render_context.model,
     );
-    let relative = result_relative_path(&task_id, identity.as_deref());
+    let invocation = ResultInvocation {
+        state: render_context.state_name,
+        visit_count: render_visit_count(
+            render_context.metadata,
+            &render_context.task.id,
+            render_context.state_name,
+            render_context.current_state_raw,
+            render_context.machine,
+        ),
+        identity: identity.as_deref(),
+    };
+    let relative = result_relative_path(&task_id, invocation);
     // Same rule declared artifacts follow: relative under the artifact root,
     // absolute when the agent's cwd is somewhere else entirely.
     // §FS-rhei-agents.4
     let shown = if render_context.checkout_root == render_context.workspace_root {
         relative
     } else {
-        invocation_result_file_path(
-            render_context.workspace_root,
-            &task_id,
-            identity.as_deref(),
-        )
-        .display()
-        .to_string()
+        invocation_result_file_path(render_context.workspace_root, &task_id, invocation)
+            .display()
+            .to_string()
     };
     format!(
         "\n## Result\n\n\
