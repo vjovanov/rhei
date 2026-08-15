@@ -23,7 +23,7 @@
   auto-advance, a callback redirect — instead of only `rhei complete`, which
   was the one command that checked and therefore the only one that could not
   leave behind a plan failing its own `rhei validate`. `rhei complete` stops
-  holding a private copy of the rule. Issue #71.
+  holding a private copy of the rule. Issue #71. PR #75
   §FS-rhei-plan-language.3 §FS-rhei-next.3 §FS-rhei-next.3.4
   §FS-rhei-transition-cmd.3.1 §FS-rhei-run.3
 
