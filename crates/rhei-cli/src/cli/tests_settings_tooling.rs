@@ -359,7 +359,7 @@
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let dir = tempfile::tempdir().expect("tmpdir");
-        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), false);
+        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new());
         assert_eq!(ready.len(), 2);
         let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path());
         assert_eq!(

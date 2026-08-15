@@ -420,7 +420,10 @@ fn no_advancement_summary(
     let blocked: Vec<String> = project
         .iter()
         .copied()
-        .filter(|task| task.children.is_empty())
+        // A parent whose subtree is still open is held up by the subtree, not
+        // by a prior; its descendants report for themselves.
+        // §FS-rhei-plan-language.3
+        .filter(|task| descendants_are_terminal(task, machines))
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .filter_map(|task| {

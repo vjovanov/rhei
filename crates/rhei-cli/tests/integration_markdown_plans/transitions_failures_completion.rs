@@ -221,6 +221,10 @@ transitions:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// `rhei complete` still refuses a parent with an open child — but the refusal
+/// now comes from the shared transition path rather than a private check, so
+/// the wording is the verb-neutral one every path produces.
+// §FS-rhei-transition-cmd.3.1 §FS-rhei-complete.4
 #[test]
 fn complete_rejects_parent_with_non_terminal_subtasks() {
     let plan = r#"# Rhei: Parent Completion Guard
@@ -243,8 +247,8 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
     assert!(!result.status.success(), "complete should fail when children are non-terminal");
     let normalized = normalize_for_assertions(&result.stderr);
     assert!(
-        normalized.contains("cannot be completed while child tasks remain non-terminal"),
-        "expected child-task guard in stderr, got:\n{}",
+        normalized.contains("cannot enter terminal state 'completed' while descendant tasks"),
+        "expected the shared descendants-first guard in stderr, got:\n{}",
         result.stderr
     );
     assert!(

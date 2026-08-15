@@ -37,8 +37,68 @@ fn state_inputs_exist_for_ready_set(
     .is_ok()
 }
 
-/// Find tasks that are ready to advance: not in a terminal or gating state
-/// and all prior dependencies are satisfied.
+/// Every descendant of `task` that is not yet terminal, in preorder.
+// §DA-per-rhei-state-machines: each node is judged under the machine its own
+// id resolves to, so a mixed-machine project cannot misread a child's state.
+fn open_descendant_tasks<'a>(
+    task: &'a rhei_core::ast::Task,
+    machines: &rhei_validator::MachineSet,
+) -> Vec<&'a rhei_core::ast::Task> {
+    fn recurse<'a>(
+        task: &'a rhei_core::ast::Task,
+        machines: &rhei_validator::MachineSet,
+        out: &mut Vec<&'a rhei_core::ast::Task>,
+    ) {
+        for child in &task.children {
+            if !is_terminal_state(child.state.as_str(), machines.for_task(&child.id)) {
+                out.push(child);
+            }
+            recurse(child, machines, out);
+        }
+    }
+    let mut out = Vec::new();
+    if task.children.is_empty() {
+        return out;
+    }
+    recurse(task, machines, &mut out);
+    out
+}
+
+/// The one eligibility rule for non-leaf tasks, shared by `rhei next` and
+/// `rhei run` instead of splitting on whether the node has children.
+// §FS-rhei-plan-language.3 §FS-rhei-next.3: workable once the subtree is
+// terminal; a leaf satisfies it trivially.
+fn descendants_are_terminal(
+    task: &rhei_core::ast::Task,
+    machines: &rhei_validator::MachineSet,
+) -> bool {
+    task.children.is_empty() || open_descendant_tasks(task, machines).is_empty()
+}
+
+/// `Task <id> (<state>)` for each open descendant, capped at three with a
+/// `(+N more)` tail — the shape every other ticket list in this module uses.
+fn format_open_descendants(
+    open: &[&rhei_core::ast::Task],
+    machines: &rhei_validator::MachineSet,
+) -> String {
+    let items: Vec<String> = open
+        .iter()
+        .take(3)
+        .map(|task| {
+            format!(
+                "Task {} ({})",
+                task.id,
+                normalized_state_name(task.state.as_str(), machines.for_task(&task.id))
+            )
+        })
+        .collect();
+    let suffix =
+        if open.len() > 3 { format!(" (+{} more)", open.len() - 3) } else { String::new() };
+    format!("{}{}", items.join(", "), suffix)
+}
+
+/// Find tasks that are ready to advance: not in a terminal or gating state,
+/// with every descendant terminal, and all prior dependencies satisfied.
 ///
 /// Returns task references in source order.
 fn find_ready_tasks<'a>(
@@ -46,7 +106,6 @@ fn find_ready_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
-    leaf_only: bool,
 ) -> Vec<&'a rhei_core::ast::Task> {
     use std::collections::HashMap;
 
@@ -63,7 +122,10 @@ fn find_ready_tasks<'a>(
     let mut ready = Vec::new();
 
     for task in all_tasks {
-        if leaf_only && !task.children.is_empty() {
+        // §FS-rhei-plan-language.3: a non-leaf task is workable only once its
+        // subtree is terminal — the same rule for `rhei next` and `rhei run`,
+        // so a parent is never worked beside its own child.
+        if !descendants_are_terminal(task, machines) {
             continue;
         }
         let machine = machines.for_task(&task.id);
@@ -115,7 +177,7 @@ fn find_ready_tasks<'a>(
 
 /// Find tasks that `rhei run` may schedule autonomously.
 ///
-/// This keeps the broad readiness semantics used by the run loop, but skips
+/// This keeps the readiness semantics used by the run loop, but skips
 /// tasks that already carry an assignee so a manual claim cannot be stolen by
 /// the orchestrator.
 fn find_runnable_tasks<'a>(
@@ -123,7 +185,7 @@ fn find_runnable_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), false)
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new())
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -137,7 +199,7 @@ fn find_held_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), false)
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new())
         .into_iter()
         .filter(|task| task.assignee.is_some())
         .collect()
@@ -155,16 +217,17 @@ fn format_held_tasks(held: &[&rhei_core::ast::Task]) -> String {
 
 /// Find tasks that are ready to be claimed by `rhei next` in automatic mode.
 ///
-/// A task is claimable when it is in the state machine's initial state, its
-/// prerequisites are satisfied, and it has no `**Assignee:**` field (which
-/// indicates it is already claimed by another agent).
+/// A task is claimable when every descendant of it is terminal, it is in the
+/// state machine's initial state, its prerequisites are satisfied, and it has
+/// no `**Assignee:**` field (already claimed by another agent).
+// §FS-rhei-next.3
 fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, task_roots, true)
+    find_ready_tasks(rhei, machines, workspace_root, task_roots)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
@@ -262,6 +325,10 @@ fn first_blocking_prior(
 // §FS-rhei-run-report.3.1 §FS-rhei-run.4: one classification, every surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HaltCause {
+    /// A non-leaf ticket whose own subtree is still open. It is a task in its
+    /// own right, so it is reported — but the work is in the descendants.
+    /// §FS-rhei-plan-language.3
+    WaitingOnDescendants { open: String },
     /// A gating state deliberately waiting for a human decision.
     Gate,
     /// A live `**Assignee:**`; the scheduler never schedules a claimed ticket.
@@ -281,6 +348,11 @@ impl HaltCause {
     /// diagnostics. Both name concrete commands wherever one exists.
     fn describe(&self, id: &str, state: &str) -> (String, String) {
         match self {
+            HaltCause::WaitingOnDescendants { open } => (
+                format!("waiting on open descendant {open}"),
+                "finish the descendants; the parent is claimable once its subtree is terminal"
+                    .to_string(),
+            ),
             HaltCause::Gate => (
                 "gating state awaiting review".to_string(),
                 "transition manually when reviewed".to_string(),
@@ -317,8 +389,10 @@ impl HaltCause {
 
     /// Whether this cause is a deliberate pause rather than something wrong.
     /// A gate is the plan working as authored; the rest need a human to act.
+    // §FS-rhei-run-report.3.1: a parent waiting on its own subtree is the
+    // eligibility rule working — the descendants answer for themselves.
     fn is_deliberate_pause(&self) -> bool {
-        matches!(self, HaltCause::Gate)
+        matches!(self, HaltCause::Gate | HaltCause::WaitingOnDescendants { .. })
     }
 }
 
@@ -335,6 +409,12 @@ fn classify_halt(
 ) -> HaltCause {
     let machine = machines.for_task(&task.id);
     let state = normalized_state_name(task.state.as_str(), machine);
+    // A parent is not schedulable at all until its subtree closes, so that
+    // outranks anything about its own state. §FS-rhei-plan-language.3
+    let open = open_descendant_tasks(task, machines);
+    if !open.is_empty() {
+        return HaltCause::WaitingOnDescendants { open: format_open_descendants(&open, machines) };
+    }
     if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
         return HaltCause::Gate;
     }
@@ -358,13 +438,14 @@ fn classify_halt(
     }
 }
 
-/// Every in-scope, non-terminal leaf ticket with why it is not moving, in plan
+/// Every in-scope, non-terminal ticket with why it is not moving, in plan
 /// order — the shared basis for the run's halt diagnostics and the report.
 ///
 /// `worked` reports whether the run actually spawned an invocation for a
 /// ticket; those failed at their work rather than at scheduling, so they keep
 /// the generic stalled reading.
-// §FS-rhei-run-report.3.1
+// §FS-rhei-run-report.3.1: non-leaf tickets are classified alongside leaves, so
+// a parent nobody can advance is nameable as the reason a dependent is stuck.
 fn classify_halted_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
@@ -376,7 +457,6 @@ fn classify_halted_tasks<'a>(
     let state_map = plan_state_map(&all, machines);
     all.iter()
         .copied()
-        .filter(|task| task.children.is_empty())
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .map(|task| {
@@ -516,48 +596,21 @@ fn diagnose_no_claimable(
         };
     }
 
-    let leaf_tasks: Vec<&rhei_core::ast::Task> =
-        all.iter().copied().filter(|task| task.children.is_empty()).collect();
-    let non_terminal_rollups: Vec<&rhei_core::ast::Task> = all
-        .iter()
-        .copied()
-        .filter(|task| {
-            !task.children.is_empty()
-                && !is_terminal_state(task.state.as_str(), machines.for_task(&task.id))
-        })
-        .collect();
-    if !leaf_tasks.is_empty()
-        && leaf_tasks
-            .iter()
-            .all(|task| is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
-        && !non_terminal_rollups.is_empty()
-    {
-        let items: Vec<String> = non_terminal_rollups
-            .iter()
-            .take(3)
-            .map(|task| {
-                let state =
-                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
-                format!("Task {} ({})", task.id, state)
-            })
-            .collect();
-        let suffix = if non_terminal_rollups.len() > 3 {
-            format!(" (+{} more)", non_terminal_rollups.len() - 3)
-        } else {
-            String::new()
-        };
-        return format!(
-            "Leaf work complete. {} rollup task(s) can be completed after descendants are terminal: {}{}.",
-            non_terminal_rollups.len(),
-            items.join(", "),
-            suffix
-        );
-    }
+    // Every category below speaks about a task the caller can act on, so each
+    // is computed over the *workable* set: leaves, plus non-leaf tasks whose
+    // subtree is already terminal. A parent with open descendants is not work
+    // anyone can be handed; it gets its own category last, so it can still
+    // explain a stuck plan instead of falling through to a bare "nothing is
+    // ready". The retired "Leaf work complete. <N> rollup task(s) …" message
+    // existed only because a parent could never be claimed at all — under the
+    // eligibility rule it simply becomes the next claimable ticket the moment
+    // its own children finish.
 
-    let non_terminal_leaf_tasks: Vec<&rhei_core::ast::Task> = non_terminal
+    // §FS-rhei-next.5
+    let non_terminal_workable: Vec<&rhei_core::ast::Task> = non_terminal
         .iter()
         .copied()
-        .filter(|task| task.children.is_empty())
+        .filter(|task| descendants_are_terminal(task, machines))
         .collect();
 
     let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
@@ -569,10 +622,9 @@ fn diagnose_no_claimable(
         })
     };
 
-    let gating_ready: Vec<&rhei_core::ast::Task> = non_terminal
+    let gating_ready: Vec<&rhei_core::ast::Task> = non_terminal_workable
         .iter()
         .copied()
-        .filter(|task| task.children.is_empty())
         .filter(|task| {
             let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
@@ -604,7 +656,7 @@ fn diagnose_no_claimable(
         );
     }
 
-    let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal_leaf_tasks
+    let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal_workable
         .iter()
         .copied()
         .filter(|t| {
@@ -640,7 +692,7 @@ fn diagnose_no_claimable(
         );
     }
 
-    let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal_leaf_tasks
+    let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal_workable
         .iter()
         .copied()
         .filter(|t| {
@@ -684,7 +736,7 @@ fn diagnose_no_claimable(
     }
 
     let blocked: Vec<&rhei_core::ast::Task> =
-        non_terminal_leaf_tasks.iter().copied().filter(|t| !priors_satisfied(t)).collect();
+        non_terminal_workable.iter().copied().filter(|t| !priors_satisfied(t)).collect();
     if !blocked.is_empty() {
         let ids: Vec<String> = blocked
             .iter()
@@ -707,6 +759,47 @@ fn diagnose_no_claimable(
             scope_suffix,
             blocked.len(),
             ids.join(", "),
+            suffix
+        );
+    }
+
+    // Nothing workable is left, so the residue is parents whose own subtree is
+    // still open. Name the parent and the descendant holding it up: a worker
+    // whose dependent is blocked on an unclaimed parent otherwise gets no
+    // reason at all.
+
+    // §FS-rhei-next.5
+    let waiting_parents: Vec<(&rhei_core::ast::Task, Vec<&rhei_core::ast::Task>)> = non_terminal
+        .iter()
+        .copied()
+        .map(|task| (task, open_descendant_tasks(task, machines)))
+        .filter(|(_, open)| !open.is_empty())
+        .collect();
+    if !waiting_parents.is_empty() {
+        let items: Vec<String> = waiting_parents
+            .iter()
+            .take(3)
+            .map(|(task, open)| {
+                let state =
+                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
+                format!(
+                    "Task {} ({}) waiting on {}",
+                    task.id,
+                    state,
+                    format_open_descendants(open, machines)
+                )
+            })
+            .collect();
+        let suffix = if waiting_parents.len() > 3 {
+            format!(" (+{} more)", waiting_parents.len() - 3)
+        } else {
+            String::new()
+        };
+        return format!(
+            "no tickets are ready to claim{}: {} parent task(s) waiting on open descendants: {}{}.",
+            scope_suffix,
+            waiting_parents.len(),
+            items.join(", "),
             suffix
         );
     }

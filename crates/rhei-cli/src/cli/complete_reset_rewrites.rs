@@ -270,30 +270,37 @@ fn is_successful_completion_state(state: &str, machine: &rhei_validator::StateMa
     normalized != "cancelled" && is_terminal_state(&normalized, machine)
 }
 
+/// Every non-terminal descendant of `task`, rendered as
+/// `<Kind> <prefix><id> ('<title>') [<state>]`.
+// §FS-rhei-panta.6: `id_prefix` re-attaches the rhei qualifier when the tree
+// was parsed from a task file, whose headings carry rhei-local ids.
 fn non_terminal_descendants(
     task: &rhei_core::ast::Task,
     machine: &rhei_validator::StateMachine,
+    id_prefix: &str,
 ) -> Vec<String> {
     fn recurse(
         task: &rhei_core::ast::Task,
         machine: &rhei_validator::StateMachine,
+        id_prefix: &str,
         out: &mut Vec<String>,
     ) {
         for child in &task.children {
             if !is_terminal_state(child.state.as_str(), machine) {
                 out.push(format!(
-                    "{} {} ('{}') [{}]",
+                    "{} {}{} ('{}') [{}]",
                     title_case_kind(&child.kind),
+                    id_prefix,
                     child.id,
                     child.title,
                     child.state
                 ));
             }
-            recurse(child, machine, out);
+            recurse(child, machine, id_prefix, out);
         }
     }
     let mut out = Vec::new();
-    recurse(task, machine, &mut out);
+    recurse(task, machine, id_prefix, &mut out);
     out
 }
 

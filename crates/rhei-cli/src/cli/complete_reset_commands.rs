@@ -163,15 +163,9 @@ fn complete_command(
         ));
     }
 
-    let open_children = non_terminal_descendants(task, &machine);
-    if !open_children.is_empty() {
-        return Err(miette!(
-            help = "finish or cancel the children first; a parent completes when they do.",
-            "Task {} cannot be completed while child tasks remain non-terminal.\nOffending children: {}",
-            task_id_str,
-            open_children.join(", ")
-        ));
-    }
+    // Descendants-first is not checked here: it is the shared transition path's
+    // guard, so the rejection `rhei complete` produces is the one every other
+    // verb produces. §FS-rhei-complete.4 §FS-rhei-transition-cmd.3.1
 
     // Completing ahead of a prerequisite makes the ticket terminal, which drops
     // it out of readiness and out of `rhei list --blocked` — the violation would

@@ -860,11 +860,11 @@ fn list_command(
             let normalized = normalized_state_name(task.state.as_str(), machine);
             let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
             let satisfied = priors_satisfied(task);
-            // A ticket with children is a container, not work: `rhei next`
-            // claims leaves only, so listing a parent as ready would offer work
-            // that can never be handed out. §FS-rhei-list.4.2
-            let is_leaf = task.children.is_empty();
-            let task_ready = !is_terminal && !is_gating && satisfied && is_leaf;
+            // A ticket whose subtree is still open is not work anyone can be
+            // handed — its children are. Once they are terminal the parent is
+            // claimable work. §FS-rhei-list.3.1 §FS-rhei-next.3
+            let subtree_done = descendants_are_terminal(task, &machines);
+            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done;
             if filters.ready && !task_ready {
                 continue;
             }

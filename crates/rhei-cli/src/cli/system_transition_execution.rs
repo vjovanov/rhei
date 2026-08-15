@@ -15,6 +15,54 @@ fn task_profile_allows_state(
         .is_none_or(|profile| profile.allowed.iter().any(|allowed| allowed == state))
 }
 
+/// Reject a move into a `final: true` state while the task still has a
+/// non-terminal descendant.
+///
+/// Descendants-first is a property of the graph, not of a command: it belongs
+/// on the shared transition path beside compare-and-swap, artifact
+/// enforcement, and callbacks, so `rhei transition`, `rhei complete`, `rhei
+/// run`'s auto-advance, and a callback redirect all enforce it identically.
+/// It cannot be delegated to machine authors either — transition `condition:`
+/// expressions see only visit and exit-code variables, so no machine can gate
+/// a parent's terminal edge on its children.
+///
+/// This is deliberately not symmetric with `**Prior:**` readiness, which
+/// `rhei transition` skips as the human escape hatch: an out-of-order prior is
+/// a `rhei validate` warning, a terminal parent with an open descendant is an
+/// error. `transition` may produce a warning; it must never produce an error.
+// §FS-rhei-transition-cmd.3.1 §FS-rhei-states.2.3
+fn ensure_descendants_terminal_for_terminal_entry(
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+    local_id: &str,
+    qualified_id: &str,
+    to: &str,
+) -> MietteResult<()> {
+    if task.children.is_empty()
+        || !machine.states.get(to).map(|def| def.terminal).unwrap_or(false)
+    {
+        return Ok(());
+    }
+    // The task tree parsed here carries rhei-local ids; the caller knows the
+    // project-qualified form, so recover the prefix and report descendants the
+    // way every other surface prints them. §FS-rhei-panta.6
+    let prefix = qualified_id.strip_suffix(local_id).unwrap_or("");
+    let open = non_terminal_descendants(task, machine, prefix);
+    if open.is_empty() {
+        return Ok(());
+    }
+    Err(miette!(
+        help = "a parent is finished after its subtree is, and nothing finishes it on its \
+                children's behalf. Finish or cancel the descendants first, then move this \
+                ticket.",
+        "Task {} cannot enter terminal state '{}' while descendant tasks remain non-terminal.\n\
+         Offending descendants: {}",
+        qualified_id,
+        to,
+        open.join(", ")
+    ))
+}
+
 fn ensure_task_profile_allows_state(
     machine: &rhei_validator::StateMachine,
     task_id_str: &str,
@@ -152,6 +200,22 @@ fn execute_transition_with_origin(
         files.artifact_id,
         &task_info.task.kind,
         task_info.level,
+        to,
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = fs2::FileExt::unlock(task_handle);
+        }
+        let _ = fs2::FileExt::unlock(&metadata_handle);
+        return Err(err);
+    }
+
+    // §FS-rhei-transition-cmd.3.1: descendants-first, before any callback runs,
+    // so a rejected terminal entry has no side effects to undo.
+    if let Err(err) = ensure_descendants_terminal_for_terminal_entry(
+        machine,
+        &task_info.task,
+        task_id_str,
+        files.artifact_id,
         to,
     ) {
         if let Some(task_handle) = &task_handle {
@@ -382,6 +446,22 @@ fn execute_transition_with_origin(
     };
     let to = effective_to.as_str();
     let matching_rule = effective_rule;
+
+    // §FS-rhei-transition-cmd.3.1: re-check against the effective target so a
+    // `nextState` redirect cannot smuggle a terminal entry past the guard.
+    if let Err(err) = ensure_descendants_terminal_for_terminal_entry(
+        machine,
+        &task_info.task,
+        task_id_str,
+        files.artifact_id,
+        to,
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = fs2::FileExt::unlock(task_handle);
+        }
+        let _ = fs2::FileExt::unlock(&metadata_handle);
+        return Err(err);
+    }
 
     let to_state_def = machine
         .states

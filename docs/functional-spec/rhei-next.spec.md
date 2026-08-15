@@ -162,8 +162,13 @@ claimable instead:
 
 ```text
 Error: Task plan.2 cannot be claimed while 1 descendant task(s) are still open.
-       Open descendants: Task plan.2.3 ('Wire the cache') [pending]
+       Open descendants: Task plan.2.3 (pending)
+  help: claim what is ready instead: rhei next plan.rhei.md --task plan.2.3
 ```
+
+The help names the first ticket that *is* claimable, so the refusal ends in a
+runnable command rather than in an explanation. When nothing else is claimable
+it says so and points at `rhei list`.
 
 Once every descendant is terminal the refusal no longer applies and the parent
 is claimed like any other ticket. There is no cascade to wait for: nothing
