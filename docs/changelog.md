@@ -114,7 +114,7 @@
   wrote the file. The `parallel-worktrees` template's `integrate` state also
   renamed its declared `result` artifact to `summary`
   (`runtime/summaries/{task_id}-summary.md`): two different files called
-  "result" in one prompt is a trap, not a contract. Issue #74
+  "result" in one prompt is a trap, not a contract. Issue #74. PR #76
   §FS-rhei-states.3.3 §FS-rhei-transition-cmd.3.2 §FS-rhei-complete.4
   §FS-rhei-run.3 §FS-rhei-run-report.3.1 §FS-rhei-run-tui.1.5.5
   §FS-rhei-agents.3 §FS-rhei-agents.3.2 §FS-rhei-agents.4 §FS-rhei-programs.2
