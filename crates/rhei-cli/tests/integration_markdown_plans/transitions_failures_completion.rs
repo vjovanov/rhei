@@ -251,14 +251,11 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
         "expected the shared descendants-first guard in stderr, got:\n{}",
         result.stderr
     );
+    // One format across `rhei next --task`, `rhei transition`, and
+    // `rhei complete`. §FS-rhei-transition-cmd.3.1
     assert!(
-        normalized.contains("Task plan.1.1"),
-        "expected offending child task id in stderr, got:\n{}",
-        result.stderr
-    );
-    assert!(
-        normalized.contains("('Open item') [pending]"),
-        "expected offending child task state in stderr, got:\n{}",
+        normalized.contains("Task plan.1.1 (pending)"),
+        "expected the offending child rendered as `Task <id> (<state>)`, got:\n{}",
         result.stderr
     );
 

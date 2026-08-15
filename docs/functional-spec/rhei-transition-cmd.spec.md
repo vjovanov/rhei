@@ -79,7 +79,11 @@ Counted-visit accounting: if the target state declares a `visits` budget and `--
 
 A transition into a `final: true` state is rejected while the task has any
 non-terminal descendant — child, grandchild, or deeper. The error names the
-target state and every open descendant with its id, title, and current state.
+target state and every open descendant as `Task <id> (<state>)` — the same
+shape `rhei next` (§FS-rhei-next.3.4) and the run report (§FS-rhei-run-report.3.1)
+print, so a user moving between the three verbs reads one format. Its guidance
+names the commands that reveal and claim the open work rather than only
+restating the rule (§FS-rhei-errors.2).
 
 This guard lives on the **shared transition path**, beside compare-and-swap,
 `outputs:`/`inputs:` enforcement, and callbacks. It therefore applies

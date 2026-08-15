@@ -37,6 +37,7 @@ fn ensure_descendants_terminal_for_terminal_entry(
     local_id: &str,
     qualified_id: &str,
     to: &str,
+    plan_path: &Path,
 ) -> MietteResult<()> {
     if task.children.is_empty()
         || !machine.states.get(to).map(|def| def.terminal).unwrap_or(false)
@@ -51,10 +52,16 @@ fn ensure_descendants_terminal_for_terminal_entry(
     if open.is_empty() {
         return Ok(());
     }
+    // Name the command that shows the open work and the one that claims it:
+    // "finish the descendants" is the answer, but the user still has to find
+    // them. §FS-rhei-errors.2
+    let plan = shell_quote(&plan_path.display().to_string());
     Err(miette!(
-        help = "a parent is finished after its subtree is, and nothing finishes it on its \
-                children's behalf. Finish or cancel the descendants first, then move this \
-                ticket.",
+        help = format!(
+            "a parent is finished after its subtree is, and nothing finishes it on its \
+             children's behalf. See the open work with: rhei list {plan} --non-terminal, \
+             then claim it with: rhei next {plan}"
+        ),
         "Task {} cannot enter terminal state '{}' while descendant tasks remain non-terminal.\n\
          Offending descendants: {}",
         qualified_id,
@@ -237,6 +244,7 @@ fn execute_transition_with_origin(
         task_id_str,
         files.artifact_id,
         to,
+        &callback_paths.plan_path,
     ) {
         if let Some(task_handle) = &task_handle {
             let _ = fs2::FileExt::unlock(task_handle);
@@ -456,6 +464,7 @@ fn execute_transition_with_origin(
         task_id_str,
         files.artifact_id,
         to,
+        &callback_paths.plan_path,
     ) {
         if let Some(task_handle) = &task_handle {
             let _ = fs2::FileExt::unlock(task_handle);

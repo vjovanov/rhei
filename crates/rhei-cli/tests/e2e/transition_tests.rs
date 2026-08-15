@@ -224,7 +224,11 @@ fn transition_rejects_terminal_entry_on_a_parent_with_an_open_descendant() {
         "Task plan.1 cannot enter terminal state 'completed' while descendant tasks remain \
          non-terminal.",
     );
-    assert_stderr_contains(&result, "Task plan.1.1 ('Open subtask') [pending]");
+    // Same `Task <id> (<state>)` shape `rhei next` and the run report use.
+    // §FS-rhei-transition-cmd.3.1
+    assert_stderr_contains(&result, "Task plan.1.1 (pending)");
+    // The refusal names what to run to find the open work.
+    assert_stderr_contains(&result, "--non-terminal");
     assert_task_state(&plan_path, &machine_path, "1", "pending");
 
     fs::remove_dir_all(dir).expect("cleanup");
