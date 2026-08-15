@@ -648,6 +648,120 @@ transitions:
         assert!(should_wait_for_human_gate(&rhei, &machines, &None));
     }
 
+    /// The dependent case: a ticket whose `**Prior:**` is a parent held open by
+    /// a gated child inherits the gate. Reading the prior's own state alone saw
+    /// a non-gating parent with no priors and called the run stalled, so an
+    /// interactive run refused to hold the gate open and a batch run exited
+    /// non-zero with "no further advancement possible".
+    // §FS-rhei-plan-language.3 §FS-rhei-run.3
+    #[test]
+    fn human_gate_wait_allows_a_dependent_of_a_parent_held_by_a_gated_descendant() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Gated Subtree
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Human review
+**State:** human-review
+
+### Task 2: Dependent
+**State:** work
+**Prior:** Task 1
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        // Nothing is runnable: the parent waits on its subtree, the child is
+        // gated, and the dependent waits on the parent — one gate, three
+        // tickets, and the gate is still the whole reason.
+        assert!(find_runnable_tasks(&rhei, &machines, dir.path()).is_empty());
+        assert!(remaining_work_is_only_gating_or_poll_blocked(&rhei, &machines, &None));
+        assert!(should_wait_for_human_gate(&rhei, &machines, &None));
+    }
+
+    /// The other half of the same walk: a dependent of a parent whose subtree
+    /// is genuinely stuck is stuck too, so the run must not sit waiting on a
+    /// gate elsewhere in the plan.
+    // §FS-rhei-plan-language.3
+    #[test]
+    fn human_gate_wait_refuses_a_dependent_of_a_parent_with_a_stuck_descendant() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Stuck Subtree
+
+## Tasks
+
+### Task 1: Human review
+**State:** human-review
+
+### Task 2: Parent
+**State:** work
+
+#### Task 2.1: Missing input
+**State:** needs-input
+
+### Task 3: Dependent
+**State:** work
+**Prior:** Task 2
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  needs-input:
+    description: needs input
+    inputs:
+      - name: brief
+        path: runtime/brief.md
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+  - from: needs-input
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+
+        assert!(has_pending_human_gate(&rhei, &machines));
+        assert!(!remaining_work_is_only_gating_or_poll_blocked(&rhei, &machines, &None));
+        assert!(!should_wait_for_human_gate(&rhei, &machines, &None));
+    }
+
     #[test]
     fn human_gate_wait_ignores_terminal_gating_states() {
         let rhei = rhei_core::parse(

@@ -1259,13 +1259,7 @@ fn run_schedules_a_parent_only_after_its_subtree_is_terminal() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
-/// The narrowing this rule buys: a parent with an open descendant is neither
-/// scheduled nor stamped terminal, so the run cannot leave behind a plan that
-/// fails `rhei validate`. The halt report names the parent and what holds it.
-// §FS-rhei-run.3 §FS-rhei-run-report.3.1
-#[test]
-fn run_leaves_a_parent_alone_while_a_descendant_is_gated() {
-    let machine = r#"name: parent-gate
+const PARENT_GATE_MACHINE: &str = r#"name: parent-gate
 version: 1
 states:
   draft:
@@ -1283,6 +1277,16 @@ transitions:
   - from: gate
     to: completed
 "#;
+
+/// The narrowing this rule buys: a parent with an open descendant is neither
+/// scheduled nor stamped terminal, so the run cannot leave behind a plan that
+/// fails `rhei validate`. The halt report names the parent and what holds it.
+///
+/// The run exits zero: one gate is holding the whole branch, and a gate is the
+/// plan working as authored, not a failure to report.
+// §FS-rhei-run.3 §FS-rhei-run-report.3.1
+#[test]
+fn run_leaves_a_parent_alone_while_a_descendant_is_gated() {
     let plan = r#"# Rhei: Gated Subtree
 
 ## Tasks
@@ -1295,10 +1299,11 @@ transitions:
 "#;
     let dir = unique_temp_dir("run-parent-gated-child");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", PARENT_GATE_MACHINE);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
     let combined = format!("{}{}", result.stdout, result.stderr);
+    assert_success(&result);
 
     assert_task_state(&plan_path, &machine_path, "1", "draft");
     let content = fs::read_to_string(&plan_path).expect("read plan after run");
@@ -1313,6 +1318,57 @@ transitions:
     assert!(
         combined.contains("Task plan.1.1 (gate): gating state awaiting review"),
         "the descendant must still report its own cause; got:\n{combined}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The same plan plus one dependent of the parent. A `**Prior:**` that resolves
+/// to a parent held open by a gated child inherits that gate: the run is
+/// waiting on one human decision, not stalled, so it still exits zero and still
+/// leaves every ticket where it found it.
+///
+/// Judging the prior by its own stored state instead saw a non-gating parent
+/// with no priors of its own, read the plan as unadvanceable, and exited one.
+// §FS-rhei-run.3 §FS-rhei-plan-language.3 §FS-rhei-run-report.3.1
+#[test]
+fn run_leaves_a_dependent_of_a_gate_held_parent_alone() {
+    let plan = r#"# Rhei: Gated Subtree With Dependent
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Gated subtask
+**State:** gate
+
+### Task 2: Dependent task
+**State:** draft
+**Prior:** Task 1
+"#;
+    let dir = unique_temp_dir("run-parent-gated-child-dependent");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", PARENT_GATE_MACHINE);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert_success(&result);
+
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+    assert_task_state(&plan_path, &machine_path, "2", "draft");
+    let content = fs::read_to_string(&plan_path).expect("read plan after run");
+    assert!(
+        content.contains("#### Task 1.1: Gated subtask\n**State:** gate"),
+        "the gated descendant must be untouched; got:\n{content}"
+    );
+    assert!(
+        combined.contains("Task plan.1 (draft): waiting on open descendant Task plan.1.1 (gate)"),
+        "the halt report must name the parent and the descendant holding it; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Task plan.2 (draft): waiting on Task plan.1"),
+        "the dependent must name the parent it waits on; got:\n{combined}"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
