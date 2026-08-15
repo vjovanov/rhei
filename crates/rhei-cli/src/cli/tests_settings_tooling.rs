@@ -601,6 +601,53 @@ transitions:
         assert!(should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
 
+    /// A parent left non-terminal because its subtree is gated is blocked by
+    /// the gate, not stuck: it must not stop an interactive run from waiting
+    /// for the human decision that unblocks the whole branch.
+    // §FS-rhei-plan-language.3 §FS-rhei-run.3
+    #[test]
+    fn human_gate_wait_allows_a_parent_held_by_a_gated_descendant() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Gated Subtree
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Human review
+**State:** human-review
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        // The parent is not schedulable while its subtree is open, and the
+        // child is gated, so nothing is runnable — but the gate is the reason.
+        assert!(find_runnable_tasks(&rhei, &machines, dir.path()).is_empty());
+        assert!(should_wait_for_human_gate(&rhei, &machines, &None));
+    }
+
     #[test]
     fn human_gate_wait_ignores_terminal_gating_states() {
         let rhei = rhei_core::parse(

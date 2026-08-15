@@ -553,6 +553,12 @@ fn remaining_work_is_only_gating_or_poll_blocked(
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .all(|task| {
+        // A parent is not workable until its subtree closes, so it is blocked
+        // by exactly whatever blocks its descendants — and each of those is
+        // judged on its own account by this same walk. §FS-rhei-plan-language.3
+        if !descendants_are_terminal(task, machines) {
+            return true;
+        }
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
