@@ -109,6 +109,28 @@ the summary prints five stacked groups:
    something a human must fix, so — like a gate — it does not by itself make
    the run exit non-zero. The descendants named in it do that on their own
    account.
+
+   A parent held open **only** by its own subtree is therefore not halted work
+   and takes **no Attention row**: it is counted in neither the `N gated ·
+   M blocked` header, nor `could not advance` (§2), nor the Transition Ledger
+   (§4). The open descendant is the halted work and is already counted there.
+   Counting the parent as well multiplied one gated leaf by the height of the
+   tree above it — three ancestors made four Attention rows, `4 gated`, and
+   four blocked ledger entries for a single human decision, with the topmost
+   parent's reason text repeating the whole transitive subtree. The parent
+   stays visible in the task tree instead, with its own calm marker and its own
+   `waiting on open descendant …` detail (§3.2). A parent that is itself
+   gating, `blocked`, or `failed` keeps its Attention row: those are things to
+   act on whatever its children are doing, even though the open subtree
+   outranks them in the classification order above.
+
+   The run's exit status and `--dry-run`'s are one judgment, not two readings
+   of this classification: a run ends non-zero when work remains that is
+   waiting on neither a human gate, a poll backoff, nor a `**Prior:**` that is
+   itself waiting on one of those (§FS-rhei-run.4). Deriving the prediction
+   from the per-ticket causes instead made `--dry-run` exit non-zero on plans
+   the run itself exits zero on — a ticket whose prior chain ends in a gate is
+   blocked by that gate, however its own line reads.
    Each names the command that clears it — `rhei release <id>` for a claim,
    `rhei next` then `rhei complete <id>` for manual-only work, finishing the
    prior for a dependency. A ticket the run actually spawned work for keeps the
@@ -193,11 +215,12 @@ report, TUI, and dashboard show. Each row is four aligned columns:
   A non-leaf task is halted for as long as any descendant is open, which is the
   eligibility rule working (§FS-rhei-plan-language.3), not a fault: one gated
   leaf otherwise turns every ancestor above it into its own attention row. Such
-  a parent takes the paused marker and counts as gated in the `N gated ·
-  M blocked` header, while its Attention entry still reads
-  `waiting on open descendant …` so the cause stays specific. A parent that is
-  itself `blocked` or `failed` keeps the `!` marker: that is wrong
-  independently of its children.
+  a parent takes the paused marker, and the task tree is the only place it
+  appears — it is counted in no Attention, header, or ledger tally (§3.1). Its
+  detail column still reads `waiting on open descendant …`, so the tree shows
+  the shape of the wait without inflating any count. A parent that is itself
+  `blocked` or `failed` keeps the `!` marker: that is wrong independently of
+  its children.
 
 - **state** - the final state label, colored by its state hue.
 - **driver-or-detail** - for advanced tasks, the driver and timing
