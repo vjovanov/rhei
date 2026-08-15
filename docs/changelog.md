@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- Make the result obligation a property of the terminal state, not of `rhei
+  complete`. A task no longer enters a `final: true` state without a non-empty
+  `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the
+  same terminal edge behaved differently depending on the driver: `rhei
+  complete` demanded a `--result` message and wrote it, while `rhei
+  transition`, `rhei run`'s auto-advance, its failure routes, and a callback
+  `nextState` redirect all wrote an **empty** result file — so a plan finished
+  under `rhei run` had blank results where the same plan finished by hand had
+  rationales, and nothing recorded which was which. The obligation is now an
+  implicit required artifact of every terminal state, enforced on the shared
+  transition path against the *effective* target, at the same point the target
+  state's `inputs:` are enforced and before the state write, so a redirect
+  cannot smuggle a terminal entry past it. Whitespace-only counts as no result,
+  on the same reading state handoffs already use. There is deliberately no
+  `result: required` field: it is true of every terminal state in every
+  machine, and a machine that could switch it off could only make its own
+  history worse.
+
+  **`rhei transition` gains `--result <MSG>`**, accepted on any move and
+  required on a terminal one when the ticket has no result yet; a blank message
+  is rejected on both verbs. **`rhei complete` becomes sugar** — the
+  readiness-class checks it already owned, plus the one-hop terminal target it
+  infers, plus the shared transition carrying `--result`. The ledger line, the
+  result file, its link, and the dropped `**Assignee:**` moved onto the shared
+  path, so the same edge driven by `complete --result`, by `transition
+  --result`, or by `run` leaves an identical trail.
+
+  Under `rhei run`, a subprocess that exits `0` on an edge that finishes the
+  ticket without writing a result fails the completion condition exactly as a
+  missing required `outputs:` artifact does — no transition fires, and the
+  warning names the result path that was checked. Agents are told: the prompt
+  gains a `## Result` section naming the path whenever a declared transition
+  from the state can finish the ticket, and every agent and program subprocess
+  now gets **`RHEI_RESULT_PATH`**. The engine supplies a message only for
+  outcomes it produced itself — a timeout it fired, tooling it could not start,
+  an exit code it read, or an edge it walked with no subprocess in the state
+  (callback-only advancement, which records plainly that *no worker result was
+  recorded*). It never speaks for a worker that ran, and never for a human: a
+  human gate released from the live dashboard into a terminal state is now
+  **refused**, with the reason naming `rhei transition <id> --from … --to …
+  --result "<why>"`, because the gate block has no message field and a human
+  finishing a ticket by hand is the case where the reason matters most.
+
+  **Breaking:** a `rhei transition` or a `rhei run` that lands a ticket in a
+  terminal state now needs a result. Machines whose terminal edge is driven by
+  an agent or program need that worker to write `RHEI_RESULT_PATH` (agents are
+  told in the prompt); the bundled `ci-heal` probe does this now. Issue #74
+  §FS-rhei-states.3.3 §FS-rhei-transition-cmd.3.2 §FS-rhei-complete.4
+  §FS-rhei-run.3 §FS-rhei-agents.3 §FS-rhei-agents.3.2 §FS-rhei-agents.4
+  §FS-rhei-programs.2 §FS-rhei-plan-language.3.10 §FS-rhei-viz.5.1
+
 - Treat a non-leaf task as a task. It has its own state, its own journey, and
   its own result; nothing derives it from its children, and nothing stamps it
   terminal because they are. What used to be a leaf-only rule in `rhei next`
