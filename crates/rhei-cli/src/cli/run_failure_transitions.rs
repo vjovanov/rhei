@@ -420,7 +420,10 @@ fn no_advancement_summary(
     let blocked: Vec<String> = project
         .iter()
         .copied()
-        .filter(|task| task.children.is_empty())
+        // A parent whose subtree is still open is held up by the subtree, not
+        // by a prior; its descendants report for themselves.
+        // §FS-rhei-plan-language.3
+        .filter(|task| descendants_are_terminal(task, machines))
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .filter_map(|task| {
@@ -495,71 +498,122 @@ fn should_wait_for_human_gate(
         && remaining_work_is_only_gating_or_poll_blocked(rhei, machines, scope)
 }
 
+/// One "is this ticket deliberately waiting?" judgment over a whole plan.
+///
+/// A ticket is deliberately waiting rather than stuck when it is held open by
+/// its own subtree, parked in a gating state, inside a poll backoff window, or
+/// waiting on a `**Prior:**` that is itself deliberately waiting.
+///
+/// One judgment, reached two ways — the top-level scan applies it to every
+/// in-scope ticket, and the prior walk applies it to every ticket it reaches.
+/// Judging a prior by its own state alone was the first bug: a dependent whose
+/// prior is a parent held open by a gated child saw a non-gating state with no
+/// priors of its own and read the run as stalled. A parent answers with its
+/// subtree, so the dependent inherits the gate.
+///
+/// Answers are memoized per ticket, and the cycle guard is a *separate*
+/// on-stack set. Using one visited set for both was the second bug: a revisit
+/// is neutral-true inside the descendant `.all()` and neutral-false inside the
+/// prior `.any()`, so a parent over `[gate, sibling waiting on the gate]` read
+/// as stuck while the same two children in the other order read as waiting.
+// §FS-rhei-plan-language.3 §FS-rhei-run-tui.1.5.5
+struct DeliberateWaitJudgment<'a> {
+    rhei: &'a rhei_core::ast::Rhei,
+    tasks: Vec<&'a rhei_core::ast::Task>,
+    state_map: HashMap<&'a TaskId, String>,
+    machines: &'a rhei_validator::MachineSet,
+    /// Verdicts already reached, so a ticket answers the same whichever walk
+    /// arrives at it.
+    memo: HashMap<TaskId, bool>,
+    /// Tickets on the current recursion path, for cycle detection only.
+    stack: HashSet<TaskId>,
+}
+
+impl<'a> DeliberateWaitJudgment<'a> {
+    fn new(
+        rhei: &'a rhei_core::ast::Rhei,
+        machines: &'a rhei_validator::MachineSet,
+    ) -> Self {
+        let mut tasks = Vec::new();
+        collect_plan_tasks(&rhei.tasks, &mut tasks);
+        let state_map: HashMap<&'a TaskId, String> = tasks
+            .iter()
+            .map(|task| {
+                (&task.id, normalized_state_name(task.state.as_str(), machines.for_task(&task.id)))
+            })
+            .collect();
+        Self { rhei, tasks, state_map, machines, memo: HashMap::new(), stack: HashSet::new() }
+    }
+
+    /// The verdict for `task`, or `None` when `task` is already on the current
+    /// walk. A cycle contributes nothing to either combinator, so each caller
+    /// substitutes its own neutral element: `true` for the descendant `.all()`,
+    /// `false` for the prior `.any()`.
+    fn judge(&mut self, task: &'a rhei_core::ast::Task) -> Option<bool> {
+        if let Some(answer) = self.memo.get(&task.id) {
+            return Some(*answer);
+        }
+        if !self.stack.insert(task.id.clone()) {
+            return None;
+        }
+        let answer = self.compute(task);
+        self.stack.remove(&task.id);
+        self.memo.insert(task.id.clone(), answer);
+        Some(answer)
+    }
+
+    fn compute(&mut self, task: &'a rhei_core::ast::Task) -> bool {
+        // A parent is not workable until its subtree closes, so it is blocked
+        // by exactly whatever blocks its open descendants, each judged by this
+        // same walk. §FS-rhei-plan-language.3
+        let open = open_descendant_tasks(task, self.machines);
+        if !open.is_empty() {
+            return open.iter().copied().all(|child| self.judge(child).unwrap_or(true));
+        }
+        let machine = self.machines.for_task(&task.id);
+        let state = normalized_state_name(task.state.as_str(), machine);
+        // A terminal gate is a decision already taken, not one still pending —
+        // the same reading `has_pending_human_gate` uses.
+        if machine.states.get(&state).map(|def| def.gating && !def.terminal).unwrap_or(false) {
+            return true;
+        }
+        if poll_next_attempt_at(self.rhei.metadata.as_ref(), &task.id, &state)
+            .is_some_and(|deadline| deadline > current_unix_secs())
+        {
+            return true;
+        }
+        for dep_id in &task.prior {
+            let Some(dep_state) = self.state_map.get(dep_id).cloned() else {
+                continue;
+            };
+            // The prior's own machine says whether it satisfies.
+            // §FS-rhei-panta.6.1
+            if dependency_is_satisfied(&dep_state, self.machines.for_task(dep_id)) {
+                continue;
+            }
+            let Some(dep_task) = self.tasks.iter().copied().find(|c| &c.id == dep_id) else {
+                continue;
+            };
+            if self.judge(dep_task) == Some(true) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 fn remaining_work_is_only_gating_or_poll_blocked(
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> bool {
-    let mut tasks = Vec::new();
-    collect_plan_tasks(&rhei.tasks, &mut tasks);
-    let state_map: HashMap<&TaskId, String> = tasks
-        .iter()
-        .map(|task| (&task.id, normalized_state_name(task.state.as_str(), machines.for_task(&task.id))))
-        .collect();
-
-    fn blocked_by_gate<'a>(
-        task: &'a rhei_core::ast::Task,
-        tasks: &[&'a rhei_core::ast::Task],
-        state_map: &HashMap<&'a TaskId, String>,
-        machines: &rhei_validator::MachineSet,
-        seen: &mut HashSet<TaskId>,
-    ) -> bool {
-        task.prior.iter().any(|dep_id| {
-            if !seen.insert(dep_id.clone()) {
-                return false;
-            }
-            let Some(dep_state) = state_map.get(dep_id) else {
-                return false;
-            };
-            // The prior's own machine says whether it gates or satisfies.
-            // §FS-rhei-panta.6.1
-            let machine = machines.for_task(dep_id);
-            let dep_is_gate = machine
-                .states
-                .get(dep_state)
-                .map(|def| def.gating && !def.terminal)
-                .unwrap_or(false);
-            if dep_is_gate {
-                return true;
-            }
-            if dependency_is_satisfied(dep_state, machine) {
-                return false;
-            }
-            tasks
-                .iter()
-                .find(|candidate| &candidate.id == dep_id)
-                .is_some_and(|dep_task| blocked_by_gate(dep_task, tasks, state_map, machines, seen))
-        })
-    }
-
+    let mut judgment = DeliberateWaitJudgment::new(rhei, machines);
+    let tasks = judgment.tasks.clone();
     tasks
-        .iter()
-        .copied()
+        .into_iter()
         // §FS-rhei-panta.6.1: "remaining work" is in-scope work; priors below
         // still resolve project-wide.
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
-        .all(|task| {
-        let machine = machines.for_task(&task.id);
-        let state = normalized_state_name(task.state.as_str(), machine);
-        if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
-            return true;
-        }
-        if poll_next_attempt_at(rhei.metadata.as_ref(), &task.id, &state)
-            .is_some_and(|deadline| deadline > current_unix_secs())
-        {
-            return true;
-        }
-        blocked_by_gate(task, &tasks, &state_map, machines, &mut HashSet::new())
-    })
+        .all(|task| judgment.judge(task).unwrap_or(true))
 }

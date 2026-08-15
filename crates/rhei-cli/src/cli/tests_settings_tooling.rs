@@ -359,12 +359,139 @@
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let dir = tempfile::tempdir().expect("tmpdir");
-        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), false);
+        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new());
         assert_eq!(ready.len(), 2);
         let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path());
         assert_eq!(
             runnable.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
             vec!["2".to_string()]
+        );
+    }
+
+    /// One eligibility rule for parents, shared by `rhei next` and `rhei run`:
+    /// a non-leaf task joins the ready set only once its whole subtree is
+    /// terminal, and then it joins it like any other ticket.
+    // §FS-rhei-plan-language.3 §FS-rhei-next.3 §FS-rhei-run.3
+    #[test]
+    fn readiness_admits_a_parent_only_once_its_subtree_is_terminal() {
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let ready_ids = |plan: &str| {
+            let rhei = rhei_core::parse(plan).expect("parse plan");
+            find_ready_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new())
+                .iter()
+                .map(|task| task.id.to_string())
+                .collect::<Vec<_>>()
+        };
+
+        // A grandchild left open holds back both of its ancestors.
+        assert_eq!(
+            ready_ids(
+                r#"# Rhei: Open subtree
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Child
+**State:** pending
+
+##### Task 1.1.1: Grandchild
+**State:** pending
+"#
+            ),
+            vec!["1.1.1".to_string()]
+        );
+
+        // The child terminal but the grandchild still open: still only the
+        // grandchild, since the rule reads the whole subtree, not one level.
+        assert_eq!(
+            ready_ids(
+                r#"# Rhei: Deep open subtree
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Child
+**State:** done
+
+##### Task 1.1.1: Grandchild
+**State:** pending
+"#
+            ),
+            vec!["1.1.1".to_string()]
+        );
+
+        // Whole subtree terminal: the parent is ordinary ready work.
+        assert_eq!(
+            ready_ids(
+                r#"# Rhei: Closed subtree
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Child
+**State:** done
+
+##### Task 1.1.1: Grandchild
+**State:** done
+"#
+            ),
+            vec!["1".to_string()]
+        );
+    }
+
+    /// A cancelled descendant is terminal, so it releases its parent — the
+    /// guard is about open work, not about success.
+    // §FS-rhei-transition-cmd.3.1
+    #[test]
+    fn readiness_treats_a_cancelled_descendant_as_closed() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Cancelled child
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Abandoned
+**State:** cancelled
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  cancelled:\n    description: abandoned\n    final: true\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let ready = find_ready_tasks(
+            &rhei,
+            &rhei_validator::MachineSet::single(machine),
+            dir.path(),
+            &std::collections::HashMap::new(),
+        );
+        assert_eq!(
+            ready.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
+            vec!["1".to_string()]
         );
     }
 
@@ -472,6 +599,250 @@ transitions:
 
         assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
         assert!(should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
+    }
+
+    /// A parent left non-terminal because its subtree is gated is blocked by
+    /// the gate, not stuck: it must not stop an interactive run from waiting
+    /// for the human decision that unblocks the whole branch.
+    // §FS-rhei-plan-language.3 §FS-rhei-run.3
+    #[test]
+    fn human_gate_wait_allows_a_parent_held_by_a_gated_descendant() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Gated Subtree
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Human review
+**State:** human-review
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        // The parent is not schedulable while its subtree is open, and the
+        // child is gated, so nothing is runnable — but the gate is the reason.
+        assert!(find_runnable_tasks(&rhei, &machines, dir.path()).is_empty());
+        assert!(should_wait_for_human_gate(&rhei, &machines, &None));
+    }
+
+    /// The dependent case: a ticket whose `**Prior:**` is a parent held open by
+    /// a gated child inherits the gate. Reading the prior's own state alone saw
+    /// a non-gating parent with no priors and called the run stalled, so an
+    /// interactive run refused to hold the gate open and a batch run exited
+    /// non-zero with "no further advancement possible".
+    // §FS-rhei-plan-language.3 §FS-rhei-run.3
+    #[test]
+    fn human_gate_wait_allows_a_dependent_of_a_parent_held_by_a_gated_descendant() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Gated Subtree
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Human review
+**State:** human-review
+
+### Task 2: Dependent
+**State:** work
+**Prior:** Task 1
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        // Nothing is runnable: the parent waits on its subtree, the child is
+        // gated, and the dependent waits on the parent — one gate, three
+        // tickets, and the gate is still the whole reason.
+        assert!(find_runnable_tasks(&rhei, &machines, dir.path()).is_empty());
+        assert!(remaining_work_is_only_gating_or_poll_blocked(&rhei, &machines, &None));
+        assert!(should_wait_for_human_gate(&rhei, &machines, &None));
+    }
+
+    /// Two children of one parent, one gated and one waiting on it. Both
+    /// orderings must reach the same verdict: the gate holds the sibling, the
+    /// sibling holds nothing else, and the parent is waiting on a human.
+    ///
+    /// A single *visited* set could not answer this. A revisit is neutral-true
+    /// inside the descendant `.all()` and neutral-false inside the prior
+    /// `.any()`, so whichever child the preorder walk consumed first decided the
+    /// parent's verdict: gate-then-dependent read as stuck and exited one,
+    /// dependent-then-gate read as waiting and exited zero.
+    // §FS-rhei-plan-language.3 §FS-rhei-run-tui.1.5.5
+    #[test]
+    fn human_gate_wait_allows_a_sibling_waiting_on_a_gated_sibling_in_either_order() {
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+
+        // The gate is reached first by the preorder descendant walk.
+        let gate_first = rhei_core::parse(
+            r#"# Rhei: Gated Sibling
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Human review
+**State:** human-review
+
+#### Task 1.2: Waits on the review
+**State:** work
+**Prior:** Task 1.1
+"#,
+        )
+        .expect("parse plan");
+
+        // The dependent is reached first; only the source order differs.
+        let dependent_first = rhei_core::parse(
+            r#"# Rhei: Gated Sibling
+
+## Tasks
+
+### Task 1: Parent
+**State:** work
+
+#### Task 1.1: Waits on the review
+**State:** work
+**Prior:** Task 1.2
+
+#### Task 1.2: Human review
+**State:** human-review
+"#,
+        )
+        .expect("parse plan");
+
+        for (label, rhei) in [("gate first", &gate_first), ("dependent first", &dependent_first)] {
+            assert!(
+                remaining_work_is_only_gating_or_poll_blocked(rhei, &machines, &None),
+                "{label}: one gate holds the whole subtree, so nothing is stuck"
+            );
+            assert!(
+                should_wait_for_human_gate(rhei, &machines, &None),
+                "{label}: an interactive run must hold the gate open"
+            );
+        }
+    }
+
+    /// The other half of the same walk: a dependent of a parent whose subtree
+    /// is genuinely stuck is stuck too, so the run must not sit waiting on a
+    /// gate elsewhere in the plan.
+    // §FS-rhei-plan-language.3
+    #[test]
+    fn human_gate_wait_refuses_a_dependent_of_a_parent_with_a_stuck_descendant() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Stuck Subtree
+
+## Tasks
+
+### Task 1: Human review
+**State:** human-review
+
+### Task 2: Parent
+**State:** work
+
+#### Task 2.1: Missing input
+**State:** needs-input
+
+### Task 3: Dependent
+**State:** work
+**Prior:** Task 2
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            r#"name: t
+version: 1
+states:
+  human-review:
+    description: review
+    gating: true
+  work:
+    description: work
+  needs-input:
+    description: needs input
+    inputs:
+      - name: brief
+        path: runtime/brief.md
+  done:
+    description: terminal
+    final: true
+transitions:
+  - from: human-review
+    to: done
+  - from: work
+    to: done
+  - from: needs-input
+    to: done
+"#,
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+
+        assert!(has_pending_human_gate(&rhei, &machines));
+        assert!(!remaining_work_is_only_gating_or_poll_blocked(&rhei, &machines, &None));
+        assert!(!should_wait_for_human_gate(&rhei, &machines, &None));
     }
 
     #[test]

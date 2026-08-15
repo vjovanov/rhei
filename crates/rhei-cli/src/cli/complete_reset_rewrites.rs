@@ -270,30 +270,44 @@ fn is_successful_completion_state(state: &str, machine: &rhei_validator::StateMa
     normalized != "cancelled" && is_terminal_state(&normalized, machine)
 }
 
+/// Every non-terminal descendant of `task`, rendered as `Task <prefix><id>
+/// (<state>)` — the same shape [`format_open_descendants`] prints, so a user
+/// hitting `rhei next --task`, `rhei transition`, and `rhei complete` back to
+/// back reads one format instead of three.
+///
+/// A single [`rhei_validator::StateMachine`] is the whole truth for a subtree:
+/// [`rhei_validator::MachineSet::for_task`] keys on the first id segment, so a
+/// parent and every one of its descendants resolve to the same machine. That
+/// is why the shared transition path can run this guard without threading a
+/// `MachineSet` into `execute_transition_with_origin`.
+// §FS-rhei-panta.6: `id_prefix` re-attaches the rhei qualifier when the tree
+// was parsed from a task file, whose headings carry rhei-local ids.
+// §DA-per-rhei-state-machines
 fn non_terminal_descendants(
     task: &rhei_core::ast::Task,
     machine: &rhei_validator::StateMachine,
+    id_prefix: &str,
 ) -> Vec<String> {
     fn recurse(
         task: &rhei_core::ast::Task,
         machine: &rhei_validator::StateMachine,
+        id_prefix: &str,
         out: &mut Vec<String>,
     ) {
         for child in &task.children {
             if !is_terminal_state(child.state.as_str(), machine) {
                 out.push(format!(
-                    "{} {} ('{}') [{}]",
-                    title_case_kind(&child.kind),
+                    "Task {}{} ({})",
+                    id_prefix,
                     child.id,
-                    child.title,
-                    child.state
+                    normalized_state_name(child.state.as_str(), machine)
                 ));
             }
-            recurse(child, machine, out);
+            recurse(child, machine, id_prefix, out);
         }
     }
     let mut out = Vec::new();
-    recurse(task, machine, &mut out);
+    recurse(task, machine, id_prefix, &mut out);
     out
 }
 

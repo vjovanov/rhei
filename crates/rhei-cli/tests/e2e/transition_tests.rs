@@ -190,3 +190,180 @@ transitions:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+const PARENT_TRANSITION_PLAN: &str = r#"# Rhei: Descendants First
+
+## Tasks
+
+### Task 1: Parent task
+**State:** pending
+
+#### Task 1.1: Open subtask
+**State:** pending
+"#;
+
+/// The descendants-first guard lives on the shared transition path, so
+/// `rhei transition` — the escape hatch that deliberately skips `**Prior:**`
+/// readiness — still cannot produce the plan `rhei validate` calls an error.
+// §FS-rhei-transition-cmd.3.1
+#[test]
+fn transition_rejects_terminal_entry_on_a_parent_with_an_open_descendant() {
+    let dir = unique_temp_dir("trans-open-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", PARENT_TRANSITION_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+
+    let result = run_transition(&plan_path, &machine_path, "1", "pending", "completed");
+    assert!(
+        !result.status.success(),
+        "transition into a terminal state must be refused\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert_stderr_contains(
+        &result,
+        "Task plan.1 cannot enter terminal state 'completed' while descendant tasks remain \
+         non-terminal.",
+    );
+    // Same `Task <id> (<state>)` shape `rhei next` and the run report use.
+    // §FS-rhei-transition-cmd.3.1
+    assert_stderr_contains(&result, "Task plan.1.1 (pending)");
+    // The refusal names what to run to find the open work.
+    assert_stderr_contains(&result, "--non-terminal");
+    assert_task_state(&plan_path, &machine_path, "1", "pending");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The declared-edge check comes first: an edge the machine never declared is
+/// refused as such, whether or not the task happens to be a parent. Reporting
+/// "close your subtree" for a move the machine forbids outright sent a user off
+/// to finish work that would not have unblocked anything.
+// §FS-rhei-transition-cmd.3
+#[test]
+fn transition_reports_an_undeclared_edge_before_the_descendants_guard() {
+    let plan = r#"# Rhei: Undeclared Terminal Edge
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Open subtask
+**State:** draft
+"#;
+    let dir = unique_temp_dir("trans-undeclared-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+
+    // `draft -> completed` is not a declared edge, and Task 1 also has an open
+    // child: the state machine's answer is the one that matters.
+    let result = run_transition(&plan_path, &machine_path, "1", "draft", "completed");
+    assert!(!result.status.success(), "an undeclared edge must be refused");
+    assert_stderr_contains(
+        &result,
+        "transition from 'draft' to 'completed' is not allowed by the state machine",
+    );
+    assert!(
+        !result.stderr.contains("descendant tasks remain non-terminal"),
+        "the descendants guard must not speak for an edge that does not exist; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// And the edge's own `condition:` comes first for the same reason: an edge
+/// that is declared but not currently applicable is not a move the user could
+/// have made by closing the subtree, so the guard must not claim the subtree is
+/// what stands in the way.
+// §FS-rhei-transition-cmd.3
+#[test]
+fn transition_reports_an_inapplicable_edge_before_the_descendants_guard() {
+    let plan = r#"# Rhei: Conditional Terminal Edge
+
+## Tasks
+
+### Task 1: Parent task
+**State:** fix
+
+#### Task 1.1: Open subtask
+**State:** draft
+"#;
+    let machine = r#"name: conditional-terminal-edge
+version: 1
+states:
+  draft:
+    initial: true
+    description: Draft
+  fix:
+    description: Fix findings
+    visits: 2
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: fix
+  - from: fix
+    to: fix
+    condition: visitCount < visits
+  - from: fix
+    to: completed
+    condition: visitCount >= visits
+"#;
+    let dir = unique_temp_dir("trans-inapplicable-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    // `fix -> completed` is declared but its condition is unmet on visit 1, and
+    // Task 1 also has an open child: the condition is the honest answer.
+    let result = run_transition(&plan_path, &machine_path, "1", "fix", "completed");
+    assert!(!result.status.success(), "an inapplicable edge must be refused");
+    assert_stderr_contains(
+        &result,
+        "transition from 'fix' to 'completed' is not currently applicable",
+    );
+    assert!(
+        !result.stderr.contains("descendant tasks remain non-terminal"),
+        "the descendants guard must not speak for an edge that is not applicable; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "fix");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// Cancellation is a terminal entry too, so abandoning a parent while its
+/// subtree is open is refused on the same edge.
+// §FS-rhei-transition-cmd.3.1
+#[test]
+fn transition_rejects_cancelling_a_parent_with_an_open_descendant() {
+    let dir = unique_temp_dir("trans-cancel-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", PARENT_TRANSITION_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+
+    let result = run_transition(&plan_path, &machine_path, "1", "pending", "cancelled");
+    assert!(!result.status.success(), "cancelling a parent with an open child must be refused");
+    assert_stderr_contains(&result, "cannot enter terminal state 'cancelled'");
+    assert_task_state(&plan_path, &machine_path, "1", "pending");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// Same edge, same command, once the subtree is closed: the guard is about
+/// open descendants, not about being a parent. A cancelled descendant is
+/// terminal and closes the subtree just as a completed one does.
+// §FS-rhei-transition-cmd.3.1
+#[test]
+fn transition_allows_terminal_entry_once_the_subtree_is_closed() {
+    let dir = unique_temp_dir("trans-closed-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", PARENT_TRANSITION_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+
+    assert_success(&run_transition(&plan_path, &machine_path, "1.1", "pending", "cancelled"));
+    assert_success(&run_transition(&plan_path, &machine_path, "1", "pending", "completed"));
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

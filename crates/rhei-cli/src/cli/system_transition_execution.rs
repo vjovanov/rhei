@@ -15,6 +15,85 @@ fn task_profile_allows_state(
         .is_none_or(|profile| profile.allowed.iter().any(|allowed| allowed == state))
 }
 
+/// The plan path as a user would type it: relative to the working directory
+/// when it sits beneath it, absolute otherwise.
+///
+/// A `help =` names commands the user is meant to run next, and every other one
+/// echoes the argument they typed. The transition path only has the resolved,
+/// canonicalized plan path, so it renders that back down to the same shape
+/// rather than pasting an absolute path into the middle of a suggested command.
+// §FS-rhei-errors.2
+fn plan_arg_for_help(plan_path: &Path) -> String {
+    let shown = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| cwd.canonicalize().ok())
+        .and_then(|cwd| plan_path.strip_prefix(cwd).ok())
+        .map(|relative| {
+            if relative.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                relative.to_path_buf()
+            }
+        })
+        .unwrap_or_else(|| plan_path.to_path_buf());
+    shell_quote(&shown.display().to_string())
+}
+
+/// Reject a move into a `final: true` state while the task still has a
+/// non-terminal descendant.
+///
+/// Descendants-first is a property of the graph, not of a command: it belongs
+/// on the shared transition path beside compare-and-swap, artifact
+/// enforcement, and callbacks, so `rhei transition`, `rhei complete`, `rhei
+/// run`'s auto-advance, and a callback redirect all enforce it identically.
+/// It cannot be delegated to machine authors either — transition `condition:`
+/// expressions see only visit and exit-code variables, so no machine can gate
+/// a parent's terminal edge on its children.
+///
+/// This is deliberately not symmetric with `**Prior:**` readiness, which
+/// `rhei transition` skips as the human escape hatch: an out-of-order prior is
+/// a `rhei validate` warning, a terminal parent with an open descendant is an
+/// error. `transition` may produce a warning; it must never produce an error.
+// §FS-rhei-transition-cmd.3.1 §FS-rhei-states.2.3
+fn ensure_descendants_terminal_for_terminal_entry(
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+    local_id: &str,
+    qualified_id: &str,
+    to: &str,
+    plan_path: &Path,
+) -> MietteResult<()> {
+    if task.children.is_empty()
+        || !machine.states.get(to).map(|def| def.terminal).unwrap_or(false)
+    {
+        return Ok(());
+    }
+    // The task tree parsed here carries rhei-local ids; the caller knows the
+    // project-qualified form, so recover the prefix and report descendants the
+    // way every other surface prints them. §FS-rhei-panta.6
+    let prefix = qualified_id.strip_suffix(local_id).unwrap_or("");
+    let open = non_terminal_descendants(task, machine, prefix);
+    if open.is_empty() {
+        return Ok(());
+    }
+    // Name the command that shows the open work and the one that claims it:
+    // "finish the descendants" is the answer, but the user still has to find
+    // them. §FS-rhei-errors.2
+    let plan = plan_arg_for_help(plan_path);
+    Err(miette!(
+        help = format!(
+            "a parent is finished after its subtree is, and nothing finishes it on its \
+             children's behalf. See the open work with: rhei list {plan} --non-terminal, \
+             then claim it with: rhei next {plan}"
+        ),
+        "Task {} cannot enter terminal state '{}' while descendant tasks remain non-terminal.\n\
+         Offending descendants: {}",
+        qualified_id,
+        to,
+        open.join(", ")
+    ))
+}
+
 fn ensure_task_profile_allows_state(
     machine: &rhei_validator::StateMachine,
     task_id_str: &str,
@@ -235,6 +314,24 @@ fn execute_transition_with_origin(
         ));
     }
 
+    // Descendants-first runs once the edge is declared and applicable, before
+    // any callback: no "close your subtree" for a move that was never
+    // available anyway. §FS-rhei-transition-cmd.3
+    if let Err(err) = ensure_descendants_terminal_for_terminal_entry(
+        machine,
+        &task_info.task,
+        task_id_str,
+        files.artifact_id,
+        to,
+        &callback_paths.plan_path,
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = fs2::FileExt::unlock(task_handle);
+        }
+        let _ = fs2::FileExt::unlock(&metadata_handle);
+        return Err(err);
+    }
+
     let from_state_def = machine
         .states
         .get(from)
@@ -382,6 +479,23 @@ fn execute_transition_with_origin(
     };
     let to = effective_to.as_str();
     let matching_rule = effective_rule;
+
+    // §FS-rhei-transition-cmd.3.1: re-check against the effective target so a
+    // `nextState` redirect cannot smuggle a terminal entry past the guard.
+    if let Err(err) = ensure_descendants_terminal_for_terminal_entry(
+        machine,
+        &task_info.task,
+        task_id_str,
+        files.artifact_id,
+        to,
+        &callback_paths.plan_path,
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = fs2::FileExt::unlock(task_handle);
+        }
+        let _ = fs2::FileExt::unlock(&metadata_handle);
+        return Err(err);
+    }
 
     let to_state_def = machine
         .states

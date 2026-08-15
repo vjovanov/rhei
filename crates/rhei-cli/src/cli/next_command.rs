@@ -298,18 +298,42 @@ fn next_command(
                     tid
                 )
             })?;
-        if !task.children.is_empty() {
-            return Err(miette!(
-                help = format!(
-                    "a parent task advances when its children do. Pick one of: {}",
-                    task.children
-                        .iter()
-                        .map(|child| child.id.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+        // A non-leaf ticket is a task in its own right, so the only thing that
+        // stops a claim is its own subtree still being open. Nothing advances a
+        // parent when its children advance, so the refusal names the open
+        // descendants rather than describing a cascade that does not exist.
+
+        // §FS-rhei-next.3.4
+        let open_descendants = open_descendant_tasks(task, &machines.set);
+        if !open_descendants.is_empty() {
+            let claimable = narrow_to_rhei_scope(
+                find_claimable_tasks(
+                    &loaded.rhei,
+                    &machines.set,
+                    &workspace_root,
+                    &loaded.task_roots,
                 ),
-                "Task {} is a rollup with child tasks and cannot be claimed directly",
-                tid
+                &scope,
+            );
+            let next_step = match claimable.first() {
+                Some(candidate) => format!(
+                    "claim what is ready instead: rhei next {} --task {}",
+                    shell_quote(&input.display().to_string()),
+                    candidate.id
+                ),
+                None => format!(
+                    "finish or cancel the open descendants first, then claim this ticket. \
+                     See every task and its state with: rhei list {}",
+                    shell_quote(&input.display().to_string())
+                ),
+            };
+            return Err(miette!(
+                help = next_step,
+                "Task {} cannot be claimed while {} descendant task(s) are still open.\n\
+                 Open descendants: {}",
+                tid,
+                open_descendants.len(),
+                format_open_descendants(&open_descendants, &machines.set)
             ));
         }
         if let Some(assignee) = task.assignee.as_deref() {

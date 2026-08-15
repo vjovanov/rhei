@@ -122,8 +122,12 @@ Added avatar_url column and migration 0042
 3. Reject if the task is already in a terminal state.
 4. Reject if the task's current state is a [gating state](rhei-states.spec.md#12-per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
 5. Reject if any descendant task node of the target task is still in a
-   non-terminal state. A parent task must not be completed while any child,
-   grandchild, or deeper descendant remains open.
+   non-terminal state. `rhei complete` does **not** implement this check
+   itself: it is the descendants-first guard on the shared transition path
+   (§FS-rhei-transition-cmd.3.1), which every verb that can enter a `final:
+   true` state passes through, so the rejection here is the same rejection
+   `rhei transition` and `rhei run` produce, worded identically. It fires when
+   the transition executes (point 8), after the prerequisite check below.
 6. Reject if any `**Prior:**` of the target task is unsatisfied — resolved
    across the whole project graph and judged the same way readiness judges it
    (terminal-and-not-cancelled, §FS-rhei-panta.6.1). The error names every
@@ -158,9 +162,12 @@ transition` writes only `runtime/state-transitions.log` and creates no per-task
 result file when there is no result message.
 
 **Note on child nodes:** In the current hierarchical node model, child nodes
-are full stateful task nodes. `rhei complete` must therefore inspect all
-descendants of the target task and reject completion until every descendant is
-in a terminal state.
+are full stateful task nodes, and so is their parent — completing a parent is
+completing a task, not rolling up its children. The descendants-first rule that
+governs it is specified once, on the shared transition path
+(§FS-rhei-transition-cmd.3.1), and is not restated here: `rhei complete` holds
+no private copy of it, so the same plan state is refused identically whichever
+verb drove the terminal edge.
 
 ### 4.1. Completion Target Selection
 
