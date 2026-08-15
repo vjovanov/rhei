@@ -185,10 +185,19 @@ report, TUI, and dashboard show. Each row is four aligned columns:
   | Marker | Fallback | Meaning |
   | --- | --- | --- |
   | `✓` | `+` | terminal-success state (`completed` or a custom terminal-success state) |
-  | `⏸` | `=` | gating state awaiting a human (`human-gate`) |
+  | `⏸` | `=` | deliberately paused - a gating state awaiting a human (`human-gate`), or a non-leaf task held open only by its own subtree (§3.1) |
   | `!` | `!` | blocked or failed - needs attention |
   | `⊘` | `~` | `cancelled` |
   | `·` | `.` | terminal at the start of the run |
+
+  A non-leaf task is halted for as long as any descendant is open, which is the
+  eligibility rule working (§FS-rhei-plan-language.3), not a fault: one gated
+  leaf otherwise turns every ancestor above it into its own attention row. Such
+  a parent takes the paused marker and counts as gated in the `N gated ·
+  M blocked` header, while its Attention entry still reads
+  `waiting on open descendant …` so the cause stays specific. A parent that is
+  itself `blocked` or `failed` keeps the `!` marker: that is wrong
+  independently of its children.
 
 - **state** - the final state label, colored by its state hue.
 - **driver-or-detail** - for advanced tasks, the driver and timing

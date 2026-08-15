@@ -391,13 +391,18 @@ impl Marker {
     }
 }
 
+/// State names that read as failure whatever the machine says about them.
+fn state_is_failure(state: &str) -> bool {
+    matches!(state, "blocked" | "failed")
+}
+
 /// Classify a state into a marker. Failure/cancel state names win over the
 /// `gating` flag: a machine may park a `blocked` task in a gating state, but it
 /// still reads as attention, not a calm gate. §FS-rhei-run-report.3.2
 fn classify_marker(state: &str, machine: &rhei_validator::StateMachine) -> Marker {
     match state {
         "cancelled" | "canceled" => return Marker::Cancelled,
-        "blocked" | "failed" => return Marker::Attention,
+        _ if state_is_failure(state) => return Marker::Attention,
         _ => {}
     }
     let def = machine.states.get(state);
@@ -408,6 +413,32 @@ fn classify_marker(state: &str, machine: &rhei_validator::StateMachine) -> Marke
     } else {
         Marker::Attention
     }
+}
+
+/// The marker for one task row, with the run's own halt classification allowed
+/// to overrule the state-based reading.
+///
+/// A parent held open only by its own subtree is the eligibility rule working,
+/// not something wrong — and since every ancestor of one gated leaf is halted
+/// this way, classifying by state alone painted a whole spine of the tree red.
+/// It reads as a deliberate pause instead, exactly like the gate that is
+/// really holding it. A parent that is itself `blocked` or `failed` keeps its
+/// own attention marker: that is wrong independently of its children.
+// §FS-rhei-run-report.3.2
+fn marker_for_task(
+    id: &str,
+    state: &str,
+    machine: &rhei_validator::StateMachine,
+    halt_causes: &HashMap<String, HaltCause>,
+) -> Marker {
+    let marker = classify_marker(state, machine);
+    if marker == Marker::Attention
+        && !state_is_failure(state)
+        && matches!(halt_causes.get(id), Some(HaltCause::WaitingOnDescendants { .. }))
+    {
+        return Marker::Gate;
+    }
+    marker
 }
 
 /// One row of the source-order task tree.
@@ -427,7 +458,9 @@ struct AttentionRow {
     state: String,
     reason: String,
     next: String,
-    /// True for a gating state awaiting a human; false for a blocked/failed task.
+    /// True for a deliberate pause — a gating state awaiting a human, or a
+    /// parent held open by its own subtree; false for a blocked/failed task.
+    /// It splits the `N gated · M blocked` header. §FS-rhei-run-report.3.1
     is_gate: bool,
 }
 
@@ -1064,8 +1097,8 @@ fn collect_rows(
     for task in tasks {
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
-        let marker = classify_marker(&state, machine);
         let id = task.id.to_string();
+        let marker = marker_for_task(&id, &state, machine, halt_causes);
 
         let entry = counts.entry(state.clone()).or_insert((0, marker));
         entry.0 += 1;
@@ -1504,6 +1537,49 @@ mod run_summary_tests {
         assert_eq!(classify_marker("completed", &m), Marker::Done);
         assert_eq!(classify_marker("blocked", &m), Marker::Attention);
         assert_eq!(classify_marker("cancelled", &m), Marker::Cancelled);
+    }
+
+    /// A parent halted only because its own subtree is open is the eligibility
+    /// rule working, so it reads as a calm pause. Classifying by state alone
+    /// turned every ancestor of one gated leaf into its own red Attention row.
+    // §FS-rhei-run-report.3.2
+    #[test]
+    fn a_parent_waiting_on_its_subtree_reads_as_a_calm_pause() {
+        let m = machine();
+        let mut causes: HashMap<String, HaltCause> = HashMap::new();
+        causes.insert(
+            "plan.1".to_string(),
+            HaltCause::WaitingOnDescendants { open: "Task plan.1.1 (human-gate)".to_string() },
+        );
+        causes.insert("plan.2".to_string(), HaltCause::Stalled);
+
+        // Same state, same machine: only the halt cause separates the two.
+        assert_eq!(classify_marker("pending", &m), Marker::Attention);
+        assert_eq!(marker_for_task("plan.1", "pending", &m, &causes), Marker::Gate);
+        assert_eq!(marker_for_task("plan.2", "pending", &m, &causes), Marker::Attention);
+        assert_eq!(marker_for_task("plan.3", "pending", &m, &causes), Marker::Attention);
+
+        // The reason still names the descendants, and the row still counts as
+        // a gate rather than as something broken.
+        let (reason, _) = attention_reason(Marker::Gate, "plan.1", "pending", &causes);
+        assert!(
+            reason.contains("waiting on open descendant Task plan.1.1 (human-gate)"),
+            "{reason}"
+        );
+    }
+
+    /// A parent that is itself blocked keeps its own attention marker: that is
+    /// wrong independently of whatever its children are doing.
+    // §FS-rhei-run-report.3.2
+    #[test]
+    fn a_failed_parent_keeps_its_attention_marker() {
+        let m = machine();
+        let mut causes: HashMap<String, HaltCause> = HashMap::new();
+        causes.insert(
+            "plan.1".to_string(),
+            HaltCause::WaitingOnDescendants { open: "Task plan.1.1 (pending)".to_string() },
+        );
+        assert_eq!(marker_for_task("plan.1", "blocked", &m, &causes), Marker::Attention);
     }
 
     #[test]
