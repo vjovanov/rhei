@@ -1493,7 +1493,9 @@ fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
     let script = project.join("fake-agent.sh");
     fs::write(
         &script,
-        "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$RHEI_TASK_ID\" >> \"$RHEI_ROOT/agent-invocations.txt\"\n",
+        // §FS-rhei-states.3.3: `pending -> completed` is terminal, so the agent
+        // writes the ticket's result before it exits.
+        "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$RHEI_TASK_ID\" >> \"$RHEI_ROOT/agent-invocations.txt\"\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\nprintf '## Result\\n\\nDone.\\n' > \"$RHEI_RESULT_PATH\"\n",
     )
     .expect("write fake agent");
     make_run_agent_script_executable(&script);

@@ -76,6 +76,12 @@ else
   printf 'PENDING\n' > "$runtime_root/result.txt"
 fi
 
+# `build` declares an edge to `completed`, so its prompt carries the result path
+# and the engine expects one on the way out. §FS-rhei-states.3.3
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAttempt in %s left the artifact %s.\n' \
+  "$RHEI_STATE" "$(cat "$runtime_root/result.txt")" > "$RHEI_RESULT_PATH"
+
 # Emit the session transcript so the state can capture an inheritable snapshot.
 if [ -n "$session_dir" ]; then
   mkdir -p "$session_dir"

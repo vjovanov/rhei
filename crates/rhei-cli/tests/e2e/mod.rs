@@ -8,6 +8,7 @@ mod run_tests;
 mod snapshot_tests;
 mod template_example_sync_tests;
 mod templates_tests;
+mod terminal_result_tests;
 mod transition_tests;
 mod validate_retry_cache_tests;
 
@@ -271,6 +272,24 @@ pub fn run_transition(
         plan_path,
         machine_path,
         &["--task", task, "--from", from, "--to", to, "--no-callbacks"],
+    )
+}
+
+/// Run `rhei transition --result`, which every move into a `final: true` state
+/// needs unless the ticket already has a result on disk. §FS-rhei-states.3.3
+pub fn run_transition_with_result(
+    plan_path: &Path,
+    machine_path: &Path,
+    task: &str,
+    from: &str,
+    to: &str,
+    result: &str,
+) -> CliRun {
+    run_cli(
+        "transition",
+        plan_path,
+        machine_path,
+        &["--task", task, "--from", from, "--to", to, "--result", result, "--no-callbacks"],
     )
 }
 

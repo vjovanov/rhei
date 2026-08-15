@@ -35,6 +35,13 @@ printf 'task=%s state=%s model=%s target=%s agent=%s\n' \
   "$task" "$state" "${RHEI_MODEL:-}" "$target_slug" "${RHEI_AGENT:-}" \
   >> runtime/logs/mock-agent.log
 
+# A worker records why the ticket ends where it does. Rhei hands the path to
+# every subprocess in RHEI_RESULT_PATH, and a `final: true` state is not entered
+# until it has content. §FS-rhei-states.3.3 §FS-rhei-agents.4
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nMock agent finished state %s for task %s.\n' "$state" "$task" \
+  > "$RHEI_RESULT_PATH"
+
 case "$state" in
   analyze)
     if [ -n "$machine" ] && grep -q '^name: multi-model-analysis' "$machine"; then

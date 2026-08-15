@@ -1216,7 +1216,13 @@ transitions:
 /// Project-root settings wiring the `mock` agent the runnable templates
 /// target: a no-op script, so `run` exercises machine dispatch, not agents.
 fn write_mock_agent_settings(dir: &std::path::Path) {
-    let script = write_fixture_file(dir, "mock-agent.sh", "#!/bin/sh\nexit 0\n");
+    // §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+    let script = write_fixture_file(
+        dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf '## Result\\n\\nMock agent finished %s.\\n' \"$RHEI_STATE\" > \"$RHEI_RESULT_PATH\"\n",
+    );
     let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");

@@ -133,7 +133,7 @@ fn no_callbacks_flag_skips_callback_execution() {
         "1",
         "in-progress",
         "completed",
-        &["--no-callbacks"],
+        &["--no-callbacks", "--result", "Finished by hand."],
     );
 
     assert!(

@@ -367,6 +367,8 @@ printf 'task=%s model=%s target=%s mode=%s agent=%s provider=%s name=%s\n' \
   "${RHEI_TASK_ID:-}" "${RHEI_MODEL:-}" "${RHEI_TARGET:-}" "${RHEI_AGENT_MODE:-}" \
   "${RHEI_AGENT:-}" "${RHEI_MODEL_PROVIDER:-}" "${RHEI_MODEL_NAME:-}" \
   >> "$workspace/runtime/logs/override-agent.log"
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
@@ -499,8 +501,9 @@ fn run_uses_task_override_for_transition_output_artifact_checks() {
         r#"#!/bin/sh
 set -eu
 workspace="$(dirname "$RHEI_PLAN_PATH")"
-mkdir -p "$workspace/runtime/outputs"
+mkdir -p "$workspace/runtime/outputs" "$(dirname "$RHEI_RESULT_PATH")"
 printf 'model=%s\n' "${RHEI_MODEL:-}" > "$workspace/runtime/outputs/${RHEI_MODEL}.txt"
+printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
@@ -640,6 +643,8 @@ workspace="$(dirname "$RHEI_PLAN_PATH")"
 mkdir -p "$workspace/runtime/logs"
 printf 'model=%s target=%s\n' "${RHEI_MODEL:-}" "${RHEI_TARGET:-}" \
   >> "$workspace/runtime/logs/agent.log"
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
@@ -725,7 +730,10 @@ version: 1
 states:
   build:
     description: Build the artifact
-    program: "mkdir -p runtime && echo ok > runtime/program-1.txt"
+    program: >-
+      mkdir -p runtime "$(dirname "$RHEI_RESULT_PATH")"
+      && echo ok > runtime/program-1.txt
+      && printf '## Result\n\nBuilt the artifact.\n' > "$RHEI_RESULT_PATH"
   completed:
     description: Done
     final: true
@@ -782,7 +790,9 @@ states:
   tick:
     initial: true
     description: Counted program self-loop
-    program: "true"
+    program: >-
+      mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+      && printf '## Result\n\nTicked.\n' > "$RHEI_RESULT_PATH"
     visits: 3
   done:
     description: Done

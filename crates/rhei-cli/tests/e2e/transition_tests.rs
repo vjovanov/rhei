@@ -6,11 +6,19 @@ use super::*;
 fn transition_single_file_full_advancement() {
     let (dir, plan_path, machine_path) = setup_single_file("trans-full", INDEPENDENT_PLAN);
 
-    // Advance all 3 tasks: draft -> pending -> completed.
+    // Advance all 3 tasks: draft -> pending -> completed. The terminal hop
+    // carries the result every `final: true` entry requires. §FS-rhei-states.3.3
     for task_id in &["1", "2", "3"] {
         let r = run_transition(&plan_path, &machine_path, task_id, "draft", "pending");
         assert_success(&r);
-        let r = run_transition(&plan_path, &machine_path, task_id, "pending", "completed");
+        let r = run_transition_with_result(
+            &plan_path,
+            &machine_path,
+            task_id,
+            "pending",
+            "completed",
+            "Done by hand.",
+        );
         assert_success(&r);
     }
 
@@ -101,7 +109,14 @@ fn transition_workspace_full_advancement() {
     for task_id in &["1", "2"] {
         let r = run_transition(&ws, &machine_path, task_id, "draft", "pending");
         assert_success(&r);
-        let r = run_transition(&ws, &machine_path, task_id, "pending", "completed");
+        let r = run_transition_with_result(
+            &ws,
+            &machine_path,
+            task_id,
+            "pending",
+            "completed",
+            "Done by hand.",
+        );
         assert_success(&r);
     }
 
@@ -114,7 +129,14 @@ fn transition_workspace_full_advancement() {
 fn transition_wildcard_to_cancelled() {
     let (dir, plan_path, machine_path) = setup_single_file("trans-wildcard", INDEPENDENT_PLAN);
 
-    let result = run_transition(&plan_path, &machine_path, "1", "draft", "cancelled");
+    let result = run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1",
+        "draft",
+        "cancelled",
+        "Abandoned: superseded by Task 2.",
+    );
     assert_success(&result);
 
     assert_task_state(&plan_path, &machine_path, "1", "cancelled");
@@ -361,8 +383,22 @@ fn transition_allows_terminal_entry_once_the_subtree_is_closed() {
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", PARENT_TRANSITION_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
 
-    assert_success(&run_transition(&plan_path, &machine_path, "1.1", "pending", "cancelled"));
-    assert_success(&run_transition(&plan_path, &machine_path, "1", "pending", "completed"));
+    assert_success(&run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1.1",
+        "pending",
+        "cancelled",
+        "Abandoned.",
+    ));
+    assert_success(&run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1",
+        "pending",
+        "completed",
+        "Integrated the subtree.",
+    ));
     assert_task_state(&plan_path, &machine_path, "1", "completed");
 
     fs::remove_dir_all(dir).expect("cleanup");

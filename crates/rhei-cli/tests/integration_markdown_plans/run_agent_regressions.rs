@@ -101,6 +101,9 @@ mkdir -p "$RHEI_ROOT/runtime"
   printf 'checkout=%s\n' "$RHEI_CHECKOUT_ROOT"
   printf 'worktree=%s\n' "${RHEI_WORKTREE_ROOT:-}"
 } > "$RHEI_ROOT/runtime/checkout-root.txt"
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
     let script_path = write_fixture_file(dir, "record-checkout.sh", script);
     make_run_agent_script_executable(&script_path);
@@ -219,6 +222,9 @@ set -euo pipefail
 printf 'agent work\n' > agent-work.txt
 git add agent-work.txt
 git commit -m 'agent work'
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
     let script_path = write_fixture_file(&plan_dir, "commit-work.sh", script);
     make_run_agent_script_executable(&script_path);
@@ -298,6 +304,9 @@ mkdir -p "$(dirname "$path")"
 printf done > "$path"
 mkdir -p "$RHEI_ROOT/runtime"
 printf '%s\n' "$path" > "$RHEI_ROOT/runtime/rendered-artifact-path.txt"
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
     let script_path = write_fixture_file(&plan_dir, "write-rendered-artifact.sh", script);
     make_run_agent_script_executable(&script_path);
@@ -468,6 +477,9 @@ transitions:
 set -euo pipefail
 mkdir -p runtime
 printf invoked > runtime/agent-invoked.txt
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
 
     let dir = unique_temp_dir("run-agent-no-outputs");
@@ -540,6 +552,9 @@ transitions:
 set -euo pipefail
 mkdir -p runtime/reports
 printf done > runtime/reports/plan.1.1.md
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
 
     let dir = unique_temp_dir("run-nested-agent-output");
@@ -1061,6 +1076,9 @@ set -euo pipefail
 mkdir -p runtime
 printf '%s\n' "$RHEI_MODEL" >> runtime/models.txt
 printf done > "runtime/$RHEI_MODEL.txt"
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
 
     let dir = unique_temp_dir("run-fanout-parallel-one");
