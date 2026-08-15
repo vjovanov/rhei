@@ -220,15 +220,14 @@ action is:
 | Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
 | Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
 | Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
-| Only non-leaf tasks remain workable-looking, and each still has an open descendant | `no tickets are ready to claim: <N> parent task(s) waiting on open descendants: Task <ID> (<state>) waiting on Task <CHILD> (<state>), ...` |
 
-Every row but the last speaks about a task the caller can act on directly. The
-categories are computed over *workable* tasks — leaves, plus non-leaf tasks
-whose subtree is already terminal (§3, rule 1) — so a parent never masquerades
-as gated, in-progress, or mid-workflow while its children are the real work.
-The last row is the residue: when nothing workable is left and the remaining
-non-terminal tasks are parents whose subtrees are open, the message names the
-parent and the descendant holding it up rather than reporting no reason at all.
+Every row speaks about a task the caller can act on directly, so the categories
+are computed over *workable* tasks — leaves, plus non-leaf tasks whose subtree
+is already terminal (§3, rule 1). A parent therefore never masquerades as
+gated, in-progress, or mid-workflow while its children are the real work. No
+row is needed for a parent whose subtree is open: some non-terminal leaf sits
+under it, and that leaf is workable, so one of the rows above already names the
+actionable ticket.
 
 There is no "leaf work complete, rollups remain" message. It existed because a
 parent could never be claimed, so the only way to surface one was to wait until

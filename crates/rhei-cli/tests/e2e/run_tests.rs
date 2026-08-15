@@ -1206,3 +1206,114 @@ fn run_parallel_falls_back_to_sequential_when_all_tickets_share_one_file() {
 
     fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
 }
+
+/// `rhei run` and `rhei next` share one eligibility rule, so the orchestrator
+/// schedules a parent only after the subtree it integrates is terminal. The
+/// central ledger records the order, which is what proves it.
+// §FS-rhei-run.3 §FS-rhei-plan-language.3
+#[test]
+fn run_schedules_a_parent_only_after_its_subtree_is_terminal() {
+    let plan = r#"# Rhei: Parent Scheduling
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: First subtask
+**State:** draft
+
+#### Task 1.2: Second subtask
+**State:** draft
+
+### Task 2: Dependent
+**State:** draft
+**Prior:** Task 1
+"#;
+    let (dir, plan_path, machine_path) = setup_single_file("run-parent-order", plan);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+    assert_all_tasks_in_state(&plan_path, &machine_path, "completed");
+
+    let ledger = fs::read_to_string(dir.join("runtime").join("state-transitions.log"))
+        .expect("read the central transition ledger");
+    let position = |line: &str| {
+        ledger
+            .lines()
+            .position(|entry| entry == line)
+            .unwrap_or_else(|| panic!("ledger should contain {line:?}; got:\n{ledger}"))
+    };
+    let parent_done = position("plan.1 pending@completed");
+    for child in ["plan.1.1 pending@completed", "plan.1.2 pending@completed"] {
+        assert!(
+            position(child) < parent_done,
+            "the parent must not be stamped terminal before {child}; got:\n{ledger}"
+        );
+    }
+    assert!(
+        parent_done < position("plan.2 draft@pending"),
+        "the dependent must not start before the parent is terminal; got:\n{ledger}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The narrowing this rule buys: a parent with an open descendant is neither
+/// scheduled nor stamped terminal, so the run cannot leave behind a plan that
+/// fails `rhei validate`. The halt report names the parent and what holds it.
+// §FS-rhei-run.3 §FS-rhei-run-report.3.1
+#[test]
+fn run_leaves_a_parent_alone_while_a_descendant_is_gated() {
+    let machine = r#"name: parent-gate
+version: 1
+states:
+  draft:
+    initial: true
+    description: Start
+  gate:
+    description: Waiting on a human decision
+    gating: true
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: completed
+  - from: gate
+    to: completed
+"#;
+    let plan = r#"# Rhei: Gated Subtree
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Gated subtask
+**State:** gate
+"#;
+    let dir = unique_temp_dir("run-parent-gated-child");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    let combined = format!("{}{}", result.stdout, result.stderr);
+
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+    let content = fs::read_to_string(&plan_path).expect("read plan after run");
+    assert!(
+        content.contains("#### Task 1.1: Gated subtask\n**State:** gate"),
+        "the gated descendant must be untouched; got:\n{content}"
+    );
+    assert!(
+        combined.contains("Task plan.1 (draft): waiting on open descendant Task plan.1.1 (gate)"),
+        "the halt report must name the parent and the descendant holding it; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Task plan.1.1 (gate): gating state awaiting review"),
+        "the descendant must still report its own cause; got:\n{combined}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

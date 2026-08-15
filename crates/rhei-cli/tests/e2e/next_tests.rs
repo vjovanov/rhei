@@ -984,8 +984,11 @@ fn next_with_task_flag_targets_specific() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// Selection reaches the children first: the parent is a task too, but it is
+/// not workable while its own subtree is open.
+// §FS-rhei-next.3
 #[test]
-fn next_auto_claims_leaf_child_not_parent_rollup() {
+fn next_auto_claims_a_child_before_its_parent() {
     let (dir, plan_path, machine_path) = setup_single_file("next-children", SUBTASK_PLAN);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
@@ -998,6 +1001,163 @@ fn next_auto_claims_leaf_child_not_parent_rollup() {
     let content = fs::read_to_string(&plan_path).expect("read plan");
     assert!(content.contains("### Task 1: Parent task\n**State:** draft"));
     assert!(content.contains("#### Task 1.1: First subtask\n**State:** pending"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+const PARENT_WITH_ONE_OPEN_CHILD: &str = r#"# Rhei: Parent Eligibility
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Finished subtask
+**State:** completed
+
+#### Task 1.2: Open subtask
+**State:** draft
+
+### Task 2: Dependent
+**State:** draft
+**Prior:** Task 1
+"#;
+
+const PARENT_WITH_TERMINAL_SUBTREE: &str = r#"# Rhei: Parent Eligibility
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Finished subtask
+**State:** completed
+
+#### Task 1.2: Also finished
+**State:** completed
+
+### Task 2: Dependent
+**State:** draft
+**Prior:** Task 1
+"#;
+
+/// A parent whose subtree is terminal is the next thing selection hands out —
+/// mid-plan, without waiting for unrelated branches, and without any cascade
+/// stamping it on its children's behalf.
+// §FS-rhei-next.3
+#[test]
+fn next_auto_claims_a_parent_once_its_subtree_is_terminal() {
+    let (dir, plan_path, machine_path) =
+        setup_single_file("next-parent-claimable", PARENT_WITH_TERMINAL_SUBTREE);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
+    assert_success(&result);
+
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
+    assert_eq!(json["task_id"], "plan.1", "the parent is the next claimable ticket");
+    // Claiming a non-runnable initial state advances it the same way it does
+    // for a leaf; the dependent stays blocked until the parent is finished.
+    assert_task_state(&plan_path, &machine_path, "1", "pending");
+    assert_task_state(&plan_path, &machine_path, "2", "draft");
+    let content = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(
+        content.contains("### Task 1: Parent task\n**State:** pending\n**Assignee:**"),
+        "the parent should carry the claim; got:\n{content}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `--task` on a parent is refused only while its subtree is open, and the
+/// refusal names the open descendants and the ticket that is claimable now
+/// instead of asserting a cascade that does not exist.
+// §FS-rhei-next.3.4
+#[test]
+fn next_task_refuses_a_parent_while_a_descendant_is_open() {
+    let (dir, plan_path, machine_path) =
+        setup_single_file("next-parent-open-child", PARENT_WITH_ONE_OPEN_CHILD);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
+    assert!(
+        !result.status.success(),
+        "claiming a parent with an open descendant must fail\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert_stderr_contains(
+        &result,
+        "Task plan.1 cannot be claimed while 1 descendant task(s) are still open.",
+    );
+    assert_stderr_contains(&result, "Open descendants: Task plan.1.2 (draft)");
+    assert_stderr_contains(&result, "claim what is ready instead");
+    assert_stderr_contains(&result, "--task plan.1.2");
+    assert!(
+        !result.stderr.contains("advances when its children"),
+        "the refusal must not claim a cascade exists; got:\n{}",
+        result.stderr
+    );
+
+    let content = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(
+        !content.contains("**Assignee:**"),
+        "a refused claim must not write an assignee; got:\n{content}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The same `--task` invocation succeeds once the subtree is terminal: the
+/// refusal is about open descendants, not about being a parent.
+// §FS-rhei-next.3.4
+#[test]
+fn next_task_claims_a_parent_once_its_subtree_is_terminal() {
+    let (dir, plan_path, machine_path) =
+        setup_single_file("next-parent-target", PARENT_WITH_TERMINAL_SUBTREE);
+
+    let result =
+        run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1", "--json"]);
+    assert_success(&result);
+
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
+    assert_eq!(json["task_id"], "plan.1");
+    assert_task_state(&plan_path, &machine_path, "1", "pending");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The whole loop from the defect report: children finish, the parent becomes
+/// claimable and completes on its own, and only then does the dependent that
+/// listed it as `**Prior:**` unblock.
+// §FS-rhei-next.3 §FS-rhei-plan-language.3
+#[test]
+fn next_unblocks_a_dependent_only_after_the_parent_itself_completes() {
+    let (dir, plan_path, machine_path) =
+        setup_single_file("next-parent-dependent", PARENT_WITH_TERMINAL_SUBTREE);
+
+    // The parent is claimed and worked like any ticket.
+    assert_success(&run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]));
+    // Its children being done did not finish it; the dependent is still blocked.
+    let blocked = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "2"]);
+    assert!(
+        !blocked.status.success(),
+        "the dependent must stay blocked while the parent is unfinished\nstdout:\n{}\nstderr:\n{}",
+        blocked.stdout,
+        blocked.stderr
+    );
+    assert_stderr_contains(&blocked, "Task plan.2 is blocked by incomplete prerequisites");
+    assert_stderr_contains(&blocked, "waiting on Task plan.1 (pending)");
+
+    assert_success(&run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--no-callbacks", "--task", "1", "--result", "integrated"],
+    ));
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
+    assert_success(&result);
+    let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
+    assert_eq!(json["task_id"], "plan.2", "the dependent unblocks once the parent is terminal");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -1205,4 +1365,38 @@ transitions:
     );
 
     fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `rhei list --ready` answers "what could be picked up", so it tracks the same
+/// eligibility rule: a parent appears only once its subtree is terminal.
+// §FS-rhei-list.3.1
+#[test]
+fn list_ready_admits_a_parent_only_once_its_subtree_is_terminal() {
+    let (open_dir, open_plan, machine_path) =
+        setup_single_file("list-ready-open", PARENT_WITH_ONE_OPEN_CHILD);
+    let open = run_cli("list", &open_plan, &machine_path, &["--ready", "--json"]);
+    assert_success(&open);
+    let ids: Vec<String> = serde_json::from_str::<serde_json::Value>(&open.stdout)
+        .expect("parse JSON")
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|task| task["id"].as_str().expect("id").to_string())
+        .collect();
+    assert_eq!(ids, vec!["plan.1.2".to_string()], "only the open child is ready");
+    fs::remove_dir_all(open_dir).expect("cleanup");
+
+    let (done_dir, done_plan, machine_path) =
+        setup_single_file("list-ready-closed", PARENT_WITH_TERMINAL_SUBTREE);
+    let done = run_cli("list", &done_plan, &machine_path, &["--ready", "--json"]);
+    assert_success(&done);
+    let ids: Vec<String> = serde_json::from_str::<serde_json::Value>(&done.stdout)
+        .expect("parse JSON")
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|task| task["id"].as_str().expect("id").to_string())
+        .collect();
+    assert_eq!(ids, vec!["plan.1".to_string()], "the parent is ready once its subtree closes");
+    fs::remove_dir_all(done_dir).expect("cleanup");
 }

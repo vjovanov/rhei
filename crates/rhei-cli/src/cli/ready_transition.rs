@@ -763,46 +763,11 @@ fn diagnose_no_claimable(
         );
     }
 
-    // Nothing workable is left, so the residue is parents whose own subtree is
-    // still open. Name the parent and the descendant holding it up: a worker
-    // whose dependent is blocked on an unclaimed parent otherwise gets no
-    // reason at all.
-
-    // §FS-rhei-next.5
-    let waiting_parents: Vec<(&rhei_core::ast::Task, Vec<&rhei_core::ast::Task>)> = non_terminal
-        .iter()
-        .copied()
-        .map(|task| (task, open_descendant_tasks(task, machines)))
-        .filter(|(_, open)| !open.is_empty())
-        .collect();
-    if !waiting_parents.is_empty() {
-        let items: Vec<String> = waiting_parents
-            .iter()
-            .take(3)
-            .map(|(task, open)| {
-                let state =
-                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
-                format!(
-                    "Task {} ({}) waiting on {}",
-                    task.id,
-                    state,
-                    format_open_descendants(open, machines)
-                )
-            })
-            .collect();
-        let suffix = if waiting_parents.len() > 3 {
-            format!(" (+{} more)", waiting_parents.len() - 3)
-        } else {
-            String::new()
-        };
-        return format!(
-            "no tickets are ready to claim{}: {} parent task(s) waiting on open descendants: {}{}.",
-            scope_suffix,
-            waiting_parents.len(),
-            items.join(", "),
-            suffix
-        );
-    }
+    // No branch for "only parents are left": a parent with an open descendant
+    // always has a non-terminal leaf under it, and that leaf is workable, so
+    // the categories above speak for the subtree. A worker whose dependent is
+    // blocked on an unclaimed parent reads it in the prerequisite branch,
+    // which names the parent and its state like any other prior.
 
     // Fallback: we found non-terminal tasks with priors satisfied but no
     // other category matched. Keep the legacy phrasing for this edge case.

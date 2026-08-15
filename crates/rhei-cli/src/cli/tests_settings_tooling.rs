@@ -368,6 +368,133 @@
         );
     }
 
+    /// One eligibility rule for parents, shared by `rhei next` and `rhei run`:
+    /// a non-leaf task joins the ready set only once its whole subtree is
+    /// terminal, and then it joins it like any other ticket.
+    // §FS-rhei-plan-language.3 §FS-rhei-next.3 §FS-rhei-run.3
+    #[test]
+    fn readiness_admits_a_parent_only_once_its_subtree_is_terminal() {
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+        let machines = rhei_validator::MachineSet::single(machine);
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let ready_ids = |plan: &str| {
+            let rhei = rhei_core::parse(plan).expect("parse plan");
+            find_ready_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new())
+                .iter()
+                .map(|task| task.id.to_string())
+                .collect::<Vec<_>>()
+        };
+
+        // A grandchild left open holds back both of its ancestors.
+        assert_eq!(
+            ready_ids(
+                r#"# Rhei: Open subtree
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Child
+**State:** pending
+
+##### Task 1.1.1: Grandchild
+**State:** pending
+"#
+            ),
+            vec!["1.1.1".to_string()]
+        );
+
+        // The child terminal but the grandchild still open: still only the
+        // grandchild, since the rule reads the whole subtree, not one level.
+        assert_eq!(
+            ready_ids(
+                r#"# Rhei: Deep open subtree
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Child
+**State:** done
+
+##### Task 1.1.1: Grandchild
+**State:** pending
+"#
+            ),
+            vec!["1.1.1".to_string()]
+        );
+
+        // Whole subtree terminal: the parent is ordinary ready work.
+        assert_eq!(
+            ready_ids(
+                r#"# Rhei: Closed subtree
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Child
+**State:** done
+
+##### Task 1.1.1: Grandchild
+**State:** done
+"#
+            ),
+            vec!["1".to_string()]
+        );
+    }
+
+    /// A cancelled descendant is terminal, so it releases its parent — the
+    /// guard is about open work, not about success.
+    // §FS-rhei-transition-cmd.3.1
+    #[test]
+    fn readiness_treats_a_cancelled_descendant_as_closed() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Cancelled child
+
+## Tasks
+
+### Task 1: Parent
+**State:** pending
+
+#### Task 1.1: Abandoned
+**State:** cancelled
+"#,
+        )
+        .expect("parse plan");
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  cancelled:\n    description: abandoned\n    final: true\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
+        );
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let ready = find_ready_tasks(
+            &rhei,
+            &rhei_validator::MachineSet::single(machine),
+            dir.path(),
+            &std::collections::HashMap::new(),
+        );
+        assert_eq!(
+            ready.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
+            vec!["1".to_string()]
+        );
+    }
+
     #[test]
     fn run_readiness_excludes_gating_tasks() {
         let rhei = rhei_core::parse(
