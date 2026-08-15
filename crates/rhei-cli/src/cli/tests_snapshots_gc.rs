@@ -177,6 +177,7 @@
             0,
             recorder,
             None,
+            None,
         )
         .expect("timeout returns process status");
 

@@ -197,6 +197,7 @@
             7,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -249,6 +250,7 @@
             1,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -297,6 +299,7 @@
             1,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -395,6 +398,7 @@
             0,
             recorder,
             None,
+            None,
         )
         .expect("agent runs");
 
@@ -453,6 +457,7 @@
             1,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();

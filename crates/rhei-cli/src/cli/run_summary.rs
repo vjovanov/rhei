@@ -20,6 +20,10 @@ struct TaskActivity {
     last_duration_ms: u64,
     /// Direct accounting for usage reported against this task during the run.
     accounting: Option<rhei_tui::AccountingRunSummary>,
+    /// Required artifacts the last exit-0 worker left unwritten, already
+    /// rendered as `name (path)`. The halt classification turns these into a
+    /// row the operator can act on. §FS-rhei-run-report.3.1
+    missing_outputs: Vec<String>,
 }
 
 /// One spawned transition from the run event stream, rendered into the report's
@@ -166,6 +170,12 @@ impl rhei_tui::EventSink for SummarySink {
                 if let Some(accounting) = accounting {
                     state.tasks.entry(task).or_default().accounting = Some(accounting);
                 }
+            }
+            // The classification needs the names, not the sentence; a later
+            // invocation replaces the list, so it is the last attempt's.
+            // §FS-rhei-run-report.3.1
+            rhei_tui::RunEvent::TaskOutputsMissing { task, entries, .. } => {
+                state.tasks.entry(task).or_default().missing_outputs = entries;
             }
             rhei_tui::RunEvent::RunFinished { summary } => {
                 state.accounting = summary.accounting.clone().or_else(|| {
@@ -613,11 +623,24 @@ impl RunSummaryReport {
         // Why each halted ticket is halted, resolved once against the whole
         // plan. The table below needs the plan's priors and claims, which a
         // per-task walk cannot see. §FS-rhei-run-report.3.1
-        let halt_causes: HashMap<String, HaltCause> =
-            classify_halted_tasks(rhei, machines, &None, &|id| activity.contains_key(id))
-                .into_iter()
-                .map(|(task, cause)| (task.id.to_string(), cause))
-                .collect();
+        let halt_causes: HashMap<String, HaltCause> = classify_halted_tasks(
+            rhei,
+            machines,
+            &None,
+            &|id| activity.contains_key(id),
+            // §FS-rhei-run-report.3.1: the artifacts the ticket's last exit-0
+            // worker left unwritten, captured live rather than re-read from the
+            // journal's prose.
+            &|id| {
+                activity
+                    .get(id)
+                    .map(|entry| entry.missing_outputs.clone())
+                    .filter(|entries| !entries.is_empty())
+            },
+        )
+        .into_iter()
+        .map(|(task, cause)| (task.id.to_string(), cause))
+        .collect();
 
         // Source-order walk that preserves hierarchy depth.
         let mut rows = Vec::new();

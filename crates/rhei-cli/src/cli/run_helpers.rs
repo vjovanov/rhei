@@ -361,10 +361,17 @@ fn render_declared_exports(render_context: &RuntimeTemplateContext<'_>) -> Strin
 /// only one the agent was never shown. The section names the fact and the path
 /// and stops there — "write it, then exit" is completion prose, and completion
 /// is enforced by the completion condition, not by prompt wording.
+///
+/// Only edges declared *from this state by name* count. Nearly every machine
+/// declares `* -> cancelled`, so counting wildcards put the section on the
+/// first state of every workflow: the agent wrote a result three states early
+/// and pre-satisfied the obligation at the real terminal edge with a stale
+/// message. The gate surfaces filter wildcards out of a gate's choices for the
+/// same reason.
 // §FS-rhei-agents.3 §FS-rhei-states.3.3
 fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String {
     let can_finish = render_context.machine.transitions().iter().any(|rule| {
-        (rule.from.0 == render_context.state_name || rule.from.0 == "*")
+        rule.from.0 == render_context.state_name
             && render_context
                 .machine
                 .states
@@ -376,14 +383,27 @@ fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String
         return String::new();
     }
     let task_id = render_context.task.id.to_string();
-    let relative = format!("runtime/results/{task_id}.md");
+    // A fanned-out invocation writes its own fragment, so the path it is shown
+    // is the one its `RHEI_RESULT_PATH` holds. §FS-rhei-states.3.3
+    let identity = fanout_result_identity(
+        render_context.machine.states.get(render_context.state_name),
+        render_context.target,
+        render_context.model,
+    );
+    let relative = result_relative_path(&task_id, identity.as_deref());
     // Same rule declared artifacts follow: relative under the artifact root,
     // absolute when the agent's cwd is somewhere else entirely.
     // §FS-rhei-agents.4
     let shown = if render_context.checkout_root == render_context.workspace_root {
         relative
     } else {
-        result_file_path(render_context.workspace_root, &task_id).display().to_string()
+        invocation_result_file_path(
+            render_context.workspace_root,
+            &task_id,
+            identity.as_deref(),
+        )
+        .display()
+        .to_string()
     };
     format!(
         "\n## Result\n\n\

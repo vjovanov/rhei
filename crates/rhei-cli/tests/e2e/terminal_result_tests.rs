@@ -36,10 +36,11 @@ const ONE_TASK_PLAN: &str = r#"# Rhei: Terminal Result
 **Assignee:** worker-1
 "#;
 
-/// A mock agent that writes `body` to the path Rhei told it to use. Passing the
-/// path in `RHEI_RESULT_PATH` is the contract a program has instead of a
-/// prompt. §FS-rhei-agents.4
+/// A mock agent that writes `body` verbatim to the path Rhei told it to use.
+/// Passing the path in `RHEI_RESULT_PATH` is the contract a program has instead
+/// of a prompt. §FS-rhei-agents.4
 fn write_result_writing_agent(dir: &Path, body: &str) -> PathBuf {
+    let quoted = shell_single_quote(body);
     write_fixture_file(
         dir,
         "mock-agent.sh",
@@ -47,12 +48,14 @@ fn write_result_writing_agent(dir: &Path, body: &str) -> PathBuf {
             r#"#!/bin/sh
 set -eu
 mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-cat > "$RHEI_RESULT_PATH" <<'RESULT_EOF'
-{body}
-RESULT_EOF
+printf '%s' {quoted} > "$RHEI_RESULT_PATH"
 "#
         ),
     )
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
 }
 
 fn write_silent_agent(dir: &Path) -> PathBuf {
@@ -96,8 +99,8 @@ fn read_terminal_trail(dir: &Path, plan_path: &Path) -> TerminalTrail {
 }
 
 fn assert_finished_trail(trail: &TerminalTrail, expected_result: &str, driver: &str) {
-    assert_eq!(trail.ledger.trim(), "plan.1 pending@completed", "{driver}: ledger line differs");
-    assert_eq!(trail.result.trim(), expected_result, "{driver}: result file differs");
+    assert_eq!(trail.ledger, "plan.1 pending@completed\n", "{driver}: ledger line differs");
+    assert_eq!(trail.result, expected_result, "{driver}: result file differs");
     assert!(
         trail.plan.contains("> **Result:** [plan.1](runtime/results/plan.1.md)"),
         "{driver}: task body should link the result; got:\n{}",
@@ -126,10 +129,18 @@ fn setup_terminal_result_case(prefix: &str) -> (PathBuf, PathBuf, PathBuf) {
 /// `rhei run` (whose agent wrote the result file) all take the same edge and
 /// leave the same ledger line, the same result file, the same `> **Result:**`
 /// link, and no `**Assignee:**`.
-// §FS-rhei-complete.4 §FS-rhei-states.3.3
+///
+/// The comparison is byte-for-byte. Rhei appends a carried message as the
+/// heading, a blank line, the message, and a trailing blank line, and takes a
+/// worker-written file verbatim — so the two routes coincide exactly when the
+/// worker writes that entry, which is what the mock agent here does. A worker
+/// that writes something else keeps its own bytes, by design; that latitude is
+/// what makes the equality worth pinning rather than assuming.
+// §FS-rhei-complete.4 §FS-rhei-complete.3.2 §FS-rhei-states.3.3
 #[test]
 fn every_verb_leaves_the_same_terminal_trail() {
-    let expected = format!("## Result\n\n{RESULT_MESSAGE}");
+    // The exact bytes `append_result_entry` writes for one carried message.
+    let expected = format!("## Result\n\n{RESULT_MESSAGE}\n\n");
 
     let (complete_dir, complete_plan, complete_machine) =
         setup_terminal_result_case("terminal-result-complete");
@@ -178,7 +189,7 @@ fn every_verb_leaves_the_same_terminal_trail() {
     assert_eq!(by_complete.ledger, by_transition.ledger);
     assert_eq!(by_complete.ledger, by_run.ledger);
     assert_eq!(by_complete.result, by_transition.result);
-    assert_eq!(by_complete.result.trim(), by_run.result.trim());
+    assert_eq!(by_complete.result, by_run.result, "byte-identical, not merely equivalent");
 
     fs::remove_dir_all(complete_dir).expect("cleanup");
     fs::remove_dir_all(transition_dir).expect("cleanup");
@@ -344,11 +355,29 @@ fn run_treats_a_missing_result_as_a_missing_required_output() {
         combined.contains("required outputs are missing"),
         "the missing result takes the missing-output route; got:\n{combined}"
     );
+    // Absolute, because in a Panta project the result lives under the owning
+    // rhei's root and a relative path is one the operator cannot paste.
+    // §FS-rhei-agents.3.2.1
+    let expected = std::path::absolute(dir.join("runtime/results/plan.1.md"))
+        .unwrap_or_else(|_| dir.join("runtime/results/plan.1.md"));
     assert!(
-        combined.contains("result (runtime/results/plan.1.md)"),
+        combined.contains(&format!("result ({})", expected.display())),
         "the report must name the result path that was checked; got:\n{combined}"
     );
     assert_task_state(&plan_path, &machine_path, "1", "pending");
+
+    // The durable report says the same thing. It used to say "stalled in
+    // non-terminal state pending — inspect logs", naming neither the file nor
+    // an action that would produce it. §FS-rhei-run-report.3.1
+    let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        report.contains("worker exited 0 without") && report.contains("result ("),
+        "the report names the artifact the worker did not write; got:\n{report}"
+    );
+    assert!(
+        !report.contains("inspect logs or mark the task cancelled"),
+        "a named halt must not fall back to the generic advice; got:\n{report}"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -433,6 +462,14 @@ fn a_blank_result_message_is_rejected_on_both_verbs() {
     assert!(!completed.status.success(), "a blank --result is not a result");
     assert_stderr_contains(&completed, "--result carries no message");
 
+    // An argument check, so it runs before the plan loads: a caller who typed a
+    // bad ticket *and* a blank message hears about the flag they got wrong.
+    // §FS-rhei-complete.4
+    let unknown_task =
+        run_cli("complete", &plan_path, &machine_path, &["--task", "99", "--result", "  "]);
+    assert!(!unknown_task.status.success());
+    assert_stderr_contains(&unknown_task, "--result carries no message");
+
     let transitioned = run_cli(
         "transition",
         &plan_path,
@@ -443,6 +480,262 @@ fn a_blank_result_message_is_rejected_on_both_verbs() {
     assert_stderr_contains(&transitioned, "--result carries no message");
 
     assert_task_state(&plan_path, &machine_path, "1", "pending");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `rhei complete` whose `on_leave` redirects to a **non-terminal** state: the
+/// move happened, so the ledger has it and the caller's message rides with it,
+/// and `complete` still exits non-zero because the ticket is not finished.
+///
+/// The recorded message then satisfies the obligation at the eventual terminal
+/// edge, exactly as any earlier `transition --result` on the same ticket does.
+// §FS-rhei-complete.4 §FS-rhei-states.3.3
+#[test]
+fn complete_redirected_to_a_non_terminal_state_still_records_the_message() {
+    let machine = r#"name: redirect-non-terminal
+version: 1
+states:
+  pending:
+    initial: true
+    description: Not started
+  review:
+    description: Sent back for review
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: pending
+    to: completed
+    on_leave: 'cli:printf ''{"success": true, "nextState": "review"}'''
+  - from: pending
+    to: review
+  - from: review
+    to: completed
+"#;
+    let dir = unique_temp_dir("terminal-result-complete-redirect");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", ONE_TASK_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli(
+        "complete",
+        &plan_path,
+        &machine_path,
+        &["--task", "1", "--result", RESULT_MESSAGE],
+    );
+    assert!(
+        !result.status.success(),
+        "the caller asked to finish a ticket the machine sent elsewhere\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    // The move is the machine's decision and it stands, message included.
+    assert_task_state(&plan_path, &machine_path, "1", "review");
+    let history =
+        fs::read_to_string(dir.join("runtime/state-transitions.log")).expect("read ledger");
+    assert_eq!(history, "plan.1 pending@review\n");
+    let recorded =
+        fs::read_to_string(dir.join("runtime/results/plan.1.md")).expect("read result file");
+    assert_eq!(recorded, format!("## Result\n\n{RESULT_MESSAGE}\n\n"));
+
+    // And it pre-satisfies the obligation at the real terminal edge.
+    assert_success(&run_transition(&plan_path, &machine_path, "1", "review", "completed"));
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `rhei next`'s auto-advance out of a setup-only initial state never *declares*
+/// an edge into a terminal state, but an `on_leave` redirect can still put one
+/// there. The shared path refuses it and the plan is left untouched: `next`
+/// claims work, it does not finish it.
+// §FS-rhei-next.3 §FS-rhei-states.3.3
+#[test]
+fn next_auto_advance_redirected_into_a_terminal_state_is_refused_cleanly() {
+    let machine = r#"name: next-redirect-terminal
+version: 1
+states:
+  planning:
+    initial: true
+    description: Setup only
+  pending:
+    description: Ready for work
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: planning
+    to: pending
+    on_leave: 'cli:printf ''{"success": true, "nextState": "completed"}'''
+  - from: planning
+    to: completed
+  - from: pending
+    to: completed
+"#;
+    let plan = r#"# Rhei: Next Redirect
+
+## Tasks
+
+### Task 1: Do the work
+**State:** planning
+"#;
+    let dir = unique_temp_dir("terminal-result-next-redirect");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let result = run_cli("next", &plan_path, &machine_path, &[]);
+    assert!(
+        !result.status.success(),
+        "a claim must not finish the ticket by redirect\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert_stderr_contains(&result, "cannot enter terminal state 'completed' without a result");
+    assert_task_state(&plan_path, &machine_path, "1", "planning");
+    assert!(
+        !dir.join("runtime/results/plan.1.md").exists(),
+        "a refused claim must not create the result file"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A fanned-out state gives every invocation its own result fragment, and `run`
+/// merges them into the ticket's result before the terminal transition. One
+/// shared path would have made the last writer erase every sibling's account.
+// §FS-rhei-states.3.3 §FS-rhei-run.3
+const FANOUT_TERMINAL_MACHINE: &str = r#"name: fanout-terminal-result
+version: 1
+models:
+  - alpha
+  - beta
+states:
+  review:
+    initial: true
+    description: Every reviewer weighs in
+    all_targets:
+      - "mock:mock:alpha"
+      - "mock:mock:beta"
+    agent_timeout: 10s
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: review
+    to: completed
+"#;
+
+const FANOUT_PLAN: &str = r#"# Rhei: Fanout Result
+
+## Tasks
+
+### Task 1: Review from every angle
+**State:** review
+"#;
+
+/// Settings whose `mock` agent runs `script`, with a model registry both fan-out
+/// targets resolve through.
+fn write_fanout_agent_settings(workspace_root: &Path, script: &Path) {
+    let settings_dir = workspace_root.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
+  "agents": {{
+    "mock": {{ "command": ["sh", {script_json}], "timeout": "10s" }}
+  }},
+  "models": {{
+    "alpha": {{ "provider": "mock", "model": "alpha", "default_agent": "mock" }},
+    "beta": {{ "provider": "mock", "model": "beta", "default_agent": "mock" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+}
+
+#[test]
+fn a_fanned_out_terminal_edge_keeps_every_invocation_s_account() {
+    let dir = unique_temp_dir("terminal-result-fanout");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TERMINAL_MACHINE);
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf '%s reviewed it.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\n",
+    );
+    write_fanout_agent_settings(&dir, &agent);
+
+    assert_success(&run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]));
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+
+    // Each invocation wrote its own fragment, keyed by its identity …
+    for identity in ["mock-mock-alpha", "mock-mock-beta"] {
+        assert!(
+            dir.join(format!("runtime/results/plan.1/{identity}.md")).exists(),
+            "{identity}: fan-out invocation writes its own fragment"
+        );
+    }
+
+    // … and the merged result carries both, attributed, in declared order.
+    let merged =
+        fs::read_to_string(dir.join("runtime/results/plan.1.md")).expect("merged result file");
+    assert!(merged.contains("alpha reviewed it."), "model-a's account survives; got:\n{merged}");
+    assert!(merged.contains("beta reviewed it."), "model-b's account survives; got:\n{merged}");
+    assert!(
+        merged.contains("## Result \u{2014} mock-mock-alpha")
+            && merged.contains("## Result \u{2014} mock-mock-beta"),
+        "each entry names the invocation it came from; got:\n{merged}"
+    );
+    assert!(
+        merged.find("mock-mock-alpha") < merged.find("mock-mock-beta"),
+        "entries follow declared invocation order; got:\n{merged}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The completion condition is per invocation, so a fan-out worker that writes
+/// nothing fails its own — the sibling that did write is not an answer for it.
+// §FS-rhei-agents.3.2 §FS-rhei-states.3.3
+#[test]
+fn a_fanned_out_invocation_that_writes_nothing_fails_its_own_completion_condition() {
+    let dir = unique_temp_dir("terminal-result-fanout-silent");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TERMINAL_MACHINE);
+    // Only `alpha` answers.
+    let agent = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        "#!/bin/sh\nset -eu\nif [ \"${RHEI_MODEL:-}\" = alpha ]; then\n\
+         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
+         printf 'alpha reviewed it.\\n' > \"$RHEI_RESULT_PATH\"\nfi\n",
+    );
+    write_fanout_agent_settings(&dir, &agent);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(
+        !result.status.success(),
+        "the silent invocation must fail its own condition\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(
+        combined.contains("plan.1/mock-mock-beta.md"),
+        "the warning names the fragment the silent invocation owed; got:\n{combined}"
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "review");
+    assert!(
+        !dir.join("runtime/results/plan.1.md").exists(),
+        "nothing is merged when the state did not finish"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

@@ -148,6 +148,9 @@ fn spawn_and_wait_agent(
     slot: rhei_tui::Slot,
     sink: Arc<dyn rhei_tui::EventSink>,
     intervene: Option<&Arc<RunInterveneSink>>,
+    // Fan-out key of this invocation; decides the `RHEI_RESULT_PATH` it is
+    // handed. §FS-rhei-states.3.3
+    result_identity: Option<&str>,
 ) -> MietteResult<AgentSpawnOutcome> {
     // Ensure log directory exists.
     if let Some(parent) = log_path.parent() {
@@ -256,6 +259,7 @@ fn spawn_and_wait_agent(
         visit_count,
         tooling,
         runtime_dir,
+        result_identity,
     );
     configure_accounting_capture(&mut cmd, usage_capture_path.as_deref());
     if let Some(snapshot_preload) = snapshot_preload {

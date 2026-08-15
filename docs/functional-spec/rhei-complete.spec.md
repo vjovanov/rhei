@@ -133,9 +133,17 @@ message entry:
 
 Any verb that carries a message appends one such entry — `rhei complete
 --result`, `rhei transition --result`, and `rhei run`'s engine-owned failure
-routes alike — so the file reads the same however the ticket was driven. The
-ordered audit trail of state transitions lives in
-`runtime/state-transitions.log`.
+routes alike — so the file reads the same however the ticket was driven. Rhei
+writes the entry as the heading, a blank line, the message, and a trailing
+blank line, so successive entries stay separated. The ordered audit trail of
+state transitions lives in `runtime/state-transitions.log`.
+
+A file a **worker** wrote itself (§FS-rhei-states.3.3) is taken verbatim: Rhei
+reads it to decide the obligation is met and never rewrites it. So the two
+routes coincide exactly when the worker writes the entry above — same heading,
+same blank lines — and a worker that writes something else keeps its own bytes.
+That is the intended latitude, not a discrepancy: the format is what Rhei
+appends, not a validator applied to what a worker wrote.
 
 Example result file after a task completes:
 
@@ -153,11 +161,17 @@ Added avatar_url column and migration 0042
 > one-hop terminal target (§4.1) + `rhei transition <ticket> --from <current>
 > --to <inferred> --result <MSG>` on the shared transition path.
 
-1. Load the state machine and plan (single file or directory workspace). Validate.
-2. Locate the task by ID. Fail if the task does not exist.
-3. Reject if the task is already in a terminal state.
-4. Reject if the task's current state is a [gating state](rhei-states.spec.md#12-per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
-5. Reject if any `**Prior:**` of the target task is unsatisfied — resolved
+1. Reject an empty or whitespace-only `--result` before anything is read or
+   written. This is an argument check, not a plan check: it needs no plan, no
+   machine, and no task, so it runs first and its message is about the flag the
+   caller typed. Ordering it after the plan load would answer `--task 99
+   --result "  "` with "task not found" — true, but not the thing the caller
+   got wrong, and a caller who fixes the id then gets the second complaint.
+2. Load the state machine and plan (single file or directory workspace). Validate.
+3. Locate the task by ID. Fail if the task does not exist.
+4. Reject if the task is already in a terminal state.
+5. Reject if the task's current state is a [gating state](rhei-states.spec.md#12-per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
+6. Reject if any `**Prior:**` of the target task is unsatisfied — resolved
    across the whole project graph and judged the same way readiness judges it
    (terminal-and-not-cancelled, §FS-rhei-panta.6.1). The error names every
    blocking prior with its current state. Completing a ticket ahead of its
@@ -167,7 +181,6 @@ Added avatar_url column and migration 0042
    A deliberate out-of-order move stays available through the explicit
    human-initiated `rhei transition` (§FS-rhei-transition-cmd.3), the same
    escape hatch a gating state uses in point 4.
-6. Reject an empty or whitespace-only `--result` before anything is written.
 7. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
 8. Run the shared transition (§FS-rhei-transition-cmd.3) from the current state
    to that target, carrying `--result`: compare-and-swap under the file lock,
@@ -181,11 +194,28 @@ Added avatar_url column and migration 0042
 9. If callbacks redirect the transition, the effective target must still be a
    non-cancelled terminal completion state; otherwise the command fails. The
    redirect is the machine's decision and has already been applied by the time
-   this is known — so has the terminal finalization, if the effective target is
-   terminal. A ticket redirected to `cancelled` is therefore left cancelled
-   *with the caller's message recorded against it*, which is the outcome the
-   terminal-result obligation asks for; `rhei complete` still exits non-zero,
-   because the caller asked to complete a ticket that was instead abandoned.
+   this is known — so has the ledger line, and so has the caller's `--result`,
+   wherever the redirect sent the ticket. **This holds for every redirect, not
+   only a terminal one.** A `complete --result "…"` whose `on_leave` sends the
+   ticket to `review` leaves it in `review` with that message recorded as a
+   `## Result` entry, and exits non-zero because the ticket is not finished.
+   Two things follow, and both are intended:
+   - The move happened and the ledger has it, so the worker's account rides
+     with the move rather than being thrown away with the command's exit code.
+     This is exactly what `rhei transition --result` on a non-terminal hop
+     does (§FS-rhei-states.3.3, item 1) — results accumulate as `## Result`
+     entries by design, and `complete` holds no private variant of the rule.
+   - That recorded message then **satisfies the terminal-result obligation at
+     the eventual terminal edge**, as any earlier `transition --result` on the
+     same ticket does. The ticket will not be refused later for having no
+     result; it will carry this one, ahead of whatever the redirected-to state
+     goes on to produce.
+
+   A ticket redirected to `cancelled` is the same story with a terminal ending:
+   left cancelled *with the caller's message recorded against it*, which is the
+   outcome the terminal-result obligation asks for, and `rhei complete` still
+   exits non-zero because the caller asked to complete a ticket that was
+   instead abandoned.
 
 Everything `rhei complete` used to hold privately now lives on the shared path,
 so the same edge driven by `rhei complete --result`, by `rhei transition

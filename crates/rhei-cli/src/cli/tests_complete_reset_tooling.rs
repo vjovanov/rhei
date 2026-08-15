@@ -29,18 +29,30 @@
         let dir = tempfile::tempdir().expect("tmpdir");
         let root = dir.path();
 
+        let plan = root.join("plan.rhei.md");
+
         // A non-terminal target never asks.
         assert!(ensure_terminal_result_available(
-            &machine, root, "plan.1", "pending", "pending", None
+            &machine, root, "plan.1", "pending", "pending", None, &plan
         )
         .is_ok());
 
-        let err =
-            ensure_terminal_result_available(&machine, root, "plan.1", "pending", "completed", None)
-                .expect_err("a terminal entry with nothing to say is refused");
+        let err = ensure_terminal_result_available(
+            &machine,
+            root,
+            "plan.1",
+            "pending",
+            "completed",
+            None,
+            &plan,
+        )
+        .expect_err("a terminal entry with nothing to say is refused");
         let rendered = format!("{err:?}");
         assert!(rendered.contains("runtime/results/plan.1.md"), "{rendered}");
         assert!(rendered.contains("--result"), "{rendered}");
+        // The suggested commands name the plan, so they run from anywhere.
+        // §FS-rhei-errors.2
+        assert!(rendered.contains("plan.rhei.md"), "{rendered}");
 
         // A blank message is not a message.
         assert!(ensure_terminal_result_available(
@@ -49,7 +61,8 @@
             "plan.1",
             "pending",
             "completed",
-            Some("   ")
+            Some("   "),
+            &plan
         )
         .is_err());
 
@@ -59,7 +72,8 @@
             "plan.1",
             "pending",
             "completed",
-            Some("Shipped it.")
+            Some("Shipped it."),
+            &plan
         )
         .is_ok());
 
@@ -68,7 +82,7 @@
         fs::write(results.join("plan.1.md"), "## Result\n\nThe worker wrote this.\n")
             .expect("write result");
         assert!(ensure_terminal_result_available(
-            &machine, root, "plan.1", "pending", "completed", None
+            &machine, root, "plan.1", "pending", "completed", None, &plan
         )
         .is_ok());
     }
@@ -345,11 +359,11 @@ transitions:
         assert!(err.to_string().contains("gating state"), "{err}");
     }
 
-    /// The dashboard's gate block has no field to type a result into, so a gate
-    /// choice that finishes a ticket is refused and the rejection the dashboard
-    /// renders names the command that can carry the reason. The same gate into
-    /// a non-terminal state still works.
-    // §FS-rhei-viz.5.1 §FS-rhei-run.3
+    /// The gate block carries an optional result field, so the human who
+    /// releases a gate says why on the move. Left blank on a terminal choice,
+    /// the shared path refuses it and names the command that can carry the
+    /// reason; a non-terminal choice is unaffected either way.
+    // §FS-rhei-viz.5.1 §FS-rhei-run.3 §FS-rhei-states.3.3
     #[test]
     fn dashboard_gate_transition_refuses_a_terminal_choice_with_no_result() {
         let dir = tempfile::tempdir().expect("tmpdir");
@@ -374,6 +388,7 @@ transitions:
             "plan.1",
             "human-review",
             "completed",
+            None,
             true,
         )
         .expect_err("a terminal gate choice carries no result");
@@ -383,6 +398,19 @@ transitions:
         let untouched = fs::read_to_string(&plan).expect("read plan");
         assert!(untouched.contains("**State:** human-review"), "{untouched}");
 
+        // A whitespace-only field is the same as no field at all.
+        assert!(transition_dashboard_gate(
+            &plan,
+            &machine,
+            &callback_paths,
+            "plan.1",
+            "human-review",
+            "completed",
+            Some("   "),
+            true,
+        )
+        .is_err());
+
         let effective = transition_dashboard_gate(
             &plan,
             &machine,
@@ -390,6 +418,7 @@ transitions:
             "plan.1",
             "human-review",
             "rework",
+            None,
             true,
         )
         .expect("a non-terminal gate choice is unaffected");
@@ -400,6 +429,45 @@ transitions:
         let history =
             fs::read_to_string(dir.path().join("runtime/state-transitions.log")).expect("history");
         assert!(history.contains("plan.1 human-review@rework"));
+    }
+
+    /// The gate's own result field finishes the ticket: the message rides the
+    /// transition, lands in the ticket's result file as a `## Result` entry, and
+    /// the everyday `agent → human-gate → completed` shape works from the UI.
+    // §FS-rhei-viz.5.1 §FS-rhei-states.3.3
+    #[test]
+    fn dashboard_gate_transition_carries_the_result_into_a_terminal_state() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let plan = dir.path().join("plan.rhei.md");
+        let states = dir.path().join("states.yaml");
+        fs::write(
+            &plan,
+            "# Rhei: Gate\n\n## Tasks\n\n### Task 1: Review\n**State:** human-review\n\nReview.\n",
+        )
+        .expect("write plan");
+        let yaml = "name: test\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: human-review\n    to: completed\n";
+        fs::write(&states, yaml).expect("write states");
+        let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
+        let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
+
+        let effective = transition_dashboard_gate(
+            &plan,
+            &machine,
+            &callback_paths,
+            "plan.1",
+            "human-review",
+            "completed",
+            Some("  Reviewed by hand; shipping it.  "),
+            true,
+        )
+        .expect("a terminal gate choice with a result is applied");
+
+        assert_eq!(effective, "completed");
+        let updated = fs::read_to_string(&plan).expect("read plan");
+        assert!(updated.contains("**State:** completed"), "{updated}");
+        let result = fs::read_to_string(dir.path().join("runtime/results/plan.1.md"))
+            .expect("result file");
+        assert_eq!(result.trim(), "## Result\n\nReviewed by hand; shipping it.");
     }
 
     #[test]

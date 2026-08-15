@@ -154,15 +154,26 @@ impl InterveneSink for StubIntervene {
     }
 }
 
+/// `(task, from, to, result)` for one recorded gate request. The result is
+/// recorded so the route's blank-is-none trimming is observable.
+// §FS-rhei-viz.5.1
+type GateRequest = (String, String, String, Option<String>);
+
 /// A stub [`GateTransitionSink`] that records transition requests without
 /// touching plan files.
 struct StubGateTransition {
-    requested: Mutex<Vec<(String, String, String)>>,
+    requested: Mutex<Vec<GateRequest>>,
     fail_reason: Option<String>,
 }
 
 impl GateTransitionSink for StubGateTransition {
-    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+    fn transition_gate(
+        &self,
+        task_id: &str,
+        from: &str,
+        to: &str,
+        result: Option<&str>,
+    ) -> Result<String, String> {
         if let Some(reason) = &self.fail_reason {
             return Err(reason.clone());
         }
@@ -170,6 +181,7 @@ impl GateTransitionSink for StubGateTransition {
             task_id.to_string(),
             from.to_string(),
             to.to_string(),
+            result.map(str::to_string),
         ));
         Ok(to.to_string())
     }
@@ -556,9 +568,34 @@ fn gate_transition_delivers_to_sink_and_reports_outcome() {
     );
     assert_eq!(ok["ok"], true);
     assert_eq!(ok["to"], "completed");
+
+    // The operator's result rides the same request; a whitespace-only field is
+    // no field at all. §FS-rhei-viz.5.1 §FS-rhei-states.3.3
+    let with_result = post_json(
+        &dashboard,
+        "/transition-gate",
+        r#"{"task_id":"1","from":"human-gate","to":"completed","result":"  Reviewed and shipped.  "}"#,
+    );
+    assert_eq!(with_result["ok"], true);
+    let blank = post_json(
+        &dashboard,
+        "/transition-gate",
+        r#"{"task_id":"1","from":"human-gate","to":"completed","result":"   "}"#,
+    );
+    assert_eq!(blank["ok"], true);
+
     assert_eq!(
         sink.requested.lock().unwrap().as_slice(),
-        &[("1".to_string(), "human-gate".to_string(), "completed".to_string())]
+        &[
+            ("1".to_string(), "human-gate".to_string(), "completed".to_string(), None),
+            (
+                "1".to_string(),
+                "human-gate".to_string(),
+                "completed".to_string(),
+                Some("Reviewed and shipped.".to_string())
+            ),
+            ("1".to_string(), "human-gate".to_string(), "completed".to_string(), None),
+        ]
     );
 
     let snapshot = fetch_snapshot_json(&dashboard);

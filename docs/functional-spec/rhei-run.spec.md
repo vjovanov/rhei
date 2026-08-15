@@ -181,18 +181,21 @@ from silently completing fresh tasks without executing them.
 | Route | Terminal result comes from |
 |-------|-----------------------------|
 | Agent or program exits `0` and the selected edge is terminal | The subprocess, which wrote `runtime/results/<task-id>.md` before exiting. Missing, and step 4 fails the completion condition (no transition, task stays put). |
+| A **fanned-out** state (`all_targets` / `all_models`) whose selected edge is terminal | Every invocation, each into its own fragment `runtime/results/<task-id>/<identity>.md`; the completion condition checks the invocation's own fragment, and `rhei run` merges the fragments into `runtime/results/<task-id>.md` before applying the transition (§FS-rhei-states.3.3). One worker's account never stands in for another's, and no invocation overwrites a sibling. |
 | Timeout (§FS-rhei-agents.7.3) | The engine, which knows the timeout that ended the work and writes it as the result message. |
 | Unavailable required tooling (§FS-rhei-agents.6) | The engine, which names the kind and the unavailable ids. |
 | Non-zero subprocess exit routed by `exit_code:` or an error transition | The engine, which names the exit code. |
 | Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. No subprocess ran in the source state, so there is nobody else who knows more than the engine does. |
-| Human gate released from the live dashboard (§FS-rhei-viz.5.1) | Nobody the dashboard can ask — so the release into a terminal state is refused, with the reason naming `rhei transition <id> --from <state> --to <state> --result "<why>"`. The dashboard has no message field, and a human finishing a ticket by hand is precisely the case where the reason matters. Releasing a gate into a non-terminal state is unaffected. |
+| Human gate released from a live surface — browser dashboard (§FS-rhei-viz.5.1) or TUI (§FS-rhei-run-tui.1.5.5) | The human who released it, through the gate surface's own optional **Result** field. The message rides the transition like `rhei transition --result` does. Left blank with no result on disk, a release into a terminal state is refused, and the refusal names `rhei transition <id> --from <state> --to <state> --result "<why>"`. Releasing a gate into a non-terminal state is unaffected either way. |
 
 The line the table draws is one rule: **the engine writes a result only for the
 outcomes the engine itself produced** — a timeout it fired, tooling it could not
 start, an exit code it read, an edge it walked with no subprocess in the state.
 It never speaks for a worker that ran, and it never speaks for a human. Where a
 worker ran, a missing result is a failed completion condition, not a sentence
-the engine makes up; where a human decided, the human is asked.
+the engine makes up; where a human decided, the human is asked — which is why
+the gate surfaces have a field to answer in rather than a refusal to work
+around.
 
 The callback-only sentence is a fallback, not boilerplate: it is written only
 when the edge really did land on a `final: true` state and the ticket has no

@@ -1450,3 +1450,127 @@ fn run_leaves_a_sibling_of_a_gated_sibling_alone() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A ticket whose worker finished without moving it must not starve its
+/// siblings, and must not be re-spawned into every slot that frees up.
+///
+/// Both failed in the parallel worker pool. `stalled_tasks` was declared
+/// outside the pass loop and never cleared, and the exit-0-with-missing-outputs
+/// arm `continue`d past the pool refill — so the slot the stalled worker had
+/// just freed stayed idle for the rest of the pass, and the run halted with "no
+/// progress" while four ready tickets had never been spawned at all. Sibling
+/// arms that also fail to advance (an auto-advance error, a timeout with no
+/// rule, a non-zero exit under `--continue-on-error`) did not mark the ticket
+/// stalled either, so the live-ready-set refill re-spawned it inside one pass,
+/// without bound.
+// §FS-rhei-run.3
+#[test]
+fn a_stalled_ticket_does_not_starve_its_siblings_or_respawn_without_bound() {
+    let dir = unique_temp_dir("run-parallel-stall-refill");
+    let workspace = dir.join("workspace");
+    let tasks_dir = workspace.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(workspace.join("index.rhei.md"), "# Rhei: Stall Refill\n").expect("write index");
+    for n in 1..=6 {
+        fs::write(
+            tasks_dir.join(format!("{n:02}-item.md")),
+            format!("### Task {n}: Item {n}\n**State:** work\n"),
+        )
+        .expect("write task file");
+    }
+
+    let agent_script = write_fixture_file(
+        &dir,
+        "mock-agent.sh",
+        r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/logs" "$root/runtime/out"
+printf '%s\n' "${RHEI_TASK_ID:-}" >> "$root/runtime/logs/spawns.log"
+# Tickets 1 and 2 exit 0 having written nothing: they fail the completion
+# condition and stay put. Everyone else finishes.
+case "${RHEI_TASK_ID:-}" in
+  workspace.1|workspace.2) exit 0 ;;
+esac
+printf 'done\n' > "$root/runtime/out/${RHEI_TASK_ID}.md"
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nFinished.\n' > "$RHEI_RESULT_PATH"
+"#,
+    );
+    let settings_dir = workspace.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "10s" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let machine_path = write_fixture_file(
+        &dir,
+        "states.yaml",
+        r#"name: stall-refill
+version: 1
+states:
+  work:
+    initial: true
+    description: Do it
+    agent: mock
+    agent_timeout: 10s
+    concurrent: true
+    outputs:
+      - name: out
+        path: runtime/out/{task_id}.md
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: work
+    to: completed
+"#,
+    );
+
+    let result = run_cli(
+        "run",
+        &workspace,
+        &machine_path,
+        &["--no-tui", "--no-callbacks", "--parallel", "2"],
+    );
+    assert!(
+        !result.status.success(),
+        "two tickets cannot finish, so the run halts non-zero\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    // The siblings queued behind the stalled pair were scheduled and finished.
+    for n in 3..=6 {
+        assert_task_state(&workspace, &machine_path, &n.to_string(), "completed");
+    }
+    assert_task_state(&workspace, &machine_path, "1", "work");
+    assert_task_state(&workspace, &machine_path, "2", "work");
+
+    // Each ticket is spawned at most once per pass. The stalled pair is retried
+    // on the second (and last) pass — the set of stalled tickets is scoped to a
+    // pass, not written off for the run — and before the fix it was re-spawned
+    // into every slot that freed up, without bound, inside pass one.
+    let spawns =
+        fs::read_to_string(workspace.join("runtime/logs/spawns.log")).expect("read spawn log");
+    for n in 1..=6 {
+        let id = format!("workspace.{n}");
+        let count = spawns.lines().filter(|line| line.trim() == id).count();
+        let bound = if n <= 2 { 2 } else { 1 };
+        assert!(
+            (1..=bound).contains(&count),
+            "{id}: spawned {count} time(s), expected between 1 and {bound}\n{spawns}"
+        );
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

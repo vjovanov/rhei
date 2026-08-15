@@ -246,6 +246,10 @@ impl DashboardState {
                     format!("task {task}: usage reported for {}", usage.agent),
                 );
             }
+            // Data for the run report's halt classification; the operator-facing
+            // warning arrives separately as a `Message`, so rendering it here
+            // would show the same stall twice. §FS-rhei-run-report.3.1
+            RunEvent::TaskOutputsMissing { .. } => {}
         }
     }
 

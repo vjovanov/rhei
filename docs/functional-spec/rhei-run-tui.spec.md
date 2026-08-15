@@ -368,11 +368,18 @@ browser, not separate mutation paths (§FS-rhei-viz.5 §AR-rhei-viz-flow.7).
   cancels, and delivery/failure is echoed in the journal. Intervene never edits
   or transitions the plan.
 - **Human gate** — `Enter` on a selected live task in a `gating` state opens the
-  state's explicit outgoing transitions as digit choices and submits the selected
-  `from`/`to` transition through the gate sink. Frozen/static surfaces offer no
-  working controls. Interactive runs stay alive for non-terminal human gates
-  when the remaining work is gate-blocked or poll-blocked; a pending gate remains
-  responsive instead of being hidden behind a later poll deadline.
+  state's explicit outgoing transitions as digit choices. Picking one opens the
+  same one-line composer intervene uses, this time for the transition's **result
+  message**: `Enter` submits the choice through the gate sink carrying whatever
+  was typed, an empty line submits with no message, and `Esc` cancels the move
+  entirely. The composer is labelled with the chosen `from → to` and says when
+  the target is terminal, because that is the case a blank line will be refused
+  on (§FS-rhei-states.3.3) — the TUI does not pre-judge it, it lets the server
+  answer and echoes the reason in the journal, the same as any other rejection.
+  Frozen/static surfaces offer no working controls. Interactive runs stay alive
+  for non-terminal human gates when the remaining work is gate-blocked or
+  poll-blocked; a pending gate remains responsive instead of being hidden behind
+  a later poll deadline.
 
 #### 1.5.6. Responsive degradation
 

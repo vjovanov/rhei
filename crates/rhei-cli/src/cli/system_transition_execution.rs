@@ -100,6 +100,152 @@ fn result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
     artifact_root.join("runtime").join("results").join(format!("{task_id}.md"))
 }
 
+/// Where one invocation writes its account, relative to the artifact root.
+///
+/// A single-invocation state writes the ticket's result file itself. A
+/// fanned-out state gives every invocation its own fragment keyed by the same
+/// identity the rest of its artifacts are keyed by, because one shared path
+/// would let the last writer erase its siblings and the first writer satisfy
+/// the obligation on everyone's behalf.
+// §FS-rhei-states.3.3
+fn result_relative_path(task_id: &str, identity: Option<&str>) -> String {
+    match identity {
+        Some(identity) => format!("runtime/results/{task_id}/{identity}.md"),
+        None => format!("runtime/results/{task_id}.md"),
+    }
+}
+
+/// [`result_relative_path`] resolved against the owning rhei's execution root.
+// §FS-rhei-states.3.3
+fn invocation_result_file_path(
+    artifact_root: &Path,
+    task_id: &str,
+    identity: Option<&str>,
+) -> PathBuf {
+    artifact_root.join(result_relative_path(task_id, identity))
+}
+
+/// The per-invocation key a fanned-out state's result fragments are filed
+/// under: the target slug for `all_targets`, the model id for `all_models`.
+///
+/// `None` for every state that runs one invocation — those keep writing the
+/// ticket's result file directly, so nothing changes for the common case.
+// §FS-rhei-states.3.3 §FS-rhei-transitions.4.2
+fn fanout_result_identity(
+    state_def: Option<&rhei_validator::StateDef>,
+    target: Option<&ExecutionTarget>,
+    model: Option<&str>,
+) -> Option<String> {
+    let state_def = state_def?;
+    if !state_def.all_targets.is_empty() {
+        return target.map(|target| target.slug());
+    }
+    if !state_def.all_models.is_empty() {
+        return model.map(slugify_target_value);
+    }
+    None
+}
+
+/// Every result fragment a fanned-out state's invocations were told to write,
+/// in declared invocation order, paired with the identity that keyed it.
+// §FS-rhei-states.3.3
+fn fanout_result_fragments(
+    artifact_root: &Path,
+    task_id: &str,
+    state_def: &rhei_validator::StateDef,
+    invocations: &[ResolvedAgent],
+) -> Vec<(String, PathBuf)> {
+    invocations
+        .iter()
+        .filter_map(|resolved| {
+            let identity = fanout_result_identity(
+                Some(state_def),
+                resolved.target.as_ref(),
+                resolved.model.as_deref(),
+            )?;
+            let path = invocation_result_file_path(artifact_root, task_id, Some(&identity));
+            Some((identity, path))
+        })
+        .collect()
+}
+
+/// Fold a fanned-out state's per-invocation fragments into the ticket's one
+/// result file, one attributed `## Result` entry each, in declared invocation
+/// order.
+///
+/// Called by `rhei run` after the last invocation and before the transition is
+/// applied, so the shared path sees a single non-empty result carrying every
+/// worker's account instead of whichever invocation happened to write last.
+/// The heading carries the identity and no arrow, so the result-file history
+/// reader (which keys on `<from> → <to>` headings) still reads the file the way
+/// it always did. Entries are **appended**: a ticket that already collected a
+/// result on an earlier hop keeps it, exactly as any other carried message
+/// accumulates.
+///
+/// Every declared invocation must have written its fragment. This is the same
+/// rule declared `outputs:` follow — those are checked across every invocation
+/// identity on the shared path (`ensure_state_outputs_exist_for_transition`) —
+/// and it is what makes the per-invocation completion condition stick: the
+/// invocations finish in whatever order they finish, so without it the last one
+/// to satisfy *its own* condition would carry a silent sibling over the edge.
+// §FS-rhei-states.3.3 §FS-rhei-agents.3.2 §FS-rhei-complete.3.2
+fn merge_fanout_result_fragments(
+    artifact_root: &Path,
+    task_id: &str,
+    state_name: &str,
+    state_def: &rhei_validator::StateDef,
+    invocations: &[ResolvedAgent],
+) -> MietteResult<bool> {
+    let fragments = fanout_result_fragments(artifact_root, task_id, state_def, invocations);
+    if fragments.is_empty() {
+        return Ok(false);
+    }
+    let mut merged = String::new();
+    let mut missing: Vec<String> = Vec::new();
+    for (identity, path) in fragments {
+        let content = fs::read_to_string(&path).unwrap_or_default();
+        if content.trim().is_empty() {
+            missing.push(format!("{identity} ({})", path.display()));
+            continue;
+        }
+        // A fragment that already opens with its own `## Result` heading is
+        // re-titled rather than nested: the merged file must read as one list
+        // of entries, not as a heading inside a heading.
+        let trimmed = content.trim();
+        let body = trimmed.strip_prefix("## Result").map(str::trim_start).unwrap_or(trimmed);
+        merged.push_str(&format!("## Result \u{2014} {identity}\n\n{body}\n\n"));
+    }
+    if !missing.is_empty() {
+        return Err(miette!(
+            help = format!(
+                "each invocation of a fanned-out state writes its own result, and the ticket's \
+                 result is the merge of them. Rerun to let the missing invocation(s) write, or \
+                 write the file(s) named above."
+            ),
+            "Task {} cannot finish from '{}': {} of its fan-out invocation(s) wrote no result.\n\
+             Missing: {}",
+            task_id,
+            state_name,
+            missing.len(),
+            missing.join(", ")
+        ));
+    }
+    let destination = result_file_path(artifact_root, task_id);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| file_io_report(parent, "failed to create runtime/results", err))?;
+    }
+    let mut existing = fs::read_to_string(&destination).unwrap_or_default();
+    if !existing.trim().is_empty() && !existing.ends_with('\n') {
+        existing.push('\n');
+    }
+    let combined =
+        if existing.trim().is_empty() { merged } else { format!("{existing}{merged}") };
+    fs::write(&destination, combined)
+        .map_err(|err| file_io_report(&destination, "failed to merge fanout results", err))?;
+    Ok(true)
+}
+
 /// The ticket's result file as a subprocess must see it: absolute.
 ///
 /// A subprocess runs from the checkout root, which is routinely not the Rhei
@@ -111,16 +257,32 @@ fn absolute_result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
     std::path::absolute(&path).unwrap_or(path)
 }
 
-/// Whether the ticket already has a result worth the name.
+/// [`absolute_result_file_path`] for one invocation of a possibly fanned-out
+/// state: the ticket's result file, or that invocation's own fragment.
+// §FS-rhei-states.3.3 §FS-rhei-agents.4
+fn absolute_invocation_result_file_path(
+    artifact_root: &Path,
+    task_id: &str,
+    identity: Option<&str>,
+) -> PathBuf {
+    let path = invocation_result_file_path(artifact_root, task_id, identity);
+    std::path::absolute(&path).unwrap_or(path)
+}
+
+/// Whether a file exists and holds something other than whitespace.
 ///
 /// Whitespace-only counts as absent, on the same reading state handoffs use: an
 /// existence-only contract would otherwise let an empty file stand in for an
 /// answer.
 // §FS-rhei-states.3.3 §FS-rhei-states.3.2
+fn file_has_content(path: &Path) -> bool {
+    fs::read_to_string(path).map(|content| !content.trim().is_empty()).unwrap_or(false)
+}
+
+/// Whether the ticket already has a result worth the name.
+// §FS-rhei-states.3.3
 fn task_result_is_present(artifact_root: &Path, task_id: &str) -> bool {
-    fs::read_to_string(result_file_path(artifact_root, task_id))
-        .map(|content| !content.trim().is_empty())
-        .unwrap_or(false)
+    file_has_content(&result_file_path(artifact_root, task_id))
 }
 
 /// Reject an edge into a `final: true` state when nothing says why the ticket
@@ -144,6 +306,7 @@ fn ensure_terminal_result_available(
     from: &str,
     to: &str,
     carried_message: Option<&str>,
+    plan_path: &Path,
 ) -> MietteResult<()> {
     if !machine.states.get(to).map(|def| def.terminal).unwrap_or(false) {
         return Ok(());
@@ -155,15 +318,20 @@ fn ensure_terminal_result_available(
         return Ok(());
     }
     let relative = format!("runtime/results/{qualified_id}.md");
+    // The suggested commands carry the plan, like every other `help =` here;
+    // without it they only run from at or below the plan's own directory.
+    // §FS-rhei-errors.2
+    let plan = plan_arg_for_help(plan_path);
     // Name the file that was checked and the flag that carries the message:
     // "write a result" is the answer, but the user still has to know where.
     // §FS-rhei-errors.2
     Err(miette!(
         help = format!(
             "a final state records why the ticket ended there. Pass it on the move: \
-             rhei transition {qualified_id} --from {from} --to {to} --result \"<what happened>\" \
-             (rhei complete {qualified_id} --result \"<what happened>\" for the everyday finish), \
-             or write {relative} before the move."
+             rhei transition {plan} --task {qualified_id} --from {from} --to {to} \
+             --result \"<what happened>\" \
+             (rhei complete {plan} --task {qualified_id} --result \"<what happened>\" for the \
+             everyday finish), or write {relative} before the move."
         ),
         "Task {} cannot enter terminal state '{}' without a result.\n\
          Expected a non-empty result file at: {}",
@@ -654,6 +822,7 @@ fn execute_transition_with_origin(
         from,
         to,
         recorded_message.as_deref(),
+        &callback_paths.plan_path,
     ) {
         if let Some(task_handle) = &task_handle {
             let _ = fs2::FileExt::unlock(task_handle);

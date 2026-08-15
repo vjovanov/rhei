@@ -506,9 +506,9 @@ fn next_command(
                 current_state_raw
             )
         })?;
-        // This hop is gated on `initial_state_has_non_terminal_forward_transition`
-        // above, so it never lands on a `final: true` state and never needs to
-        // carry a result. §FS-rhei-next.3
+        // Gated above, so no *declared* edge lands terminal and there is nothing
+        // to carry; an `on_leave` redirect into one is refused on the shared path.
+        // §FS-rhei-next.3 §FS-rhei-states.3.3
         execute_transition(
             TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
             callback_paths,

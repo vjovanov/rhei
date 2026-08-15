@@ -177,12 +177,26 @@ pub(super) struct LinkEntry {
     pub(super) url: String,
 }
 
-/// The intervene composer (§FS-rhei-run-tui.1.5.5): a one-line input that
-/// delivers a message to a live agent's stdin.
+/// What the one-line composer is collecting (§FS-rhei-run-tui.1.5.5). Both
+/// modes are the same widget and the same keys; only the destination of the
+/// typed line differs, so the gate reuses it rather than growing a second one.
+pub(super) enum ComposerKind {
+    /// A message for a live agent's stdin.
+    Intervene,
+    /// The result message carried by a human-gate release. `terminal` is what
+    /// the composer says about a blank line: on an edge into a `final: true`
+    /// state the server will refuse it, and the operator should know that
+    /// before pressing Enter, not after.
+    // §FS-rhei-states.3.3
+    GateResult { from: String, to: String, terminal: bool },
+}
+
+/// The one-line composer (§FS-rhei-run-tui.1.5.5).
 pub(super) struct Composer {
     pub(super) task: String,
     pub(super) slot: Option<Slot>,
     pub(super) input: String,
+    pub(super) kind: ComposerKind,
 }
 
 /// The full UI + run model owned by the render thread. The engine never touches
@@ -552,6 +566,10 @@ impl UiState {
                     format!("task {task}: usage reported for {}", usage.agent),
                 );
             }
+            // Data for the run report's halt classification; the operator-facing
+            // warning arrives separately as a `Message`, so rendering it here
+            // would print the same stall twice. §FS-rhei-run-report.3.1
+            RunEvent::TaskOutputsMissing { .. } => {}
         }
     }
 

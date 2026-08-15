@@ -197,6 +197,13 @@
   .gatebox .grow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .gatebox .gstatus { color: var(--faint); font-size: 11px; }
   .gatebox .gerr { color: #cf5b5b; }
+  .gatebox .glabel { display: block; color: var(--dim); font-size: 11.5px; margin: 2px 0 4px; }
+  .gatebox .gneed { color: #d4a84e; }
+  .gatebox input.gresult { width: 100%; box-sizing: border-box; margin-bottom: 8px;
+    font: inherit; font-size: 12px; padding: 5px 7px; border-radius: 4px;
+    color: var(--fg); background: var(--surface);
+    border: 1px solid color-mix(in srgb, #6cae7c 35%, var(--hairline)); }
+  .gatebox input.gresult:disabled { opacity: 0.55; cursor: not-allowed; }
 
   /* ---- intervene (running tasks; static active-state preview) ---- */
   .intervene { margin-top: 14px; padding: 10px 12px; border-radius: 6px;
@@ -749,6 +756,22 @@ function renderGateTransition(node, ms){
       ? "This live dashboard is not wired for gate transitions."
       : "Static preview — gate transitions are not delivered.";
   box.appendChild(el("div",{class:"gdesc",text:desc}));
+  // The operator's own account of the decision, carried through the move like
+  // `rhei transition --result`. Always offered; flagged as needed when a choice
+  // finishes the ticket, because that is the case the server refuses without
+  // one. §FS-rhei-viz.5.1 §FS-rhei-states.3.3
+  const anyTerminal=choices.some(t=>isTerminal(t.to));
+  const label=el("label",{class:"glabel"});
+  label.appendChild(document.createTextNode("Result"));
+  if(anyTerminal){
+    label.appendChild(document.createTextNode(" "));
+    label.appendChild(el("span",{class:"gneed",text:"— required to finish the ticket"}));
+  }
+  const resultInput=el("input",{class:"gresult", type:"text",
+    placeholder: canAct ? "Why this ticket ended here…" : "Static preview — not delivered"});
+  if(!canAct) resultInput.disabled=true;
+  label.appendChild(resultInput);
+  box.appendChild(label);
   const row=el("div",{class:"grow"});
   const status=el("span",{class:"gstatus"});
   if(!choices.length){
@@ -764,9 +787,10 @@ function renderGateTransition(node, ms){
       row.querySelectorAll("button").forEach(b=>b.disabled=true);
       status.className="gstatus";
       status.textContent="transitioning…";
-      sendGateTransition(node,t.to).then(res=>{
+      sendGateTransition(node,t.to,resultInput.value).then(res=>{
         if(res.ok){
           status.textContent=`transitioned to ${res.to||t.to}`;
+          resultInput.value="";
           refreshSnapshotOnce();
         } else {
           status.className="gstatus gerr";
@@ -1567,8 +1591,12 @@ function sendIntervene(node, message){
     .then(j=>j&&j.ok ? {ok:true} : {ok:false,error:(j&&j.error)||"intervention was not delivered"})
     .catch(err=>({ok:false,error:err&&err.message?err.message:"intervene request failed"}));
 }
-function sendGateTransition(node, to){
+function sendGateTransition(node, to, result){
+  // Blank is none: an untouched field must not become a result entry that says
+  // nothing. The host trims again on arrival. §FS-rhei-viz.5.1
   const body={task_id:node.id, from:node.state, to};
+  const trimmed=(result||"").trim();
+  if(trimmed) body.result=trimmed;
   return fetch("transition-gate",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)})
     .then(r=>r.ok?r.json():{ok:false,error:"gate transition request failed"})

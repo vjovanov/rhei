@@ -101,8 +101,9 @@ the summary prints five stacked groups:
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
-   unsatisfied `**Prior:**`; a manual-only initial state; no declared outgoing
-   transition; anything else. Non-leaf tasks are classified alongside leaves
+   unsatisfied `**Prior:**`; a manual-only initial state; a worker that ran and
+   left a required artifact unwritten; a ticket the run never scheduled; no
+   declared outgoing transition; anything else. Non-leaf tasks are classified alongside leaves
    because a non-leaf task is a task in its own right
    (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
    waiting on that subtree, which is a structural consequence rather than
@@ -133,8 +134,20 @@ the summary prints five stacked groups:
    blocked by that gate, however its own line reads.
    Each names the command that clears it — `rhei release <id>` for a claim,
    `rhei next` then `rhei complete <id>` for manual-only work, finishing the
-   prior for a dependency. A ticket the run actually spawned work for keeps the
-   generic reading: its problem is the work, not the scheduling.
+   prior for a dependency.
+
+   A ticket the run actually spawned work for is a different kind of halt: its
+   problem is the work, not the scheduling. When that work exited `0` and the
+   run knows *which* required artifacts were missing — including the ticket's
+   terminal result, reported under the artifact name `result` like any other
+   (§FS-rhei-agents.3.2.1) — the row names them: `worker exited 0 without
+   <name> (<path>), …`, and the next action is to write those files, or to
+   record the outcome by hand with `rhei transition <id> --from … --to …
+   --result …`. That is the whole difference between a report an operator can
+   act on and one that says the task "stalled" and suggests reading logs that
+   name nothing the operator did not already know. A ticket that ran and left
+   nothing identifiable behind keeps the generic stalled reading; a ticket the
+   run never scheduled says so, rather than borrowing it.
 
    The same classification feeds the live halt message and `--dry-run`
    (§FS-rhei-run.4), so the durable report and the terminal never disagree
