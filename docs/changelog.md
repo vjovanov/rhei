@@ -23,9 +23,18 @@
   auto-advance, a callback redirect — instead of only `rhei complete`, which
   was the one command that checked and therefore the only one that could not
   leave behind a plan failing its own `rhei validate`. `rhei complete` stops
-  holding a private copy of the rule. Issue #71. PR #75
+  holding a private copy of the rule. `cancelled` counts both ways, matching
+  the validator: it is terminal, so an abandoned child closes its parent's
+  subtree and releases the parent, and a parent cannot itself enter `cancelled`
+  while any descendant is still open. `rhei list --ready` follows the same
+  rule, so a parent appears there the moment its subtree goes terminal instead
+  of never. **Breaking for scripts:** the `Leaf work complete. <N> rollup
+  task(s) can be completed …` message is gone from `rhei next` — it existed
+  only because a parent could never be claimed at all, and a parent is now
+  simply the next claimable ticket. Anything grepping for that string must move
+  to the ordinary ready output. Issue #71. PR #75
   §FS-rhei-plan-language.3 §FS-rhei-next.3 §FS-rhei-next.3.4
-  §FS-rhei-transition-cmd.3.1 §FS-rhei-run.3
+  §FS-rhei-transition-cmd.3.1 §FS-rhei-run.3 §FS-rhei-list
 
 - Move `grund.toml` to the repository root. `grund` probes a bare root
   `grund.toml` before `.agents/grund.toml`, so the config now sits with the
