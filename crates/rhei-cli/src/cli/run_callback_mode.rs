@@ -153,7 +153,7 @@ fn run_callback_mode(
             // on a project the real run halts on. §FS-rhei-run.4
             if pass == 0 {
                 let (lines, needs_human) =
-                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope);
+                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope, input);
                 if !lines.is_empty() {
                     run_info!("\nNothing to schedule. Why each remaining ticket is not moving:");
                     for line in &lines {
@@ -264,7 +264,10 @@ fn run_callback_mode(
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let route = loaded.task_route(&task_id_str, input);
-            match execute_transition(
+            // Callback-only advancement: no subprocess ran here, so a terminal
+            // edge records the engine's own account unless a callback already
+            // wrote a result, which wins. §FS-rhei-run.3
+            match execute_callback_only_transition(
                 TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
                 callback_paths,
                 machine,
@@ -274,13 +277,6 @@ fn run_callback_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
-                    append_transition_audit_entry(
-                        &route,
-                        machine,
-                        &task_id_str,
-                        &current_state,
-                        &effective_to,
-                    )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
@@ -429,15 +425,24 @@ fn run_callback_mode(
 #[allow(clippy::too_many_arguments)]
 fn emit_exit_zero_warnings(
     workspace_root: &Path,
+    result_root: &Path,
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
     task_id_str: &str,
     state_name: &str,
+    selected_to: Option<&str>,
     sink: &Arc<dyn rhei_tui::EventSink>,
 ) {
-    let missing =
-        collect_missing_required_outputs(workspace_root, machine, metadata, task, state_name);
+    let missing = collect_missing_required_outputs(
+        workspace_root,
+        result_root,
+        machine,
+        metadata,
+        task,
+        state_name,
+        selected_to,
+    );
     if missing.is_empty() {
         sink.emit(rhei_tui::RunEvent::Message {
             level: rhei_tui::MessageLevel::Warn,
@@ -447,19 +452,29 @@ fn emit_exit_zero_warnings(
             ),
         });
     } else {
-        sink.emit(rhei_tui::RunEvent::Message {
-            level: rhei_tui::MessageLevel::Warn,
-            text: format!(
-                "  warning: agent exited 0 but required outputs are missing for task {} in state '{}': {}",
-                task_id_str,
-                state_name,
-                missing.join(", ")
-            ),
-        });
+        emit_exit_zero_missing_required_outputs_warning(
+            "agent",
+            task_id_str,
+            state_name,
+            &missing,
+            sink,
+        );
     }
 }
 
+/// The stall an operator reads, plus the same facts as data.
+///
+/// The run report classifies a halted ticket from the structured event; without
+/// it the only record of *which* artifact was missing was this line's prose,
+/// and the report fell back to "stalled in non-terminal state <s> — inspect
+/// logs", which names nothing the operator can act on.
+///
+/// `worker` is `agent` or `program`. A program is a worker like any other and
+/// stalls the same way, so it must reach the report the same way; only the noun
+/// in the sentence differs.
+// §FS-rhei-agents.3.2.1 §FS-rhei-run-report.3.1
 fn emit_exit_zero_missing_required_outputs_warning(
+    worker: &str,
     task_id_str: &str,
     state_name: &str,
     missing: &[String],
@@ -468,11 +483,17 @@ fn emit_exit_zero_missing_required_outputs_warning(
     sink.emit(rhei_tui::RunEvent::Message {
         level: rhei_tui::MessageLevel::Warn,
         text: format!(
-            "  warning: agent exited 0 but required outputs are missing for task {} in state '{}': {}",
+            "  warning: {} exited 0 but required outputs are missing for task {} in state '{}': {}",
+            worker,
             task_id_str,
             state_name,
             missing.join(", ")
         ),
+    });
+    sink.emit(rhei_tui::RunEvent::TaskOutputsMissing {
+        task: task_id_str.to_string(),
+        state: state_name.to_string(),
+        entries: missing.to_vec(),
     });
 }
 
@@ -488,22 +509,106 @@ fn format_missing_required_output(name: &str, relative: &str) -> String {
     }
 }
 
+/// The transition `rhei run` would select for `task` from its current state.
+///
+/// Used only to decide whether the completion condition includes the terminal
+/// result. A selection error is not this check's business — the auto-advance
+/// path reports it — so it reads as "no edge selected".
+// §FS-rhei-run.3
+fn selected_forward_transition(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+) -> Option<String> {
+    find_next_transition(task, rhei, machine).ok().flatten()
+}
+
+/// The ticket's terminal result, rendered as the missing required output it is.
+///
+/// A `final: true` state requires a non-empty `runtime/results/<task-id>.md` on
+/// the edge into it, and under `orchestrator` authority the subprocess is the
+/// worker that knows why the ticket is finishing — it was shown the path in its
+/// prompt and in `RHEI_RESULT_PATH`. A zero exit that selects a terminal edge
+/// with nothing written therefore fails the completion condition and is
+/// reported and routed exactly like any other missing required output, under
+/// the artifact name `result`.
+///
+/// `invocation` names the invocation being judged, so a fanned-out state is
+/// judged per invocation exactly as its declared `outputs:` are: one worker's
+/// fragment never excuses a sibling that wrote nothing, and a fragment from an
+/// earlier fanned-out state or an earlier visit never excuses this one.
+///
+/// The path is rendered **absolute**. Declared outputs render relative to the
+/// workspace root, but in a Panta project the result lives under the owning
+/// rhei's root, and a relative path resolved against the wrong root is one an
+/// operator cannot paste.
+// §FS-rhei-states.3.3 §FS-rhei-agents.3.2 §FS-rhei-agents.3.2.1 §FS-rhei-run.3
+fn missing_terminal_result_output(
+    result_root: &Path,
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+    selected_to: Option<&str>,
+    invocation: ResultInvocation<'_>,
+) -> Option<String> {
+    if !is_terminal_state(selected_to?, machine) {
+        return None;
+    }
+    let task_id = task.id.to_string();
+    // The result lives under the owning rhei's execution root, which is where
+    // the transition path will look for it. §FS-rhei-panta.6.2
+    let path = invocation_result_file_path(result_root, &task_id, invocation);
+    if file_has_content(&path) {
+        return None;
+    }
+    let shown = std::path::absolute(&path).unwrap_or(path);
+    Some(format_missing_required_output("result", &shown.display().to_string()))
+}
+
 /// Walk all resolved invocations for this state and collect the union of
 /// required output artifacts that do not exist on disk, each rendered as
 /// `name (resolved/path)` so the warning points at the file that was checked.
-// §FS-rhei-agents.3.2.1: Missing-output warning names the resolved path.
+///
+/// `selected_to` is the transition the exit would take; when it lands on a
+/// `final: true` state the ticket's terminal result joins the list — once per
+/// fan-out identity, because that is how many result fragments the state was
+/// asked for.
+// §FS-rhei-agents.3.2.1 §FS-rhei-states.3.3: the warning names resolved paths.
+#[allow(clippy::too_many_arguments)]
 fn collect_missing_required_outputs(
     workspace_root: &Path,
+    result_root: &Path,
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
     state_name: &str,
+    selected_to: Option<&str>,
 ) -> Vec<String> {
     let Some(state_def) = machine.states.get(state_name) else {
-        return Vec::new();
+        return missing_terminal_result_output(
+            result_root,
+            machine,
+            task,
+            selected_to,
+            ResultInvocation::whole_task(),
+        )
+        .into_iter()
+        .collect();
     };
-    if state_def.outputs.is_empty() {
-        return Vec::new();
+    // Walked even with no declared `outputs:`: fragments are per invocation, so
+    // the union needs the invocation list. A `program:` state never fans out,
+    // however many targets it names. §FS-rhei-programs.2
+    let fans_out = state_def.program.is_none()
+        && (!state_def.all_targets.is_empty() || !state_def.all_models.is_empty());
+    if state_def.outputs.is_empty() && !fans_out {
+        return missing_terminal_result_output(
+            result_root,
+            machine,
+            task,
+            selected_to,
+            ResultInvocation::whole_task(),
+        )
+        .into_iter()
+        .collect();
     }
     // This warning path cannot return a settings error after the run has
     // already spawned. Validation loads settings earlier and reports real
@@ -515,8 +620,8 @@ fn collect_missing_required_outputs(
             .unwrap_or_default();
     let mut missing: Vec<String> = Vec::new();
     let mut seen = HashSet::new();
-    let visit_count =
-        Some(render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine));
+    let visit = render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine);
+    let visit_count = Some(visit);
     let contexts: Vec<TransitionInvocationContext<'_>> = if invocations.is_empty() {
         transition_contexts_for_state(state_def, &invocations).into_iter().collect()
     } else {
@@ -534,6 +639,7 @@ fn collect_missing_required_outputs(
             })
             .collect()
     };
+    let mut terminal_results: Vec<String> = Vec::new();
     for (target, model, model_provider, model_name, agent, agent_mode) in contexts {
         for artifact in &state_def.outputs {
             let (relative, path) = resolve_artifact_path(
@@ -560,28 +666,64 @@ fn collect_missing_required_outputs(
                 missing.push(entry);
             }
         }
+        let identity = fanout_result_identity(Some(state_def), target, model);
+        if let Some(entry) = missing_terminal_result_output(
+            result_root,
+            machine,
+            task,
+            selected_to,
+            ResultInvocation {
+                state: state_name,
+                visit_count: visit,
+                identity: identity.as_deref(),
+            },
+        ) {
+            if !terminal_results.contains(&entry) {
+                terminal_results.push(entry);
+            }
+        }
     }
+    missing.extend(terminal_results);
     missing
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_missing_required_outputs_for_resolved_invocation(
     workspace_root: &Path,
+    result_root: &Path,
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
     state_name: &str,
+    selected_to: Option<&str>,
     resolved: &ResolvedAgent,
 ) -> Vec<String> {
+    let visit = render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine);
+    let visit_count = Some(visit);
+    let terminal_result = missing_terminal_result_output(
+        result_root,
+        machine,
+        task,
+        selected_to,
+        ResultInvocation {
+            state: state_name,
+            visit_count: visit,
+            identity: fanout_result_identity(
+                machine.states.get(state_name),
+                resolved.target.as_ref(),
+                resolved.model.as_deref(),
+            )
+            .as_deref(),
+        },
+    );
     let Some(state_def) = machine.states.get(state_name) else {
-        return Vec::new();
+        return terminal_result.into_iter().collect();
     };
     if state_def.outputs.is_empty() {
-        return Vec::new();
+        return terminal_result.into_iter().collect();
     }
 
     let mut missing = Vec::new();
-    let visit_count =
-        Some(render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine));
     for artifact in &state_def.outputs {
         let (relative, path) = resolve_artifact_path(
             workspace_root,
@@ -600,5 +742,6 @@ fn collect_missing_required_outputs_for_resolved_invocation(
             missing.push(format_missing_required_output(&artifact.name, &relative));
         }
     }
+    missing.extend(terminal_result);
     missing
 }

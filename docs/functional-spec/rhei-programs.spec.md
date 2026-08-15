@@ -77,6 +77,7 @@ Program subprocesses inherit the same base environment as agent subprocesses:
 | `RHEI_PLAN_PATH` | Absolute path to the plan file or workspace directory |
 | `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
 | `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
+| `RHEI_RESULT_PATH` | Absolute path to the ticket's result file, `runtime/results/<task-id>.md` under the Rhei artifact root. Always set, and always the ticket-level file: `rhei run` spawns a program once per ticket, so a program state has one invocation and never writes the per-invocation result fragments a fanned-out agent state does, whatever else the state declares (§FS-rhei-states.3.3). A program whose exit routes the ticket into a `final: true` state must leave this file non-empty (§FS-rhei-states.3.3) |
 | `RHEI_STATE` | Current state name |
 | `RHEI_VISIT_COUNT` | Current visit number (for counted-loop states) |
 | `RHEI_INPUT_<NAME>_EXISTS` | `true` or `false` — whether the declared input artifact exists on disk. Set for every declared input, required or optional. `<NAME>` is the artifact `name` uppercased with hyphens and spaces replaced by underscores (e.g., `continuation-notes` → `RHEI_INPUT_CONTINUATION_NOTES_EXISTS`). |

@@ -101,13 +101,18 @@ fn is_ticket_id_shaped(raw: &str) -> bool {
     })
 }
 
-/// Execute the `complete` subcommand: transition a task to a terminal state,
-/// write the central state ledger and result artifact, link it from the task
-/// body, and remove the assignee.
+/// Execute the `complete` subcommand.
 ///
-/// The target terminal state is chosen automatically: the first non-cancelled
-/// terminal state reachable from the task's current state via a declared
-/// transition. If no such transition exists, the command fails.
+/// It is sugar, and deliberately thin: the readiness-class checks a scheduling
+/// verb owns (already terminal, gating, unsatisfied `**Prior:**`), plus the one
+/// thing genuinely its own — inferring the one-hop non-cancelled terminal
+/// target — plus the shared transition carrying `--result`. The ledger line,
+/// the result file, its link, the dropped assignee, and the refusal of a
+/// terminal entry with no result all belong to the shared path, so the same
+/// edge driven by `rhei transition --result` or by `rhei run` leaves the
+/// identical trail.
+// §FS-rhei-complete.4 §FS-rhei-complete.4.1
+#[allow(clippy::too_many_arguments)]
 fn complete_command(
     input: &Path,
     rhei_scope: &[String],
@@ -116,6 +121,10 @@ fn complete_command(
     result_msg: &str,
     no_callbacks: bool,
 ) -> MietteResult<()> {
+    // §FS-rhei-complete.4: a blank `--result` is rejected before anything is
+    // written — the flag is mandatory here precisely so the ticket records why.
+    let result_msg = require_non_blank_result(Some(result_msg), "complete")?
+        .expect("a Some input yields a Some result");
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
@@ -196,7 +205,9 @@ help = "finish the blocking priors first, or move this ticket deliberately with:
         )
     })?;
 
-    // Execute the state transition (compare-and-swap, callbacks, atomic write).
+    // The shared path carries the message and owns everything else: callbacks,
+    // artifact contracts, the guards, the ledger, the finalization.
+    // §FS-rhei-complete.4
     let route = loaded.task_route(task_id_str, input);
     let effective_to = execute_transition(
         TransitionFiles {
@@ -211,28 +222,20 @@ help = "finish the blocking priors first, or move this ticket deliberately with:
         &route.local_id,
         &current_state,
         &to_state,
+        Some(result_msg),
         no_callbacks,
     )?;
     if !is_successful_completion_state(&effective_to, &machine) {
+        // The redirect is the machine's decision and is already applied, as is
+        // its finalization: a ticket redirected to `cancelled` is left cancelled
+        // with the caller's message recorded against it. §FS-rhei-complete.4
         return Err(miette!(
             help = "inspect the machine and the task's state with: rhei states",
-            "Task {} was redirected to '{}', which is not a successful completion state; completion artifacts were not written",
+            "Task {} was redirected to '{}', which is not a successful completion state",
             task_id_str,
             effective_to
         ));
     }
-
-    // Append the completion entry to the result file in the owning rhei's
-    // runtime, keyed by the project-qualified id, then finalize the task.
-    // §AR-rhei-panta.2
-    record_transition_result(
-        &route,
-        &machine,
-        task_id_str,
-        current_state_raw,
-        &effective_to,
-        Some(result_msg),
-    )?;
 
     let result_link = format!("runtime/results/{}.md", task_id_str);
     println!(

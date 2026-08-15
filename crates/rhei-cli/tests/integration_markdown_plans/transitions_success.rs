@@ -118,6 +118,39 @@ fn run_transition(
     }
 }
 
+/// `rhei transition --result`, which a move into a `final: true` state needs
+/// unless the ticket already has a result on disk. §FS-rhei-states.3.3
+fn run_transition_with_result(
+    plan_path: &Path,
+    machine_path: &Path,
+    task: &str,
+    from: &str,
+    to: &str,
+    result_msg: &str,
+) -> CliRun {
+    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .arg("--state-machine")
+        .arg(machine_path)
+        .arg("transition")
+        .arg(plan_path)
+        .arg("--task")
+        .arg(task)
+        .arg("--from")
+        .arg(from)
+        .arg("--to")
+        .arg(to)
+        .arg("--result")
+        .arg(result_msg)
+        .output()
+        .expect("transition command should run");
+
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
 fn run_complete(plan_path: &Path, machine_path: &Path, task: &str, result_msg: &str) -> CliRun {
     let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
         .arg("--state-machine")

@@ -10,7 +10,7 @@ use ratatui::Frame;
 
 use super::derive::run_rollup;
 use super::input::{gate_choices, intervene_available};
-use super::state::{UiState, View};
+use super::state::{ComposerKind, UiState, View};
 use super::text::truncate_chars;
 use super::theme::{category, category_glyph, Category, Theme};
 use super::views;
@@ -344,14 +344,33 @@ fn render_composer(f: &mut Frame, area: Rect, state: &UiState, composer: &super:
     let theme = &state.theme;
     let popup = bottom_rect(area, 3);
     f.render_widget(Clear, popup);
+    // The gate composer says what it is collecting and, on a terminal edge,
+    // that an empty line will be refused — before Enter, not after.
+    // §FS-rhei-run-tui.1.5.5 §FS-rhei-states.3.3
+    let (title, hint) = match &composer.kind {
+        ComposerKind::Intervene => {
+            (format!(" intervene → {} ", composer.task), "   (Enter send · Esc cancel)".to_string())
+        }
+        ComposerKind::GateResult { from, to, terminal } => (
+            format!(" gate result · {} {from}→{to} ", composer.task),
+            if *terminal {
+                format!(
+                    "   (Enter release · '{to}' is final, so a blank result is refused unless \
+                     the ticket already has one · Esc cancel)"
+                )
+            } else {
+                "   (Enter release · empty sends no result · Esc cancel)".to_string()
+            },
+        ),
+    };
     let block = Block::default()
-        .title(format!(" intervene → {} ", composer.task))
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.accent()));
     let line = Line::from(vec![
         Span::raw(composer.input.clone()),
         Span::styled("▏", Style::default().fg(theme.accent())),
-        Span::styled("   (Enter send · Esc cancel)", Style::default().fg(theme.dim())),
+        Span::styled(hint, Style::default().fg(theme.dim())),
     ]);
     f.render_widget(Paragraph::new(line).block(block), popup);
 }

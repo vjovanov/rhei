@@ -86,7 +86,16 @@ fn transition_wildcard_from_allows_any_source() {
     let machine_path = write_fixture_file(&dir, "states.yaml", TRANSITION_STATE_MACHINE);
 
     // The wildcard `from: "*"` → cancelled should allow pending → cancelled.
-    let result = run_transition(&plan_path, &machine_path, "1", "pending", "cancelled");
+    // `cancelled` is `final: true`, so the move carries its reason.
+    // §FS-rhei-states.3.3
+    let result = run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1",
+        "pending",
+        "cancelled",
+        "Abandoned by hand.",
+    );
 
     assert!(
         result.status.success(),
@@ -490,9 +499,7 @@ transitions:
     assert!(!result.status.success(), "redirected complete should fail");
     let normalized = normalize_for_assertions(&result.stderr);
     assert!(
-        normalized.contains("not a successful")
-            && normalized.contains("completion state")
-            && normalized.contains("completion artifacts were not written"),
+        normalized.contains("not a successful") && normalized.contains("completion state"),
         "stderr should explain non-completion redirect; got:\n{}",
         result.stderr
     );

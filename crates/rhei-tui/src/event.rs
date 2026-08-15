@@ -373,6 +373,19 @@ pub enum RunEvent {
         invocation_id: String,
         usage: UsageSummary,
     },
+    /// A worker exited `0` and left required artifacts unwritten, so the ticket
+    /// did not advance. `entries` are already rendered as `name (path)`, the
+    /// ticket's terminal result included under the name `result`.
+    ///
+    /// The human-readable warning still arrives as a [`RunEvent::Message`]; this
+    /// carries the same facts in a form the run report can classify with,
+    /// instead of re-deriving them from prose.
+    // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1
+    TaskOutputsMissing {
+        task: String,
+        state: String,
+        entries: Vec<String>,
+    },
 }
 
 /// Sink that consumes `RunEvent`s. Implementations must be cheap to clone and

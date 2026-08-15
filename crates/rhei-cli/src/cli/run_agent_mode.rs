@@ -502,6 +502,12 @@ fn spawn_parallel_agent_work_item(
     let state_machine_path = callback_paths.state_machine_path.clone();
     let tid = item.task_id_str.clone();
     let sname = item.current_state.clone();
+    // A fanned-out invocation writes its own result fragment. §FS-rhei-states.3.3
+    let result_identity = fanout_result_identity(
+        machine.states.get(item.current_state.as_str()),
+        item.resolved.target.as_ref(),
+        item.resolved.model.as_deref(),
+    );
 
     emit_run_message(
         sink,
@@ -594,6 +600,7 @@ fn spawn_parallel_agent_work_item(
                 slot,
                 sink_for_thread.clone(),
                 intervene_for_thread.as_ref(),
+                result_identity.as_deref(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let (outcome, exit_code) = match &result {
@@ -820,6 +827,12 @@ fn spawn_parallel_program_work_item(
 struct ParallelScheduleOutcome {
     spawned: usize,
     advanced: bool,
+    /// Work items the scheduler could not start and that nothing routed
+    /// elsewhere — unavailable required tooling with no rule, a ticket that left
+    /// the plan. Still "ready", so unrecorded they are re-attempted on every
+    /// freed slot for the rest of the pass.
+    // §FS-rhei-run.3
+    skipped: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -846,6 +859,7 @@ fn schedule_agent_work_items(
     let mut selected_task_ids = HashSet::new();
     let mut spawned = 0usize;
     let mut advanced = false;
+    let mut skipped = Vec::new();
 
     for item in items {
         if !selected_task_ids.contains(&item.task_id_str) {
@@ -890,6 +904,7 @@ fn schedule_agent_work_items(
             }
             ParallelAgentSpawnOutcome::Skipped => {
                 free_slots.insert(slot);
+                skipped.push(item.task_id_str.clone());
             }
             ParallelAgentSpawnOutcome::Unpromptable(task_id) => {
                 free_slots.insert(slot);
@@ -898,7 +913,7 @@ fn schedule_agent_work_items(
         }
     }
 
-    Ok(ParallelScheduleOutcome { spawned, advanced })
+    Ok(ParallelScheduleOutcome { spawned, advanced, skipped })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -920,6 +935,7 @@ fn schedule_program_work_items(
     let mut selected_task_ids = HashSet::new();
     let mut spawned = 0usize;
     let advanced = false;
+    let mut skipped = Vec::new();
 
     for item in items {
         if !selected_task_ids.contains(&item.task_id_str) {
@@ -958,11 +974,12 @@ fn schedule_program_work_items(
             }
             ParallelProgramSpawnOutcome::Skipped => {
                 free_slots.insert(slot);
+                skipped.push(item.task_id_str.clone());
             }
         }
     }
 
-    Ok(ParallelScheduleOutcome { spawned, advanced })
+    Ok(ParallelScheduleOutcome { spawned, advanced, skipped })
 }
 
 fn release_parallel_worker(
@@ -991,6 +1008,7 @@ fn release_parallel_worker(
 #[allow(clippy::too_many_arguments)]
 fn refill_parallel_worker_pool(
     unpromptable: &mut HashSet<String>,
+    stalled: &HashSet<String>,
     pass: u32,
     task_limit: usize,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
@@ -1016,13 +1034,13 @@ fn refill_parallel_worker_pool(
         task_limit.saturating_sub(active_invocation_counts.len())
     };
     if task_capacity == 0 {
-        return Ok(ParallelScheduleOutcome { spawned: 0, advanced: false });
+        return Ok(ParallelScheduleOutcome { spawned: 0, advanced: false, skipped: Vec::new() });
     }
 
     let reloaded = load_plan(input)?;
     let active_task_ids = active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
     let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
-    let (program_items, program_deferred) = collect_ready_program_work_items(
+    let (mut program_items, program_deferred) = collect_ready_program_work_items(
         &reloaded,
         machines,
         settings,
@@ -1031,6 +1049,10 @@ fn refill_parallel_worker_pool(
         &active_task_ids,
         &active_nonconcurrent_states,
     )?;
+    // A ticket whose worker finished this pass without moving it is still
+    // "ready", so refilling from the ready set alone re-spawns it forever.
+    // §FS-rhei-run.3
+    program_items.retain(|item| !stalled.contains(&item.task_id_str));
     if !program_deferred.is_empty() {
         emit_run_message(
             sink,
@@ -1072,7 +1094,7 @@ fn refill_parallel_worker_pool(
     let reloaded = load_plan(input)?;
     let active_task_ids = active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
     let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
-    let (agent_items, agent_deferred) = collect_ready_agent_work_items(
+    let (mut agent_items, agent_deferred) = collect_ready_agent_work_items(
         &reloaded,
         machines,
         settings,
@@ -1081,6 +1103,7 @@ fn refill_parallel_worker_pool(
         &active_task_ids,
         &active_nonconcurrent_states,
     )?;
+    agent_items.retain(|item| !stalled.contains(&item.task_id_str));
     if !agent_deferred.is_empty() {
         emit_run_message(
             sink,
@@ -1128,9 +1151,12 @@ fn refill_parallel_worker_pool(
         handles,
     )?;
 
+    let mut skipped = program_outcome.skipped;
+    skipped.extend(agent_outcome.skipped);
     Ok(ParallelScheduleOutcome {
         spawned: program_outcome.spawned + agent_outcome.spawned,
         advanced: program_outcome.advanced || agent_outcome.advanced,
+        skipped,
     })
 }
 
@@ -1253,21 +1279,23 @@ fn handle_parallel_program_completion(
                 if exit_code == 0 && to_state != state_name {
                     let missing_required_outputs = collect_missing_required_outputs(
                         workspace_root,
+                        &reloaded.task_root(&task_id_str, workspace_root),
                         machine,
                         reloaded.rhei.metadata.as_ref(),
                         task,
                         &state_name,
+                        Some(to_state.as_str()),
                     );
                     if !missing_required_outputs.is_empty() {
-                        emit_run_message(
+                        // A program is a worker like any other: its stall must
+                        // reach the run report as the artifacts it owes, not as
+                        // a nameless one. §FS-rhei-run-report.3.1
+                        emit_exit_zero_missing_required_outputs_warning(
+                            "program",
+                            &task_id_str,
+                            &state_name,
+                            &missing_required_outputs,
                             sink,
-                            rhei_tui::MessageLevel::Warn,
-                            format!(
-                                "  warning: program exited 0 but required outputs are missing for task {} in state '{}': {}",
-                                task_id_str,
-                                state_name,
-                                missing_required_outputs.join(", ")
-                            ),
                         );
                         return Ok(ParallelProgramCompletionEffect {
                             advanced,
@@ -1497,6 +1525,20 @@ fn run_agent_mode(
     // would never reach their siblings.
     // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
     let mut unpromptable_tasks: HashSet<String> = HashSet::new();
+    // Tickets whose worker finished this pass without moving them. Both modes
+    // refill from the live ready set and would re-pick them at once; a stall
+    // takes one ticket out of the pass, it does not end the run. §FS-rhei-run.3
+
+    // Keyed by ticket, not by (ticket, invocation), and that is the right grain
+    // even under fan-out: the completion condition is per invocation, so one
+    // invocation failing means the state cannot complete this pass however its
+    // siblings fare. Re-spawning them would only redo work the ticket cannot use
+    // until the failed invocation is retried, which is what the next pass is for.
+    let mut stalled_tasks: HashSet<String> = HashSet::new();
+    // Anything advanced since `stalled_tasks` was last emptied? A pass ends when
+    // every claimable ticket advanced or stalled; one that moved something earns
+    // the stalled ones another pass. §FS-rhei-run.3
+    let mut progress_since_stall_reset = false;
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
     if rhei_scope.is_some() {
@@ -1544,7 +1586,7 @@ fn run_agent_mode(
             // on a project the real run halts on. §FS-rhei-run.4
             if pass == 0 {
                 let (lines, needs_human) =
-                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope);
+                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope, input);
                 if !lines.is_empty() {
                     run_info!("\nNothing to schedule. Why each remaining ticket is not moving:");
                     for line in &lines {
@@ -1559,6 +1601,11 @@ fn run_agent_mode(
         awaiting_gate_announced = false;
 
         pass += 1;
+        // A ticket only counts as newly out of the running when it stepped out
+        // here: a pass may continue past one, and only when it learned
+        // something. §FS-rhei-run.3
+        let stalled_before_pass = stalled_tasks.len();
+        let unpromptable_before_pass = unpromptable_tasks.len();
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         sink.emit(RunEvent::PassStarted {
             pass,
@@ -1588,6 +1635,11 @@ fn run_agent_mode(
 
         for task in &ready {
             let task_id_str = task.id.to_string();
+            // A ticket that already stalled in this pass is out of the running
+            // until the next one, whichever mode is driving. §FS-rhei-run.3
+            if stalled_tasks.contains(&task_id_str) {
+                continue;
+            }
             // The ticket's own machine governs its advance. §DA-per-rhei-state-machines
             let machine = machines.for_task(&task.id);
             let current_state_raw = task.state.as_str().to_string();
@@ -1778,7 +1830,10 @@ fn run_agent_mode(
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let route = loaded.task_route(task_id_str, input);
-            match execute_transition(
+            // Callback-only advancement: no subprocess ran here, so a terminal
+            // edge records the engine's own account unless a callback already
+            // wrote a result, which wins. §FS-rhei-run.3
+            match execute_callback_only_transition(
                 TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
                 callback_paths,
                 machine,
@@ -1788,13 +1843,6 @@ fn run_agent_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
-                    append_transition_audit_entry(
-                        &route,
-                        machine,
-                        task_id_str,
-                        current_state,
-                        &effective_to,
-                    )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
@@ -1818,6 +1866,11 @@ fn run_agent_mode(
                 }
             }
         }
+
+        // Tickets a same-state claimant pushed to a later pass. They are still
+        // claimable work, so the pass must not end while one is waiting on a
+        // sibling that has since stalled. §FS-rhei-run.3
+        let mut deferred_tasks: BTreeSet<String> = BTreeSet::new();
 
         let program_tasks = {
             let mut filtered: Vec<(String, String, String, ResolvedProgram)> = Vec::new();
@@ -1854,6 +1907,7 @@ fn run_agent_mode(
                 );
                 sink.emit(RunEvent::TasksDeferred { pass, tasks: deferred_vec });
             }
+            deferred_tasks.extend(deferred);
             filtered
         };
 
@@ -2029,6 +2083,9 @@ fn run_agent_mode(
                                 advanced_any = true;
                                 continue;
                             }
+                            // Timed out and did not move: out of this pass.
+                            // §FS-rhei-run.3
+                            stalled_tasks.insert(task_id_str.clone());
                             continue;
                         }
 
@@ -2043,18 +2100,25 @@ fn run_agent_mode(
                             if exit_code == 0 && to_state != *current_state {
                                 let missing_required_outputs = collect_missing_required_outputs(
                                     &workspace_root,
+                                    &reloaded.task_root(task_id_str, &workspace_root),
                                     machine,
                                     reloaded.rhei.metadata.as_ref(),
                                     task_after.unwrap_or(task),
                                     current_state,
+                                    Some(to_state.as_str()),
                                 );
                                 if !missing_required_outputs.is_empty() {
-                                    run_warn!(
-                                        "  warning: program exited 0 but required outputs are missing for task {} in state '{}': {}",
+                                    // A program is a worker: its stall reaches
+                                    // the report as the artifacts it owes.
+                                    // §FS-rhei-run-report.3.1
+                                    emit_exit_zero_missing_required_outputs_warning(
+                                        "program",
                                         task_id_str,
                                         current_state,
-                                        missing_required_outputs.join(", ")
+                                        &missing_required_outputs,
+                                        &sink,
                                     );
+                                    stalled_tasks.insert(task_id_str.clone());
                                     continue;
                                 }
                             }
@@ -2091,13 +2155,6 @@ fn run_agent_mode(
                                 exit_code,
                                 opts.no_callbacks(),
                             )?;
-                            append_transition_audit_entry(
-                                &route,
-                                machine,
-                                task_id_str,
-                                current_state,
-                                &effective_to,
-                            )?;
                             run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
                                 task_id_str,
@@ -2111,6 +2168,7 @@ fn run_agent_mode(
                                 task_id_str,
                                 current_state
                             );
+                            stalled_tasks.insert(task_id_str.clone());
                         } else {
                             run_error!(
                                 "  error: program exited with code {} for task {}",
@@ -2125,6 +2183,7 @@ fn run_agent_mode(
                                     task_id_str
                                 ));
                             }
+                            stalled_tasks.insert(task_id_str.clone());
                         }
                     }
                     Err(err) => {
@@ -2132,6 +2191,7 @@ fn run_agent_mode(
                         if !opts.continue_on_error() {
                             return Err(err);
                         }
+                        stalled_tasks.insert(task_id_str.clone());
                     }
                 }
             }
@@ -2143,10 +2203,20 @@ fn run_agent_mode(
                     sink.emit(RunEvent::PassEnded { pass, progressed: false });
                     break;
                 }
+                // Nothing left that has not already stalled: the pass is over.
+                // If it moved anything at all, the stalled tickets earn a fresh
+                // pass rather than ending the run. §FS-rhei-run.3
+                if progress_since_stall_reset && !stalled_tasks.is_empty() {
+                    stalled_tasks.clear();
+                    progress_since_stall_reset = false;
+                    sink.emit(RunEvent::PassEnded { pass, progressed: false });
+                    continue;
+                }
                 run_info!("No program, agent, or callback-only tasks could advance.");
                 sink.emit(RunEvent::PassEnded { pass, progressed: false });
                 break;
             }
+            progress_since_stall_reset = true;
             sink.emit(RunEvent::PassEnded { pass, progressed: true });
             continue;
         }
@@ -2194,6 +2264,7 @@ fn run_agent_mode(
                 );
                 sink.emit(RunEvent::TasksDeferred { pass, tasks: deferred_vec });
             }
+            deferred_tasks.extend(deferred);
             filtered
         };
 
@@ -2266,470 +2337,371 @@ fn run_agent_mode(
 
         // Spawn agents (sequential or parallel).
         if batch_size == 1 && (program_tasks.is_empty() || !run_programs_in_worker_pool) {
-            // Sequential: spawn one agent at a time.
-            let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
-            let loaded = load_plan(input)?;
-            let target_id = parse_task_id(task_id_str);
-            let machine = machines.for_task_str(task_id_str);
-            let callback_paths = machines.callbacks_for_str(task_id_str);
-            let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
-            let Some(task) = task else { continue };
+            // Sequential: spawn one agent at a time. Every way out of this
+            // ticket's turn lands on the shared pass tail below, so one ticket
+            // giving up never skips the decision about the pass. §FS-rhei-run.3
+            'sequential: {
+                let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
+                let loaded = load_plan(input)?;
+                let target_id = parse_task_id(task_id_str);
+                let machine = machines.for_task_str(task_id_str);
+                let callback_paths = machines.callbacks_for_str(task_id_str);
+                let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
+                let Some(task) = task else { break 'sequential };
 
-            let tooling = resolve_tooling(machine, current_state, settings);
-            let gate = gate_tooling_for_agent(resolved, &tooling);
-            for warning in &gate.warnings {
-                run_warn!("{warning}");
-            }
-            if !gate.required.is_empty() {
-                let mcp_unavailable = unavailable_ids(&gate.required, ToolingKind::Mcp);
-                let skill_unavailable = unavailable_ids(&gate.required, ToolingKind::Skill);
-                let mut fired = false;
-                if !mcp_unavailable.is_empty() {
-                    match fire_tooling_unavailable_transition(
-                        input,
-                        machines,
-                        task_id_str,
-                        current_state,
-                        ToolingKind::Mcp,
-                        &mcp_unavailable,
-                        opts.no_callbacks(),
-                    ) {
-                        TimeoutTransitionOutcome::Fired => {
-                            advanced_any = true;
-                            fired = true;
-                        }
-                        TimeoutTransitionOutcome::NoRule | TimeoutTransitionOutcome::Failed => {}
-                    }
+                let tooling = resolve_tooling(machine, current_state, settings);
+                let gate = gate_tooling_for_agent(resolved, &tooling);
+                for warning in &gate.warnings {
+                    run_warn!("{warning}");
                 }
-                if !fired && !skill_unavailable.is_empty() {
-                    match fire_tooling_unavailable_transition(
-                        input,
-                        machines,
-                        task_id_str,
-                        current_state,
-                        ToolingKind::Skill,
-                        &skill_unavailable,
-                        opts.no_callbacks(),
-                    ) {
-                        TimeoutTransitionOutcome::Fired => {
-                            advanced_any = true;
-                            fired = true;
-                        }
-                        TimeoutTransitionOutcome::NoRule | TimeoutTransitionOutcome::Failed => {}
-                    }
-                }
-                if !fired {
-                    let message =
-                        format_required_tooling_error(task_id_str, current_state, &gate.required);
-                    run_error!("  error: {message}");
-                    if !opts.continue_on_error() {
-                        return Err(miette!(
-                            help = run_report_help(),
-                            "{message}"
-                        ));
-                    }
-                }
-                sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
-                if !advanced_any {
-                    break;
-                }
-                continue;
-            }
-            let tooling = gate.tooling;
-            // §FS-rhei-panta.6.2: the agent works in the owning rhei's root.
-            let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
-            let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
-            let render_context = RuntimeTemplateContext {
-                workspace_root: &task_workspace_root,
-                task_roots: Some(&loaded.task_roots),
-                checkout_root: &checkout_root.path,
-                plan_path: &callback_paths.plan_path,
-                state_machine_path: callback_paths.state_machine_path.as_deref(),
-                plan_title: &loaded.rhei.title,
-                task,
-                state_name: current_state,
-                current_state_raw: task.state.as_str(),
-                machine,
-                metadata: loaded.rhei.metadata.as_ref(),
-                target: resolved.target.as_ref(),
-                model: resolved.model.as_deref(),
-                model_provider: resolved.model_provider.as_deref(),
-                model_name: resolved.model_name.as_deref(),
-                agent: Some(resolved.agent.id()),
-                agent_mode: resolved.mode.as_deref(),
-                tooling: Some(&tooling),
-            };
-            // Same contract as the parallel scheduler: an uncomposable prompt
-            // fails its own task, not the whole run. §FS-rhei-run.3
-            let prompt = match compose_agent_prompt(&render_context) {
-                Ok(prompt) => prompt,
-                Err(err) => {
-                    run_error!("  error: Task {task_id_str} cannot be prompted: {err}");
-                    if !opts.continue_on_error() {
-                        return Err(err);
-                    }
-                    unpromptable_tasks.insert(task_id_str.clone());
-                    sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
-                    continue;
-                }
-            };
-            let visit_count = render_visit_count(
-                loaded.rhei.metadata.as_ref(),
-                &task.id,
-                current_state,
-                task.state.as_str(),
-                machine,
-            );
-            let log = agent_log_path(
-                &runtime_dir,
-                task_id_str,
-                current_state,
-                resolved_agent_log_suffix(resolved, Some(visit_count)).as_deref(),
-            );
-
-            run_info!(
-                "\nSpawning agent '{}' for Task {}: {}",
-                resolved.agent.id(),
-                task_id_str,
-                task.title
-            );
-            if let Some(m) = &resolved.model {
-                run_info!("  Model: {m}");
-            }
-            run_info!("  Checkout: {}", checkout_root.path.display());
-            run_info!("  Log: {}", log.display());
-
-            // Spec § Execution Loop step 3: if the state declares
-            // `snapshot.inherit:`, resolve and preload the source snapshot
-            // before spawning the agent. The actual preload is owned by
-            // impl-rhei-snapshots; this hook pins the call site so the
-            // orchestration ordering is encoded in code.
-            let snapshot_preload = preload_snapshot_inherit_before_spawn(
-                input,
-                &task_workspace_root,
-                machine,
-                task,
-                current_state,
-                resolved,
-                settings,
-                visit_count,
-                snapshot_override_selection.as_ref(),
-                opts,
-            )?;
-
-            let started_at = TuiInstant::now();
-            let started_wall = SystemTime::now();
-            sink.emit(RunEvent::SlotAssigned {
-                slot: 0,
-                task: task_id_str.clone(),
-                from: task.state.as_str().to_string(),
-                to: current_state.clone(),
-                agent: Some(resolved.agent.id().to_string()),
-                template_context: Some(agent_template_context(resolved)),
-                log_path: log.clone(),
-                started_at,
-                wall_clock: started_wall,
-            });
-
-            let spawn_result = spawn_and_wait_agent(
-                resolved,
-                &prompt,
-                &task_workspace_root,
-                &checkout_root.path,
-                checkout_root.worktree_root.as_deref(),
-                &callback_paths.plan_path,
-                callback_paths.state_machine_path.as_deref(),
-                task_id_str,
-                current_state,
-                visit_count,
-                &tooling,
-                &log,
-                &runtime_dir,
-                Some(&snapshot_preload),
-                0,
-                sink.clone(),
-                intervene.as_ref(),
-            );
-            let duration_ms = started_at.elapsed().as_millis() as u64;
-            let finished_wall = SystemTime::now();
-            let (outcome, exit_code) = match &spawn_result {
-                Ok(outcome) if outcome.status.success() => {
-                    (TaskOutcome::Completed, outcome.status.code())
-                }
-                Ok(outcome) => {
-                    let code = outcome.status.code().unwrap_or(-1);
-                    (
-                        if outcome.timed_out {
-                            TaskOutcome::TimedOut
-                        } else {
-                            TaskOutcome::Failed(format!("exit {code}"))
-                        },
-                        outcome.status.code(),
-                    )
-                }
-                Err(err) => (TaskOutcome::Failed(err.to_string()), None),
-            };
-            sink.emit(RunEvent::SlotReleased {
-                slot: 0,
-                task: task_id_str.clone(),
-                from: task.state.as_str().to_string(),
-                to: current_state.clone(),
-                log_path: log.clone(),
-                outcome,
-                finished_at: TuiInstant::now(),
-                wall_clock: finished_wall,
-                exit_code,
-                duration_ms,
-            });
-            // §FS-rhei-cost-accounting.4: Extraction happens after agent exit.
-            match record_agent_accounting_invocation(AgentAccountingInvocation {
-                workspace_root: &task_workspace_root,
-                task,
-                state: current_state,
-                resolved,
-                visit: visit_count,
-                started_at: started_wall,
-                ended_at: finished_wall,
-                slot: Some(0),
-                usage_capture_path: spawn_result
-                    .as_ref()
-                    .ok()
-                    .and_then(|outcome| outcome.usage_capture_path.as_deref()),
-                log_path: Some(&log),
-                sink: &sink,
-            }) {
-                Ok(Some(_)) => {
-                    if let Err(err) = regenerate_accounting_indexes(&workspace_root, &loaded.rhei)
-                    {
-                        run_warn!("  warning: failed to update accounting rollups: {}", err);
-                    }
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    run_warn!("  warning: failed to record accounting: {}", err);
-                }
-            }
-
-            match spawn_result {
-                Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
-                    agents_spawned += 1;
-                    let state_def = machine.states.get(current_state).ok_or_else(|| {
-                        miette!(
-                            help = internal_error_help(),
-                            "state '{}' missing from loaded machine", current_state
-                        )
-                    })?;
-                    let outputs_ok = status.success()
-                        && state_outputs_exist_for_resolved_invocation(
-                            &workspace_root,
-                            task,
-                            current_state,
-                            task.state.as_str(),
-                            machine,
-                            loaded.rhei.metadata.as_ref(),
-                            state_def,
-                            resolved,
-                        );
-                    let missing_required_outputs = if status.success() && !outputs_ok {
-                        collect_missing_required_outputs_for_resolved_invocation(
-                            &workspace_root,
-                            machine,
-                            loaded.rhei.metadata.as_ref(),
-                            task,
-                            current_state,
-                            resolved,
-                        )
-                    } else {
-                        Vec::new()
-                    };
-                    let snapshot_completion = if timed_out {
-                        SnapshotCompletion::Timeout
-                    } else if outputs_ok {
-                        SnapshotCompletion::Success
-                    } else {
-                        SnapshotCompletion::Failure
-                    };
-                    let failure_selected_to_state = if timed_out {
-                        find_timeout_transition(machine, current_state)
-                    } else if !status.success() {
-                        find_program_exit_transition(
-                            machine,
-                            loaded.rhei.metadata.as_ref(),
-                            task,
-                            current_state,
-                            status.code().unwrap_or(-1),
-                        )?
-                    } else {
-                        None
-                    };
-                    if !status.success() {
-                        if let Err(err) = emit_snapshots_after_agent_exit(
-                            &workspace_root,
-                            machine,
-                            settings,
-                            task,
-                            current_state,
-                            failure_selected_to_state.as_deref(),
-                            resolved,
-                            &log,
-                            visit_count,
-                            snapshot_completion,
-                            &snapshot_preload,
-                        ) {
-                            run_error!("  error: {}", err);
-                            if !opts.continue_on_error() {
-                                return Err(err);
-                            }
-                        }
-                    }
-                    let reloaded = load_plan(input)?;
-                    let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
-                    let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
-                    let state_before = current_state.as_str();
-
-                    // Compare normalized state names: a counted state and its
-                    // visit-suffixed form (e.g. `build` vs `build-2`) are the
-                    // same logical state. Comparing raw vs. normalized would
-                    // mistake a no-op re-entry for forward progress and skip
-                    // the real auto-advance, spinning the loop forever.
-                    if normalized_state_name(state_after, machine)
-                        != normalized_state_name(state_before, machine)
-                    {
-                        if status.success() {
-                            if let Some(task_for_snapshot) = task_after {
-                                if let Err(err) = emit_snapshots_after_agent_exit(
-                                    &workspace_root,
-                                    machine,
-                                    settings,
-                                    task_for_snapshot,
-                                    state_before,
-                                    Some(state_after),
-                                    resolved,
-                                    &log,
-                                    visit_count,
-                                    snapshot_completion,
-                                    &snapshot_preload,
-                                ) {
-                                    run_error!("  error: {}", err);
-                                    if !opts.continue_on_error() {
-                                        return Err(err);
-                                    }
-                                }
-                            }
-                        }
-                        run_info!(
-                            "  Task {} advanced: '{}' -> '{}'",
-                            task_id_str,
-                            state_before,
-                            state_after
-                        );
-                        advanced_any = true;
-                    } else if status.success() {
-                        if !missing_required_outputs.is_empty() {
-                            if let Some(task_for_snapshot) = task_after {
-                                if let Err(err) = emit_snapshots_after_agent_exit(
-                                    &workspace_root,
-                                    machine,
-                                    settings,
-                                    task_for_snapshot,
-                                    state_before,
-                                    None,
-                                    resolved,
-                                    &log,
-                                    visit_count,
-                                    snapshot_completion,
-                                    &snapshot_preload,
-                                ) {
-                                    run_error!("  error: {}", err);
-                                    if !opts.continue_on_error() {
-                                        return Err(err);
-                                    }
-                                }
-                            }
-                            emit_exit_zero_missing_required_outputs_warning(
-                                task_id_str,
-                                state_before,
-                                &missing_required_outputs,
-                                &sink,
-                            );
-                            break;
-                        }
-                        let pending_more = machine
-                            .states
-                            .get(state_before)
-                            .map(|state_def| {
-                                task_has_pending_agent_invocations(
-                                    &workspace_root,
-                                    task,
-                                    state_before,
-                                    task.state.as_str(),
-                                    machine,
-                                    loaded.rhei.metadata.as_ref(),
-                                    state_def,
-                                    settings,
-                                )
-                            })
-                            .transpose()?
-                            .unwrap_or(false);
-                        if pending_more {
-                            if let Some(task_for_snapshot) = task_after {
-                                if let Err(err) = emit_snapshots_after_agent_exit(
-                                    &workspace_root,
-                                    machine,
-                                    settings,
-                                    task_for_snapshot,
-                                    state_before,
-                                    None,
-                                    resolved,
-                                    &log,
-                                    visit_count,
-                                    snapshot_completion,
-                                    &snapshot_preload,
-                                ) {
-                                    run_error!("  error: {}", err);
-                                    if !opts.continue_on_error() {
-                                        return Err(err);
-                                    }
-                                }
-                            }
-                            break;
-                        }
-                        let mut emit_before_transition =
-                            |task_for_snapshot: &rhei_core::ast::Task,
-                             to_state: &str|
-                             -> MietteResult<()> {
-                                emit_snapshots_after_agent_exit(
-                                    &workspace_root,
-                                    machine,
-                                    settings,
-                                    task_for_snapshot,
-                                    state_before,
-                                    Some(to_state),
-                                    resolved,
-                                    &log,
-                                    visit_count,
-                                    snapshot_completion,
-                                    &snapshot_preload,
-                                )
-                            };
-                        match try_auto_advance_task(
+                if !gate.required.is_empty() {
+                    let mcp_unavailable = unavailable_ids(&gate.required, ToolingKind::Mcp);
+                    let skill_unavailable = unavailable_ids(&gate.required, ToolingKind::Skill);
+                    let mut fired = false;
+                    if !mcp_unavailable.is_empty() {
+                        match fire_tooling_unavailable_transition(
                             input,
                             machines,
                             task_id_str,
-                            state_before,
+                            current_state,
+                            ToolingKind::Mcp,
+                            &mcp_unavailable,
                             opts.no_callbacks(),
-                            Some(&mut emit_before_transition),
                         ) {
-                            Ok(Some(to_state)) => {
-                                run_info!(
-                                    "  Task {} auto-advanced: '{}' -> '{}'",
-                                    task_id_str,
-                                    state_before,
-                                    to_state
-                                );
+                            TimeoutTransitionOutcome::Fired => {
                                 advanced_any = true;
+                                fired = true;
                             }
-                            Ok(None) => {
+                            TimeoutTransitionOutcome::NoRule | TimeoutTransitionOutcome::Failed => {}
+                        }
+                    }
+                    if !fired && !skill_unavailable.is_empty() {
+                        match fire_tooling_unavailable_transition(
+                            input,
+                            machines,
+                            task_id_str,
+                            current_state,
+                            ToolingKind::Skill,
+                            &skill_unavailable,
+                            opts.no_callbacks(),
+                        ) {
+                            TimeoutTransitionOutcome::Fired => {
+                                advanced_any = true;
+                                fired = true;
+                            }
+                            TimeoutTransitionOutcome::NoRule | TimeoutTransitionOutcome::Failed => {}
+                        }
+                    }
+                    if !fired {
+                        let message =
+                            format_required_tooling_error(task_id_str, current_state, &gate.required);
+                        run_error!("  error: {message}");
+                        if !opts.continue_on_error() {
+                            return Err(miette!(
+                                help = run_report_help(),
+                                "{message}"
+                            ));
+                        }
+                        // Nothing routed the ticket anywhere; the pass moves on.
+                        // §FS-rhei-run.3
+                        stalled_tasks.insert(task_id_str.clone());
+                    }
+                    break 'sequential;
+                }
+                let tooling = gate.tooling;
+                // §FS-rhei-panta.6.2: the agent works in the owning rhei's root.
+                let task_workspace_root = loaded.task_root(task_id_str, &workspace_root);
+                let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
+                let render_context = RuntimeTemplateContext {
+                    workspace_root: &task_workspace_root,
+                    task_roots: Some(&loaded.task_roots),
+                    checkout_root: &checkout_root.path,
+                    plan_path: &callback_paths.plan_path,
+                    state_machine_path: callback_paths.state_machine_path.as_deref(),
+                    plan_title: &loaded.rhei.title,
+                    task,
+                    state_name: current_state,
+                    current_state_raw: task.state.as_str(),
+                    machine,
+                    metadata: loaded.rhei.metadata.as_ref(),
+                    target: resolved.target.as_ref(),
+                    model: resolved.model.as_deref(),
+                    model_provider: resolved.model_provider.as_deref(),
+                    model_name: resolved.model_name.as_deref(),
+                    agent: Some(resolved.agent.id()),
+                    agent_mode: resolved.mode.as_deref(),
+                    tooling: Some(&tooling),
+                };
+                // Same contract as the parallel scheduler: an uncomposable prompt
+                // fails its own task, not the whole run. §FS-rhei-run.3
+                let prompt = match compose_agent_prompt(&render_context) {
+                    Ok(prompt) => prompt,
+                    Err(err) => {
+                        run_error!("  error: Task {task_id_str} cannot be prompted: {err}");
+                        if !opts.continue_on_error() {
+                            return Err(err);
+                        }
+                        unpromptable_tasks.insert(task_id_str.clone());
+                        break 'sequential;
+                    }
+                };
+                let visit_count = render_visit_count(
+                    loaded.rhei.metadata.as_ref(),
+                    &task.id,
+                    current_state,
+                    task.state.as_str(),
+                    machine,
+                );
+                let log = agent_log_path(
+                    &runtime_dir,
+                    task_id_str,
+                    current_state,
+                    resolved_agent_log_suffix(resolved, Some(visit_count)).as_deref(),
+                );
+
+                run_info!(
+                    "\nSpawning agent '{}' for Task {}: {}",
+                    resolved.agent.id(),
+                    task_id_str,
+                    task.title
+                );
+                if let Some(m) = &resolved.model {
+                    run_info!("  Model: {m}");
+                }
+                run_info!("  Checkout: {}", checkout_root.path.display());
+                run_info!("  Log: {}", log.display());
+
+                // Spec § Execution Loop step 3: if the state declares
+                // `snapshot.inherit:`, resolve and preload the source snapshot
+                // before spawning the agent. The actual preload is owned by
+                // impl-rhei-snapshots; this hook pins the call site so the
+                // orchestration ordering is encoded in code.
+                let snapshot_preload = preload_snapshot_inherit_before_spawn(
+                    input,
+                    &task_workspace_root,
+                    machine,
+                    task,
+                    current_state,
+                    resolved,
+                    settings,
+                    visit_count,
+                    snapshot_override_selection.as_ref(),
+                    opts,
+                )?;
+
+                let started_at = TuiInstant::now();
+                let started_wall = SystemTime::now();
+                sink.emit(RunEvent::SlotAssigned {
+                    slot: 0,
+                    task: task_id_str.clone(),
+                    from: task.state.as_str().to_string(),
+                    to: current_state.clone(),
+                    agent: Some(resolved.agent.id().to_string()),
+                    template_context: Some(agent_template_context(resolved)),
+                    log_path: log.clone(),
+                    started_at,
+                    wall_clock: started_wall,
+                });
+
+                let spawn_result = spawn_and_wait_agent(
+                    resolved,
+                    &prompt,
+                    &task_workspace_root,
+                    &checkout_root.path,
+                    checkout_root.worktree_root.as_deref(),
+                    &callback_paths.plan_path,
+                    callback_paths.state_machine_path.as_deref(),
+                    task_id_str,
+                    current_state,
+                    visit_count,
+                    &tooling,
+                    &log,
+                    &runtime_dir,
+                    Some(&snapshot_preload),
+                    0,
+                    sink.clone(),
+                    intervene.as_ref(),
+                    // A fanned-out invocation writes its own result fragment.
+                    // §FS-rhei-states.3.3
+                    fanout_result_identity(
+                        machine.states.get(current_state),
+                        resolved.target.as_ref(),
+                        resolved.model.as_deref(),
+                    )
+                    .as_deref(),
+                );
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+                let finished_wall = SystemTime::now();
+                let (outcome, exit_code) = match &spawn_result {
+                    Ok(outcome) if outcome.status.success() => {
+                        (TaskOutcome::Completed, outcome.status.code())
+                    }
+                    Ok(outcome) => {
+                        let code = outcome.status.code().unwrap_or(-1);
+                        (
+                            if outcome.timed_out {
+                                TaskOutcome::TimedOut
+                            } else {
+                                TaskOutcome::Failed(format!("exit {code}"))
+                            },
+                            outcome.status.code(),
+                        )
+                    }
+                    Err(err) => (TaskOutcome::Failed(err.to_string()), None),
+                };
+                sink.emit(RunEvent::SlotReleased {
+                    slot: 0,
+                    task: task_id_str.clone(),
+                    from: task.state.as_str().to_string(),
+                    to: current_state.clone(),
+                    log_path: log.clone(),
+                    outcome,
+                    finished_at: TuiInstant::now(),
+                    wall_clock: finished_wall,
+                    exit_code,
+                    duration_ms,
+                });
+                // §FS-rhei-cost-accounting.4: Extraction happens after agent exit.
+                match record_agent_accounting_invocation(AgentAccountingInvocation {
+                    workspace_root: &task_workspace_root,
+                    task,
+                    state: current_state,
+                    resolved,
+                    visit: visit_count,
+                    started_at: started_wall,
+                    ended_at: finished_wall,
+                    slot: Some(0),
+                    usage_capture_path: spawn_result
+                        .as_ref()
+                        .ok()
+                        .and_then(|outcome| outcome.usage_capture_path.as_deref()),
+                    log_path: Some(&log),
+                    sink: &sink,
+                }) {
+                    Ok(Some(_)) => {
+                        if let Err(err) = regenerate_accounting_indexes(&workspace_root, &loaded.rhei)
+                        {
+                            run_warn!("  warning: failed to update accounting rollups: {}", err);
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        run_warn!("  warning: failed to record accounting: {}", err);
+                    }
+                }
+
+                match spawn_result {
+                    Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
+                        agents_spawned += 1;
+                        let state_def = machine.states.get(current_state).ok_or_else(|| {
+                            miette!(
+                                help = internal_error_help(),
+                                "state '{}' missing from loaded machine", current_state
+                            )
+                        })?;
+                        // §FS-rhei-agents.3.2: the completion condition is exit 0 +
+                        // declared outputs + the terminal result when the edge this
+                        // exit selects lands on a `final: true` state.
+                        let selected_to =
+                            selected_forward_transition(&loaded.rhei, machine, task);
+                        let outputs_ok = status.success()
+                            && state_outputs_exist_for_resolved_invocation(
+                                &workspace_root,
+                                task,
+                                current_state,
+                                task.state.as_str(),
+                                machine,
+                                loaded.rhei.metadata.as_ref(),
+                                state_def,
+                                resolved,
+                            )
+                            && missing_terminal_result_output(
+                                &task_workspace_root,
+                                machine,
+                                task,
+                                selected_to.as_deref(),
+                                // A fanned-out invocation answers for its own
+                                // fragment. §FS-rhei-states.3.3
+                                ResultInvocation {
+                                    state: current_state,
+                                    visit_count,
+                                    identity: fanout_result_identity(
+                                        Some(state_def),
+                                        resolved.target.as_ref(),
+                                        resolved.model.as_deref(),
+                                    )
+                                    .as_deref(),
+                                },
+                            )
+                            .is_none();
+                        let missing_required_outputs = if status.success() && !outputs_ok {
+                            collect_missing_required_outputs_for_resolved_invocation(
+                                &workspace_root,
+                                &task_workspace_root,
+                                machine,
+                                loaded.rhei.metadata.as_ref(),
+                                task,
+                                current_state,
+                                selected_to.as_deref(),
+                                resolved,
+                            )
+                        } else {
+                            Vec::new()
+                        };
+                        let snapshot_completion = if timed_out {
+                            SnapshotCompletion::Timeout
+                        } else if outputs_ok {
+                            SnapshotCompletion::Success
+                        } else {
+                            SnapshotCompletion::Failure
+                        };
+                        let failure_selected_to_state = if timed_out {
+                            find_timeout_transition(machine, current_state)
+                        } else if !status.success() {
+                            find_program_exit_transition(
+                                machine,
+                                loaded.rhei.metadata.as_ref(),
+                                task,
+                                current_state,
+                                status.code().unwrap_or(-1),
+                            )?
+                        } else {
+                            None
+                        };
+                        if !status.success() {
+                            if let Err(err) = emit_snapshots_after_agent_exit(
+                                &workspace_root,
+                                machine,
+                                settings,
+                                task,
+                                current_state,
+                                failure_selected_to_state.as_deref(),
+                                resolved,
+                                &log,
+                                visit_count,
+                                snapshot_completion,
+                                &snapshot_preload,
+                            ) {
+                                run_error!("  error: {}", err);
+                                if !opts.continue_on_error() {
+                                    return Err(err);
+                                }
+                            }
+                        }
+                        let reloaded = load_plan(input)?;
+                        let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
+                        let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
+                        let state_before = current_state.as_str();
+
+                        // Compare normalized state names: a counted state and its
+                        // visit-suffixed form (e.g. `build` vs `build-2`) are the
+                        // same logical state. Comparing raw vs. normalized would
+                        // mistake a no-op re-entry for forward progress and skip
+                        // the real auto-advance, spinning the loop forever.
+                        if normalized_state_name(state_after, machine)
+                            != normalized_state_name(state_before, machine)
+                        {
+                            if status.success() {
                                 if let Some(task_for_snapshot) = task_after {
                                     if let Err(err) = emit_snapshots_after_agent_exit(
                                         &workspace_root,
@@ -2737,7 +2709,7 @@ fn run_agent_mode(
                                         settings,
                                         task_for_snapshot,
                                         state_before,
-                                        None,
+                                        Some(state_after),
                                         resolved,
                                         &log,
                                         visit_count,
@@ -2750,85 +2722,248 @@ fn run_agent_mode(
                                         }
                                     }
                                 }
-                                emit_exit_zero_warnings(
-                                    &workspace_root,
-                                    machine,
-                                    loaded.rhei.metadata.as_ref(),
-                                    task,
+                            }
+                            run_info!(
+                                "  Task {} advanced: '{}' -> '{}'",
+                                task_id_str,
+                                state_before,
+                                state_after
+                            );
+                            advanced_any = true;
+                        } else if status.success() {
+                            // A stall ends this ticket's pass, never the run's: the
+                            // pass carries on with the tickets beside it, exactly as
+                            // the worker pool does. §FS-rhei-run.3
+                            'exit_zero: {
+                                if !missing_required_outputs.is_empty() {
+                                    if let Some(task_for_snapshot) = task_after {
+                                        if let Err(err) = emit_snapshots_after_agent_exit(
+                                            &workspace_root,
+                                            machine,
+                                            settings,
+                                            task_for_snapshot,
+                                            state_before,
+                                            None,
+                                            resolved,
+                                            &log,
+                                            visit_count,
+                                            snapshot_completion,
+                                            &snapshot_preload,
+                                        ) {
+                                            run_error!("  error: {}", err);
+                                            if !opts.continue_on_error() {
+                                                return Err(err);
+                                            }
+                                        }
+                                    }
+                                    emit_exit_zero_missing_required_outputs_warning(
+                                        "agent",
+                                        task_id_str,
+                                        state_before,
+                                        &missing_required_outputs,
+                                        &sink,
+                                    );
+                                    stalled_tasks.insert(task_id_str.clone());
+                                    break 'exit_zero;
+                                }
+                                let pending_more = machine
+                                    .states
+                                    .get(state_before)
+                                    .map(|state_def| {
+                                        task_has_pending_agent_invocations(
+                                            &workspace_root,
+                                            &task_workspace_root,
+                                            task,
+                                            state_before,
+                                            task.state.as_str(),
+                                            machine,
+                                            loaded.rhei.metadata.as_ref(),
+                                            state_def,
+                                            settings,
+                                            selected_to.as_deref(),
+                                        )
+                                    })
+                                    .transpose()?
+                                    .unwrap_or(false);
+                                if pending_more {
+                                    if let Some(task_for_snapshot) = task_after {
+                                        if let Err(err) = emit_snapshots_after_agent_exit(
+                                            &workspace_root,
+                                            machine,
+                                            settings,
+                                            task_for_snapshot,
+                                            state_before,
+                                            None,
+                                            resolved,
+                                            &log,
+                                            visit_count,
+                                            snapshot_completion,
+                                            &snapshot_preload,
+                                        ) {
+                                            run_error!("  error: {}", err);
+                                            if !opts.continue_on_error() {
+                                                return Err(err);
+                                            }
+                                        }
+                                    }
+                                    break 'exit_zero;
+                                }
+                                let mut emit_before_transition =
+                                    |task_for_snapshot: &rhei_core::ast::Task,
+                                     to_state: &str|
+                                     -> MietteResult<()> {
+                                        emit_snapshots_after_agent_exit(
+                                            &workspace_root,
+                                            machine,
+                                            settings,
+                                            task_for_snapshot,
+                                            state_before,
+                                            Some(to_state),
+                                            resolved,
+                                            &log,
+                                            visit_count,
+                                            snapshot_completion,
+                                            &snapshot_preload,
+                                        )
+                                    };
+                                match try_auto_advance_task(
+                                    input,
+                                    machines,
                                     task_id_str,
                                     state_before,
-                                    &sink,
-                                );
+                                    opts.no_callbacks(),
+                                    Some(&mut emit_before_transition),
+                                ) {
+                                    Ok(Some(to_state)) => {
+                                        run_info!(
+                                            "  Task {} auto-advanced: '{}' -> '{}'",
+                                            task_id_str,
+                                            state_before,
+                                            to_state
+                                        );
+                                        advanced_any = true;
+                                    }
+                                    Ok(None) => {
+                                        if let Some(task_for_snapshot) = task_after {
+                                            if let Err(err) = emit_snapshots_after_agent_exit(
+                                                &workspace_root,
+                                                machine,
+                                                settings,
+                                                task_for_snapshot,
+                                                state_before,
+                                                None,
+                                                resolved,
+                                                &log,
+                                                visit_count,
+                                                snapshot_completion,
+                                                &snapshot_preload,
+                                            ) {
+                                                run_error!("  error: {}", err);
+                                                if !opts.continue_on_error() {
+                                                    return Err(err);
+                                                }
+                                            }
+                                        }
+                                        emit_exit_zero_warnings(
+                                            &workspace_root,
+                                            &task_workspace_root,
+                                            machine,
+                                            loaded.rhei.metadata.as_ref(),
+                                            task,
+                                            task_id_str,
+                                            state_before,
+                                            selected_forward_transition(&loaded.rhei, machine, task)
+                                                .as_deref(),
+                                            &sink,
+                                        );
+                                        // Did not move; the rest of the pass must look
+                                        // elsewhere. §FS-rhei-run.3
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
+                                    Err(err) => {
+                                        run_warn!(
+                                            "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
+                                            task_id_str, state_before, err
+                                        );
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
+                                }
                             }
-                            Err(err) => {
-                                run_warn!(
-                                    "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
-                                    task_id_str, state_before, err
-                                );
-                            }
-                        }
-                    } else if timed_out {
-                        let duration = timeout_secs.map(format_duration_human).unwrap_or_default();
-                        run_warn!("  agent timed out after {} for task {}", duration, task_id_str);
-                        if let Some(to_state) = failure_selected_to_state.as_deref() {
-                            match fire_selected_timeout_transition(
-                                input,
-                                machines,
-                                task_id_str,
-                                state_before,
-                                to_state,
-                                timeout_secs,
-                                opts.no_callbacks(),
-                            ) {
-                                TimeoutTransitionOutcome::Fired => advanced_any = true,
-                                TimeoutTransitionOutcome::NoRule => {}
-                                TimeoutTransitionOutcome::Failed => {}
+                        } else if timed_out {
+                            let duration = timeout_secs.map(format_duration_human).unwrap_or_default();
+                            run_warn!("  agent timed out after {} for task {}", duration, task_id_str);
+                            if let Some(to_state) = failure_selected_to_state.as_deref() {
+                                match fire_selected_timeout_transition(
+                                    input,
+                                    machines,
+                                    task_id_str,
+                                    state_before,
+                                    to_state,
+                                    timeout_secs,
+                                    opts.no_callbacks(),
+                                ) {
+                                    TimeoutTransitionOutcome::Fired => advanced_any = true,
+                                    // Nowhere to go: the ticket is out of this
+                                    // pass, not out of the run. §FS-rhei-run.3
+                                    TimeoutTransitionOutcome::NoRule
+                                    | TimeoutTransitionOutcome::Failed => {
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
+                                }
+                            } else {
+                                {
+                                    run_warn!(
+                                        "  warning: agent for task {} timed out from '{}' but no timeout transition is declared; task remains in state",
+                                        task_id_str, state_before
+                                    );
+                                    stalled_tasks.insert(task_id_str.clone());
+                                }
                             }
                         } else {
-                            {
-                                run_warn!(
-                                    "  warning: agent for task {} timed out from '{}' but no timeout transition is declared; task remains in state",
-                                    task_id_str, state_before
-                                );
-                            }
-                        }
-                    } else {
-                        let code = status.code().unwrap_or(-1);
-                        run_error!(
-                            "  error: agent exited with code {} for task {}",
-                            code,
-                            task_id_str
-                        );
-                        if let Some(to_state) = failure_selected_to_state.as_deref() {
-                            match fire_agent_exit_transition(
-                                input,
-                                machines,
-                                task_id_str,
-                                state_before,
-                                to_state,
-                                code,
-                                opts.no_callbacks(),
-                            ) {
-                                TimeoutTransitionOutcome::Fired => advanced_any = true,
-                                TimeoutTransitionOutcome::NoRule => {}
-                                TimeoutTransitionOutcome::Failed => {}
-                            }
-                        } else if !opts.continue_on_error() {
-                            return Err(miette!(
-                                help = run_report_help(),
-                                "agent '{}' exited with code {} for Task {}. \
-                                 Use --continue-on-error to skip failures.",
-                                resolved.agent.id(),
+                            let code = status.code().unwrap_or(-1);
+                            run_error!(
+                                "  error: agent exited with code {} for task {}",
                                 code,
                                 task_id_str
-                            ));
+                            );
+                            if let Some(to_state) = failure_selected_to_state.as_deref() {
+                                match fire_agent_exit_transition(
+                                    input,
+                                    machines,
+                                    task_id_str,
+                                    state_before,
+                                    to_state,
+                                    code,
+                                    opts.no_callbacks(),
+                                ) {
+                                    TimeoutTransitionOutcome::Fired => advanced_any = true,
+                                    TimeoutTransitionOutcome::NoRule
+                                    | TimeoutTransitionOutcome::Failed => {
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
+                                }
+                            } else if !opts.continue_on_error() {
+                                return Err(miette!(
+                                    help = run_report_help(),
+                                    "agent '{}' exited with code {} for Task {}. \
+                                     Use --continue-on-error to skip failures.",
+                                    resolved.agent.id(),
+                                    code,
+                                    task_id_str
+                                ));
+                            } else {
+                                // `--continue-on-error` skips the failure; it must
+                                // not re-pick the same ticket next. §FS-rhei-run.3
+                                stalled_tasks.insert(task_id_str.clone());
+                            }
                         }
                     }
-                }
-                Err(err) => {
-                    run_error!("  error: {}", err);
-                    if !opts.continue_on_error() {
-                        return Err(err);
+                    Err(err) => {
+                        run_error!("  error: {}", err);
+                        if !opts.continue_on_error() {
+                            return Err(err);
+                        }
+                        stalled_tasks.insert(task_id_str.clone());
                     }
                 }
             }
@@ -2870,6 +3005,9 @@ fn run_agent_mode(
                 &mut handles,
             )?;
             advanced_any |= program_schedule_outcome.advanced;
+            // Nothing started and nothing routed: without this the refill
+            // re-attempts them on every freed slot. §FS-rhei-run.3
+            stalled_tasks.extend(program_schedule_outcome.skipped.iter().cloned());
 
             let agent_capacity = if task_limit == usize::MAX {
                 usize::MAX
@@ -2906,6 +3044,7 @@ fn run_agent_mode(
                 &mut handles,
             )?;
             advanced_any |= schedule_outcome.advanced;
+            stalled_tasks.extend(schedule_outcome.skipped.iter().cloned());
             let mut active_worker_count =
                 program_schedule_outcome.spawned + schedule_outcome.spawned;
 
@@ -2922,6 +3061,7 @@ fn run_agent_mode(
                             &mut active_invocation_counts,
                             &mut active_state_counts,
                         );
+                        let completed_task_id = completion.task_id_str.clone();
                         let effect = handle_parallel_program_completion(
                             input,
                             machines,
@@ -2933,9 +3073,13 @@ fn run_agent_mode(
                         if effect.program_spawned {
                             programs_spawned += 1;
                         }
+                        if !effect.advanced {
+                            stalled_tasks.insert(completed_task_id);
+                        }
                         advanced_any |= effect.advanced;
                         let refill_outcome = refill_parallel_worker_pool(
                             &mut unpromptable_tasks,
+                            &stalled_tasks,
                             pass,
                             task_limit,
                             &tx,
@@ -2955,6 +3099,7 @@ fn run_agent_mode(
                         )?;
                         active_worker_count += refill_outcome.spawned;
                         advanced_any |= refill_outcome.advanced;
+                        stalled_tasks.extend(refill_outcome.skipped.iter().cloned());
                         continue;
                     }
                     Ok(ParallelAgentThreadMessage::Panicked {
@@ -2979,6 +3124,10 @@ fn run_agent_mode(
                         if !opts.continue_on_error() {
                             return Err(err);
                         }
+                        // The ticket is untouched and still ready; without this
+                        // the refill re-spawns the thread that just panicked.
+                        // §FS-rhei-run.3
+                        stalled_tasks.insert(task_id_str.clone());
                         continue;
                     }
                     Err(_) => break,
@@ -3033,9 +3182,21 @@ fn run_agent_mode(
                         let mut missing_required_outputs = Vec::new();
                         let mut snapshot_completion_for_emit = None;
                         let mut failure_selected_to_state = None;
+                        // Hoisted out of the block below so the pending-invocation
+                        // check can ask the same question about the same edge.
+                        // §FS-rhei-agents.3.2
+                        let mut selected_to: Option<String> = None;
                         if let (Some(task_for_snapshot), Some(state_def)) =
                             (task_after, machine.states.get(state_name.as_str()))
                         {
+                            // §FS-rhei-agents.3.2: the completion condition is
+                            // exit 0 + declared outputs + the terminal result
+                            // when the edge this exit selects is terminal.
+                            selected_to = selected_forward_transition(
+                                &reloaded.rhei,
+                                machine,
+                                task_for_snapshot,
+                            );
                             let outputs_ok = status.success()
                                 && state_outputs_exist_for_resolved_invocation(
                                     &workspace_root,
@@ -3046,15 +3207,36 @@ fn run_agent_mode(
                                     reloaded.rhei.metadata.as_ref(),
                                     state_def,
                                     &resolved,
-                                );
+                                )
+                                && missing_terminal_result_output(
+                                    &reloaded.task_root(&task_id_str, &workspace_root),
+                                    machine,
+                                    task_for_snapshot,
+                                    selected_to.as_deref(),
+                                    // A fanned-out invocation answers for its
+                                    // own fragment. §FS-rhei-states.3.3
+                                    ResultInvocation {
+                                        state: &state_name,
+                                        visit_count,
+                                        identity: fanout_result_identity(
+                                            Some(state_def),
+                                            resolved.target.as_ref(),
+                                            resolved.model.as_deref(),
+                                        )
+                                        .as_deref(),
+                                    },
+                                )
+                                .is_none();
                             if status.success() && !outputs_ok {
                                 missing_required_outputs =
                                     collect_missing_required_outputs_for_resolved_invocation(
                                         &workspace_root,
+                                        &reloaded.task_root(&task_id_str, &workspace_root),
                                         machine,
                                         reloaded.rhei.metadata.as_ref(),
                                         task_for_snapshot,
                                         &state_name,
+                                        selected_to.as_deref(),
                                         &resolved,
                                     );
                             }
@@ -3136,182 +3318,212 @@ fn run_agent_mode(
                             );
                             advanced_any = true;
                         } else if status.success() {
-                            if !missing_required_outputs.is_empty() {
-                                if let (
-                                    Some(task_for_snapshot),
-                                    Some(snapshot_completion),
-                                ) = (task_after, snapshot_completion_for_emit)
-                                {
-                                    if let Err(err) = emit_snapshots_after_agent_exit(
-                                        &workspace_root,
-                                        machine,
-                                        settings,
-                                        task_for_snapshot,
-                                        &state_name,
-                                        None,
-                                        &resolved,
-                                        &log,
-                                        visit_count,
-                                        snapshot_completion,
-                                        &snapshot_preload,
-                                    ) {
-                                        run_error!("  error: {}", err);
-                                        if !opts.continue_on_error() {
-                                            return Err(err);
-                                        }
-                                    }
-                                }
-                                emit_exit_zero_missing_required_outputs_warning(
-                                    &task_id_str,
-                                    &state_name,
-                                    &missing_required_outputs,
-                                    &sink,
-                                );
-                                continue;
-                            }
-                            let pending_more = reloaded
-                                .rhei
-                                .tasks
-                                .iter()
-                                .find(|t| t.id == target_id)
-                                .and_then(|task| {
-                                    machine.states.get(state_name.as_str()).map(|state_def| {
-                                        task_has_pending_agent_invocations(
-                                            &workspace_root,
-                                            task,
-                                            &state_name,
-                                            task.state.as_str(),
-                                            machine,
-                                            reloaded.rhei.metadata.as_ref(),
-                                            state_def,
-                                            settings,
-                                        )
-                                    })
-                                })
-                                .transpose()?
-                                .unwrap_or(false);
-                            if pending_more {
-                                if let (
-                                    Some(task_for_snapshot),
-                                    Some(snapshot_completion),
-                                ) = (task_after, snapshot_completion_for_emit)
-                                {
-                                    if let Err(err) = emit_snapshots_after_agent_exit(
-                                        &workspace_root,
-                                        machine,
-                                        settings,
-                                        task_for_snapshot,
-                                        &state_name,
-                                        None,
-                                        &resolved,
-                                        &log,
-                                        visit_count,
-                                        snapshot_completion,
-                                        &snapshot_preload,
-                                    ) {
-                                        run_error!("  error: {}", err);
-                                        if !opts.continue_on_error() {
-                                            return Err(err);
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            let auto_advance_result =
-                                if let Some(snapshot_completion) = snapshot_completion_for_emit {
-                                    let mut emit_before_transition =
-                                        |task_for_snapshot: &rhei_core::ast::Task,
-                                         to_state: &str|
-                                         -> MietteResult<()> {
-                                            emit_snapshots_after_agent_exit(
-                                                &workspace_root,
-                                                machine,
-                                                settings,
-                                                task_for_snapshot,
-                                                &state_name,
-                                                Some(to_state),
-                                                &resolved,
-                                                &log,
-                                                visit_count,
-                                                snapshot_completion,
-                                                &snapshot_preload,
-                                            )
-                                        };
-                                    try_auto_advance_task(
-                                        input,
-                                        machines,
-                                        &task_id_str,
-                                        &state_name,
-                                        opts.no_callbacks(),
-                                        Some(&mut emit_before_transition),
-                                    )
-                                } else {
-                                    try_auto_advance_task(
-                                        input,
-                                        machines,
-                                        &task_id_str,
-                                        &state_name,
-                                        opts.no_callbacks(),
-                                        None,
-                                    )
-                                };
-                            match auto_advance_result {
-                                Ok(Some(to_state)) => {
-                                    run_info!(
-                                        "  Task {} auto-advanced: '{}' -> '{}'",
-                                        task_id_str,
-                                        state_name,
-                                        to_state
-                                    );
-                                    advanced_any = true;
-                                }
-                                Ok(None) => {
-                                    if let Some(task) =
-                                        find_task_by_id(&reloaded.rhei.tasks, &target_id)
+                            // Every exit falls through to the refill below: a
+                            // `continue` left the freed slot idle all pass.
+                            // §FS-rhei-run.3
+                            'exit_zero: {
+                                if !missing_required_outputs.is_empty() {
+                                    if let (
+                                        Some(task_for_snapshot),
+                                        Some(snapshot_completion),
+                                    ) = (task_after, snapshot_completion_for_emit)
                                     {
-                                        if let Some(snapshot_completion) =
-                                            snapshot_completion_for_emit
-                                        {
-                                            if let Err(err) = emit_snapshots_after_agent_exit(
-                                                &workspace_root,
-                                                machine,
-                                                settings,
-                                                task,
-                                                &state_name,
-                                                None,
-                                                &resolved,
-                                                &log,
-                                                visit_count,
-                                                snapshot_completion,
-                                                &snapshot_preload,
-                                            ) {
-                                                run_error!("  error: {}", err);
-                                                if !opts.continue_on_error() {
-                                                    return Err(err);
-                                                }
+                                        if let Err(err) = emit_snapshots_after_agent_exit(
+                                            &workspace_root,
+                                            machine,
+                                            settings,
+                                            task_for_snapshot,
+                                            &state_name,
+                                            None,
+                                            &resolved,
+                                            &log,
+                                            visit_count,
+                                            snapshot_completion,
+                                            &snapshot_preload,
+                                        ) {
+                                            run_error!("  error: {}", err);
+                                            if !opts.continue_on_error() {
+                                                return Err(err);
                                             }
                                         }
-                                        emit_exit_zero_warnings(
+                                    }
+                                    emit_exit_zero_missing_required_outputs_warning(
+                                        "agent",
+                                        &task_id_str,
+                                        &state_name,
+                                        &missing_required_outputs,
+                                        &sink,
+                                    );
+                                    stalled_tasks.insert(task_id_str.clone());
+                                    break 'exit_zero;
+                                }
+                                // A sibling invocation is still running: the
+                                // state is not finished, and advancing now
+                                // strands it. §FS-rhei-states.3.3
+                                let sibling_in_flight =
+                                    active_invocation_counts.contains_key(&task_id_str);
+                                let pending_more = sibling_in_flight
+                                    || reloaded
+                                        .rhei
+                                        .tasks
+                                        .iter()
+                                        .find(|t| t.id == target_id)
+                                        .and_then(|task| {
+                                            machine.states.get(state_name.as_str()).map(
+                                                |state_def| {
+                                                    task_has_pending_agent_invocations(
+                                                        &workspace_root,
+                                                        &reloaded
+                                                            .task_root(&task_id_str, &workspace_root),
+                                                        task,
+                                                        &state_name,
+                                                        task.state.as_str(),
+                                                        machine,
+                                                        reloaded.rhei.metadata.as_ref(),
+                                                        state_def,
+                                                        settings,
+                                                        selected_to.as_deref(),
+                                                    )
+                                                },
+                                            )
+                                        })
+                                        .transpose()?
+                                        .unwrap_or(false);
+                                if pending_more {
+                                    if let (
+                                        Some(task_for_snapshot),
+                                        Some(snapshot_completion),
+                                    ) = (task_after, snapshot_completion_for_emit)
+                                    {
+                                        if let Err(err) = emit_snapshots_after_agent_exit(
                                             &workspace_root,
                                             machine,
-                                            reloaded.rhei.metadata.as_ref(),
-                                            task,
+                                            settings,
+                                            task_for_snapshot,
+                                            &state_name,
+                                            None,
+                                            &resolved,
+                                            &log,
+                                            visit_count,
+                                            snapshot_completion,
+                                            &snapshot_preload,
+                                        ) {
+                                            run_error!("  error: {}", err);
+                                            if !opts.continue_on_error() {
+                                                return Err(err);
+                                            }
+                                        }
+                                    }
+                                    break 'exit_zero;
+                                }
+                                let auto_advance_result =
+                                    if let Some(snapshot_completion) = snapshot_completion_for_emit {
+                                        let mut emit_before_transition =
+                                            |task_for_snapshot: &rhei_core::ast::Task,
+                                             to_state: &str|
+                                             -> MietteResult<()> {
+                                                emit_snapshots_after_agent_exit(
+                                                    &workspace_root,
+                                                    machine,
+                                                    settings,
+                                                    task_for_snapshot,
+                                                    &state_name,
+                                                    Some(to_state),
+                                                    &resolved,
+                                                    &log,
+                                                    visit_count,
+                                                    snapshot_completion,
+                                                    &snapshot_preload,
+                                                )
+                                            };
+                                        try_auto_advance_task(
+                                            input,
+                                            machines,
                                             &task_id_str,
                                             &state_name,
-                                            &sink,
-                                        );
+                                            opts.no_callbacks(),
+                                            Some(&mut emit_before_transition),
+                                        )
                                     } else {
-                                        run_warn!(
-                                            "  warning: agent exited 0 but task {} did not advance from '{}'",
-                                            task_id_str, state_name
+                                        try_auto_advance_task(
+                                            input,
+                                            machines,
+                                            &task_id_str,
+                                            &state_name,
+                                            opts.no_callbacks(),
+                                            None,
+                                        )
+                                    };
+                                match auto_advance_result {
+                                    Ok(Some(to_state)) => {
+                                        run_info!(
+                                            "  Task {} auto-advanced: '{}' -> '{}'",
+                                            task_id_str,
+                                            state_name,
+                                            to_state
                                         );
+                                        advanced_any = true;
                                     }
-                                }
-                                Err(err) => {
-                                    run_warn!(
-                                        "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
-                                        task_id_str, state_name, err
-                                    );
+                                    Ok(None) => {
+                                        if let Some(task) =
+                                            find_task_by_id(&reloaded.rhei.tasks, &target_id)
+                                        {
+                                            if let Some(snapshot_completion) =
+                                                snapshot_completion_for_emit
+                                            {
+                                                if let Err(err) = emit_snapshots_after_agent_exit(
+                                                    &workspace_root,
+                                                    machine,
+                                                    settings,
+                                                    task,
+                                                    &state_name,
+                                                    None,
+                                                    &resolved,
+                                                    &log,
+                                                    visit_count,
+                                                    snapshot_completion,
+                                                    &snapshot_preload,
+                                                ) {
+                                                    run_error!("  error: {}", err);
+                                                    if !opts.continue_on_error() {
+                                                        return Err(err);
+                                                    }
+                                                }
+                                            }
+                                            emit_exit_zero_warnings(
+                                                &workspace_root,
+                                                &reloaded.task_root(&task_id_str, &workspace_root),
+                                                machine,
+                                                reloaded.rhei.metadata.as_ref(),
+                                                task,
+                                                &task_id_str,
+                                                &state_name,
+                                                selected_forward_transition(
+                                                    &reloaded.rhei,
+                                                    machine,
+                                                    task,
+                                                )
+                                                .as_deref(),
+                                                &sink,
+                                            );
+                                            stalled_tasks.insert(task_id_str.clone());
+                                        } else {
+                                            run_warn!(
+                                                "  warning: agent exited 0 but task {} did not advance from '{}'",
+                                                task_id_str, state_name
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        run_warn!(
+                                            "  warning: agent exited 0 but task {} could not auto-advance from '{}': {}",
+                                            task_id_str, state_name, err
+                                        );
+                                        // Did not move: without this the refill
+                                        // re-spawns it, and the error repeats.
+                                        // §FS-rhei-run.3
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
                                 }
                             }
                         } else if timed_out {
@@ -3331,8 +3543,13 @@ fn run_agent_mode(
                                     opts.no_callbacks(),
                                 ) {
                                     TimeoutTransitionOutcome::Fired => advanced_any = true,
-                                    TimeoutTransitionOutcome::NoRule => {}
-                                    TimeoutTransitionOutcome::Failed => {}
+                                    // Did not move: the pool must not re-spawn
+                                    // it from the live ready set this pass.
+                                    // §FS-rhei-run.3
+                                    TimeoutTransitionOutcome::NoRule
+                                    | TimeoutTransitionOutcome::Failed => {
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
                                 }
                             } else {
                                 {
@@ -3340,6 +3557,10 @@ fn run_agent_mode(
                                         "  warning: agent for task {} timed out from '{}' but no timeout transition is declared; task remains in state",
                                         task_id_str, state_name
                                     );
+                                    // §FS-rhei-run.3: a ticket that timed out
+                                    // with nowhere to go would time out again,
+                                    // once per free slot, for the whole pass.
+                                    stalled_tasks.insert(task_id_str.clone());
                                 }
                             }
                         } else {
@@ -3360,8 +3581,13 @@ fn run_agent_mode(
                                     opts.no_callbacks(),
                                 ) {
                                     TimeoutTransitionOutcome::Fired => advanced_any = true,
-                                    TimeoutTransitionOutcome::NoRule => {}
-                                    TimeoutTransitionOutcome::Failed => {}
+                                    // §FS-rhei-run.3: the exit routed nowhere,
+                                    // so the ticket is still ready and would be
+                                    // re-spawned into every slot that frees up.
+                                    TimeoutTransitionOutcome::NoRule
+                                    | TimeoutTransitionOutcome::Failed => {
+                                        stalled_tasks.insert(task_id_str.clone());
+                                    }
                                 }
                             } else if !opts.continue_on_error() {
                                 return Err(miette!(
@@ -3369,6 +3595,11 @@ fn run_agent_mode(
                                     "agent exited with code {code} for Task {task_id_str}. \
                                      Use --continue-on-error to skip failures."
                                 ));
+                            } else {
+                                // `--continue-on-error` skips the failure; it
+                                // must not turn it into an unbounded respawn
+                                // loop within the pass. §FS-rhei-run.3
+                                stalled_tasks.insert(task_id_str.clone());
                             }
                         }
                     }
@@ -3388,11 +3619,16 @@ fn run_agent_mode(
                         if !opts.continue_on_error() {
                             return Err(err);
                         }
+                        // Spawning failed and the ticket has not moved; refilling
+                        // from the live ready set would just spawn it again.
+                        // §FS-rhei-run.3
+                        stalled_tasks.insert(task_id_str.clone());
                     }
                 }
 
                 let refill_outcome = refill_parallel_worker_pool(
                     &mut unpromptable_tasks,
+                    &stalled_tasks,
                     pass,
                     task_limit,
                     &tx,
@@ -3412,6 +3648,7 @@ fn run_agent_mode(
                 )?;
                 active_worker_count += refill_outcome.spawned;
                 advanced_any |= refill_outcome.advanced;
+                stalled_tasks.extend(refill_outcome.skipped.iter().cloned());
             }
 
             for handle in handles {
@@ -3430,9 +3667,33 @@ fn run_agent_mode(
 
         sink.emit(RunEvent::PassEnded { pass, progressed: advanced_any });
 
-        if !advanced_any {
-            break;
+        if advanced_any {
+            progress_since_stall_reset = true;
+            continue;
         }
+        // Nothing moved, but a stalled ticket's siblings are still claimable:
+        // keep going while one has not been tried. Requiring a *new* stall
+        // bounds it — each turn takes one more ticket out. §FS-rhei-run.3
+        let newly_stalled = stalled_tasks.len() > stalled_before_pass
+            || unpromptable_tasks.len() > unpromptable_before_pass;
+        let claimable = |id: &String| {
+            !stalled_tasks.contains(id) && !unpromptable_tasks.contains(id)
+        };
+        let more_claimable = agent_tasks.iter().any(|entry| claimable(&entry.0))
+            || program_tasks.iter().any(|entry| claimable(&entry.0))
+            || deferred_tasks.iter().any(claimable);
+        if newly_stalled && more_claimable {
+            continue;
+        }
+        // Every claimable ticket has now advanced or stalled. A pass that moved
+        // something earns the stalled ones another try; one that moved nothing
+        // is where the run ends. §FS-rhei-run.3
+        if progress_since_stall_reset && !stalled_tasks.is_empty() {
+            stalled_tasks.clear();
+            progress_since_stall_reset = false;
+            continue;
+        }
+        break;
     }
 
     // Print summary.

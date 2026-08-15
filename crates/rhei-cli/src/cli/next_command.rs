@@ -506,23 +506,19 @@ fn next_command(
                 current_state_raw
             )
         })?;
-        let effective_to = execute_transition(
+        // Gated above, so no *declared* edge lands terminal and there is nothing
+        // to carry; an `on_leave` redirect into one is refused on the shared path.
+        // §FS-rhei-next.3 §FS-rhei-states.3.3
+        execute_transition(
             TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
             callback_paths,
             machine,
             &route.local_id,
             &current_state,
             &to_state,
+            None,
             no_callbacks,
-        )?;
-        append_transition_audit_entry(
-            &route,
-            machine,
-            &task_id_str,
-            &current_state,
-            &effective_to,
-        )?;
-        effective_to
+        )?
     } else {
         current_state.clone()
     };

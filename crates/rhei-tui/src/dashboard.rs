@@ -59,7 +59,20 @@ pub trait InterveneSink: Send + Sync {
 pub trait GateTransitionSink: Send + Sync {
     /// Transition `task_id` from `from` to `to`, returning the effective target
     /// state after callbacks, or a human-readable rejection reason.
-    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String>;
+    ///
+    /// `result` is the operator's own account of the decision, carried through
+    /// the move exactly as `rhei transition --result` carries it. It is
+    /// optional on every hop and blank-is-none: the host refuses a terminal
+    /// release that has neither a message nor a result already on disk, and the
+    /// surfaces render that refusal rather than inventing one for the human.
+    // §FS-rhei-viz.5.1 §FS-rhei-states.3.3
+    fn transition_gate(
+        &self,
+        task_id: &str,
+        from: &str,
+        to: &str,
+        result: Option<&str>,
+    ) -> Result<String, String>;
 }
 
 /// Per-task runtime overlay carried alongside the [`VizModel`] base in the live
@@ -730,6 +743,11 @@ fn handle_gate_transition(
         from: String,
         #[serde(default)]
         to: String,
+        /// The operator's account of the decision. Optional so an older page
+        /// (or a non-terminal release with nothing to say) still posts a valid
+        /// body. §FS-rhei-viz.5.1
+        #[serde(default)]
+        result: Option<String>,
     }
     let Ok(req) = serde_json::from_slice::<Req>(body) else {
         return write_status(stream, "400 Bad Request", b"invalid gate transition body");
@@ -751,7 +769,10 @@ fn handle_gate_transition(
             "gate transitions are not available on this surface",
         );
     };
-    match sink.transition_gate(req.task_id.trim(), req.from.trim(), req.to.trim()) {
+    // Blank is none: a field the operator left empty must not become a result
+    // entry that says nothing. §FS-rhei-viz.5.1 §FS-rhei-states.3.3
+    let result = req.result.as_deref().map(str::trim).filter(|message| !message.is_empty());
+    match sink.transition_gate(req.task_id.trim(), req.from.trim(), req.to.trim(), result) {
         Ok(effective_to) => reply_gate_transition(stream, true, &effective_to, ""),
         Err(reason) => reply_gate_transition(stream, false, "", &reason),
     }

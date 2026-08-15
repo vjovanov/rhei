@@ -39,6 +39,19 @@ append_log() {
         "$(timestamp)" "$task_id" "$state" "$visit_count" "$command_name" "$1" >> "$log_path"
 }
 
+# A worker records why the ticket ends where it does. Rhei hands every
+# subprocess the path in RHEI_RESULT_PATH, and a `final: true` state is not
+# entered until that file has content, so a program whose exit can route the
+# ticket into one must write it. §FS-rhei-states.3.3 §FS-rhei-programs.2
+write_result() {
+    if [[ -z "${RHEI_RESULT_PATH:-}" ]]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+    printf '## Result\n\nMock program `%s` finished task %s in state %s.\n' \
+        "$command_name" "$task_id" "$state" > "$RHEI_RESULT_PATH"
+}
+
 sleep "$step_delay"
 append_log "started"
 
@@ -112,4 +125,5 @@ Mock external system still running for ${task_id}."
         ;;
 esac
 
+write_result
 append_log "completed"

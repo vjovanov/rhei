@@ -256,9 +256,14 @@ The orchestrator manages workflow execution through state transitions:
 ### 3.4. Durable State and Git Boundary
 
 Rhei-owned durable state is the authored plan/workspace task state plus the
-orchestrator result ledger under `runtime/results`. Agent subprocesses may
-edit repository files and may even create Git commits as part of their domain
-work, but they do not own Rhei state transitions under orchestrator authority.
+result ledger under `runtime/results`. The ticket's own result file there is
+the one Rhei-owned path a subprocess *does* write: a `final: true` state is not
+entered without it, and under orchestrator authority the subprocess is the
+worker that knows why the ticket is finishing (§FS-rhei-states.3.3). The
+orchestrator still owns the transition and the finalization around it. Agent
+subprocesses may otherwise edit repository files and may even create Git commits
+as part of their domain work, but they do not own Rhei state transitions under
+orchestrator authority.
 The orchestrator therefore treats Git commit creation as an external side
 effect, not as a state-transition persistence mechanism. §FS-rhei-agents.3.1
 §FS-rhei-run.3

@@ -148,6 +148,7 @@ fn ensure_state_outputs_exist(
 /// Acquires an exclusive file lock, verifies the task's current state matches
 /// `from`, validates the transition against the state machine, rewrites the
 /// `**State:**` line, and writes the file atomically (temp + rename).
+#[allow(clippy::too_many_arguments)]
 fn transition_command(
     input: &Path,
     rhei_scope: &[String],
@@ -155,6 +156,7 @@ fn transition_command(
     task_id_str: &str,
     from: &str,
     to: &str,
+    result_msg: Option<&str>,
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let input_buf = normalize_workspace_input(input);
@@ -171,6 +173,10 @@ fn transition_command(
     let machine = machines.for_task_str(task_id_str);
     let callback_paths = machines.callbacks_for_str(task_id_str);
 
+    // §FS-rhei-transition-cmd.2: accepting `--result ""` while ignoring it
+    // would hide the exact thing §FS-rhei-states.3.3 refuses.
+    let result_msg = require_non_blank_result(result_msg, "transition")?;
+
     let route = loaded.task_route(task_id_str, input);
 
     let effective_to = execute_transition(
@@ -180,13 +186,33 @@ fn transition_command(
         &route.local_id,
         from,
         to,
+        result_msg,
         no_callbacks,
     )?;
 
-    record_transition_result(&route, machine, task_id_str, from, &effective_to, None)?;
-
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);
     Ok(())
+}
+
+/// Reject a `--result` that carries no message.
+///
+/// The flag exists to record why a ticket ended where it did; taking it with an
+/// empty value and moving on would write exactly the blank result the terminal
+/// obligation refuses, only with the caller believing they had answered.
+// §FS-rhei-transition-cmd.2 §FS-rhei-complete.4
+fn require_non_blank_result<'a>(
+    result_msg: Option<&'a str>,
+    command: &str,
+) -> MietteResult<Option<&'a str>> {
+    match result_msg {
+        Some(message) if message.trim().is_empty() => Err(miette!(
+            help = format!(
+                "say what happened in a sentence: rhei {command} … --result \"<what happened>\""
+            ),
+            "--result carries no message"
+        )),
+        other => Ok(other),
+    }
 }
 
 /// Core transition logic shared by `transition` and `run` commands.
@@ -200,6 +226,13 @@ fn transition_command(
 /// for single-file plans it equals `plan_path`).
 ///
 /// `plan_path` is the top-level plan path used in callback context.
+///
+/// `result_msg` is the message the caller carries into a `final: true` target.
+/// It is appended to the ticket's result file once the move succeeds, and
+/// satisfies the terminal-result obligation for a caller that knows the
+/// outcome; `None` leaves the obligation to a result already on disk.
+// §FS-rhei-states.3.3
+#[allow(clippy::too_many_arguments)]
 fn execute_transition(
     files: TransitionFiles<'_>,
     callback_paths: &CallbackPaths,
@@ -207,6 +240,7 @@ fn execute_transition(
     task_id_str: &str,
     from: &str,
     to: &str,
+    result_msg: Option<&str>,
     no_callbacks: bool,
 ) -> MietteResult<String> {
     execute_transition_with_origin(
@@ -217,20 +251,9 @@ fn execute_transition(
         from,
         to,
         no_callbacks,
-        TransitionOrigin::default(),
+        TransitionOrigin {
+            result_message: result_msg.map(str::to_string),
+            ..TransitionOrigin::default()
+        },
     )
-}
-
-/// Append the command-owned central audit entry for a state change that was
-/// already applied by the run orchestrator, into the owning rhei's runtime
-/// ledger, and finalize the task when the move lands in a terminal state.
-// §FS-rhei-run.3 §FS-rhei-complete.3.1: run owns the ledger entry.
-fn append_transition_audit_entry(
-    route: &TaskRoute,
-    machine: &rhei_validator::StateMachine,
-    task_id_str: &str,
-    from: &str,
-    to: &str,
-) -> MietteResult<()> {
-    record_transition_result(route, machine, task_id_str, from, to, None)
 }

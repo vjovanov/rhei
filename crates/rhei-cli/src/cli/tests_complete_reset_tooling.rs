@@ -1,3 +1,92 @@
+    /// Whitespace-only is no result: an existence-only contract would let an
+    /// empty file stand in for an answer. §FS-rhei-states.3.3
+    #[test]
+    fn a_result_file_counts_only_when_it_has_content() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+        let results = root.join("runtime").join("results");
+        fs::create_dir_all(&results).expect("results dir");
+
+        assert!(!task_result_is_present(root, "plan.1"), "no file at all");
+
+        fs::write(results.join("plan.1.md"), "").expect("write empty");
+        assert!(!task_result_is_present(root, "plan.1"), "an empty file is no result");
+
+        fs::write(results.join("plan.1.md"), "\n \t\n").expect("write blank");
+        assert!(!task_result_is_present(root, "plan.1"), "whitespace is no result");
+
+        fs::write(results.join("plan.1.md"), "## Result\n\nDone.\n").expect("write result");
+        assert!(task_result_is_present(root, "plan.1"), "content is a result");
+    }
+
+    /// The obligation is a property of the target state, satisfied by a message
+    /// the caller carried or by a result already on disk — and by nothing else.
+    // §FS-rhei-states.3.3 §FS-rhei-transition-cmd.3.2
+    #[test]
+    fn terminal_entry_requires_a_message_or_a_result_on_disk() {
+        let yaml = "name: t\nversion: 1\nstates:\n  pending:\n    description: p\n  completed:\n    description: c\n    final: true\ntransitions:\n  - from: pending\n    to: completed\n";
+        let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        let plan = root.join("plan.rhei.md");
+
+        // A non-terminal target never asks.
+        assert!(ensure_terminal_result_available(
+            &machine, root, "plan.1", "pending", "pending", None, &plan
+        )
+        .is_ok());
+
+        let err = ensure_terminal_result_available(
+            &machine,
+            root,
+            "plan.1",
+            "pending",
+            "completed",
+            None,
+            &plan,
+        )
+        .expect_err("a terminal entry with nothing to say is refused");
+        let rendered = format!("{err:?}");
+        assert!(rendered.contains("runtime/results/plan.1.md"), "{rendered}");
+        assert!(rendered.contains("--result"), "{rendered}");
+        // The suggested commands name the plan, so they run from anywhere.
+        // §FS-rhei-errors.2
+        assert!(rendered.contains("plan.rhei.md"), "{rendered}");
+
+        // A blank message is not a message.
+        assert!(ensure_terminal_result_available(
+            &machine,
+            root,
+            "plan.1",
+            "pending",
+            "completed",
+            Some("   "),
+            &plan
+        )
+        .is_err());
+
+        assert!(ensure_terminal_result_available(
+            &machine,
+            root,
+            "plan.1",
+            "pending",
+            "completed",
+            Some("Shipped it."),
+            &plan
+        )
+        .is_ok());
+
+        let results = root.join("runtime").join("results");
+        fs::create_dir_all(&results).expect("results dir");
+        fs::write(results.join("plan.1.md"), "## Result\n\nThe worker wrote this.\n")
+            .expect("write result");
+        assert!(ensure_terminal_result_available(
+            &machine, root, "plan.1", "pending", "completed", None, &plan
+        )
+        .is_ok());
+    }
+
     #[test]
     fn paths_equivalent_falls_back_for_nonexistent_relative_paths() {
         assert!(paths_equivalent(
@@ -270,8 +359,84 @@ transitions:
         assert!(err.to_string().contains("gating state"), "{err}");
     }
 
+    /// The gate block carries an optional result field, so the human who
+    /// releases a gate says why on the move. Left blank on a terminal choice,
+    /// the shared path refuses it and names the command that can carry the
+    /// reason; a non-terminal choice is unaffected either way.
+    // §FS-rhei-viz.5.1 §FS-rhei-run.3 §FS-rhei-states.3.3
     #[test]
-    fn dashboard_gate_transition_uses_transition_engine() {
+    fn dashboard_gate_transition_refuses_a_terminal_choice_with_no_result() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let plan = dir.path().join("plan.rhei.md");
+        let states = dir.path().join("states.yaml");
+        fs::write(
+            &plan,
+            "# Rhei: Gate\n\n## Tasks\n\n### Task 1: Review\n**State:** human-review\n\nReview.\n",
+        )
+        .expect("write plan");
+        let yaml = "name: test\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  rework:\n    description: back to work\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: human-review\n    to: rework\n  - from: human-review\n    to: completed\n";
+        fs::write(&states, yaml).expect("write states");
+        let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
+        let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
+
+        // The dashboard passes ids from the loaded graph, which implicit Panta
+        // qualifies with the rhei id derived from the plan file stem (`plan`).
+        let err = transition_dashboard_gate(
+            &plan,
+            &machine,
+            &callback_paths,
+            "plan.1",
+            "human-review",
+            "completed",
+            None,
+            true,
+        )
+        .expect_err("a terminal gate choice carries no result");
+        let rendered = format!("{err:?}");
+        assert!(rendered.contains("without a result"), "{rendered}");
+        assert!(rendered.contains("rhei transition"), "{rendered}");
+        let untouched = fs::read_to_string(&plan).expect("read plan");
+        assert!(untouched.contains("**State:** human-review"), "{untouched}");
+
+        // A whitespace-only field is the same as no field at all.
+        assert!(transition_dashboard_gate(
+            &plan,
+            &machine,
+            &callback_paths,
+            "plan.1",
+            "human-review",
+            "completed",
+            Some("   "),
+            true,
+        )
+        .is_err());
+
+        let effective = transition_dashboard_gate(
+            &plan,
+            &machine,
+            &callback_paths,
+            "plan.1",
+            "human-review",
+            "rework",
+            None,
+            true,
+        )
+        .expect("a non-terminal gate choice is unaffected");
+
+        assert_eq!(effective, "rework");
+        let updated = fs::read_to_string(&plan).expect("read plan");
+        assert!(updated.contains("**State:** rework"));
+        let history =
+            fs::read_to_string(dir.path().join("runtime/state-transitions.log")).expect("history");
+        assert!(history.contains("plan.1 human-review@rework"));
+    }
+
+    /// The gate's own result field finishes the ticket: the message rides the
+    /// transition, lands in the ticket's result file as a `## Result` entry, and
+    /// the everyday `agent → human-gate → completed` shape works from the UI.
+    // §FS-rhei-viz.5.1 §FS-rhei-states.3.3
+    #[test]
+    fn dashboard_gate_transition_carries_the_result_into_a_terminal_state() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
         let states = dir.path().join("states.yaml");
@@ -285,8 +450,6 @@ transitions:
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
         let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
 
-        // The dashboard passes ids from the loaded graph, which implicit Panta
-        // qualifies with the rhei id derived from the plan file stem (`plan`).
         let effective = transition_dashboard_gate(
             &plan,
             &machine,
@@ -294,16 +457,17 @@ transitions:
             "plan.1",
             "human-review",
             "completed",
+            Some("  Reviewed by hand; shipping it.  "),
             true,
         )
-        .expect("gate transition");
+        .expect("a terminal gate choice with a result is applied");
 
         assert_eq!(effective, "completed");
         let updated = fs::read_to_string(&plan).expect("read plan");
-        assert!(updated.contains("**State:** completed"));
-        let history =
-            fs::read_to_string(dir.path().join("runtime/state-transitions.log")).expect("history");
-        assert!(history.contains("plan.1 human-review@completed"));
+        assert!(updated.contains("**State:** completed"), "{updated}");
+        let result = fs::read_to_string(dir.path().join("runtime/results/plan.1.md"))
+            .expect("result file");
+        assert_eq!(result.trim(), "## Result\n\nReviewed by hand; shipping it.");
     }
 
     #[test]

@@ -60,6 +60,10 @@ mkdir -p "$runtime_root"
     "${RHEI_SNAPSHOT_PARENT_REF:-}"
 } >> "$runtime_root/fake-agent.log"
 
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nFake agent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+
 if [ -n "$session_dir" ]; then
   mkdir -p "$session_dir"
   session_id="${RHEI_TASK_ID}-${RHEI_STATE}-${RHEI_TARGET_SLUG:-target}"

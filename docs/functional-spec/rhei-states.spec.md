@@ -103,6 +103,10 @@ can start in different states within the same state machine.
 | `mcp_servers` | array | No | MCP servers attached to the agent subprocess for this state. Entries are ids from the `mcp_servers` settings registry or inline server definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#7-mcp-servers-and-skills). |
 | `skills` | array | No | Agent skills enabled for this state. Entries are ids from the `skills` settings registry or inline skill definitions. Individual entries may be marked `optional: true`. See [MCP Servers and Skills](#7-mcp-servers-and-skills). |
 
+There is deliberately no field for "this terminal state requires a written
+result". Every `final: true` state requires one, always, and the contract is
+implicit rather than declared: see [Terminal Result](#33-terminal-result).
+
 ### 1.3. Validation Rules
 
 - `profiles` must be present and non-empty. Each entry must declare `initial`
@@ -483,6 +487,136 @@ These are notes from previous `implement` state of this same task. They are cont
 
 <state handoff artifact>
 ```
+
+### 3.3. Terminal Result
+
+Every `final: true` state carries one artifact contract that is not declared in
+YAML and cannot be opted out of: **a task does not enter a terminal state
+without a non-empty result**. The result lives at the fixed, convention-derived
+path every other surface already uses (§FS-rhei-complete.3):
+
+```text
+runtime/results/<task-id>.md
+```
+
+resolved against the execution root of the rhei that owns the ticket
+(§FS-rhei-plan-language.3.10), keyed by the project-qualified id.
+
+**Why it has no per-state field.** A terminal state is where a ticket's story
+ends, and a plan whose finished tickets say nothing about why they finished is
+not an audit trail. That is true of every terminal state in every machine, so
+there is nothing for an author to decide and no `result: required` field to
+declare — a machine that could switch it off would only be able to make its own
+history worse. It is also not expressible as an ordinary `outputs:` entry:
+`outputs:` are checked when a state is **left**, and a terminal state is never
+left. The obligation is therefore on the **edge into** the state, enforced
+where a target state's `inputs:` are enforced.
+
+**When it is checked.** On the shared transition path, against the *effective*
+target — after `on_leave` and any `nextState` redirect resolve
+(§FS-rhei-transitions.3.2), at the same point the target state's `inputs:` are
+checked, and before the state write. A redirect therefore cannot smuggle a
+terminal entry past it, and a refused move leaves the plan untouched.
+
+**What satisfies it.** Either of:
+
+1. A `runtime/results/<task-id>.md` that already exists with content — written
+   by the worker in the state being left, or appended by an earlier
+   `rhei transition --result` on the same ticket.
+2. A result message carried by the caller through the transition
+   (`rhei complete --result`, `rhei transition --result`, or an engine-owned
+   failure route under `rhei run`). The message is appended in the existing
+   `## Result` entry format (§FS-rhei-complete.3.2) after the transition
+   succeeds.
+
+A file that exists but is only whitespace counts as **no result**, on the same
+reading §FS-rhei-states.3.2 applies to handoffs: an existence-only contract
+would otherwise let an empty file stand in for an answer.
+
+**A fanned-out state writes fragments, not the file.** A state that fans out
+(`all_targets`, `all_models` — §FS-rhei-transitions.4.2) runs several workers over
+one ticket, and each of them has its own account of what it did. One shared
+path would make them overwrite each other and let the first writer satisfy the
+obligation on everyone's behalf, so under fan-out each invocation is given a
+per-invocation **result fragment** instead:
+
+```text
+runtime/results/<task-id>/<state>/<visit_count>/<identity>.md
+```
+
+The key is the one the state's own per-invocation artifacts already use, in the
+same order (§FS-rhei-states.3.2): the state being worked, the visit of that
+state, and `<identity>` — the target slug for `all_targets`, the model id for
+`all_models`. All three carry weight. A fragment is one worker's account of one
+invocation of one state, and a ticket may fan out more than once: `review` then
+`refine` over the same targets, or a counted loop that re-enters `review`. Keyed
+by identity alone, every invocation after the first would find a fragment
+already on disk, satisfy its completion condition without writing anything, and
+hand the ticket a stale account under a state it never came from. `<visit_count>`
+alone does not separate them either — an uncounted state renders visit `1` on
+every entry — so the path carries both.
+
+The fragment path is what the invocation sees in its prompt and in
+`RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4), and the completion
+condition (§FS-rhei-agents.3.2) checks *that invocation's own* fragment, exactly
+as it checks that invocation's declared `outputs:`. Both sides resolve the path
+through the same rule, so the file a worker is told to write is the file the run
+looks for.
+
+**Merged once, when the last fragment lands.** An invocation that owes a
+fragment has not finished, so `rhei run` does not attempt the ticket's
+transition while any declared invocation of the state is still missing one — the
+same reason it does not attempt one while a declared `outputs:` artifact of a
+sibling invocation is missing. When the last fragment lands and the selected
+transition is a `final: true` state, `rhei run` merges the fragments — in
+declared invocation order, one `## Result — <identity>` entry each — into
+`runtime/results/<task-id>.md` **before** applying the transition, so the shared
+path sees one non-empty result carrying every worker's account.
+
+The merge is **idempotent**: the merged block is a deterministic function of the
+fragments, and a block the result file already carries is not appended a second
+time. A move refused *after* the merge — a target state whose `inputs:` are
+missing, say — therefore leaves the merged result on disk, and the next attempt
+over the same fragments adds nothing. Fragments that **changed** since are a new
+account and do append: entries accumulate, so a result the ticket collected on
+an earlier hop is kept, not replaced.
+
+The merge still refuses the move, naming the fragments that are missing, if one
+is absent when it runs. That is the rule declared `outputs:` already follow —
+they are checked across every invocation identity on the edge out
+(§FS-rhei-plan-language.3.10) — and here it is a backstop rather than the
+ordinary path: an invocation that wrote nothing fails its own completion
+condition first, and nobody reaches the merge.
+
+**A `program:` state is not fanned out.** `rhei run` spawns a program once per
+ticket whatever else the state declares, so a program state has one invocation,
+no identity, and writes `runtime/results/<task-id>.md` directly — the path
+`RHEI_RESULT_PATH` holds for it (§FS-rhei-programs.2). Asking a state that runs
+one process for one fragment per declared target would demand files nothing can
+write.
+
+Invocations that are not fanned out are unaffected: they write
+`runtime/results/<task-id>.md` directly.
+
+**Who supplies the message.** Whoever knows the outcome. A worker under
+`worker` authority (§FS-rhei-agents.3.1) supplies it on the command that
+finishes the ticket. A worker under `orchestrator` authority writes the file
+before it exits — the path is in its prompt and in `RHEI_RESULT_PATH`
+(§FS-rhei-agents.3, §FS-rhei-agents.4). The engine supplies the message only for
+outcomes the engine itself produced: a timeout it fired, tooling it could not
+start, an exit code it read, an edge it walked with no subprocess in the state
+(§FS-rhei-run.3). It never speaks for a worker that ran and never speaks for a
+human — where a worker ran, a missing result fails the completion condition;
+where a human decided, the human is **asked**: the human-gate surfaces carry an
+optional result field (§FS-rhei-viz.5.1, §FS-rhei-run-tui.1.5.5) so the operator
+who makes the call types the reason on the move that finishes the ticket. They
+carry it; they never invent it, so a gate release with no message and no result
+on disk is refused exactly as any other terminal move would be.
+
+**What it is not.** It is not a readiness rule. `rhei transition` deliberately
+skips `**Prior:**` readiness as the human escape hatch
+(§FS-rhei-transition-cmd.3), and keeps that; nothing about a deliberate
+out-of-order move argues for a free pass on writing down why.
 
 ## 4. Template Variables in Instructions and Personality
 

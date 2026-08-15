@@ -1002,6 +1002,228 @@ transitions:
         assert!(prompt.contains("POST /v1/session returns a token."), "{prompt}");
         assert!(prompt.contains("## Exports to Publish"), "{prompt}");
         assert!(prompt.contains("`runtime/exports/2/client-notes.md`"), "{prompt}");
+        // `review -> done` finishes the ticket, so the agent is told where the
+        // result goes — it never calls `rhei complete` itself.
+        // §FS-rhei-agents.3 §FS-rhei-states.3.3
+        assert!(prompt.contains("## Result"), "{prompt}");
+        assert!(prompt.contains("`runtime/results/2.md`"), "{prompt}");
+    }
+
+    /// The `## Result` section appears only where it applies: a state with no
+    /// declared edge into a `final: true` state cannot finish the ticket, so
+    /// naming the result path there would be noise.
+    // §FS-rhei-agents.3
+    #[test]
+    fn compose_agent_prompt_omits_the_result_section_when_the_state_cannot_finish() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Mid Flight
+
+## Tasks
+
+### Task 1: Implement
+**State:** implement
+"#,
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: mid-flight
+version: 1
+states:
+  implement:
+    description: implement
+    instructions: Implement it.
+    initial: true
+  review:
+    description: review
+  done:
+    description: done
+    final: true
+transitions:
+  - from: implement
+    to: review
+  - from: review
+    to: done
+"#,
+        )
+        .expect("machine should parse");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let task = &rhei.tasks[0];
+        let context = RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace.path(),
+            checkout_root: workspace.path(),
+            plan_path: workspace.path(),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "implement",
+            current_state_raw: "implement",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+        assert!(!prompt.contains("## Result"), "{prompt}");
+    }
+
+    /// A wildcard escape hatch does not make a state one that can finish the
+    /// ticket. Nearly every machine declares `* -> cancelled`, so counting it
+    /// put the `## Result` section on the first state of every workflow — and an
+    /// agent that writes a result three states early pre-satisfies the
+    /// obligation at the real terminal edge with a stale message. The gate
+    /// surfaces filter wildcards out of a gate's choices for the same reason.
+    // §FS-rhei-agents.3 §FS-rhei-states.3.3
+    #[test]
+    fn compose_agent_prompt_omits_the_result_section_for_a_wildcard_terminal_edge() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Wildcard Escape
+
+## Tasks
+
+### Task 1: Implement
+**State:** implement
+"#,
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: wildcard-escape
+version: 1
+states:
+  implement:
+    description: implement
+    instructions: Implement it.
+    initial: true
+  review:
+    description: review
+  done:
+    description: done
+    final: true
+  cancelled:
+    description: cancelled
+    final: true
+transitions:
+  - from: implement
+    to: review
+  - from: review
+    to: done
+  - from: "*"
+    to: cancelled
+"#,
+        )
+        .expect("machine should parse");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let task = &rhei.tasks[0];
+        let mut context = RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace.path(),
+            checkout_root: workspace.path(),
+            plan_path: workspace.path(),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "implement",
+            current_state_raw: "implement",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+        assert!(!prompt.contains("## Result"), "{prompt}");
+
+        // The state that really can finish it still gets the section.
+        context.state_name = "review";
+        context.current_state_raw = "review";
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+        assert!(prompt.contains("## Result"), "{prompt}");
+        assert!(prompt.contains("`runtime/results/1.md`"), "{prompt}");
+    }
+
+    /// A fanned-out invocation is shown its own fragment, which is what its
+    /// `RHEI_RESULT_PATH` holds: one shared path would let the last writer erase
+    /// its siblings. §FS-rhei-agents.3 §FS-rhei-states.3.3
+    #[test]
+    fn compose_agent_prompt_names_the_per_invocation_result_fragment_under_fanout() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Fanout Prompt
+
+## Tasks
+
+### Task 1: Review
+**State:** review
+"#,
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: fanout-prompt
+version: 1
+models:
+  - alpha
+  - beta
+states:
+  review:
+    description: review
+    instructions: Review it.
+    initial: true
+    all_models:
+      - alpha
+      - beta
+  done:
+    description: done
+    final: true
+transitions:
+  - from: review
+    to: done
+"#,
+        )
+        .expect("machine should parse");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let task = &rhei.tasks[0];
+        let context = RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace.path(),
+            checkout_root: workspace.path(),
+            plan_path: workspace.path(),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "review",
+            current_state_raw: "review",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: Some("alpha"),
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+        // State and visit key the fragment too, so a later fanned-out state
+        // cannot be answered with this one's account. §FS-rhei-states.3.3
+        assert!(prompt.contains("`runtime/results/1/review/1/alpha.md`"), "{prompt}");
+        assert!(!prompt.contains("`runtime/results/1.md`"), "{prompt}");
     }
 
     /// An export a prior task never wrote is skipped, not raised: enforcement

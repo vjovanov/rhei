@@ -87,6 +87,9 @@ transitions:
 "#;
     let script = r#"#!/usr/bin/env bash
 set -euo pipefail
+# §FS-rhei-states.3.3: exit 0 finishes the ticket, so record why first.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nExternal status is ready.\n' > "$RHEI_RESULT_PATH"
 if [ -f runtime/polled-once ]; then
   exit 0
 fi
@@ -238,7 +241,12 @@ version: 1
 states:
   waiting:
     description: Poll with successful condition-only transitions
-    program: "mkdir -p runtime && printf 'attempt\n' >> runtime/attempts.txt"
+    # §FS-rhei-states.3.3: the exhaustion edge is terminal, so the program —
+    # the worker here — records the outcome on every attempt.
+    program: >-
+      mkdir -p runtime "$(dirname "$RHEI_RESULT_PATH")"
+      && printf 'attempt\n' >> runtime/attempts.txt
+      && printf '## Result\n\nPolled without a verdict.\n' > "$RHEI_RESULT_PATH"
     poll:
       interval: 0s
       max_attempts: 3
@@ -389,7 +397,11 @@ version: 1
 states:
   build:
     description: Build artifact
-    program: "mkdir -p runtime && echo $RHEI_TASK_ID >> runtime/order.txt"
+    # §FS-rhei-states.3.3: exit 0 finishes the ticket, so record why.
+    program: >-
+      mkdir -p runtime "$(dirname "$RHEI_RESULT_PATH")"
+      && echo $RHEI_TASK_ID >> runtime/order.txt
+      && printf '## Result\n\nBuilt.\n' > "$RHEI_RESULT_PATH"
   completed:
     description: Done
     final: true

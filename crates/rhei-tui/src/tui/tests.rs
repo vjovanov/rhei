@@ -506,9 +506,31 @@ fn renders_every_view_and_overlay_without_panic() {
                 task: "1".into(),
                 slot: Some(0),
                 input: "hi".into(),
+                kind: super::state::ComposerKind::Intervene,
             });
         }
         s.gate_active = gate;
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| super::render::draw(f, &s)).unwrap();
+    }
+
+    // The gate composer in both flavours, so neither hint line — the one that
+    // warns a blank result will be refused and the one that does not — goes
+    // unrendered. §FS-rhei-run-tui.1.5.5
+    for terminal_target in [true, false] {
+        let mut s = state_with_plan();
+        s.select_task("2");
+        s.composer = Some(super::state::Composer {
+            task: "2".into(),
+            slot: None,
+            input: String::new(),
+            kind: super::state::ComposerKind::GateResult {
+                from: "human-gate".into(),
+                to: "completed".into(),
+                terminal: terminal_target,
+            },
+        });
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| super::render::draw(f, &s)).unwrap();
@@ -628,4 +650,121 @@ fn sanitizes_control_sequences_for_display() {
 fn truncates_with_ellipsis() {
     assert_eq!(truncate_chars("abcdef", 4), "abc…");
     assert_eq!(truncate_chars("abc", 4), "abc");
+}
+
+/// `(task, from, to, result)` for one submitted gate decision.
+type GateCall = (String, String, String, Option<String>);
+
+/// A stub gate sink recording exactly what the TUI submits.
+struct RecordingGate {
+    calls: Mutex<Vec<GateCall>>,
+    fail_reason: Option<String>,
+}
+
+impl crate::dashboard::GateTransitionSink for RecordingGate {
+    fn transition_gate(
+        &self,
+        task_id: &str,
+        from: &str,
+        to: &str,
+        result: Option<&str>,
+    ) -> Result<String, String> {
+        self.calls.lock().unwrap().push((
+            task_id.to_string(),
+            from.to_string(),
+            to.to_string(),
+            result.map(str::to_string),
+        ));
+        match &self.fail_reason {
+            Some(reason) => Err(reason.clone()),
+            None => Ok(to.to_string()),
+        }
+    }
+}
+
+fn state_with_gate(gate: Arc<RecordingGate>) -> UiState {
+    let mut state = UiState::with_context(
+        PathBuf::from("/ws"),
+        2,
+        2,
+        None,
+        None,
+        Some(gate as Arc<dyn crate::dashboard::GateTransitionSink>),
+    );
+    state.plan = demo_model();
+    state.refresh_plan();
+    state.select_task("2");
+    state
+}
+
+/// Picking a gate target opens the composer for the result message, and Enter
+/// submits the choice carrying whatever was typed. Without it the everyday
+/// `agent → human-gate → completed` shape could never be finished from the TUI:
+/// the server refuses a terminal release with nothing recorded.
+// §FS-rhei-run-tui.1.5.5 §FS-rhei-states.3.3
+#[test]
+fn gate_choice_collects_a_result_before_submitting() {
+    let gate = Arc::new(RecordingGate { calls: Mutex::new(Vec::new()), fail_reason: None });
+    let mut state = state_with_gate(gate.clone());
+
+    press(&mut state, KeyCode::Enter); // open the chooser
+    assert!(state.gate_active);
+    press(&mut state, KeyCode::Char('1')); // first explicit target
+    assert!(!state.gate_active, "the chooser closes once a target is picked");
+    let composer = state.composer.as_ref().expect("the choice opens the result composer");
+    match &composer.kind {
+        super::state::ComposerKind::GateResult { from, to, terminal } => {
+            assert_eq!(from, "human-review");
+            assert_eq!(to, "completed");
+            assert!(*terminal, "the composer knows a blank line will be refused here");
+        }
+        _ => panic!("expected a gate composer"),
+    }
+
+    for ch in "Reviewed.".chars() {
+        press(&mut state, KeyCode::Char(ch));
+    }
+    press(&mut state, KeyCode::Enter);
+    assert!(state.composer.is_none(), "submitting closes the composer");
+    assert_eq!(
+        gate.calls.lock().unwrap().as_slice(),
+        &[(
+            "2".to_string(),
+            "human-review".to_string(),
+            "completed".to_string(),
+            Some("Reviewed.".to_string())
+        )]
+    );
+}
+
+/// Enter on an empty composer submits with no message — the server decides
+/// whether this edge needs one, and its refusal is echoed in the journal like
+/// any other. Esc cancels the move entirely.
+// §FS-rhei-run-tui.1.5.5
+#[test]
+fn an_empty_gate_result_submits_with_no_message_and_esc_cancels() {
+    let gate = Arc::new(RecordingGate {
+        calls: Mutex::new(Vec::new()),
+        fail_reason: Some(
+            "Task 2 cannot enter terminal state 'completed' without a result.".into(),
+        ),
+    });
+    let mut state = state_with_gate(gate.clone());
+
+    press(&mut state, KeyCode::Enter);
+    press(&mut state, KeyCode::Char('1'));
+    press(&mut state, KeyCode::Enter);
+    assert_eq!(gate.calls.lock().unwrap().as_slice()[0].3, None, "blank sends no message");
+    assert!(
+        state.journal.iter().any(|entry| entry.text.contains("without a result")),
+        "the refusal reason reaches the journal"
+    );
+
+    // Esc from the composer abandons the move: nothing more is submitted.
+    press(&mut state, KeyCode::Enter);
+    press(&mut state, KeyCode::Char('1'));
+    assert!(state.composer.is_some());
+    press(&mut state, KeyCode::Esc);
+    assert!(state.composer.is_none());
+    assert_eq!(gate.calls.lock().unwrap().len(), 1, "Esc submits nothing");
 }

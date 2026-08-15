@@ -37,6 +37,7 @@
             0,
             recorder.clone(),
             None,
+            None,
         )
         .expect("fake agent runs");
 
@@ -231,6 +232,7 @@ done
             0,
             recorder,
             Some(&intervene),
+            None,
         )
         .expect("fake stdin agent runs");
 
@@ -306,6 +308,7 @@ done
             0,
             recorder.clone(),
             None,
+            None,
         )
         .expect("timeout returns process status");
 
@@ -370,6 +373,7 @@ done
             None,
             0,
             recorder,
+            None,
             None,
         )
         .expect("agent should complete without waiting for inherited pipe EOF");
@@ -706,6 +710,7 @@ done
             1,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|a| a.to_string_lossy().into_owned()).collect();

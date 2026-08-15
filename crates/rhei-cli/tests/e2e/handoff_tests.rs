@@ -109,6 +109,9 @@ if [ "$RHEI_STATE" = "implement" ]; then
 else
   printf '%s\n' "$prompt" > "$RHEI_ROOT/runtime/$RHEI_STATE-prompt.txt"
 fi
+# §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nFinished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
 
 /// The producing state's notes reach the successor's prompt, under a heading
@@ -191,6 +194,8 @@ if [ "$RHEI_STATE" = "implement" ]; then
     printf 'Real notes.\n' > "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID/implementation.md"
   fi
 fi
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nFinished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
 "#;
     write_fake_agent(&dir, "agent.sh", script);
 
@@ -288,11 +293,23 @@ fn cancelling_a_task_writes_and_links_its_result_file() {
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", TERMINAL_MACHINE);
 
-    let result = run_transition(&plan_path, &machine_path, "1", "pending", "cancelled");
+    let result = run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1",
+        "pending",
+        "cancelled",
+        "Abandoned: the feature was cut.",
+    );
     assert_success(&result);
 
     let result_file = dir.join("runtime/results/plan.1.md");
     assert!(result_file.exists(), "a terminal transition must leave a result artifact");
+    let recorded = fs::read_to_string(&result_file).expect("read result file");
+    assert!(
+        recorded.contains("Abandoned: the feature was cut."),
+        "cancellation records why, like any other terminal entry:\n{recorded}"
+    );
 
     let content = fs::read_to_string(&plan_path).expect("read plan");
     assert!(
@@ -375,8 +392,9 @@ transitions:
     let script = r#"#!/usr/bin/env bash
 set -euo pipefail
 prompt="$(cat)"
-mkdir -p "$RHEI_ROOT/runtime"
+mkdir -p "$RHEI_ROOT/runtime" "$(dirname "$RHEI_RESULT_PATH")"
 printf '%s\n' "$prompt" > "$RHEI_ROOT/runtime/$RHEI_STATE-prompt.txt"
+printf '## Result\n\nBuilt on the groundwork.\n' > "$RHEI_RESULT_PATH"
 "#;
     write_fake_agent(&dir, "agent.sh", script);
 

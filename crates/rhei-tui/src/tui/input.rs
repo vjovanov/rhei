@@ -7,7 +7,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use crate::event::MessageLevel;
 
 use super::derive::{inspector_sections, ChipAction};
-use super::state::{Composer, FlowFocus, UiState, View};
+use super::state::{Composer, ComposerKind, FlowFocus, UiState, View};
 
 /// What the render loop should do after a key event.
 pub(super) enum InputAction {
@@ -271,7 +271,12 @@ fn open_composer(state: &mut UiState) {
         );
         return;
     }
-    state.composer = Some(Composer { task: id, slot: Some(slot), input: String::new() });
+    state.composer = Some(Composer {
+        task: id,
+        slot: Some(slot),
+        input: String::new(),
+        kind: ComposerKind::Intervene,
+    });
 }
 
 fn handle_composer(state: &mut UiState, code: KeyCode) -> InputAction {
@@ -294,22 +299,41 @@ fn handle_composer(state: &mut UiState, code: KeyCode) -> InputAction {
                 return InputAction::Continue;
             };
             let message = composer.input.trim().to_string();
-            if message.is_empty() {
-                return InputAction::Continue;
-            }
-            let result = match &state.intervene {
-                Some(sink) => sink.deliver(Some(&composer.task), composer.slot, &message),
-                None => Err("intervene is not available".to_string()),
-            };
-            match result {
-                Ok(()) => state.push_journal(
-                    MessageLevel::Info,
-                    format!("⌨ intervene → {}: {message}", composer.task),
-                ),
-                Err(reason) => state.push_journal(
-                    MessageLevel::Warn,
-                    format!("intervene to {} failed: {reason}", composer.task),
-                ),
+            match &composer.kind {
+                ComposerKind::Intervene => {
+                    // Nothing to deliver: put the composer back rather than
+                    // sending an empty line to the agent.
+                    if message.is_empty() {
+                        state.composer = Some(composer);
+                        return InputAction::Continue;
+                    }
+                    let result = match &state.intervene {
+                        Some(sink) => sink.deliver(Some(&composer.task), composer.slot, &message),
+                        None => Err("intervene is not available".to_string()),
+                    };
+                    match result {
+                        Ok(()) => state.push_journal(
+                            MessageLevel::Info,
+                            format!("⌨ intervene → {}: {message}", composer.task),
+                        ),
+                        Err(reason) => state.push_journal(
+                            MessageLevel::Warn,
+                            format!("intervene to {} failed: {reason}", composer.task),
+                        ),
+                    }
+                }
+                // An empty line submits with no message: the server decides
+                // whether this edge needs one, and its refusal is echoed here.
+                // §FS-rhei-run-tui.1.5.5 §FS-rhei-states.3.3
+                ComposerKind::GateResult { from, to, .. } => {
+                    submit_gate_transition(
+                        state,
+                        &composer.task,
+                        from,
+                        to,
+                        (!message.is_empty()).then_some(message.as_str()),
+                    );
+                }
             }
         }
         _ => {}
@@ -317,8 +341,33 @@ fn handle_composer(state: &mut UiState, code: KeyCode) -> InputAction {
     InputAction::Continue
 }
 
-/// Submit a human-gate transition: the digit keys pick one of the gating
-/// state's explicit outgoing transitions. §FS-rhei-run-tui.1.5.5
+/// Send one gate decision and echo the outcome in the journal.
+/// §FS-rhei-run-tui.1.5.5
+fn submit_gate_transition(
+    state: &mut UiState,
+    task: &str,
+    from: &str,
+    to: &str,
+    result: Option<&str>,
+) {
+    let outcome = match &state.gate {
+        Some(sink) => sink.transition_gate(task, from, to, result),
+        None => Err("gate transitions are not available".to_string()),
+    };
+    match outcome {
+        Ok(effective) => {
+            state.push_journal(MessageLevel::Info, format!("⮞ gate {task}: {from}→{effective}"))
+        }
+        Err(reason) => state.push_journal(
+            MessageLevel::Warn,
+            format!("gate {task} {from}→{to} rejected: {reason}"),
+        ),
+    }
+}
+
+/// Pick a human-gate transition: the digit keys select one of the gating
+/// state's explicit outgoing transitions, then the composer collects the result
+/// message that rides the move. §FS-rhei-run-tui.1.5.5
 fn handle_gate(state: &mut UiState, code: KeyCode) -> InputAction {
     match code {
         KeyCode::Esc => {
@@ -336,20 +385,16 @@ fn handle_gate(state: &mut UiState, code: KeyCode) -> InputAction {
                 let Some(id) = state.selected.clone() else {
                     return InputAction::Continue;
                 };
-                let result = match &state.gate {
-                    Some(sink) => sink.transition_gate(&id, &from, &to),
-                    None => Err("gate transitions are not available".to_string()),
-                };
-                match result {
-                    Ok(effective) => state.push_journal(
-                        MessageLevel::Info,
-                        format!("⮞ gate {id}: {from}→{effective}"),
-                    ),
-                    Err(reason) => state.push_journal(
-                        MessageLevel::Warn,
-                        format!("gate {id} {from}→{to} rejected: {reason}"),
-                    ),
-                }
+                // A human finishing a ticket by hand is the case where the
+                // reason matters most, so the choice opens the composer instead
+                // of firing straight away. §FS-rhei-states.3.3
+                let terminal = state.machine_state(&to).map(|st| st.terminal).unwrap_or(false);
+                state.composer = Some(Composer {
+                    task: id,
+                    slot: None,
+                    input: String::new(),
+                    kind: ComposerKind::GateResult { from, to, terminal },
+                });
             }
             state.gate_active = false;
         }

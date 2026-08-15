@@ -212,7 +212,13 @@ impl RunGateTransitionSink {
 }
 
 impl rhei_tui::GateTransitionSink for RunGateTransitionSink {
-    fn transition_gate(&self, task_id: &str, from: &str, to: &str) -> Result<String, String> {
+    fn transition_gate(
+        &self,
+        task_id: &str,
+        from: &str,
+        to: &str,
+        result: Option<&str>,
+    ) -> Result<String, String> {
         // A gate decision lands on one ticket: its own machine and callback
         // base execute the human transition. §DA-per-rhei-state-machines
         transition_dashboard_gate(
@@ -222,6 +228,7 @@ impl rhei_tui::GateTransitionSink for RunGateTransitionSink {
             task_id,
             from,
             to,
+            result,
             self.no_callbacks,
         )
         .map_err(|err| err.to_string())
@@ -345,6 +352,7 @@ fn start_run_frontend(
     ActiveRunFrontend { sink, is_tui, dashboard, summary, intervene, _frontend: Some(frontend) }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn transition_dashboard_gate(
     input: &Path,
     machine: &rhei_validator::StateMachine,
@@ -352,6 +360,7 @@ fn transition_dashboard_gate(
     task_id_str: &str,
     from: &str,
     to: &str,
+    result: Option<&str>,
     no_callbacks: bool,
 ) -> MietteResult<String> {
     let loaded = load_plan(input)?;
@@ -404,8 +413,12 @@ fn transition_dashboard_gate(
         ));
     }
 
+    // The operator's account rides the move, as `transition --result` does; blank
+    // is none, and the shared path refuses a terminal release with none.
+    // §FS-rhei-viz.5.1 §FS-rhei-run.3 §FS-rhei-states.3.3
+    let result = result.map(str::trim).filter(|message| !message.is_empty());
     let route = loaded.task_route(task_id_str, input);
-    let effective_to = execute_transition(
+    execute_transition(
         TransitionFiles {
             task_file: &route.task_file,
             metadata_file: &route.metadata_file,
@@ -418,10 +431,9 @@ fn transition_dashboard_gate(
         &route.local_id,
         from,
         to,
+        result,
         no_callbacks,
-    )?;
-    record_transition_result(&route, machine, task_id_str, from, &effective_to, None)?;
-    Ok(effective_to)
+    )
 }
 
 /// Re-read the plan from disk and build the dashboard's [`VizModel`] via

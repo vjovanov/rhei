@@ -166,7 +166,7 @@ Paths resolve relative to the plan's execution root (the directory containing th
 1. One state per distinct workflow phase.
 2. Name states after the phase, not the team (`security-review`, not `security-team`).
 3. Never set `initial: true` on a state — initial lives on profiles.
-4. Mark at least one state `final: true`. Include both a success terminal and a cancellation terminal unless the workflow clearly needs only one.
+4. Mark at least one state `final: true`. Include both a success terminal and a cancellation terminal unless the workflow clearly needs only one. Every terminal state carries one artifact contract you do not declare: a task does not enter it without a non-empty `runtime/results/<task-id>.md`. Under `rhei run` the worker in the state before it writes that file — agents are told the path in their prompt, programs get `RHEI_RESULT_PATH` — so a `program:` state whose exit routes straight into a terminal state must write it, or the run stalls with the result reported as a missing output.
 5. Mark human gates `gating: true` and say in `instructions` that the state must not transition out autonomously. `rhei next` refuses to claim gating tasks; `rhei complete` refuses to exit them.
 6. Keep the machine proportional. Past roughly 15 states, consider splitting workflows.
 7. Use `visits` only when the workflow intentionally loops through the same state and should eventually escalate or take another exit. Visit 1 renders as the unsuffixed name; later visits render as `<name>-<n>`. (Never combine `visits` with `all_models`/`all_targets` — see the Worked Pattern gotcha.)

@@ -37,6 +37,7 @@
             1,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
@@ -77,6 +78,7 @@
             1,
             &tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
@@ -1070,6 +1072,7 @@ states:
             1,
             &gate.tooling,
             runtime_dir.path(),
+            None,
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -1116,6 +1119,7 @@ states:
             None,
             0,
             Arc::new(RecordingSink::default()),
+            None,
             None,
         )
         .expect("agent runs");

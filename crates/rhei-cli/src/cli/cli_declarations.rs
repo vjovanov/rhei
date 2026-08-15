@@ -292,6 +292,10 @@ enum Commands {
         /// Target state to transition to
         #[arg(long, add = ArgValueCompleter::new(complete_transition_to_state))]
         to: String,
+        /// Result message appended to `runtime/results/<task-id>.md`. Required
+        /// when `--to` is a final state and the ticket has no result yet
+        #[arg(long)]
+        result: Option<String>,
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
         no_callbacks: bool,

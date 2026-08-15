@@ -2,6 +2,124 @@
 
 ## Unreleased
 
+- Make the result obligation a property of the terminal state, not of `rhei
+  complete`. A task no longer enters a `final: true` state without a non-empty
+  `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the
+  same terminal edge behaved differently depending on the driver: `rhei
+  complete` demanded a `--result` message and wrote it, while `rhei
+  transition`, `rhei run`'s auto-advance, its failure routes, and a callback
+  `nextState` redirect all wrote an **empty** result file — so a plan finished
+  under `rhei run` had blank results where the same plan finished by hand had
+  rationales, and nothing recorded which was which. The obligation is now an
+  implicit required artifact of every terminal state, enforced on the shared
+  transition path against the *effective* target, at the same point the target
+  state's `inputs:` are enforced and before the state write, so a redirect
+  cannot smuggle a terminal entry past it. Whitespace-only counts as no result,
+  on the same reading state handoffs already use. There is deliberately no
+  `result: required` field: it is true of every terminal state in every
+  machine, and a machine that could switch it off could only make its own
+  history worse.
+
+  **`rhei transition` gains `--result <MSG>`**, accepted on any move and
+  required on a terminal one when the ticket has no result yet; a blank message
+  is rejected on both verbs. **`rhei complete` becomes sugar** — the
+  readiness-class checks it already owned, plus the one-hop terminal target it
+  infers, plus the shared transition carrying `--result`. The ledger line, the
+  result file, its link, and the dropped `**Assignee:**` moved onto the shared
+  path, so the same edge driven by `complete --result`, by `transition
+  --result`, or by `run` leaves an identical trail.
+
+  Under `rhei run`, a subprocess that exits `0` on an edge that finishes the
+  ticket without writing a result fails the completion condition exactly as a
+  missing required `outputs:` artifact does — no transition fires, and the
+  warning names the result path that was checked. Agents are told: the prompt
+  gains a `## Result` section naming the path whenever a transition *declared
+  from that state by name* can finish the ticket (a `* -> cancelled` wildcard
+  does not count, or the section would land on the first state of every
+  workflow), and every agent and program subprocess now gets
+  **`RHEI_RESULT_PATH`**. The engine supplies a message only for outcomes it
+  produced itself — a timeout it fired, tooling it could not start, an exit code
+  it read, or an edge it walked with no subprocess in the state (callback-only
+  advancement, which records plainly that *no worker result was recorded*). It
+  never speaks for a worker that ran, and never for a human — the human is
+  asked.
+
+  **Human gates carry a result.** Both live surfaces gained a field for it: the
+  browser dashboard's gate block has a single-line **Result** input, marked as
+  needed when the chosen target is terminal, and the TUI's digit choice now
+  opens the same one-line composer intervene uses. What is typed rides the move
+  exactly as `rhei transition --result` does; blank is none, and a terminal
+  release with neither a message nor a result on disk is refused with the
+  equivalent command named. Without this the everyday `agent → human-gate →
+  completed` shape could not be finished from either UI at all.
+
+  **A fanned-out state writes result fragments.** `all_targets` / `all_models`
+  run several workers over one ticket, and one shared result path let the last
+  writer erase every sibling's account while the first satisfied the obligation
+  for all of them. Each invocation is now given
+  `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md` — in its
+  prompt and in `RHEI_RESULT_PATH` — the completion condition checks *that
+  invocation's own* fragment, and `rhei run` merges the fragments into the
+  ticket's result, one attributed `## Result — <identity>` entry each, before
+  applying a transition that finishes it. The state and the visit are part of
+  the key because a ticket can fan out more than once: keyed by identity alone,
+  every invocation of a second fanned-out state would find the first state's
+  fragment already there, write nothing, pass its own completion condition, and
+  hand the ticket a stale account. The run waits for the last fragment before it
+  attempts the ticket's transition, so the merge happens once rather than once
+  per invocation that exits, and the merge is idempotent: a move refused after it
+  (a missing target `inputs:` artifact, say) leaves the merged result on disk and
+  the next attempt over the same fragments adds nothing. A `program:` state is
+  not fanned out however many targets it declares — `rhei run` spawns a program
+  once per ticket, so it writes the ticket-level result file, and asking it for
+  one fragment per target used to halt the run on files nothing could write.
+
+  **The run report names the missing artifact.** A ticket whose exit-0 worker
+  left required outputs unwritten — the terminal result included, under the
+  artifact name `result` — now reads `worker exited 0 without <name> (<path>)`
+  with "write these, or record the outcome with `rhei transition <plan> --task
+  <id> … --result`" as the next action, instead of "stalled in non-terminal
+  state <s> — inspect logs or mark the task cancelled". Programs count: a
+  program that exits `0` owing an artifact is a worker that stalled, and it now
+  reaches the report as one. The row names what the ticket owes only while it is
+  still sitting in the state it stalled in, so an earlier stall never explains a
+  later halt it had nothing to do with. A ticket the run never scheduled says
+  that, rather than borrowing the stalled reading.
+
+  **A stall no longer ends a sequential run.** With the default `--parallel 1`,
+  a worker that exited `0` owing an artifact broke out of the pass loop
+  entirely: the run stopped there, with or without `--continue-on-error`, so a
+  healthy ticket that had just advanced never got its next state and no second
+  pass happened. Both modes now agree — the stalled ticket steps out of the
+  pass, the run carries on with the other claimable tickets (including ones a
+  non-concurrent state had deferred behind it), and the run halts only when a
+  whole pass makes no progress. `--continue-on-error` governs non-zero exits and
+  never entered into this.
+
+  **Breaking:** a `rhei transition` or a `rhei run` that lands a ticket in a
+  terminal state now needs a result. Machines whose terminal edge is driven by
+  an agent or program need that worker to write `RHEI_RESULT_PATH`. Agents are
+  told in the prompt, so machines whose terminal edges are agent-driven need no
+  edit — that covers the bundled `analyze-and-dispatch`, `changeset-review`,
+  `hourly-human-intervention`, `spec-implementation`,
+  `spec-implementation-discrepancy-audit`, `spec-review` and
+  `parallel-worktrees` templates and their examples, plus `agora`,
+  `claude-code`, `multi-model-analysis`, `product-management`,
+  `review-fix-visits` and `snapshot-continuation`. **Program**-driven terminal
+  edges have no prompt and were updated here: the `ci-heal` probe
+  (`examples/ci-heal/.rhei/gh-ci-status.sh`) and the canonical UI fixture's
+  mocks (`.agents/rhei/templates/ui-test-canonical/bin/mock-program.sh` and
+  `bin/mock-agent.sh`, mirrored in `examples/ui-test-canonical-example/`), whose
+  `script-check -> completed` edge stalled every terminal ticket until they
+  wrote the file. The `parallel-worktrees` template's `integrate` state also
+  renamed its declared `result` artifact to `summary`
+  (`runtime/summaries/{task_id}-summary.md`): two different files called
+  "result" in one prompt is a trap, not a contract. Issue #74. PR #76
+  §FS-rhei-states.3.3 §FS-rhei-transition-cmd.3.2 §FS-rhei-complete.4
+  §FS-rhei-run.3 §FS-rhei-run-report.3.1 §FS-rhei-run-tui.1.5.5
+  §FS-rhei-agents.3 §FS-rhei-agents.3.2 §FS-rhei-agents.4 §FS-rhei-programs.2
+  §FS-rhei-plan-language.3.10 §FS-rhei-viz.5.1
+
 - Treat a non-leaf task as a task. It has its own state, its own journey, and
   its own result; nothing derives it from its children, and nothing stamps it
   terminal because they are. What used to be a leaf-only rule in `rhei next`

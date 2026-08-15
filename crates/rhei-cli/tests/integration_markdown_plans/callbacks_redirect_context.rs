@@ -31,8 +31,17 @@ transitions:
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
 
-    let result =
-        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+    // The redirect lands in `rejected`, which is `final: true`: the same result
+    // rule applies to the effective target as to the requested one.
+    // §FS-rhei-transition-cmd.3.2
+    let result = run_transition_with_flags(
+        &plan_path,
+        &machine_path,
+        "1",
+        "pending",
+        "in-progress",
+        &["--result", "Rejected by the callback."],
+    );
 
     assert!(
         result.status.success(),
@@ -206,8 +215,16 @@ transitions:
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
 
-    let result =
-        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+    // `in-progress` is `final: true` here, so the move carries its reason.
+    // §FS-rhei-states.3.3
+    let result = run_transition_with_flags(
+        &plan_path,
+        &machine_path,
+        "1",
+        "pending",
+        "in-progress",
+        &["--result", "Handed off to the callback."],
+    );
     assert!(
         result.status.success(),
         "transition should succeed\nstdout:\n{}\nstderr:\n{}",
@@ -263,8 +280,14 @@ transitions:
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
 
-    let result =
-        run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
+    let result = run_transition_with_flags(
+        &plan_path,
+        &machine_path,
+        "1",
+        "pending",
+        "in-progress",
+        &["--result", "Handed off to the callback."],
+    );
 
     assert!(!result.status.success(), "on_enter failure should fail the transition");
     let normalized = normalize_for_assertions(&result.stderr);

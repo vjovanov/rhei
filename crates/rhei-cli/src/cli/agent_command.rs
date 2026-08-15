@@ -65,6 +65,9 @@ fn build_agent_command(
     visit_count: u64,
     tooling: &ResolvedTooling,
     runtime_dir: &Path,
+    // Fan-out key of this invocation, when the state fans out: it decides which
+    // result file this subprocess is asked to write. §FS-rhei-states.3.3
+    result_identity: Option<&str>,
 ) -> std::process::Command {
     let profile = &resolved.profile;
     let id = resolved.agent.id();
@@ -158,6 +161,17 @@ fn build_agent_command(
         .env("RHEI_CHECKOUT_ROOT", checkout_root)
         .env("RHEI_TASK_ID", task_id)
         .env("RHEI_TASK_ID_LOCAL", rhei_local_id_str(task_id))
+        // Always set, so no subprocess assembles the one path a terminal state
+        // requires; under fan-out it names this invocation's own fragment.
+        // §FS-rhei-agents.4 §FS-rhei-states.3.3
+        .env(
+            "RHEI_RESULT_PATH",
+            absolute_invocation_result_file_path(
+                rhei_root,
+                task_id,
+                ResultInvocation { state: state_name, visit_count, identity: result_identity },
+            ),
+        )
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())
         .env("RHEI_AGENT", id);

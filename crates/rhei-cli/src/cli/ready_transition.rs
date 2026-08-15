@@ -353,6 +353,24 @@ enum HaltCause {
     ManualOnly { to: String },
     /// Non-terminal with no declared outgoing transition to take.
     NoTransition,
+    /// A worker ran, exited `0`, and left required artifacts unwritten, so the
+    /// completion condition refused to advance the ticket. `entries` are the
+    /// `name (path)` renderings the run already produced — the ticket's terminal
+    /// result appears among them under the name `result`.
+    ///
+    /// Distinct from `Stalled` because the remedy is concrete: write these
+    /// files, or record the outcome by hand. "Inspect logs or mark the task
+    /// cancelled" is advice for a halt nobody can name, and this one is named.
+    ///
+    /// `plan` is the plan argument as the operator would type it, carried here
+    /// so the suggested `rhei transition` runs from wherever they are reading
+    /// the report rather than only from the plan's own directory.
+    // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1 §FS-rhei-errors.2
+    MissingOutputs { entries: Vec<String>, plan: String },
+    /// The run never scheduled this ticket: nothing about it is known to have
+    /// failed, so it must not borrow the stalled reading.
+    // §FS-rhei-run-report.3.1
+    NotScheduled,
     /// None of the above — work was possible and the ticket is still here.
     Stalled,
 }
@@ -390,6 +408,24 @@ impl HaltCause {
                 format!("no forward transition available from '{state}'"),
                 "declare a transition out of this state, or cancel the ticket".to_string(),
             ),
+            // Name the files. The whole point of this cause is that the operator
+            // does not have to go read a log to learn which one is missing.
+            // §FS-rhei-run-report.3.1
+            HaltCause::MissingOutputs { entries, plan } => (
+                format!("worker exited 0 without {}", entries.join(", ")),
+                format!(
+                    "write the file(s) above and rerun, or record the outcome with \
+                     `rhei transition{} --task {id} --from {state} --to <state> --result …`",
+                    if plan.is_empty() { String::new() } else { format!(" {plan}") }
+                ),
+            ),
+            HaltCause::NotScheduled => (
+                format!("not scheduled before the run halted, still in '{state}'"),
+                format!(
+                    "rerun to pick it up; if it never starts, claim it with `rhei next` or check \
+                     the agent or program configured for '{state}'"
+                ),
+            ),
             HaltCause::Stalled => (
                 if state.is_empty() {
                     "no forward transition available".to_string()
@@ -404,7 +440,9 @@ impl HaltCause {
 
 /// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
 /// the run actually spawned work for, whose failure is the ordinary stalled
-/// case rather than a scheduling one.
+/// case rather than a scheduling one; `missing` carries the required artifacts
+/// its last exit-0 worker left unwritten, when the run recorded any.
+#[allow(clippy::too_many_arguments)]
 fn classify_halt(
     task: &rhei_core::ast::Task,
     rhei: &rhei_core::ast::Rhei,
@@ -412,6 +450,8 @@ fn classify_halt(
     state_map: &std::collections::HashMap<&TaskId, String>,
     scope: &RheiScope,
     worked: bool,
+    missing: Option<Vec<String>>,
+    plan_arg: &str,
 ) -> HaltCause {
     let machine = machines.for_task(&task.id);
     let state = normalized_state_name(task.state.as_str(), machine);
@@ -436,11 +476,20 @@ fn classify_halt(
         return HaltCause::ManualOnly { to };
     }
     if worked {
-        return HaltCause::Stalled;
+        // The run knows exactly what the worker did not write; say so instead
+        // of pointing at logs. §FS-rhei-run-report.3.1
+        return match missing {
+            Some(entries) if !entries.is_empty() => {
+                HaltCause::MissingOutputs { entries, plan: plan_arg.to_string() }
+            }
+            _ => HaltCause::Stalled,
+        };
     }
     match find_next_transition(task, rhei, machine) {
         Ok(None) => HaltCause::NoTransition,
-        _ => HaltCause::Stalled,
+        // Nothing ran against this ticket, so nothing about it stalled. It was
+        // simply never reached. §FS-rhei-run-report.3.1
+        _ => HaltCause::NotScheduled,
     }
 }
 
@@ -449,7 +498,8 @@ fn classify_halt(
 ///
 /// `worked` reports whether the run actually spawned an invocation for a
 /// ticket; those failed at their work rather than at scheduling, so they keep
-/// the generic stalled reading.
+/// the generic stalled reading unless `missing` names what the work left
+/// unwritten, which is a halt with a concrete remedy.
 // §FS-rhei-run-report.3.1: non-leaf tickets are classified alongside leaves, so
 // a parent nobody can advance is nameable as the reason a dependent is stuck.
 fn classify_halted_tasks<'a>(
@@ -457,6 +507,8 @@ fn classify_halted_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
     worked: &dyn Fn(&str) -> bool,
+    missing: &dyn Fn(&str, &str) -> Option<Vec<String>>,
+    plan_arg: &str,
 ) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
     let mut all = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all);
@@ -466,8 +518,21 @@ fn classify_halted_tasks<'a>(
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .map(|task| {
-            let cause =
-                classify_halt(task, rhei, machines, &state_map, scope, worked(&task.id.to_string()));
+            let id = task.id.to_string();
+            // `missing` is asked about the state the ticket is in now, so a
+            // stall it left behind two states ago cannot explain this halt.
+            // §FS-rhei-run-report.3.1
+            let state = normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
+            let cause = classify_halt(
+                task,
+                rhei,
+                machines,
+                &state_map,
+                scope,
+                worked(&id),
+                missing(&id, &state),
+                plan_arg,
+            );
             (task, cause)
         })
         .collect()
@@ -491,9 +556,17 @@ fn halted_task_report(
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
+    plan_path: &Path,
 ) -> (Vec<String>, bool) {
     let mut lines = Vec::new();
-    for (task, cause) in classify_halted_tasks(rhei, machines, scope, &|_| false) {
+    // Suggested commands carry the plan, so they run from wherever the operator
+    // is reading them. §FS-rhei-errors.2
+    let plan_arg = plan_arg_for_help(plan_path);
+    // Pre-launch diagnostics: no run has happened yet, so nothing worked and
+    // nothing is known missing. §FS-rhei-run.4
+    for (task, cause) in
+        classify_halted_tasks(rhei, machines, scope, &|_| false, &|_, _| None, &plan_arg)
+    {
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         let id = task.id.to_string();
@@ -991,6 +1064,41 @@ fn try_auto_advance_task(
     // Step 7: apply the selected transition, routed to the owning rhei.
     let route = loaded.task_route(task_id_str, input);
 
+    // A fanned-out state's fragments are folded here, before the shared path
+    // looks for the result, and only on an edge that finishes the ticket.
+    // §FS-rhei-states.3.3
+    if machine.states.get(&to_state).map(|def| def.terminal).unwrap_or(false) {
+        if let Some(state_def) = machine.states.get(current_state) {
+            let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+            let settings = load_merged_settings(&workspace_root)?;
+            let invocations = resolve_agent_invocations_for_task(
+                machine,
+                current_state,
+                &settings,
+                &default_run_options(),
+                Some(task),
+            )
+            .unwrap_or_default();
+            merge_fanout_result_fragments(
+                &route.execution_root,
+                task_id_str,
+                current_state,
+                render_visit_count(
+                    loaded.rhei.metadata.as_ref(),
+                    &task.id,
+                    current_state,
+                    task.state.as_str(),
+                    machine,
+                ),
+                state_def,
+                &invocations,
+            )?;
+        }
+    }
+
+    // No message: the subprocess that worked this state knows the outcome and
+    // writes `runtime/results/<task-id>.md` itself. A terminal edge with
+    // nothing written is caught by the completion condition. §FS-rhei-run.3
     let effective_to = execute_transition(
         TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
@@ -998,9 +1106,9 @@ fn try_auto_advance_task(
         &route.local_id,
         current_state,
         &to_state,
+        None,
         no_callbacks,
     )?;
-    append_transition_audit_entry(&route, machine, task_id_str, current_state, &effective_to)?;
 
     Ok(Some(effective_to))
 }

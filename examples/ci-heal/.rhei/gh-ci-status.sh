@@ -20,6 +20,17 @@ set -euo pipefail
 
 mkdir -p "$(dirname "$REPORT_PATH")"
 
+# `ci-watch` can route straight into `heal-done` (green) or `poll-gave-up`
+# (budget spent), and a `final: true` state is not entered without a result.
+# The program is the worker here, so it records the probe's verdict on every
+# attempt; whichever attempt ends the ticket, the reason is already written.
+# §FS-rhei-states.3.3 §FS-rhei-programs.2
+record_result() {
+  [[ -n "${RHEI_RESULT_PATH:-}" ]] || return 0
+  mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+  printf '## Result\n\n%s Report: `%s`.\n' "$1" "$REPORT_PATH" >"$RHEI_RESULT_PATH"
+}
+
 # Latest run on this branch. `gh run list` returns most recent first.
 run_json="$(gh run list \
   --branch "$BRANCH" \
@@ -31,6 +42,7 @@ if [[ "$(jq 'length' <<<"$run_json")" -eq 0 ]]; then
     '{branch: $branch, sha: null, jobs: [], note: "no runs found"}' \
     >"$REPORT_PATH"
   # No run yet — treat as still-pending so the poll loop keeps waiting.
+  record_result "No CI run found for \`$BRANCH\` within the poll budget."
   exit 75
 fi
 
@@ -51,10 +63,17 @@ jq -n \
 
 # Still running: queued | in_progress | waiting | requested | pending
 if [[ "$status" != "completed" ]]; then
+  record_result "CI on \`$BRANCH\` at \`$sha\` never returned a verdict (last status: $status)."
   exit 75
 fi
 
 case "$conclusion" in
-  success) exit 0 ;;
-  *)       exit 1 ;;  # failure, cancelled, timed_out, action_required, ...
+  success)
+    record_result "CI is green on \`$BRANCH\` at \`$sha\`."
+    exit 0
+    ;;
+  *)
+    record_result "CI failed on \`$BRANCH\` at \`$sha\` ($conclusion)."
+    exit 1  # failure, cancelled, timed_out, action_required, ...
+    ;;
 esac

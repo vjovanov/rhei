@@ -20,6 +20,12 @@ struct TaskActivity {
     last_duration_ms: u64,
     /// Direct accounting for usage reported against this task during the run.
     accounting: Option<rhei_tui::AccountingRunSummary>,
+    /// Required artifacts the last exit-0 worker left unwritten, rendered as
+    /// `name (path)`, paired with the state it left them in. The halt
+    /// classification uses them only while the ticket is still in that state,
+    /// and a fresh spawn clears them, so an old stall never explains a new one.
+    // §FS-rhei-run-report.3.1
+    missing_outputs: Option<(String, Vec<String>)>,
 }
 
 /// One spawned transition from the run event stream, rendered into the report's
@@ -119,9 +125,12 @@ impl rhei_tui::EventSink for SummarySink {
         };
         match event {
             // `agent` is `Some` for agent-backed work, `None` for programs.
-            rhei_tui::RunEvent::SlotAssigned { slot, agent, .. } => {
+            rhei_tui::RunEvent::SlotAssigned { slot, task, agent, .. } => {
                 let driver = if agent.is_some() { "agent" } else { "program" };
                 state.inflight.insert(slot, driver);
+                // A fresh attempt supersedes what the last one left unwritten.
+                // §FS-rhei-run-report.3.1
+                state.tasks.entry(task).or_default().missing_outputs = None;
             }
             rhei_tui::RunEvent::SlotReleased {
                 slot,
@@ -167,6 +176,13 @@ impl rhei_tui::EventSink for SummarySink {
                     state.tasks.entry(task).or_default().accounting = Some(accounting);
                 }
             }
+            // The classification needs the names, not the sentence; a later
+            // invocation replaces the list, so it is the last attempt's, and it
+            // is kept with the state it belongs to. §FS-rhei-run-report.3.1
+            rhei_tui::RunEvent::TaskOutputsMissing { task, state: stalled_in, entries } => {
+                state.tasks.entry(task).or_default().missing_outputs =
+                    Some((stalled_in, entries));
+            }
             rhei_tui::RunEvent::RunFinished { summary } => {
                 state.accounting = summary.accounting.clone().or_else(|| {
                     rhei_tui::summarize_usage_summaries(state.usages.iter())
@@ -194,7 +210,10 @@ fn emit_run_report(
     // A dry run is a side-effect-free preview: render the console summary but
     // never touch the durable report on disk. §FS-rhei-run-report.3.5
     let dry_run = stats.dry_run;
-    let mut report = RunSummaryReport::build(&loaded.rhei, machines, summary, stats);
+    // The commands the report suggests carry the plan, so they run from
+    // wherever the operator is reading it. §FS-rhei-errors.2
+    let plan_arg = plan_arg_for_help(input);
+    let mut report = RunSummaryReport::build(&loaded.rhei, machines, summary, stats, &plan_arg);
     // Write the durable report even when stdout is piped, so CI runs leave the
     // artifact; a dry run writes nothing, leaving `report_path` unset so no pointer
     // prints below. §FS-rhei-run-report.1 §FS-rhei-run-report.3.5
@@ -607,17 +626,33 @@ impl RunSummaryReport {
         machines: &rhei_validator::MachineSet,
         summary: &SummarySink,
         stats: RunStats,
+        plan_arg: &str,
     ) -> Self {
         let activity = summary.snapshot();
 
         // Why each halted ticket is halted, resolved once against the whole
         // plan. The table below needs the plan's priors and claims, which a
         // per-task walk cannot see. §FS-rhei-run-report.3.1
-        let halt_causes: HashMap<String, HaltCause> =
-            classify_halted_tasks(rhei, machines, &None, &|id| activity.contains_key(id))
-                .into_iter()
-                .map(|(task, cause)| (task.id.to_string(), cause))
-                .collect();
+        let halt_causes: HashMap<String, HaltCause> = classify_halted_tasks(
+            rhei,
+            machines,
+            &None,
+            &|id| activity.contains_key(id),
+            // §FS-rhei-run-report.3.1: what the ticket's last exit-0 worker
+            // left unwritten, captured live rather than re-read from prose, and
+            // only while the ticket still sits in the state it stalled in.
+            &|id, state| {
+                activity
+                    .get(id)
+                    .and_then(|entry| entry.missing_outputs.as_ref())
+                    .filter(|(stalled_in, entries)| stalled_in == state && !entries.is_empty())
+                    .map(|(_, entries)| entries.clone())
+            },
+            plan_arg,
+        )
+        .into_iter()
+        .map(|(task, cause)| (task.id.to_string(), cause))
+        .collect();
 
         // Source-order walk that preserves hierarchy depth.
         let mut rows = Vec::new();
@@ -1546,7 +1581,7 @@ mod run_summary_tests {
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), test_stats())
+        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), test_stats(), "plan.rhei.md")
     }
 
     /// `RunStats` with non-zero spawn counts and empty run metadata, for the
@@ -1663,6 +1698,7 @@ transitions:
             &rhei_validator::MachineSet::single(machine),
             &SummarySink::new(),
             test_stats(),
+            "plan.rhei.md",
         );
 
         assert_eq!(
@@ -1761,7 +1797,7 @@ transitions:
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), stats)
+        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), stats, "plan.rhei.md")
     }
 
     #[test]
@@ -1905,7 +1941,7 @@ transitions:
         let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
         md.push_str("### Task 1: Task 1\n**State:** completed\n\n");
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        let report = RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &summary, stats);
+        let report = RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &summary, stats, "plan.rhei.md");
         let md = report.render_markdown();
         // The spawned agent row and the synthesized callback advance both appear.
         assert!(md.contains("| 1 | build | review | agent |"), "{md}");

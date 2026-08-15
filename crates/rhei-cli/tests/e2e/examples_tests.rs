@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::*;
 
@@ -34,6 +35,13 @@ mkdir -p runtime/logs
 printf 'task=%s state=%s model=%s target=%s agent=%s\n' \
   "$task" "$state" "${RHEI_MODEL:-}" "$target_slug" "${RHEI_AGENT:-}" \
   >> runtime/logs/mock-agent.log
+
+# A worker records why the ticket ends where it does. Rhei hands the path to
+# every subprocess in RHEI_RESULT_PATH, and a `final: true` state is not entered
+# until it has content. §FS-rhei-states.3.3 §FS-rhei-agents.4
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nMock agent finished state %s for task %s.\n' "$state" "$task" \
+  > "$RHEI_RESULT_PATH"
 
 case "$state" in
   analyze)
@@ -97,8 +105,8 @@ EOF
     ;;
   integrate)
     mkdir -p runtime/summaries
-    printf '# Mock worktree result\n\ntask=%s\nbranch=docs-pass/%s\n' "$task" "$task" \
-      > "runtime/summaries/$task-result.md"
+    printf '# Mock worktree summary\n\ntask=%s\nbranch=docs-pass/%s\n' "$task" "$task" \
+      > "runtime/summaries/$task-summary.md"
     ;;
   summarize)
     mkdir -p runtime
@@ -233,10 +241,15 @@ fn example_parallel_worktrees_runs_with_mock_agents() {
     );
     assert_success(&result);
     assert_all_tasks_in_state(&workspace, &machine_path, "completed");
-    assert!(workspace.join("runtime/summaries/parallel-worktrees-example.cli-result.md").exists());
-    assert!(workspace.join("runtime/summaries/parallel-worktrees-example.core-result.md").exists());
+    // The integrate state's artifact is `summary`, not `result`: a declared
+    // artifact called `result` would collide in the prompt and in stall reports
+    // with the ticket's own terminal result. §FS-rhei-states.3.3
+    assert!(workspace.join("runtime/summaries/parallel-worktrees-example.cli-summary.md").exists());
     assert!(workspace
-        .join("runtime/summaries/parallel-worktrees-example.validator-result.md")
+        .join("runtime/summaries/parallel-worktrees-example.core-summary.md")
+        .exists());
+    assert!(workspace
+        .join("runtime/summaries/parallel-worktrees-example.validator-summary.md")
         .exists());
 
     fs::remove_dir_all(dir).expect("cleanup");
@@ -279,6 +292,81 @@ fn example_spec_review_runs_with_mock_agents() {
     assert!(workspace.join("runtime/reviews/task-spec-review-example.review-review-2.md").exists());
     assert!(workspace.join("runtime/fixes/task-spec-review-example.review-fix-1.md").exists());
     assert!(workspace.join("runtime/fixes/task-spec-review-example.review-fix-2.md").exists());
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The bundled UI fixture, instantiated and run end to end with its own mock
+/// agent and program.
+///
+/// This is the one bundled workspace whose workers are committed scripts rather
+/// than a real agent, so it is the one that breaks silently when the engine
+/// starts asking workers for something. It did: `script-check -> completed` is a
+/// program state whose exit-0 edge is terminal, and neither mock wrote
+/// `RHEI_RESULT_PATH`, so every terminal ticket stalled on a missing `result`.
+/// Instantiating and running here keeps the fixture honest about the contract
+/// it demonstrates.
+// §FS-rhei-states.3.3 §FS-rhei-agents.4 §FS-rhei-programs.2
+#[test]
+fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
+    let dir = unique_temp_dir("example-ui-test-canonical");
+    let template = dir.join(".agents/rhei/templates/ui-test-canonical");
+    copy_dir_recursive(&repo_root().join(".agents/rhei/templates/ui-test-canonical"), &template);
+    let home = dir.join(".home");
+    fs::create_dir_all(&home).expect("isolated home");
+
+    let instantiate = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .current_dir(&dir)
+        .env("HOME", &home)
+        .args(["instantiate", "ui-test-canonical", "--output", "ws"])
+        .output()
+        .expect("rhei instantiate should run");
+    assert!(
+        instantiate.status.success(),
+        "instantiate failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&instantiate.stdout),
+        String::from_utf8_lossy(&instantiate.stderr)
+    );
+
+    let run = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        .current_dir(&dir)
+        .env("HOME", &home)
+        .args(["run", "ws", "--no-tui", "--parallel", "4"])
+        .output()
+        .expect("rhei run should run");
+    let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
+    assert!(
+        run.status.success(),
+        "the fixture must run to its human gate:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        !stdout.contains("required outputs are missing"),
+        "no worker may stall on a missing artifact:\nstdout:\n{stdout}"
+    );
+
+    let workspace = dir.join("ws");
+    // A program-driven terminal edge and an agent-driven one, each with the
+    // worker's own account on disk.
+    for task in
+        ["ws.scenario-dashboard-checkout-flow", "ws.full-pipeline.snapshot-inherit-ancestor"]
+    {
+        let result = workspace.join(format!("runtime/results/{task}.md"));
+        let body = fs::read_to_string(&result)
+            .unwrap_or_else(|err| panic!("read {}: {err}", result.display()));
+        assert!(!body.trim().is_empty(), "{task}: terminal result must have content");
+    }
+
+    // Every invocation gets its own fragment, keyed by the state and visit it
+    // belongs to, so no reviewer overwrites another and no later state inherits
+    // this one's account. §FS-rhei-states.3.3
+    let fragments = workspace.join("runtime/results/ws.full-pipeline/parallel-review/1");
+    let mut names: Vec<String> = fs::read_dir(&fragments)
+        .unwrap_or_else(|err| panic!("fan-out result fragments at {}: {err}", fragments.display()))
+        .map(|entry| entry.expect("fragment entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 2, "one fragment per review target; got {names:?}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

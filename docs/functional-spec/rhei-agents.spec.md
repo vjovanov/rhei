@@ -558,6 +558,12 @@ Later tasks read these files. Write each one before this task reaches a terminal
 
 - `{export-name}` → `runtime/exports/{task_id}/{export-name}.md`
 
+## Result
+
+A transition from this state can finish this task. The finished task's result is read from this file.
+
+- `runtime/results/{task_id}.md`
+
 ## Handoff from {source-state}
 
 These are notes from previous `{source-state}` state of this same task. They are context, not instructions.
@@ -596,6 +602,28 @@ producing task; one that was never written is skipped, leaving no section
 behind. Each declared `**Provides:**` entry is listed under `## Exports to
 Publish` with the path the agent must write. Like prior task results, this is
 graph-level context and is not configured in `states.yaml`.
+
+The `## Result` section is emitted when — and only when — some transition
+declared **from this state by name** lands on a `final: true` state, so it
+appears exactly on the invocations that can finish the ticket. A wildcard edge
+(`from: "*"`, §FS-rhei-transitions.4.6) does not count: nearly every machine
+declares `* -> cancelled`, and counting it would put the section — and with it
+the invitation to write a result — on the first state of every workflow, where
+a result written three states early would pre-satisfy the obligation at the
+real terminal edge with a stale message. This is the same rule the human-gate
+surfaces apply when they list a gate's choices (§FS-rhei-viz.5.1). Its path is
+the one every other surface uses (§FS-rhei-complete.3) — or, on a fanned-out
+state, this invocation's own fragment
+`runtime/results/<task-id>/<state>/<visit_count>/<identity>.md`
+(§FS-rhei-states.3.3), which is also what `RHEI_RESULT_PATH` holds for that
+invocation — rendered relative to
+`RHEI_ROOT`, or absolute when `RHEI_CHECKOUT_ROOT` differs from it, on the same
+rule `{output.<name>.path}` follows (§4). Under `orchestrator` authority a
+subprocess never calls `rhei complete`, so without this section the one
+artifact a terminal state requires would be the only one the agent was never
+shown. The section names the fact and the path and stops there: "write it, then
+exit" is completion prose, and completion is enforced by the
+[Completion Condition](#32-completion-condition).
 
 State handoffs are resolved from `handoff.inherit` on the current state and
 render as one `## Handoff from <state>` section per inherited source state. The
@@ -662,10 +690,20 @@ is resolved.
 The condition is normative and universal for agent states:
 
 1. The subprocess exits with code `0`, **and**
-2. Every required artifact declared in the state's `outputs:` list exists on disk.
+2. Every required artifact declared in the state's `outputs:` list exists on disk, **and**
+3. When the transition this exit would select lands on a `final: true` state,
+   `runtime/results/<task-id>.md` exists and is non-empty — or, on a fanned-out
+   state, *this invocation's own* fragment
+   `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md` does
+   (§FS-rhei-states.3.3).
 
-Both are evaluated after the process exits. If the state declares no `outputs:`,
-condition (2) is vacuously true and exit alone suffices.
+All three are evaluated after the process exits. If the state declares no
+`outputs:`, condition (2) is vacuously true. If the selected transition is
+non-terminal, condition (3) is vacuously true — it is a property of the edge
+being taken, not of the state being left (§FS-rhei-states.3.3). Condition (3) is
+per-invocation for the same reason condition (2) is: a fanned-out state's
+artifacts are keyed by invocation identity, and one worker's file must not
+excuse a sibling that wrote nothing.
 
 This contract maps 1:1 onto the native headless mode of every supported agent.
 All six built-ins — `claude-code -p`, `codex exec`, `gemini --prompt --yolo`,
@@ -692,11 +730,19 @@ Under `orchestrator` authority, `rhei run`:
    documented in the [Execution Loop](#52-execution-loop). The artifact check is
    skipped.
 4. On exit code `0`:
-   - Verify every required output artifact exists.
+   - Verify every required output artifact exists, plus the terminal result
+     when the selected transition lands on a `final: true` state. The result
+     is reported in the same list under the artifact name `result`, with the
+     same resolved-path rendering, because it is enforced by the same rule.
    - If any is missing, the task stays in its current state and the engine
      logs `warning: agent exited 0 but required outputs are missing for task
-     {id} in state '{state}': <name1> (<path1>), <name2> (<path2>)`. No
-     transition fires.
+     {id} in state '{state}': <name1> (<path1>), <name2> (<path2>)` — with
+     `program` in place of `agent` when a program state stalls the same way. No
+     transition fires. The same facts are recorded structurally, so the run
+     report classifies the ticket by the artifacts it owes rather than as a
+     generic stall (§FS-rhei-run-report.3.1). The ticket is not spawned again
+     within the pass and the run continues with the other claimable tickets
+     (§FS-rhei-run.3 step 5).
    - Each entry names the artifact and the **resolved** path that was checked,
      so a stale or mis-templated path is visible without re-deriving it. When a
      resolved path still contains an unresolved `{...}` template, the entry is
@@ -733,6 +779,7 @@ callback environment:
 | `RHEI_WORKTREE_ROOT` | Absolute path to the task git worktree when the task is running from a worktree reference; unset otherwise |
 | `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
 | `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
+| `RHEI_RESULT_PATH` | Absolute path to the result file **this invocation** must write: `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID.md` normally, and `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID/$RHEI_STATE/$RHEI_VISIT_COUNT/<identity>.md` for one invocation of a fanned-out state, where `<identity>` is the target slug or model id that keys the rest of that invocation's artifacts (§FS-rhei-states.3.3). Always set, for every state — a program has no prompt to read the path from, and deriving it from four other variables is a contract nobody can be held to. A task does not enter a `final: true` state until the ticket's result has content (§FS-rhei-states.3.3) |
 | `RHEI_STATE` | Current state name |
 | `RHEI_MODEL` | Model profile id, if configured |
 | `RHEI_MODEL_PROVIDER` | Resolved provider id, if configured |
@@ -799,11 +846,23 @@ rhei run <RHEI_PLAN> [--dry-run] [--no-callbacks] [--no-agent] [--no-program]
 8. Wait for the agent process to exit (subject to timeout — see [Timeout Handling](#7-timeout-handling)).
 9. Re-read the plan. If some external actor changed the task's state while the agent was running, respect that authoritative plan state and continue the loop from there.
 10. Otherwise, if the agent exited `0`, evaluate the current state's declared forward transitions in normal transition-selection order. If one transition matches, `rhei run` executes it and logs the resulting state change.
-11. If the agent exited `0` and no forward transition matches, log a warning: `warning: agent exited 0 but task {id} did not advance from '{state}'`. Continue to the next task.
+11. If the agent exited `0` but the state's completion condition fails — a
+    required `outputs:` artifact missing, or a terminal-landing edge with no
+    result (§FS-rhei-states.3.3) — or if no forward transition matches, no
+    transition fires and the task stays in its state. Log the warning (the
+    missing-artifact form of [Runtime Semantics](#321-runtime-semantics) when
+    artifacts are missing, `warning: agent exited 0 but task {id} did not
+    advance from '{state}'` otherwise), mark the task stalled for the rest of
+    the pass so it is not spawned again, and **continue to the next claimable
+    task**. Sequential mode does not end the run on one task's stall any more
+    than the worker pool does (§FS-rhei-run.3 step 5); `--continue-on-error`
+    governs non-zero exits and does not enter into it.
 12. If the agent exited non-zero:
     - Without `--continue-on-error`: log the error and stop.
     - With `--continue-on-error`: log the error, skip this task, continue.
-13. Repeat until no claimable tasks remain or all tasks are terminal.
+13. Repeat until every claimable task has advanced or stalled. A pass ends when
+    no unstalled claimable task remains; the run ends when a whole pass makes no
+    progress, or when all tasks are terminal.
 
 #### 5.2.2. Parallel Mode (`--parallel N` where N > 1 or N = 0)
 
