@@ -400,14 +400,6 @@ impl HaltCause {
             ),
         }
     }
-
-    /// Whether this cause is a deliberate pause rather than something wrong.
-    /// A gate is the plan working as authored; the rest need a human to act.
-    // §FS-rhei-run-report.3.1: a parent waiting on its own subtree is the
-    // eligibility rule working — the descendants answer for themselves.
-    fn is_deliberate_pause(&self) -> bool {
-        matches!(self, HaltCause::Gate | HaltCause::WaitingOnDescendants { .. })
-    }
 }
 
 /// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
@@ -485,24 +477,30 @@ fn classify_halted_tasks<'a>(
 /// plus whether any of them needs a human to act — which is what makes a run,
 /// real or dry, end non-zero. The caller emits the lines through its own run
 /// journal.
-// §FS-rhei-run.4
+///
+/// The lines and the verdict answer different questions. A line explains one
+/// ticket from its own vantage point; the verdict asks whether the plan as a
+/// whole is waiting on a human decision, which only the walk over subtrees and
+/// priors can answer. Reading the verdict off the per-ticket causes instead was
+/// a second judgment, and it disagreed with the real run's: a `BlockedByPrior`
+/// whose chain ends in a gate is no pause by variant, so a dry run exited one
+/// on a plan the run itself exits zero on.
+// §FS-rhei-run.4 §FS-rhei-run-report.3.1: the live halt message and `--dry-run`
+// must not disagree, so both derive from `remaining_work_is_only_gating_or_poll_blocked`.
 fn halted_task_report(
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
 ) -> (Vec<String>, bool) {
     let mut lines = Vec::new();
-    let mut needs_human = false;
     for (task, cause) in classify_halted_tasks(rhei, machines, scope, &|_| false) {
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         let id = task.id.to_string();
         let (reason, next) = cause.describe(&id, &state);
         lines.push(format!("Task {id} ({state}): {reason} \u{2014} {next}"));
-        if !cause.is_deliberate_pause() {
-            needs_human = true;
-        }
     }
+    let needs_human = !remaining_work_is_only_gating_or_poll_blocked(rhei, machines, scope);
     (lines, needs_human)
 }
 

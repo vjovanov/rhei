@@ -1371,5 +1371,72 @@ fn run_leaves_a_dependent_of_a_gate_held_parent_alone() {
         "the dependent must name the parent it waits on; got:\n{combined}"
     );
 
+    // The prediction and the outcome are one judgment: a dry run that exits
+    // non-zero where the real run exits zero is not a prediction.
+    // §FS-rhei-run-report.3.1
+    let dry =
+        run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui", "--dry-run"]);
+    assert_success(&dry);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// One gate, two siblings: the second child's `**Prior:**` is the first, which
+/// is the gated one. Every open ticket in the plan traces back to the same
+/// human decision, so the run exits zero and leaves the plan untouched.
+///
+/// The verdict must not depend on which child the walk reaches first. Sharing
+/// one visited set between the descendant walk and the prior walk made it: the
+/// gate was consumed by the parent's descendant loop, so the sibling's prior
+/// walk saw an already-visited node, scored it as no reason to wait, and the
+/// whole branch read as stuck.
+// §FS-rhei-run.3 §FS-rhei-plan-language.3 §FS-rhei-run-report.3.1
+#[test]
+fn run_leaves_a_sibling_of_a_gated_sibling_alone() {
+    let plan = r#"# Rhei: Gated Sibling
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Gated subtask
+**State:** gate
+
+#### Task 1.2: Waits on the gated subtask
+**State:** draft
+**Prior:** Task 1.1
+"#;
+    let dir = unique_temp_dir("run-gated-sibling");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", PARENT_GATE_MACHINE);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert_success(&result);
+
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+    let content = fs::read_to_string(&plan_path).expect("read plan after run");
+    assert!(
+        content.contains("#### Task 1.1: Gated subtask\n**State:** gate"),
+        "the gated descendant must be untouched; got:\n{content}"
+    );
+    assert!(
+        content.contains("#### Task 1.2: Waits on the gated subtask\n**State:** draft"),
+        "the sibling must be untouched; got:\n{content}"
+    );
+    assert!(
+        combined.contains("Task plan.1 (draft): waiting on open descendant Task plan.1.1 (gate)"),
+        "the parent must name the descendants holding it; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Task plan.1.2 (draft): waiting on Task plan.1.1"),
+        "the sibling must name the gated ticket it waits on; got:\n{combined}"
+    );
+
+    let dry =
+        run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui", "--dry-run"]);
+    assert_success(&dry);
+
     fs::remove_dir_all(dir).expect("cleanup");
 }
