@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Treat a non-leaf task as a task. It has its own state, its own journey, and
+  its own result; nothing derives it from its children, and nothing stamps it
+  terminal because they are. What used to be a leaf-only rule in `rhei next`
+  and no rule at all in `rhei run` is now one eligibility rule both share: a
+  non-leaf task is workable once all of its descendants are terminal, and then
+  it is claimed, scheduled, and listed like any other ticket. A parent whose
+  children all finished used to sit `pending` forever with no command able to
+  move it — `rhei next` refused it outright, saying "a parent task advances
+  when its children do", which described a cascade that does not exist — so
+  every ticket listing it as `**Prior:**` stayed blocked and the plan read as
+  stalled. It is now simply the next claimable ticket, mid-plan, as soon as its
+  own subtree closes. `rhei next --task` on a parent refuses only while
+  descendants are open, and names them and what is claimable instead. This
+  narrows `rhei run`: a parent with an agent state is no longer spawned beside
+  its children, but after them. The single parent↔child invariant moves onto
+  the shared transition path beside compare-and-swap and artifact enforcement,
+  so entering a `final: true` state with a non-terminal descendant is now
+  rejected whichever verb drove it — `transition`, `complete`, `run`'s
+  auto-advance, a callback redirect — instead of only `rhei complete`, which
+  was the one command that checked and therefore the only one that could not
+  leave behind a plan failing its own `rhei validate`. `rhei complete` stops
+  holding a private copy of the rule. Issue #71.
+  §FS-rhei-plan-language.3 §FS-rhei-next.3 §FS-rhei-next.3.4
+  §FS-rhei-transition-cmd.3.1 §FS-rhei-run.3
+
 - Move `grund.toml` to the repository root. `grund` probes a bare root
   `grund.toml` before `.agents/grund.toml`, so the config now sits with the
   other top-level project config instead of being hidden a directory down.
