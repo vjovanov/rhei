@@ -506,23 +506,19 @@ fn next_command(
                 current_state_raw
             )
         })?;
-        let effective_to = execute_transition(
+        // This hop is gated on `initial_state_has_non_terminal_forward_transition`
+        // above, so it never lands on a `final: true` state and never needs to
+        // carry a result. §FS-rhei-next.3
+        execute_transition(
             TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: &task_id_str },
             callback_paths,
             machine,
             &route.local_id,
             &current_state,
             &to_state,
+            None,
             no_callbacks,
-        )?;
-        append_transition_audit_entry(
-            &route,
-            machine,
-            &task_id_str,
-            &current_state,
-            &effective_to,
-        )?;
-        effective_to
+        )?
     } else {
         current_state.clone()
     };

@@ -353,6 +353,45 @@ fn render_declared_exports(render_context: &RuntimeTemplateContext<'_>) -> Strin
     out
 }
 
+/// Tell the agent where the task's result goes, on the invocations that can
+/// finish the ticket.
+///
+/// Under `orchestrator` authority the subprocess never calls `rhei complete`,
+/// so without this the one artifact a `final: true` state requires would be the
+/// only one the agent was never shown. The section names the fact and the path
+/// and stops there — "write it, then exit" is completion prose, and completion
+/// is enforced by the completion condition, not by prompt wording.
+// §FS-rhei-agents.3 §FS-rhei-states.3.3
+fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String {
+    let can_finish = render_context.machine.transitions().iter().any(|rule| {
+        (rule.from.0 == render_context.state_name || rule.from.0 == "*")
+            && render_context
+                .machine
+                .states
+                .get(&rule.to.0)
+                .map(|def| def.terminal)
+                .unwrap_or(false)
+    });
+    if !can_finish {
+        return String::new();
+    }
+    let task_id = render_context.task.id.to_string();
+    let relative = format!("runtime/results/{task_id}.md");
+    // Same rule declared artifacts follow: relative under the artifact root,
+    // absolute when the agent's cwd is somewhere else entirely.
+    // §FS-rhei-agents.4
+    let shown = if render_context.checkout_root == render_context.workspace_root {
+        relative
+    } else {
+        result_file_path(render_context.workspace_root, &task_id).display().to_string()
+    };
+    format!(
+        "\n## Result\n\n\
+         A transition from this state can finish this task. The finished task's result is read \
+         from this file.\n\n- `{shown}`\n"
+    )
+}
+
 /// Render the exports this task consumes from prior tasks.
 ///
 /// A missing or empty export is skipped rather than raised: enforcement is a
@@ -679,6 +718,7 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> MietteRe
     prompt.push_str(&render_prior_task_results(render_context)?);
     prompt.push_str(&render_consumed_exports(render_context)?);
     prompt.push_str(&render_declared_exports(render_context));
+    prompt.push_str(&render_terminal_result(render_context));
     for section in resolve_state_handoff_sections(render_context)? {
         prompt.push_str(&format!(
             "\n## Handoff from {}\n\n\

@@ -420,27 +420,30 @@ fn append_state_transition_log_entry(
 /// Record one applied transition: history for every move, plus the terminal
 /// result finalization when the destination is `final: true`.
 ///
-/// Finalization is the same work `rhei complete` performs by hand — the result
-/// file exists, the assignee is dropped, and the task body links the result —
-/// so cancellation, failure, timeout, and custom terminal states leave the same
-/// artifacts behind as a successful completion.
+/// Finalization used to be `rhei complete`'s own epilogue. It is a property of
+/// entering a terminal state, so it lives on the shared transition path and is
+/// the only implementation: cancellation, failure, timeout, a callback
+/// redirect, and a successful completion leave the same artifacts behind, and
+/// no caller can apply a transition and skip them.
 // §FS-rhei-complete.3: every terminal path writes the result artifacts.
+#[allow(clippy::too_many_arguments)]
 fn record_transition_result(
-    route: &TaskRoute,
+    artifact_root: &Path,
+    task_file: &Path,
+    local_id: &str,
     machine: &rhei_validator::StateMachine,
     task_id: &str,
     from: &str,
     to: &str,
     message: Option<&str>,
 ) -> MietteResult<()> {
-    let root = &route.execution_root;
-    append_result_entry(root, task_id, from, to, message)?;
+    append_result_entry(artifact_root, task_id, from, to, message)?;
     if is_terminal_state(to, machine) {
-        // A message already created the file; a message-free terminal move must
-        // not link a path that does not exist.
-        ensure_result_file(root, task_id)?;
+        // A message already created the file; a terminal move satisfied by an
+        // existing result must not link a path that does not exist.
+        ensure_result_file(artifact_root, task_id)?;
         let result_link = format!("runtime/results/{}.md", task_id);
-        rewrite_task_completion(&route.task_file, &route.local_id, task_id, &result_link, true)?;
+        rewrite_task_completion(task_file, local_id, task_id, &result_link, true)?;
     }
     Ok(())
 }

@@ -991,6 +991,7 @@ fn release_parallel_worker(
 #[allow(clippy::too_many_arguments)]
 fn refill_parallel_worker_pool(
     unpromptable: &mut HashSet<String>,
+    stalled: &HashSet<String>,
     pass: u32,
     task_limit: usize,
     tx: &std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
@@ -1022,7 +1023,7 @@ fn refill_parallel_worker_pool(
     let reloaded = load_plan(input)?;
     let active_task_ids = active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
     let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
-    let (program_items, program_deferred) = collect_ready_program_work_items(
+    let (mut program_items, program_deferred) = collect_ready_program_work_items(
         &reloaded,
         machines,
         settings,
@@ -1031,6 +1032,10 @@ fn refill_parallel_worker_pool(
         &active_task_ids,
         &active_nonconcurrent_states,
     )?;
+    // A ticket whose worker finished this pass without moving it is still
+    // "ready", so refilling from the ready set alone re-spawns it forever.
+    // §FS-rhei-run.3
+    program_items.retain(|item| !stalled.contains(&item.task_id_str));
     if !program_deferred.is_empty() {
         emit_run_message(
             sink,
@@ -1072,7 +1077,7 @@ fn refill_parallel_worker_pool(
     let reloaded = load_plan(input)?;
     let active_task_ids = active_invocation_counts.keys().cloned().collect::<HashSet<_>>();
     let active_nonconcurrent_states = active_state_counts.keys().cloned().collect::<HashSet<_>>();
-    let (agent_items, agent_deferred) = collect_ready_agent_work_items(
+    let (mut agent_items, agent_deferred) = collect_ready_agent_work_items(
         &reloaded,
         machines,
         settings,
@@ -1081,6 +1086,7 @@ fn refill_parallel_worker_pool(
         &active_task_ids,
         &active_nonconcurrent_states,
     )?;
+    agent_items.retain(|item| !stalled.contains(&item.task_id_str));
     if !agent_deferred.is_empty() {
         emit_run_message(
             sink,
@@ -1253,10 +1259,12 @@ fn handle_parallel_program_completion(
                 if exit_code == 0 && to_state != state_name {
                     let missing_required_outputs = collect_missing_required_outputs(
                         workspace_root,
+                        &reloaded.task_root(&task_id_str, workspace_root),
                         machine,
                         reloaded.rhei.metadata.as_ref(),
                         task,
                         &state_name,
+                        Some(to_state.as_str()),
                     );
                     if !missing_required_outputs.is_empty() {
                         emit_run_message(
@@ -1497,6 +1505,10 @@ fn run_agent_mode(
     // would never reach their siblings.
     // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
     let mut unpromptable_tasks: HashSet<String> = HashSet::new();
+    // Tickets whose worker completed in this pass without moving them: the
+    // pool refills from the live ready set and would re-spawn them at once.
+    // §FS-rhei-run.3
+    let mut stalled_tasks: HashSet<String> = HashSet::new();
     // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
     let rhei_scope = rhei_scope_set(opts.rhei_scope());
     if rhei_scope.is_some() {
@@ -1778,7 +1790,10 @@ fn run_agent_mode(
             let task_ids_before: BTreeSet<String> =
                 loaded.rhei.tasks.iter().map(|existing| existing.id.to_string()).collect();
             let route = loaded.task_route(task_id_str, input);
-            match execute_transition(
+            // Callback-only advancement: no subprocess ran here, so a terminal
+            // edge records the engine's own account unless a callback already
+            // wrote a result, which wins. §FS-rhei-run.3
+            match execute_callback_only_transition(
                 TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
                 callback_paths,
                 machine,
@@ -1788,13 +1803,6 @@ fn run_agent_mode(
                 opts.no_callbacks(),
             ) {
                 Ok(effective_to) => {
-                    append_transition_audit_entry(
-                        &route,
-                        machine,
-                        task_id_str,
-                        current_state,
-                        &effective_to,
-                    )?;
                     run_info!(
                         "Task {} transitioned: '{}' \u{2192} '{}'",
                         task_id_str,
@@ -2043,10 +2051,12 @@ fn run_agent_mode(
                             if exit_code == 0 && to_state != *current_state {
                                 let missing_required_outputs = collect_missing_required_outputs(
                                     &workspace_root,
+                                    &reloaded.task_root(task_id_str, &workspace_root),
                                     machine,
                                     reloaded.rhei.metadata.as_ref(),
                                     task_after.unwrap_or(task),
                                     current_state,
+                                    Some(to_state.as_str()),
                                 );
                                 if !missing_required_outputs.is_empty() {
                                     run_warn!(
@@ -2090,13 +2100,6 @@ fn run_agent_mode(
                                 &to_state,
                                 exit_code,
                                 opts.no_callbacks(),
-                            )?;
-                            append_transition_audit_entry(
-                                &route,
-                                machine,
-                                task_id_str,
-                                current_state,
-                                &effective_to,
                             )?;
                             run_info!(
                                 "  Task {} advanced: '{}' -> '{}'",
@@ -2519,6 +2522,11 @@ fn run_agent_mode(
                             "state '{}' missing from loaded machine", current_state
                         )
                     })?;
+                    // §FS-rhei-agents.3.2: the completion condition is exit 0 +
+                    // declared outputs + the terminal result when the edge this
+                    // exit selects lands on a `final: true` state.
+                    let selected_to =
+                        selected_forward_transition(&loaded.rhei, machine, task);
                     let outputs_ok = status.success()
                         && state_outputs_exist_for_resolved_invocation(
                             &workspace_root,
@@ -2529,14 +2537,23 @@ fn run_agent_mode(
                             loaded.rhei.metadata.as_ref(),
                             state_def,
                             resolved,
-                        );
+                        )
+                        && missing_terminal_result_output(
+                            &task_workspace_root,
+                            machine,
+                            task,
+                            selected_to.as_deref(),
+                        )
+                        .is_none();
                     let missing_required_outputs = if status.success() && !outputs_ok {
                         collect_missing_required_outputs_for_resolved_invocation(
                             &workspace_root,
+                            &task_workspace_root,
                             machine,
                             loaded.rhei.metadata.as_ref(),
                             task,
                             current_state,
+                            selected_to.as_deref(),
                             resolved,
                         )
                     } else {
@@ -2752,11 +2769,14 @@ fn run_agent_mode(
                                 }
                                 emit_exit_zero_warnings(
                                     &workspace_root,
+                                    &task_workspace_root,
                                     machine,
                                     loaded.rhei.metadata.as_ref(),
                                     task,
                                     task_id_str,
                                     state_before,
+                                    selected_forward_transition(&loaded.rhei, machine, task)
+                                        .as_deref(),
                                     &sink,
                                 );
                             }
@@ -2922,6 +2942,7 @@ fn run_agent_mode(
                             &mut active_invocation_counts,
                             &mut active_state_counts,
                         );
+                        let completed_task_id = completion.task_id_str.clone();
                         let effect = handle_parallel_program_completion(
                             input,
                             machines,
@@ -2933,9 +2954,13 @@ fn run_agent_mode(
                         if effect.program_spawned {
                             programs_spawned += 1;
                         }
+                        if !effect.advanced {
+                            stalled_tasks.insert(completed_task_id);
+                        }
                         advanced_any |= effect.advanced;
                         let refill_outcome = refill_parallel_worker_pool(
                             &mut unpromptable_tasks,
+                            &stalled_tasks,
                             pass,
                             task_limit,
                             &tx,
@@ -3036,6 +3061,14 @@ fn run_agent_mode(
                         if let (Some(task_for_snapshot), Some(state_def)) =
                             (task_after, machine.states.get(state_name.as_str()))
                         {
+                            // §FS-rhei-agents.3.2: the completion condition is
+                            // exit 0 + declared outputs + the terminal result
+                            // when the edge this exit selects is terminal.
+                            let selected_to = selected_forward_transition(
+                                &reloaded.rhei,
+                                machine,
+                                task_for_snapshot,
+                            );
                             let outputs_ok = status.success()
                                 && state_outputs_exist_for_resolved_invocation(
                                     &workspace_root,
@@ -3046,15 +3079,24 @@ fn run_agent_mode(
                                     reloaded.rhei.metadata.as_ref(),
                                     state_def,
                                     &resolved,
-                                );
+                                )
+                                && missing_terminal_result_output(
+                                    &reloaded.task_root(&task_id_str, &workspace_root),
+                                    machine,
+                                    task_for_snapshot,
+                                    selected_to.as_deref(),
+                                )
+                                .is_none();
                             if status.success() && !outputs_ok {
                                 missing_required_outputs =
                                     collect_missing_required_outputs_for_resolved_invocation(
                                         &workspace_root,
+                                        &reloaded.task_root(&task_id_str, &workspace_root),
                                         machine,
                                         reloaded.rhei.metadata.as_ref(),
                                         task_for_snapshot,
                                         &state_name,
+                                        selected_to.as_deref(),
                                         &resolved,
                                     );
                             }
@@ -3167,6 +3209,7 @@ fn run_agent_mode(
                                     &missing_required_outputs,
                                     &sink,
                                 );
+                                stalled_tasks.insert(task_id_str.clone());
                                 continue;
                             }
                             let pending_more = reloaded
@@ -3293,13 +3336,21 @@ fn run_agent_mode(
                                         }
                                         emit_exit_zero_warnings(
                                             &workspace_root,
+                                            &reloaded.task_root(&task_id_str, &workspace_root),
                                             machine,
                                             reloaded.rhei.metadata.as_ref(),
                                             task,
                                             &task_id_str,
                                             &state_name,
+                                            selected_forward_transition(
+                                                &reloaded.rhei,
+                                                machine,
+                                                task,
+                                            )
+                                            .as_deref(),
                                             &sink,
                                         );
+                                        stalled_tasks.insert(task_id_str.clone());
                                     } else {
                                         run_warn!(
                                             "  warning: agent exited 0 but task {} did not advance from '{}'",
@@ -3393,6 +3444,7 @@ fn run_agent_mode(
 
                 let refill_outcome = refill_parallel_worker_pool(
                     &mut unpromptable_tasks,
+                    &stalled_tasks,
                     pass,
                     task_limit,
                     &tx,

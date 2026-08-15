@@ -94,6 +94,85 @@ fn ensure_descendants_terminal_for_terminal_entry(
     ))
 }
 
+/// The ticket's result file under the owning rhei's execution root.
+/// §FS-rhei-complete.3
+fn result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
+    artifact_root.join("runtime").join("results").join(format!("{task_id}.md"))
+}
+
+/// The ticket's result file as a subprocess must see it: absolute.
+///
+/// A subprocess runs from the checkout root, which is routinely not the Rhei
+/// artifact root, so a root that was itself given relative to `rhei run`'s own
+/// working directory would resolve somewhere else entirely in the child.
+// §FS-rhei-agents.4 §FS-rhei-programs.2
+fn absolute_result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
+    let path = result_file_path(artifact_root, task_id);
+    std::path::absolute(&path).unwrap_or(path)
+}
+
+/// Whether the ticket already has a result worth the name.
+///
+/// Whitespace-only counts as absent, on the same reading state handoffs use: an
+/// existence-only contract would otherwise let an empty file stand in for an
+/// answer.
+// §FS-rhei-states.3.3 §FS-rhei-states.3.2
+fn task_result_is_present(artifact_root: &Path, task_id: &str) -> bool {
+    fs::read_to_string(result_file_path(artifact_root, task_id))
+        .map(|content| !content.trim().is_empty())
+        .unwrap_or(false)
+}
+
+/// Reject an edge into a `final: true` state when nothing says why the ticket
+/// ended there.
+///
+/// The terminal result is an artifact contract of the target state that no
+/// machine declares and none can opt out of. `outputs:` cannot express it —
+/// those are checked when a state is *left*, and a terminal state is never left
+/// — so it is enforced here, on the edge in, at the same point the target
+/// state's `inputs:` are enforced and against the same effective target, so a
+/// callback `nextState` redirect cannot smuggle a terminal entry past it.
+///
+/// It is satisfied by an existing non-empty result file or by a message the
+/// caller carried through the move; the message is appended once the move
+/// succeeds.
+// §FS-rhei-states.3.3 §FS-rhei-transition-cmd.3.2
+fn ensure_terminal_result_available(
+    machine: &rhei_validator::StateMachine,
+    artifact_root: &Path,
+    qualified_id: &str,
+    from: &str,
+    to: &str,
+    carried_message: Option<&str>,
+) -> MietteResult<()> {
+    if !machine.states.get(to).map(|def| def.terminal).unwrap_or(false) {
+        return Ok(());
+    }
+    if carried_message.is_some_and(|message| !message.trim().is_empty()) {
+        return Ok(());
+    }
+    if task_result_is_present(artifact_root, qualified_id) {
+        return Ok(());
+    }
+    let relative = format!("runtime/results/{qualified_id}.md");
+    // Name the file that was checked and the flag that carries the message:
+    // "write a result" is the answer, but the user still has to know where.
+    // §FS-rhei-errors.2
+    Err(miette!(
+        help = format!(
+            "a final state records why the ticket ended there. Pass it on the move: \
+             rhei transition {qualified_id} --from {from} --to {to} --result \"<what happened>\" \
+             (rhei complete {qualified_id} --result \"<what happened>\" for the everyday finish), \
+             or write {relative} before the move."
+        ),
+        "Task {} cannot enter terminal state '{}' without a result.\n\
+         Expected a non-empty result file at: {}",
+        qualified_id,
+        to,
+        result_file_path(artifact_root, qualified_id).display()
+    ))
+}
+
 fn ensure_task_profile_allows_state(
     machine: &rhei_validator::StateMachine,
     task_id_str: &str,
@@ -553,6 +632,35 @@ fn execute_transition_with_origin(
         &settings,
         &format!("Task {} cannot enter state {}.", files.artifact_id, to),
     )?;
+    // A caller that knows the outcome carries the message; otherwise the
+    // engine's own account stands in, but only where it is true.
+    // §FS-rhei-states.3.3 §FS-rhei-run.3
+    let recorded_message = origin.result_message.clone().or_else(|| {
+        let lands_terminal = machine.states.get(to).map(|def| def.terminal).unwrap_or(false);
+        if lands_terminal && !task_result_is_present(files.artifact_root, files.artifact_id) {
+            origin.terminal_result_fallback.clone()
+        } else {
+            None
+        }
+    });
+
+    // The terminal result is the one artifact contract of a `final: true` state
+    // that no machine declares, checked here beside the declared ones and
+    // against the same effective target. §FS-rhei-states.3.3
+    if let Err(err) = ensure_terminal_result_available(
+        machine,
+        files.artifact_root,
+        files.artifact_id,
+        from,
+        to,
+        recorded_message.as_deref(),
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = fs2::FileExt::unlock(task_handle);
+        }
+        let _ = fs2::FileExt::unlock(&metadata_handle);
+        return Err(err);
+    }
 
     let rendered_to_state = format_task_state_value(to, to_visit_count, machine);
     let metadata_raw_updated = if task_file == metadata_file {
@@ -647,10 +755,25 @@ fn execute_transition_with_origin(
         }
     }
 
+    // Inside the lock, after `on_enter` had its chance to roll the write back,
+    // so no caller can apply a transition and forget the ledger or the result.
+    // §FS-rhei-complete.3 §FS-rhei-transition-cmd.3
+    let record = record_transition_result(
+        files.artifact_root,
+        files.task_file,
+        task_id_str,
+        machine,
+        files.artifact_id,
+        from,
+        to,
+        recorded_message.as_deref(),
+    );
+
     if let Some(task_handle) = task_handle {
         let _ = fs2::FileExt::unlock(&task_handle);
     }
     let _ = fs2::FileExt::unlock(&metadata_handle);
+    record?;
     Ok(to.to_string())
 }
 

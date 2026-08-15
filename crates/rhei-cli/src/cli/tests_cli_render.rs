@@ -1002,6 +1002,77 @@ transitions:
         assert!(prompt.contains("POST /v1/session returns a token."), "{prompt}");
         assert!(prompt.contains("## Exports to Publish"), "{prompt}");
         assert!(prompt.contains("`runtime/exports/2/client-notes.md`"), "{prompt}");
+        // `review -> done` finishes the ticket, so the agent is told where the
+        // result goes — it never calls `rhei complete` itself.
+        // §FS-rhei-agents.3 §FS-rhei-states.3.3
+        assert!(prompt.contains("## Result"), "{prompt}");
+        assert!(prompt.contains("`runtime/results/2.md`"), "{prompt}");
+    }
+
+    /// The `## Result` section appears only where it applies: a state with no
+    /// declared edge into a `final: true` state cannot finish the ticket, so
+    /// naming the result path there would be noise.
+    // §FS-rhei-agents.3
+    #[test]
+    fn compose_agent_prompt_omits_the_result_section_when_the_state_cannot_finish() {
+        let rhei = rhei_core::parse(
+            r#"# Rhei: Mid Flight
+
+## Tasks
+
+### Task 1: Implement
+**State:** implement
+"#,
+        )
+        .expect("plan should parse");
+        let machine = rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: mid-flight
+version: 1
+states:
+  implement:
+    description: implement
+    instructions: Implement it.
+    initial: true
+  review:
+    description: review
+  done:
+    description: done
+    final: true
+transitions:
+  - from: implement
+    to: review
+  - from: review
+    to: done
+"#,
+        )
+        .expect("machine should parse");
+
+        let workspace = tempfile::tempdir().expect("tmpdir");
+        let task = &rhei.tasks[0];
+        let context = RuntimeTemplateContext {
+            task_roots: None,
+            workspace_root: workspace.path(),
+            checkout_root: workspace.path(),
+            plan_path: workspace.path(),
+            state_machine_path: None,
+            plan_title: &rhei.title,
+            task,
+            state_name: "implement",
+            current_state_raw: "implement",
+            machine: &machine,
+            metadata: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            agent: Some("codex"),
+            agent_mode: None,
+            tooling: None,
+        };
+
+        let prompt = compose_agent_prompt(&context).expect("prompt");
+        assert!(!prompt.contains("## Result"), "{prompt}");
     }
 
     /// An export a prior task never wrote is skipped, not raised: enforcement

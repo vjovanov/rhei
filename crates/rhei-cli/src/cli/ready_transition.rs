@@ -991,6 +991,9 @@ fn try_auto_advance_task(
     // Step 7: apply the selected transition, routed to the owning rhei.
     let route = loaded.task_route(task_id_str, input);
 
+    // No message: the subprocess that worked this state knows the outcome and
+    // writes `runtime/results/<task-id>.md` itself. A terminal edge with
+    // nothing written is caught by the completion condition. §FS-rhei-run.3
     let effective_to = execute_transition(
         TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
@@ -998,9 +1001,9 @@ fn try_auto_advance_task(
         &route.local_id,
         current_state,
         &to_state,
+        None,
         no_callbacks,
     )?;
-    append_transition_audit_entry(&route, machine, task_id_str, current_state, &effective_to)?;
 
     Ok(Some(effective_to))
 }

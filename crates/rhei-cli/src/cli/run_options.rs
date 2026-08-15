@@ -404,8 +404,11 @@ fn transition_dashboard_gate(
         ));
     }
 
+    // No message: the gate block has no field to type one into, so a choice
+    // into a `final: true` state is refused, naming `rhei transition --result`.
+    // §FS-rhei-viz.5.1 §FS-rhei-run.3
     let route = loaded.task_route(task_id_str, input);
-    let effective_to = execute_transition(
+    execute_transition(
         TransitionFiles {
             task_file: &route.task_file,
             metadata_file: &route.metadata_file,
@@ -418,10 +421,9 @@ fn transition_dashboard_gate(
         &route.local_id,
         from,
         to,
+        None,
         no_callbacks,
-    )?;
-    record_transition_result(&route, machine, task_id_str, from, &effective_to, None)?;
-    Ok(effective_to)
+    )
 }
 
 /// Re-read the plan from disk and build the dashboard's [`VizModel`] via

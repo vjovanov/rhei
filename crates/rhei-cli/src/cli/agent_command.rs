@@ -158,6 +158,10 @@ fn build_agent_command(
         .env("RHEI_CHECKOUT_ROOT", checkout_root)
         .env("RHEI_TASK_ID", task_id)
         .env("RHEI_TASK_ID_LOCAL", rhei_local_id_str(task_id))
+        // Always set, for every state: a subprocess that can finish the ticket
+        // must not have to assemble the one path a terminal state requires out
+        // of two other variables. §FS-rhei-agents.4 §FS-rhei-states.3.3
+        .env("RHEI_RESULT_PATH", absolute_result_file_path(rhei_root, task_id))
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())
         .env("RHEI_AGENT", id);

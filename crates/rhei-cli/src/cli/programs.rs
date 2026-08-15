@@ -63,6 +63,16 @@ fn build_program_command(
         .env("RHEI_PLAN_PATH", render_context.plan_path)
         .env("RHEI_TASK_ID", render_context.task.id.to_string())
         .env("RHEI_TASK_ID_LOCAL", rhei_local_id_of(render_context.task))
+        // Always set, for every state: a program has no prompt to read the path
+        // from, and a program whose exit finishes the ticket must leave this
+        // file non-empty. §FS-rhei-programs.2 §FS-rhei-states.3.3
+        .env(
+            "RHEI_RESULT_PATH",
+            absolute_result_file_path(
+                render_context.workspace_root,
+                &render_context.task.id.to_string(),
+            ),
+        )
         .env("RHEI_STATE", render_context.state_name)
         .env(
             "RHEI_VISIT_COUNT",
