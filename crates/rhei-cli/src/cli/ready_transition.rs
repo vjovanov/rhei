@@ -57,11 +57,25 @@ fn open_descendant_tasks<'a>(
         }
     }
     let mut out = Vec::new();
-    if task.children.is_empty() {
-        return out;
-    }
     recurse(task, machines, &mut out);
     out
+}
+
+/// Whether `task` has any non-terminal descendant.
+///
+/// The eligibility rule below only asks whether the subtree is closed, and it
+/// is asked for every node on every scheduling pass, so this stops at the first
+/// open node instead of materializing the whole list.
+// §DA-per-rhei-state-machines: each node is judged under the machine its own
+// id resolves to, so a mixed-machine project cannot misread a child's state.
+fn any_open_descendant(
+    task: &rhei_core::ast::Task,
+    machines: &rhei_validator::MachineSet,
+) -> bool {
+    task.children.iter().any(|child| {
+        !is_terminal_state(child.state.as_str(), machines.for_task(&child.id))
+            || any_open_descendant(child, machines)
+    })
 }
 
 /// The one eligibility rule for non-leaf tasks, shared by `rhei next` and
@@ -72,7 +86,7 @@ fn descendants_are_terminal(
     task: &rhei_core::ast::Task,
     machines: &rhei_validator::MachineSet,
 ) -> bool {
-    task.children.is_empty() || open_descendant_tasks(task, machines).is_empty()
+    !any_open_descendant(task, machines)
 }
 
 /// `Task <id> (<state>)` for each open descendant, capped at three with a
