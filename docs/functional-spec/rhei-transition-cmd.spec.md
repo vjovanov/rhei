@@ -45,11 +45,12 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 2. Locate the task by id. Fail if it does not exist.
 3. Acquire a file lock on the plan file (single-file plan) or on the task file that contains the task (directory workspace).
 4. Re-read the task's current state under the lock. If it does not equal `--from`, fail with a compare-and-swap conflict error and print the actual current state.
-5. Validate that a declared transition exists from `--from` to `--to` in the active state machine. Reject if the edge is unlisted.
+5. Validate that a declared transition exists from `--from` to `--to` in the active state machine. Reject if the edge is unlisted. Then evaluate the edge's `condition:`, if it declares one, and reject when it is unmet, naming which transitions from `--from` *are* currently applicable.
 6. Apply the descendants-first guard (§3.1). Reject before any callback runs
    when `--to` is a `final: true` state and the task still has a non-terminal
-   descendant. The guard runs after step 5, so an edge the machine never
-   declared is reported as an unlisted edge rather than as an open subtree: a
+   descendant. The guard runs after the edge is confirmed declared and
+   currently applicable, so a move the machine never offered — unlisted or
+   condition-blocked — is reported as such rather than as an open subtree: a
    user is not sent to finish descendants for a move that was never available.
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
 8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.

@@ -273,6 +273,67 @@ fn transition_reports_an_undeclared_edge_before_the_descendants_guard() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// And the edge's own `condition:` comes first for the same reason: an edge
+/// that is declared but not currently applicable is not a move the user could
+/// have made by closing the subtree, so the guard must not claim the subtree is
+/// what stands in the way.
+// §FS-rhei-transition-cmd.3
+#[test]
+fn transition_reports_an_inapplicable_edge_before_the_descendants_guard() {
+    let plan = r#"# Rhei: Conditional Terminal Edge
+
+## Tasks
+
+### Task 1: Parent task
+**State:** fix
+
+#### Task 1.1: Open subtask
+**State:** draft
+"#;
+    let machine = r#"name: conditional-terminal-edge
+version: 1
+states:
+  draft:
+    initial: true
+    description: Draft
+  fix:
+    description: Fix findings
+    visits: 2
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: draft
+    to: fix
+  - from: fix
+    to: fix
+    condition: visitCount < visits
+  - from: fix
+    to: completed
+    condition: visitCount >= visits
+"#;
+    let dir = unique_temp_dir("trans-inapplicable-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    // `fix -> completed` is declared but its condition is unmet on visit 1, and
+    // Task 1 also has an open child: the condition is the honest answer.
+    let result = run_transition(&plan_path, &machine_path, "1", "fix", "completed");
+    assert!(!result.status.success(), "an inapplicable edge must be refused");
+    assert_stderr_contains(
+        &result,
+        "transition from 'fix' to 'completed' is not currently applicable",
+    );
+    assert!(
+        !result.stderr.contains("descendant tasks remain non-terminal"),
+        "the descendants guard must not speak for an edge that is not applicable; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "fix");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// Cancellation is a terminal entry too, so abandoning a parent while its
 /// subtree is open is refused on the same edge.
 // §FS-rhei-transition-cmd.3.1
