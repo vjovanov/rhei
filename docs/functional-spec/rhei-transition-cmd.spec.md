@@ -48,7 +48,9 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 5. Validate that a declared transition exists from `--from` to `--to` in the active state machine. Reject if the edge is unlisted.
 6. Apply the descendants-first guard (§3.1). Reject before any callback runs
    when `--to` is a `final: true` state and the task still has a non-terminal
-   descendant.
+   descendant. The guard runs after step 5, so an edge the machine never
+   declared is reported as an unlisted edge rather than as an open subtree: a
+   user is not sent to finish descendants for a move that was never available.
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
 8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
 9. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.

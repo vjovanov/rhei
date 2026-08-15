@@ -209,22 +209,6 @@ fn execute_transition_with_origin(
         return Err(err);
     }
 
-    // §FS-rhei-transition-cmd.3.1: descendants-first, before any callback runs,
-    // so a rejected terminal entry has no side effects to undo.
-    if let Err(err) = ensure_descendants_terminal_for_terminal_entry(
-        machine,
-        &task_info.task,
-        task_id_str,
-        files.artifact_id,
-        to,
-    ) {
-        if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
-        }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
-        return Err(err);
-    }
-
     // Now that we know the task really is in `from`, check whether the
     // declared transitions permit `from -> to`.
     let matching_rule =
@@ -243,6 +227,23 @@ fn execute_transition_with_origin(
             to
         ));
     };
+
+    // Descendants-first runs after the declared-edge lookup and before any
+    // callback, so a parent with an open child is not told to close its subtree
+    // for an edge the machine never declared. §FS-rhei-transition-cmd.3
+    if let Err(err) = ensure_descendants_terminal_for_terminal_entry(
+        machine,
+        &task_info.task,
+        task_id_str,
+        files.artifact_id,
+        to,
+    ) {
+        if let Some(task_handle) = &task_handle {
+            let _ = fs2::FileExt::unlock(task_handle);
+        }
+        let _ = fs2::FileExt::unlock(&metadata_handle);
+        return Err(err);
+    }
 
     let normalized_metadata = ensure_current_state_visit_count(
         metadata.as_ref(),

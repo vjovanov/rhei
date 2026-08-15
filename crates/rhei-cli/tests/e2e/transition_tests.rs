@@ -230,6 +230,45 @@ fn transition_rejects_terminal_entry_on_a_parent_with_an_open_descendant() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// The declared-edge check comes first: an edge the machine never declared is
+/// refused as such, whether or not the task happens to be a parent. Reporting
+/// "close your subtree" for a move the machine forbids outright sent a user off
+/// to finish work that would not have unblocked anything.
+// §FS-rhei-transition-cmd.3
+#[test]
+fn transition_reports_an_undeclared_edge_before_the_descendants_guard() {
+    let plan = r#"# Rhei: Undeclared Terminal Edge
+
+## Tasks
+
+### Task 1: Parent task
+**State:** draft
+
+#### Task 1.1: Open subtask
+**State:** draft
+"#;
+    let dir = unique_temp_dir("trans-undeclared-descendant");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+
+    // `draft -> completed` is not a declared edge, and Task 1 also has an open
+    // child: the state machine's answer is the one that matters.
+    let result = run_transition(&plan_path, &machine_path, "1", "draft", "completed");
+    assert!(!result.status.success(), "an undeclared edge must be refused");
+    assert_stderr_contains(
+        &result,
+        "transition from 'draft' to 'completed' is not allowed by the state machine",
+    );
+    assert!(
+        !result.stderr.contains("descendant tasks remain non-terminal"),
+        "the descendants guard must not speak for an edge that does not exist; got:\n{}",
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "draft");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// Cancellation is a terminal entry too, so abandoning a parent while its
 /// subtree is open is refused on the same edge.
 // §FS-rhei-transition-cmd.3.1
