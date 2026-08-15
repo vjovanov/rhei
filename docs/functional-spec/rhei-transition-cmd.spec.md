@@ -55,9 +55,9 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
 8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
 9. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
-10. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable).
-11. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set.
-12. Write the task file atomically (temp file + rename) and release the lock.
+10. Rewrite the task's `**State:**` line to the new state value (with counted-visit suffix when applicable) and write the file atomically (temp file + rename).
+11. Execute the `on_enter` callback on the target state, if any, unless `--no-callbacks` is set. The write comes first so the callback observes the plan already in the state it is entering; a callback that fails rolls the write back to the file's previous contents, and the transition fails. When the rollback itself fails, the error says so — the plan file may then be inconsistent.
+12. Release the lock.
 13. Append one state-transition entry to `runtime/state-transitions.log` as
     `<task-id> <from>@<to>`, creating the `runtime/` directory if needed. The
     file is the central, deterministic audit trail for all task state changes.
