@@ -101,10 +101,15 @@ the summary prints five stacked groups:
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
-   unsatisfied `**Prior:**`; a manual-only initial state; a worker that ran and
+   unsatisfied `**Prior:**`; a manual-only initial state; a worker interrupted
+   mid-flight by the run's shutdown (§FS-rhei-run.3.2); a worker that ran and
    left a required artifact unwritten — agent or program alike, since both are
    workers and both stall the same way; a ticket the run never scheduled; no
-   declared outgoing transition; anything else. Non-leaf tasks are classified alongside leaves
+   declared outgoing transition; anything else. Interruption is classified
+   ahead of the missing-artifact class because it explains it: a worker the run
+   killed had no chance to write what it owed, and telling the operator to
+   write those files by hand would be advice about a stall that did not
+   happen. Non-leaf tasks are classified alongside leaves
    because a non-leaf task is a task in its own right
    (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
    waiting on that subtree, which is a structural consequence rather than
@@ -258,6 +263,15 @@ is always shown, never collapsed, so nothing that needs a human disappears. The
 report's Task Final States section (§5) is the un-collapsed source of truth.
 
 ### 3.3. Reused-output runs look different
+
+A run the operator interrupted (§FS-rhei-run.3.2) reads as its own outcome and
+not as a halt: the result line is `interrupted — re-run to continue`, taking
+precedence over every other phrase, and the Attention row of a ticket whose
+worker was interrupted names the interruption as the blocker with `re-run to
+continue` as the next action. Neither surface tells the operator to inspect
+logs or to cancel the task: nothing about the ticket failed, the run was
+stopped, and re-running it is the whole recovery. The console prints no
+`Run complete:` line for such a run.
 
 The central UI requirement of this spec applies to the console too: a run that
 spawned no work because every required output already existed must not look like

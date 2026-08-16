@@ -3757,12 +3757,24 @@ fn run_agent_mode(
             let loaded = load_plan(input)?;
             let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
             let total_tasks = total_task_count(&loaded.rhei);
-            run_info!(
-                "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
-                callback_transitions_made,
-                terminal_count,
-                total_tasks
-            );
+            // An interrupted run did not complete; saying so twice — once as
+            // a warning and once as "Run complete" — is worse than either.
+            // §FS-rhei-run.3.2
+            if interrupt_requested() {
+                run_info!(
+                    "\nRun interrupted after {} callback transition(s); {}/{} tasks in terminal state.",
+                    callback_transitions_made,
+                    terminal_count,
+                    total_tasks
+                );
+            } else {
+                run_info!(
+                    "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
+                    callback_transitions_made,
+                    terminal_count,
+                    total_tasks
+                );
+            }
             run_info!("Final states: {}", format_state_counts(&loaded.rhei));
             let mut tasks = Vec::new();
             collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
@@ -3775,13 +3787,24 @@ fn run_agent_mode(
         let loaded = load_plan(input)?;
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
-        run_info!(
-            "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
-            agents_spawned,
-            programs_spawned,
-            terminal_count,
-            total_tasks
-        );
+        // §FS-rhei-run.3.2: the run stopped; it did not complete.
+        if interrupt_requested() {
+            run_info!(
+                "\nRun interrupted after {} agent(s), {} program(s) spawned; {}/{} tasks in terminal state.",
+                agents_spawned,
+                programs_spawned,
+                terminal_count,
+                total_tasks
+            );
+        } else {
+            run_info!(
+                "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
+                agents_spawned,
+                programs_spawned,
+                terminal_count,
+                total_tasks
+            );
+        }
         run_info!("Final states: {}", format_state_counts(&loaded.rhei));
         let mut tasks = Vec::new();
         collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);

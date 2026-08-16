@@ -633,6 +633,10 @@ impl RunSummaryReport {
         plan_arg: &str,
     ) -> Self {
         let activity = summary.snapshot();
+        // Read once: the ledger answers both "why is this ticket halted" below
+        // and the report's own Transition Ledger further down.
+        let ledger_records = summary.ledger();
+        let ledger = &ledger_records;
 
         // Why each halted ticket is halted, resolved once against the whole
         // plan. The table below needs the plan's priors and claims, which a
@@ -651,6 +655,19 @@ impl RunSummaryReport {
                     .and_then(|entry| entry.missing_outputs.as_ref())
                     .filter(|(stalled_in, entries)| stalled_in == state && !entries.is_empty())
                     .map(|(_, entries)| entries.clone())
+            },
+            // §FS-rhei-run-report.3.1: only the ticket's *last* invocation
+            // says why it is where it is — an earlier interrupted attempt that
+            // was retried and completed explains nothing.
+            &|id| {
+                matches!(
+                    ledger
+                        .iter()
+                        .rev()
+                        .find(|record| record.task == id)
+                        .map(|record| &record.outcome),
+                    Some(LedgerOutcome::Interrupted)
+                )
             },
             plan_arg,
         )
@@ -710,22 +727,30 @@ impl RunSummaryReport {
         let result = if stats.dry_run {
             "dry run — no changes applied".to_string()
         } else {
-            result_phrase(&attention, &rows, no_work, advanced_without_work)
+            // §FS-rhei-run.3.2: the report is built after the loop ended, so
+            // the token still says whether it ended because it was stopped.
+            result_phrase(
+                &attention,
+                &rows,
+                no_work,
+                advanced_without_work,
+                interrupt_requested(),
+            )
         };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
         let accounting = summary.accounting();
         let task_accounting = build_task_accounting_rows(&rows, &activity);
 
-        let ledger = build_ledger(
+        let ledger_rows = build_ledger(
             &rows,
             &attention,
             &halt_causes,
-            &summary.ledger(),
+            ledger,
             &stats.initial_states,
             machines,
             &stats.workspace_root,
         );
-        let invocations = build_invocations(&summary.ledger(), &stats.workspace_root);
+        let invocations = build_invocations(ledger, &stats.workspace_root);
 
         Self {
             title: rhei.title.clone(),
@@ -748,7 +773,7 @@ impl RunSummaryReport {
             programs_spawned: stats.programs_spawned,
             callback_only: stats.callback_only,
             terminal_at_start,
-            ledger,
+            ledger: ledger_rows,
             invocations,
             task_accounting,
             report_path: None,
@@ -1280,15 +1305,25 @@ fn attention_reason(
     }
 }
 
+/// The run's one-line outcome.
+///
+/// `interrupted` outranks everything else: the operator stopped the run, so
+/// whatever the plan looks like now is a snapshot of work in progress and not a
+/// verdict on it. Reading it as "stopped for human attention" told the operator
+/// to go and act on tickets whose only problem was that they were interrupted.
+// §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
 fn result_phrase(
     attention: &[AttentionRow],
     rows: &[TaskRow],
     no_work: bool,
     advanced_without_work: bool,
+    interrupted: bool,
 ) -> String {
     let all_terminal_success =
         rows.iter().all(|r| matches!(r.marker, Marker::Done | Marker::TerminalAtStart));
-    if !attention.is_empty() {
+    if interrupted {
+        "interrupted — re-run to continue".to_string()
+    } else if !attention.is_empty() {
         // Gated and blocked tasks both halt the run for a human; the report and
         // tree carry the per-task distinction. §FS-rhei-run-report.6
         "stopped for human attention".to_string()
@@ -1563,6 +1598,10 @@ impl Palette {
         }
         if result.starts_with("stopped — ") {
             RED
+        } else if result.starts_with("interrupted") {
+            // Not red: an interrupted run is a run the operator stopped, not a
+            // run that went wrong. §FS-rhei-run-report.3.1
+            YELLOW
         } else if result.starts_with("stopped") {
             YELLOW
         } else if result == "completed" {

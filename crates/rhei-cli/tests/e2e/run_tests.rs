@@ -1792,6 +1792,11 @@ fn read_run_stderr(dir: &Path) -> String {
     fs::read_to_string(dir.join("run.err")).unwrap_or_default()
 }
 
+#[cfg(unix)]
+fn read_run_stdout(dir: &Path) -> String {
+    fs::read_to_string(dir.join("run.out")).unwrap_or_default()
+}
+
 /// Generous on purpose: every wait in these tests polls, so the only cost of a
 /// large bound is how long a genuine failure takes to report.
 #[cfg(unix)]
@@ -1845,6 +1850,28 @@ fn sigterm_to_the_run_ends_the_agent_and_its_grandchild() {
     assert!(
         stderr.contains("Interrupted — terminating 1 invocation(s)"),
         "the shutdown notice should reach the operator, got:\n{stderr}"
+    );
+
+    // The run stopped; it did not complete, and it did not stop for human
+    // attention. Both surfaces have to say the same thing.
+    // §FS-rhei-run-report.3.1
+    let stdout = read_run_stdout(&dir);
+    assert!(
+        !stdout.contains("Run complete:"),
+        "an interrupted run must not claim completion, got:\n{stdout}"
+    );
+    let report = fs::read_to_string(workspace.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        report.contains("Result: interrupted — re-run to continue"),
+        "the report should name the interruption as the result, got:\n{report}"
+    );
+    assert!(
+        report.contains("run interrupted while its worker was in state work"),
+        "the Attention row should name the interruption as the blocker, got:\n{report}"
+    );
+    assert!(
+        !report.contains("mark the task cancelled"),
+        "an interrupted ticket is not something to cancel, got:\n{report}"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

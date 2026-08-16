@@ -348,12 +348,22 @@ fn run_callback_mode(
         let loaded = load_plan(input)?;
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
-        run_info!(
-            "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
-            transitions_made,
-            terminal_count,
-            total_tasks
-        );
+        // §FS-rhei-run.3.2: the run stopped; it did not complete.
+        if interrupt_requested() {
+            run_info!(
+                "\nRun interrupted after {} transition(s) made; {}/{} tasks in terminal state.",
+                transitions_made,
+                terminal_count,
+                total_tasks
+            );
+        } else {
+            run_info!(
+                "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
+                transitions_made,
+                terminal_count,
+                total_tasks
+            );
+        }
         run_info!("Final states: {}", format_state_counts(&loaded.rhei));
         let mut tasks = Vec::new();
         collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
