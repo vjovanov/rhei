@@ -70,6 +70,10 @@ impl StopToken {
 
     /// Raise the token and record the signal that did it. Called from the
     /// signal handler, so everything it touches must be lock-free.
+    ///
+    /// Unix-only, because naming a signal is: off Unix nothing installs a
+    /// handler and the run is stopped through [`StopToken::request`] alone.
+    #[cfg(unix)]
     fn raise(&self, signum: i32) {
         let _ = self.signal.compare_exchange(
             0,
