@@ -85,6 +85,15 @@ the summary prints five stacked groups:
 
 1. **Result line** - plan title, run id, duration, and overall result, using the
    same result vocabulary as the report header.
+
+   A run the operator interrupted (§FS-rhei-run.3.2) reads as its own outcome
+   and not as a halt: the result line is `interrupted — re-run to continue`,
+   taking precedence over every other phrase, and the Attention row of a ticket
+   whose worker was interrupted names the interruption as the blocker with
+   `re-run to continue` as the next action. Neither surface tells the operator
+   to inspect logs or to cancel the task: nothing about the ticket failed, the
+   run was stopped, and re-running it is the whole recovery. The console prints
+   no `Run complete:` line for such a run.
 2. **Counts** - two dense lines: final task states, then run activity (agents,
    programs, reused-output, callback-only, terminal-at-start, could-not-advance).
    The states line is preceded by a static state-distribution bar whose segments
@@ -263,15 +272,6 @@ is always shown, never collapsed, so nothing that needs a human disappears. The
 report's Task Final States section (§5) is the un-collapsed source of truth.
 
 ### 3.3. Reused-output runs look different
-
-A run the operator interrupted (§FS-rhei-run.3.2) reads as its own outcome and
-not as a halt: the result line is `interrupted — re-run to continue`, taking
-precedence over every other phrase, and the Attention row of a ticket whose
-worker was interrupted names the interruption as the blocker with `re-run to
-continue` as the next action. Neither surface tells the operator to inspect
-logs or to cancel the task: nothing about the ticket failed, the run was
-stopped, and re-running it is the whole recovery. The console prints no
-`Run complete:` line for such a run.
 
 The central UI requirement of this spec applies to the console too: a run that
 spawned no work because every required output already existed must not look like
