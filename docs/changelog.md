@@ -47,7 +47,9 @@
   signalled TUI run wrote no report, printed nothing, returned no exit code, and
   ignored every further signal short of `SIGKILL`. A terminal that has gone away
   ends the TUI too, at any point in the run: a closed pty used to read as "no
-  key was pressed" and turned the render loop into a busy loop.
+  key was pressed" and turned the render loop into a busy loop. Losing the
+  terminal now ends `rhei run` as quietly as a closed pipe does, instead of
+  panicking on the first write to the dead pty and aborting on the second.
   Issue #53. PR #TBD §FS-rhei-run.3.2 §FS-rhei-run-tui.1.5.7
   §DA-supervised-process-groups
 

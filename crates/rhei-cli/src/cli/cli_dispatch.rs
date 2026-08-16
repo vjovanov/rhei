@@ -178,7 +178,7 @@ fn is_bare_invocation() -> bool {
 /// `yes | head`.
 const EXIT_BROKEN_PIPE: i32 = 141;
 
-/// Leave a pipeline quietly when the consumer stops reading, instead of
+/// Leave quietly when there is no longer anywhere to print, instead of
 /// surfacing an internal error.
 ///
 /// Rust ignores `SIGPIPE` before `main`, so a closed stdout comes back as an
@@ -186,39 +186,62 @@ const EXIT_BROKEN_PIPE: i32 = 141;
 /// 101 with a stack trace. This intercepts exactly that panic and exits the way
 /// a Unix filter killed by the signal does.
 ///
+/// A terminal that goes away is the same situation with a different errno: a
+/// `rhei run` whose window is closed writes `EIO` to the dead pty from then on,
+/// and the end-of-run console summary panicked on it — then panicked *again*
+/// from the report guard's own `println!` while unwinding, which is a double
+/// panic and aborts. A run that ended is not a run that crashed.
+///
 /// Restoring `SIGPIPE` to `SIG_DFL` process-wide would be the shorter fix and
 /// is the wrong one: this CLI writes to pipes it owns — a callback
 /// subprocess's stdin, an agent's — and there the write returning `EPIPE` is
 /// how a child that exited early gets *reported*. Under `SIG_DFL` those writes
 /// killed `rhei` mid-diagnostic instead, so a transition that should have
 /// failed with an explanation failed with empty stderr.
-// §FS-rhei-usage.2: an early-closed stdout is normal shell usage, not a failure.
+// §FS-rhei-usage.2 §FS-rhei-run-tui.1.5.7
 fn install_quiet_broken_pipe_exit() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if is_broken_pipe_panic(info) {
-            std::process::exit(EXIT_BROKEN_PIPE);
+        if is_lost_output_panic(info) {
+            // An interrupted run still names its signal: losing the terminal is
+            // how the interruption arrived, not a second outcome.
+            // §FS-rhei-run.3.2
+            std::process::exit(interrupt_exit_code().unwrap_or(EXIT_BROKEN_PIPE));
         }
         previous(info);
     }));
 }
 
-/// Whether a panic is the standard library's "failed printing to stdout"
-/// broken-pipe panic, rather than a real bug.
+/// The write failures that mean "this output is gone", each by message and by
+/// errno. Both forms because the message is `strerror`'s and follows the
+/// locale, while the `(os error N)` suffix the standard library appends does
+/// not.
+const LOST_OUTPUT_ERRORS: [(&str, &str); 2] =
+    [("Broken pipe", "(os error 32)"), ("Input/output error", "(os error 5)")];
+
+/// Whether a panic is the standard library's "failed printing to stdout" panic
+/// for an output that no longer exists, rather than a real bug.
 ///
 /// Matched on the payload text because that is all the standard library
 /// exposes: the panic carries no typed error. Both halves must match, so a
 /// panic that merely mentions a broken pipe in some other context still
 /// reports normally.
-fn is_broken_pipe_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
+fn is_lost_output_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
     let payload = info.payload();
     let message = payload
         .downcast_ref::<String>()
         .map(String::as_str)
         .or_else(|| payload.downcast_ref::<&str>().copied());
-    message.is_some_and(|message| {
-        message.starts_with("failed printing to std") && message.contains("Broken pipe")
-    })
+    message.is_some_and(message_is_lost_output)
+}
+
+/// The decision itself, over the panic message alone, so it can be tested —
+/// a `PanicHookInfo` is not constructible outside a real panic.
+fn message_is_lost_output(message: &str) -> bool {
+    message.starts_with("failed printing to std")
+        && LOST_OUTPUT_ERRORS
+            .iter()
+            .any(|(text, code)| message.contains(text) || message.contains(code))
 }
 
 fn main() {

@@ -260,3 +260,26 @@
             );
         }
     }
+
+    /// A stdout the process can no longer write to is not a bug in it: a
+    /// pipeline's reader closed early, or — under the TUI — the operator's
+    /// terminal went away and every later write to the dead pty returns `EIO`.
+    /// Left unrecognized, the second one panicked the end-of-run summary and
+    /// then panicked again from the report guard while unwinding, which aborts.
+    // §FS-rhei-run-tui.1.5.7
+    #[test]
+    fn a_lost_stdout_is_recognized_by_message_and_by_errno() {
+        assert!(message_is_lost_output("failed printing to stdout: Broken pipe (os error 32)"));
+        assert!(message_is_lost_output(
+            "failed printing to stdout: Input/output error (os error 5)"
+        ));
+        // The errno alone is enough, so a non-English `strerror` still matches.
+        assert!(message_is_lost_output("failed printing to stderr: <translated> (os error 5)"));
+
+        // A different write failure, and a panic that merely mentions one, are
+        // both real reports.
+        assert!(!message_is_lost_output(
+            "failed printing to stdout: No space left on device (os error 28)"
+        ));
+        assert!(!message_is_lost_output("agent wrote to a Broken pipe (os error 32)"));
+    }
