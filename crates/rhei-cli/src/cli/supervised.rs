@@ -636,9 +636,15 @@ impl Supervised {
     }
 
     /// End the whole group now.
+    ///
+    /// The leader is killed by name as well as by group. It is normally in the
+    /// group and gets the `killpg` like everything else; a leader that called
+    /// `setsid` would not be, and the `wait()` that follows this would then
+    /// have nothing to wait for but a process nobody signalled.
     #[cfg(unix)]
     fn kill_group(&mut self) {
         let _ = signal::killpg(Pid::from_raw(self.pgid), Signal::SIGKILL);
+        let _ = self.child.kill();
     }
 
     #[cfg(not(unix))]

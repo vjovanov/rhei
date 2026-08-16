@@ -192,3 +192,10 @@ fixing the orphan.
   Making it one — reaping the group after every wait — is a separate decision
   with its own hazard: a state machine may legitimately want a helper to outlive
   the invocation that started it.
+- **Not covered:** a descendant that calls `setsid()` and leaves the group — a
+  daemonizing MCP server, say. It is outside the `killpg` from the moment it
+  does so, and survives both a timeout and an interruption. This is the same
+  limitation `PR_SET_PDEATHSIG` has, for the same reason: nothing short of a
+  cgroup or a Job Object can hold a process that walks out of its container.
+  Containment that a subprocess cannot leave is the cgroup/Job Object decision
+  above, deferred.
