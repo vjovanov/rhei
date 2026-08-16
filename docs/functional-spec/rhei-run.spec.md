@@ -306,9 +306,10 @@ restores the terminal and re-raises `SIGINT` on the process
    interruption, not the halt diagnostic of §3 step 9.
 
 A **second** signal skips the grace and `SIGKILL`s every live group at once.
-The operator is told so on stderr while the first shutdown is in progress —
-stderr, not the event stream, because under the TUI the render loop has already
-exited by the time Ctrl+C reaches the engine (§FS-rhei-run-tui.1.8):
+The operator is told so once, while the first shutdown is in progress, as a
+warning on the run's event stream; the frontend decides where it is legible
+(§FS-rhei-run-tui.1.8). One notice, whichever waiter notices the interrupt
+first — not one per invocation:
 
 ```text
 Interrupted — terminating 2 invocation(s) (auth.1@implement, auth.3@review); press Ctrl+C again to kill immediately.
