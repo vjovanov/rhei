@@ -96,6 +96,20 @@
             assert!(token.skip_grace());
         }
 
+        /// A subprocess that finishes fast must be noticed fast; one that runs
+        /// for minutes must not be polled at 10 ms for all of them. The ramp is
+        /// what lets one wait routine serve a redactor and an agent alike.
+        #[test]
+        fn the_poll_interval_ramps_from_the_floor_to_the_cap_and_stops() {
+            assert_eq!(next_poll_interval(SUPERVISED_POLL_MIN), Duration::from_millis(20));
+            let mut poll = SUPERVISED_POLL_MIN;
+            for _ in 0..10 {
+                poll = next_poll_interval(poll);
+            }
+            assert_eq!(poll, SUPERVISED_POLL_MAX, "the ramp settles at the cap");
+            assert_eq!(next_poll_interval(SUPERVISED_POLL_MAX), SUPERVISED_POLL_MAX);
+        }
+
         #[test]
         fn a_subprocess_that_exits_on_its_own_reports_exited() {
             let token = StopToken::new();

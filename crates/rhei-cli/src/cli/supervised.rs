@@ -18,9 +18,24 @@ const SUPERVISED_TERMINATE_GRACE: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const SUPERVISED_TERMINATE_GRACE: Duration = Duration::from_millis(50);
 
-/// Poll interval of the supervised wait loop. Waiting is a poll rather than a
-/// blocking `wait()` because the loop must also see the stop token.
-const SUPERVISED_POLL_INTERVAL: Duration = Duration::from_millis(200);
+/// First poll interval of the supervised wait loop. Waiting is a poll rather
+/// than a blocking `wait()` because the loop must also see the stop token, and
+/// the price of that is latency the child never had: whatever the loop is
+/// asleep for when the child exits.
+const SUPERVISED_POLL_MIN: Duration = Duration::from_millis(10);
+
+/// Ceiling the wait loop's poll interval ramps up to.
+///
+/// A single interval has to be either wasteful for an agent that runs for
+/// minutes or slow for a redactor that finishes in tens of milliseconds. The
+/// ramp is neither: short invocations are noticed almost at once, and a long
+/// one settles into a cheap idle poll within a couple of seconds.
+const SUPERVISED_POLL_MAX: Duration = Duration::from_millis(200);
+
+/// The next poll interval after an idle pass: double, then stop at the cap.
+fn next_poll_interval(current: Duration) -> Duration {
+    (current * 2).min(SUPERVISED_POLL_MAX)
+}
 
 /// Poll interval while waiting out the termination grace.
 const SUPERVISED_GRACE_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -502,6 +517,7 @@ impl Supervised {
         notify: &dyn Fn(String),
     ) -> std::io::Result<Ended> {
         let start = Instant::now();
+        let mut poll = SUPERVISED_POLL_MIN;
         loop {
             if let Some(status) = self.child.try_wait()? {
                 self.finish();
@@ -522,7 +538,8 @@ impl Supervised {
                 let status = self.terminate_and_reap(stop)?;
                 return Ok(Ended { status, cause });
             }
-            std::thread::sleep(SUPERVISED_POLL_INTERVAL);
+            std::thread::sleep(poll);
+            poll = next_poll_interval(poll);
         }
     }
 
