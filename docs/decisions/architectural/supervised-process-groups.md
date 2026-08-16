@@ -73,7 +73,11 @@ because the run really did end by that signal.
 A live registry of group ids plus a guard declared alongside `RunReportGuard`
 terminates whatever is still registered when `run_agent_mode` is left by *any*
 path — `?`, panic unwind, or normal end. Without it, an error return after
-workers were spawned is indistinguishable from the original bug.
+workers were spawned is indistinguishable from the original bug. The registry
+is process-global but ownership is not: each run claims a fresh id, worker
+threads inherit it from the thread that started them, and a guard signals only
+the groups its own run started — so it can never reach into work it did not
+start.
 
 **5. Interruption is an invocation outcome, not a task state.**
 

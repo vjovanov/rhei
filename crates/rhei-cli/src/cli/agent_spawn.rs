@@ -402,7 +402,7 @@ fn spawn_and_wait_agent(
     // One wait for all three endings: exit, deadline, run interruption. The
     // last two terminate the agent's whole group. §FS-rhei-run.3.2
     let ended = supervised
-        .wait(resolved.timeout_secs.map(Duration::from_secs))
+        .wait(resolved.timeout_secs.map(Duration::from_secs), &INTERRUPT)
         .map_err(|e| miette!(
             help = agent_command_help(),
             "error waiting for agent: {e}"

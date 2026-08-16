@@ -578,8 +578,12 @@ fn spawn_parallel_agent_work_item(
     let task_for_accounting = task.clone();
     let task_id_for_panic = tid.clone();
     let state_for_panic = sname.clone();
+    // The worker spawns this run's subprocess, so the run's shutdown guard —
+    // and no other — owns the group it leads. §FS-rhei-run.3.2
+    let run_owner = current_run_owner();
 
     let handle = std::thread::spawn(move || {
+        inherit_run_owner(run_owner);
         let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let resolved = resolved_for_thread;
             let result = spawn_and_wait_agent(
@@ -728,8 +732,11 @@ fn spawn_parallel_program_work_item(
     let state_name_for_result = item.current_state.clone();
     let task_id_for_panic = item.task_id_str.clone();
     let state_for_panic = item.current_state.clone();
+    // §FS-rhei-run.3.2: the program's group belongs to this run.
+    let run_owner = current_run_owner();
 
     let handle = std::thread::spawn(move || {
+        inherit_run_owner(run_owner);
         let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root_for_thread,
@@ -1431,7 +1438,7 @@ fn run_agent_mode(
     // — `?`, panic unwind, normal end — the subprocess groups are torn down
     // after the terminal is restored and before the report is written.
     // §FS-rhei-run.3.2
-    let _subprocess_guard = RunSubprocessGuard;
+    let _subprocess_guard = RunSubprocessGuard::install();
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
