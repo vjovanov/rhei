@@ -117,11 +117,18 @@ it buys nothing here that the group plus PDEATHSIG do not: it adds a process
 per invocation to the tree, another exit status to interpret, and its own
 orphan case (kill the shim, keep the agent).
 
-**`setsid` per agent** (a new *session*, not just a group). A session leader
-detaches from the controlling terminal, which is more than is wanted: the
-foreground tty `SIGINT` that works today would stop reaching agents, so the
-plain non-TUI Ctrl+C path would come to depend entirely on our handler. A
-process group gets the containment without giving up the terminal relationship.
+**`setsid` per agent** (a new *session*, not just a group). What separates it
+from `process_group(0)` is session leadership and the controlling terminal —
+`SIGHUP` on hangup, and whether the child can open `/dev/tty` — not signal
+delivery: the tty sends `SIGINT`, `SIGQUIT`, and `SIGTSTP` to the *foreground*
+process group, and `process_group(0)` already moves every subprocess out of it.
+After this change no agent receives a tty signal directly on any path; `rhei
+run`'s handler decides, on every path. `process_group(0)` is preferred because
+it is a safe `std` API applied at spawn time, while `setsid` means a
+`pre_exec` closure with its own failure mode, and because the terminal
+relationship it would give up is one nothing here uses: stdio is piped to the
+log or `/dev/null`, and a subprocess that tried to read the terminal would be
+misbehaving.
 
 **cgroups (Linux) / Job Objects (Windows).** The strongest containment
 available, and the least portable: a cgroup needs a writable
