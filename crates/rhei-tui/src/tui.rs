@@ -34,14 +34,26 @@ const CHANNEL_CAPACITY: usize = 1024;
 const JOURNAL_BUFFER: usize = 400;
 const SLOT_TRAFFIC_BUFFER: usize = 50;
 
+/// Whether the run driving this surface has been asked to stop.
+///
+/// A closure rather than a shared flag, so `rhei-tui` reads the engine's own
+/// stop token without depending on `rhei-cli` or keeping a second copy of it
+/// that could disagree.
+// §FS-rhei-run-tui.1.5.7
+pub type StopRequested = Arc<dyn Fn() -> bool + Send + Sync>;
+
 /// Everything the Flow surface needs beyond parallelism and task count: the
-/// workspace root, the plan loader (shared with the dashboard), and the two
-/// live-action boundaries. §FS-rhei-run-tui.1.5
+/// workspace root, the plan loader (shared with the dashboard), the two
+/// live-action boundaries, and the run's stop token. §FS-rhei-run-tui.1.5
 pub struct TuiContext {
     pub workspace: PathBuf,
     pub plan_loader: Option<PlanLoader>,
     pub intervene: Option<Arc<dyn InterveneSink>>,
     pub gate: Option<Arc<dyn GateTransitionSink>>,
+    /// Asked before the finished screen is kept alive: an interrupted run has
+    /// an operator waiting on a prompt, not on a surface to navigate.
+    // §FS-rhei-run-tui.1.5.7
+    pub stop_requested: StopRequested,
 }
 
 pub struct TuiSink {
@@ -110,7 +122,10 @@ impl TuiSink {
         );
 
         let loop_restored = Arc::clone(&screen_restored);
-        let handle = thread::spawn(move || render_loop(terminal, rx, state, &loop_restored));
+        let stop_requested = context.stop_requested;
+        let handle = thread::spawn(move || {
+            render_loop(terminal, rx, state, &loop_restored, stop_requested.as_ref())
+        });
 
         Ok(Self { tx, join: Mutex::new(Some(handle)), screen_restored })
     }
@@ -163,6 +178,7 @@ fn render_loop(
     rx: crossbeam_channel::Receiver<Msg>,
     mut state: UiState,
     screen_restored: &AtomicBool,
+    stop_requested: &(dyn Fn() -> bool + Send + Sync),
 ) {
     let tick = Duration::from_millis(250);
     let mut last_draw = Instant::now().checked_sub(tick).unwrap_or_else(Instant::now);
@@ -178,7 +194,12 @@ fn render_loop(
                     // The run has ended. A non-TTY run returns here; an
                     // interactive run stays navigable until the operator quits.
                     state.finished = true;
-                    stay_until_quit(&mut terminal, &mut state, screen_restored);
+                    // Unless the run was stopped: then the engine is blocked on
+                    // this thread's exit and nobody waits to press `q`.
+                    // §FS-rhei-run-tui.1.5.7
+                    if !stop_requested() {
+                        stay_until_quit(&mut terminal, &mut state, screen_restored, stop_requested);
+                    }
                     break_out(terminal, screen_restored);
                     return;
                 }
@@ -199,18 +220,40 @@ fn render_loop(
     }
 }
 
+/// Whether the finished-run screen must be left instead of staying navigable.
+///
+/// Two ways to run out of an operator, both ending the same: the run was
+/// interrupted, so the engine is waiting on this thread to finish its own
+/// shutdown; or the terminal itself has gone, which crossterm reports as a
+/// failed input poll and which a redraw loop would otherwise spin on forever.
+// §FS-rhei-run-tui.1.5.7
+fn leave_finished_screen(stop_requested: bool, poll: &io::Result<bool>) -> bool {
+    stop_requested || poll.is_err()
+}
+
 /// After the run finishes, keep redrawing and accepting navigation keys until
 /// the operator presses `q`. The live actions are already disabled (§1.5.7).
+///
+/// An interrupt that arrives while the screen is parked here leaves it too:
+/// without that check the only way out of a finished-and-signalled run was
+/// `SIGKILL`.
+// §FS-rhei-run-tui.1.5.7
 fn stay_until_quit(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     state: &mut UiState,
     screen_restored: &AtomicBool,
+    stop_requested: &(dyn Fn() -> bool + Send + Sync),
 ) {
     let tick = Duration::from_millis(250);
     state.refresh_plan();
     draw(terminal, state);
     loop {
-        if ctevent::poll(tick).unwrap_or(false) {
+        let poll = ctevent::poll(tick);
+        if leave_finished_screen(stop_requested(), &poll) {
+            break_out_ref(terminal, screen_restored);
+            return;
+        }
+        if poll.unwrap_or(false) {
             if let Ok(CtEvent::Key(key)) = ctevent::read() {
                 if key.kind != KeyEventKind::Release {
                     match handle_key_event(state, key.code, key.modifiers) {
@@ -232,13 +275,28 @@ fn stay_until_quit(
 }
 
 /// Read terminal input (non-blocking). Returns `true` when the loop should exit
-/// because Ctrl+C was pressed (the terminal is already restored).
+/// because Ctrl+C was pressed or the terminal has gone away (in both cases the
+/// terminal is already restored). §FS-rhei-run-tui.1.5.7
 fn drain_input(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     state: &mut UiState,
     screen_restored: &AtomicBool,
 ) -> bool {
-    while ctevent::poll(Duration::from_millis(0)).unwrap_or(false) {
+    loop {
+        match ctevent::poll(Duration::from_millis(0)) {
+            Ok(true) => {}
+            Ok(false) => return false,
+            Err(_) => {
+                // The terminal is gone (pty closed, session hung up): there is
+                // nothing to draw to and no key can arrive, so end the render
+                // thread rather than redraw into the void. The engine keeps
+                // going headless — a `SIGHUP` interrupts it on its own account,
+                // and from here its warnings and errors go to stderr while
+                // every other event is dropped by the closed channel (§1.8).
+                break_out_ref(terminal, screen_restored);
+                return true;
+            }
+        }
         match ctevent::read() {
             Ok(CtEvent::Key(key)) if key.kind != KeyEventKind::Release => {
                 match handle_key_event(state, key.code, key.modifiers) {
@@ -258,7 +316,6 @@ fn drain_input(
             _ => {}
         }
     }
-    false
 }
 
 fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &UiState) {

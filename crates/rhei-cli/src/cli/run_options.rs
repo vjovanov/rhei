@@ -301,6 +301,10 @@ fn start_run_frontend(
         plan_loader: Some(loader.clone()),
         intervene: Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
         gate: Some(gate.clone() as Arc<dyn rhei_tui::GateTransitionSink>),
+        // The run's own stop token, so the finished screen is not parked on
+        // while the engine waits on the render thread to exit.
+        // §FS-rhei-run-tui.1.5.7
+        stop_requested: Arc::new(interrupt_requested),
     };
     let frontend = rhei_tui::select_frontend(
         workspace_root,

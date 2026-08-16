@@ -405,6 +405,24 @@ runs do not wait. After `RunFinished`, live actions are disabled but the final
 surface remains navigable until `q`; non-TTY and `--no-tui` output remains
 line-oriented (§1.4, §3).
 
+The navigable final surface belongs to a run that ended on its own terms. **A
+run the operator interrupted (§FS-rhei-run.3.2) does not stay navigable.** The
+TUI restores the terminal the moment the run ends and returns, so the engine
+can finish: write the run report, print the console summary onto the terminal
+just restored, and exit `128 + signal`. Parking on the finished screen instead
+held the engine in its own shutdown — it blocks joining the render thread — so
+an externally signalled run wrote no report, printed nothing, and ignored every
+further signal short of `SIGKILL`; the operator who typed `kill` was left
+waiting for a `q` they had no reason to think anyone wanted.
+
+**A terminal that has gone away ends the TUI at once**, whether the run is still
+going or already finished. Crossterm reports it as a failed input poll — the
+pty was closed, the session hung up — and there is then nothing to draw to and
+nobody to press a key: the render thread restores what it can and returns, and
+the run continues headless (§1.8). Treating a failed poll as "no key was
+pressed" turned a closed terminal into a redraw loop that re-read the plan as
+fast as the CPU allowed.
+
 ### 1.6. Browser Dashboard
 
 When the TUI frontend is selected, `rhei run` also serves the loopback browser
@@ -469,6 +487,7 @@ A `SlotAssigned` produces one line; its paired `SlotReleased` produces a second 
 - **Panic in the execution engine** — a panic hook registered by `TuiSink` calls `ratatui::restore()` before re-raising, so the terminal is never left in raw mode.
 - **Ctrl+C** — because the TUI runs the terminal in raw mode, Ctrl+C arrives as a key event rather than an automatic `SIGINT`. `TuiSink` restores the terminal, explicitly re-raises `SIGINT` for the process, and then exits its render loop. The re-raised signal enters the run's interruption contract (§FS-rhei-run.3.2) exactly as a `SIGINT` from outside would: in-flight invocations are terminated as process groups and reaped, no ticket transitions, and `rhei run` exits `130`. Because the render loop has already ended, the shutdown notice — including "press Ctrl+C again to kill immediately" — reaches the restored terminal rather than the journal pane; see below.
 - **Engine messages after the screen is restored** — from the moment the TUI leaves the alternate screen, by any route (Ctrl+C, the operator quitting, a panic, or the end of the run), warnings and errors the engine emits are written to stderr instead of the journal pane, which no longer exists. Every other event is dropped: a restored terminal has nowhere to show slot state, and nothing that is not text is worth interrupting the operator with. The engine keeps emitting through the one event stream either way — where a message is legible is the frontend's decision, not the engine's. Without this an external `SIGTERM` arriving mid-render wrote the shutdown notice into the alternate screen, and one arriving in the gap between the restore and the render thread's return was accepted by the channel and silently discarded.
+- **The terminal goes away** — when reading input fails (the pty was closed, the session hung up), the render thread restores what it can, marks the screen gone, and returns, at any point in the run (§1.5.7). The engine keeps running: a `SIGHUP` that accompanied the hangup interrupts it through §FS-rhei-run.3.2, and without one the run finishes headless — warnings and errors on stderr by the rule above, every other event dropped, because the journal pane is gone.
 - **Terminal too small for two panes** — auto-degrade to the compact list of §1.5.6; never crash.
 - **Slow log file growth** — the log tailer uses a bounded 50-line ring buffer and never blocks the engine thread.
 - **Journal write failure** — log a warning to stderr and continue; journal errors never abort a run.

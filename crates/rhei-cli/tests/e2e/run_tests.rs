@@ -2101,3 +2101,102 @@ transitions:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A `rhei run` driving a real TUI must end when it is signalled, not park on
+/// its finished screen.
+///
+/// The engine joins the render thread before it writes the report and returns
+/// its exit status, so a render thread that waits for `q` holds the whole
+/// shutdown open: the run left no report, printed nothing, and ignored every
+/// further signal. A pty is the only way to see it — the TUI is not selected
+/// without one, and the `--no-tui` tests take a different path entirely.
+// §FS-rhei-run-tui.1.5.7 §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
+    use std::io::Read as _;
+    use std::os::fd::OwnedFd;
+    use std::sync::{Arc, Mutex};
+
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-tui-sigterm", GRANDCHILD_AGENT, "120s");
+
+    // A real size, or ratatui has no room to lay anything out; `openpty` with
+    // no winsize leaves the terminal 0x0.
+    let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", dir.join(".home"));
+    cmd.env("TERM", "xterm-256color");
+    cmd.arg("--state-machine")
+        .arg(&machine_path)
+        .arg("run")
+        .arg(&workspace)
+        // `--tui` rather than relying on auto-detection, so a failure to reach
+        // the TUI is a failure here and not a silent fallback to stdout.
+        .arg("--tui")
+        .arg("--no-callbacks")
+        .arg("--no-dashboard");
+    // Both ends of the pty slave: crossterm reads keys from stdin, ratatui
+    // draws to stdout, and the frontend picks the TUI from `stdout.is_terminal()`.
+    let slave_in: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdin");
+    let slave_out: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdout");
+    cmd.stdin(std::process::Stdio::from(slave_in));
+    cmd.stdout(std::process::Stdio::from(slave_out));
+    cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
+    let mut run = cmd.spawn().expect("rhei run should start");
+    // The child owns the slave now. Every copy left in this process has to go,
+    // the `Command`'s own included — `spawn` keeps its `Stdio` handles until
+    // the `Command` drops, and one surviving slave fd keeps the master
+    // readable forever, hiding the child's exit from the drain thread below.
+    drop(cmd);
+    drop(pty.slave);
+
+    // Drain the master continuously: a full pty buffer blocks the render
+    // thread's writes, which would wedge the very shutdown under test.
+    let screen: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let drained = Arc::clone(&screen);
+    let mut master = std::fs::File::from(pty.master);
+    let drain = std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        while let Ok(n) = master.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            drained.lock().expect("screen buffer").extend_from_slice(&buf[..n]);
+        }
+    });
+    let saw_alternate_screen = || {
+        let seen = screen.lock().expect("screen buffer");
+        seen.windows(8).any(|w| w == b"\x1b[?1049h")
+    };
+
+    poll_until("the TUI to enter the alternate screen", TEST_PATIENCE, saw_alternate_screen);
+    let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+
+    signal_pid(run.id(), "TERM");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(143),
+        "a signalled TUI run should exit 128+SIGTERM, not wait for `q`\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+    let _ = drain.join();
+
+    poll_until("the agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+    poll_until("the grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
+
+    // The engine got past the render-thread join and finished its own shutdown.
+    let report = fs::read_to_string(workspace.join("runtime/run-report.md"))
+        .expect("a signalled TUI run should still write its report");
+    assert!(
+        report.contains("Result: interrupted — re-run to continue"),
+        "the report should name the interruption, got:\n{report}"
+    );
+    assert_task_state(&workspace, &machine_path, "1", "work");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

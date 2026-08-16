@@ -46,6 +46,11 @@ nix = { version = "0.29", features = ["signal", "process"] }
 # bare `cargo install`, with no `share/` layout to install alongside it.
 include_dir = { version = "0.7.4", default-features = false }
 
+# Only the pty-based interruption e2e needs this, and only on Unix — Windows is
+# in the CI matrix and `nix` does not build there. §FS-rhei-run-tui.1.5.7
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.29", features = ["term"] }
+
 [[bin]]
 name = "rhei"
 path = "src/main.rs"

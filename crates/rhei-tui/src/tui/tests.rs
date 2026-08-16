@@ -6,9 +6,9 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use rhei_viz_model::{Machine, MachineState, TaskRow, Transition, VizModel};
 
 use super::input::{handle_key_event, InputAction};
-use super::message_goes_to_stderr;
 use super::state::{CostGroup, FlowFocus, UiState, UsageRecord, View};
 use super::text::{sanitize_terminal_text, truncate_chars};
+use super::{leave_finished_screen, message_goes_to_stderr};
 use crate::dashboard::InterveneSink;
 use crate::event::{
     AgentStream, DimensionStatus, DimensionSummary, MessageLevel, PricingStatus, RunEvent, Slot,
@@ -794,4 +794,29 @@ fn warnings_leave_the_journal_for_stderr_once_the_screen_is_restored() {
     // non-message events are UI state rather than text.
     assert!(!message_goes_to_stderr(true, &info));
     assert!(!message_goes_to_stderr(true, &RunEvent::PassStarted { pass: 1, ready: Vec::new() }));
+}
+
+/// The finished screen is a courtesy to an operator who is still there. An
+/// interrupted run has one waiting on a shell prompt instead, and a terminal
+/// that reports a failed poll has none at all — parking on either left the
+/// engine blocked in its own shutdown, or spun a redraw loop on a dead pty.
+// §FS-rhei-run-tui.1.5.7
+#[test]
+fn the_finished_screen_is_left_when_nobody_is_there_to_quit_it() {
+    let key_waiting: std::io::Result<bool> = Ok(true);
+    let nothing_pressed: std::io::Result<bool> = Ok(false);
+    let terminal_gone: std::io::Result<bool> =
+        Err(std::io::Error::new(std::io::ErrorKind::Other, "input/output error"));
+
+    // A run that ended on its own terms stays navigable until `q`.
+    assert!(!leave_finished_screen(false, &key_waiting));
+    assert!(!leave_finished_screen(false, &nothing_pressed));
+
+    // An interrupted run leaves at once, whatever the input says.
+    assert!(leave_finished_screen(true, &key_waiting));
+    assert!(leave_finished_screen(true, &nothing_pressed));
+
+    // So does a terminal that has gone away, interrupted or not.
+    assert!(leave_finished_screen(false, &terminal_gone));
+    assert!(leave_finished_screen(true, &terminal_gone));
 }
