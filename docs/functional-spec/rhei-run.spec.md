@@ -278,7 +278,10 @@ restores the terminal and re-raises `SIGINT` on the process
 
 1. schedules no further work — no new pass begins, no freed worker slot
    refills, and the scheduler's waits return at once instead of sleeping out
-   their interval;
+   their interval. A ticket the pass had already chosen but not yet started is
+   **not** started: it is left exactly as an unselected ticket, with no
+   subprocess, no log, and no journal entry. Only invocations already in flight
+   when the signal arrived are terminated;
 2. terminates each in-flight invocation's process group with the sequence above
    and reaps it;
 3. **fires no transition for an interrupted invocation.** The ticket keeps the

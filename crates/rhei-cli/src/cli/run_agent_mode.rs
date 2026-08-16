@@ -380,6 +380,12 @@ fn spawn_parallel_agent_work_item(
     sink: &Arc<dyn rhei_tui::EventSink>,
     intervene: Option<&Arc<RunInterveneSink>>,
 ) -> MietteResult<ParallelAgentSpawnOutcome> {
+    // The work item was chosen before the interrupt arrived; starting it now
+    // would be new work the shutdown promised not to schedule.
+    // §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(ParallelAgentSpawnOutcome::Skipped);
+    }
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&item.task_id_str);
     // The item's owning rhei supplies its machine and callback base.
@@ -680,6 +686,11 @@ fn spawn_parallel_program_work_item(
     runtime_dir: &Path,
     sink: &Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<ParallelProgramSpawnOutcome> {
+    // As for agents: a slot was reserved for this item before the interrupt,
+    // and the shutdown starts nothing further. §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(ParallelProgramSpawnOutcome::Skipped);
+    }
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&item.task_id_str);
     // The item's owning rhei supplies its machine and callback base.
@@ -1949,6 +1960,11 @@ fn run_agent_mode(
             }
 
             for (task_id_str, _current_state_raw, current_state, resolved) in &program_tasks {
+                // The pass collected every ready program before the interrupt;
+                // the ones not yet started stay unstarted. §FS-rhei-run.3.2
+                if interrupt_requested() {
+                    break;
+                }
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
                 let machine = machines.for_task_str(task_id_str);
@@ -2342,6 +2358,9 @@ fn run_agent_mode(
             // ticket's turn lands on the shared pass tail below, so one ticket
             // giving up never skips the decision about the pass. §FS-rhei-run.3
             'sequential: {
+                // No interrupt check: one `batch[0]` per pass and the pass
+                // top re-reads the token, so nothing further starts. A loop
+                // over `batch` would need one. §FS-rhei-run.3.2
                 let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);

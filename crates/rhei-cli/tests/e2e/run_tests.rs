@@ -1677,15 +1677,29 @@ transitions:
 /// on disk for the assertions and for the failure message.
 #[cfg(unix)]
 fn spawn_rhei_run(dir: &Path, workspace: &Path, machine: &Path) -> std::process::Child {
+    spawn_rhei_run_with(dir, workspace, machine, &[])
+}
+
+/// [`spawn_rhei_run`] with extra `run` flags.
+#[cfg(unix)]
+fn spawn_rhei_run_with(
+    dir: &Path,
+    target: &Path,
+    machine: &Path,
+    extra_args: &[&str],
+) -> std::process::Child {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
     cmd.env("HOME", dir.join(".home"));
     cmd.arg("--state-machine")
         .arg(machine)
         .arg("run")
-        .arg(workspace)
+        .arg(target)
         .arg("--no-tui")
         .arg("--no-callbacks")
         .arg("--no-dashboard");
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(fs::File::create(dir.join("run.out")).expect("create run stdout"));
     cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
@@ -1954,6 +1968,102 @@ fn a_timeout_ends_the_agents_whole_group() {
     assert!(log.contains("agent timed out after"), "got:\n{log}");
     assert!(log.contains("timed_out: true"), "got:\n{log}");
     assert!(!log.contains("interrupted: true"), "a timeout is not an interruption, got:\n{log}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// An interrupted run must not start the work it had merely queued up.
+///
+/// Four tickets share one `concurrent: true` program state, so a single pass
+/// collects all four and runs them one after another. A `SIGTERM` while the
+/// first is in flight has to end the pass, not merely shorten each of the
+/// remaining three to the moment its own `wait` reads the token — which is what
+/// happened before the loop learned to check.
+// §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn an_interrupted_run_starts_none_of_the_programs_it_had_queued() {
+    let plan = r#"# Rhei: Queued Programs
+
+## Tasks
+
+### Task 1: One
+**State:** work
+
+### Task 2: Two
+**State:** work
+
+### Task 3: Three
+**State:** work
+
+### Task 4: Four
+**State:** work
+"#;
+    // `concurrent: true` is what lets one pass pick up all four tickets;
+    // without it the state admits one at a time and there is nothing queued.
+    let machine = r#"name: queued-programs
+version: 1
+states:
+  work:
+    initial: true
+    concurrent: true
+    description: Sleep until told otherwise
+    program: >-
+      mkdir -p runtime/started
+      && : > "runtime/started/$RHEI_TASK_ID"
+      && sleep 300
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: work
+    to: completed
+    exit_code: 0
+"#;
+
+    let dir = unique_temp_dir("run-interrupt-queued-programs");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    // `--parallel 1` runs programs one at a time from the pass's own loop,
+    // which is the path this test is about.
+    let mut run = spawn_rhei_run_with(&dir, &plan_path, &machine_path, &["--parallel", "1"]);
+
+    let started_dir = dir.join("runtime/started");
+    poll_until("the first program to start", TEST_PATIENCE, || {
+        fs::read_dir(&started_dir).map(|entries| entries.count() >= 1).unwrap_or(false)
+    });
+
+    signal_pid(run.id(), "TERM");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(143),
+        "run should exit 128+SIGTERM\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+
+    let started: Vec<String> = fs::read_dir(&started_dir)
+        .expect("started marker directory")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(started.len(), 1, "only the in-flight program may have run, got {started:?}");
+
+    let mut logs: Vec<String> = fs::read_dir(dir.join("runtime/logs"))
+        .expect("program log directory")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".log"))
+        .collect();
+    logs.sort();
+    assert_eq!(logs.len(), 1, "the shutdown should open no further program logs, got {logs:?}");
+
+    // The three tickets that never ran are untouched, and so is the one that
+    // did: an interruption is not a verdict. §FS-rhei-run.3.2
+    for id in ["1", "2", "3", "4"] {
+        assert_task_state(&plan_path, &machine_path, id, "work");
+    }
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
