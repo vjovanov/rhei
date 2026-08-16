@@ -39,7 +39,17 @@
   That backstop reaches the direct subprocess only — its own descendants survive
   a supervisor `SIGKILL` unless it tears them down as it dies, because group-wide
   teardown needs the supervisor alive to signal the group.
-  Issue #53. PR #TBD §FS-rhei-run.3.2 §DA-supervised-process-groups
+
+  Under the TUI an interrupted run now **leaves the screen** instead of parking
+  on it. The finished surface stays navigable until `q` only for a run that
+  ended on its own terms; waiting for `q` after a signal held the engine inside
+  its own shutdown — it joins the render thread first — so an externally
+  signalled TUI run wrote no report, printed nothing, returned no exit code, and
+  ignored every further signal short of `SIGKILL`. A terminal that has gone away
+  ends the TUI too, at any point in the run: a closed pty used to read as "no
+  key was pressed" and turned the render loop into a busy loop.
+  Issue #53. PR #TBD §FS-rhei-run.3.2 §FS-rhei-run-tui.1.5.7
+  §DA-supervised-process-groups
 
 - Make the result obligation a property of the terminal state, not of `rhei
   complete`. A task no longer enters a `final: true` state without a non-empty
