@@ -259,10 +259,14 @@ early-termination path and three reasons to take it: the invocation's own
 deadline, an operator interrupt, and the supervisor's death. Timeout and
 shutdown are two triggers of the same routine.
 
-**What this covers.** Every subprocess `rhei run` starts itself: agents,
-programs, and the snapshot redactor (§FS-rhei-snapshots). A subprocess a
+**What this covers.** Every subprocess `rhei run` starts itself to do a
+ticket's work: agents, programs, and the snapshot redactor
+(§FS-rhei-snapshots). Three are deliberately outside it: a subprocess a
 *callback* starts is that callback's own child and is governed by the callback
-contract, not by this section.
+contract; the `git` queries of the consistency check of §3.1 are short
+synchronous bookkeeping that has ended before the check returns; and the editor
+the browser dashboard launches (§FS-rhei-viz.5) is detached on purpose, because
+it is the operator's and outliving the run is the point.
 
 **Process groups.** Each such subprocess starts in its own process group, which
 its descendants inherit — MCP servers, shell tools, background jobs.

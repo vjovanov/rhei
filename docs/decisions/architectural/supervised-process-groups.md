@@ -37,11 +37,18 @@ The bug is not three bugs. It is one missing concept: nothing named the unit
 
 ## Decision
 
-Every subprocess `rhei run` starts **itself** is a **supervised process group**
-with exactly one early-termination path and three reasons to take it: its
-deadline, an operator interrupt, or the supervisor's death. That is agents,
-programs, and the snapshot redactor; a subprocess a *callback* starts is that
-callback's own child and stays outside this decision. §FS-rhei-run.3.2
+Every subprocess `rhei run` starts **itself to do a ticket's work** is a
+**supervised process group** with exactly one early-termination path and three
+reasons to take it: its deadline, an operator interrupt, or the supervisor's
+death. That is agents, programs, and the snapshot redactor. §FS-rhei-run.3.2
+
+Three subprocesses stay outside the decision, each deliberately. A subprocess a
+*callback* starts is that callback's own child and the callback contract
+governs it. The `git rev-parse` / `git status` queries of the post-transition
+consistency check are short synchronous bookkeeping that has ended by the time
+the call returns — a group would give the shutdown nothing to hold. The editor
+the browser dashboard launches is detached on purpose: it belongs to the
+operator, not to the run, and outliving the run is what it is for.
 
 The redactor is included because "every subprocess" has to mean it: it is a
 30-second synchronous child of the run, spawned on the agent path, and leaving

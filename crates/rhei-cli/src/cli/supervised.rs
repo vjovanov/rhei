@@ -1,13 +1,17 @@
 // Supervised subprocess groups.
 //
-// Every subprocess `rhei run` starts itself — agents, programs, and the
-// snapshot redactor — is a process group it owns, with exactly one
+// Every subprocess `rhei run` starts to do a ticket's work — agents, programs,
+// and the snapshot redactor — is a process group it owns, with exactly one
 // early-termination path and three reasons to take it: the invocation's
 // deadline, an operator interrupt, or the supervisor's death. Timeout and
 // shutdown are two triggers of the same routine, applied to the group.
 //
-// A subprocess a *callback* starts is that callback's own child and is not
-// supervised here; the callback contract governs it.
+// Three subprocesses are deliberately outside this, each for its own reason:
+// a subprocess a *callback* starts is that callback's own child and the
+// callback contract governs it; the `git` queries of the post-transition
+// consistency check are short synchronous bookkeeping that ends before the
+// call returns; and the editor the dashboard launches is detached on purpose,
+// because it belongs to the operator and outliving the run is the point.
 
 // §FS-rhei-run.3.2 §DA-supervised-process-groups
 
