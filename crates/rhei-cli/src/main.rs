@@ -32,6 +32,7 @@ include!("cli/agent_resolution.rs");
 include!("cli/run_helpers.rs");
 include!("cli/run_diag.rs");
 include!("cli/run_git_consistency.rs");
+include!("cli/supervised.rs");
 include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");
 include!("cli/intervene.rs");
