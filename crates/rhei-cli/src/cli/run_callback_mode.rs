@@ -8,6 +8,9 @@ fn run_callback_mode(
 ) -> MietteResult<()> {
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
+    // No `RunSubprocessGuard`: this mode spawns nothing supervised, so a guard
+    // would own nothing. Anything supervised added here must install one.
+    // §FS-rhei-run.3.2
     let callback_paths = &machines.default_callbacks;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
