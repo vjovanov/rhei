@@ -1,0 +1,143 @@
+# DA-supervised-process-groups: Subprocesses are supervised process groups with one termination path
+
+## Status
+
+accepted
+
+## Context
+
+`rhei run` promised a subprocess lifetime it did not own. The spec described
+exactly one way an agent dies early — its timeout, `SIGTERM` then a 10-second
+grace then `SIGKILL` (§FS-rhei-agents.7.3) — and said nothing about the reverse
+direction: the supervisor exiting while an agent is in flight.
+
+The implementation matched the omission. Agents and programs were plain
+children in `rhei run`'s own process group, `rhei run` installed no signal
+handler at all, and the only kill path was the timeout watchdog signalling the
+**direct child pid**. Three failures followed from that one shape:
+
+1. **Ctrl+C under the TUI orphaned agents.** In raw mode the tty generates no
+   `SIGINT`; the TUI reads the key, restores the terminal, and re-raises
+   `SIGINT` on `rhei` alone (§FS-rhei-run-tui.1.8). The default disposition
+   killed the supervisor and left every agent running. Only the non-TUI case
+   worked, and by accident: the tty delivers `SIGINT` to the whole foreground
+   process group, which happened to contain the agents.
+2. **Every other supervisor death orphaned them too** — `kill <pid>`, `SIGHUP`
+   on terminal close, an early `?` return after workers were spawned, a panic,
+   `SIGKILL`, OOM. The orphan kept writing into the workspace under its agent's
+   permission mode while the state machine that governed it was gone, its
+   timeout enforced by nobody, and a restart spawned a second agent for the same
+   ticket over the same output paths.
+3. **The timeout path had the same bug one level down.** Signalling the direct
+   child left the agent's own subprocesses — MCP servers, `bash` tools,
+   background jobs — alive after a timeout kill.
+
+The bug is not three bugs. It is one missing concept: nothing named the unit
+`rhei run` is responsible for, and nothing gave that unit a single way to end.
+
+## Decision
+
+Every subprocess `rhei run` starts is a **supervised process group** with
+exactly one early-termination path and three reasons to take it: its deadline,
+an operator interrupt, or the supervisor's death. §FS-rhei-run.3.2
+
+**1. The unit is the group, not the child.**
+
+Each agent and program is spawned with `process_group(0)`, so it leads a group
+its descendants inherit, and termination is `killpg`, never `kill` on the child
+pid. A subprocess that spawns helpers can no longer outlive its own death
+certificate. Because a group in the background must not read the operator's
+terminal, a profile that does not pipe a prompt gets `stdin` on `/dev/null` —
+independently correct, and required here: an inherited tty read in a background
+group stops the child on `SIGTTIN`.
+
+**2. Timeout and shutdown are one routine.**
+
+`Supervised::wait` is the only place a subprocess is waited on. It polls
+`try_wait` and ends on whichever comes first: exit, deadline, or the stop
+token. Deadline and token then run the identical sequence against the group —
+`SIGTERM`, grace, `SIGKILL` — and differ only in the cause they report. Two
+copy-pasted poll loops, and two ways of killing, became one.
+
+**3. The token is set by a signal handler, read by the loops.**
+
+One handler for `SIGINT`, `SIGTERM`, and `SIGHUP` does nothing but increment an
+atomic and record the first signal number. Everything else is polling: the pass
+loop, the worker-pool refill, the scheduler's sleeps, and each live
+`Supervised::wait`. A second signal raises the count and skips the grace, which
+is what a second Ctrl+C has always meant. The exit code is `128 + signal`
+because the run really did end by that signal.
+
+**4. A drop guard covers the paths no handler can.**
+
+A live registry of group ids plus a guard declared alongside `RunReportGuard`
+terminates whatever is still registered when `run_agent_mode` is left by *any*
+path — `?`, panic unwind, or normal end. Without it, an error return after
+workers were spawned is indistinguishable from the original bug.
+
+**5. Interruption is an invocation outcome, not a task state.**
+
+An interrupted invocation fires no transition. The ticket keeps its state, the
+task file is not rewritten, the transitions log gains no entry, and the next
+`rhei run` re-executes the state. Reporting it as `failed` or `timed out` would
+route it through error or timeout transitions and park tickets in states nobody
+chose; reporting it as `cancelled` would collide with `cancelled` the terminal
+*task state* (§FS-rhei-run-report.3.2). It is its own outcome, `interrupted`,
+in the journal, the dashboard, the run report, and the log footer
+(§FS-rhei-agents.8).
+
+**6. PDEATHSIG is a backstop, not the design.**
+
+On Linux each subprocess arms `PR_SET_PDEATHSIG(SIGTERM)` in `pre_exec`. It
+covers exactly the case no handler can — `SIGKILL` and OOM, where the
+supervisor runs no code — and nothing else: it is Linux-only, per-thread, and
+delivered after a race window the child closes by re-checking its parent. The
+handled paths above are the contract; this is insurance.
+
+## Alternatives considered
+
+**Detached-and-adoptable** (issue #53's option (b)): record each live agent's
+pid, task, and state in `.rhei/run.lock`, and have the next `rhei run` adopt or
+reap it. This is a coherent contract, and a much larger feature: it needs pid
+reuse handling, ownership transfer of the log and the accounting capture, a
+policy for an adopted agent whose plan changed underneath it, and a `rhei run`
+that can attach to work it did not start. It also contradicts the timeout
+semantics already shipped — a timeout promises the agent is gone, so agents are
+already supervisor-owned in the one case the spec described. Supervisor-owned
+lifetime is what the rest of the system already assumes; adoption would be a
+deliberate new capability, not a bug fix.
+
+**A tether/shim process** between `rhei run` and each agent, which notices the
+parent's death and kills its child. It works without any signal handling, and
+it buys nothing here that the group plus PDEATHSIG do not: it adds a process
+per invocation to the tree, another exit status to interpret, and its own
+orphan case (kill the shim, keep the agent).
+
+**`setsid` per agent** (a new *session*, not just a group). A session leader
+detaches from the controlling terminal, which is more than is wanted: the
+foreground tty `SIGINT` that works today would stop reaching agents, so the
+plain non-TUI Ctrl+C path would come to depend entirely on our handler. A
+process group gets the containment without giving up the terminal relationship.
+
+**cgroups (Linux) / Job Objects (Windows).** The strongest containment
+available, and the least portable: a cgroup needs a writable
+`cgroup.subtree_control` or a delegated slice, which an unprivileged CLI cannot
+assume, and Job Objects solve only the Windows half. Windows keeps
+`child.kill()` exactly as before (§FS-rhei-run.3.2 is specified over the Unix
+mechanism); revisiting it is a separate decision, not a prerequisite for
+fixing the orphan.
+
+## Consequences
+
+- A timeout now kills the agent's whole tree, not just the agent. Any state
+  machine that relied on an MCP server surviving its agent's timeout will see
+  it stop — which is the specified behavior, not a regression.
+- Agents can no longer read the operator's terminal. A profile that wants
+  operator input must pipe stdin (`stdin_prompt` / `intervene_stdin`) and be
+  driven through `rhei intervene`.
+- `rhei run` exits `130`/`143`/`129` where it used to be killed outright; a
+  wrapper that treated any non-zero exit as a plan failure now sees a distinct,
+  conventional code.
+- An interrupted run leaves tickets exactly where they were. The run report
+  says which invocations were interrupted and where their logs are, and re-running
+  is the whole recovery procedure.

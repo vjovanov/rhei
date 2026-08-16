@@ -1030,8 +1030,11 @@ Units can be combined: `1h30m`, `2h15m30s`.
 
 When an agent process exceeds its timeout:
 
-1. `rhei run` sends `SIGTERM` to the agent process.
-2. After a 10-second grace period, if the process has not exited, send `SIGKILL`.
+1. `rhei run` sends `SIGTERM` to the agent's **process group**, not to the
+   direct child alone, so the agent's own subprocesses — MCP servers, shell
+   tools, background jobs — go with it (§FS-rhei-run.3.2).
+2. After a 10-second grace period, if the group has not exited, send `SIGKILL`
+   to the group.
 3. Log to the task log: `agent timed out after {duration}`.
 4. Look for a timeout transition from the current state in the state machine.
 5. If a timeout transition exists, fire it (with its `on_leave`/`on_enter` callbacks).
@@ -1160,6 +1163,19 @@ ended: 2026-04-20T10:34:23Z
 ```
 
 The header and footer are added by `rhei run`. The `v1` suffix is the log format version — increment it when the header/footer structure changes. The body is the raw, unmodified output of the agent process.
+
+An invocation the engine ended early says so in the footer, above `=== exit ===`
+and again as a machine-readable flag inside it:
+
+| Ending | Line above `=== exit ===` | Flag inside `=== exit ===` |
+| --- | --- | --- |
+| Timeout (§7.3) | `agent timed out after {duration}` | `timed_out: true` |
+| Run interrupted (§FS-rhei-run.3.2) | `agent interrupted by run shutdown after {duration}` | `interrupted: true` |
+
+A program log (`=== rhei program log v1 ===`) carries the same two lines with
+`program` in place of `agent`. Neither flag appears on a normal exit, so a
+reader — and a script — can tell an agent that finished from one the engine
+stopped without inferring it from the exit code.
 
 Each entry in `mcp_servers:` and `skills:` is the resolved id; an entry
 suffixed with `?` was declared `optional: true` and failed its availability

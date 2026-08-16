@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Give `rhei run` real ownership of the subprocesses it starts. Agents and
+  programs were plain children in the supervisor's own process group, and
+  `rhei run` installed no signal handler at all, so every way the supervisor
+  could die except a foreground `Ctrl+C` left its agents running: reparented to
+  init, still writing into the workspace under `bypassPermissions`, with their
+  timeout enforced by nobody and the next run free to spawn a second agent for
+  the same ticket. Ctrl+C in the TUI was one of those ways — raw mode generates
+  no tty `SIGINT`, so the TUI re-raised `SIGINT` on `rhei` alone and killed only
+  the supervisor. The timeout path had the same bug one level down: it signalled
+  the direct child pid, so an agent's MCP servers and `bash` tools survived a
+  timeout kill.
+
+  Every subprocess is now a **supervised process group** with one
+  early-termination path and three reasons to take it — its deadline, an
+  operator interrupt, or the supervisor's death. Termination is `SIGTERM` →
+  10 s → `SIGKILL` against the **group**, whichever reason fired it, so an
+  invocation can no longer outlive its own death certificate by handing work to
+  a grandchild. Subprocesses no longer inherit the operator's terminal on
+  stdin: a profile that does not pipe a prompt gets `/dev/null`.
+
+  **`SIGINT`, `SIGTERM`, and `SIGHUP` now interrupt the run** instead of
+  killing the supervisor out from under its workers. No new work is scheduled,
+  in-flight invocations are terminated as groups and reaped, and `rhei run`
+  exits `128 + signal` (`130`, `143`, `129`). A second signal skips the grace.
+  An interruption is neither a failure nor a timeout: **no transition fires**,
+  the ticket keeps its state, `runtime/state-transitions.log` gains no entry,
+  and the next `rhei run` simply re-executes the state. The run report, the
+  journal, the dashboard, and the log footer all record it as `interrupted`
+  (`interrupted: true`, above it `agent interrupted by run shutdown after
+  {duration}`), so re-running is the whole recovery procedure. The paths a
+  handler cannot cover are covered too: a drop guard tears the groups down on an
+  early error return or a panic unwind, and on Linux each subprocess arms
+  `PR_SET_PDEATHSIG(SIGTERM)` as a best-effort backstop for `SIGKILL` and OOM.
+  Issue #53. PR #TBD §FS-rhei-run.3.2 §DA-supervised-process-groups
+
 - Make the result obligation a property of the terminal state, not of `rhei
   complete`. A task no longer enters a `final: true` state without a non-empty
   `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the

@@ -335,7 +335,7 @@ columns are:
 | `inputs` | Compact `name: ok/missing/optional-missing` list with resolved paths in the detail block. |
 | `outputs` | Compact `name: created/reused/missing/not-checked` list with resolved paths in the detail block. |
 | `invocation` | Agent/program label and log path, or `none`. |
-| `reason` | The condition that selected the row: exit code, callback, output reuse, prior dependency, gate, poll delay, missing input, missing output, missing skill/MCP, terminal state, or run option. |
+| `reason` | The condition that selected the row: exit code, callback, output reuse, prior dependency, gate, poll delay, missing input, missing output, missing skill/MCP, terminal state, interruption, or run option. |
 
 `driver: reused-output` means the current state's required outputs existed
 before any subprocess was spawned for that decision, so Rhei was able to evaluate
@@ -347,6 +347,15 @@ the checked outputs and mark them `reused`.
 transition rules while autonomous spawning was disabled or not applicable. It is
 not used for existing-output reuse, because that case needs its own visual
 treatment.
+
+An invocation the operator interrupted (§FS-rhei-run.3.2) reports `interrupted`
+as both its exit status in **Invocations** and its ledger `reason`: the run
+stopped the worker before it could finish, so the row records the state it ran
+in and no transition out of it. It is deliberately distinct from `timed out`
+and from a failing exit code — nothing about the ticket is known to be wrong,
+and the marker used for it in live surfaces (`⏹`) is calm chrome rather than
+attention color, for the same reason. The ticket's own row keeps whatever
+marker its unchanged state earns.
 
 `driver: blocked` is used for non-terminal tasks that remain in place at run end.
 The row's `reason` must name the first concrete blocker Rhei can prove, such as
