@@ -435,16 +435,15 @@ impl Supervised {
             // two syscalls, allocates nothing, and takes no lock.
             unsafe {
                 cmd.pre_exec(move || {
-                    // The per-thread semantics are harmless: the thread that
-                    // spawns a subprocess is the one that waits on it, so it
-                    // outlives the child on every path short of the process
-                    // dying.
-
                     // Backstop for the deaths no handler can catch — SIGKILL,
                     // OOM — where the supervisor runs no code. §FS-rhei-run.3.2
                     let _ = nix::sys::prctl::set_pdeathsig(Some(Signal::SIGTERM));
-                    // Arming it happens after the fork, so a supervisor that
-                    // died in between would never deliver it. Close the window.
+                    // The per-thread semantics are harmless: the thread that
+                    // spawns a subprocess is the one that waits on it, so it
+                    // outlives the child on every path short of the whole
+                    // process dying. Arming happens after the fork, though, so
+                    // a supervisor that died in between would never deliver it
+                    // — close that window before going any further.
                     if nix::unistd::getppid().as_raw() as u32 != supervisor {
                         return Err(std::io::Error::from_raw_os_error(
                             nix::errno::Errno::ESRCH as i32,
@@ -482,7 +481,7 @@ impl Supervised {
         let start = Instant::now();
         loop {
             if let Some(status) = self.child.try_wait()? {
-                self.finish(status);
+                self.finish();
                 return Ok(Ended { status, cause: EndCause::Exited });
             }
             let timed_out = timeout.is_some_and(|limit| start.elapsed() > limit);
@@ -514,7 +513,7 @@ impl Supervised {
             let deadline = Instant::now() + SUPERVISED_TERMINATE_GRACE;
             while Instant::now() < deadline {
                 if let Some(status) = self.child.try_wait()? {
-                    self.finish(status);
+                    self.finish();
                     return Ok(status);
                 }
                 // A second interrupt mid-grace is the operator saying "now".
@@ -526,12 +525,12 @@ impl Supervised {
         }
         self.kill_group();
         let status = self.child.wait()?;
-        self.finish(status);
+        self.finish();
         Ok(status)
     }
 
     /// Record that the child has been reaped and drop the group's registration.
-    fn finish(&mut self, _status: std::process::ExitStatus) {
+    fn finish(&mut self) {
         self.reaped = true;
         #[cfg(unix)]
         unregister_live_group(self.pgid);
