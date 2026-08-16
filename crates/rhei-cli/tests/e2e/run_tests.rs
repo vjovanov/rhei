@@ -1906,7 +1906,14 @@ fn sigint_to_the_run_interrupts_it_and_exits_130() {
 
 /// A supervisor `SIGKILL`ed runs no code at all, so nothing it installed can
 /// tear its agents down. On Linux the agent's own parent-death signal does it.
-// §FS-rhei-run.3.2
+///
+/// `LONE_AGENT`, not `GRANDCHILD_AGENT`, on purpose: `PR_SET_PDEATHSIG` reaches
+/// the direct subprocess and nothing below it. A grandchild of a `SIGKILL`ed
+/// supervisor survives unless the agent tears it down as it dies, because
+/// group-wide teardown needs the supervisor alive to signal the group.
+/// Asserting a dead grandchild here would assert something the backstop does
+/// not promise.
+// §FS-rhei-run.3.2 §DA-supervised-process-groups
 #[cfg(target_os = "linux")]
 #[test]
 fn sigkill_to_the_run_still_ends_the_agent() {

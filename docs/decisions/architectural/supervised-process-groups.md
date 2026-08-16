@@ -93,10 +93,14 @@ in the journal, the dashboard, the run report, and the log footer
 **6. PDEATHSIG is a backstop, not the design.**
 
 On Linux each subprocess arms `PR_SET_PDEATHSIG(SIGTERM)` in `pre_exec`. It
-covers exactly the case no handler can — `SIGKILL` and OOM, where the
-supervisor runs no code — and nothing else: it is Linux-only, per-thread, and
-delivered after a race window the child closes by re-checking its parent. The
-handled paths above are the contract; this is insurance.
+reaches the one case no handler can — `SIGKILL` and OOM, where the supervisor
+runs no code — and only that case, narrowly: the kernel delivers the signal to
+the **direct subprocess** and to nothing below it, so a group leader's own
+descendants survive a supervisor `SIGKILL` unless the leader tears them down as
+it dies. Group-wide teardown needs the supervisor alive to `killpg`. The
+backstop is Linux-only, per-thread, and delivered after a race window the child
+closes by re-checking its parent. The handled paths above are the contract;
+this is insurance, and it insures less than they cover.
 
 ## Alternatives considered
 
@@ -152,3 +156,11 @@ fixing the orphan.
 - An interrupted run leaves tickets exactly where they were. The run report
   says which invocations were interrupted and where their logs are, and re-running
   is the whole recovery procedure.
+- **Not covered:** stragglers a group leader leaves behind when it exits
+  *normally*. Only a timeout and an interruption tear the group down; a leader
+  that returns `0` having failed to stop an MCP server it started leaves that
+  server in the group, and nothing here kills it. The group is a handle for
+  ending an invocation early, not a lifetime the runtime enforces at every exit.
+  Making it one — reaping the group after every wait — is a separate decision
+  with its own hazard: a state machine may legitimately want a helper to outlive
+  the invocation that started it.

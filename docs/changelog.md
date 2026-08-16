@@ -35,6 +35,9 @@
   handler cannot cover are covered too: a drop guard tears the groups down on an
   early error return or a panic unwind, and on Linux each subprocess arms
   `PR_SET_PDEATHSIG(SIGTERM)` as a best-effort backstop for `SIGKILL` and OOM.
+  That backstop reaches the direct subprocess only — its own descendants survive
+  a supervisor `SIGKILL` unless it tears them down as it dies, because group-wide
+  teardown needs the supervisor alive to signal the group.
   Issue #53. PR #TBD §FS-rhei-run.3.2 §DA-supervised-process-groups
 
 - Make the result obligation a property of the terminal state, not of `rhei
