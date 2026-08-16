@@ -773,6 +773,7 @@ fn spawn_parallel_program_work_item(
                 &resolved_for_thread,
                 &render_context,
                 &log_for_thread,
+                &sink_for_thread,
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let (outcome, exit_code) = program_slot_outcome(&result);
@@ -1560,7 +1561,12 @@ fn run_agent_mode(
         // Schedule nothing new once the run is interrupted; the in-flight
         // invocations have already ended themselves. §FS-rhei-run.3.2
         if interrupt_requested() {
-            announce_interruption_once();
+            // Through the journal, not stderr: when no subprocess is in flight
+            // the operator may still be looking at a live TUI.
+            // §FS-rhei-run-tui.1.8
+            if let Some(notice) = take_interruption_announcement() {
+                run_warn!("{notice}");
+            }
             break;
         }
         let loaded = load_plan(input)?;
@@ -2012,7 +2018,8 @@ fn run_agent_mode(
                     wall_clock: started_wall,
                 });
 
-                let spawn_result = spawn_and_wait_program(resolved, &render_context, &log);
+                let spawn_result =
+                    spawn_and_wait_program(resolved, &render_context, &log, &sink);
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
                 let (outcome, exit_code) = program_slot_outcome(&spawn_result);

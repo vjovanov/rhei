@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use rhei_viz_model::{Machine, MachineState, TaskRow, Transition, VizModel};
 
 use super::input::{handle_key_event, InputAction};
+use super::message_goes_to_stderr;
 use super::state::{CostGroup, FlowFocus, UiState, UsageRecord, View};
 use super::text::{sanitize_terminal_text, truncate_chars};
 use crate::dashboard::InterveneSink;
@@ -767,4 +768,30 @@ fn an_empty_gate_result_submits_with_no_message_and_esc_cancels() {
     press(&mut state, KeyCode::Esc);
     assert!(state.composer.is_none());
     assert_eq!(gate.calls.lock().unwrap().len(), 1, "Esc submits nothing");
+}
+
+/// Once the render thread has restored the terminal there is no journal pane
+/// left, and the channel still accepts sends — so a warning routed to it would
+/// simply vanish. That is where the run's shutdown notice was going.
+// §FS-rhei-run-tui.1.8 §FS-rhei-run.3.2
+#[test]
+fn warnings_leave_the_journal_for_stderr_once_the_screen_is_restored() {
+    let warn = RunEvent::Message {
+        level: MessageLevel::Warn,
+        text: "Interrupted — terminating 1 invocation(s)".to_string(),
+    };
+    let error = RunEvent::Message { level: MessageLevel::Error, text: "agent failed".to_string() };
+    let info = RunEvent::Message { level: MessageLevel::Info, text: "spawning".to_string() };
+
+    // While the screen is live the journal is the right place for all of them.
+    assert!(!message_goes_to_stderr(false, &warn));
+    assert!(!message_goes_to_stderr(false, &error));
+
+    assert!(message_goes_to_stderr(true, &warn));
+    assert!(message_goes_to_stderr(true, &error));
+
+    // Info is journal chrome with nowhere useful to go on a bare terminal, and
+    // non-message events are UI state rather than text.
+    assert!(!message_goes_to_stderr(true, &info));
+    assert!(!message_goes_to_stderr(true, &RunEvent::PassStarted { pass: 1, ready: Vec::new() }));
 }

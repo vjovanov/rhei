@@ -13,6 +13,10 @@
         /// finishing on its own.
         const CHILD_SLEEP: &str = "sleep 30";
 
+        /// The tests assert on causes, not on operator-facing text; the
+        /// notice's routing is the frontend's test. §FS-rhei-run-tui.1.8
+        fn ignore_notice(_: String) {}
+
         fn sh(script: &str) -> std::process::Command {
             let mut cmd = std::process::Command::new("sh");
             cmd.arg("-c").arg(script);
@@ -97,7 +101,7 @@
             let token = StopToken::new();
             let mut supervised =
                 Supervised::spawn(&mut sh("exit 3"), "unit@exit").expect("spawn");
-            let ended = supervised.wait(Some(Duration::from_secs(30)), &token).expect("wait");
+            let ended = supervised.wait(Some(Duration::from_secs(30)), &token, &ignore_notice).expect("wait");
             assert_eq!(ended.cause, EndCause::Exited);
             assert_eq!(ended.status.code(), Some(3));
         }
@@ -109,7 +113,7 @@
                 Supervised::spawn(&mut sh(CHILD_SLEEP), "unit@timeout").expect("spawn");
             let pgid = supervised.pgid;
             let ended =
-                supervised.wait(Some(Duration::from_millis(1)), &token).expect("wait");
+                supervised.wait(Some(Duration::from_millis(1)), &token, &ignore_notice).expect("wait");
             assert_eq!(ended.cause, EndCause::TimedOut);
             assert!(!ended.status.success());
             drop(supervised);
@@ -126,7 +130,7 @@
                 Supervised::spawn(&mut sh(CHILD_SLEEP), "unit@interrupt").expect("spawn");
             let pgid = supervised.pgid;
             token.raise(Signal::SIGTERM as i32);
-            let ended = supervised.wait(None, &token).expect("wait");
+            let ended = supervised.wait(None, &token, &ignore_notice).expect("wait");
             assert_eq!(ended.cause, EndCause::Interrupted);
             drop(supervised);
             wait_until("the interrupted group to be gone", || !pid_is_alive(pgid));
@@ -161,7 +165,7 @@
             assert!(pid_is_alive(grandchild), "the grandchild should be running");
 
             token.raise(Signal::SIGTERM as i32);
-            let ended = supervised.wait(None, &token).expect("wait");
+            let ended = supervised.wait(None, &token, &ignore_notice).expect("wait");
             assert_eq!(ended.cause, EndCause::Interrupted);
             drop(supervised);
 
@@ -191,7 +195,7 @@
                 Supervised::spawn(&mut sh("exit 0"), "unit@registry").expect("spawn");
             let pgid = supervised.pgid;
             assert!(live_group_ids_for_test().contains(&pgid));
-            supervised.wait(Some(Duration::from_secs(30)), &token).expect("wait");
+            supervised.wait(Some(Duration::from_secs(30)), &token, &ignore_notice).expect("wait");
             assert!(!live_group_ids_for_test().contains(&pgid));
         }
 
@@ -233,7 +237,7 @@
             // with the default disposition and prove nothing.
             wait_until("the child to ignore SIGTERM", || ready.exists());
             token.raise(Signal::SIGINT as i32);
-            let ended = supervised.wait(None, &token).expect("wait");
+            let ended = supervised.wait(None, &token, &ignore_notice).expect("wait");
             assert_eq!(ended.cause, EndCause::Interrupted);
             assert_eq!(
                 ended.status.signal(),

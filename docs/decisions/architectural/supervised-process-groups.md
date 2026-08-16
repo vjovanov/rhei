@@ -68,6 +68,15 @@ loop, the worker-pool refill, the scheduler's sleeps, and each live
 is what a second Ctrl+C has always meant. The exit code is `128 + signal`
 because the run really did end by that signal.
 
+The token also composes the operator-facing shutdown notice, once, and hands it
+to whichever waiter asked first — as **text**. It performs no I/O: where the
+line is legible depends on whether a TUI is on screen, and that is the
+frontend's question. Writing it to stderr from the engine was right for a TUI
+Ctrl+C, which restores the terminal first, and wrong for an external `SIGTERM`
+arriving mid-render, which put it inside the alternate screen. The notice goes
+out as an ordinary `Message` event, and `TuiSink` sends warnings and errors to
+stderr from the moment it has restored the screen (§FS-rhei-run-tui.1.8).
+
 **4. A drop guard covers the paths no handler can.**
 
 A live registry of group ids plus a guard declared alongside `RunReportGuard`

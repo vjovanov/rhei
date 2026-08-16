@@ -112,31 +112,32 @@ impl StopToken {
         self.signal_number().map(|signum| 128 + signum)
     }
 
-    /// Tell the operator what the interruption is doing, and that a second
-    /// signal skips the grace.
+    /// The shutdown notice — what is being terminated, and that a second signal
+    /// skips the grace — handed to **one** caller and `None` to every other, so
+    /// several workers noticing the same interrupt produce one line rather than
+    /// one each.
     ///
-    /// Written to stderr rather than through the event sink: under the TUI the
-    /// render loop has already exited by the time a Ctrl+C reaches the engine,
-    /// so events emitted after it are dropped — and the terminal it restored is
-    /// exactly where this line belongs. The per-invocation `interrupted`
-    /// outcome still reaches the journal, dashboard, and report the ordinary
-    /// way.
-    // §FS-rhei-run-tui.1.8: the TUI has already left the screen by now.
-    fn announce_once(&self) {
+    /// Text, never I/O. Where the line belongs depends on what the operator is
+    /// looking at — a live TUI journal pane, a terminal the TUI has already
+    /// restored, a redirected stdout — and that is the frontend's question.
+    /// Writing it here sent an external `SIGTERM` arriving mid-render straight
+    /// into the alternate screen.
+    // §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+    fn take_announcement(&self) -> Option<String> {
         if self.announced.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            return;
+            return None;
         }
         let labels = live_invocation_labels();
-        if labels.is_empty() {
-            eprintln!("\nInterrupted — no subprocess in flight; stopping the run.");
+        Some(if labels.is_empty() {
+            "\nInterrupted — no subprocess in flight; stopping the run.".to_string()
         } else {
-            eprintln!(
+            format!(
                 "\nInterrupted — terminating {} invocation(s) ({}); \
                  press Ctrl+C again to kill immediately.",
                 labels.len(),
                 labels.join(", ")
-            );
-        }
+            )
+        })
     }
 }
 
@@ -154,9 +155,18 @@ fn interrupt_exit_code() -> Option<i32> {
     INTERRUPT.exit_code()
 }
 
-/// Write the shutdown notice once. §FS-rhei-run.3.2
-fn announce_interruption_once() {
-    INTERRUPT.announce_once();
+/// The run's shutdown notice, for the first caller to ask. §FS-rhei-run.3.2
+fn take_interruption_announcement() -> Option<String> {
+    INTERRUPT.take_announcement()
+}
+
+/// A `notify` for [`Supervised::wait`] that puts the shutdown notice on the
+/// run's event stream, where the frontend in use decides where it is legible.
+// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+fn notify_through_sink(sink: &Arc<dyn rhei_tui::EventSink>) -> impl Fn(String) + '_ {
+    move |text| {
+        sink.emit(rhei_tui::RunEvent::Message { level: rhei_tui::MessageLevel::Warn, text })
+    }
 }
 
 /// The one handler for every interrupting signal.
@@ -476,11 +486,16 @@ impl Supervised {
     /// Wait for the subprocess, its deadline, or the run's interruption —
     /// whichever comes first. The last two run the identical termination
     /// sequence against the group and differ only in the cause reported.
+    ///
+    /// `notify` is handed the shutdown notice by whichever waiter notices the
+    /// interrupt first, and by no other; it is the caller's to supply because
+    /// only the caller knows which sink the operator is reading.
     // §FS-rhei-run.3.2: timeout and shutdown are one routine.
     fn wait(
         &mut self,
         timeout: Option<Duration>,
         stop: &StopToken,
+        notify: &dyn Fn(String),
     ) -> std::io::Result<Ended> {
         let start = Instant::now();
         loop {
@@ -495,7 +510,9 @@ impl Supervised {
                 } else {
                     // The first waiter to notice names every invocation the
                     // shutdown is about to end. §FS-rhei-run.3.2
-                    stop.announce_once();
+                    if let Some(notice) = stop.take_announcement() {
+                        notify(notice);
+                    }
                     EndCause::Interrupted
                 };
                 let status = self.terminate_and_reap(stop)?;

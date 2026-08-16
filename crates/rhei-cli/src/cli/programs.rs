@@ -167,6 +167,9 @@ fn spawn_and_wait_program(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
     log_path: &Path,
+    // Only to carry the shutdown notice: a program's own output goes to its
+    // log, not the journal. §FS-rhei-run.3.2
+    sink: &Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<ProgramSpawnOutcome> {
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
@@ -231,7 +234,11 @@ fn spawn_and_wait_program(
     // One wait for all three endings: exit, deadline, run interruption.
     // §FS-rhei-run.3.2
     let ended = supervised
-        .wait(resolved.timeout_secs.map(Duration::from_secs), &INTERRUPT)
+        .wait(
+            resolved.timeout_secs.map(Duration::from_secs),
+            &INTERRUPT,
+            &notify_through_sink(sink),
+        )
         .map_err(|e| miette!(
             help = internal_error_help(),
             "error waiting for program: {e}"

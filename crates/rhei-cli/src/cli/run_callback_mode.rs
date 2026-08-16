@@ -119,7 +119,12 @@ fn run_callback_mode(
         // Callback-only advancement spawns no supervised subprocess, but the
         // run still stops when the operator asks it to. §FS-rhei-run.3.2
         if interrupt_requested() {
-            announce_interruption_once();
+            // Through the journal, not stderr: when no subprocess is in flight
+            // the operator may still be looking at a live TUI.
+            // §FS-rhei-run-tui.1.8
+            if let Some(notice) = take_interruption_announcement() {
+                run_warn!("{notice}");
+            }
             break;
         }
         let loaded = load_plan(input)?;
