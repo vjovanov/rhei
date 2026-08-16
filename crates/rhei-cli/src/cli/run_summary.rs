@@ -727,14 +727,15 @@ impl RunSummaryReport {
         let result = if stats.dry_run {
             "dry run — no changes applied".to_string()
         } else {
-            // §FS-rhei-run.3.2: the report is built after the loop ended, so
-            // the token still says whether it ended because it was stopped.
+            // The token still says why the loop ended — by *signal*, not by
+            // the shutdown guard's teardown (see `result_phrase`).
+            // §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
             result_phrase(
                 &attention,
                 &rows,
                 no_work,
                 advanced_without_work,
-                interrupt_requested(),
+                interrupted_by_signal(),
             )
         };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
@@ -1311,17 +1312,21 @@ fn attention_reason(
 /// whatever the plan looks like now is a snapshot of work in progress and not a
 /// verdict on it. Reading it as "stopped for human attention" told the operator
 /// to go and act on tickets whose only problem was that they were interrupted.
+///
+/// The caller passes the *signal* reading of the stop token, not the bare one:
+/// a run unwinding from an error raises it too, on its way to tearing down the
+/// groups it still owned, and that run has a verdict of its own.
 // §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
 fn result_phrase(
     attention: &[AttentionRow],
     rows: &[TaskRow],
     no_work: bool,
     advanced_without_work: bool,
-    interrupted: bool,
+    interrupted_by_signal: bool,
 ) -> String {
     let all_terminal_success =
         rows.iter().all(|r| matches!(r.marker, Marker::Done | Marker::TerminalAtStart));
-    if interrupted {
+    if interrupted_by_signal {
         "interrupted — re-run to continue".to_string()
     } else if !attention.is_empty() {
         // Gated and blocked tasks both halt the run for a human; the report and

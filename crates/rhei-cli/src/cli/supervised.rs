@@ -169,6 +169,18 @@ fn interrupt_requested() -> bool {
     INTERRUPT.is_set()
 }
 
+/// Whether an operator's signal stopped this run, as opposed to the shutdown
+/// guard stopping in-flight work on the way out of a failure.
+///
+/// Both raise the same token, because both mean "start nothing more and end
+/// every wait". They mean opposite things to a *reader*, though: one says the
+/// operator stopped a healthy run, the other that the run is unwinding from an
+/// error it is about to report. Only the first belongs in the run's result.
+// §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
+fn interrupted_by_signal() -> bool {
+    INTERRUPT.signal_number().is_some()
+}
+
 /// The process exit status for an interrupted run. §FS-rhei-run.3.2
 fn interrupt_exit_code() -> Option<i32> {
     INTERRUPT.exit_code()
