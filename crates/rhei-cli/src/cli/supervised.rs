@@ -206,7 +206,7 @@ fn notify_through_sink(sink: &Arc<dyn rhei_tui::EventSink>) -> impl Fn(String) +
 /// does nothing else — no allocation, no locking, no I/O. Every decision that
 /// follows from an interrupt is taken by the loops that poll the token.
 // §FS-rhei-run.3.2: SIGINT, SIGTERM, and SIGHUP interrupt the run.
-#[cfg(unix)]
+#[cfg(all(unix, not(test)))]
 extern "C" fn interrupt_signal_handler(signum: std::ffi::c_int) {
     INTERRUPT.raise(signum);
 }
@@ -218,7 +218,7 @@ extern "C" fn interrupt_signal_handler(signum: std::ffi::c_int) {
 /// CLI writes to pipes it owns and needs `EPIPE` back as a value
 /// (see [`install_quiet_broken_pipe_exit`]).
 // §FS-rhei-run.3.2: one handler, installed for every `rhei run`.
-#[cfg(unix)]
+#[cfg(all(unix, not(test)))]
 fn install_interrupt_handlers() {
     use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet};
 
@@ -235,8 +235,15 @@ fn install_interrupt_handlers() {
     }
 }
 
-/// No interruption handling off Unix; the run keeps the platform default.
-#[cfg(not(unix))]
+/// Nothing to install here.
+///
+/// Off Unix the run keeps the platform default. Under `cfg(test)` the reason
+/// is different: signal dispositions are process-wide, and the in-process
+/// tests that call `run_command` would leave the whole test binary swallowing
+/// its own Ctrl+C into a token nothing reads. The handler is exercised where
+/// it matters — the interruption e2e tests signal the real binary.
+// §FS-rhei-run.3.2
+#[cfg(any(not(unix), test))]
 fn install_interrupt_handlers() {}
 
 /// Sleep up to `total`, returning early once the run is interrupted.
