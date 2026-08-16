@@ -8,8 +8,8 @@
 /// exit path.
 ///
 /// `interrupted` is set when the run was shutting down: the engine ended the
-/// agent's process group, so the exit status says nothing about the ticket and
-/// **no transition may fire** for this invocation. §FS-rhei-run.3.2
+/// agent's process group, so the exit status says nothing about the ticket.
+// §FS-rhei-run.3.2: an interrupted invocation fires no transition.
 #[derive(Debug, Clone)]
 struct AgentSpawnOutcome {
     status: std::process::ExitStatus,
@@ -30,7 +30,8 @@ const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(20);
 /// Interruption is tested **first**, before success: the engine ended this
 /// invocation, so whatever status the agent managed to exit with during the
 /// grace is not a verdict on the ticket, and reporting it as completed would
-/// fire a transition the operator never asked for. §FS-rhei-run.3.2
+/// fire a transition the operator never asked for.
+// §FS-rhei-run.3.2: interruption is not a completion.
 fn agent_slot_outcome(
     result: &MietteResult<AgentSpawnOutcome>,
 ) -> (rhei_tui::TaskOutcome, Option<i32>) {

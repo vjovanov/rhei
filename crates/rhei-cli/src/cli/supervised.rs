@@ -4,6 +4,7 @@
 // one early-termination path and three reasons to take it: the invocation's
 // deadline, an operator interrupt, or the supervisor's death. Timeout and
 // shutdown are two triggers of the same routine, applied to the group.
+
 // §FS-rhei-run.3.2 §DA-supervised-process-groups
 
 /// Grace between `SIGTERM` and `SIGKILL` when terminating a group — the same
@@ -28,10 +29,11 @@ const SUPERVISED_SLEEP_SLICE: Duration = Duration::from_millis(500);
 // ---------------------------------------------------------------------------
 
 /// The run's stop token: raised by the signal handler, polled by every loop
-/// that would otherwise keep working. §FS-rhei-run.3.2
+/// that would otherwise keep working.
 ///
 /// A value rather than a set of loose statics so the wait routine can be
 /// exercised against a token a test owns, instead of the process-wide one.
+// §FS-rhei-run.3.2: one interruption contract for the whole run.
 struct StopToken {
     /// How many interruptions have been asked for. `0` is "running"; `>= 2` is
     /// the operator asking twice, which skips the termination grace.
@@ -114,7 +116,8 @@ impl StopToken {
     /// so events emitted after it are dropped — and the terminal it restored is
     /// exactly where this line belongs. The per-invocation `interrupted`
     /// outcome still reaches the journal, dashboard, and report the ordinary
-    /// way. §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+    /// way.
+    // §FS-rhei-run-tui.1.8: the TUI has already left the screen by now.
     fn announce_once(&self) {
         if self.announced.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
@@ -165,7 +168,7 @@ fn announce_interruption_once() {
 /// Async-signal-safe by construction: it touches two lock-free atomics and
 /// does nothing else — no allocation, no locking, no I/O. Every decision that
 /// follows from an interrupt is taken by the loops that poll the token.
-/// §FS-rhei-run.3.2
+// §FS-rhei-run.3.2: SIGINT, SIGTERM, and SIGHUP interrupt the run.
 #[cfg(unix)]
 extern "C" fn interrupt_signal_handler(signum: std::ffi::c_int) {
     INTERRUPT.raise(signum);
@@ -176,7 +179,8 @@ extern "C" fn interrupt_signal_handler(signum: std::ffi::c_int) {
 /// `SA_RESTART` so an interrupt does not turn every in-progress read in the
 /// process into an `EINTR` failure. `SIGPIPE` is deliberately untouched: this
 /// CLI writes to pipes it owns and needs `EPIPE` back as a value
-/// (see [`install_quiet_broken_pipe_exit`]). §FS-rhei-run.3.2
+/// (see [`install_quiet_broken_pipe_exit`]).
+// §FS-rhei-run.3.2: one handler, installed for every `rhei run`.
 #[cfg(unix)]
 fn install_interrupt_handlers() {
     use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet};
@@ -202,7 +206,8 @@ fn install_interrupt_handlers() {}
 ///
 /// The scheduler's idle waits are minutes long (a poll deadline, a human
 /// gate); sleeping them out whole would keep a run alive long after the
-/// operator asked it to stop. §FS-rhei-run.3.2
+/// operator asked it to stop.
+// §FS-rhei-run.3.2: an interrupted run schedules nothing further.
 fn interruptible_sleep(total: Duration) {
     let deadline = Instant::now() + total;
     loop {
@@ -234,7 +239,8 @@ struct LiveGroup {
 ///
 /// This is what makes the shutdown paths a handler cannot reach — an early `?`
 /// return, a panic unwind — able to tear down work owned by other threads, and
-/// what lets the shutdown notice name what it is stopping. §FS-rhei-run.3.2
+/// what lets the shutdown notice name what it is stopping.
+// §FS-rhei-run.3.2: the supervisor's death ends its subprocesses.
 #[cfg(unix)]
 static LIVE_GROUPS: Mutex<BTreeMap<i32, LiveGroup>> = Mutex::new(BTreeMap::new());
 
@@ -348,10 +354,11 @@ fn terminate_owned_groups(_owner: u64) {}
 /// Declared alongside [`RunReportGuard`] so it runs on **every** way out of an
 /// execution mode — an early `?`, a panic unwind, or a normal end. Without it,
 /// an error return after workers were spawned leaves exactly the orphans this
-/// design exists to prevent. §FS-rhei-run.3.2
+/// design exists to prevent.
 ///
 /// It claims only the subprocesses of its own run: the registry is global, but
 /// ownership is not, so the guard cannot reach into work it did not start.
+// §FS-rhei-run.3.2: the supervisor's death ends its subprocesses.
 struct RunSubprocessGuard {
     owner: u64,
 }
@@ -436,12 +443,13 @@ impl Supervised {
             // two syscalls, allocates nothing, and takes no lock.
             unsafe {
                 cmd.pre_exec(move || {
-                    // Backstop for the deaths no handler can catch — SIGKILL,
-                    // OOM — where the supervisor runs no code at all. The
-                    // per-*thread* semantics are harmless here: the thread that
+                    // The per-thread semantics are harmless: the thread that
                     // spawns a subprocess is the one that waits on it, so it
-                    // outlives the child on every path short of the whole
-                    // process dying. §FS-rhei-run.3.2
+                    // outlives the child on every path short of the process
+                    // dying.
+
+                    // Backstop for the deaths no handler can catch — SIGKILL,
+                    // OOM — where the supervisor runs no code. §FS-rhei-run.3.2
                     let _ = nix::sys::prctl::set_pdeathsig(Some(Signal::SIGTERM));
                     // Arming it happens after the fork, so a supervisor that
                     // died in between would never deliver it. Close the window.
@@ -473,7 +481,7 @@ impl Supervised {
     /// Wait for the subprocess, its deadline, or the run's interruption —
     /// whichever comes first. The last two run the identical termination
     /// sequence against the group and differ only in the cause reported.
-    /// §FS-rhei-run.3.2
+    // §FS-rhei-run.3.2: timeout and shutdown are one routine.
     fn wait(
         &mut self,
         timeout: Option<Duration>,

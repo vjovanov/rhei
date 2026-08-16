@@ -15,7 +15,7 @@ struct ProgramSpawnOutcome {
 
 /// The slot outcome and exit code a program invocation reports, with
 /// interruption tested first for the same reason as [`agent_slot_outcome`].
-/// §FS-rhei-run.3.2
+// §FS-rhei-run.3.2: interruption is not a completion.
 fn program_slot_outcome(
     result: &MietteResult<ProgramSpawnOutcome>,
 ) -> (rhei_tui::TaskOutcome, Option<i32>) {

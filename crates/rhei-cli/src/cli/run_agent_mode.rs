@@ -1434,10 +1434,9 @@ fn run_agent_mode(
         summary: None,
         armed: true,
     };
-    // Declared after the report guard and before the frontend, so on any way out
-    // — `?`, panic unwind, normal end — the subprocess groups are torn down
-    // after the terminal is restored and before the report is written.
-    // §FS-rhei-run.3.2
+    // Declared after the report guard and before the frontend: the groups are
+    // torn down on any way out, after the terminal is restored and before the
+    // report is written. §FS-rhei-run.3.2
     let _subprocess_guard = RunSubprocessGuard::install();
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
@@ -2577,10 +2576,8 @@ fn run_agent_mode(
                 }
 
                 match spawn_result {
-                    // The engine ended this invocation because the run is
-                    // shutting down. No transition fires: the ticket keeps its
-                    // state and the next `rhei run` re-executes it, so this is
-                    // routed through neither the failure nor the timeout path.
+                    // The run is shutting down: no transition fires, the ticket
+                    // keeps its state, and the next `rhei run` re-executes it.
                     // §FS-rhei-run.3.2
                     Ok(AgentSpawnOutcome { interrupted: true, .. }) => {
                         agents_spawned += 1;
@@ -3835,10 +3832,9 @@ fn run_agent_mode(
     );
     report_guard.disarm();
 
-    // An interrupted run is not a halt: the tickets it left non-terminal are
-    // the ones it was told to stop working on, and the exit code already names
-    // the signal (§FS-rhei-run.3.2). Reporting "no further advancement
-    // possible" would blame the plan for the operator's Ctrl+C.
+    // An interrupted run is not a halt: it left those tickets alone because it
+    // was told to stop, and the exit code already names the signal. Reporting a
+    // halt would blame the plan for the operator's Ctrl+C. §FS-rhei-run.3.2
     if interrupt_requested() {
         return Ok(());
     }
