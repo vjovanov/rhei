@@ -3730,9 +3730,14 @@ fn run_agent_mode(
         break;
     }
 
+    // Read once, here, and used for every statement the run makes about
+    // itself: a signal arriving later — while the TUI is parked on its
+    // finished screen — did not cut this loop short. §FS-rhei-run.3.2
+    let interrupted_run = interrupted_by_signal();
+
     // Say plainly that the run stopped, so the summary below is not read as a
     // finished run. §FS-rhei-run.3.2
-    if interrupt_requested() {
+    if interrupted_run {
         run_warn!(
             "\nRun interrupted: no further work was scheduled, and interrupted \
              invocations left their tickets in the state they were worked in."
@@ -3767,7 +3772,7 @@ fn run_agent_mode(
             // An interrupted run did not complete; saying so twice — once as
             // a warning and once as "Run complete" — is worse than either.
             // §FS-rhei-run.3.2
-            if interrupt_requested() {
+            if interrupted_run {
                 run_info!(
                     "\nRun interrupted after {} callback transition(s); {}/{} tasks in terminal state.",
                     callback_transitions_made,
@@ -3795,7 +3800,7 @@ fn run_agent_mode(
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
         // §FS-rhei-run.3.2: the run stopped; it did not complete.
-        if interrupt_requested() {
+        if interrupted_run {
             run_info!(
                 "\nRun interrupted after {} agent(s), {} program(s) spawned; {}/{} tasks in terminal state.",
                 agents_spawned,
@@ -3877,6 +3882,7 @@ fn run_agent_mode(
             mode: "agent",
             initial_states,
             dry_run: opts.dry_run(),
+            interrupted: interrupted_run,
         },
     );
     report_guard.disarm();

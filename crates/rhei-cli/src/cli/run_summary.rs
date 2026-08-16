@@ -363,6 +363,9 @@ impl Drop for RunReportGuard<'_> {
                 mode: self.mode,
                 initial_states: self.initial_states.clone(),
                 dry_run: false,
+                // The fallback fires while the run is failing, so there is no
+                // captured reading to use: ask the token now. §FS-rhei-run.3.2
+                interrupted: interrupted_by_signal(),
             },
         );
     }
@@ -537,6 +540,11 @@ pub struct RunStats {
     /// True under `--dry-run`: the report records a simulated run that applied no
     /// changes, so its result line and counts read as a preview. §FS-rhei-run-report.3.5
     pub dry_run: bool,
+    /// True when the run's own loop was cut short by a signal, captured where
+    /// that loop ends: a run already finished when the signal arrived — parked
+    /// on the TUI's finished screen — has a result of its own to report.
+    // §FS-rhei-run.3.2
+    pub interrupted: bool,
 }
 
 /// One rendered Transition Ledger row. §FS-rhei-run-report.4
@@ -727,16 +735,9 @@ impl RunSummaryReport {
         let result = if stats.dry_run {
             "dry run — no changes applied".to_string()
         } else {
-            // The token still says why the loop ended — by *signal*, not by
-            // the shutdown guard's teardown (see `result_phrase`).
-            // §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
-            result_phrase(
-                &attention,
-                &rows,
-                no_work,
-                advanced_without_work,
-                interrupted_by_signal(),
-            )
+            // Why the loop ended, as the caller read it when it ended (see
+            // `result_phrase`). §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
+            result_phrase(&attention, &rows, no_work, advanced_without_work, stats.interrupted)
         };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
         let accounting = summary.accounting();
@@ -1315,7 +1316,9 @@ fn attention_reason(
 ///
 /// The caller passes the *signal* reading of the stop token, not the bare one:
 /// a run unwinding from an error raises it too, on its way to tearing down the
-/// groups it still owned, and that run has a verdict of its own.
+/// groups it still owned, and that run has a verdict of its own. It passes the
+/// reading taken where its loop ended, not one taken here: a run that had
+/// already finished when the signal arrived was not cut short by it.
 // §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
 fn result_phrase(
     attention: &[AttentionRow],
@@ -1652,6 +1655,7 @@ mod run_summary_tests {
             mode: "agent",
             initial_states: HashMap::new(),
             dry_run: false,
+            interrupted: false,
         }
     }
 
@@ -1921,6 +1925,20 @@ transitions:
             .filter_map(Result::ok)
             .count();
         assert_eq!(history, 1, "one timestamped history entry written");
+    }
+
+    /// The result follows the reading the run took when its loop ended, not
+    /// the process-wide token at report time: a signal that arrives after the
+    /// run finished — while the TUI is parked on its finished screen — leaves
+    /// the run its own result.
+    // §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
+    #[test]
+    fn a_signal_after_the_loop_finished_does_not_relabel_the_result() {
+        let finished = report_with(&[("1", "completed")], test_stats());
+        assert_eq!(finished.result, "completed");
+        let cut_short =
+            report_with(&[("1", "completed")], RunStats { interrupted: true, ..test_stats() });
+        assert_eq!(cut_short.result, "interrupted — re-run to continue");
     }
 
     #[test]

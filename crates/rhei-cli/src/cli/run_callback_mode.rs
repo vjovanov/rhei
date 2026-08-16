@@ -337,6 +337,11 @@ fn run_callback_mode(
         }
     }
 
+    // Read once, here, and used for every statement the run makes about
+    // itself: a signal arriving later — while the TUI is parked on its
+    // finished screen — did not cut this loop short. §FS-rhei-run.3.2
+    let interrupted_run = interrupted_by_signal();
+
     let (terminal_count, total_tasks) = if opts.dry_run() {
         run_info!("\nDry run complete \u{2014} no changes were made.");
         if !manual_only_dry_run.is_empty() {
@@ -357,7 +362,7 @@ fn run_callback_mode(
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
         // §FS-rhei-run.3.2: the run stopped; it did not complete.
-        if interrupt_requested() {
+        if interrupted_run {
             run_info!(
                 "\nRun interrupted after {} transition(s) made; {}/{} tasks in terminal state.",
                 transitions_made,
@@ -421,6 +426,7 @@ fn run_callback_mode(
             mode: "callback",
             initial_states,
             dry_run: opts.dry_run(),
+            interrupted: interrupted_run,
         },
     );
     report_guard.disarm();

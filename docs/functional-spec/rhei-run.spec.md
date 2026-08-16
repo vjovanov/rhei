@@ -307,7 +307,12 @@ restores the terminal and re-raises `SIGINT` on the process
    program log footer (§FS-rhei-agents.8) — and names the log path;
 5. exits `128 + signal`: `130` for `SIGINT`, `143` for `SIGTERM`, `129` for
    `SIGHUP`. A run interrupted with non-terminal tickets remaining reports the
-   interruption, not the halt diagnostic of §3 step 9.
+   interruption, not the halt diagnostic of §3 step 9. It reports the
+   interruption when the signal cut the run's loop short — which is what the
+   points above describe. A run whose loop had already finished when the signal
+   arrived, one parked on the TUI's finished screen (§FS-rhei-run-tui.1.5.7),
+   reports its own result instead: nothing was interrupted. It still exits
+   `128 + signal`, because a signalled process reports its signal.
 
 A **second** signal skips the grace and `SIGKILL`s every live group at once.
 The operator is told so once, while the first shutdown is in progress, as a
