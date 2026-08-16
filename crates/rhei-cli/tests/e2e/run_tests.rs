@@ -1574,3 +1574,386 @@ transitions:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+// ---------------------------------------------------------------------------
+// Supervised process groups: interruption, teardown, and the timeout that now
+// takes the whole group with it.
+// ---------------------------------------------------------------------------
+
+// §FS-rhei-run.3.2: one termination path for every subprocess a run starts.
+
+/// A fake agent that backgrounds a grandchild and then sleeps — the shape
+/// issue #53 was reported with, where killing the direct child left the
+/// grandchild running.
+#[cfg(unix)]
+const GRANDCHILD_AGENT: &str = r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/pids"
+sleep 300 &
+printf '%s\n' "$!" > "$root/runtime/pids/grandchild"
+printf '%s\n' "$$" > "$root/runtime/pids/agent"
+sleep 300
+"#;
+
+/// A fake agent that is one process and dies only to a signal it cannot catch.
+#[cfg(unix)]
+const LONE_AGENT: &str = r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/pids"
+printf '%s\n' "$$" > "$root/runtime/pids/agent"
+exec sleep 300
+"#;
+
+/// A fake agent that ignores `SIGTERM`, so only the `SIGKILL` at the end of the
+/// grace — or a second interrupt that skips it — can end it.
+#[cfg(unix)]
+const STUBBORN_AGENT: &str = r#"#!/bin/sh
+set -eu
+trap '' TERM
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/pids"
+printf '%s\n' "$$" > "$root/runtime/pids/agent"
+exec sleep 300
+"#;
+
+/// A one-ticket workspace whose only state runs `agent_body`.
+#[cfg(unix)]
+fn setup_supervised_workspace(
+    prefix: &str,
+    agent_body: &str,
+    agent_timeout: &str,
+) -> (PathBuf, PathBuf, PathBuf) {
+    let dir = unique_temp_dir(prefix);
+    let workspace = dir.join("workspace");
+    let tasks_dir = workspace.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(workspace.join("index.rhei.md"), "# Rhei: Supervised\n").expect("write index");
+    fs::write(tasks_dir.join("01-work.md"), "### Task 1: Work\n**State:** work\n")
+        .expect("write task file");
+
+    let agent_script = write_fixture_file(&dir, "mock-agent.sh", agent_body);
+    let settings_dir = workspace.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "{agent_timeout}" }},
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "{agent_timeout}" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let machine_path = write_fixture_file(
+        &dir,
+        "states.yaml",
+        &format!(
+            r#"name: supervised
+version: 1
+states:
+  work:
+    initial: true
+    description: Do it
+    agent: mock
+    agent_timeout: {agent_timeout}
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: work
+    to: completed
+"#
+        ),
+    );
+    (dir, workspace, machine_path)
+}
+
+/// Start `rhei run` as a live child so the test can signal it, with its output
+/// on disk for the assertions and for the failure message.
+#[cfg(unix)]
+fn spawn_rhei_run(dir: &Path, workspace: &Path, machine: &Path) -> std::process::Child {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", dir.join(".home"));
+    cmd.arg("--state-machine")
+        .arg(machine)
+        .arg("run")
+        .arg(workspace)
+        .arg("--no-tui")
+        .arg("--no-callbacks")
+        .arg("--no-dashboard");
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(fs::File::create(dir.join("run.out")).expect("create run stdout"));
+    cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
+    cmd.spawn().expect("rhei run should start")
+}
+
+#[cfg(unix)]
+fn signal_pid(pid: u32, signal: &str) {
+    let status = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg(pid.to_string())
+        .status()
+        .expect("kill should run");
+    assert!(status.success(), "kill -{signal} {pid} failed");
+}
+
+/// Whether a pid still exists, by the `kill -0` rule.
+#[cfg(unix)]
+fn pid_is_alive(pid: &str) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// Poll until `check` holds, so a slow machine costs patience rather than a
+/// failure. Panics with `what` when the deadline passes.
+#[cfg(unix)]
+fn poll_until(what: &str, timeout: std::time::Duration, mut check: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if check() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    panic!("timed out waiting for {what}");
+}
+
+/// Wait for `rhei run` to exit, rather than blocking forever if it does not.
+#[cfg(unix)]
+fn wait_for_exit(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> std::process::ExitStatus {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(status) => return status,
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("rhei run did not exit within {timeout:?}");
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    }
+}
+
+/// The pid the fake agent recorded for itself, once it has recorded one.
+#[cfg(unix)]
+fn wait_for_recorded_pid(workspace: &Path, name: &str) -> String {
+    let path = workspace.join("runtime/pids").join(name);
+    poll_until(&format!("the fake agent to record its {name} pid"), TEST_PATIENCE, || {
+        fs::read_to_string(&path).map(|text| !text.trim().is_empty()).unwrap_or(false)
+    });
+    fs::read_to_string(&path).expect("read recorded pid").trim().to_string()
+}
+
+/// The single agent transcript a one-ticket run produces.
+#[cfg(unix)]
+fn read_only_agent_log(workspace: &Path) -> String {
+    let logs_dir = workspace.join("runtime/logs");
+    let mut logs: Vec<PathBuf> = fs::read_dir(&logs_dir)
+        .expect("agent log directory")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
+        .collect();
+    logs.sort();
+    assert_eq!(logs.len(), 1, "expected exactly one agent log, found {logs:?}");
+    fs::read_to_string(&logs[0]).expect("read agent log")
+}
+
+#[cfg(unix)]
+fn read_run_stderr(dir: &Path) -> String {
+    fs::read_to_string(dir.join("run.err")).unwrap_or_default()
+}
+
+/// Generous on purpose: every wait in these tests polls, so the only cost of a
+/// large bound is how long a genuine failure takes to report.
+#[cfg(unix)]
+const TEST_PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `SIGTERM` to `rhei run` must take the agent **and its grandchild** with it,
+/// leave the ticket exactly where it was, and exit `128 + SIGTERM`.
+///
+/// This is issue #53: the supervisor died and its agent kept running,
+/// reparented to init, still writing into the workspace with nobody left to
+/// enforce its timeout or record its transition.
+// §FS-rhei-run.3.2 §FS-rhei-agents.8
+#[cfg(unix)]
+#[test]
+fn sigterm_to_the_run_ends_the_agent_and_its_grandchild() {
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-sigterm-group", GRANDCHILD_AGENT, "120s");
+    let mut run = spawn_rhei_run(&dir, &workspace, &machine_path);
+
+    let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+    assert!(pid_is_alive(&agent), "the agent should be running");
+    assert!(pid_is_alive(&grandchild), "the grandchild should be running");
+
+    signal_pid(run.id(), "TERM");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+
+    // 128 + SIGTERM, the status a shell reports for a process SIGTERM killed.
+    assert_eq!(
+        status.code(),
+        Some(143),
+        "run should exit 128+SIGTERM\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+    poll_until("the agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+    poll_until("the grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
+
+    // The interruption is not a verdict on the ticket: it keeps its state and
+    // the next run re-executes it.
+    assert_task_state(&workspace, &machine_path, "1", "work");
+
+    let log = read_only_agent_log(&workspace);
+    assert!(
+        log.contains("agent interrupted by run shutdown after"),
+        "log should name the interruption, got:\n{log}"
+    );
+    assert!(log.contains("interrupted: true"), "log footer should flag it, got:\n{log}");
+    assert!(!log.contains("timed_out: true"), "an interruption is not a timeout, got:\n{log}");
+
+    let stderr = read_run_stderr(&dir);
+    assert!(
+        stderr.contains("Interrupted — terminating 1 invocation(s)"),
+        "the shutdown notice should reach the operator, got:\n{stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `SIGINT` — what a foreground Ctrl+C and the TUI's re-raise both deliver —
+/// takes the same path and exits `130`.
+// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+#[cfg(unix)]
+#[test]
+fn sigint_to_the_run_interrupts_it_and_exits_130() {
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-sigint-group", LONE_AGENT, "120s");
+    let mut run = spawn_rhei_run(&dir, &workspace, &machine_path);
+
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+    signal_pid(run.id(), "INT");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+
+    assert_eq!(
+        status.code(),
+        Some(130),
+        "run should exit 128+SIGINT\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+    poll_until("the agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+    assert_task_state(&workspace, &machine_path, "1", "work");
+    assert!(read_only_agent_log(&workspace).contains("interrupted: true"));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A supervisor `SIGKILL`ed runs no code at all, so nothing it installed can
+/// tear its agents down. On Linux the agent's own parent-death signal does it.
+// §FS-rhei-run.3.2
+#[cfg(target_os = "linux")]
+#[test]
+fn sigkill_to_the_run_still_ends_the_agent() {
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-sigkill-pdeathsig", LONE_AGENT, "120s");
+    let mut run = spawn_rhei_run(&dir, &workspace, &machine_path);
+
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+    assert!(pid_is_alive(&agent), "the agent should be running");
+
+    signal_pid(run.id(), "KILL");
+    wait_for_exit(&mut run, TEST_PATIENCE);
+    poll_until("the agent to die with its supervisor", TEST_PATIENCE, || !pid_is_alive(&agent));
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A second interrupt means "now": the group is `SIGKILL`ed without waiting out
+/// the grace.
+///
+/// The assertion is timing, and deliberately coarse. The agent ignores
+/// `SIGTERM`, and this is a release-shaped binary, so its grace is the full
+/// 10 s — a run that gets all the way out in a couple of seconds can only have
+/// skipped it. The two signals are sent a beat apart because a second identical
+/// signal delivered while the first is still pending would be coalesced into
+/// one, and then there would be nothing to skip the grace.
+// §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn a_second_interrupt_skips_the_termination_grace() {
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-double-interrupt", STUBBORN_AGENT, "120s");
+    let mut run = spawn_rhei_run(&dir, &workspace, &machine_path);
+
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+    signal_pid(run.id(), "INT");
+    // Long enough for the first signal to be delivered and handled, short
+    // enough to be nowhere near the 10 s grace it is about to cut short.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let second = std::time::Instant::now();
+    signal_pid(run.id(), "INT");
+
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    let after_second = second.elapsed();
+    assert_eq!(status.code(), Some(130), "stderr:\n{}", read_run_stderr(&dir));
+    assert!(
+        after_second < std::time::Duration::from_secs(6),
+        "the second interrupt should skip the 10 s grace; the run took {after_second:?}\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+    poll_until("the agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+
+    let stderr = read_run_stderr(&dir);
+    assert!(
+        stderr.contains("press Ctrl+C again to kill immediately"),
+        "the notice should say a second signal is available, got:\n{stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A timeout signals the agent's **group**, so the MCP servers and shell tools
+/// it started go with it. Before this, the timeout killed the direct child pid
+/// and left the rest running.
+// §FS-rhei-agents.7.3 §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn a_timeout_ends_the_agents_whole_group() {
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-timeout-group", GRANDCHILD_AGENT, "2s");
+    let mut run = spawn_rhei_run(&dir, &workspace, &machine_path);
+
+    let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert!(
+        !status.success(),
+        "a ticket whose agent timed out with no timeout transition cannot finish"
+    );
+
+    poll_until("the timed-out agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+    poll_until("its grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
+
+    let log = read_only_agent_log(&workspace);
+    assert!(log.contains("agent timed out after"), "got:\n{log}");
+    assert!(log.contains("timed_out: true"), "got:\n{log}");
+    assert!(!log.contains("interrupted: true"), "a timeout is not an interruption, got:\n{log}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
