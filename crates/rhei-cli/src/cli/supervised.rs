@@ -134,14 +134,6 @@ impl StopToken {
             );
         }
     }
-
-    /// Restore the token to "running". Tests only — a run never un-interrupts.
-    #[cfg(test)]
-    fn reset(&self) {
-        self.level.store(0, std::sync::atomic::Ordering::SeqCst);
-        self.signal.store(0, std::sync::atomic::Ordering::SeqCst);
-        self.announced.store(false, std::sync::atomic::Ordering::SeqCst);
-    }
 }
 
 /// The process's one stop token. A `rhei run` process drives exactly one run,

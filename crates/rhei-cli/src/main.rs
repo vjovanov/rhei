@@ -73,4 +73,5 @@ mod tests {
     include!("cli/tests_settings_tooling.rs");
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_runtime.rs");
+    include!("cli/tests_supervised.rs");
 }
