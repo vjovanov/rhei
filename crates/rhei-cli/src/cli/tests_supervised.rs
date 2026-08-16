@@ -226,8 +226,10 @@
                 Supervised::spawn(&mut sh(CHILD_SLEEP), "unit@unowned").expect("spawn");
             let pgid = supervised.pgid;
             assert_eq!(current_run_owner(), 0, "a test thread runs under no run");
-            assert!(!owned_group_ids(1).contains(&pgid));
-            assert!(!owned_group_ids(0).is_empty(), "unowned groups are still tracked");
+            assert!(!live_group_ids(Some(1)).contains(&pgid));
+            assert!(!live_group_ids(Some(0)).is_empty(), "unowned groups are still tracked");
+            // The lost-output exit has no owner to ask: it takes them all.
+            assert!(live_group_ids(None).contains(&pgid));
             drop(supervised);
         }
 
@@ -266,7 +268,7 @@
     /// terminal went away and every later write to the dead pty returns `EIO`.
     /// Left unrecognized, the second one panicked the end-of-run summary and
     /// then panicked again from the report guard while unwinding, which aborts.
-    // §FS-rhei-run-tui.1.5.7
+    // §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
     #[test]
     fn a_lost_stdout_is_recognized_by_message_and_by_errno() {
         assert!(message_is_lost_output("failed printing to stdout: Broken pipe (os error 32)"));

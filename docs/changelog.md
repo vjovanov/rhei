@@ -48,9 +48,13 @@
   ignored every further signal short of `SIGKILL`. A terminal that has gone away
   ends the TUI too, at any point in the run: a closed pty used to read as "no
   key was pressed" and turned the render loop into a busy loop. Losing the
-  terminal now ends `rhei run` as quietly as a closed pipe does, instead of
-  panicking on the first write to the dead pty and aborting on the second.
-  Issue #53. PR #TBD §FS-rhei-run.3.2 §FS-rhei-run-tui.1.5.7
+  run's console output — a closed pipe, a terminal that went away — now ends
+  `rhei run` as quietly as it ends any Unix filter, instead of panicking on the
+  first write and aborting on the second; and because that exit runs no
+  destructors, it terminates every in-flight process group on its way out
+  rather than leaving them to the Linux parent-death backstop. A run that ends
+  there writes no report: the task files, untouched, are what it left behind.
+  Issue #53. PR #TBD §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
   §DA-supervised-process-groups
 
 - Make the result obligation a property of the terminal state, not of `rhei

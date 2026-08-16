@@ -329,15 +329,19 @@ fn unregister_live_group(pgid: i32) {
     }
 }
 
-/// The process-group ids one run still owns. A poisoned lock degrades to "none
-/// known" rather than panicking a shutdown path.
+/// The live process-group ids, filtered to one run's own when `owner` names
+/// one and taken wholesale when it is `None`.
+///
+/// A poisoned lock degrades to "none known" rather than panicking a shutdown
+/// path. It cannot deadlock: nothing that holds this lock prints, allocates a
+/// diagnostic, or can otherwise re-enter a shutdown path while holding it.
 #[cfg(unix)]
-fn owned_group_ids(owner: u64) -> Vec<i32> {
+fn live_group_ids(owner: Option<u64>) -> Vec<i32> {
     LIVE_GROUPS
         .lock()
         .map(|live| {
             live.iter()
-                .filter(|(_, group)| group.owner == owner)
+                .filter(|(_, group)| owner.is_none_or(|owner| group.owner == owner))
                 .map(|(pgid, _)| *pgid)
                 .collect()
         })
@@ -345,7 +349,7 @@ fn owned_group_ids(owner: u64) -> Vec<i32> {
 }
 
 #[cfg(not(unix))]
-fn owned_group_ids(_owner: u64) -> Vec<i32> {
+fn live_group_ids(_owner: Option<u64>) -> Vec<i32> {
     Vec::new()
 }
 
@@ -363,12 +367,14 @@ fn live_invocation_labels() -> Vec<String> {
     Vec::new()
 }
 
-/// Terminate the groups one run still owns, with the shared sequence:
-/// `SIGTERM`, the grace, then `SIGKILL` on whatever is left. Signals only —
-/// each group's owning thread reaps its own child. §FS-rhei-run.3.2
+/// Terminate live groups with the shared sequence: `SIGTERM`, the grace, then
+/// `SIGKILL` on whatever is left. `owner` scopes it to one run's own groups;
+/// `None` takes every registered group. Signals only — each group's owning
+/// thread reaps its own child.
+// §FS-rhei-run.3.2: one termination sequence, whatever triggered it.
 #[cfg(unix)]
-fn terminate_owned_groups(owner: u64) {
-    let groups = owned_group_ids(owner);
+fn terminate_live_groups(owner: Option<u64>) {
+    let groups = live_group_ids(owner);
     if groups.is_empty() {
         return;
     }
@@ -378,7 +384,7 @@ fn terminate_owned_groups(owner: u64) {
         }
         let deadline = Instant::now() + SUPERVISED_TERMINATE_GRACE;
         while Instant::now() < deadline {
-            if owned_group_ids(owner).is_empty() {
+            if live_group_ids(owner).is_empty() {
                 return;
             }
             if INTERRUPT.skip_grace() {
@@ -387,13 +393,28 @@ fn terminate_owned_groups(owner: u64) {
             std::thread::sleep(SUPERVISED_GRACE_POLL_INTERVAL);
         }
     }
-    for pgid in owned_group_ids(owner) {
+    for pgid in live_group_ids(owner) {
         let _ = signal::killpg(Pid::from_raw(pgid), Signal::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn terminate_owned_groups(_owner: u64) {}
+fn terminate_live_groups(_owner: Option<u64>) {}
+
+/// Terminate **every** live group, whoever started it.
+///
+/// For the one exit a destructor cannot reach: the process is leaving from
+/// inside a failed print, through `std::process::exit`, which runs no `Drop`.
+/// [`RunSubprocessGuard`] never gets its turn, so this stands in for it — and
+/// it cannot ask which run owns what, because the thread that lost its output
+/// need not be the thread that started the work.
+// §FS-rhei-run.3.2: a run that loses its console ends its groups first.
+fn terminate_all_live_groups() {
+    // Stop the waits first: a worker that is about to re-enter its own
+    // termination sequence should find the run already shutting down.
+    INTERRUPT.request();
+    terminate_live_groups(None);
+}
 
 /// Declared alongside [`RunReportGuard`] so it runs on **every** way out of an
 /// execution mode — an early `?`, a panic unwind, or a normal end. Without it,
@@ -418,13 +439,13 @@ impl RunSubprocessGuard {
 impl Drop for RunSubprocessGuard {
     fn drop(&mut self) {
         set_run_owner(0);
-        if owned_group_ids(self.owner).is_empty() {
+        if live_group_ids(Some(self.owner)).is_empty() {
             return;
         }
         // Stop the waits first, or a worker would re-enter its own termination
         // sequence against a group this one is already tearing down.
         INTERRUPT.request();
-        terminate_owned_groups(self.owner);
+        terminate_live_groups(Some(self.owner));
     }
 }
 

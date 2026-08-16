@@ -323,6 +323,17 @@ OOM-killed supervisor — which runs no code at all — still delivers `SIGTERM`
 what it started. That backstop is best-effort and Linux-only; the handled paths
 above are the contract. §GOAL-rhei-outcomes
 
+**Lost console output.** When the run's own output disappears mid-run — the
+reader of a pipe stopped (`EPIPE`), or the terminal it was printing to went
+away (`EIO`) — `rhei run` ends the way a Unix filter does: quietly, with status
+`141`, or `128 + signal` when a signal had already arrived. It ends that way
+**after terminating every in-flight process group**, because an exit taken from
+inside a failed print runs no destructors and none of the paths above can fire.
+No run report is written in that case: there is nowhere left to say so, and
+what the run did is in the task files, which are already current. A terminal
+that goes away *after* the run has ended finds the report already on disk
+(§FS-rhei-run-tui.1.8).
+
 ## 4. Dry Run
 
 With `--dry-run`, `rhei run` performs the same scan and selection logic but prints each planned transition instead of executing subprocesses or callbacks. Output format:

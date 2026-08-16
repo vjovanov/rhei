@@ -2200,3 +2200,139 @@ fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A fake agent that plays two parts, one per ticket. Ticket 1 waits for the
+/// test's `go` marker and then exits `0`, so `rhei run` has something to print
+/// at a moment the test chooses. Every other ticket backgrounds a grandchild
+/// and sleeps, so a live process group is in flight when that print fails.
+#[cfg(unix)]
+const LOST_OUTPUT_AGENT: &str = r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/pids"
+case "${RHEI_TASK_ID:?}" in
+*1)
+  : > "$root/runtime/pids/talker"
+  n=0
+  while [ ! -f "$root/runtime/go" ] && [ "$n" -lt 900 ]; do
+    sleep 0.1
+    n=$((n + 1))
+  done
+  exit 0
+  ;;
+*)
+  sleep 300 &
+  printf '%s\n' "$!" > "$root/runtime/pids/grandchild"
+  printf '%s\n' "$$" > "$root/runtime/pids/agent"
+  exec sleep 300
+  ;;
+esac
+"#;
+
+/// Losing the run's console output must not lose the run's subprocesses.
+///
+/// A `println!` to a pipe whose reader is gone panics, and the hook that turns
+/// that into a quiet `141` leaves through `std::process::exit` — which runs no
+/// destructor, so the shutdown guard never fires. Before this, the agent still
+/// in flight was killed only by the Linux parent-death backstop and **its**
+/// grandchild survived outright.
+// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_still_ends_the_groups_in_flight() {
+    // `concurrent: true` plus `--parallel 2` puts both tickets in flight at
+    // once: one to make the run print, one to be left behind by the exit.
+    let machine = r#"name: lost-output
+version: 1
+states:
+  work:
+    initial: true
+    concurrent: true
+    description: Do it
+    agent: mock
+    agent_timeout: 120s
+  human-review:
+    description: Wait for a human decision
+    gating: true
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: work
+    to: human-review
+  - from: human-review
+    to: completed
+"#;
+
+    let dir = unique_temp_dir("run-lost-stdout-groups");
+    let workspace = dir.join("workspace");
+    let tasks_dir = workspace.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(workspace.join("index.rhei.md"), "# Rhei: Lost Output\n").expect("write index");
+    fs::write(tasks_dir.join("01-talker.md"), "### Task 1: Talker\n**State:** work\n")
+        .expect("write task file");
+    fs::write(tasks_dir.join("02-sleeper.md"), "### Task 2: Sleeper\n**State:** work\n")
+        .expect("write task file");
+
+    let agent_script = write_fixture_file(&dir, "mock-agent.sh", LOST_OUTPUT_AGENT);
+    let settings_dir = workspace.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "120s" }},
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "120s" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", dir.join(".home"));
+    cmd.arg("--state-machine")
+        .arg(&machine_path)
+        .arg("run")
+        .arg(&workspace)
+        .arg("--no-tui")
+        .arg("--no-callbacks")
+        .arg("--no-dashboard")
+        .arg("--parallel")
+        .arg("2");
+    cmd.stdin(std::process::Stdio::null());
+    // Piped, and deliberately never read: the run's output is far smaller than
+    // a pipe buffer, so nothing blocks before the test closes the read end.
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
+    let mut run = cmd.spawn().expect("rhei run should start");
+
+    let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+    poll_until("the talking agent to start", TEST_PATIENCE, || {
+        workspace.join("runtime/pids/talker").exists()
+    });
+
+    // The reader is gone; the run's next `println!` has nowhere to go.
+    drop(run.stdout.take().expect("piped stdout"));
+    fs::write(workspace.join("runtime/go"), "").expect("release the talking agent");
+
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(141),
+        "a lost stdout should end the run the way a closed pipe ends a filter\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+
+    poll_until("the in-flight agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+    poll_until("its grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
+
+    // Nothing transitioned the sleeper: it was terminated, not judged. The
+    // talker did finish its state, which is what produced the failed print.
+    assert_task_state(&workspace, &machine_path, "2", "work");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

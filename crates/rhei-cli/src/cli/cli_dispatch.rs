@@ -198,11 +198,15 @@ const EXIT_BROKEN_PIPE: i32 = 141;
 /// how a child that exited early gets *reported*. Under `SIG_DFL` those writes
 /// killed `rhei` mid-diagnostic instead, so a transition that should have
 /// failed with an explanation failed with empty stderr.
-// §FS-rhei-usage.2 §FS-rhei-run-tui.1.5.7
+// §FS-rhei-usage.2 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
 fn install_quiet_broken_pipe_exit() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if is_lost_output_panic(info) {
+            // `exit` runs no destructor: the shutdown guard never gets its
+            // turn, so the hook is the last code that can end the groups.
+            // §FS-rhei-run.3.2
+            terminate_all_live_groups();
             // An interrupted run still names its signal: losing the terminal is
             // how the interruption arrived, not a second outcome.
             // §FS-rhei-run.3.2
