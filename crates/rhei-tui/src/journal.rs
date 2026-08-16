@@ -105,6 +105,7 @@ impl EventSink for JournalSink {
                     TaskOutcome::Failed(_) => "failed",
                     TaskOutcome::Cancelled => "cancelled",
                     TaskOutcome::TimedOut => "timeout",
+                    TaskOutcome::Interrupted => "interrupted",
                 };
                 let mut meta_parts: Vec<String> = Vec::new();
                 if let Some(code) = exit_code {

@@ -164,6 +164,7 @@ impl DashboardState {
                     TaskOutcome::Failed(reason) => format!("failed: {reason}"),
                     TaskOutcome::Cancelled => "cancelled".to_string(),
                     TaskOutcome::TimedOut => "timed out".to_string(),
+                    TaskOutcome::Interrupted => "interrupted".to_string(),
                 });
                 if from != to {
                     slot_state.transition = Some(format!("{from}->{to}"));

@@ -407,6 +407,11 @@ fn run_callback_mode(
     );
     report_guard.disarm();
 
+    // An interrupted run is not a halt. §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(());
+    }
+
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
         // §FS-rhei-panta.6.1: a narrowed run halts on in-scope work only —

@@ -18,6 +18,10 @@ pub enum TaskOutcome {
     Failed(String),
     Cancelled,
     TimedOut,
+    /// The engine ended the invocation because the run was interrupted. The
+    /// ticket keeps its state and no transition fires, so this is neither a
+    /// failure nor a timeout. §FS-rhei-run.3.2
+    Interrupted,
 }
 
 /// Aggregate statistics emitted with `RunFinished`.

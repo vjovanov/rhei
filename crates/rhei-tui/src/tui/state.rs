@@ -485,6 +485,9 @@ impl UiState {
                     TaskOutcome::Failed(_) => "✗",
                     TaskOutcome::Cancelled => "⊘",
                     TaskOutcome::TimedOut => "⏱",
+                    // Distinct from cancelled's `⊘`: nothing about the ticket
+                    // is wrong, the run simply stopped. §FS-rhei-run.3.2
+                    TaskOutcome::Interrupted => "⏹",
                 };
                 let level = match outcome {
                     TaskOutcome::Completed => MessageLevel::Info,

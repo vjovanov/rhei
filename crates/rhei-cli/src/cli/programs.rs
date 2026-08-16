@@ -13,6 +13,33 @@ struct ProgramSpawnOutcome {
     timeout_secs: Option<u64>,
 }
 
+/// The slot outcome and exit code a program invocation reports, with
+/// interruption tested first for the same reason as [`agent_slot_outcome`].
+/// §FS-rhei-run.3.2
+fn program_slot_outcome(
+    result: &MietteResult<ProgramSpawnOutcome>,
+) -> (rhei_tui::TaskOutcome, Option<i32>) {
+    match result {
+        Ok(outcome) if outcome.interrupted => {
+            (rhei_tui::TaskOutcome::Interrupted, outcome.status.code())
+        }
+        Ok(outcome) if outcome.status.success() => {
+            (rhei_tui::TaskOutcome::Completed, outcome.status.code())
+        }
+        Ok(outcome) if outcome.timed_out => {
+            (rhei_tui::TaskOutcome::TimedOut, outcome.status.code())
+        }
+        Ok(outcome) => (
+            rhei_tui::TaskOutcome::Failed(format!(
+                "exit {}",
+                outcome.status.code().unwrap_or(-1)
+            )),
+            outcome.status.code(),
+        ),
+        Err(err) => (rhei_tui::TaskOutcome::Failed(err.to_string()), None),
+    }
+}
+
 fn build_program_command(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,

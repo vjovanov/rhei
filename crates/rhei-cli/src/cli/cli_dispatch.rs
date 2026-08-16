@@ -260,7 +260,16 @@ fn main() {
         } else {
             eprintln!("{err:?}");
         }
-        std::process::exit(1);
+        // A run that a signal ended reports the signal, not a generic failure:
+        // whatever error it surfaced on the way out is a consequence of the
+        // interruption. §FS-rhei-run.3.2
+        std::process::exit(interrupt_exit_code().unwrap_or(1));
+    }
+    // Checked after `dispatch` so every guard has run and the report is
+    // written: `128 + signal` is what a shell reports for a process the signal
+    // killed, and `rhei run` was asked to stop by one. §FS-rhei-run.3.2
+    if let Some(code) = interrupt_exit_code() {
+        std::process::exit(code);
     }
 }
 

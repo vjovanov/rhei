@@ -52,6 +52,9 @@ enum LedgerOutcome {
     Failed(String),
     Cancelled,
     TimedOut,
+    /// The run was interrupted and the engine ended the invocation; no
+    /// transition was selected. §FS-rhei-run.3.2
+    Interrupted,
 }
 
 /// `EventSink` recording per-task driver/duration for the console task tree and
@@ -153,6 +156,7 @@ impl rhei_tui::EventSink for SummarySink {
                     rhei_tui::TaskOutcome::Failed(msg) => LedgerOutcome::Failed(msg),
                     rhei_tui::TaskOutcome::Cancelled => LedgerOutcome::Cancelled,
                     rhei_tui::TaskOutcome::TimedOut => LedgerOutcome::TimedOut,
+                    rhei_tui::TaskOutcome::Interrupted => LedgerOutcome::Interrupted,
                 };
                 state.ledger.push(LedgerRecord {
                     task,
@@ -1344,6 +1348,8 @@ fn ledger_outcome_reason(outcome: &LedgerOutcome, exit_code: Option<i32>) -> Str
         }
         LedgerOutcome::Cancelled => "cancelled".to_string(),
         LedgerOutcome::TimedOut => "timed out".to_string(),
+        // Not a verdict on the ticket: the run stopped the worker. §FS-rhei-run.3.2
+        LedgerOutcome::Interrupted => "interrupted".to_string(),
     }
 }
 
@@ -1469,6 +1475,7 @@ fn build_invocations(
             exit: match (&rec.outcome, rec.exit_code) {
                 (LedgerOutcome::Cancelled, _) => "cancelled".to_string(),
                 (LedgerOutcome::TimedOut, _) => "timed out".to_string(),
+                (LedgerOutcome::Interrupted, _) => "interrupted".to_string(),
                 (_, Some(code)) => format!("exit {code}"),
                 (_, None) => "—".to_string(),
             },
