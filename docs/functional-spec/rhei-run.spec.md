@@ -259,13 +259,18 @@ early-termination path and three reasons to take it: the invocation's own
 deadline, an operator interrupt, and the supervisor's death. Timeout and
 shutdown are two triggers of the same routine.
 
-**Process groups.** Every agent and program subprocess starts in its own
-process group, which its descendants inherit — MCP servers, shell tools,
-background jobs. Termination signals the **group**, never the direct child
-alone, so an invocation cannot leave live processes behind by handing its work
-to a grandchild. A subprocess never inherits the operator's terminal on
-standard input: a profile that does not pipe a prompt gets `/dev/null`, so no
-agent competes for the keystrokes meant for `rhei run`.
+**What this covers.** Every subprocess `rhei run` starts itself: agents,
+programs, and the snapshot redactor (§FS-rhei-snapshots). A subprocess a
+*callback* starts is that callback's own child and is governed by the callback
+contract, not by this section.
+
+**Process groups.** Each such subprocess starts in its own process group, which
+its descendants inherit — MCP servers, shell tools, background jobs.
+Termination signals the **group**, never the direct child alone, so an
+invocation cannot leave live processes behind by handing its work to a
+grandchild. A subprocess never inherits the operator's terminal on standard
+input: one that is not handed piped input gets `/dev/null`, so no agent
+competes for the keystrokes meant for `rhei run`.
 
 **One termination sequence.** A timeout (§FS-rhei-agents.7.3) and an
 interruption both terminate the group with `SIGTERM`, a 10-second grace, then
@@ -288,7 +293,11 @@ restores the terminal and re-raises `SIGINT` on the process
    state it was in, its task file is not rewritten, and
    `runtime/state-transitions.log` gains no entry. An interruption is neither a
    failure nor a timeout: no error transition, no timeout transition, no
-   missing-output stall. The next `rhei run` re-executes the state.
+   missing-output stall. The next `rhei run` re-executes the state. A
+   *supporting* subprocess that is interrupted — the snapshot redactor — fails
+   the step that started it, reporting the interruption and not a timeout; the
+   ticket is left in its state by that failure exactly as it is by any other
+   redactor failure.
 4. records the invocation as `interrupted` — in the run report's ledger and
    invocations (§FS-rhei-run-report.4), in the run journal, and in the agent or
    program log footer (§FS-rhei-agents.8) — and names the log path;

@@ -37,17 +37,6 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-#[cfg(unix)]
-fn terminate_child_gracefully(child: &mut std::process::Child) {
-    let pid = Pid::from_raw(child.id() as i32);
-    let _ = signal::kill(pid, Signal::SIGTERM);
-}
-
-#[cfg(not(unix))]
-fn terminate_child_gracefully(child: &mut std::process::Child) {
-    let _ = child.kill();
-}
-
 /// Command-line driver for the Rhei agent runtime.
 #[derive(Parser, Debug)]
 #[command(

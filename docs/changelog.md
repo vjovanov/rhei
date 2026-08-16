@@ -14,9 +14,10 @@
   the direct child pid, so an agent's MCP servers and `bash` tools survived a
   timeout kill.
 
-  Every subprocess is now a **supervised process group** with one
-  early-termination path and three reasons to take it — its deadline, an
-  operator interrupt, or the supervisor's death. Termination is `SIGTERM` →
+  Every subprocess `rhei run` starts itself — agents, programs, and the snapshot
+  redactor — is now a **supervised process group** with one early-termination
+  path and three reasons to take it: its deadline, an operator interrupt, or the
+  supervisor's death. Termination is `SIGTERM` →
   10 s → `SIGKILL` against the **group**, whichever reason fired it, so an
   invocation can no longer outlive its own death certificate by handing work to
   a grandchild. Subprocesses no longer inherit the operator's terminal on

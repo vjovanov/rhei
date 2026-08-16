@@ -37,14 +37,25 @@ The bug is not three bugs. It is one missing concept: nothing named the unit
 
 ## Decision
 
-Every subprocess `rhei run` starts is a **supervised process group** with
-exactly one early-termination path and three reasons to take it: its deadline,
-an operator interrupt, or the supervisor's death. §FS-rhei-run.3.2
+Every subprocess `rhei run` starts **itself** is a **supervised process group**
+with exactly one early-termination path and three reasons to take it: its
+deadline, an operator interrupt, or the supervisor's death. That is agents,
+programs, and the snapshot redactor; a subprocess a *callback* starts is that
+callback's own child and stays outside this decision. §FS-rhei-run.3.2
+
+The redactor is included because "every subprocess" has to mean it: it is a
+30-second synchronous child of the run, spawned on the agent path, and leaving
+it as a plain child would have left one process the shutdown could not see, one
+poll loop that never read the token, and one hard-coded 10-second grace to keep
+in step with the other two by hand. Its error semantics are unchanged — a
+timeout or a non-zero exit still fails the caller and leaves the ticket where it
+is — except that an interrupted redactor now says it was interrupted rather than
+that it timed out.
 
 **1. The unit is the group, not the child.**
 
-Each agent and program is spawned with `process_group(0)`, so it leads a group
-its descendants inherit, and termination is `killpg`, never `kill` on the child
+Each subprocess is spawned with `process_group(0)`, so it leads a group its
+descendants inherit, and termination is `killpg`, never `kill` on the child
 pid. A subprocess that spawns helpers can no longer outlive its own death
 certificate. Because a group in the background must not read the operator's
 terminal, a profile that does not pipe a prompt gets `stdin` on `/dev/null` —
@@ -56,8 +67,9 @@ group stops the child on `SIGTTIN`.
 `Supervised::wait` is the only place a subprocess is waited on. It polls
 `try_wait` and ends on whichever comes first: exit, deadline, or the stop
 token. Deadline and token then run the identical sequence against the group —
-`SIGTERM`, grace, `SIGKILL` — and differ only in the cause they report. Two
-copy-pasted poll loops, and two ways of killing, became one.
+`SIGTERM`, grace, `SIGKILL` — and differ only in the cause they report. Three
+copy-pasted poll loops, three grace constants, and two ways of killing became
+one of each.
 
 **3. The token is set by a signal handler, read by the loops.**
 

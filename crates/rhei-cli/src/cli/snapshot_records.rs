@@ -406,16 +406,20 @@ fn sha256_hex(bytes: &[u8]) -> String {
 const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(test)]
 const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_millis(500);
-#[cfg(not(test))]
-const SNAPSHOT_REDACTOR_TERMINATE_GRACE: Duration = Duration::from_secs(10);
-#[cfg(test)]
-const SNAPSHOT_REDACTOR_TERMINATE_GRACE: Duration = Duration::from_millis(50);
 
+/// Run the configured snapshot redactor over a transcript.
+///
+/// A supervised invocation like any other the run starts: its own process
+/// group, the shared `SIGTERM` → grace → `SIGKILL` sequence, and one wait that
+/// ends on exit, deadline, or the run's interruption. `label` names the
+/// invocation that needed it, for the shutdown notice.
+// §FS-rhei-run.3.2 §FS-rhei-snapshots
 fn apply_snapshot_redactor(
     settings: &RheiSettings,
     workspace_root: &Path,
     transcript_bytes: Vec<u8>,
     log_path: Option<&Path>,
+    label: &str,
 ) -> MietteResult<Vec<u8>> {
     let Some(snapshot_settings) = settings.snapshots.as_ref() else {
         return Ok(transcript_bytes);
@@ -441,9 +445,10 @@ fn apply_snapshot_redactor(
             command.env(key, value);
         }
     }
-    let mut child = command.spawn().map_err(|err| {
+    let mut supervised = Supervised::spawn(&mut command, label).map_err(|err| {
         file_io_report(&redactor_path, "failed to spawn snapshot redactor", err)
     })?;
+    let child = &mut supervised.child;
     let mut stdin =
         child.stdin.take().ok_or_else(|| miette!(
             help = snapshot_redactor_help(),
@@ -470,37 +475,17 @@ fn apply_snapshot_redactor(
         stderr.read_to_end(&mut bytes).map(|_| bytes)
     });
 
-    let start = Instant::now();
-    let mut timed_out = false;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                if start.elapsed() >= SNAPSHOT_REDACTOR_TIMEOUT {
-                    timed_out = true;
-                    terminate_child_gracefully(&mut child);
-                    std::thread::sleep(SNAPSHOT_REDACTOR_TERMINATE_GRACE);
-                    match child.try_wait() {
-                        Ok(Some(status)) => break status,
-                        _ => {
-                            let _ = child.kill();
-                            break child.wait().map_err(|err| {
-                                miette!(
-                                    help = snapshot_redactor_help(),
-                                    "failed to wait for snapshot redactor after kill: {err}"
-                                )
-                            })?;
-                        }
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(err) => return Err(miette!(
-                help = snapshot_redactor_help(),
-                "error waiting for snapshot redactor: {err}"
-            )),
-        }
-    };
+    // One wait for all three endings: exit, deadline, run interruption. The
+    // last two end the redactor's whole group. §FS-rhei-run.3.2
+    let ended = supervised
+        .wait(Some(SNAPSHOT_REDACTOR_TIMEOUT), &INTERRUPT, &|text| diag_warn!("{text}"))
+        .map_err(|err| miette!(
+            help = snapshot_redactor_help(),
+            "error waiting for snapshot redactor: {err}"
+        ))?;
+    let status = ended.status;
+    let timed_out = ended.cause == EndCause::TimedOut;
+    let interrupted = ended.cause == EndCause::Interrupted;
 
     let writer_result = writer
         .join()
@@ -544,6 +529,17 @@ fn apply_snapshot_redactor(
             "snapshot redactor '{}' timed out after {}s; stderr: {}",
             redactor_label,
             SNAPSHOT_REDACTOR_TIMEOUT.as_secs_f64(),
+            stderr_summary
+        ));
+    }
+    // Not "timed out": the redactor was ended by the shutdown, and the error
+    // says which. It propagates exactly as the timeout error does — the caller
+    // abandons the snapshot and the ticket keeps its state. §FS-rhei-run.3.2
+    if interrupted {
+        return Err(miette!(
+            help = snapshot_redactor_help(),
+            "snapshot redactor '{}' interrupted by run shutdown; stderr: {}",
+            redactor_label,
             stderr_summary
         ));
     }
@@ -668,8 +664,13 @@ fn write_snapshot_generation_atomic(
     let transcript_bytes = fs::read(transcript_source).map_err(|err| {
         file_io_report(transcript_source, "failed to read snapshot transcript source", err)
     })?;
-    let transcript_bytes =
-        apply_snapshot_redactor(settings, workspace_root, transcript_bytes, redactor_log_path)?;
+    let transcript_bytes = apply_snapshot_redactor(
+        settings,
+        workspace_root,
+        transcript_bytes,
+        redactor_log_path,
+        &format!("{task_id}@{emitting_state} redactor"),
+    )?;
     let transcript_sha256 = sha256_hex(&transcript_bytes);
     let transcript_name = format!("transcript.{transcript_ext}");
     let mut generation = next_snapshot_generation(&identity_dir)?;
