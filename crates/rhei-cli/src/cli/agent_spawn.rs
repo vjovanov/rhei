@@ -280,7 +280,7 @@ fn spawn_and_wait_agent(
     // are terminated with it, and it never inherits the operator's terminal.
     // §FS-rhei-run.3.2
     let mut supervised =
-        Supervised::spawn(&mut cmd).map_err(|e| miette!(
+        Supervised::spawn(&mut cmd, &format!("{task_id}@{state_name}")).map_err(|e| miette!(
             help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
             "failed to spawn agent '{}': {e}", resolved.agent.id()
         ))?;

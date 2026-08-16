@@ -1026,6 +1026,11 @@ fn refill_parallel_worker_pool(
     active_state_counts: &mut HashMap<String, usize>,
     handles: &mut Vec<std::thread::JoinHandle<()>>,
 ) -> MietteResult<ParallelScheduleOutcome> {
+    // A freed slot is not refilled once the run is interrupted: the shutdown
+    // drains what is in flight, it does not start more. §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(ParallelScheduleOutcome { spawned: 0, advanced: false, skipped: Vec::new() });
+    }
     // Program and agent work share live capacity.
     // Each completion reloads the ready set. §FS-rhei-run.3 §FS-rhei-programs.6.3
     let task_capacity = if task_limit == usize::MAX {
@@ -1441,6 +1446,11 @@ fn run_agent_mode(
         summary: None,
         armed: true,
     };
+    // Declared after the report guard and before the frontend, so on any way out
+    // — `?`, panic unwind, normal end — the subprocess groups are torn down
+    // after the terminal is restored and before the report is written.
+    // §FS-rhei-run.3.2
+    let _subprocess_guard = RunSubprocessGuard;
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
@@ -1549,6 +1559,12 @@ fn run_agent_mode(
     }
 
     loop {
+        // Schedule nothing new once the run is interrupted; the in-flight
+        // invocations have already ended themselves. §FS-rhei-run.3.2
+        if interrupt_requested() {
+            announce_interruption_once();
+            break;
+        }
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
             find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
@@ -1566,7 +1582,9 @@ fn run_agent_mode(
                         );
                         awaiting_gate_announced = true;
                     }
-                    std::thread::sleep(Duration::from_millis(500));
+                    // Sliced, so Ctrl+C ends the wait instead of the wait
+                    // outlasting the operator. §FS-rhei-run.3.2
+                    interruptible_sleep(Duration::from_millis(500));
                     continue;
                 }
                 if let Some(deadline) =
@@ -1577,7 +1595,9 @@ fn run_agent_mode(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
                         sleep_secs
                     );
-                    std::thread::sleep(Duration::from_secs(sleep_secs));
+                    // A poll deadline is minutes away; the token must not wait
+                    // it out. §FS-rhei-run.3.2
+                    interruptible_sleep(Duration::from_secs(sleep_secs));
                     continue;
                 }
             }

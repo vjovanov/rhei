@@ -158,18 +158,19 @@ fn interruptible_sleep(total: Duration) {
 // Live group registry
 // ---------------------------------------------------------------------------
 
-/// Process-group ids of every supervised subprocess that has not been reaped.
+/// Every supervised subprocess that has not been reaped: its process-group id
+/// against the `<task>@<state>` label of the invocation that owns it.
 ///
 /// This is what makes the shutdown paths a handler cannot reach — an early `?`
-/// return, a panic unwind — able to tear down work owned by other threads.
-/// §FS-rhei-run.3.2
+/// return, a panic unwind — able to tear down work owned by other threads, and
+/// what lets the shutdown notice name what it is stopping. §FS-rhei-run.3.2
 #[cfg(unix)]
-static LIVE_GROUPS: Mutex<BTreeSet<i32>> = Mutex::new(BTreeSet::new());
+static LIVE_GROUPS: Mutex<BTreeMap<i32, String>> = Mutex::new(BTreeMap::new());
 
 #[cfg(unix)]
-fn register_live_group(pgid: i32) {
+fn register_live_group(pgid: i32, label: &str) {
     if let Ok(mut live) = LIVE_GROUPS.lock() {
-        live.insert(pgid);
+        live.insert(pgid, label.to_string());
     }
 }
 
@@ -184,7 +185,7 @@ fn unregister_live_group(pgid: i32) {
 /// rather than panicking a shutdown path.
 #[cfg(unix)]
 fn live_group_ids() -> Vec<i32> {
-    LIVE_GROUPS.lock().map(|live| live.iter().copied().collect()).unwrap_or_default()
+    LIVE_GROUPS.lock().map(|live| live.keys().copied().collect()).unwrap_or_default()
 }
 
 #[cfg(not(unix))]
@@ -192,9 +193,51 @@ fn live_group_ids() -> Vec<i32> {
     Vec::new()
 }
 
+/// The `<task>@<state>` labels of the invocations still running.
+#[cfg(unix)]
+fn live_invocation_labels() -> Vec<String> {
+    LIVE_GROUPS.lock().map(|live| live.values().cloned().collect()).unwrap_or_default()
+}
+
+#[cfg(not(unix))]
+fn live_invocation_labels() -> Vec<String> {
+    Vec::new()
+}
+
 /// How many supervised groups are still running.
 fn live_group_count() -> usize {
     live_group_ids().len()
+}
+
+/// Set once the shutdown notice has been written, so several workers noticing
+/// the same interrupt produce one line rather than one line each.
+static INTERRUPT_ANNOUNCED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Tell the operator what the interruption is doing, and that a second signal
+/// skips the grace.
+///
+/// Written to stderr rather than through the event sink: under the TUI the
+/// render loop has already exited by the time a Ctrl+C reaches the engine, so
+/// events emitted after it are dropped — and the terminal it restored is
+/// exactly where this line belongs. The per-invocation `interrupted` outcome
+/// still reaches the journal, dashboard, and report the ordinary way.
+/// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+fn announce_interruption_once() {
+    if INTERRUPT_ANNOUNCED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let labels = live_invocation_labels();
+    if labels.is_empty() {
+        eprintln!("\nInterrupted — no subprocess in flight; stopping the run.");
+    } else {
+        eprintln!(
+            "\nInterrupted — terminating {} invocation(s) ({}); \
+             press Ctrl+C again to kill immediately.",
+            labels.len(),
+            labels.join(", ")
+        );
+    }
 }
 
 /// Terminate every registered group with the shared sequence: `SIGTERM`, the
@@ -284,8 +327,9 @@ struct Supervised {
 
 impl Supervised {
     /// Spawn `cmd` as the leader of its own process group and register the
-    /// group with the run's shutdown path. §FS-rhei-run.3.2
-    fn spawn(cmd: &mut std::process::Command) -> std::io::Result<Self> {
+    /// group with the run's shutdown path under `label` (`<task>@<state>`).
+    /// §FS-rhei-run.3.2
+    fn spawn(cmd: &mut std::process::Command, label: &str) -> std::io::Result<Self> {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt as _;
@@ -328,7 +372,9 @@ impl Supervised {
         #[cfg(unix)]
         let pgid = child.id() as i32;
         #[cfg(unix)]
-        register_live_group(pgid);
+        register_live_group(pgid, label);
+        #[cfg(not(unix))]
+        let _ = label;
         Ok(Self {
             child,
             #[cfg(unix)]
@@ -350,8 +396,14 @@ impl Supervised {
             }
             let timed_out = timeout.is_some_and(|limit| start.elapsed() > limit);
             if timed_out || interrupt_requested() {
-                let cause =
-                    if timed_out { EndCause::TimedOut } else { EndCause::Interrupted };
+                let cause = if timed_out {
+                    EndCause::TimedOut
+                } else {
+                    // The first waiter to notice names every invocation the
+                    // shutdown is about to end. §FS-rhei-run.3.2
+                    announce_interruption_once();
+                    EndCause::Interrupted
+                };
                 let status = self.terminate_and_reap()?;
                 return Ok(Ended { status, cause });
             }

@@ -193,7 +193,9 @@ fn spawn_and_wait_program(
     // A program is never handed the operator's terminal, and it leads its own
     // process group so its children go with it. §FS-rhei-run.3.2
     cmd.stdin(std::process::Stdio::null());
-    let mut supervised = Supervised::spawn(&mut cmd).map_err(|e| miette!(
+    let supervised_label =
+        format!("{}@{}", render_context.task.id, render_context.state_name);
+    let mut supervised = Supervised::spawn(&mut cmd, &supervised_label).map_err(|e| miette!(
         help = "the program state could not start its command. Check the command exists and is executable, then re-run.",
         "failed to spawn program: {e}"
     ))?;

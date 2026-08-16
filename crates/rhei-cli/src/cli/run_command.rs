@@ -43,6 +43,10 @@ fn run_command(
     state_machine_path: Option<&Path>,
     opts: RunOptions,
 ) -> MietteResult<()> {
+    // Installed for every `run`, before anything can be spawned: from here on a
+    // SIGINT/SIGTERM/SIGHUP interrupts the run instead of killing the
+    // supervisor out from under its subprocesses. §FS-rhei-run.3.2
+    install_interrupt_handlers();
     let input_buf = normalize_workspace_input(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
@@ -119,6 +123,11 @@ fn run_command(
         run_callback_mode(input, &machines, &opts, effective_parallel)
     };
     result?;
+    // An interrupted run made no claim of durable success, so the
+    // subprocess-commit postcondition of §3.1 has nothing to check. §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(());
+    }
     git_consistency.verify_after_success()
 }
 

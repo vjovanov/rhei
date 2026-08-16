@@ -294,10 +294,12 @@ restores the terminal and re-raises `SIGINT` on the process
    interruption, not the halt diagnostic of §3 step 9.
 
 A **second** signal skips the grace and `SIGKILL`s every live group at once.
-The operator is told so while the first shutdown is in progress:
+The operator is told so on stderr while the first shutdown is in progress —
+stderr, not the event stream, because under the TUI the render loop has already
+exited by the time Ctrl+C reaches the engine (§FS-rhei-run-tui.1.8):
 
 ```text
-Interrupted — terminating 2 agent(s) (auth.1@implement, auth.3@review); press Ctrl+C again to kill immediately.
+Interrupted — terminating 2 invocation(s) (auth.1@implement, auth.3@review); press Ctrl+C again to kill immediately.
 ```
 
 **Supervisor death.** Termination is not conditional on a signal `rhei run` can

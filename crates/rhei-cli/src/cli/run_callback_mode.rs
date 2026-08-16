@@ -116,6 +116,12 @@ fn run_callback_mode(
     }
 
     loop {
+        // Callback-only advancement spawns no supervised subprocess, but the
+        // run still stops when the operator asks it to. §FS-rhei-run.3.2
+        if interrupt_requested() {
+            announce_interruption_once();
+            break;
+        }
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
             find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
@@ -133,7 +139,7 @@ fn run_callback_mode(
                         );
                         awaiting_gate_announced = true;
                     }
-                    std::thread::sleep(Duration::from_millis(500));
+                    interruptible_sleep(Duration::from_millis(500));
                     continue;
                 }
                 if let Some(deadline) =
@@ -144,7 +150,7 @@ fn run_callback_mode(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
                         sleep_secs
                     );
-                    std::thread::sleep(Duration::from_secs(sleep_secs));
+                    interruptible_sleep(Duration::from_secs(sleep_secs));
                     continue;
                 }
             }
