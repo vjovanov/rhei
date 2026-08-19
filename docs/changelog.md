@@ -29,6 +29,13 @@
   published set. PR #78 §FS-rhei-distribution.1
 - Give both published crates a `readme` and crates.io `categories` so the
   registry pages are not bare. PR #78
+- Fix the release version bump, which skipped `xtask/Cargo.toml`. Its exact
+  pins on sibling packages stayed at the old version while everything else
+  moved, so the workspace stopped resolving right after a bump — and the
+  matching verify step could not catch it, because both scripts only walked
+  `crates/*/Cargo.toml`. They now walk every in-workspace manifest, and match
+  a pin whose dependency name already is the package name. PR #78
+  §FS-rhei-distribution.2
 - Make the result obligation a property of the terminal state, not of `rhei
   complete`. A task no longer enters a `final: true` state without a non-empty
   `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the

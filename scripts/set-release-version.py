@@ -13,6 +13,14 @@ from typing import Sequence
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
+def internal_manifests(root: Path) -> list[Path]:
+    """Every in-workspace manifest that pins a sibling by exact version.
+
+    `xtask` lives outside `crates/`, so a plain glob there silently leaves its
+    pins at the old version and the bump stops resolving. §FS-rhei-distribution.2
+    """
+    return sorted((root / "crates").glob("*/Cargo.toml")) + [root / "xtask" / "Cargo.toml"]
+
 def replace_one(path: Path, pattern: str, replacement: str) -> None:
     text = path.read_text(encoding="utf-8")
     new, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
@@ -36,10 +44,12 @@ def update(version: str) -> None:
 
     replace_one(root / "Cargo.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+"$', rf'\1"{version}"')
 
+    # `package = ` is absent when the dependency name already is the package
+    # name, as in xtask's `rhei-cli` pin.
     internal_dep_version = re.compile(
-        r'(\{ package = "rhei-[^"]+", path = "[^"]+", version = ")=[0-9]+\.[0-9]+\.[0-9]+(" \})'
+        r'(\{ (?:package = "rhei-[^"]+", )?path = "[^"]+", version = ")=[0-9]+\.[0-9]+\.[0-9]+(" \})'
     )
-    for manifest in (root / "crates").glob("*/Cargo.toml"):
+    for manifest in internal_manifests(root):
         text = manifest.read_text(encoding="utf-8")
         text = internal_dep_version.sub(rf"\1={version}\2", text)
         manifest.write_text(text, encoding="utf-8")
