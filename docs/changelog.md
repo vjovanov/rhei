@@ -13,7 +13,7 @@
   outranks the file. `rust-version` stays at 1.82 and the test matrix stays on
   the MSRV toolchain, since `rust-version` describes what a consumer needs to
   build the published crates, not what compiled the release binaries.
-  §FS-rhei-distribution.4
+  PR #79 §FS-rhei-distribution.4
 
 - Install the CLI under a short `rh` alias alongside `rhei`. `cargo install
   rhei-cli`, the npm package, and the PyPI package now all put both names on
