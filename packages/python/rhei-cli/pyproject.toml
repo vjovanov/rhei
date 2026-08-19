@@ -27,7 +27,9 @@ Repository = "https://github.com/vjovanov/rhei"
 Issues = "https://github.com/vjovanov/rhei/issues"
 
 [project.scripts]
+# Both names dispatch to the same CLI. §FS-rhei-distribution.1
 rhei = "rhei_cli:main"
+rh = "rhei_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -6,7 +6,9 @@ set -euo pipefail
 # loops: version, validate, list, render, states, templates, and next --peek.
 # §FS-rhei-distribution.4
 #
-# Output: target/release/rhei, optimized against the merged profile.
+# Output: target/release/rhei and its `rh` alias, both optimized against the
+# merged profile. Only `rhei` is trained; `rh` links the same library code.
+# §FS-rhei-distribution.1
 # Requires: the `llvm-tools-preview` rustup component (`llvm-profdata`).
 
 cd "$(dirname "$0")/.."
@@ -79,3 +81,4 @@ RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-Cprofile-use=$profdata_rustc -Cllvm-args=-p
 
 echo "==> done: $rhei"
 "$rhei" version
+"$repo/target/release/rh$exe_suffix" version >/dev/null

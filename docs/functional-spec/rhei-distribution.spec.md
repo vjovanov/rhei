@@ -8,20 +8,35 @@ versions, binary names, and release notes aligned with the workspace version.
 
 ## 1. Release Targets
 
-Each release publishes these crates.io packages when crate publishing is
-enabled:
+Each release publishes exactly two crates.io packages when crate publishing is
+enabled, in this order:
 
-- `rhei-plan-core`
-- `rhei-cli-tui`
-- `rhei-agent-core`
-- `rhei-cli-output`
-- `rhei-cli-validator`
-- `rhei-cli`
+1. `rhei-plan-core` — the plan model, parser, and workspace primitives, for
+   callers that want to read Rhei plans without the CLI
+2. `rhei-cli` — the tool itself, which depends on `rhei-plan-core`
 
-The installed CLI binary is named `rhei`. GitHub release artifacts package that
-binary with `README.md` and a SHA-256 checksum. Public language API packages
-use the package name `rhei-api`; native N-API support is an implementation
-detail and is not a crates.io release target.
+Only packages with an audience outside this repository are published. Cargo
+requires every dependency of a published package to be published too, so a
+crate that exists purely to divide the CLI's own source would have to be
+released, named, and version-locked forever for no one's benefit. Subsystems
+without an external audience therefore live as modules inside `rhei-cli`
+rather than as separate packages, and a new workspace crate is a decision to
+add a permanent public package, not a way to organize files.
+
+`rhei-agent-core` is deliberately unpublished while it remains a re-export of
+`rhei-plan-core` with no callers; it becomes a release target when it has an
+API of its own. The N-API crate stays unpublished for the same reason.
+
+The crate name `rhei` belongs to an unrelated project on crates.io, so the CLI
+publishes as `rhei-cli`; the crate name is not the command name.
+
+`rhei-cli` installs two identical binaries, `rhei` and its short alias `rh`, so
+both are on `PATH` after `cargo install rhei-cli`. GitHub release artifacts
+package both names with `README.md` and a SHA-256 checksum; on platforms with
+symbolic links the archive stores `rh` as a link to `rhei` rather than a second
+copy. Public language API packages use the package name `rhei-api` on npm and
+PyPI; native N-API support is an implementation detail and is not a crates.io
+release target.
 
 ## 2. Version Source
 

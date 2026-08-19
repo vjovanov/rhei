@@ -344,7 +344,7 @@ fn validate_accepts_counted_state_suffix_within_budget() {
     let rhei = parse(input).expect("parse ok");
     let report = validate_with_machine(
         &rhei,
-        &rhei_validator::StateMachine::from_yaml_str(COUNTED_LOOP_STATE_MACHINE)
+        &rhei_cli::rhei_validator::StateMachine::from_yaml_str(COUNTED_LOOP_STATE_MACHINE)
             .expect("state machine"),
     );
 

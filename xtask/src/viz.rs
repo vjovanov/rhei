@@ -3,8 +3,8 @@
 //! in `rhei-viz`, and the single self-contained renderer lives in
 //! `rhei-viz-model`. AR §3, §9 (step 1).
 
-pub use rhei_viz::{collect_plans, Bundle};
+pub use rhei_cli::rhei_viz::{collect_plans, Bundle};
 
 pub fn render_html(plans: &Bundle) -> String {
-    rhei_viz_model::render_static(plans)
+    rhei_cli::rhei_viz_model::render_static(plans)
 }

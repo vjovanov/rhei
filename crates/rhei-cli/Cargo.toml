@@ -8,18 +8,21 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Command-line driver for the Rhei agent runtime."
-# The built-in templates and skills are compiled into the binary
-# (§FS-rhei-templates.1, §FS-rhei-install-skills.4.3), so they must travel with
-# the published package, not just the git checkout.
-include = ["src/**/*", "templates/**/*", "skills/**/*"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "../../README.md"
+# The built-in templates, skills, and the flow-visualization asset are compiled
+# into the binary (§FS-rhei-templates.1, §FS-rhei-install-skills.4.3,
+# §AR-rhei-viz-flow.2), so they must travel with the published package.
+include = ["src/**/*", "templates/**/*", "skills/**/*", "assets/**/*"]
 
 [dependencies]
 rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }
-rhei-validator = { package = "rhei-cli-validator", path = "../rhei-validator", version = "=0.1.0" }
-rhei-output = { package = "rhei-cli-output", path = "../rhei-output", version = "=0.1.0" }
-rhei-tui = { package = "rhei-cli-tui", path = "../rhei-tui", version = "=0.1.0" }
-rhei-viz = { package = "rhei-cli-viz", path = "../rhei-viz", version = "=0.1.0" }
-rhei-viz-model = { package = "rhei-cli-viz-model", path = "../rhei-viz-model", version = "=0.1.0" }
+# Absorbed from the former rhei-cli-tui crate.
+crossbeam-channel = "0.5"
+crossterm = "0.27"
+ratatui = "0.26"
+# Constrain ratatui's transitive resolver for Rust 1.82-compatible package verification.
+unicode-segmentation = "=1.12.0"
 clap = { version = "=4.5.60", features = ["derive"] }
 clap_complete = { version = "=4.5.60", features = ["unstable-dynamic"] }
 # `cargo install --path` ignores the workspace lockfile, so pin clap_lex to a
@@ -46,6 +49,20 @@ nix = { version = "0.29", features = ["signal", "process"] }
 # bare `cargo install`, with no `share/` layout to install alongside it.
 include_dir = { version = "0.7.4", default-features = false }
 
+# The CLI body is a library so both binary targets below link one compiled
+# copy of it; pointing two `[[bin]]`s at the same `main.rs` would compile the
+# whole crate twice under the LTO release profile. §AR-source-file-size
+[lib]
+name = "rhei_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rhei"
 path = "src/main.rs"
+
+# Short alias for the same CLI, so `cargo install rhei-cli` puts both `rhei`
+# and `rh` on PATH: Cargo has no install-time symlink mechanism, so the second
+# name has to be its own binary target. §FS-rhei-distribution.1
+[[bin]]
+name = "rh"
+path = "src/bin/rh.rs"

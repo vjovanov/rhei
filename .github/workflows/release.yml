@@ -10,7 +10,7 @@ on:
         description: "Version to release, without the leading v"
         required: true
       publish_crates:
-        description: "Publish Rhei crates to crates.io"
+        description: "Publish rhei-plan-core and rhei-cli to crates.io"
         type: boolean
         default: true
       create_github_release:
@@ -208,6 +208,7 @@ jobs:
           set -euo pipefail
           ./target/release/rhei version
           ./target/release/rhei validate examples/spec-implementation-example/index.rhei.md
+          ./target/release/rh version
 
       - name: Package binary
         id: package
@@ -220,6 +221,9 @@ jobs:
           mkdir -p "$dir"
 
           cp ./target/release/rhei "$dir/"
+          # `rh` is byte-identical to `rhei`, so ship it as a link rather than
+          # doubling the download. §FS-rhei-distribution.1
+          ln -s rhei "$dir/rh"
           cp README.md "$dir/"
 
           archive="${base}.tar.gz"
@@ -300,6 +304,11 @@ jobs:
           fi
           "$bin" version
           "$bin" validate examples/spec-implementation-example/index.rhei.md
+          alias_bin="./target/release/rh"
+          if [[ "$(rustc -vV | awk '/^host:/ { print $2 }')" == *windows* ]]; then
+            alias_bin="${alias_bin}.exe"
+          fi
+          "$alias_bin" version
 
       - name: Package binary
         id: package
@@ -319,6 +328,14 @@ jobs:
           fi
 
           cp "$bin" "$dir/"
+          # `rh` is byte-identical to `rhei`. Unix archives store it as a link
+          # to halve the download; zip has no portable symlink support, so the
+          # Windows archive carries a second copy. §FS-rhei-distribution.1
+          if [[ "$host" == *windows* ]]; then
+            cp ./target/release/rh.exe "$dir/"
+          else
+            ln -s rhei "$dir/rh"
+          fi
           cp README.md "$dir/"
 
           if [[ "$host" == *windows* ]]; then
@@ -368,101 +385,65 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - name: Check crates.io publication state
-        id: state
+      - name: Publish crates.io packages in dependency order
         shell: bash
         run: |
           set -euo pipefail
           version="${{ needs.verify.outputs.version }}"
 
-          check_published() {
-            local crate="$1"
+          # crates.io rejects a package whose dependencies are not already in
+          # the index, so publish in waves: every package in a wave depends
+          # only on packages from earlier waves. §FS-rhei-distribution.1
+          waves=(
+            "rhei-plan-core"
+            "rhei-cli"
+          )
+
+          already_published() {
             local code
             code="$(curl -sS -o /dev/null -w '%{http_code}' \
               -A 'rhei-release/0.1' \
-              "https://crates.io/api/v1/crates/${crate}/${version}")"
+              "https://crates.io/api/v1/crates/$1/${version}")"
             case "$code" in
-              200) echo "true" ;;
-              404) echo "false" ;;
-              *) echo "error: unexpected HTTP $code querying crates.io for ${crate} ${version}" >&2; exit 1 ;;
+              200) return 0 ;;
+              404) return 1 ;;
+              *)
+                echo "error: unexpected HTTP $code querying crates.io for $1 ${version}" >&2
+                exit 1
+                ;;
             esac
           }
 
-          core_published="$(check_published rhei-plan-core)"
-          tui_published="$(check_published rhei-cli-tui)"
-          agent_published="$(check_published rhei-agent-core)"
-          output_published="$(check_published rhei-cli-output)"
-          validator_published="$(check_published rhei-cli-validator)"
-          cli_published="$(check_published rhei-cli)"
-
-          echo "core_published=$core_published" >> "$GITHUB_OUTPUT"
-          echo "tui_published=$tui_published" >> "$GITHUB_OUTPUT"
-          echo "agent_published=$agent_published" >> "$GITHUB_OUTPUT"
-          echo "output_published=$output_published" >> "$GITHUB_OUTPUT"
-          echo "validator_published=$validator_published" >> "$GITHUB_OUTPUT"
-          echo "cli_published=$cli_published" >> "$GITHUB_OUTPUT"
-
-      - name: Publish rhei-plan-core
-        if: steps.state.outputs.core_published == 'false'
-        run: cargo publish -p rhei-plan-core --locked
-
-      - name: Publish rhei-cli-tui
-        if: steps.state.outputs.tui_published == 'false'
-        run: cargo publish -p rhei-cli-tui --locked
-
-      - name: Wait for core dependency resolution
-        if: steps.state.outputs.agent_published == 'false' || steps.state.outputs.output_published == 'false' || steps.state.outputs.validator_published == 'false'
-        shell: bash
-        run: |
-          set -euo pipefail
-          max_attempts=90
-          sleep_seconds=20
-          for attempt in $(seq 1 "$max_attempts"); do
-            ready=true
-            for package in rhei-agent-core rhei-cli-output rhei-cli-validator; do
-              cargo package -p "$package" --locked --allow-dirty --no-verify >/tmp/rhei-package.log 2>&1 || ready=false
+          # A freshly published version reaches the index a little after
+          # `cargo publish` returns, so each package waits until its own
+          # dependency requirements resolve before it is published in turn.
+          await_dependencies() {
+            local package="$1"
+            local attempt
+            for attempt in $(seq 1 90); do
+              if cargo package -p "$package" --locked --allow-dirty --no-verify \
+                   >/tmp/rhei-package.log 2>&1; then
+                return 0
+              fi
+              echo "  crates.io index not ready for ${package} (${attempt}/90)"
+              sleep 20
             done
-            if [ "$ready" = "true" ]; then
-              exit 0
-            fi
-            echo "crates.io index not ready yet (${attempt}/${max_attempts})"
-            sleep "$sleep_seconds"
+            echo "error: dependencies of ${package} never resolved from crates.io" >&2
+            cat /tmp/rhei-package.log >&2
+            return 1
+          }
+
+          for wave in "${waves[@]}"; do
+            for package in $wave; do
+              if already_published "$package"; then
+                echo "skip: ${package} ${version} is already on crates.io"
+                continue
+              fi
+              await_dependencies "$package"
+              echo "publish: ${package} ${version}"
+              cargo publish -p "$package" --locked
+            done
           done
-          cat /tmp/rhei-package.log >&2
-          exit 1
-
-      - name: Publish rhei-agent-core
-        if: steps.state.outputs.agent_published == 'false'
-        run: cargo publish -p rhei-agent-core --locked
-
-      - name: Publish rhei-cli-output
-        if: steps.state.outputs.output_published == 'false'
-        run: cargo publish -p rhei-cli-output --locked
-
-      - name: Publish rhei-cli-validator
-        if: steps.state.outputs.validator_published == 'false'
-        run: cargo publish -p rhei-cli-validator --locked
-
-      - name: Wait for CLI dependency resolution
-        if: steps.state.outputs.cli_published == 'false'
-        shell: bash
-        run: |
-          set -euo pipefail
-          max_attempts=90
-          sleep_seconds=20
-          for attempt in $(seq 1 "$max_attempts"); do
-            if cargo package -p rhei-cli --locked --allow-dirty --no-verify >/tmp/rhei-cli-package.log 2>&1; then
-              exit 0
-            fi
-            echo "CLI dependencies not resolvable yet (${attempt}/${max_attempts})"
-            sleep "$sleep_seconds"
-          done
-          cat /tmp/rhei-cli-package.log >&2
-          exit 1
-
-      - name: Publish rhei-cli
-        if: steps.state.outputs.cli_published == 'false'
-        run: cargo publish -p rhei-cli --locked
 
   github-release:
     name: publish GitHub release

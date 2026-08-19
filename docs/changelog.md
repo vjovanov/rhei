@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Install the CLI under a short `rh` alias alongside `rhei`. `cargo install
+  rhei-cli`, the npm package, and the PyPI package now all put both names on
+  `PATH`, and GitHub release archives carry both (as a symlink on Unix, a
+  second copy in the Windows zip). To avoid compiling the whole CLI twice for
+  the second binary, `rhei-cli` now builds its body as a library target that
+  both binaries link. PR #78 §FS-rhei-distribution.1
+- **Publish two crates instead of eight.** A release now ships only
+  `rhei-plan-core` and `rhei-cli` — the packages someone outside this
+  repository would actually depend on. `rhei-cli-validator`, `rhei-cli-output`,
+  `rhei-cli-tui`, `rhei-cli-viz`, and `rhei-cli-viz-model` existed to divide
+  the CLI's own source, but Cargo requires a published package's dependencies
+  to be published too, so each was headed for a permanent crates.io name, a
+  docs.rs page, and an exact version pin for no one's benefit. They are now
+  modules inside `rhei-cli`, keeping their crate-level names (`rhei_validator`,
+  `rhei_output`, …) so the CLI body spells them unchanged. `rhei-agent-core` is
+  unpublished while it remains a re-export of `rhei-plan-core` with no callers.
+  Nothing had been published to crates.io yet, so no name is stranded.
+  PR #78 §FS-rhei-distribution.1
+- Fix crates.io publishing, which could not have completed as written:
+  `rhei-cli-viz-model` and `rhei-cli-viz` were absent from both the publish
+  list and the pre-release name check even though `rhei-cli` depended on them,
+  and `rhei-cli-tui` — which depends on `rhei-cli-viz-model` — was published in
+  the first wave, before its dependency existed on the registry. Publishing now
+  walks the dependency graph in order, and the name check covers exactly the
+  published set. PR #78 §FS-rhei-distribution.1
+- Give both published crates a `readme` and crates.io `categories` so the
+  registry pages are not bare. PR #78
+- Fix the release version bump, which skipped `xtask/Cargo.toml`. Its exact
+  pins on sibling packages stayed at the old version while everything else
+  moved, so the workspace stopped resolving right after a bump — and the
+  matching verify step could not catch it, because both scripts only walked
+  `crates/*/Cargo.toml`. They now walk every in-workspace manifest, and match
+  a pin whose dependency name already is the package name. PR #78
+  §FS-rhei-distribution.2
 - Make the result obligation a property of the terminal state, not of `rhei
   complete`. A task no longer enters a `final: true` state without a non-empty
   `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the

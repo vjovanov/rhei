@@ -13,6 +13,14 @@ from typing import Sequence
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
+def internal_manifests(root: Path) -> list[Path]:
+    """Every in-workspace manifest that pins a sibling by exact version.
+
+    `xtask` lives outside `crates/`, so a plain glob there silently leaves its
+    pins at the old version and the bump stops resolving. §FS-rhei-distribution.2
+    """
+    return sorted((root / "crates").glob("*/Cargo.toml")) + [root / "xtask" / "Cargo.toml"]
+
 def read_workspace_version(root: Path) -> str:
     text = (root / "Cargo.toml").read_text(encoding="utf-8")
     in_workspace_package = False
@@ -45,10 +53,12 @@ def verify(root: Path, version: str) -> None:
 
     require_equal("workspace version", read_workspace_version(root), version)
 
+    # `package = ` is absent when the dependency name already is the package
+    # name, as in xtask's `rhei-cli` pin.
     internal_dep_version = re.compile(
-        r'\{ package = "rhei-[^"]+", path = "[^"]+", version = "=[0-9]+\.[0-9]+\.[0-9]+" \}'
+        r'\{ (?:package = "rhei-[^"]+", )?path = "[^"]+", version = "=[0-9]+\.[0-9]+\.[0-9]+" \}'
     )
-    for manifest in (root / "crates").glob("*/Cargo.toml"):
+    for manifest in internal_manifests(root):
         text = manifest.read_text(encoding="utf-8")
         stale_exact = internal_dep_version.findall(text)
         for value in stale_exact:

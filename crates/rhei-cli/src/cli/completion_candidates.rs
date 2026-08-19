@@ -9,7 +9,7 @@ fn completions_command(
     if install || output.is_some() || dry_run {
         let path = match output {
             Some(path) => path.to_path_buf(),
-            None => completion_install_path(shell, system)?,
+            None => completion_install_path(shell, system, &invoked_bin_name())?,
         };
         if dry_run {
             println!("Would install {} completions to {}", shell.as_str(), path.display());
@@ -26,28 +26,34 @@ fn completions_command(
     Ok(())
 }
 
-/// How to enable the generated script, as comments in the script itself. §FS-rhei-completions.5
-fn completion_header(shell: CompletionShell) -> String {
+/// How to enable the generated script, as comments in the script itself. The
+/// instructions name the binary the user actually ran, so the `rh` alias does
+/// not tell them to rerun `rhei`. §FS-rhei-completions.5 §FS-rhei-distribution.1
+fn completion_header(shell: CompletionShell, bin: &str) -> String {
+    let shell_name = shell.as_str();
     let (source_line, rc_file) = match shell {
-        CompletionShell::Bash => ("source <(rhei completions bash)", "~/.bashrc"),
-        CompletionShell::Zsh => ("source <(rhei completions zsh)", "~/.zshrc"),
+        CompletionShell::Bash => {
+            (format!("source <({bin} completions bash)"), "~/.bashrc")
+        }
+        CompletionShell::Zsh => (format!("source <({bin} completions zsh)"), "~/.zshrc"),
         CompletionShell::Fish => {
-            ("rhei completions fish | source", "~/.config/fish/config.fish")
+            (format!("{bin} completions fish | source"), "~/.config/fish/config.fish")
         }
-        CompletionShell::PowerShell => {
-            ("rhei completions powershell | Out-String | Invoke-Expression", "$PROFILE")
-        }
+        CompletionShell::PowerShell => (
+            format!("{bin} completions powershell | Out-String | Invoke-Expression"),
+            "$PROFILE",
+        ),
         CompletionShell::Elvish => {
-            ("eval (rhei completions elvish | slurp)", "~/.config/elvish/rc.elv")
+            (format!("eval ({bin} completions elvish | slurp)"), "~/.config/elvish/rc.elv")
         }
     };
     let mut header = format!(
-        "# rhei completions for {shell}.\n\
+        "# {bin} completions for {shell}.\n\
          # Enable in the current shell:\n\
          #   {source_line}\n\
          # Enable permanently: add that line to {rc_file}, or install a completion file:\n\
-         #   rhei completions {shell} --install\n",
-        shell = shell.as_str(),
+         #   {bin} completions {shell} --install\n",
+        shell = shell_name,
     );
     if matches!(shell, CompletionShell::Zsh) {
         header.push_str(
@@ -66,7 +72,7 @@ fn write_completion_script(
     let mut registration = Vec::new();
     write_completion_registration(shell, &mut registration)?;
     let registration = String::from_utf8_lossy(&registration);
-    let header = completion_header(shell);
+    let header = completion_header(shell, &invoked_bin_name());
 
     let script = match registration.split_once('\n') {
         Some((first, rest)) if first.starts_with("#compdef") => {
@@ -135,17 +141,29 @@ fn write_completion_file(shell: CompletionShell, path: &Path) -> MietteResult<()
     Ok(())
 }
 
+/// The name this process was invoked under, so the `rh` alias registers and
+/// completes under its own name instead of `rhei`. §FS-rhei-distribution.1
+fn invoked_bin_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(Path::file_stem)
+        .and_then(OsStr::to_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| "rhei".to_string())
+}
+
 fn write_completion_registration(
     shell: CompletionShell,
     writer: &mut dyn std::io::Write,
 ) -> MietteResult<()> {
-    let command = cli_command();
+    let bin = invoked_bin_name();
     let completer = std::env::current_exe()
         .ok()
         .and_then(|path| path.into_os_string().into_string().ok())
-        .unwrap_or_else(|| "rhei".to_string());
+        .unwrap_or_else(|| bin.clone());
     completion_env_completer(shell)
-        .write_registration("COMPLETE", command.get_name(), "rhei", &completer, writer)
+        .write_registration("COMPLETE", &bin, &bin, &completer, writer)
         .map_err(|err| miette!(
             help = "see how to enable completions with: rhei completions --help",
             "failed to generate {} completions: {err}", shell.as_str()
@@ -162,31 +180,44 @@ fn completion_env_completer(shell: CompletionShell) -> &'static dyn EnvCompleter
     }
 }
 
-fn completion_install_path(shell: CompletionShell, system: bool) -> MietteResult<PathBuf> {
+/// Where an installed completion file belongs. The filename carries the
+/// invoked binary name so installing for the `rh` alias adds a second file
+/// instead of overwriting `rhei`'s. §FS-rhei-distribution.1
+fn completion_install_path(
+    shell: CompletionShell,
+    system: bool,
+    bin: &str,
+) -> MietteResult<PathBuf> {
     if system {
         return Ok(match shell {
             CompletionShell::Bash => {
-                PathBuf::from("/usr/local/share/bash-completion/completions/rhei")
+                PathBuf::from("/usr/local/share/bash-completion/completions").join(bin)
             }
-            CompletionShell::Zsh => PathBuf::from("/usr/local/share/zsh/site-functions/_rhei"),
-            CompletionShell::Fish => {
-                PathBuf::from("/usr/local/share/fish/vendor_completions.d/rhei.fish")
+            CompletionShell::Zsh => {
+                PathBuf::from("/usr/local/share/zsh/site-functions").join(format!("_{bin}"))
             }
-            CompletionShell::PowerShell => {
-                PathBuf::from("/usr/local/share/powershell/Completions/rhei-completions.ps1")
-            }
+            CompletionShell::Fish => PathBuf::from("/usr/local/share/fish/vendor_completions.d")
+                .join(format!("{bin}.fish")),
+            CompletionShell::PowerShell => PathBuf::from("/usr/local/share/powershell/Completions")
+                .join(format!("{bin}-completions.ps1")),
             CompletionShell::Elvish => {
-                PathBuf::from("/usr/local/share/elvish/lib/rhei-completions.elv")
+                PathBuf::from("/usr/local/share/elvish/lib").join(format!("{bin}-completions.elv"))
             }
         });
     }
 
     Ok(match shell {
-        CompletionShell::Bash => xdg_data_home()?.join("bash-completion/completions/rhei"),
-        CompletionShell::Zsh => home_dir()?.join(".zfunc/_rhei"),
-        CompletionShell::Fish => xdg_config_home()?.join("fish/completions/rhei.fish"),
-        CompletionShell::PowerShell => xdg_config_home()?.join("powershell/rhei-completions.ps1"),
-        CompletionShell::Elvish => xdg_config_home()?.join("elvish/lib/rhei-completions.elv"),
+        CompletionShell::Bash => xdg_data_home()?.join("bash-completion/completions").join(bin),
+        CompletionShell::Zsh => home_dir()?.join(".zfunc").join(format!("_{bin}")),
+        CompletionShell::Fish => {
+            xdg_config_home()?.join("fish/completions").join(format!("{bin}.fish"))
+        }
+        CompletionShell::PowerShell => {
+            xdg_config_home()?.join("powershell").join(format!("{bin}-completions.ps1"))
+        }
+        CompletionShell::Elvish => {
+            xdg_config_home()?.join("elvish/lib").join(format!("{bin}-completions.elv"))
+        }
     })
 }
 
