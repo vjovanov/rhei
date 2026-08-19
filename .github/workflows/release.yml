@@ -23,7 +23,16 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: "1.82.0"
+  # Release binaries are built with a newer compiler than the MSRV the project
+  # promises: Rust 1.82's `profiler_builtins` references the aarch64
+  # outline-atomics helpers (`__aarch64_cas8_sync`) that never get linked, so
+  # `-Cprofile-generate` cannot link at all on aarch64 Linux. Building with a
+  # newer toolchain does not change `rust-version`, which is about what a
+  # consumer needs to compile the published crates. §FS-rhei-distribution.4
+  RUST_TOOLCHAIN: "1.95.0"
+  # `rust-toolchain.toml` pins the dev/MSRV toolchain at 1.82.0 and outranks
+  # whatever these jobs install; only RUSTUP_TOOLCHAIN outranks the file.
+  RUSTUP_TOOLCHAIN: "1.95.0"
 
 jobs:
   verify:
@@ -185,9 +194,11 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           RUST_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+          RUSTUP_TOOLCHAIN: ${{ env.RUSTUP_TOOLCHAIN }}
         run: |
           docker run --rm \
             -e RUST_TOOLCHAIN \
+            -e RUSTUP_TOOLCHAIN \
             -v "$PWD:/work" \
             -w /work \
             "$IMAGE" \
