@@ -54,7 +54,7 @@
   destructors, it terminates every in-flight process group on its way out
   rather than leaving them to the Linux parent-death backstop. A run that ends
   there writes no report: the task files, untouched, are what it left behind.
-  Issue #53. PR #TBD §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+  Issue #53. PR #77 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
   §DA-supervised-process-groups
 
 - Make the result obligation a property of the terminal state, not of `rhei
