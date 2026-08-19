@@ -11,9 +11,9 @@ versions, binary names, and release notes aligned with the workspace version.
 Each release publishes exactly two crates.io packages when crate publishing is
 enabled, in this order:
 
-1. `rhei-plan-core` — the plan model, parser, and workspace primitives, for
+1. `rhei-plan` — the plan model, parser, and workspace primitives, for
    callers that want to read Rhei plans without the CLI
-2. `rhei-cli` — the tool itself, which depends on `rhei-plan-core`
+2. `rhei-cli` — the tool itself, which depends on `rhei-plan`
 
 Only packages with an audience outside this repository are published. Cargo
 requires every dependency of a published package to be published too, so a
@@ -24,7 +24,7 @@ rather than as separate packages, and a new workspace crate is a decision to
 add a permanent public package, not a way to organize files.
 
 `rhei-agent-core` is deliberately unpublished while it remains a re-export of
-`rhei-plan-core` with no callers; it becomes a release target when it has an
+`rhei-plan` with no callers; it becomes a release target when it has an
 API of its own. The N-API crate stays unpublished for the same reason.
 
 The crate name `rhei` belongs to an unrelated project on crates.io, so the CLI

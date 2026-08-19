@@ -62,7 +62,7 @@ beads, beans, opencode, Claude Code TodoWrite, Cline, Cursor, Roo, Devin, and
 Augment.
 
 Two crates are published to crates.io:
-- `rhei-plan-core` (`rhei_core`): core plan model for the agent runtime,
+- `rhei-plan` (`rhei_core`): core plan model for the agent runtime,
   including AST types, parsing, callbacks, and workspace primitives
 - `rhei-cli`: `rhei` command-line driver (also installed as `rh`) for validation,
   execution, monitoring, snapshots, templating, and rendering
@@ -73,7 +73,7 @@ CLI's own source would otherwise become a permanent public package name for no
 one's benefit.
 
 Also in the workspace, unpublished:
-- `rhei-agent-core`: re-export facade over `rhei-plan-core`, awaiting an API of
+- `rhei-agent-core`: re-export facade over `rhei-plan`, awaiting an API of
   its own
 - `rhei-api`: language API package surface on npm and PyPI; the N-API
   implementation lives in `crates/rhei-napi`

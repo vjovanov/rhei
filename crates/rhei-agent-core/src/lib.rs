@@ -1,7 +1,7 @@
 //! Embeddable agent runtime primitives for Rhei workflows.
 //!
 //! This crate is the public home for runtime-facing APIs. In the 0.1 line it
-//! starts as a small facade over the shared plan model in `rhei-plan-core`, so
+//! starts as a small facade over the shared plan model in `rhei-plan`, so
 //! downstream users can depend on the stable runtime crate name while execution
 //! internals continue to move out of the CLI.
 
@@ -13,7 +13,7 @@ pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Returns the `rhei-plan-core` crate version this runtime facade is built on.
+/// Returns the `rhei-plan` crate version this runtime facade is built on.
 pub fn plan_core_version() -> String {
     rhei_core::version()
 }

@@ -86,7 +86,7 @@ notice_external_json_name() {
   esac
 }
 
-check_claimed_json_name "crates.io" "rhei-plan-core" "https://crates.io/api/v1/crates/rhei-plan-core"
+check_claimed_json_name "crates.io" "rhei-plan" "https://crates.io/api/v1/crates/rhei-plan"
 check_claimed_json_name "crates.io" "rhei-cli" "https://crates.io/api/v1/crates/rhei-cli"
 check_claimed_json_name "npm" "rhei" "https://registry.npmjs.org/rhei"
 check_claimed_json_name "npm" "rhei-api" "https://registry.npmjs.org/rhei-api"

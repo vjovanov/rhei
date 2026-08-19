@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Publish the plan-model crate as `rhei-plan` rather than `rhei-plan-core`.
+  The `-core` suffix was never chosen on its own merits: `rhei-core` belongs to
+  an unrelated project on crates.io, so `-plan-` was inserted purely to
+  disambiguate a name that was already unavailable. With the publish set down
+  to two packages there is nothing for a "core" to contrast with, and no
+  `rhei-plan` for it to be the core of. The name also matches the project's own
+  vocabulary — the Rhei Plan Language, `.rhei.md` plans. Nothing had been
+  published under the old name, so no one is affected. The Rust import name
+  stays `rhei_core` through the existing dependency alias, so no source changes.
+  §FS-rhei-distribution.1
+
 - Build release binaries with Rust 1.95.0 instead of the 1.82.0 MSRV
   toolchain. Rust 1.82's `profiler_builtins` references the aarch64
   outline-atomics helpers `__aarch64_cas8_sync` and `__aarch64_ldadd8_sync`,
@@ -22,7 +33,7 @@
   the second binary, `rhei-cli` now builds its body as a library target that
   both binaries link. PR #78 §FS-rhei-distribution.1
 - **Publish two crates instead of eight.** A release now ships only
-  `rhei-plan-core` and `rhei-cli` — the packages someone outside this
+  `rhei-plan` and `rhei-cli` — the packages someone outside this
   repository would actually depend on. `rhei-cli-validator`, `rhei-cli-output`,
   `rhei-cli-tui`, `rhei-cli-viz`, and `rhei-cli-viz-model` existed to divide
   the CLI's own source, but Cargo requires a published package's dependencies
@@ -30,7 +41,7 @@
   docs.rs page, and an exact version pin for no one's benefit. They are now
   modules inside `rhei-cli`, keeping their crate-level names (`rhei_validator`,
   `rhei_output`, …) so the CLI body spells them unchanged. `rhei-agent-core` is
-  unpublished while it remains a re-export of `rhei-plan-core` with no callers.
+  unpublished while it remains a re-export of `rhei-plan` with no callers.
   Nothing had been published to crates.io yet, so no name is stranded.
   PR #78 §FS-rhei-distribution.1
 - Fix crates.io publishing, which could not have completed as written:

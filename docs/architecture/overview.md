@@ -137,9 +137,9 @@ CLI's own subsystems are modules inside `rhei-cli`. §FS-rhei-distribution.1
 
 | Source crate | Published package | Role |
 |-------------|-------------------|------|
-| `rhei-core` | `rhei-plan-core` | Tokenizes markdown, parses into AST, defines data structures |
+| `rhei-core` | `rhei-plan` | Tokenizes markdown, parses into AST, defines data structures |
 | `rhei-cli` | `rhei-cli` | Provides the `rhei` command and its `rh` alias |
-| `rhei-agent-core` | unpublished | Re-export facade over `rhei-plan-core`; a release target once it has an API of its own |
+| `rhei-agent-core` | unpublished | Re-export facade over `rhei-plan`; a release target once it has an API of its own |
 | `rhei-napi` | unpublished (`rhei-api` on npm/PyPI) | Native implementation backing JavaScript API packages via N-API |
 
 `rhei-cli` modules that were previously separate crates, and keep their names
