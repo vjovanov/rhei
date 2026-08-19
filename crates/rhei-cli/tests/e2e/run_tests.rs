@@ -1673,10 +1673,59 @@ transitions:
     (dir, workspace, machine_path)
 }
 
+/// A live `rhei run` that dies with the test.
+///
+/// Every wait in these tests polls to a deadline and panics when it passes,
+/// and a panic before the signal under test would leave `rhei`, its agent, and
+/// the agent's `sleep 300` running for five minutes. `SIGKILL` to `rhei` is
+/// enough on Linux — its subprocesses follow through the parent-death backstop
+/// — but not on macOS, where a failed test may still leave an agent behind.
+#[cfg(unix)]
+struct KillOnDrop(std::process::Child);
+
+#[cfg(unix)]
+impl std::ops::Deref for KillOnDrop {
+    type Target = std::process::Child;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(unix)]
+impl std::ops::DerefMut for KillOnDrop {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[cfg(unix)]
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+/// Join a helper thread if it has already finished, and detach it otherwise:
+/// a drain thread whose pty never closes must not decide how long a test runs.
+#[cfg(unix)]
+fn join_or_detach(handle: std::thread::JoinHandle<()>) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !handle.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    if handle.is_finished() {
+        let _ = handle.join();
+    }
+}
+
 /// Start `rhei run` as a live child so the test can signal it, with its output
 /// on disk for the assertions and for the failure message.
 #[cfg(unix)]
-fn spawn_rhei_run(dir: &Path, workspace: &Path, machine: &Path) -> std::process::Child {
+fn spawn_rhei_run(dir: &Path, workspace: &Path, machine: &Path) -> KillOnDrop {
     spawn_rhei_run_with(dir, workspace, machine, &[])
 }
 
@@ -1687,7 +1736,7 @@ fn spawn_rhei_run_with(
     target: &Path,
     machine: &Path,
     extra_args: &[&str],
-) -> std::process::Child {
+) -> KillOnDrop {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
     cmd.env("HOME", dir.join(".home"));
     cmd.arg("--state-machine")
@@ -1703,7 +1752,7 @@ fn spawn_rhei_run_with(
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(fs::File::create(dir.join("run.out")).expect("create run stdout"));
     cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
-    cmd.spawn().expect("rhei run should start")
+    KillOnDrop(cmd.spawn().expect("rhei run should start"))
 }
 
 #[cfg(unix)]
@@ -2145,7 +2194,7 @@ fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
     cmd.stdin(std::process::Stdio::from(slave_in));
     cmd.stdout(std::process::Stdio::from(slave_out));
     cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
-    let mut run = cmd.spawn().expect("rhei run should start");
+    let mut run = KillOnDrop(cmd.spawn().expect("rhei run should start"));
     // The child owns the slave now. Every copy left in this process has to go,
     // the `Command`'s own included — `spawn` keeps its `Stdio` handles until
     // the `Command` drops, and one surviving slave fd keeps the master
@@ -2184,7 +2233,7 @@ fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
         "a signalled TUI run should exit 128+SIGTERM, not wait for `q`\nstderr:\n{}",
         read_run_stderr(&dir)
     );
-    let _ = drain.join();
+    join_or_detach(drain);
 
     poll_until("the agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
     poll_until("the grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
@@ -2307,7 +2356,7 @@ transitions:
     // a pipe buffer, so nothing blocks before the test closes the read end.
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
-    let mut run = cmd.spawn().expect("rhei run should start");
+    let mut run = KillOnDrop(cmd.spawn().expect("rhei run should start"));
 
     let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
     let agent = wait_for_recorded_pid(&workspace, "agent");
