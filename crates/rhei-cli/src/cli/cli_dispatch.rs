@@ -221,10 +221,10 @@ fn is_broken_pipe_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
     })
 }
 
-fn main() {
+pub fn run() {
     install_quiet_broken_pipe_exit();
     install_diagnostic_handler();
-    CompleteEnv::with_factory(cli_command).bin("rhei").complete();
+    CompleteEnv::with_factory(cli_command).bin(invoked_bin_name()).complete();
 
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,

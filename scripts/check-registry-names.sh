@@ -87,6 +87,8 @@ notice_external_json_name() {
 }
 
 check_claimed_json_name "crates.io" "rhei-plan-core" "https://crates.io/api/v1/crates/rhei-plan-core"
+check_claimed_json_name "crates.io" "rhei-cli-viz-model" "https://crates.io/api/v1/crates/rhei-cli-viz-model"
+check_claimed_json_name "crates.io" "rhei-cli-viz" "https://crates.io/api/v1/crates/rhei-cli-viz"
 check_claimed_json_name "crates.io" "rhei-cli-tui" "https://crates.io/api/v1/crates/rhei-cli-tui"
 check_claimed_json_name "crates.io" "rhei-agent-core" "https://crates.io/api/v1/crates/rhei-agent-core"
 check_claimed_json_name "crates.io" "rhei-cli-output" "https://crates.io/api/v1/crates/rhei-cli-output"
@@ -99,3 +101,4 @@ check_claimed_json_name "pypi" "rhei-cli" "https://pypi.org/pypi/rhei-cli/json"
 check_claimed_json_name "pypi" "rhei-api" "https://pypi.org/pypi/rhei-api/json"
 
 notice_external_json_name "pypi" "rhei" "https://pypi.org/pypi/rhei/json"
+notice_external_json_name "crates.io" "rhei" "https://crates.io/api/v1/crates/rhei"

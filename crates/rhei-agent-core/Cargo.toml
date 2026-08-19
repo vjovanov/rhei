@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Embeddable agent runtime primitives for Rhei workflows."
+categories = ["development-tools"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_agent_core"

@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Core plan model and primitives for the Rhei agent runtime."
+categories = ["development-tools"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_core"

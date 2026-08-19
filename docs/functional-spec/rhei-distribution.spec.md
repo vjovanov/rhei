@@ -9,19 +9,25 @@ versions, binary names, and release notes aligned with the workspace version.
 ## 1. Release Targets
 
 Each release publishes these crates.io packages when crate publishing is
-enabled:
+enabled. crates.io rejects a package whose dependencies are not already in the
+index, so publishing walks the internal dependency graph in waves; every
+package in a wave depends only on packages from earlier waves:
 
-- `rhei-plan-core`
-- `rhei-cli-tui`
-- `rhei-agent-core`
-- `rhei-cli-output`
-- `rhei-cli-validator`
-- `rhei-cli`
+1. `rhei-plan-core`, `rhei-cli-viz-model`
+2. `rhei-agent-core`, `rhei-cli-output`, `rhei-cli-validator`, `rhei-cli-tui`
+3. `rhei-cli-viz`
+4. `rhei-cli`
 
-The installed CLI binary is named `rhei`. GitHub release artifacts package that
-binary with `README.md` and a SHA-256 checksum. Public language API packages
-use the package name `rhei-api`; native N-API support is an implementation
-detail and is not a crates.io release target.
+The crate name `rhei` belongs to an unrelated project on crates.io, so the CLI
+publishes as `rhei-cli`; the crate name is not the command name.
+
+`rhei-cli` installs two identical binaries, `rhei` and its short alias `rh`, so
+both are on `PATH` after `cargo install rhei-cli`. GitHub release artifacts
+package both names with `README.md` and a SHA-256 checksum; on platforms with
+symbolic links the archive stores `rh` as a link to `rhei` rather than a second
+copy. Public language API packages use the package name `rhei-api`; native
+N-API support is an implementation detail and is not a crates.io release
+target.
 
 ## 2. Version Source
 

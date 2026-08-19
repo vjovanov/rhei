@@ -45,3 +45,4 @@ jobs:
           set -euo pipefail
           ./target/release/rhei version
           ./target/release/rhei validate examples/spec-implementation-example/index.rhei.md
+          ./target/release/rh version

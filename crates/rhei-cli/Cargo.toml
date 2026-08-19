@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Command-line driver for the Rhei agent runtime."
+categories = ["command-line-utilities", "development-tools"]
+readme = "../../README.md"
 # The built-in templates and skills are compiled into the binary
 # (§FS-rhei-templates.1, §FS-rhei-install-skills.4.3), so they must travel with
 # the published package, not just the git checkout.
@@ -46,6 +48,20 @@ nix = { version = "0.29", features = ["signal", "process"] }
 # bare `cargo install`, with no `share/` layout to install alongside it.
 include_dir = { version = "0.7.4", default-features = false }
 
+# The CLI body is a library so both binary targets below link one compiled
+# copy of it; pointing two `[[bin]]`s at the same `main.rs` would compile the
+# whole crate twice under the LTO release profile. §AR-source-file-size
+[lib]
+name = "rhei_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rhei"
 path = "src/main.rs"
+
+# Short alias for the same CLI, so `cargo install rhei-cli` puts both `rhei`
+# and `rh` on PATH: Cargo has no install-time symlink mechanism, so the second
+# name has to be its own binary target. §FS-rhei-distribution.1
+[[bin]]
+name = "rh"
+path = "src/bin/rh.rs"

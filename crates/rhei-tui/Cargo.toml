@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Terminal UI event surface and frontend for Rhei run monitoring."
+categories = ["development-tools", "command-line-interface"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_tui"

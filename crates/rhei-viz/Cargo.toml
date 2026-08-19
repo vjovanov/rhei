@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Builds the Rhei flow visualization model from a parsed plan and its resolved state machine."
+categories = ["development-tools", "visualization"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_viz"

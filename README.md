@@ -68,8 +68,11 @@ Current workspace crates:
   agent workflow integrations
 - `rhei-cli-validator` (`rhei_validator`): semantic validation against a YAML states definition
 - `rhei-cli-output` (`rhei_output`): JSON, GitHub-style markdown, and progress-report rendering
-- `rhei-cli`: `rhei` command-line driver for validation, execution, monitoring,
-  snapshots, templating, and rendering
+- `rhei-cli-tui` (`rhei_tui`): terminal UI event surface and frontend for run monitoring
+- `rhei-cli-viz-model` (`rhei_viz_model`): flow-visualization data model and self-contained HTML renderer
+- `rhei-cli-viz` (`rhei_viz`): builds the visualization model from a parsed plan and its state machine
+- `rhei-cli`: `rhei` command-line driver (also installed as `rh`) for validation,
+  execution, monitoring, snapshots, templating, and rendering
 - `rhei-api`: language API package surface; the N-API implementation lives in
   `crates/rhei-napi`
 
@@ -137,8 +140,9 @@ Install the published CLI package from crates.io:
 cargo install rhei-cli --locked
 ```
 
-The crates.io package is named `rhei-cli`; the installed command is still
-`rhei`.
+The crates.io package is named `rhei-cli` because the crate name `rhei` belongs
+to an unrelated project. The installed commands are `rhei` and its short alias
+`rh` — the same binary under both names.
 
 Use `--locked` so Cargo respects the repository lockfile. This avoids resolving newer dependency versions that may require a newer Rust compiler than the project currently targets.
 
@@ -147,6 +151,7 @@ Cargo installs the binary to `~/.cargo/bin/rhei`. Make sure `~/.cargo/bin` is on
 ```bash
 type -a rhei
 rhei version
+rh version
 ```
 
 If an older `/usr/local/bin/rhei` appears before `~/.cargo/bin/rhei`, either adjust `PATH` or invoke the Cargo-installed binary directly:
@@ -161,7 +166,7 @@ Install the CLI from npm:
 
 ```bash
 npm install -g rhei
-rhei version
+rhei version   # or: rh version
 ```
 
 Use the JavaScript helper API:
@@ -189,7 +194,7 @@ Install the CLI from PyPI:
 
 ```bash
 python3 -m pip install rhei-cli
-rhei version
+rhei version   # or: rh version
 ```
 
 Use the Python helper API:
@@ -206,7 +211,7 @@ result = rhei_api.run(["validate", "plan.rhei.md"], capture_output=True)
 ```
 
 The PyPI package name is `rhei-cli` because `rhei` is already taken on PyPI.
-The installed command is still `rhei`.
+The installed commands are still `rhei` and `rh`.
 These alpha packages are thin wrappers around the Rust CLI; they are useful for
 distribution and helper APIs today, not a replacement for the native runtime
 crates.

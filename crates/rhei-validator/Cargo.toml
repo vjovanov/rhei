@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Semantic validation for Rhei markdown plans and YAML state machines."
+categories = ["development-tools"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_validator"

@@ -12,7 +12,8 @@
     "url": "https://github.com/vjovanov/rhei/issues"
   },
   "bin": {
-    "rhei": "bin/rhei.js"
+    "rhei": "bin/rhei.js",
+    "rh": "bin/rhei.js"
   },
   "main": "index.js",
   "scripts": {

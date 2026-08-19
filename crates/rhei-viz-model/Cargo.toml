@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Pure data model and self-contained HTML/CSS/JS renderer for the Rhei flow visualization."
+categories = ["development-tools", "visualization"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_viz_model"

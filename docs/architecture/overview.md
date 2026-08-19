@@ -135,9 +135,12 @@ rhei/
 | Source crate | Published package | Role |
 |-------------|-------------------|------|
 | `rhei-core` | `rhei-plan-core` | Tokenizes markdown, parses into AST, defines data structures |
+| `rhei-agent-core` | `rhei-agent-core` | Embeddable agent runtime primitives for workflow integrations |
 | `rhei-validator` | `rhei-cli-validator` | Validates dependencies, states, cycles, and child task id numbering |
 | `rhei-output` | `rhei-cli-output` | Renders AST to JSON, GitHub markdown, terminal progress |
-| `rhei-cli` | `rhei-cli` | Provides the `rhei` command |
+| `rhei-viz-model` | `rhei-cli-viz-model` | Flow-visualization data model and self-contained HTML renderer |
+| `rhei-viz` | `rhei-cli-viz` | Builds the visualization model from a plan and its state machine |
+| `rhei-cli` | `rhei-cli` | Provides the `rhei` command and its `rh` alias (§FS-rhei-distribution.1) |
 | `rhei-tui` | `rhei-cli-tui` | Terminal UI event surface and frontend |
 | `rhei-napi` | internal (`rhei-api`) | Native implementation backing JavaScript API packages via N-API |
 

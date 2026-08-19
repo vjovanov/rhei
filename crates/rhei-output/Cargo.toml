@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "JSON, Markdown, and terminal progress renderers for Rhei markdown plans."
+categories = ["development-tools", "command-line-interface"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_output"
