@@ -65,6 +65,15 @@ Source installs such as `cargo install rhei-cli --locked` use Cargo's ordinary
 release profile instead of PGO. PGO is a packaging optimization, not a behavior
 contract.
 
+Release jobs build with a newer toolchain than the `rust-version` the crates
+declare, because PGO instrumentation does not link on aarch64 Linux under the
+MSRV compiler. `rust-version` states what a consumer needs in order to build
+the published crates and is unaffected by the compiler that produced the
+release binaries; the test matrix stays on the MSRV toolchain so the promise
+keeps being checked. The release toolchain is pinned explicitly rather than
+tracking stable, so every distributed binary in a release comes from one
+compiler version.
+
 ## 5. Release Notes
 
 `docs/changelog.md` contains an `Unreleased` section and the latest inline

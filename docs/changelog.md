@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Build release binaries with Rust 1.95.0 instead of the 1.82.0 MSRV
+  toolchain. Rust 1.82's `profiler_builtins` references the aarch64
+  outline-atomics helpers `__aarch64_cas8_sync` and `__aarch64_ldadd8_sync`,
+  which are in the static `libgcc.a` while rustc links `-nodefaultlibs` with
+  only the shared `-lgcc_s`, so `-Cprofile-generate` could not link at all on
+  aarch64 Linux and the release failed before publishing anything. Setting
+  `RUST_TOOLCHAIN` alone would not have helped: `rust-toolchain.toml` outranks
+  the installed default, so the jobs also export `RUSTUP_TOOLCHAIN`, which
+  outranks the file. `rust-version` stays at 1.82 and the test matrix stays on
+  the MSRV toolchain, since `rust-version` describes what a consumer needs to
+  build the published crates, not what compiled the release binaries.
+  §FS-rhei-distribution.4
+
 - Install the CLI under a short `rh` alias alongside `rhei`. `cargo install
   rhei-cli`, the npm package, and the PyPI package now all put both names on
   `PATH`, and GitHub release archives carry both (as a symlink on Unix, a

@@ -1,3 +1,6 @@
+# Development and MSRV toolchain. Release jobs deliberately build with a newer
+# compiler (see RUST_TOOLCHAIN in .github/workflows/release.yml) and override
+# this file via RUSTUP_TOOLCHAIN. §FS-rhei-distribution.4
 [toolchain]
 channel = "1.82.0"
 components = ["clippy", "rustfmt"]
