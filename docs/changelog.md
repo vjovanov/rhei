@@ -7,16 +7,16 @@
   `PATH`, and GitHub release archives carry both (as a symlink on Unix, a
   second copy in the Windows zip). To avoid compiling the whole CLI twice for
   the second binary, `rhei-cli` now builds its body as a library target that
-  both binaries link. §FS-rhei-distribution.1
+  both binaries link. PR #78 §FS-rhei-distribution.1
 - Fix crates.io publishing, which could not have completed for a release
   containing `rhei-cli-viz-model` and `rhei-cli-viz`: neither crate was in the
   publish list, and `rhei-cli-tui` — which depends on `rhei-cli-viz-model` —
   was published in the first wave, before its dependency existed on the
   registry. The release workflow now walks the internal dependency graph in
   four waves, and the pre-release name check covers every published crate.
-  §FS-rhei-distribution.1
+  PR #78 §FS-rhei-distribution.1
 - Give every published crate a `readme` and crates.io `categories` so the
-  registry pages are not bare.
+  registry pages are not bare. PR #78
 - Make the result obligation a property of the terminal state, not of `rhei
   complete`. A task no longer enters a `final: true` state without a non-empty
   `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the
