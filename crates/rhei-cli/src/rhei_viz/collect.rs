@@ -7,12 +7,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::rhei_validator::StateMachine;
+use crate::rhei_viz_model::VizModel;
 use rhei_core::ast::Rhei;
 use rhei_core::{parse, workspace};
-use rhei_validator::StateMachine;
-use rhei_viz_model::VizModel;
 
-use crate::build_with_history;
+use crate::rhei_viz::build_with_history;
 
 /// A keyed bundle of plans in the shape `rhei-viz-model::render_static` inlines
 /// and the asset's plan selector reads.
@@ -67,7 +67,12 @@ pub fn collect_plans(
             .collect::<std::collections::HashMap<_, _>>();
         plans.insert(
             key.to_string(),
-            crate::build_set_with_history_roots(&loaded.rhei, &machines, path, &task_roots),
+            crate::rhei_viz::build_set_with_history_roots(
+                &loaded.rhei,
+                &machines,
+                path,
+                &task_roots,
+            ),
         );
         return Ok(plans);
     }
@@ -127,7 +132,7 @@ fn resolve_project_machines(
     path: &Path,
     machine_override: Option<&Path>,
     loaded: &workspace::PantaProject,
-) -> io::Result<rhei_validator::MachineSet> {
+) -> io::Result<crate::rhei_validator::MachineSet> {
     let default = resolve_machine(path, machine_override, &loaded.rhei)?;
     let mut per_rhei = std::collections::BTreeMap::new();
     let mut declared: Vec<(&String, &String)> = loaded.rhei_machines.iter().collect();
@@ -171,7 +176,7 @@ fn resolve_project_machines(
         };
         per_rhei.insert(rhei_id.clone(), machine);
     }
-    Ok(rhei_validator::MachineSet { default, per_rhei })
+    Ok(crate::rhei_validator::MachineSet { default, per_rhei })
 }
 
 /// Resolve the state machine for a plan: an explicit `--states` override wins,

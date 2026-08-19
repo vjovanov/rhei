@@ -15,8 +15,8 @@ use nix::sys::signal::{raise, Signal};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use crate::dashboard::{GateTransitionSink, InterveneSink, PlanLoader};
-use crate::event::{EventSink, RunEvent};
+use crate::rhei_tui::dashboard::{GateTransitionSink, InterveneSink, PlanLoader};
+use crate::rhei_tui::event::{EventSink, RunEvent};
 
 mod derive;
 mod input;

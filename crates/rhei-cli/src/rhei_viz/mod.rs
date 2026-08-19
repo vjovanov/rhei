@@ -6,12 +6,14 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rhei_core::ast::{Rhei, Task as AstTask};
-use rhei_validator::{parse_execution_target, parse_task_state, StateArtifactDef, StateMachine};
-use rhei_viz_model::{
+use crate::rhei_validator::{
+    parse_execution_target, parse_task_state, StateArtifactDef, StateMachine,
+};
+use crate::rhei_viz_model::{
     Artifact, Machine, MachineProcessKind, MachineState, StateHistoryEntry, TaskRow,
     TemplateContext, Transition, VizModel,
 };
+use rhei_core::ast::{Rhei, Task as AstTask};
 
 mod collect;
 pub use collect::{collect_plans, Bundle};
@@ -122,7 +124,7 @@ pub fn build_with_history_roots(
 /// legend is the union of every distinct machine. §DA-per-rhei-state-machines
 pub fn build_set_with_history_roots(
     rhei: &Rhei,
-    machines: &rhei_validator::MachineSet,
+    machines: &crate::rhei_validator::MachineSet,
     default_root: &Path,
     task_roots: &HashMap<String, PathBuf>,
 ) -> VizModel {
@@ -152,7 +154,7 @@ pub fn build_set_with_history_roots(
 /// Presentation legend for a heterogeneous project: every distinct machine's
 /// states, first definition of a name winning. Per-ticket semantics must use
 /// [`MachineSet::for_task`], never this union. §DA-per-rhei-state-machines
-pub fn flatten_machine_union(machines: &rhei_validator::MachineSet) -> Machine {
+pub fn flatten_machine_union(machines: &crate::rhei_validator::MachineSet) -> Machine {
     let distinct = machines.distinct();
     let mut union = flatten_machine(distinct[0]);
     for machine in distinct.iter().skip(1) {
@@ -170,7 +172,10 @@ pub fn flatten_machine_union(machines: &rhei_validator::MachineSet) -> Machine {
 
 /// [`derive_plan_state`] with each top-level task judged under its owning
 /// rhei's machine. §DA-per-rhei-state-machines
-pub fn derive_plan_state_set(tasks: &[TaskRow], machines: &rhei_validator::MachineSet) -> String {
+pub fn derive_plan_state_set(
+    tasks: &[TaskRow],
+    machines: &crate::rhei_validator::MachineSet,
+) -> String {
     let roots: Vec<&TaskRow> = tasks.iter().filter(|t| t.depth == 0).collect();
     if roots.is_empty() {
         return "draft".into();
@@ -537,7 +542,7 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
     Machine { name: machine.name.clone(), states }
 }
 
-fn state_process_kind(def: &rhei_validator::StateDef) -> Option<MachineProcessKind> {
+fn state_process_kind(def: &crate::rhei_validator::StateDef) -> Option<MachineProcessKind> {
     if def.program.is_some() {
         Some(MachineProcessKind::Program)
     } else if def.agent.is_some()
@@ -552,7 +557,7 @@ fn state_process_kind(def: &rhei_validator::StateDef) -> Option<MachineProcessKi
     }
 }
 
-fn target_template_context(target: rhei_validator::ExecutionTarget) -> TemplateContext {
+fn target_template_context(target: crate::rhei_validator::ExecutionTarget) -> TemplateContext {
     TemplateContext {
         target: Some(target.selector()),
         target_slug: Some(target.slug()),
@@ -564,7 +569,7 @@ fn target_template_context(target: rhei_validator::ExecutionTarget) -> TemplateC
     }
 }
 
-fn model_template_context(def: &rhei_validator::StateDef, model: String) -> TemplateContext {
+fn model_template_context(def: &crate::rhei_validator::StateDef, model: String) -> TemplateContext {
     TemplateContext {
         model: Some(model.clone()),
         model_name: Some(model),
@@ -574,7 +579,7 @@ fn model_template_context(def: &rhei_validator::StateDef, model: String) -> Temp
     }
 }
 
-fn explicit_template_context(def: &rhei_validator::StateDef) -> TemplateContext {
+fn explicit_template_context(def: &crate::rhei_validator::StateDef) -> TemplateContext {
     if let Some(selector) = def.target.as_deref() {
         if let Ok(target) = parse_execution_target(selector) {
             return target_template_context(target);
@@ -592,7 +597,7 @@ fn explicit_template_context(def: &rhei_validator::StateDef) -> TemplateContext 
 
 // Static prompt/artifact previews resolve only authored concrete values; multi
 // fanout expands into per-target/model variants instead of guessing. §FS-rhei-viz.8
-fn template_context(def: &rhei_validator::StateDef) -> TemplateContext {
+fn template_context(def: &crate::rhei_validator::StateDef) -> TemplateContext {
     let contexts = authored_fanout_template_contexts(def);
     if contexts.len() == 1 {
         contexts.into_iter().next().unwrap_or_default()
@@ -601,7 +606,7 @@ fn template_context(def: &rhei_validator::StateDef) -> TemplateContext {
     }
 }
 
-fn fanout_template_contexts(def: &rhei_validator::StateDef) -> Vec<TemplateContext> {
+fn fanout_template_contexts(def: &crate::rhei_validator::StateDef) -> Vec<TemplateContext> {
     let contexts = authored_fanout_template_contexts(def);
     if contexts.len() > 1 {
         contexts
@@ -610,7 +615,9 @@ fn fanout_template_contexts(def: &rhei_validator::StateDef) -> Vec<TemplateConte
     }
 }
 
-fn authored_fanout_template_contexts(def: &rhei_validator::StateDef) -> Vec<TemplateContext> {
+fn authored_fanout_template_contexts(
+    def: &crate::rhei_validator::StateDef,
+) -> Vec<TemplateContext> {
     if !def.all_targets.is_empty() {
         return def
             .all_targets
@@ -697,8 +704,8 @@ pub fn derive_plan_state(tasks: &[TaskRow], machine: &StateMachine) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rhei_validator::StateMachine;
     use rhei_core::parse;
-    use rhei_validator::StateMachine;
 
     fn builtin() -> StateMachine {
         StateMachine::builtin_default()

@@ -11,9 +11,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use rhei_viz_model::VizModel;
+use crate::rhei_viz_model::VizModel;
 
-use crate::event::{EventSink, RunEvent};
+use crate::rhei_tui::event::{EventSink, RunEvent};
 
 mod state;
 
@@ -41,14 +41,14 @@ pub trait InterveneSink: Send + Sync {
     fn deliver(
         &self,
         task_id: Option<&str>,
-        slot: Option<crate::event::Slot>,
+        slot: Option<crate::rhei_tui::event::Slot>,
         message: &str,
     ) -> Result<(), String>;
 
     /// Whether the named running task — optionally a specific fanout `slot` — has
     /// a writable agent stdin registered, so a `/intervene` message can be
     /// delivered now. Gates the live composer; defaults to `false`. §FS-rhei-viz.5
-    fn reachable(&self, _task_id: &str, _slot: Option<crate::event::Slot>) -> bool {
+    fn reachable(&self, _task_id: &str, _slot: Option<crate::rhei_tui::event::Slot>) -> bool {
         false
     }
 }
@@ -85,7 +85,7 @@ pub struct TaskRuntime {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_slot: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_context: Option<rhei_viz_model::TemplateContext>,
+    pub template_context: Option<crate::rhei_viz_model::TemplateContext>,
     /// Whether this slot's agent can take a live `/intervene` message now (stdin
     /// held open via `intervene_stdin`). The Flow composer renders only when
     /// `true`, so an unreachable agent is flagged up front. §FS-rhei-viz.5
@@ -231,7 +231,7 @@ impl DashboardSink {
         // `snapshot` is already valid JSON; wrap it as a one-plan bundle so the
         // asset's static path renders it (the selector stays hidden).
         let boot = format!("{{\"plan\":{snapshot}}}");
-        fs::write(&path, rhei_viz_model::render_inline(&boot))?;
+        fs::write(&path, crate::rhei_viz_model::render_inline(&boot))?;
         Ok(path)
     }
 
@@ -343,7 +343,7 @@ fn handle_client(
         "/" => write_response(
             &mut stream,
             "text/html; charset=utf-8",
-            rhei_viz_model::live_asset().as_bytes(),
+            crate::rhei_viz_model::live_asset().as_bytes(),
         ),
         // §FS-rhei-viz §11: open an artifact or log file in the operator's editor.
         "/open" => handle_open(&mut stream, state, &request.query),
@@ -692,7 +692,7 @@ fn handle_intervene(
         #[serde(default)]
         task_id: String,
         #[serde(default)]
-        slot: Option<crate::event::Slot>,
+        slot: Option<crate::rhei_tui::event::Slot>,
         #[serde(default)]
         message: String,
     }

@@ -132,21 +132,30 @@ rhei/
 
 ### Crate Responsibilities
 
+Only crates with an audience outside this repository are workspace crates; the
+CLI's own subsystems are modules inside `rhei-cli`. §FS-rhei-distribution.1
+
 | Source crate | Published package | Role |
 |-------------|-------------------|------|
 | `rhei-core` | `rhei-plan-core` | Tokenizes markdown, parses into AST, defines data structures |
-| `rhei-agent-core` | `rhei-agent-core` | Embeddable agent runtime primitives for workflow integrations |
-| `rhei-validator` | `rhei-cli-validator` | Validates dependencies, states, cycles, and child task id numbering |
-| `rhei-output` | `rhei-cli-output` | Renders AST to JSON, GitHub markdown, terminal progress |
-| `rhei-viz-model` | `rhei-cli-viz-model` | Flow-visualization data model and self-contained HTML renderer |
-| `rhei-viz` | `rhei-cli-viz` | Builds the visualization model from a plan and its state machine |
-| `rhei-cli` | `rhei-cli` | Provides the `rhei` command and its `rh` alias (§FS-rhei-distribution.1) |
-| `rhei-tui` | `rhei-cli-tui` | Terminal UI event surface and frontend |
-| `rhei-napi` | internal (`rhei-api`) | Native implementation backing JavaScript API packages via N-API |
+| `rhei-cli` | `rhei-cli` | Provides the `rhei` command and its `rh` alias |
+| `rhei-agent-core` | unpublished | Re-export facade over `rhei-plan-core`; a release target once it has an API of its own |
+| `rhei-napi` | unpublished (`rhei-api` on npm/PyPI) | Native implementation backing JavaScript API packages via N-API |
 
-Rust import names remain `rhei_core`, `rhei_validator`, `rhei_output`, and
-`rhei_tui`. Public language bindings use the package name `rhei-api`; the
-N-API implementation crate is not published as a standalone crates.io package.
+`rhei-cli` modules that were previously separate crates, and keep their names
+so the CLI body still spells them the same way:
+
+| Module | Role |
+|--------|------|
+| `rhei_validator` | Validates dependencies, states, cycles, and child task id numbering |
+| `rhei_output` | Renders AST to JSON, GitHub markdown, terminal progress |
+| `rhei_tui` | Terminal UI event surface and frontend |
+| `rhei_viz_model` | Flow-visualization data model and self-contained HTML renderer |
+| `rhei_viz` | Builds the visualization model from a plan and its state machine |
+
+The Rust import name for the plan model remains `rhei_core`. Public language
+bindings use the package name `rhei-api` on npm and PyPI; the N-API
+implementation crate is not published as a standalone crates.io package.
 
 ### Processing Pipeline
 

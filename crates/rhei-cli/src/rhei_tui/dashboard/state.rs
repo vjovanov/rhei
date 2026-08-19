@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::event::{
+use crate::rhei_tui::event::{
     summarize_usage_summaries, AccountingRunSummary, AgentStream, MessageLevel, RunEvent,
     RunSummary, Slot, TaskOutcome, UsageSummary,
 };
@@ -275,7 +275,7 @@ pub(super) struct DashboardSlot {
     pub(super) task: Option<String>,
     pub(super) agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) template_context: Option<rhei_viz_model::TemplateContext>,
+    pub(super) template_context: Option<crate::rhei_viz_model::TemplateContext>,
     pub(super) state: Option<String>,
     pub(super) transition: Option<String>,
     pub(super) log_path: Option<String>,
@@ -347,7 +347,7 @@ pub(crate) struct TaskAccounting {
 }
 
 pub(super) fn task_accounting_for_tasks(
-    tasks: &[rhei_viz_model::TaskRow],
+    tasks: &[crate::rhei_viz_model::TaskRow],
     invocations: &[DashboardUsageRecord],
 ) -> std::collections::BTreeMap<String, TaskAccounting> {
     // §FS-rhei-cost-accounting.6: Dashboard derives direct and subtree totals.

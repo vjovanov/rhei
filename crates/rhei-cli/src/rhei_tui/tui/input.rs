@@ -4,7 +4,7 @@
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use crate::event::MessageLevel;
+use crate::rhei_tui::event::MessageLevel;
 
 use super::derive::{inspector_sections, ChipAction};
 use super::state::{Composer, ComposerKind, FlowFocus, UiState, View};

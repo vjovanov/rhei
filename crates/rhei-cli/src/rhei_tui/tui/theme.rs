@@ -2,12 +2,12 @@
 //! dashboard reduce a persisted state to the same coarse category so a `blocked`
 //! task reads identically everywhere. §FS-rhei-viz.1.1 §FS-rhei-viz-ux.3.2
 
+use crate::rhei_viz_model::Machine;
 use ratatui::style::Color;
-use rhei_viz_model::Machine;
 
 /// Coarse status category a persisted state reduces to (§FS-rhei-viz.1.1). Rows
 /// evaluate top to bottom, first match wins (`Active` is the catch-all); mirrors
-/// `rhei_viz::category` against the flattened machine to avoid a validator dep.
+/// `crate::rhei_viz::category` against the flattened machine to avoid a validator dep.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Category {
     Done,

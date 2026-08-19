@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use rhei_viz_model::VizModel;
-pub(super) use rhei_viz_model::{Machine, TaskRow};
+use crate::rhei_viz_model::VizModel;
+pub(super) use crate::rhei_viz_model::{Machine, TaskRow};
 
-use crate::dashboard::{GateTransitionSink, InterveneSink, PlanLoader};
-use crate::event::{
+use crate::rhei_tui::dashboard::{GateTransitionSink, InterveneSink, PlanLoader};
+use crate::rhei_tui::event::{
     summarize_usage_summaries, AccountingRunSummary, AgentStream, MessageLevel, RunEvent, Slot,
     TaskOutcome, UsageSummary,
 };
@@ -376,7 +376,7 @@ impl UiState {
         self.selected.as_deref().and_then(|id| self.task(id))
     }
 
-    pub(super) fn machine_state(&self, name: &str) -> Option<&rhei_viz_model::MachineState> {
+    pub(super) fn machine_state(&self, name: &str) -> Option<&crate::rhei_viz_model::MachineState> {
         self.plan.machine.states.iter().find(|state| state.name == name)
     }
 

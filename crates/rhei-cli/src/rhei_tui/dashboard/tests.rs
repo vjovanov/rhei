@@ -1,9 +1,9 @@
 use super::*;
-use crate::event::{
+use crate::rhei_tui::event::{
     DimensionStatus, DimensionSummary, PricingStatus, RunSummary, TaskOutcome, UsageCoverage,
     UsageStatus, UsageSummary,
 };
-use rhei_viz_model::{Machine, TaskRow, TemplateContext, VizModel};
+use crate::rhei_viz_model::{Machine, TaskRow, TemplateContext, VizModel};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -140,7 +140,7 @@ impl InterveneSink for StubIntervene {
     fn deliver(
         &self,
         task_id: Option<&str>,
-        _slot: Option<crate::event::Slot>,
+        _slot: Option<crate::rhei_tui::event::Slot>,
         message: &str,
     ) -> Result<(), String> {
         if let Some(reason) = &self.fail_reason {
@@ -646,12 +646,12 @@ fn snapshot_marks_intervene_capability_per_slot() {
         fn deliver(
             &self,
             _task_id: Option<&str>,
-            _slot: Option<crate::event::Slot>,
+            _slot: Option<crate::rhei_tui::event::Slot>,
             _message: &str,
         ) -> Result<(), String> {
             Ok(())
         }
-        fn reachable(&self, task_id: &str, _slot: Option<crate::event::Slot>) -> bool {
+        fn reachable(&self, task_id: &str, _slot: Option<crate::rhei_tui::event::Slot>) -> bool {
             task_id == "1"
         }
     }

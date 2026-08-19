@@ -2,7 +2,7 @@
 //! machine's disjoint-workflow grouping, and cost rollups — shared by input and
 //! rendering so focus navigates exactly where it is drawn. §FS-rhei-run-tui.1.5
 
-use rhei_viz_model::{Machine, TaskRow, VizModel};
+use crate::rhei_viz_model::{Machine, TaskRow, VizModel};
 
 use super::state::{UiState, UsageRecord};
 
@@ -315,7 +315,7 @@ pub(super) struct CostRollup {
 }
 
 impl CostRollup {
-    pub(super) fn add(&mut self, usage: &crate::event::UsageSummary) {
+    pub(super) fn add(&mut self, usage: &crate::rhei_tui::event::UsageSummary) {
         self.invocations += 1;
         if let Some(c) = usage.cost_micro.or(usage.priced_cost_micro) {
             self.cost_micro = Some(self.cost_micro.unwrap_or(0) + c);

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::event::{EventSink, RunEvent, TaskOutcome};
+use crate::rhei_tui::event::{EventSink, RunEvent, TaskOutcome};
 
 /// Append-only writer for `runtime/transitions.log`.
 ///
@@ -195,7 +195,7 @@ fn format_duration(millis: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{EventSink, RunEvent, TaskOutcome};
+    use crate::rhei_tui::event::{EventSink, RunEvent, TaskOutcome};
     use std::time::{Duration, Instant, SystemTime};
 
     fn fixed_time() -> SystemTime {

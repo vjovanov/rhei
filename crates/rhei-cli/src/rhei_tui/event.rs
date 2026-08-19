@@ -314,7 +314,7 @@ pub enum RunEvent {
         from: String,
         to: String,
         agent: Option<String>,
-        template_context: Option<rhei_viz_model::TemplateContext>,
+        template_context: Option<crate::rhei_viz_model::TemplateContext>,
         log_path: PathBuf,
         started_at: Instant,
         wall_clock: SystemTime,

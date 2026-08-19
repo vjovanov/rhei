@@ -5,12 +5,12 @@
 use std::io::Read;
 use std::path::Path;
 
+use crate::rhei_viz_model::{MachineProcessKind, MachineState};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
-use rhei_viz_model::{MachineProcessKind, MachineState};
 
 use super::derive::{
     artifact_rows, has_children, inspector_sections, machine_groups, subtree_progress, task_direct,
@@ -20,7 +20,7 @@ use super::render::{format_cost_micro, format_tokens, render_list, state_pill};
 use super::state::{FlowFocus, JournalEntry, ProcessKind, TaskRow, UiState};
 use super::text::truncate_chars;
 use super::theme::{category, category_glyph};
-use crate::event::{AgentStream, MessageLevel};
+use crate::rhei_tui::event::{AgentStream, MessageLevel};
 
 /// One journal line, colored by severity (color rides a prefix glyph too).
 pub(super) fn journal_line(state: &UiState, entry: &JournalEntry) -> Line<'static> {
@@ -844,7 +844,7 @@ pub(super) fn cost_rows(state: &UiState) -> Vec<(String, CostRollup, bool)> {
 
 fn group_rollup(
     state: &UiState,
-    key_of: impl Fn(&crate::event::UsageSummary) -> String,
+    key_of: impl Fn(&crate::rhei_tui::event::UsageSummary) -> String,
 ) -> Vec<(String, CostRollup, bool)> {
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, CostRollup> = BTreeMap::new();

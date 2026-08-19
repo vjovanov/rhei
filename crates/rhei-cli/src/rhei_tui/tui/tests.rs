@@ -2,14 +2,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
+use crate::rhei_viz_model::{Machine, MachineState, TaskRow, Transition, VizModel};
 use crossterm::event::{KeyCode, KeyModifiers};
-use rhei_viz_model::{Machine, MachineState, TaskRow, Transition, VizModel};
 
 use super::input::{handle_key_event, InputAction};
 use super::state::{CostGroup, FlowFocus, UiState, UsageRecord, View};
 use super::text::{sanitize_terminal_text, truncate_chars};
-use crate::dashboard::InterveneSink;
-use crate::event::{
+use crate::rhei_tui::dashboard::InterveneSink;
+use crate::rhei_tui::event::{
     AgentStream, DimensionStatus, DimensionSummary, MessageLevel, PricingStatus, RunEvent, Slot,
     TaskOutcome, UsageCoverage, UsageStatus, UsageSummary,
 };
@@ -541,7 +541,7 @@ fn renders_every_view_and_overlay_without_panic() {
 /// one task parked in `needs-human` after leaving `verify`. §FS-rhei-viz.4
 fn parked_model() -> VizModel {
     let verify = MachineState {
-        outputs: vec![rhei_viz_model::Artifact {
+        outputs: vec![crate::rhei_viz_model::Artifact {
             name: "verification".into(),
             path: "runtime/{task_id}.verification.md".into(),
             description: None,
@@ -561,7 +561,7 @@ fn parked_model() -> VizModel {
             state: "needs-human".into(),
             visit_count: None,
             prior: vec![],
-            history: vec![rhei_viz_model::StateHistoryEntry {
+            history: vec![crate::rhei_viz_model::StateHistoryEntry {
                 from: "verify".into(),
                 to: "needs-human".into(),
             }],
@@ -661,7 +661,7 @@ struct RecordingGate {
     fail_reason: Option<String>,
 }
 
-impl crate::dashboard::GateTransitionSink for RecordingGate {
+impl crate::rhei_tui::dashboard::GateTransitionSink for RecordingGate {
     fn transition_gate(
         &self,
         task_id: &str,
@@ -689,7 +689,7 @@ fn state_with_gate(gate: Arc<RecordingGate>) -> UiState {
         2,
         None,
         None,
-        Some(gate as Arc<dyn crate::dashboard::GateTransitionSink>),
+        Some(gate as Arc<dyn crate::rhei_tui::dashboard::GateTransitionSink>),
     );
     state.plan = demo_model();
     state.refresh_plan();

@@ -1,3 +1,17 @@
+// Former workspace crates, kept under their crate-level names so the CLI body
+// included at this root spells them unchanged; `doc(hidden) pub` lets `xtask`
+// reach `rhei_viz`. §FS-rhei-distribution.1
+#[doc(hidden)]
+pub mod rhei_output;
+#[doc(hidden)]
+pub mod rhei_tui;
+#[doc(hidden)]
+pub mod rhei_validator;
+#[doc(hidden)]
+pub mod rhei_viz;
+#[doc(hidden)]
+pub mod rhei_viz_model;
+
 // §AR-source-file-size: The CLI is split into bounded include parts.
 include!("cli/cli_declarations.rs");
 include!("cli/cli_dispatch.rs");
@@ -6,6 +20,8 @@ include!("cli/completion_context.rs");
 include!("cli/error_guidance.rs");
 
 mod templates {
+    use crate::rhei_validator;
+
     include!("cli/templates_builtin.rs");
     include!("cli/templates_list.rs");
     include!("cli/templates_instantiate.rs");

@@ -8,6 +8,9 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Embeddable agent runtime primitives for Rhei workflows."
+# Not published yet: today this is a thin re-export of `rhei-plan-core` with no
+# consumers, and a crates.io name is permanent. §FS-rhei-distribution.1
+publish = false
 categories = ["development-tools"]
 readme = "../../README.md"
 

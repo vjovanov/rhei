@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// The self-contained Flow asset. The static path replaces [`BOOT_PLACEHOLDER`]
 /// with the inlined plan bundle; the live path serves it verbatim (the
 /// placeholder evaluates to `null`, which the JS reads as "poll `/snapshot`").
-pub const FLOW_ASSET: &str = include_str!("../assets/flow.html");
+pub const FLOW_ASSET: &str = include_str!("../../assets/flow.html");
 
 /// The JavaScript literal the renderer replaces with the inlined plan bundle.
 const BOOT_PLACEHOLDER: &str = "/*__BOOT__*/null";

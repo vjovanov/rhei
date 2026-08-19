@@ -1,6 +1,6 @@
 use rhei_core::ast::Task;
 
-use crate::common::{fmt_prior_list, rhei_groups, title_case_kind, RheiGroup};
+use crate::rhei_output::common::{fmt_prior_list, rhei_groups, title_case_kind, RheiGroup};
 
 pub struct GithubIssuesOutput {
     pub include_content: bool,

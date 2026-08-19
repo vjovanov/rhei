@@ -2,7 +2,7 @@ use serde_json::{json, Map, Value};
 
 use rhei_core::ast::{Rhei, Task, TaskId, TaskIdSegment};
 
-use crate::PlanOutputGenerator;
+use crate::rhei_output::PlanOutputGenerator;
 
 /// The state machine one rhei of a merged project runs under.
 ///

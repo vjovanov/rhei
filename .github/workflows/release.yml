@@ -10,7 +10,7 @@ on:
         description: "Version to release, without the leading v"
         required: true
       publish_crates:
-        description: "Publish Rhei crates to crates.io"
+        description: "Publish rhei-plan-core and rhei-cli to crates.io"
         type: boolean
         default: true
       create_github_release:
@@ -395,9 +395,7 @@ jobs:
           # the index, so publish in waves: every package in a wave depends
           # only on packages from earlier waves. §FS-rhei-distribution.1
           waves=(
-            "rhei-plan-core rhei-cli-viz-model"
-            "rhei-agent-core rhei-cli-output rhei-cli-validator rhei-cli-tui"
-            "rhei-cli-viz"
+            "rhei-plan-core"
             "rhei-cli"
           )
 

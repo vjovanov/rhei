@@ -2,10 +2,10 @@ use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::event::{EventSink, NullSink, Tee};
-use crate::journal::JournalSink;
-use crate::stdout::StdoutSink;
-use crate::tui::{TuiContext, TuiSink};
+use crate::rhei_tui::event::{EventSink, NullSink, Tee};
+use crate::rhei_tui::journal::JournalSink;
+use crate::rhei_tui::stdout::StdoutSink;
+use crate::rhei_tui::tui::{TuiContext, TuiSink};
 
 /// Caller-selected frontend override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

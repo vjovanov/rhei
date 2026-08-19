@@ -7,8 +7,8 @@ use rhei_core::ast::TaskId;
 use rhei_core::parse;
 use rhei_core::parser::parse_workspace_index;
 use rhei_core::workspace;
-use rhei_output::{to_github_markdown, to_json_value, ProgressReportOutput};
-use rhei_validator::{validate_with_machine, StateMachine};
+use rhei_cli::rhei_output::{to_github_markdown, to_json_value, ProgressReportOutput};
+use rhei_cli::rhei_validator::{validate_with_machine, StateMachine};
 use serde_yaml::Value as YamlValue;
 
 #[allow(dead_code)]

@@ -1,4 +1,4 @@
-use crate::event::{EventSink, MessageLevel, RunEvent};
+use crate::rhei_tui::event::{EventSink, MessageLevel, RunEvent};
 
 /// Frontend sink for non-TTY output.
 ///
