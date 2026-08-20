@@ -3,6 +3,10 @@ name: Pre-release checks
 on:
   workflow_dispatch:
 
+env:
+  # Outranks the 1.82.0 pin in rust-toolchain.toml, which would otherwise win.
+  RUSTUP_TOOLCHAIN: "1.95.0"
+
 jobs:
   registry-names:
     name: verify package-name availability
@@ -22,7 +26,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.82.0
+          # Match release.yml: the rehearsal has to use the toolchain the
+          # release actually builds with. §FS-rhei-distribution.4
+          toolchain: 1.95.0
           components: llvm-tools-preview
 
       - name: Cache cargo registry and target
@@ -45,3 +51,4 @@ jobs:
           set -euo pipefail
           ./target/release/rhei version
           ./target/release/rhei validate examples/spec-implementation-example/index.rhei.md
+          ./target/release/rh version

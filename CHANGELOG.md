@@ -32,4 +32,4 @@ Initial release.
 
 ### Known Release Limitation
 
-- crates.io publication uses conflict-free package names: `rhei-cli` for the command, `rhei-plan-core` for the Rust parser API, and `rhei-cli-*` for support crates. The installed binary remains `rhei`, and Rust import names remain stable through explicit library names and dependency aliases.
+- crates.io publication uses conflict-free package names, because `rhei` and `rhei-core` both belong to an unrelated project on crates.io: `rhei-cli` for the command and `rhei-plan` for the Rust plan-model API. The installed binaries are `rhei` and `rh`, and Rust import names remain stable through explicit library names and dependency aliases.

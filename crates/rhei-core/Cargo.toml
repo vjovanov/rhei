@@ -1,5 +1,5 @@
 [package]
-name = "rhei-plan-core"
+name = "rhei-plan"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 description = "Core plan model and primitives for the Rhei agent runtime."
+categories = ["development-tools"]
+readme = "../../README.md"
 
 [lib]
 name = "rhei_core"

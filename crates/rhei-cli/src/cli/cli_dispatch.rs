@@ -248,10 +248,10 @@ fn message_is_lost_output(message: &str) -> bool {
             .any(|(text, code)| message.contains(text) || message.contains(code))
 }
 
-fn main() {
+pub fn run() {
     install_quiet_broken_pipe_exit();
     install_diagnostic_handler();
-    CompleteEnv::with_factory(cli_command).bin("rhei").complete();
+    CompleteEnv::with_factory(cli_command).bin(invoked_bin_name()).complete();
 
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,

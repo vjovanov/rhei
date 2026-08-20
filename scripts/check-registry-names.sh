@@ -86,12 +86,7 @@ notice_external_json_name() {
   esac
 }
 
-check_claimed_json_name "crates.io" "rhei-plan-core" "https://crates.io/api/v1/crates/rhei-plan-core"
-check_claimed_json_name "crates.io" "rhei-cli-tui" "https://crates.io/api/v1/crates/rhei-cli-tui"
-check_claimed_json_name "crates.io" "rhei-agent-core" "https://crates.io/api/v1/crates/rhei-agent-core"
-check_claimed_json_name "crates.io" "rhei-cli-output" "https://crates.io/api/v1/crates/rhei-cli-output"
-check_claimed_json_name "crates.io" "rhei-cli-validator" "https://crates.io/api/v1/crates/rhei-cli-validator"
-check_claimed_json_name "crates.io" "rhei-api" "https://crates.io/api/v1/crates/rhei-api"
+check_claimed_json_name "crates.io" "rhei-plan" "https://crates.io/api/v1/crates/rhei-plan"
 check_claimed_json_name "crates.io" "rhei-cli" "https://crates.io/api/v1/crates/rhei-cli"
 check_claimed_json_name "npm" "rhei" "https://registry.npmjs.org/rhei"
 check_claimed_json_name "npm" "rhei-api" "https://registry.npmjs.org/rhei-api"
@@ -99,3 +94,4 @@ check_claimed_json_name "pypi" "rhei-cli" "https://pypi.org/pypi/rhei-cli/json"
 check_claimed_json_name "pypi" "rhei-api" "https://pypi.org/pypi/rhei-api/json"
 
 notice_external_json_name "pypi" "rhei" "https://pypi.org/pypi/rhei/json"
+notice_external_json_name "crates.io" "rhei" "https://crates.io/api/v1/crates/rhei"

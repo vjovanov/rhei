@@ -18,6 +18,6 @@ name = "rhei_napi"
 crate-type = ["cdylib"]
 
 [dependencies]
-rhei-core = { package = "rhei-plan-core", path = "../rhei-core", version = "=0.1.0" }
+rhei-core = { package = "rhei-plan", path = "../rhei-core", version = "=0.1.0" }
 napi = "2"
 napi-derive = "2"

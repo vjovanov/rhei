@@ -4,11 +4,6 @@ members = [
     "crates/rhei-agent-core",
     "crates/rhei-cli",
     "crates/rhei-napi",
-    "crates/rhei-tui",
-    "crates/rhei-validator",
-    "crates/rhei-output",
-    "crates/rhei-viz-model",
-    "crates/rhei-viz",
     "xtask",
 ]
 

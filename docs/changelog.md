@@ -57,6 +57,64 @@
   Issue #53. PR #77 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
   §DA-supervised-process-groups
 
+- Publish the plan-model crate as `rhei-plan` rather than `rhei-plan-core`.
+  The `-core` suffix was never chosen on its own merits: `rhei-core` belongs to
+  an unrelated project on crates.io, so `-plan-` was inserted purely to
+  disambiguate a name that was already unavailable. With the publish set down
+  to two packages there is nothing for a "core" to contrast with, and no
+  `rhei-plan` for it to be the core of. The name also matches the project's own
+  vocabulary — the Rhei Plan Language, `.rhei.md` plans. Nothing had been
+  published under the old name, so no one is affected. The Rust import name
+  stays `rhei_core` through the existing dependency alias, so no source changes.
+  §FS-rhei-distribution.1
+
+- Build release binaries with Rust 1.95.0 instead of the 1.82.0 MSRV
+  toolchain. Rust 1.82's `profiler_builtins` references the aarch64
+  outline-atomics helpers `__aarch64_cas8_sync` and `__aarch64_ldadd8_sync`,
+  which are in the static `libgcc.a` while rustc links `-nodefaultlibs` with
+  only the shared `-lgcc_s`, so `-Cprofile-generate` could not link at all on
+  aarch64 Linux and the release failed before publishing anything. Setting
+  `RUST_TOOLCHAIN` alone would not have helped: `rust-toolchain.toml` outranks
+  the installed default, so the jobs also export `RUSTUP_TOOLCHAIN`, which
+  outranks the file. `rust-version` stays at 1.82 and the test matrix stays on
+  the MSRV toolchain, since `rust-version` describes what a consumer needs to
+  build the published crates, not what compiled the release binaries.
+  PR #79 §FS-rhei-distribution.4
+
+- Install the CLI under a short `rh` alias alongside `rhei`. `cargo install
+  rhei-cli`, the npm package, and the PyPI package now all put both names on
+  `PATH`, and GitHub release archives carry both (as a symlink on Unix, a
+  second copy in the Windows zip). To avoid compiling the whole CLI twice for
+  the second binary, `rhei-cli` now builds its body as a library target that
+  both binaries link. PR #78 §FS-rhei-distribution.1
+- **Publish two crates instead of eight.** A release now ships only
+  `rhei-plan` and `rhei-cli` — the packages someone outside this
+  repository would actually depend on. `rhei-cli-validator`, `rhei-cli-output`,
+  `rhei-cli-tui`, `rhei-cli-viz`, and `rhei-cli-viz-model` existed to divide
+  the CLI's own source, but Cargo requires a published package's dependencies
+  to be published too, so each was headed for a permanent crates.io name, a
+  docs.rs page, and an exact version pin for no one's benefit. They are now
+  modules inside `rhei-cli`, keeping their crate-level names (`rhei_validator`,
+  `rhei_output`, …) so the CLI body spells them unchanged. `rhei-agent-core` is
+  unpublished while it remains a re-export of `rhei-plan` with no callers.
+  Nothing had been published to crates.io yet, so no name is stranded.
+  PR #78 §FS-rhei-distribution.1
+- Fix crates.io publishing, which could not have completed as written:
+  `rhei-cli-viz-model` and `rhei-cli-viz` were absent from both the publish
+  list and the pre-release name check even though `rhei-cli` depended on them,
+  and `rhei-cli-tui` — which depends on `rhei-cli-viz-model` — was published in
+  the first wave, before its dependency existed on the registry. Publishing now
+  walks the dependency graph in order, and the name check covers exactly the
+  published set. PR #78 §FS-rhei-distribution.1
+- Give both published crates a `readme` and crates.io `categories` so the
+  registry pages are not bare. PR #78
+- Fix the release version bump, which skipped `xtask/Cargo.toml`. Its exact
+  pins on sibling packages stayed at the old version while everything else
+  moved, so the workspace stopped resolving right after a bump — and the
+  matching verify step could not catch it, because both scripts only walked
+  `crates/*/Cargo.toml`. They now walk every in-workspace manifest, and match
+  a pin whose dependency name already is the package name. PR #78
+  §FS-rhei-distribution.2
 - Make the result obligation a property of the terminal state, not of `rhei
   complete`. A task no longer enters a `final: true` state without a non-empty
   `runtime/results/<task-id>.md`, whichever verb drove the edge. Until now the

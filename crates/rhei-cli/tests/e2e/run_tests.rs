@@ -926,7 +926,7 @@ fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
         .expect("repo root");
     let example_path = repo_root.join("examples/changeset-review-example/states.yaml");
     let example_yaml = fs::read_to_string(&example_path).expect("read example states.yaml");
-    let machine = rhei_validator::StateMachine::from_yaml_str(&example_yaml)
+    let machine = rhei_cli::rhei_validator::StateMachine::from_yaml_str(&example_yaml)
         .unwrap_or_else(|err| panic!("parse {}: {err}", example_path.display()));
     let human_review = machine
         .states
