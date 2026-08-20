@@ -613,7 +613,7 @@ fn spawn_parallel_agent_work_item(
                 result_identity.as_deref(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
-            let (outcome, exit_code) = agent_slot_outcome(&result);
+            let (outcome, exit_code) = slot_outcome(&result);
             let finished_wall = std::time::SystemTime::now();
             sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
                 slot,
@@ -776,7 +776,7 @@ fn spawn_parallel_program_work_item(
                 &sink_for_thread,
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
-            let (outcome, exit_code) = program_slot_outcome(&result);
+            let (outcome, exit_code) = slot_outcome(&result);
             sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
                 slot,
                 task: task_id_for_result.clone(),
@@ -1183,10 +1183,7 @@ fn handle_parallel_program_completion(
             emit_run_message(
                 sink,
                 rhei_tui::MessageLevel::Warn,
-                format!(
-                    "  Task {} interrupted in '{}'; state unchanged.",
-                    task_id_str, state_name
-                ),
+                interrupted_task_warning(&task_id_str, &state_name, None),
             );
             Ok(ParallelProgramCompletionEffect { advanced: false, program_spawned: true })
         }
@@ -2022,7 +2019,7 @@ fn run_agent_mode(
                     spawn_and_wait_program(resolved, &render_context, &log, &sink);
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
-                let (outcome, exit_code) = program_slot_outcome(&spawn_result);
+                let (outcome, exit_code) = slot_outcome(&spawn_result);
                 sink.emit(RunEvent::SlotReleased {
                     slot: 0,
                     task: task_id_str.clone(),
@@ -2041,10 +2038,8 @@ fn run_agent_mode(
                     Ok(program_outcome) if program_outcome.interrupted => {
                         programs_spawned += 1;
                         run_warn!(
-                            "  Task {} interrupted in '{}'; state unchanged. Log: {}",
-                            task_id_str,
-                            current_state,
-                            log.display()
+                            "{}",
+                            interrupted_task_warning(task_id_str, current_state, Some(&log))
                         );
                     }
                     Ok(program_outcome) => {
@@ -2365,9 +2360,12 @@ fn run_agent_mode(
             // ticket's turn lands on the shared pass tail below, so one ticket
             // giving up never skips the decision about the pass. §FS-rhei-run.3
             'sequential: {
-                // No interrupt check: one `batch[0]` per pass and the pass
-                // top re-reads the token, so nothing further starts. A loop
-                // over `batch` would need one. §FS-rhei-run.3.2
+                // The pass top's check is not enough on its own: this pass may
+                // have spent minutes in the sequential program loop above.
+                // §FS-rhei-run.3.2
+                if interrupt_requested() {
+                    break 'sequential;
+                }
                 let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
@@ -2559,7 +2557,7 @@ fn run_agent_mode(
                 );
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
-                let (outcome, exit_code) = agent_slot_outcome(&spawn_result);
+                let (outcome, exit_code) = slot_outcome(&spawn_result);
                 sink.emit(RunEvent::SlotReleased {
                     slot: 0,
                     task: task_id_str.clone(),
@@ -2608,10 +2606,8 @@ fn run_agent_mode(
                     Ok(AgentSpawnOutcome { interrupted: true, .. }) => {
                         agents_spawned += 1;
                         run_warn!(
-                            "  Task {} interrupted in '{}'; state unchanged. Log: {}",
-                            task_id_str,
-                            current_state,
-                            log.display()
+                            "{}",
+                            interrupted_task_warning(task_id_str, current_state, Some(&log))
                         );
                     }
                     Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
@@ -3192,10 +3188,8 @@ fn run_agent_mode(
                     Ok(AgentSpawnOutcome { interrupted: true, .. }) => {
                         agents_spawned += 1;
                         run_warn!(
-                            "  Task {} interrupted in '{}'; state unchanged. Log: {}",
-                            task_id_str,
-                            state_name,
-                            log.display()
+                            "{}",
+                            interrupted_task_warning(&task_id_str, &state_name, Some(&log))
                         );
                     }
                     Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
@@ -3887,10 +3881,10 @@ fn run_agent_mode(
     );
     report_guard.disarm();
 
-    // An interrupted run is not a halt: it left those tickets alone because it
-    // was told to stop, and the exit code already names the signal. Reporting a
-    // halt would blame the plan for the operator's Ctrl+C. §FS-rhei-run.3.2
-    if interrupt_requested() {
+    // An interrupted run is not a halt: it was told to stop, and the exit code
+    // already names the signal. `interrupted_run`, not the token, so the halt
+    // decision and the report cannot disagree. §FS-rhei-run.3.2
+    if interrupted_run {
         return Ok(());
     }
 

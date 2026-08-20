@@ -431,8 +431,10 @@ fn run_callback_mode(
     );
     report_guard.disarm();
 
-    // An interrupted run is not a halt. §FS-rhei-run.3.2
-    if interrupt_requested() {
+    // An interrupted run is not a halt. The same reading the report used, so
+    // the halt decision and the run's own account of itself cannot disagree.
+    // §FS-rhei-run.3.2
+    if interrupted_run {
         return Ok(());
     }
 

@@ -40,6 +40,31 @@
   a supervisor `SIGKILL` unless it tears them down as it dies, because group-wide
   teardown needs the supervisor alive to signal the group.
 
+  An interruption is the **operator's**, and the run says so once. The stop
+  token counts "the run is shutting down" apart from "how many times the
+  operator asked", because a run tearing itself down after its own failure
+  means the first and never the second: sharing one counter let a single Ctrl+C
+  plus any failed `?` elsewhere skip the grace and `SIGKILL` an agent outright.
+  For the same reason a run that died of an error no longer tells the tickets it
+  killed to "re-run to continue", and the flag a teardown raises is released
+  with the run that raised it, so a second run in the same process no longer
+  starts up already interrupted and reports success without doing any work. A
+  shutdown outranks a deadline reached on the same poll — that invocation is
+  interrupted, not timed out, so no timeout transition fires. Every early
+  termination now takes the one sequence, including an invocation abandoned
+  between its spawn and its wait, which used to be `SIGKILL`ed with no grace at
+  all. A run interrupted while a sequential program was in flight no longer
+  answers by starting one more agent.
+
+  Under the TUI, `Ctrl+C` on the finished screen leaves the run its report: it
+  re-raises the signal and hands back, where before it ended the process from
+  the render thread and ran no destructor, which is the failure the external
+  signal path had already been fixed for. A terminal that fails to *read* after
+  reporting a key is treated like one that fails to poll, instead of spinning.
+  And an `EIO` on a redirected stdout is a real write failure again — a dropped
+  mount, a full device — rather than being read as a closed terminal and
+  answered by killing every agent and exiting `141` without a word.
+
   Under the TUI an interrupted run now **leaves the screen** instead of parking
   on it. The finished surface stays navigable until `q` only for a run that
   ended on its own terms; waiting for `q` after a signal held the engine inside

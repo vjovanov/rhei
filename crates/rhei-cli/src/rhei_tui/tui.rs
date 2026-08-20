@@ -254,18 +254,29 @@ fn stay_until_quit(
             return;
         }
         if poll.unwrap_or(false) {
-            if let Ok(CtEvent::Key(key)) = ctevent::read() {
-                if key.kind != KeyEventKind::Release {
+            match ctevent::read() {
+                // The terminal answered "ready" and then failed to be read:
+                // there is no key coming and no screen to draw to, so leave
+                // rather than spin on it. §FS-rhei-run-tui.1.5.7
+                Err(_) => {
+                    break_out_ref(terminal, screen_restored);
+                    return;
+                }
+                Ok(CtEvent::Key(key)) if key.kind != KeyEventKind::Release => {
                     match handle_key_event(state, key.code, key.modifiers) {
                         InputAction::Quit => return,
                         InputAction::ForwardSigint => {
                             break_out_ref(terminal, screen_restored);
+                            // Raise it and hand back: the engine is blocked on
+                            // this thread and still owes a report, a summary,
+                            // and an exit code. §FS-rhei-run-tui.1.5.7
                             let _ = forward_sigint_to_self();
-                            std::process::exit(130);
+                            return;
                         }
                         InputAction::Continue => {}
                     }
                 }
+                Ok(_) => {}
             }
         }
         state.refresh_plan();
@@ -298,6 +309,13 @@ fn drain_input(
             }
         }
         match ctevent::read() {
+            // The poll said a key was waiting and the read disagreed. A closed
+            // pty can report readable forever, so "nothing happened" here spins
+            // and never returns. §FS-rhei-run-tui.1.5.7
+            Err(_) => {
+                break_out_ref(terminal, screen_restored);
+                return true;
+            }
             Ok(CtEvent::Key(key)) if key.kind != KeyEventKind::Release => {
                 match handle_key_event(state, key.code, key.modifiers) {
                     InputAction::ForwardSigint => {
@@ -313,7 +331,7 @@ fn drain_input(
                 }
             }
             Ok(CtEvent::Resize(_, _)) => draw(terminal, state),
-            _ => {}
+            Ok(_) => {}
         }
     }
 }

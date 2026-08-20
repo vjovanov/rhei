@@ -278,7 +278,17 @@ competes for the keystrokes meant for `rhei run`.
 
 **One termination sequence.** A timeout (§FS-rhei-agents.7.3) and an
 interruption both terminate the group with `SIGTERM`, a 10-second grace, then
-`SIGKILL`. The invocation is reaped and its log footer closed either way.
+`SIGKILL`. The invocation is reaped and its log footer closed either way. Every
+early termination takes this sequence, including the ones no waiter reached —
+an invocation abandoned by an error between its spawn and its wait is asked to
+stop and given its grace like any other, because nothing about the way the run
+is leaving makes that group less entitled to flush its work and unlink its
+temporary files.
+
+**A shutdown outranks a deadline.** An invocation can reach both at once — one
+seconds from its timeout when the operator hits Ctrl+C. That invocation is
+**interrupted**, not timed out: it fires no timeout transition, and the ticket
+keeps the state a shutdown promised to leave it in.
 
 **Interruption.** `SIGINT`, `SIGTERM`, and `SIGHUP` delivered to `rhei run`
 interrupt the run. Ctrl+C under the TUI is the same event, because the TUI
@@ -315,6 +325,10 @@ restores the terminal and re-raises `SIGINT` on the process
    `128 + signal`, because a signalled process reports its signal.
 
 A **second** signal skips the grace and `SIGKILL`s every live group at once.
+Only the operator can ask for that, and only by signalling twice. A run tearing
+itself down for its own reasons — an error return, a panic unwind — stops its
+work without shortening anyone's grace, so a single Ctrl+C is never escalated
+into an immediate kill by a failure somewhere else in the run.
 The operator is told so once, while the first shutdown is in progress, as a
 warning on the run's event stream; the frontend decides where it is legible
 (§FS-rhei-run-tui.1.8). One notice, whichever waiter notices the interrupt
@@ -323,6 +337,15 @@ first — not one per invocation:
 ```text
 Interrupted — terminating 2 invocation(s) (auth.1@implement, auth.3@review); press Ctrl+C again to kill immediately.
 ```
+
+**An interruption is the operator's, not the run's.** The teardown that ends
+in-flight invocations serves both an operator's signal and a run unwinding from
+its own failure, and the invocations it ends carry the same `interrupted`
+record either way. Only the first is an *interrupted run*: only a signal makes
+the run report the interruption, exit `128 + signal`, or tell the operator to
+re-run to continue. A run that died of an error reports the error, and its
+tickets are described by why the run failed — never by "re-run to continue",
+which would point the operator away from the failure that killed them.
 
 **Supervisor death.** Termination is not conditional on a signal `rhei run` can
 handle. An early error return, a panic unwind, and a normal end all pass

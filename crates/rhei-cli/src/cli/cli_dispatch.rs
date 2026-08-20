@@ -216,19 +216,48 @@ fn install_quiet_broken_pipe_exit() {
     }));
 }
 
-/// The write failures that mean "this output is gone", each by message and by
-/// errno. Both forms because the message is `strerror`'s and follows the
-/// locale, while the `(os error N)` suffix the standard library appends does
-/// not.
-const LOST_OUTPUT_ERRORS: [(&str, &str); 2] =
-    [("Broken pipe", "(os error 32)"), ("Input/output error", "(os error 5)")];
+/// `EPIPE`, by `strerror`'s message and by errno. Both forms because the
+/// message follows the locale, while the `(os error N)` suffix the standard
+/// library appends does not — either one identifies the errno on its own.
+const BROKEN_PIPE_MARKERS: [&str; 2] = ["Broken pipe", "(os error 32)"];
+
+/// `EIO`, in the same two forms.
+const IO_ERROR_MARKERS: [&str; 2] = ["Input/output error", "(os error 5)"];
+
+/// Which of the process's own output streams a print failed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LostStream {
+    Stdout,
+    Stderr,
+}
+
+/// The stream a standard-library "failed printing to …" panic names, or `None`
+/// for a panic that is about something else entirely.
+fn printing_failure_stream(message: &str) -> Option<LostStream> {
+    let rest = message.strip_prefix("failed printing to ")?;
+    if rest.starts_with("stdout") {
+        Some(LostStream::Stdout)
+    } else if rest.starts_with("stderr") {
+        Some(LostStream::Stderr)
+    } else {
+        None
+    }
+}
+
+fn stream_is_terminal(stream: LostStream) -> bool {
+    use std::io::IsTerminal as _;
+    match stream {
+        LostStream::Stdout => std::io::stdout().is_terminal(),
+        LostStream::Stderr => std::io::stderr().is_terminal(),
+    }
+}
 
 /// Whether a panic is the standard library's "failed printing to stdout" panic
 /// for an output that no longer exists, rather than a real bug.
 ///
 /// Matched on the payload text because that is all the standard library
-/// exposes: the panic carries no typed error. Both halves must match, so a
-/// panic that merely mentions a broken pipe in some other context still
+/// exposes: the panic carries no typed error. The message must be that panic,
+/// so one that merely mentions a broken pipe in some other context still
 /// reports normally.
 fn is_lost_output_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
     let payload = info.payload();
@@ -239,13 +268,28 @@ fn is_lost_output_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
     message.is_some_and(message_is_lost_output)
 }
 
-/// The decision itself, over the panic message alone, so it can be tested —
-/// a `PanicHookInfo` is not constructible outside a real panic.
 fn message_is_lost_output(message: &str) -> bool {
-    message.starts_with("failed printing to std")
-        && LOST_OUTPUT_ERRORS
-            .iter()
-            .any(|(text, code)| message.contains(text) || message.contains(code))
+    lost_output_verdict(message, stream_is_terminal)
+}
+
+/// The decision itself, over the panic message and a way to ask whether the
+/// stream it names is a terminal, so it can be tested — a `PanicHookInfo` is
+/// not constructible outside a real panic, and a test cannot close the
+/// harness's own stdout.
+///
+/// `EPIPE` always means the reader is gone. `EIO` means it only on a terminal,
+/// where it is how a closed pty reports the session hanging up; on a redirected
+/// stdout it is a real write failure — a full device, a dropped network mount —
+/// and treating that as "the output is gone" would kill every in-flight agent
+/// and exit `141` without a word about what actually went wrong.
+fn lost_output_verdict(message: &str, is_terminal: impl Fn(LostStream) -> bool) -> bool {
+    let Some(stream) = printing_failure_stream(message) else {
+        return false;
+    };
+    if BROKEN_PIPE_MARKERS.iter().any(|marker| message.contains(marker)) {
+        return true;
+    }
+    IO_ERROR_MARKERS.iter().any(|marker| message.contains(marker)) && is_terminal(stream)
 }
 
 pub fn run() {

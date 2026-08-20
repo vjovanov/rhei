@@ -123,9 +123,10 @@ fn run_command(
         run_callback_mode(input, &machines, &opts, effective_parallel)
     };
     result?;
-    // An interrupted run made no claim of durable success, so the
-    // subprocess-commit postcondition of §3.1 has nothing to check. §FS-rhei-run.3.2
-    if interrupt_requested() {
+    // An interrupted run made no claim of durable success, so the commit
+    // postcondition has nothing to check; a run torn down by its own failure
+    // still owes it. §FS-rhei-run.3.1 §FS-rhei-run.3.2
+    if interrupted_by_signal() {
         return Ok(());
     }
     git_consistency.verify_after_success()

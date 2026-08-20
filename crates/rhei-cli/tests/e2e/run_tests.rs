@@ -1606,6 +1606,18 @@ printf '%s\n' "$$" > "$root/runtime/pids/agent"
 exec sleep 300
 "#;
 
+/// A fake agent that does its ticket's work and exits, so the run reaches its
+/// own end and the TUI parks on the finished screen.
+#[cfg(unix)]
+const QUICK_AGENT: &str = r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/pids" "$(dirname "${RHEI_RESULT_PATH:?}")"
+printf '%s\n' "$$" > "$root/runtime/pids/agent"
+printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
+exit 0
+"#;
+
 /// A fake agent that ignores `SIGTERM`, so only the `SIGKILL` at the end of the
 /// grace — or a second interrupt that skips it — can end it.
 #[cfg(unix)]
@@ -2151,6 +2163,119 @@ transitions:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// A run interrupted while a *program* is in flight must not answer by
+/// spawning an agent.
+///
+/// The two are scheduled by separate loops in the same pass, and only the
+/// program loop checked the token. A pass holding one ticket of each kind
+/// therefore spent its whole shutdown inside the program loop and then fell
+/// through to the sequential agent block with the run already stopping — and
+/// started an agent there, under `bypassPermissions`, after the operator had
+/// asked the run to stop.
+// §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn an_interrupted_run_starts_no_agent_after_its_sequential_program() {
+    let plan = r#"# Rhei: Program Then Agent
+
+## Tasks
+
+### Task 1: Program
+**State:** build
+
+### Task 2: Agent
+**State:** work
+"#;
+
+    let machine = r#"name: program-then-agent
+version: 1
+states:
+  build:
+    initial: true
+    description: Sleep until told otherwise
+    program: >-
+      mkdir -p runtime/started
+      && : > runtime/started/program
+      && sleep 300
+  work:
+    description: Agent work
+    agent: mock
+    agent_timeout: 120s
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: build
+    to: completed
+    exit_code: 0
+  - from: work
+    to: completed
+"#;
+
+    let agent = r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+mkdir -p "$root/runtime/started"
+: > "$root/runtime/started/agent"
+exec sleep 300
+"#;
+
+    let dir = unique_temp_dir("run-interrupt-program-then-agent");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let agent_script = write_fixture_file(&dir, "mock-agent.sh", agent);
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json =
+        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "120s" }},
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "120s" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    // `--parallel 1` is what puts the program on the pass's own loop and the
+    // agent on the sequential block below it, which is the path under test.
+    let mut run = spawn_rhei_run_with(&dir, &plan_path, &machine_path, &["--parallel", "1"]);
+
+    let started_dir = dir.join("runtime/started");
+    poll_until("the program to start", TEST_PATIENCE, || started_dir.join("program").exists());
+
+    signal_pid(run.id(), "TERM");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(143),
+        "run should exit 128+SIGTERM\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+
+    assert!(
+        !started_dir.join("agent").exists(),
+        "an interrupted run must start no agent\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+    // No subprocess, so no log and no journal entry either. §FS-rhei-run.3.2
+    let logs: Vec<String> = fs::read_dir(dir.join("runtime/logs"))
+        .expect("log directory")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("-work"))
+        .collect();
+    assert!(logs.is_empty(), "the shutdown should open no agent log, got {logs:?}");
+
+    // Neither ticket moved: the program was interrupted and the agent never ran.
+    assert_task_state(&plan_path, &machine_path, "1", "build");
+    assert_task_state(&plan_path, &machine_path, "2", "work");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// A `rhei run` driving a real TUI must end when it is signalled, not park on
 /// its finished screen.
 ///
@@ -2246,6 +2371,95 @@ fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
         "the report should name the interruption, got:\n{report}"
     );
     assert_task_state(&workspace, &machine_path, "1", "work");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// Ctrl+C on the TUI's finished screen must leave the run its report.
+///
+/// The screen invites the key — the footer offers `^C` all run — but answering
+/// it with `std::process::exit` from the render thread runs no destructor, and
+/// the engine, blocked on joining that very thread, never reaches the report it
+/// was about to write. The external-signal path was fixed and this one, which
+/// the same screen invites, was not.
+// §FS-rhei-run-tui.1.5.7 §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn ctrl_c_on_the_finished_tui_screen_still_writes_the_report() {
+    use std::io::{Read as _, Write as _};
+    use std::os::fd::OwnedFd;
+    use std::sync::{Arc, Mutex};
+
+    let (dir, workspace, machine_path) =
+        setup_supervised_workspace("run-tui-finished-ctrl-c", QUICK_AGENT, "120s");
+
+    let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", dir.join(".home"));
+    cmd.env("TERM", "xterm-256color");
+    cmd.arg("--state-machine")
+        .arg(&machine_path)
+        .arg("run")
+        .arg(&workspace)
+        .arg("--tui")
+        .arg("--no-callbacks")
+        .arg("--no-dashboard");
+    let slave_in: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdin");
+    let slave_out: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdout");
+    cmd.stdin(std::process::Stdio::from(slave_in));
+    cmd.stdout(std::process::Stdio::from(slave_out));
+    cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
+    let mut run = KillOnDrop(cmd.spawn().expect("rhei run should start"));
+    drop(cmd);
+    drop(pty.slave);
+
+    let screen: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let drained = Arc::clone(&screen);
+    let master = std::fs::File::from(pty.master);
+    let mut writer = master.try_clone().expect("clone pty master for writing");
+    let mut reader = master;
+    let drain = std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            drained.lock().expect("screen buffer").extend_from_slice(&buf[..n]);
+        }
+    });
+
+    // The finished screen announces itself, which is the only reliable sign
+    // that the render thread is parked in `stay_until_quit` rather than still
+    // draining input from the live loop.
+    poll_until("the TUI to park on its finished screen", TEST_PATIENCE, || {
+        let seen = screen.lock().expect("screen buffer");
+        seen.windows(9).any(|w| w == b"q to quit")
+    });
+
+    writer.write_all(b"\x03").expect("send Ctrl+C to the TUI");
+    writer.flush().expect("flush Ctrl+C");
+
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(130),
+        "Ctrl+C should still exit 128+SIGINT\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+    join_or_detach(drain);
+
+    // The point of the fix: the engine got past the join and wrote its report.
+    let report = fs::read_to_string(workspace.join("runtime/run-report.md"))
+        .expect("Ctrl+C on the finished screen should still leave a report");
+    // The run had already finished when the key was pressed, so it reports the
+    // result it reached — the interruption did not cut anything short.
+    assert!(
+        !report.contains("interrupted — re-run to continue"),
+        "a run that finished before the key was pressed is not an interrupted run, got:\n{report}"
+    );
+    assert_task_state(&workspace, &machine_path, "1", "completed");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

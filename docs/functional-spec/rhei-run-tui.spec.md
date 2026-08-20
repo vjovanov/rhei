@@ -415,13 +415,23 @@ an externally signalled run wrote no report, printed nothing, and ignored every
 further signal short of `SIGKILL`; the operator who typed `kill` was left
 waiting for a `q` they had no reason to think anyone wanted.
 
+**`Ctrl+C` on the finished screen leaves the run its report.** The screen
+offers the key and the operator may take it, but the render thread is the one
+thing the engine is waiting on: it re-raises the signal and returns, exactly as
+it does during a live run, and the engine goes on to write the report, print the
+summary, and exit `128 + signal`. Ending the process from the render thread
+instead ran no destructor and left a finished run with no report at all — the
+same failure as parking on the screen, reached by the key the screen invites.
+The run had already finished when the key was pressed, so what the report
+records is the result the run reached; nothing was interrupted (§FS-rhei-run.3.2).
+
 **A terminal that has gone away ends the TUI at once**, whether the run is still
-going or already finished. Crossterm reports it as a failed input poll — the
-pty was closed, the session hung up — and there is then nothing to draw to and
-nobody to press a key: the render thread restores what it can and returns, and
-the run continues headless (§1.8). Treating a failed poll as "no key was
-pressed" turned a closed terminal into a redraw loop that re-read the plan as
-fast as the CPU allowed.
+going or already finished. Crossterm reports it as a failed input poll or a
+failed read — the pty was closed, the session hung up — and there is then
+nothing to draw to and nobody to press a key: the render thread restores what it
+can and returns, and the run continues headless (§1.8). Treating either as "no
+key was pressed" turned a closed terminal into a loop that spun as fast as the
+CPU allowed and never returned, which wedged the shutdown waiting on it.
 
 ### 1.6. Browser Dashboard
 

@@ -664,18 +664,19 @@ impl RunSummaryReport {
                     .filter(|(stalled_in, entries)| stalled_in == state && !entries.is_empty())
                     .map(|(_, entries)| entries.clone())
             },
-            // §FS-rhei-run-report.3.1: only the ticket's *last* invocation
-            // says why it is where it is — an earlier interrupted attempt that
-            // was retried and completed explains nothing.
+            // Only the ticket's *last* invocation explains where it is, and
+            // only for a run the operator stopped: a failing run ends its
+            // workers the same way. §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
             &|id| {
-                matches!(
-                    ledger
-                        .iter()
-                        .rev()
-                        .find(|record| record.task == id)
-                        .map(|record| &record.outcome),
-                    Some(LedgerOutcome::Interrupted)
-                )
+                stats.interrupted
+                    && matches!(
+                        ledger
+                            .iter()
+                            .rev()
+                            .find(|record| record.task == id)
+                            .map(|record| &record.outcome),
+                        Some(LedgerOutcome::Interrupted)
+                    )
             },
             plan_arg,
         )

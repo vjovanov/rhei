@@ -110,8 +110,10 @@ the summary prints five stacked groups:
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
-   unsatisfied `**Prior:**`; a manual-only initial state; a worker interrupted
-   mid-flight by the run's shutdown (§FS-rhei-run.3.2); a worker that ran and
+   unsatisfied `**Prior:**`; a worker interrupted mid-flight by an *operator's*
+   shutdown (§FS-rhei-run.3.2) — a run that tore its own workers down while
+   failing describes their tickets by the failure instead, never by "re-run to
+   continue"; a manual-only initial state; a worker that ran and
    left a required artifact unwritten — agent or program alike, since both are
    workers and both stall the same way; a ticket the run never scheduled; no
    declared outgoing transition; anything else. Interruption is classified

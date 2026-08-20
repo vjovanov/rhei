@@ -24,35 +24,17 @@ const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(100);
 #[cfg(test)]
 const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(20);
 
-/// The slot outcome and exit code an agent invocation reports to the run
-/// surfaces.
-///
-/// Interruption is tested **first**, before success: the engine ended this
-/// invocation, so whatever status the agent managed to exit with during the
-/// grace is not a verdict on the ticket, and reporting it as completed would
-/// fire a transition the operator never asked for.
-// §FS-rhei-run.3.2: interruption is not a completion.
-fn agent_slot_outcome(
-    result: &MietteResult<AgentSpawnOutcome>,
-) -> (rhei_tui::TaskOutcome, Option<i32>) {
-    match result {
-        Ok(outcome) if outcome.interrupted => {
-            (rhei_tui::TaskOutcome::Interrupted, outcome.status.code())
-        }
-        Ok(outcome) if outcome.status.success() => {
-            (rhei_tui::TaskOutcome::Completed, outcome.status.code())
-        }
-        Ok(outcome) if outcome.timed_out => {
-            (rhei_tui::TaskOutcome::TimedOut, outcome.status.code())
-        }
-        Ok(outcome) => (
-            rhei_tui::TaskOutcome::Failed(format!(
-                "exit {}",
-                outcome.status.code().unwrap_or(-1)
-            )),
-            outcome.status.code(),
-        ),
-        Err(err) => (rhei_tui::TaskOutcome::Failed(err.to_string()), None),
+impl InvocationOutcome for AgentSpawnOutcome {
+    fn was_interrupted(&self) -> bool {
+        self.interrupted
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out
+    }
+
+    fn status(&self) -> std::process::ExitStatus {
+        self.status
     }
 }
 

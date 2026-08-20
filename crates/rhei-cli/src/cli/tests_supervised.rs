@@ -47,7 +47,7 @@
             let token = StopToken::new();
             assert!(!token.is_set());
             assert!(!token.skip_grace());
-            assert_eq!(token.level(), 0);
+            assert_eq!(token.signals_received(), 0);
             assert_eq!(token.exit_code(), None);
         }
 
@@ -83,15 +83,57 @@
             assert_eq!(token.exit_code(), None);
         }
 
+        /// Skipping the grace is something the operator asks for twice, and
+        /// nothing an error unwind on another thread can arrange for them: an
+        /// agent must not lose its 10 s to flush and commit because a worker
+        /// somewhere else returned `Err` after a single Ctrl+C.
+        #[test]
+        fn a_teardown_never_escalates_an_operators_single_signal() {
+            let token = StopToken::new();
+            token.raise(Signal::SIGINT as i32);
+            for _ in 0..10 {
+                token.request();
+            }
+            assert!(token.is_set());
+            assert!(!token.skip_grace(), "only a second signal skips the grace");
+            token.raise(Signal::SIGINT as i32);
+            assert!(token.skip_grace());
+        }
+
+        /// A teardown flag belongs to the run that raised it. A process drives
+        /// more than one run under the in-process tests, and a flag left
+        /// standing would make every later one break out of its first pass and
+        /// report success without doing any work.
+        #[test]
+        fn releasing_a_teardown_clears_it_for_the_next_run() {
+            let token = StopToken::new();
+            token.request();
+            assert!(token.is_set());
+            token.release_teardown();
+            assert!(!token.is_set());
+            assert!(!token.skip_grace());
+        }
+
+        /// A signal stopped the process, not just the run, so no later run in
+        /// it gets to decide the operator did not mean it.
+        #[test]
+        fn releasing_a_teardown_leaves_a_signalled_stop_standing() {
+            let token = StopToken::new();
+            token.raise(Signal::SIGTERM as i32);
+            token.release_teardown();
+            assert!(token.is_set());
+            assert_eq!(token.exit_code(), Some(143));
+        }
+
         /// A wedged operator leaning on Ctrl+C must not wrap the counter back
         /// round to "not interrupted".
         #[test]
-        fn the_level_saturates_instead_of_wrapping() {
+        fn the_signal_count_saturates_instead_of_wrapping() {
             let token = StopToken::new();
             for _ in 0..300 {
-                token.request();
+                token.raise(Signal::SIGINT as i32);
             }
-            assert_eq!(token.level(), u8::MAX);
+            assert_eq!(token.signals_received(), u8::MAX);
             assert!(token.is_set());
             assert!(token.skip_grace());
         }
@@ -145,6 +187,27 @@
             let pgid = supervised.pgid;
             token.raise(Signal::SIGTERM as i32);
             let ended = supervised.wait(None, &token, &ignore_notice).expect("wait");
+            assert_eq!(ended.cause, EndCause::Interrupted);
+            drop(supervised);
+            wait_until("the interrupted group to be gone", || !pid_is_alive(pgid));
+        }
+
+        /// An agent seconds from its deadline when the operator hits Ctrl+C is
+        /// an interrupted invocation, not a timed-out one. Calling it a timeout
+        /// would fire the timeout transition and rewrite the ticket a shutdown
+        /// promised to leave alone.
+        // §FS-rhei-run.3.2
+        #[test]
+        fn a_deadline_and_a_shutdown_on_the_same_poll_report_interrupted() {
+            let token = StopToken::new();
+            let mut supervised =
+                Supervised::spawn(&mut sh(CHILD_SLEEP), "unit@both").expect("spawn");
+            let pgid = supervised.pgid;
+            token.raise(Signal::SIGINT as i32);
+            // A deadline already in the past, so the first poll sees both.
+            let ended = supervised
+                .wait(Some(Duration::from_millis(0)), &token, &ignore_notice)
+                .expect("wait");
             assert_eq!(ended.cause, EndCause::Interrupted);
             drop(supervised);
             wait_until("the interrupted group to be gone", || !pid_is_alive(pgid));
@@ -271,17 +334,60 @@
     // §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
     #[test]
     fn a_lost_stdout_is_recognized_by_message_and_by_errno() {
-        assert!(message_is_lost_output("failed printing to stdout: Broken pipe (os error 32)"));
-        assert!(message_is_lost_output(
-            "failed printing to stdout: Input/output error (os error 5)"
+        let on_a_terminal = |_| true;
+        assert!(lost_output_verdict(
+            "failed printing to stdout: Broken pipe (os error 32)",
+            on_a_terminal
+        ));
+        assert!(lost_output_verdict(
+            "failed printing to stdout: Input/output error (os error 5)",
+            on_a_terminal
         ));
         // The errno alone is enough, so a non-English `strerror` still matches.
-        assert!(message_is_lost_output("failed printing to stderr: <translated> (os error 5)"));
+        assert!(lost_output_verdict(
+            "failed printing to stderr: <translated> (os error 5)",
+            on_a_terminal
+        ));
 
         // A different write failure, and a panic that merely mentions one, are
         // both real reports.
-        assert!(!message_is_lost_output(
-            "failed printing to stdout: No space left on device (os error 28)"
+        assert!(!lost_output_verdict(
+            "failed printing to stdout: No space left on device (os error 28)",
+            on_a_terminal
         ));
-        assert!(!message_is_lost_output("agent wrote to a Broken pipe (os error 32)"));
+        assert!(!lost_output_verdict("agent wrote to a Broken pipe (os error 32)", on_a_terminal));
+    }
+
+    /// `EIO` on a redirected stdout — a dropped network mount, a failing
+    /// device — is a real write failure and must be reported. Swallowing it
+    /// killed every in-flight agent and exited `141` with no report and no
+    /// message, indistinguishable from `rhei run | head`.
+    // §FS-rhei-run.3.2
+    #[test]
+    fn an_io_error_on_a_redirected_stdout_is_a_real_failure() {
+        let redirected = |_| false;
+        assert!(!lost_output_verdict(
+            "failed printing to stdout: Input/output error (os error 5)",
+            redirected
+        ));
+        // A closed pipe is a closed reader wherever it points, terminal or not.
+        assert!(lost_output_verdict(
+            "failed printing to stdout: Broken pipe (os error 32)",
+            redirected
+        ));
+    }
+
+    /// The stream decides whose `is_terminal` is asked, so a `stderr` panic
+    /// must not be answered by looking at `stdout`.
+    #[test]
+    fn the_panic_message_names_the_stream_that_failed() {
+        assert_eq!(
+            printing_failure_stream("failed printing to stdout: Broken pipe (os error 32)"),
+            Some(LostStream::Stdout)
+        );
+        assert_eq!(
+            printing_failure_stream("failed printing to stderr: Broken pipe (os error 32)"),
+            Some(LostStream::Stderr)
+        );
+        assert_eq!(printing_failure_stream("index out of bounds"), None);
     }

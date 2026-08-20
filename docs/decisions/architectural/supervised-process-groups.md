@@ -78,6 +78,18 @@ token. Deadline and token then run the identical sequence against the group —
 copy-pasted poll loops, three grace constants, and two ways of killing became
 one of each.
 
+The sequence itself is one function over a small target interface — ask, is it
+gone, kill — with two implementations: an invocation watching its own child, and
+the shutdown guard watching the registry for groups whose children belong to
+other threads. Writing the sequence twice meant two graces that could run
+concurrently against the same group and signal it twice; a group now records
+that it has been asked to stop, so the second arrival adds nothing and waits.
+
+When both a deadline and a shutdown are true on the same poll, the shutdown
+wins. They can be: an agent seconds from its timeout when the operator hits
+Ctrl+C. Calling that a timeout would fire the timeout transition and rewrite the
+ticket the shutdown promised to leave alone.
+
 **3. The token is set by a signal handler, read by the loops.**
 
 One handler for `SIGINT`, `SIGTERM`, and `SIGHUP` does nothing but increment an
@@ -86,6 +98,31 @@ loop, the worker-pool refill, the scheduler's sleeps, and each live
 `Supervised::wait`. A second signal raises the count and skips the grace, which
 is what a second Ctrl+C has always meant. The exit code is `128 + signal`
 because the run really did end by that signal.
+
+The token counts two things separately, because they are two different facts.
+"The run is shutting down — end every wait, start nothing more" is what an
+operator's signal and an error unwind both mean, and either raises it. *How
+many times the operator asked* is only ever the operator's, and only that count
+decides whether the grace is skipped: escalating to an immediate `SIGKILL` is
+something a person asks for twice, never something a failed `?` on another
+thread arranges on their behalf. Counting both on one number let a single
+Ctrl+C plus any teardown kill a group outright, with none of the 10 seconds the
+agent was promised to flush and commit.
+
+The shutdown flag is also released when the run that raised it is done, unless a
+signal raised it. The flag is process-global while the reason for it was one
+run's, and a process can drive more than one — the in-process tests do. Left
+standing, it made every later run in the process break out of its first pass and
+report success without doing any work. A signal is never released: that one
+stopped the process, not just the run.
+
+Because the two facts are separate, so are the two readings. `interrupt_requested`
+answers "should this loop stop", which both reasons mean; `interrupted_by_signal`
+answers "was this run interrupted", which only the operator's does. Every
+statement the run makes about itself — the report's result, the halt diagnostic,
+the exit code, the postcondition of §FS-rhei-run.3.1 — reads the second, and
+reads it once, so they cannot disagree with each other or with a signal that
+arrived after the work was done.
 
 The token also composes the operator-facing shutdown notice, once, and hands it
 to whichever waiter asked first — as **text**. It performs no I/O: where the
