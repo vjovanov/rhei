@@ -48,6 +48,7 @@ include!("cli/agent_resolution.rs");
 include!("cli/run_helpers.rs");
 include!("cli/run_diag.rs");
 include!("cli/run_git_consistency.rs");
+include!("cli/supervised.rs");
 include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");
 include!("cli/intervene.rs");
@@ -88,4 +89,5 @@ mod tests {
     include!("cli/tests_settings_tooling.rs");
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_runtime.rs");
+    include!("cli/tests_supervised.rs");
 }

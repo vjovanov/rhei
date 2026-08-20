@@ -103,6 +103,11 @@ fn build_agent_command(
 
     if profile.stdin_prompt || profile.intervene_stdin {
         cmd.stdin(std::process::Stdio::piped());
+    } else {
+        // No agent reads the operator's terminal: an inherited tty read from a
+        // background process group stops the child on SIGTTIN, and the
+        // keystrokes belong to `rhei run`. §FS-rhei-run.3.2
+        cmd.stdin(std::process::Stdio::null());
     }
     if claude_stream_json {
         // §FS-rhei-agents.1.1.2: Claude Code live intervention uses stream-json stdin.

@@ -2,17 +2,30 @@ fn program_log_path(runtime_dir: &Path, task_id: &str, state_name: &str) -> Path
     runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}.log"))
 }
 
+/// `interrupted` is set when the run was shutting down: the engine ended the
+/// program's process group, so its exit status says nothing about the ticket
+/// and **no transition may fire** for this invocation. §FS-rhei-run.3.2
 #[derive(Debug, Clone)]
 struct ProgramSpawnOutcome {
     status: std::process::ExitStatus,
     timed_out: bool,
+    interrupted: bool,
     timeout_secs: Option<u64>,
 }
 
-#[cfg(not(test))]
-const PROGRAM_TERMINATE_GRACE: Duration = Duration::from_secs(10);
-#[cfg(test)]
-const PROGRAM_TERMINATE_GRACE: Duration = Duration::from_millis(50);
+impl InvocationOutcome for ProgramSpawnOutcome {
+    fn was_interrupted(&self) -> bool {
+        self.interrupted
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out
+    }
+
+    fn status(&self) -> std::process::ExitStatus {
+        self.status
+    }
+}
 
 fn build_program_command(
     resolved: &ResolvedProgram,
@@ -141,6 +154,9 @@ fn spawn_and_wait_program(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
     log_path: &Path,
+    // Only to carry the shutdown notice: a program's own output goes to its
+    // log, not the journal. §FS-rhei-run.3.2
+    sink: &Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<ProgramSpawnOutcome> {
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)
@@ -191,50 +207,55 @@ fn spawn_and_wait_program(
         ))?;
     let mut cmd = build_program_command(resolved, render_context)?;
     cmd.stdout(log_stdout).stderr(log_stderr);
-    let mut child = cmd.spawn().map_err(|e| miette!(
-        help = "the program state could not start its command. Check the command exists and is executable, then re-run.",
-        "failed to spawn program: {e}"
-    ))?;
-    let start = Instant::now();
-    let mut timed_out = false;
-
-    let status = if let Some(timeout_secs) = resolved.timeout_secs {
-        let timeout = Duration::from_secs(timeout_secs);
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break Ok(status),
-                Ok(None) => {
-                    if start.elapsed() > timeout {
-                        timed_out = true;
-                        terminate_child_gracefully(&mut child);
-                        std::thread::sleep(PROGRAM_TERMINATE_GRACE);
-                        match child.try_wait() {
-                            Ok(Some(status)) => break Ok(status),
-                            _ => {
-                                let _ = child.kill();
-                                break child.wait().map_err(|e| {
-                                    miette!(
-                                        help = internal_error_help(),
-                                        "failed to wait for program after kill: {e}"
-                                    )
-                                });
-                            }
-                        }
-                    }
-                    std::thread::sleep(Duration::from_millis(200));
-                }
-                Err(e) => break Err(miette!(
-                    help = internal_error_help(),
-                    "error waiting for program: {e}"
-                )),
-            }
+    // A program is never handed the operator's terminal, and it leads its own
+    // process group so its children go with it. §FS-rhei-run.3.2
+    cmd.stdin(std::process::Stdio::null());
+    let supervised_label =
+        format!("{}@{}", render_context.task.id, render_context.state_name);
+    let mut supervised = match Supervised::spawn(&mut cmd, &supervised_label) {
+        Ok(supervised) => supervised,
+        // As for agents: the run was interrupted before this program started,
+        // so it never ran and the ticket keeps its state.
+        // §FS-rhei-run.3.2 §FS-rhei-agents.8
+        Err(err) if spawn_was_interrupted(&err) => {
+            use std::io::Write as _;
+            let mut f = &log_file;
+            let _ = writeln!(f, "\nprogram not started: the run was interrupted first");
+            let _ = writeln!(f, "\n=== exit ===");
+            let _ = writeln!(f, "code: -");
+            let _ = writeln!(f, "interrupted: true");
+            let _ = writeln!(f, "===");
+            return Ok(ProgramSpawnOutcome {
+                status: never_started_status(),
+                timed_out: false,
+                interrupted: true,
+                timeout_secs: resolved.timeout_secs,
+            });
         }
-    } else {
-        child.wait().map_err(|e| miette!(
+        Err(e) => {
+            return Err(miette!(
+                help = "the program state could not start its command. Check the command exists and is executable, then re-run.",
+                "failed to spawn program: {e}"
+            ))
+        }
+    };
+    let start = Instant::now();
+
+    // One wait for all three endings: exit, deadline, run interruption.
+    // §FS-rhei-run.3.2
+    let ended = supervised
+        .wait(
+            resolved.timeout_secs.map(Duration::from_secs),
+            &INTERRUPT,
+            &notify_through_sink(sink),
+        )
+        .map_err(|e| miette!(
             help = internal_error_help(),
-            "failed to wait for program: {e}"
-        ))
-    }?;
+            "error waiting for program: {e}"
+        ))?;
+    let status = ended.status;
+    let timed_out = ended.cause == EndCause::TimedOut;
+    let interrupted = ended.cause == EndCause::Interrupted;
 
     {
         use std::io::Write as _;
@@ -245,6 +266,8 @@ fn spawn_and_wait_program(
                 help = program_log_help(),
                 "failed to append to log file: {e}"
             ))?;
+        // §FS-rhei-agents.8: the program footer carries the same two
+        // early-ending lines the agent footer does.
         if timed_out {
             if let Some(timeout_secs) = resolved.timeout_secs {
                 let _ = writeln!(
@@ -253,19 +276,31 @@ fn spawn_and_wait_program(
                     format_duration_human(timeout_secs)
                 );
             }
-            let _ = writeln!(f, "\n=== exit ===");
-        } else {
-            let _ = writeln!(f, "\n=== exit ===");
+        } else if interrupted {
+            let _ = writeln!(
+                f,
+                "\nprogram interrupted by run shutdown after {}",
+                format_duration_human(start.elapsed().as_secs())
+            );
         }
+        let _ = writeln!(f, "\n=== exit ===");
         let _ = writeln!(f, "code: {}", status.code().unwrap_or(-1));
         let _ = writeln!(f, "duration: {}s", start.elapsed().as_secs());
         if timed_out {
             let _ = writeln!(f, "timed_out: true");
         }
+        if interrupted {
+            let _ = writeln!(f, "interrupted: true");
+        }
         let _ = writeln!(f, "===");
     }
 
-    Ok(ProgramSpawnOutcome { status, timed_out, timeout_secs: resolved.timeout_secs })
+    Ok(ProgramSpawnOutcome {
+        status,
+        timed_out,
+        interrupted,
+        timeout_secs: resolved.timeout_secs,
+    })
 }
 
 fn transition_matches_exit_code(rule: &rhei_core::ast::TransitionRule, exit_code: i32) -> bool {

@@ -353,6 +353,13 @@ enum HaltCause {
     ManualOnly { to: String },
     /// Non-terminal with no declared outgoing transition to take.
     NoTransition,
+    /// The run was interrupted while this ticket's worker was in flight.
+    /// Nothing about the ticket failed and nothing about it is waiting on a
+    /// human: the run was stopped, and re-running it is the whole recovery.
+    /// Reported ahead of `MissingOutputs` because it explains it — a worker
+    /// the run killed had no chance to write what it owed.
+    // §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
+    Interrupted,
     /// A worker ran, exited `0`, and left required artifacts unwritten, so the
     /// completion condition refused to advance the ticket. `entries` are the
     /// `name (path)` renderings the run already produced — the ticket's terminal
@@ -408,6 +415,13 @@ impl HaltCause {
                 format!("no forward transition available from '{state}'"),
                 "declare a transition out of this state, or cancel the ticket".to_string(),
             ),
+            // Not "stalled", and emphatically not "mark the task cancelled":
+            // the operator stopped the run, so the run says so and asks for
+            // nothing else. §FS-rhei-run-report.3.1
+            HaltCause::Interrupted => (
+                format!("run interrupted while its worker was in state {state}"),
+                "re-run to continue".to_string(),
+            ),
             // Name the files. The whole point of this cause is that the operator
             // does not have to go read a log to learn which one is missing.
             // §FS-rhei-run-report.3.1
@@ -441,7 +455,8 @@ impl HaltCause {
 /// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
 /// the run actually spawned work for, whose failure is the ordinary stalled
 /// case rather than a scheduling one; `missing` carries the required artifacts
-/// its last exit-0 worker left unwritten, when the run recorded any.
+/// its last exit-0 worker left unwritten, when the run recorded any;
+/// `interrupted` marks one whose last invocation the run's shutdown ended.
 #[allow(clippy::too_many_arguments)]
 fn classify_halt(
     task: &rhei_core::ast::Task,
@@ -451,6 +466,7 @@ fn classify_halt(
     scope: &RheiScope,
     worked: bool,
     missing: Option<Vec<String>>,
+    interrupted: bool,
     plan_arg: &str,
 ) -> HaltCause {
     let machine = machines.for_task(&task.id);
@@ -474,6 +490,11 @@ fn classify_halt(
     }
     if let Ok(Some(to)) = manual_initial_terminal_transition(task, rhei, machine) {
         return HaltCause::ManualOnly { to };
+    }
+    // Ahead of every work-shaped cause below: an interrupted worker explains
+    // both an unwritten artifact and a bare stall. §FS-rhei-run-report.3.1
+    if interrupted {
+        return HaltCause::Interrupted;
     }
     if worked {
         // The run knows exactly what the worker did not write; say so instead
@@ -499,15 +520,19 @@ fn classify_halt(
 /// `worked` reports whether the run actually spawned an invocation for a
 /// ticket; those failed at their work rather than at scheduling, so they keep
 /// the generic stalled reading unless `missing` names what the work left
-/// unwritten, which is a halt with a concrete remedy.
-// §FS-rhei-run-report.3.1: non-leaf tickets are classified alongside leaves, so
-// a parent nobody can advance is nameable as the reason a dependent is stuck.
+/// unwritten, which is a halt with a concrete remedy. `interrupted` reports
+/// whether the run's shutdown ended the ticket's last invocation, which
+/// outranks both.
+// §FS-rhei-run-report.3.1 §FS-rhei-run.3.2: non-leaf tickets are classified
+// alongside leaves, so a parent nobody can advance is nameable as the reason a
+// dependent is stuck; an interrupted worker explains its ticket before its work does.
 fn classify_halted_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
     worked: &dyn Fn(&str) -> bool,
     missing: &dyn Fn(&str, &str) -> Option<Vec<String>>,
+    interrupted: &dyn Fn(&str) -> bool,
     plan_arg: &str,
 ) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
     let mut all = Vec::new();
@@ -531,6 +556,7 @@ fn classify_halted_tasks<'a>(
                 scope,
                 worked(&id),
                 missing(&id, &state),
+                interrupted(&id),
                 plan_arg,
             );
             (task, cause)
@@ -564,9 +590,15 @@ fn halted_task_report(
     let plan_arg = plan_arg_for_help(plan_path);
     // Pre-launch diagnostics: no run has happened yet, so nothing worked and
     // nothing is known missing. §FS-rhei-run.4
-    for (task, cause) in
-        classify_halted_tasks(rhei, machines, scope, &|_| false, &|_, _| None, &plan_arg)
-    {
+    for (task, cause) in classify_halted_tasks(
+        rhei,
+        machines,
+        scope,
+        &|_| false,
+        &|_, _| None,
+        &|_| false,
+        &plan_arg,
+    ) {
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);
         let id = task.id.to_string();

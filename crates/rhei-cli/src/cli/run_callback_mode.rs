@@ -8,6 +8,9 @@ fn run_callback_mode(
 ) -> MietteResult<()> {
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
+    // No `RunSubprocessGuard`: this mode spawns nothing supervised, so a guard
+    // would own nothing. Anything supervised added here must install one.
+    // §FS-rhei-run.3.2
     let callback_paths = &machines.default_callbacks;
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
@@ -39,6 +42,8 @@ fn run_callback_mode(
         armed: true,
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
+    // Callback-only mode installs no subprocess guard, so nothing raises this
+    // and the surface leaves on a signal alone. §FS-rhei-run-tui.1.5.7
     let frontend = start_run_frontend(
         &workspace_root,
         input,
@@ -46,6 +51,7 @@ fn run_callback_mode(
         opts,
         frontend_parallel,
         initial_total_tasks,
+        &RunShutdown::default(),
     );
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration
@@ -116,6 +122,17 @@ fn run_callback_mode(
     }
 
     loop {
+        // Callback-only advancement spawns no supervised subprocess, but the
+        // run still stops when the operator asks it to. §FS-rhei-run.3.2
+        if interrupt_requested() {
+            // Through the journal, not stderr: when no subprocess is in flight
+            // the operator may still be looking at a live TUI.
+            // §FS-rhei-run-tui.1.8
+            if let Some(notice) = take_interruption_announcement() {
+                run_warn!("{notice}");
+            }
+            break;
+        }
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
             find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
@@ -133,7 +150,7 @@ fn run_callback_mode(
                         );
                         awaiting_gate_announced = true;
                     }
-                    std::thread::sleep(Duration::from_millis(500));
+                    interruptible_sleep(Duration::from_millis(500));
                     continue;
                 }
                 if let Some(deadline) =
@@ -144,7 +161,7 @@ fn run_callback_mode(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
                         sleep_secs
                     );
-                    std::thread::sleep(Duration::from_secs(sleep_secs));
+                    interruptible_sleep(Duration::from_secs(sleep_secs));
                     continue;
                 }
             }
@@ -323,6 +340,11 @@ fn run_callback_mode(
         }
     }
 
+    // Read once, here, and used for every statement the run makes about
+    // itself: a signal arriving later — while the TUI is parked on its
+    // finished screen — did not cut this loop short. §FS-rhei-run.3.2
+    let interrupted_run = interrupted_by_signal();
+
     let (terminal_count, total_tasks) = if opts.dry_run() {
         run_info!("\nDry run complete \u{2014} no changes were made.");
         if !manual_only_dry_run.is_empty() {
@@ -342,12 +364,22 @@ fn run_callback_mode(
         let loaded = load_plan(input)?;
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
-        run_info!(
-            "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
-            transitions_made,
-            terminal_count,
-            total_tasks
-        );
+        // §FS-rhei-run.3.2: the run stopped; it did not complete.
+        if interrupted_run {
+            run_info!(
+                "\nRun interrupted after {} transition(s) made; {}/{} tasks in terminal state.",
+                transitions_made,
+                terminal_count,
+                total_tasks
+            );
+        } else {
+            run_info!(
+                "\nRun complete: {} transition(s) made, {}/{} tasks in terminal state.",
+                transitions_made,
+                terminal_count,
+                total_tasks
+            );
+        }
         run_info!("Final states: {}", format_state_counts(&loaded.rhei));
         let mut tasks = Vec::new();
         collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
@@ -397,9 +429,17 @@ fn run_callback_mode(
             mode: "callback",
             initial_states,
             dry_run: opts.dry_run(),
+            interrupted: interrupted_run,
         },
     );
     report_guard.disarm();
+
+    // An interrupted run is not a halt. The same reading the report used, so
+    // the halt decision and the run's own account of itself cannot disagree.
+    // §FS-rhei-run.3.2
+    if interrupted_run {
+        return Ok(());
+    }
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;

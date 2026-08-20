@@ -142,7 +142,7 @@ from silently completing fresh tasks without executing them.
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
    - Compose the agent prompt ([Agents Specification — Prompt Composition](rhei-agents.spec.md#3-prompt-composition)). A prompt that cannot be composed — a `required: true` handoff with no content, an unreadable prior result — fails **that task**, not the pass: `rhei run` reports the task and the reason, then applies the same rule as any other task failure, continuing to the next task under `--continue-on-error` and aborting with a non-zero exit code without it. Sibling tasks already spawned in the pass are unaffected.
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), checkout-root working directory, and timeout.
-   - Wait for the subprocess to exit or for the timeout to fire. On timeout, send `SIGTERM`, grace 10 s, then `SIGKILL`.
+   - Wait for the subprocess to exit, for the timeout to fire, or for the run to be interrupted. Each subprocess runs in its own process group and is terminated as a group — `SIGTERM`, grace 10 s, then `SIGKILL` — whichever of the three reasons ends it (§3.2).
 4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition (§FS-rhei-states.3.3) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt and in `RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4).
 5. Select the outgoing transition without applying it yet.
 
@@ -251,6 +251,137 @@ durable success. This check is read-only: it does not create commits, stage
 files, or reject untracked runtime artifacts. Outside Git repositories, or
 when `HEAD` does not move during the run, the check is a no-op.
 §GOAL-rhei-outcomes
+
+### 3.2. Interruption and Process Ownership
+
+`rhei run` owns the lifetime of every subprocess it starts. There is one
+early-termination path and three reasons to take it: the invocation's own
+deadline, an operator interrupt, and the supervisor's death. Timeout and
+shutdown are two triggers of the same routine.
+
+**What this covers.** Every subprocess `rhei run` starts itself to do a
+ticket's work: agents, programs, and the snapshot redactor
+(§FS-rhei-snapshots). Three are deliberately outside it: a subprocess a
+*callback* starts is that callback's own child and is governed by the callback
+contract; the `git` queries of the consistency check of §3.1 are short
+synchronous bookkeeping that has ended before the check returns; and the editor
+the browser dashboard launches (§FS-rhei-viz.5) is detached on purpose, because
+it is the operator's and outliving the run is the point.
+
+**Process groups.** Each such subprocess starts in its own process group, which
+its descendants inherit — MCP servers, shell tools, background jobs.
+Termination signals the **group**, never the direct child alone, so an
+invocation cannot leave live processes behind by handing its work to a
+grandchild. A subprocess never inherits the operator's terminal on standard
+input: one that is not handed piped input gets `/dev/null`, so no agent
+competes for the keystrokes meant for `rhei run`.
+
+**One termination sequence.** A timeout (§FS-rhei-agents.7.3) and an
+interruption both terminate the group with `SIGTERM`, a 10-second grace, then
+`SIGKILL`. The invocation is reaped and its log footer closed either way. Every
+early termination takes this sequence, including the ones no waiter reached —
+an invocation abandoned by an error between its spawn and its wait is asked to
+stop and given its grace like any other, because nothing about the way the run
+is leaving makes that group less entitled to flush its work and unlink its
+temporary files.
+
+**A shutdown outranks a deadline.** An invocation can reach both at once — one
+seconds from its timeout when the operator hits Ctrl+C. That invocation is
+**interrupted**, not timed out: it fires no timeout transition, and the ticket
+keeps the state a shutdown promised to leave it in.
+
+This holds **whenever the shutdown arrives**, including inside the grace the
+deadline itself opened. An invocation past its timeout is still owed its ten
+seconds to flush and commit, and an operator may interrupt the run at any point
+in them; the invocation that grace was running for is then interrupted, not
+timed out. Deciding the cause on the way *into* the grace and not again on the
+way out fired a timeout transition on a ticket the shutdown had promised to
+leave alone, and left the run's own report calling the run interrupted while its
+ledger called the ticket timed out.
+
+**Interruption.** `SIGINT`, `SIGTERM`, and `SIGHUP` delivered to `rhei run`
+interrupt the run. Ctrl+C under the TUI is the same event, because the TUI
+restores the terminal and re-raises `SIGINT` on the process
+(§FS-rhei-run-tui.1.8). On the first such signal `rhei run`:
+
+1. schedules no further work — no new pass begins, no freed worker slot
+   refills, and the scheduler's waits return at once instead of sleeping out
+   their interval. A ticket the pass had already chosen but not yet started is
+   **not** started: it is left exactly as an unselected ticket, with no
+   subprocess, no log, and no journal entry. Only invocations already in flight
+   when the signal arrived are terminated;
+2. terminates each in-flight invocation's process group with the sequence above
+   and reaps it;
+3. **fires no transition for an interrupted invocation.** The ticket keeps the
+   state it was in, its task file is not rewritten, and
+   `runtime/state-transitions.log` gains no entry. An interruption is neither a
+   failure nor a timeout: no error transition, no timeout transition, no
+   missing-output stall. The next `rhei run` re-executes the state. A
+   *supporting* subprocess that is interrupted — the snapshot redactor — fails
+   the step that started it, reporting the interruption and not a timeout; the
+   ticket is left in its state by that failure exactly as it is by any other
+   redactor failure.
+4. records the invocation as `interrupted` — in the run report's ledger and
+   invocations (§FS-rhei-run-report.4), in the run journal, and in the agent or
+   program log footer (§FS-rhei-agents.8) — and names the log path;
+5. exits `128 + signal`: `130` for `SIGINT`, `143` for `SIGTERM`, `129` for
+   `SIGHUP`. A run interrupted with non-terminal tickets remaining reports the
+   interruption, not the halt diagnostic of §3 step 9. It reports the
+   interruption when the signal cut the run's loop short — which is what the
+   points above describe. A run whose loop had already finished when the signal
+   arrived, one parked on the TUI's finished screen (§FS-rhei-run-tui.1.5.7),
+   reports its own result instead: nothing was interrupted. It still exits
+   `128 + signal`, because a signalled process reports its signal.
+
+A **second** signal skips the grace and `SIGKILL`s every live group at once.
+Only the operator can ask for that, and only by signalling twice. A run tearing
+itself down for its own reasons — an error return, a panic unwind — stops its
+work without shortening anyone's grace, so a single Ctrl+C is never escalated
+into an immediate kill by a failure somewhere else in the run.
+The operator is told so once, while the first shutdown is in progress, as a
+warning on the run's event stream; the frontend decides where it is legible
+(§FS-rhei-run-tui.1.8). One notice, whichever waiter notices the interrupt
+first — not one per invocation:
+
+```text
+Interrupted — terminating 2 invocation(s) (auth.1@implement, auth.3@review); press Ctrl+C again to kill immediately.
+```
+
+**An interruption is the operator's, not the run's.** The teardown that ends
+in-flight invocations serves both an operator's signal and a run unwinding from
+its own failure, and the invocations it ends carry the same `interrupted`
+record either way. Only the first is an *interrupted run*: only a signal makes
+the run report the interruption, exit `128 + signal`, or tell the operator to
+re-run to continue. A run that died of an error reports the error, and its
+tickets are described by why the run failed — never by "re-run to continue",
+which would point the operator away from the failure that killed them.
+
+**Supervisor death.** Termination is not conditional on a signal `rhei run` can
+handle. An early error return, a panic unwind, and a normal end all pass
+through the same group-termination path before the command returns. On Linux
+each subprocess additionally arms a parent-death signal, so a `SIGKILL`ed or
+OOM-killed supervisor — which runs no code at all — still delivers `SIGTERM` to
+what it started. That backstop is best-effort and Linux-only; the handled paths
+above are the contract. §GOAL-rhei-outcomes
+
+**Lost console output.** When the run's own output disappears mid-run — the
+reader of a pipe stopped (`EPIPE`), or the terminal it was printing to went
+away (`EIO`) — `rhei run` ends the way a Unix filter does: quietly, with status
+`141`, or `128 + signal` when a signal had already arrived. It ends that way
+**after terminating every in-flight process group**, because an exit taken from
+inside a failed print runs no destructors and none of the paths above can fire.
+`EPIPE` says the reader is gone wherever it points. `EIO` says it only on a
+terminal — on a redirected stdout it is an ordinary write failure, a full device
+or a dropped mount, and must be reported as one. Which of the two a stream is,
+is decided by a reading taken **at startup**: a pty whose master has closed
+fails `isatty` with `EIO` like every other ioctl on it, so a stream asked
+afterwards denies ever having been a terminal, at exactly the moment the answer
+decides whether the run ends quietly or aborts mid-unwind.
+
+No run report is written in that case: there is nowhere left to say so, and
+what the run did is in the task files, which are already current. A terminal
+that goes away *after* the run has ended finds the report already on disk
+(§FS-rhei-run-tui.1.8).
 
 ## 4. Dry Run
 

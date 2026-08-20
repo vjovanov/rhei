@@ -52,6 +52,9 @@ enum LedgerOutcome {
     Failed(String),
     Cancelled,
     TimedOut,
+    /// The run was interrupted and the engine ended the invocation; no
+    /// transition was selected. §FS-rhei-run.3.2
+    Interrupted,
 }
 
 /// `EventSink` recording per-task driver/duration for the console task tree and
@@ -153,6 +156,7 @@ impl rhei_tui::EventSink for SummarySink {
                     rhei_tui::TaskOutcome::Failed(msg) => LedgerOutcome::Failed(msg),
                     rhei_tui::TaskOutcome::Cancelled => LedgerOutcome::Cancelled,
                     rhei_tui::TaskOutcome::TimedOut => LedgerOutcome::TimedOut,
+                    rhei_tui::TaskOutcome::Interrupted => LedgerOutcome::Interrupted,
                 };
                 state.ledger.push(LedgerRecord {
                     task,
@@ -359,6 +363,9 @@ impl Drop for RunReportGuard<'_> {
                 mode: self.mode,
                 initial_states: self.initial_states.clone(),
                 dry_run: false,
+                // The fallback fires while the run is failing, so there is no
+                // captured reading to use: ask the token now. §FS-rhei-run.3.2
+                interrupted: interrupted_by_signal(),
             },
         );
     }
@@ -533,6 +540,11 @@ pub struct RunStats {
     /// True under `--dry-run`: the report records a simulated run that applied no
     /// changes, so its result line and counts read as a preview. §FS-rhei-run-report.3.5
     pub dry_run: bool,
+    /// True when the run's own loop was cut short by a signal, captured where
+    /// that loop ends: a run already finished when the signal arrived — parked
+    /// on the TUI's finished screen — has a result of its own to report.
+    // §FS-rhei-run.3.2
+    pub interrupted: bool,
 }
 
 /// One rendered Transition Ledger row. §FS-rhei-run-report.4
@@ -629,6 +641,10 @@ impl RunSummaryReport {
         plan_arg: &str,
     ) -> Self {
         let activity = summary.snapshot();
+        // Read once: the ledger answers both "why is this ticket halted" below
+        // and the report's own Transition Ledger further down.
+        let ledger_records = summary.ledger();
+        let ledger = &ledger_records;
 
         // Why each halted ticket is halted, resolved once against the whole
         // plan. The table below needs the plan's priors and claims, which a
@@ -647,6 +663,20 @@ impl RunSummaryReport {
                     .and_then(|entry| entry.missing_outputs.as_ref())
                     .filter(|(stalled_in, entries)| stalled_in == state && !entries.is_empty())
                     .map(|(_, entries)| entries.clone())
+            },
+            // Only the ticket's *last* invocation explains where it is, and
+            // only for a run the operator stopped: a failing run ends its
+            // workers the same way. §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
+            &|id| {
+                stats.interrupted
+                    && matches!(
+                        ledger
+                            .iter()
+                            .rev()
+                            .find(|record| record.task == id)
+                            .map(|record| &record.outcome),
+                        Some(LedgerOutcome::Interrupted)
+                    )
             },
             plan_arg,
         )
@@ -706,22 +736,24 @@ impl RunSummaryReport {
         let result = if stats.dry_run {
             "dry run — no changes applied".to_string()
         } else {
-            result_phrase(&attention, &rows, no_work, advanced_without_work)
+            // Why the loop ended, as the caller read it when it ended (see
+            // `result_phrase`). §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
+            result_phrase(&attention, &rows, no_work, advanced_without_work, stats.interrupted)
         };
         let work = format_work(stats.agents_spawned, stats.programs_spawned, stats.callback_only);
         let accounting = summary.accounting();
         let task_accounting = build_task_accounting_rows(&rows, &activity);
 
-        let ledger = build_ledger(
+        let ledger_rows = build_ledger(
             &rows,
             &attention,
             &halt_causes,
-            &summary.ledger(),
+            ledger,
             &stats.initial_states,
             machines,
             &stats.workspace_root,
         );
-        let invocations = build_invocations(&summary.ledger(), &stats.workspace_root);
+        let invocations = build_invocations(ledger, &stats.workspace_root);
 
         Self {
             title: rhei.title.clone(),
@@ -744,7 +776,7 @@ impl RunSummaryReport {
             programs_spawned: stats.programs_spawned,
             callback_only: stats.callback_only,
             terminal_at_start,
-            ledger,
+            ledger: ledger_rows,
             invocations,
             task_accounting,
             report_path: None,
@@ -1276,15 +1308,35 @@ fn attention_reason(
     }
 }
 
+/// The run's one-line outcome.
+///
+/// `interrupted` outranks everything else: the operator stopped the run, so
+/// whatever the plan looks like now is a snapshot of work in progress and not a
+/// verdict on it. Reading it as "stopped for human attention" told the operator
+/// to go and act on tickets whose only problem was that they were interrupted.
+///
+/// The caller passes the *signal* reading of the stop token, not the bare one:
+/// a run unwinding from an error raises it too, on its way to tearing down the
+/// groups it still owned, and that run has a verdict of its own. It passes the
+/// reading taken where its loop ended, not one taken here: a run that had
+/// already finished when the signal arrived was not cut short by it.
+// §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
 fn result_phrase(
     attention: &[AttentionRow],
     rows: &[TaskRow],
     no_work: bool,
     advanced_without_work: bool,
+    // Named for the reading, not for the function that takes it: spelling this
+    // `interrupted_by_signal` put the free function of that name in scope
+    // beside a parameter shadowing it, and made "ask the token here" — the one
+    // thing the paragraph above forbids — a one-character edit that compiles.
+    cut_short_by_signal: bool,
 ) -> String {
     let all_terminal_success =
         rows.iter().all(|r| matches!(r.marker, Marker::Done | Marker::TerminalAtStart));
-    if !attention.is_empty() {
+    if cut_short_by_signal {
+        "interrupted — re-run to continue".to_string()
+    } else if !attention.is_empty() {
         // Gated and blocked tasks both halt the run for a human; the report and
         // tree carry the per-task distinction. §FS-rhei-run-report.6
         "stopped for human attention".to_string()
@@ -1344,6 +1396,8 @@ fn ledger_outcome_reason(outcome: &LedgerOutcome, exit_code: Option<i32>) -> Str
         }
         LedgerOutcome::Cancelled => "cancelled".to_string(),
         LedgerOutcome::TimedOut => "timed out".to_string(),
+        // Not a verdict on the ticket: the run stopped the worker. §FS-rhei-run.3.2
+        LedgerOutcome::Interrupted => "interrupted".to_string(),
     }
 }
 
@@ -1469,6 +1523,7 @@ fn build_invocations(
             exit: match (&rec.outcome, rec.exit_code) {
                 (LedgerOutcome::Cancelled, _) => "cancelled".to_string(),
                 (LedgerOutcome::TimedOut, _) => "timed out".to_string(),
+                (LedgerOutcome::Interrupted, _) => "interrupted".to_string(),
                 (_, Some(code)) => format!("exit {code}"),
                 (_, None) => "—".to_string(),
             },
@@ -1556,6 +1611,10 @@ impl Palette {
         }
         if result.starts_with("stopped — ") {
             RED
+        } else if result.starts_with("interrupted") {
+            // Not red: an interrupted run is a run the operator stopped, not a
+            // run that went wrong. §FS-rhei-run-report.3.1
+            YELLOW
         } else if result.starts_with("stopped") {
             YELLOW
         } else if result == "completed" {
@@ -1601,6 +1660,7 @@ mod run_summary_tests {
             mode: "agent",
             initial_states: HashMap::new(),
             dry_run: false,
+            interrupted: false,
         }
     }
 
@@ -1870,6 +1930,20 @@ transitions:
             .filter_map(Result::ok)
             .count();
         assert_eq!(history, 1, "one timestamped history entry written");
+    }
+
+    /// The result follows the reading the run took when its loop ended, not
+    /// the process-wide token at report time: a signal that arrives after the
+    /// run finished — while the TUI is parked on its finished screen — leaves
+    /// the run its own result.
+    // §FS-rhei-run.3.2 §FS-rhei-run-report.3.1
+    #[test]
+    fn a_signal_after_the_loop_finished_does_not_relabel_the_result() {
+        let finished = report_with(&[("1", "completed")], test_stats());
+        assert_eq!(finished.result, "completed");
+        let cut_short =
+            report_with(&[("1", "completed")], RunStats { interrupted: true, ..test_stats() });
+        assert_eq!(cut_short.result, "interrupted — re-run to continue");
     }
 
     #[test]

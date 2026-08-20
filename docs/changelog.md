@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+- Give `rhei run` real ownership of the subprocesses it starts. Agents and
+  programs were plain children in the supervisor's own process group, and
+  `rhei run` installed no signal handler at all, so every way the supervisor
+  could die except a foreground `Ctrl+C` left its agents running: reparented to
+  init, still writing into the workspace under `bypassPermissions`, with their
+  timeout enforced by nobody and the next run free to spawn a second agent for
+  the same ticket. Ctrl+C in the TUI was one of those ways — raw mode generates
+  no tty `SIGINT`, so the TUI re-raised `SIGINT` on `rhei` alone and killed only
+  the supervisor. The timeout path had the same bug one level down: it signalled
+  the direct child pid, so an agent's MCP servers and `bash` tools survived a
+  timeout kill.
+
+  Every subprocess `rhei run` starts itself — agents, programs, and the snapshot
+  redactor — is now a **supervised process group** with one early-termination
+  path and three reasons to take it: its deadline, an operator interrupt, or the
+  supervisor's death. Termination is `SIGTERM` →
+  10 s → `SIGKILL` against the **group**, whichever reason fired it, so an
+  invocation can no longer outlive its own death certificate by handing work to
+  a grandchild. Subprocesses no longer inherit the operator's terminal on
+  stdin: a profile that does not pipe a prompt gets `/dev/null`.
+
+  **`SIGINT`, `SIGTERM`, and `SIGHUP` now interrupt the run** instead of
+  killing the supervisor out from under its workers. No new work is scheduled,
+  in-flight invocations are terminated as groups and reaped, and `rhei run`
+  exits `128 + signal` (`130`, `143`, `129`). A second signal skips the grace.
+  An interruption is neither a failure nor a timeout: **no transition fires**,
+  the ticket keeps its state, `runtime/state-transitions.log` gains no entry,
+  and the next `rhei run` simply re-executes the state. The run report, the
+  journal, the dashboard, and the log footer all record it as `interrupted`
+  (`interrupted: true`, above it `agent interrupted by run shutdown after
+  {duration}`), so re-running is the whole recovery procedure. The paths a
+  handler cannot cover are covered too: a drop guard tears the groups down on an
+  early error return or a panic unwind, and on Linux each subprocess arms
+  `PR_SET_PDEATHSIG(SIGTERM)` as a best-effort backstop for `SIGKILL` and OOM.
+  That backstop reaches the direct subprocess only — its own descendants survive
+  a supervisor `SIGKILL` unless it tears them down as it dies, because group-wide
+  teardown needs the supervisor alive to signal the group.
+
+  An interruption is the **operator's**, and the run says so once. The stop
+  token counts "the run is shutting down" apart from "how many times the
+  operator asked", because a run tearing itself down after its own failure
+  means the first and never the second: sharing one counter let a single Ctrl+C
+  plus any failed `?` elsewhere skip the grace and `SIGKILL` an agent outright.
+  For the same reason a run that died of an error no longer tells the tickets it
+  killed to "re-run to continue", says nothing about a Ctrl+C nobody pressed,
+  and stops only its *own* workers: a teardown is scoped to the run that raised
+  it rather than to the process, so a run beside it — the in-process tests drive
+  more than one — is neither stopped nor left to start up already interrupted
+  and report success without doing any work. A shutdown outranks a deadline
+  whenever it arrives: on the same poll, or anywhere inside the ten seconds the
+  deadline's own grace opened, that invocation is interrupted rather than timed
+  out and no timeout transition fires. Every early
+  termination now takes the one sequence, including an invocation abandoned
+  between its spawn and its wait, which used to be `SIGKILL`ed with no grace at
+  all. A run interrupted while a sequential program was in flight no longer
+  answers by starting one more agent.
+
+  Under the TUI, `Ctrl+C` on the finished screen leaves the run its report: it
+  re-raises the signal and hands back, where before it ended the process from
+  the render thread and ran no destructor, which is the failure the external
+  signal path had already been fixed for. A terminal that fails to *read* after
+  reporting a key is treated like one that fails to poll, instead of spinning.
+  And an `EIO` on a redirected stdout is a real write failure again — a dropped
+  mount, a full device — rather than being read as a closed terminal and
+  answered by killing every agent and exiting `141` without a word. The reading
+  that tells those two apart is taken at startup: a pty whose master has closed
+  fails `isatty` with `EIO` like every other ioctl on it, so asked afterwards it
+  denies ever having been a terminal — at exactly the moment the answer decides
+  whether a lost console ends the run quietly or aborts it mid-unwind.
+
+  Under the TUI an interrupted run now **leaves the screen** instead of parking
+  on it. The finished surface stays navigable until `q` only for a run that
+  ended on its own terms; waiting for `q` after a signal held the engine inside
+  its own shutdown — it joins the render thread first — so an externally
+  signalled TUI run wrote no report, printed nothing, returned no exit code, and
+  ignored every further signal short of `SIGKILL`. A terminal that has gone away
+  ends the TUI too, at any point in the run: a closed pty used to read as "no
+  key was pressed" and turned the render loop into a busy loop. Losing the
+  run's console output — a closed pipe, a terminal that went away — now ends
+  `rhei run` as quietly as it ends any Unix filter, instead of panicking on the
+  first write and aborting on the second; and because that exit runs no
+  destructors, it terminates every in-flight process group on its way out
+  rather than leaving them to the Linux parent-death backstop. A run that ends
+  there writes no report: the task files, untouched, are what it left behind.
+
+  A run that fails on its own leaves the same way. The subprocess guard now
+  drops before the frontend, so a failing TUI run tells its surface before that
+  surface decides whether to park: it used to sit on the finished screen with
+  its groups still running, waiting for a `q` from an operator who had no reason
+  to still be watching, and never reached the error it was about to report. The
+  termination sequence ends its group on every path through it, including one it
+  cannot poll — returning there skipped the `SIGKILL` and then deregistered a
+  group that was still alive. A reaped invocation is struck off the live
+  registry exactly once, so a reused pgid is not struck off with it. The refusal
+  to start new work is enforced at the spawn itself rather than only at the
+  scheduler, which is a whole item's work earlier. And the snapshot redactor's
+  durable log records interruption beside timeout, so a redactor the run killed
+  no longer reads as an unexplained failure. Issue #53. PR #77 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+  §DA-supervised-process-groups
+
 - Publish the plan-model crate as `rhei-plan` rather than `rhei-plan-core`.
   The `-core` suffix was never chosen on its own merits: `rhei-core` belongs to
   an unrelated project on crates.io, so `-plan-` was inserted purely to

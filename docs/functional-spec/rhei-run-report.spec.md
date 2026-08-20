@@ -85,6 +85,15 @@ the summary prints five stacked groups:
 
 1. **Result line** - plan title, run id, duration, and overall result, using the
    same result vocabulary as the report header.
+
+   A run the operator interrupted (§FS-rhei-run.3.2) reads as its own outcome
+   and not as a halt: the result line is `interrupted — re-run to continue`,
+   taking precedence over every other phrase, and the Attention row of a ticket
+   whose worker was interrupted names the interruption as the blocker with
+   `re-run to continue` as the next action. Neither surface tells the operator
+   to inspect logs or to cancel the task: nothing about the ticket failed, the
+   run was stopped, and re-running it is the whole recovery. The console prints
+   no `Run complete:` line for such a run.
 2. **Counts** - two dense lines: final task states, then run activity (agents,
    programs, reused-output, callback-only, terminal-at-start, could-not-advance).
    The states line is preceded by a static state-distribution bar whose segments
@@ -101,10 +110,17 @@ the summary prints five stacked groups:
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
-   unsatisfied `**Prior:**`; a manual-only initial state; a worker that ran and
+   unsatisfied `**Prior:**`; a worker interrupted mid-flight by an *operator's*
+   shutdown (§FS-rhei-run.3.2) — a run that tore its own workers down while
+   failing describes their tickets by the failure instead, never by "re-run to
+   continue"; a manual-only initial state; a worker that ran and
    left a required artifact unwritten — agent or program alike, since both are
    workers and both stall the same way; a ticket the run never scheduled; no
-   declared outgoing transition; anything else. Non-leaf tasks are classified alongside leaves
+   declared outgoing transition; anything else. Interruption is classified
+   ahead of the missing-artifact class because it explains it: a worker the run
+   killed had no chance to write what it owed, and telling the operator to
+   write those files by hand would be advice about a stall that did not
+   happen. Non-leaf tasks are classified alongside leaves
    because a non-leaf task is a task in its own right
    (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
    waiting on that subtree, which is a structural consequence rather than
@@ -335,7 +351,7 @@ columns are:
 | `inputs` | Compact `name: ok/missing/optional-missing` list with resolved paths in the detail block. |
 | `outputs` | Compact `name: created/reused/missing/not-checked` list with resolved paths in the detail block. |
 | `invocation` | Agent/program label and log path, or `none`. |
-| `reason` | The condition that selected the row: exit code, callback, output reuse, prior dependency, gate, poll delay, missing input, missing output, missing skill/MCP, terminal state, or run option. |
+| `reason` | The condition that selected the row: exit code, callback, output reuse, prior dependency, gate, poll delay, missing input, missing output, missing skill/MCP, terminal state, interruption, or run option. |
 
 `driver: reused-output` means the current state's required outputs existed
 before any subprocess was spawned for that decision, so Rhei was able to evaluate
@@ -347,6 +363,15 @@ the checked outputs and mark them `reused`.
 transition rules while autonomous spawning was disabled or not applicable. It is
 not used for existing-output reuse, because that case needs its own visual
 treatment.
+
+An invocation the operator interrupted (§FS-rhei-run.3.2) reports `interrupted`
+as both its exit status in **Invocations** and its ledger `reason`: the run
+stopped the worker before it could finish, so the row records the state it ran
+in and no transition out of it. It is deliberately distinct from `timed out`
+and from a failing exit code — nothing about the ticket is known to be wrong,
+and the marker used for it in live surfaces (`⏹`) is calm chrome rather than
+attention color, for the same reason. The ticket's own row keeps whatever
+marker its unchanged state earns.
 
 `driver: blocked` is used for non-terminal tasks that remain in place at run end.
 The row's `reason` must name the first concrete blocker Rhei can prove, such as

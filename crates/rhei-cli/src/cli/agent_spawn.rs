@@ -6,22 +6,37 @@
 /// non-zero exit through the timeout transition path (with `triggeredBy:
 /// 'system'` and `transitionData.timeout`) or through the generic non-zero
 /// exit path.
+///
+/// `interrupted` is set when the run was shutting down: the engine ended the
+/// agent's process group, so the exit status says nothing about the ticket.
+// §FS-rhei-run.3.2: an interrupted invocation fires no transition.
 #[derive(Debug, Clone)]
 struct AgentSpawnOutcome {
     status: std::process::ExitStatus,
     timed_out: bool,
+    interrupted: bool,
     timeout_secs: Option<u64>,
     usage_capture_path: Option<PathBuf>,
 }
 
 #[cfg(not(test))]
-const AGENT_TERMINATE_GRACE: Duration = Duration::from_secs(10);
-#[cfg(test)]
-const AGENT_TERMINATE_GRACE: Duration = Duration::from_millis(50);
-#[cfg(not(test))]
 const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(100);
 #[cfg(test)]
 const AGENT_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(20);
+
+impl InvocationOutcome for AgentSpawnOutcome {
+    fn was_interrupted(&self) -> bool {
+        self.interrupted
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out
+    }
+
+    fn status(&self) -> std::process::ExitStatus {
+        self.status
+    }
+}
 
 fn with_agent_log<T>(
     log_file: &Arc<Mutex<fs::File>>,
@@ -275,11 +290,40 @@ fn spawn_and_wait_agent(
     }
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
-    let mut child =
-        cmd.spawn().map_err(|e| miette!(
-            help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
-            "failed to spawn agent '{}': {e}", resolved.agent.id()
-        ))?;
+    // The agent leads its own process group, so its MCP servers and shell tools
+    // are terminated with it, and it never inherits the operator's terminal.
+    // §FS-rhei-run.3.2
+    let mut supervised = match Supervised::spawn(&mut cmd, &format!("{task_id}@{state_name}")) {
+        Ok(supervised) => supervised,
+        // Interrupted between the scheduler's check and the spawn. Nothing
+        // started, so there is no verdict on the ticket and no transition
+        // fires. §FS-rhei-run.3.2 §FS-rhei-agents.8
+        Err(err) if spawn_was_interrupted(&err) => {
+            let _ = with_agent_log(&log_file, |f| {
+                writeln!(f, "\nagent not started: the run was interrupted first")?;
+                writeln!(f, "\n=== exit ===")?;
+                writeln!(f, "code: -")?;
+                writeln!(f, "ended: {}", format_iso8601_utc(std::time::SystemTime::now()))?;
+                writeln!(f, "interrupted: true")?;
+                writeln!(f, "===")?;
+                f.flush()
+            });
+            return Ok(AgentSpawnOutcome {
+                status: never_started_status(),
+                timed_out: false,
+                interrupted: true,
+                timeout_secs: resolved.timeout_secs,
+                usage_capture_path: None,
+            });
+        }
+        Err(e) => {
+            return Err(miette!(
+                help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
+                "failed to spawn agent '{}': {e}", resolved.agent.id()
+            ))
+        }
+    };
+    let child = &mut supervised.child;
 
     let stdout_handle = child.stdout.take().map(|stdout| {
         spawn_agent_output_reader(
@@ -362,47 +406,22 @@ fn spawn_and_wait_agent(
     }
 
     let start = Instant::now();
-    let mut timed_out = false;
 
-    // Wait with optional timeout.
-    let status = if let Some(timeout_secs) = resolved.timeout_secs {
-        let timeout = Duration::from_secs(timeout_secs);
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break Ok(status),
-                Ok(None) => {
-                    if start.elapsed() > timeout {
-                        timed_out = true;
-                        terminate_child_gracefully(&mut child);
-                        // Grace period.
-                        std::thread::sleep(AGENT_TERMINATE_GRACE);
-                        match child.try_wait() {
-                            Ok(Some(status)) => break Ok(status),
-                            _ => {
-                                let _ = child.kill(); // SIGKILL
-                                break child.wait().map_err(|e| {
-                                    miette!(
-                                        help = agent_command_help(),
-                                        "failed to wait for agent after kill: {e}"
-                                    )
-                                });
-                            }
-                        }
-                    }
-                    std::thread::sleep(Duration::from_millis(500));
-                }
-                Err(e) => break Err(miette!(
-                    help = agent_command_help(),
-                    "error waiting for agent: {e}"
-                )),
-            }
-        }
-    } else {
-        child.wait().map_err(|e| miette!(
+    // One wait for all three endings: exit, deadline, run interruption. The
+    // last two terminate the agent's whole group. §FS-rhei-run.3.2
+    let ended = supervised
+        .wait(
+            resolved.timeout_secs.map(Duration::from_secs),
+            &INTERRUPT,
+            &notify_through_sink(&sink),
+        )
+        .map_err(|e| miette!(
             help = agent_command_help(),
-            "failed to wait for agent: {e}"
-        ))
-    }?;
+            "error waiting for agent: {e}"
+        ))?;
+    let status = ended.status;
+    let timed_out = ended.cause == EndCause::TimedOut;
+    let interrupted = ended.cause == EndCause::Interrupted;
 
     // The agent has exited: drop its intervene registration, which ends the
     // stdin writer thread and closes the pipe.
@@ -425,22 +444,30 @@ fn spawn_and_wait_agent(
     // `agent timed out after {duration}` line so operators see the cause
     // without inferring it from the exit code alone.
 
-    // §FS-rhei-agents.8: Agent log footer and timeout cause.
+    // §FS-rhei-agents.8: Agent log footer, timeout and interruption causes.
+    let elapsed = start.elapsed();
     let timeout_message =
         if timed_out { resolved.timeout_secs.map(format_duration_human) } else { None };
     with_agent_log(&log_file, |f| {
         if let Some(duration) = &timeout_message {
             writeln!(f, "\nagent timed out after {duration}")?;
-            writeln!(f, "\n=== exit ===")?;
-        } else {
-            writeln!(f, "\n=== exit ===")?;
+        } else if interrupted {
+            // The run was shutting down, not the agent failing. §FS-rhei-run.3.2
+            writeln!(
+                f,
+                "\nagent interrupted by run shutdown after {}",
+                format_duration_human(elapsed.as_secs())
+            )?;
         }
+        writeln!(f, "\n=== exit ===")?;
         writeln!(f, "code: {}", status.code().unwrap_or(-1))?;
-        let elapsed = start.elapsed();
         writeln!(f, "duration: {}", format_duration_human(elapsed.as_secs()))?;
         writeln!(f, "ended: {}", format_iso8601_utc(std::time::SystemTime::now()))?;
         if timed_out {
             writeln!(f, "timed_out: true")?;
+        }
+        if interrupted {
+            writeln!(f, "interrupted: true")?;
         }
         writeln!(f, "===")?;
         f.flush()
@@ -453,6 +480,7 @@ fn spawn_and_wait_agent(
     Ok(AgentSpawnOutcome {
         status,
         timed_out,
+        interrupted,
         timeout_secs: resolved.timeout_secs,
         usage_capture_path,
     })

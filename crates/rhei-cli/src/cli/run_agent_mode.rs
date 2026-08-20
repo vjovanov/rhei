@@ -380,6 +380,12 @@ fn spawn_parallel_agent_work_item(
     sink: &Arc<dyn rhei_tui::EventSink>,
     intervene: Option<&Arc<RunInterveneSink>>,
 ) -> MietteResult<ParallelAgentSpawnOutcome> {
+    // The work item was chosen before the interrupt arrived; starting it now
+    // would be new work the shutdown promised not to schedule.
+    // §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(ParallelAgentSpawnOutcome::Skipped);
+    }
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&item.task_id_str);
     // The item's owning rhei supplies its machine and callback base.
@@ -578,8 +584,12 @@ fn spawn_parallel_agent_work_item(
     let task_for_accounting = task.clone();
     let task_id_for_panic = tid.clone();
     let state_for_panic = sname.clone();
+    // The worker spawns this run's subprocess, so the run's shutdown guard —
+    // and no other — owns the group it leads. §FS-rhei-run.3.2
+    let run_owner = current_run_owner();
 
     let handle = std::thread::spawn(move || {
+        inherit_run_owner(run_owner);
         let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let resolved = resolved_for_thread;
             let result = spawn_and_wait_agent(
@@ -603,23 +613,7 @@ fn spawn_parallel_agent_work_item(
                 result_identity.as_deref(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
-            let (outcome, exit_code) = match &result {
-                Ok(outcome) if outcome.status.success() => {
-                    (rhei_tui::TaskOutcome::Completed, outcome.status.code())
-                }
-                Ok(outcome) => {
-                    let code = outcome.status.code().unwrap_or(-1);
-                    (
-                        if outcome.timed_out {
-                            rhei_tui::TaskOutcome::TimedOut
-                        } else {
-                            rhei_tui::TaskOutcome::Failed(format!("exit {code}"))
-                        },
-                        outcome.status.code(),
-                    )
-                }
-                Err(err) => (rhei_tui::TaskOutcome::Failed(err.to_string()), None),
-            };
+            let (outcome, exit_code) = slot_outcome(&result);
             let finished_wall = std::time::SystemTime::now();
             sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
                 slot,
@@ -692,6 +686,11 @@ fn spawn_parallel_program_work_item(
     runtime_dir: &Path,
     sink: &Arc<dyn rhei_tui::EventSink>,
 ) -> MietteResult<ParallelProgramSpawnOutcome> {
+    // As for agents: a slot was reserved for this item before the interrupt,
+    // and the shutdown starts nothing further. §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(ParallelProgramSpawnOutcome::Skipped);
+    }
     let loaded = load_plan(input)?;
     let target_id = parse_task_id(&item.task_id_str);
     // The item's owning rhei supplies its machine and callback base.
@@ -744,8 +743,11 @@ fn spawn_parallel_program_work_item(
     let state_name_for_result = item.current_state.clone();
     let task_id_for_panic = item.task_id_str.clone();
     let state_for_panic = item.current_state.clone();
+    // §FS-rhei-run.3.2: the program's group belongs to this run.
+    let run_owner = current_run_owner();
 
     let handle = std::thread::spawn(move || {
+        inherit_run_owner(run_owner);
         let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root_for_thread,
@@ -771,25 +773,10 @@ fn spawn_parallel_program_work_item(
                 &resolved_for_thread,
                 &render_context,
                 &log_for_thread,
+                &sink_for_thread,
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
-            let (outcome, exit_code) = match &result {
-                Ok(program_outcome) if program_outcome.status.success() => {
-                    (rhei_tui::TaskOutcome::Completed, program_outcome.status.code())
-                }
-                Ok(program_outcome) => {
-                    let code = program_outcome.status.code().unwrap_or(-1);
-                    (
-                        if program_outcome.timed_out {
-                            rhei_tui::TaskOutcome::TimedOut
-                        } else {
-                            rhei_tui::TaskOutcome::Failed(format!("exit {code}"))
-                        },
-                        program_outcome.status.code(),
-                    )
-                }
-                Err(err) => (rhei_tui::TaskOutcome::Failed(err.to_string()), None),
-            };
+            let (outcome, exit_code) = slot_outcome(&result);
             sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
                 slot,
                 task: task_id_for_result.clone(),
@@ -1026,6 +1013,11 @@ fn refill_parallel_worker_pool(
     active_state_counts: &mut HashMap<String, usize>,
     handles: &mut Vec<std::thread::JoinHandle<()>>,
 ) -> MietteResult<ParallelScheduleOutcome> {
+    // A freed slot is not refilled once the run is interrupted: the shutdown
+    // drains what is in flight, it does not start more. §FS-rhei-run.3.2
+    if interrupt_requested() {
+        return Ok(ParallelScheduleOutcome { spawned: 0, advanced: false, skipped: Vec::new() });
+    }
     // Program and agent work share live capacity.
     // Each completion reloads the ready set. §FS-rhei-run.3 §FS-rhei-programs.6.3
     let task_capacity = if task_limit == usize::MAX {
@@ -1185,6 +1177,16 @@ fn handle_parallel_program_completion(
     let callback_paths = machines.callbacks_for_str(&task_id_str);
 
     match result {
+        // §FS-rhei-run.3.2: the run ended this program; no transition fires and
+        // the ticket keeps its state.
+        Ok(program_outcome) if program_outcome.interrupted => {
+            emit_run_message(
+                sink,
+                rhei_tui::MessageLevel::Warn,
+                interrupted_task_warning(&task_id_str, &state_name, None),
+            );
+            Ok(ParallelProgramCompletionEffect { advanced: false, program_spawned: true })
+        }
         Ok(program_outcome) => {
             let mut advanced = false;
             let target_id = parse_task_id(&task_id_str);
@@ -1404,7 +1406,7 @@ fn run_agent_mode(
     opts: &RunOptions,
     max_parallel: usize,
 ) -> MietteResult<()> {
-    use rhei_tui::{MessageLevel, RunEvent, RunSummary, TaskOutcome};
+    use rhei_tui::{MessageLevel, RunEvent, RunSummary};
     use std::time::{Instant as TuiInstant, SystemTime};
 
     let callback_paths = &machines.default_callbacks;
@@ -1441,6 +1443,10 @@ fn run_agent_mode(
         summary: None,
         armed: true,
     };
+    // This run's copy of "the run is ending abnormally", handed to the
+    // frontend below and raised by the subprocess guard on its way out.
+    // §FS-rhei-run-tui.1.5.7
+    let run_shutdown = RunShutdown::default();
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
@@ -1449,7 +1455,12 @@ fn run_agent_mode(
         opts,
         frontend_parallel,
         initial_total_tasks,
+        &run_shutdown,
     );
+    // Declared after the frontend so it drops *before* it: the surface must
+    // learn the run is unwinding before it decides whether to park.
+    // §FS-rhei-run.3.2 §FS-rhei-run-tui.1.5.7
+    let mut subprocess_guard = RunSubprocessGuard::install(run_shutdown);
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration
     // instead of letting them write straight to the terminal and corrupt the
@@ -1549,6 +1560,17 @@ fn run_agent_mode(
     }
 
     loop {
+        // Schedule nothing new once the run is interrupted; the in-flight
+        // invocations have already ended themselves. §FS-rhei-run.3.2
+        if interrupt_requested() {
+            // Through the journal, not stderr: when no subprocess is in flight
+            // the operator may still be looking at a live TUI.
+            // §FS-rhei-run-tui.1.8
+            if let Some(notice) = take_interruption_announcement() {
+                run_warn!("{notice}");
+            }
+            break;
+        }
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
             find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
@@ -1566,7 +1588,9 @@ fn run_agent_mode(
                         );
                         awaiting_gate_announced = true;
                     }
-                    std::thread::sleep(Duration::from_millis(500));
+                    // Sliced, so Ctrl+C ends the wait instead of the wait
+                    // outlasting the operator. §FS-rhei-run.3.2
+                    interruptible_sleep(Duration::from_millis(500));
                     continue;
                 }
                 if let Some(deadline) =
@@ -1577,7 +1601,9 @@ fn run_agent_mode(
                         "No ready tasks; sleeping {}s until the next poll attempt.",
                         sleep_secs
                     );
-                    std::thread::sleep(Duration::from_secs(sleep_secs));
+                    // A poll deadline is minutes away; the token must not wait
+                    // it out. §FS-rhei-run.3.2
+                    interruptible_sleep(Duration::from_secs(sleep_secs));
                     continue;
                 }
             }
@@ -1942,6 +1968,11 @@ fn run_agent_mode(
             }
 
             for (task_id_str, _current_state_raw, current_state, resolved) in &program_tasks {
+                // The pass collected every ready program before the interrupt;
+                // the ones not yet started stay unstarted. §FS-rhei-run.3.2
+                if interrupt_requested() {
+                    break;
+                }
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
                 let machine = machines.for_task_str(task_id_str);
@@ -1989,26 +2020,11 @@ fn run_agent_mode(
                     wall_clock: started_wall,
                 });
 
-                let spawn_result = spawn_and_wait_program(resolved, &render_context, &log);
+                let spawn_result =
+                    spawn_and_wait_program(resolved, &render_context, &log, &sink);
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
-                let (outcome, exit_code) = match &spawn_result {
-                    Ok(program_outcome) if program_outcome.status.success() => {
-                        (TaskOutcome::Completed, program_outcome.status.code())
-                    }
-                    Ok(program_outcome) => {
-                        let code = program_outcome.status.code().unwrap_or(-1);
-                        (
-                            if program_outcome.timed_out {
-                                TaskOutcome::TimedOut
-                            } else {
-                                TaskOutcome::Failed(format!("exit {code}"))
-                            },
-                            program_outcome.status.code(),
-                        )
-                    }
-                    Err(err) => (TaskOutcome::Failed(err.to_string()), None),
-                };
+                let (outcome, exit_code) = slot_outcome(&spawn_result);
                 sink.emit(RunEvent::SlotReleased {
                     slot: 0,
                     task: task_id_str.clone(),
@@ -2023,6 +2039,14 @@ fn run_agent_mode(
                 });
 
                 match spawn_result {
+                    // §FS-rhei-run.3.2: interrupted, so no transition fires.
+                    Ok(program_outcome) if program_outcome.interrupted => {
+                        programs_spawned += 1;
+                        run_warn!(
+                            "{}",
+                            interrupted_task_warning(task_id_str, current_state, Some(&log))
+                        );
+                    }
                     Ok(program_outcome) => {
                         programs_spawned += 1;
                         let mut reloaded = load_plan(input)?;
@@ -2341,6 +2365,12 @@ fn run_agent_mode(
             // ticket's turn lands on the shared pass tail below, so one ticket
             // giving up never skips the decision about the pass. §FS-rhei-run.3
             'sequential: {
+                // The pass top's check is not enough on its own: this pass may
+                // have spent minutes in the sequential program loop above.
+                // §FS-rhei-run.3.2
+                if interrupt_requested() {
+                    break 'sequential;
+                }
                 let (task_id_str, _current_state_raw, current_state, resolved) = &batch[0];
                 let loaded = load_plan(input)?;
                 let target_id = parse_task_id(task_id_str);
@@ -2532,23 +2562,7 @@ fn run_agent_mode(
                 );
                 let duration_ms = started_at.elapsed().as_millis() as u64;
                 let finished_wall = SystemTime::now();
-                let (outcome, exit_code) = match &spawn_result {
-                    Ok(outcome) if outcome.status.success() => {
-                        (TaskOutcome::Completed, outcome.status.code())
-                    }
-                    Ok(outcome) => {
-                        let code = outcome.status.code().unwrap_or(-1);
-                        (
-                            if outcome.timed_out {
-                                TaskOutcome::TimedOut
-                            } else {
-                                TaskOutcome::Failed(format!("exit {code}"))
-                            },
-                            outcome.status.code(),
-                        )
-                    }
-                    Err(err) => (TaskOutcome::Failed(err.to_string()), None),
-                };
+                let (outcome, exit_code) = slot_outcome(&spawn_result);
                 sink.emit(RunEvent::SlotReleased {
                     slot: 0,
                     task: task_id_str.clone(),
@@ -2591,6 +2605,16 @@ fn run_agent_mode(
                 }
 
                 match spawn_result {
+                    // The run is shutting down: no transition fires, the ticket
+                    // keeps its state, and the next `rhei run` re-executes it.
+                    // §FS-rhei-run.3.2
+                    Ok(AgentSpawnOutcome { interrupted: true, .. }) => {
+                        agents_spawned += 1;
+                        run_warn!(
+                            "{}",
+                            interrupted_task_warning(task_id_str, current_state, Some(&log))
+                        );
+                    }
                     Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
                         agents_spawned += 1;
                         let state_def = machine.states.get(current_state).ok_or_else(|| {
@@ -3164,6 +3188,15 @@ fn run_agent_mode(
                     run_warn!("  warning: failed to record accounting: {}", warning);
                 }
                 match result {
+                    // §FS-rhei-run.3.2: interrupted, so no transition fires and
+                    // the ticket keeps the state it was worked in.
+                    Ok(AgentSpawnOutcome { interrupted: true, .. }) => {
+                        agents_spawned += 1;
+                        run_warn!(
+                            "{}",
+                            interrupted_task_warning(&task_id_str, &state_name, Some(&log))
+                        );
+                    }
                     Ok(AgentSpawnOutcome { status, timed_out, timeout_secs, .. }) => {
                         agents_spawned += 1;
                         let target_id = parse_task_id(&task_id_str);
@@ -3696,6 +3729,20 @@ fn run_agent_mode(
         break;
     }
 
+    // Read once, here, and used for every statement the run makes about
+    // itself: a signal arriving later — while the TUI is parked on its
+    // finished screen — did not cut this loop short. §FS-rhei-run.3.2
+    let interrupted_run = interrupted_by_signal();
+
+    // Say plainly that the run stopped, so the summary below is not read as a
+    // finished run. §FS-rhei-run.3.2
+    if interrupted_run {
+        run_warn!(
+            "\nRun interrupted: no further work was scheduled, and interrupted \
+             invocations left their tickets in the state they were worked in."
+        );
+    }
+
     // Print summary.
     let (terminal_count, total_tasks) = if opts.dry_run() {
         // Spec §Dry-Run Output: final line reads "Dry run complete - no
@@ -3721,12 +3768,24 @@ fn run_agent_mode(
             let loaded = load_plan(input)?;
             let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
             let total_tasks = total_task_count(&loaded.rhei);
-            run_info!(
-                "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
-                callback_transitions_made,
-                terminal_count,
-                total_tasks
-            );
+            // An interrupted run did not complete; saying so twice — once as
+            // a warning and once as "Run complete" — is worse than either.
+            // §FS-rhei-run.3.2
+            if interrupted_run {
+                run_info!(
+                    "\nRun interrupted after {} callback transition(s); {}/{} tasks in terminal state.",
+                    callback_transitions_made,
+                    terminal_count,
+                    total_tasks
+                );
+            } else {
+                run_info!(
+                    "\nRun complete: {} callback transition(s), {}/{} tasks in terminal state.",
+                    callback_transitions_made,
+                    terminal_count,
+                    total_tasks
+                );
+            }
             run_info!("Final states: {}", format_state_counts(&loaded.rhei));
             let mut tasks = Vec::new();
             collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
@@ -3739,13 +3798,24 @@ fn run_agent_mode(
         let loaded = load_plan(input)?;
         let terminal_count = terminal_task_count(&loaded.rhei, &machines.set);
         let total_tasks = total_task_count(&loaded.rhei);
-        run_info!(
-            "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
-            agents_spawned,
-            programs_spawned,
-            terminal_count,
-            total_tasks
-        );
+        // §FS-rhei-run.3.2: the run stopped; it did not complete.
+        if interrupted_run {
+            run_info!(
+                "\nRun interrupted after {} agent(s), {} program(s) spawned; {}/{} tasks in terminal state.",
+                agents_spawned,
+                programs_spawned,
+                terminal_count,
+                total_tasks
+            );
+        } else {
+            run_info!(
+                "\nRun complete: {} agent(s), {} program(s) spawned, {}/{} tasks in terminal state.",
+                agents_spawned,
+                programs_spawned,
+                terminal_count,
+                total_tasks
+            );
+        }
         run_info!("Final states: {}", format_state_counts(&loaded.rhei));
         let mut tasks = Vec::new();
         collect_plan_tasks(&loaded.rhei.tasks, &mut tasks);
@@ -3780,6 +3850,9 @@ fn run_agent_mode(
             accounting,
         },
     });
+    // The loop reached the point where it writes a report, so the finished
+    // surface keeps its operator. §FS-rhei-run-tui.1.5.7
+    subprocess_guard.finished();
     frontend.write_frozen_dashboard();
     drop(diag_guard);
     drop(sink);
@@ -3811,9 +3884,17 @@ fn run_agent_mode(
             mode: "agent",
             initial_states,
             dry_run: opts.dry_run(),
+            interrupted: interrupted_run,
         },
     );
     report_guard.disarm();
+
+    // An interrupted run is not a halt: it was told to stop, and the exit code
+    // already names the signal. `interrupted_run`, not the token, so the halt
+    // decision and the report cannot disagree. §FS-rhei-run.3.2
+    if interrupted_run {
+        return Ok(());
+    }
 
     if !opts.dry_run() {
         let loaded = load_plan(input)?;
