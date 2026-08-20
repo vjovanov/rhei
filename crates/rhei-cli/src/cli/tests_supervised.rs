@@ -100,29 +100,42 @@
             assert!(token.skip_grace());
         }
 
-        /// A teardown flag belongs to the run that raised it. A process drives
-        /// more than one run under the in-process tests, and a flag left
-        /// standing would make every later one break out of its first pass and
-        /// report success without doing any work.
-        #[test]
-        fn releasing_a_teardown_clears_it_for_the_next_run() {
-            let token = StopToken::new();
-            token.request();
-            assert!(token.is_set());
-            token.release_teardown();
-            assert!(!token.is_set());
-            assert!(!token.skip_grace());
+        /// A teardown belongs to the run that raised it. A process drives more
+        /// than one run under the in-process tests, and a teardown that
+        /// escaped its own run would make every other one break out of its
+        /// first pass and report success without doing any work.
+        // §FS-rhei-run.3.2
+#[test]
+        fn a_teardown_stops_its_own_run_and_no_other() {
+            let mine = NEXT_RUN_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let beside = NEXT_RUN_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            mark_run_stopping(mine);
+            assert!(run_is_stopping(mine));
+            assert!(!run_is_stopping(beside), "a run beside it was never asked to stop");
+            assert!(!INTERRUPT.is_set(), "one run's failure is not the process stopping");
+
+            // Ids are handed out once, so the mark a finished run leaves behind
+            // can never be mistaken for a later run's.
+            let later = NEXT_RUN_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert!(!run_is_stopping(later));
+
+            // "No run owns this thread" is not a run and cannot be stopped.
+            mark_run_stopping(0);
+            assert!(!run_is_stopping(0));
         }
 
-        /// A signal stopped the process, not just the run, so no later run in
-        /// it gets to decide the operator did not mean it.
+        /// A surface asks the run it belongs to, not the thread it is on: by
+        /// the time a TUI shuts down, the guard has already handed back its
+        /// thread-local ownership, and a reading taken there answers "no run is
+        /// stopping" for the very run that is.
+        // §FS-rhei-run-tui.1.5.7
         #[test]
-        fn releasing_a_teardown_leaves_a_signalled_stop_standing() {
-            let token = StopToken::new();
-            token.raise(Signal::SIGTERM as i32);
-            token.release_teardown();
-            assert!(token.is_set());
-            assert_eq!(token.exit_code(), Some(143));
+        fn a_raised_run_shutdown_survives_the_owning_thread_giving_up_the_run() {
+            let shutdown = RunShutdown::default();
+            assert!(!shutdown.is_raised());
+            shutdown.raise();
+            set_run_owner(0);
+            assert!(shutdown.is_raised(), "the surface still knows its run is ending");
         }
 
         /// A wedged operator leaning on Ctrl+C must not wrap the counter back
@@ -324,6 +337,163 @@
                 "the grace expires and the group is killed"
             );
         }
+
+        /// The shutdown can arrive *inside* the termination grace: an agent
+        /// already past its deadline, with ten seconds to flush, when the
+        /// operator hits Ctrl+C. Reading the token only on the way in called
+        /// that a timeout, fired the timeout transition on a ticket the
+        /// shutdown had promised to leave alone, and left the report calling
+        /// the run interrupted while the ledger called the ticket timed out.
+        // §FS-rhei-run.3.2: a shutdown outranks a deadline, whenever it arrives.
+        #[test]
+        fn a_shutdown_inside_the_grace_outranks_the_deadline_it_interrupted() {
+            let dir = tempfile::tempdir().expect("tmpdir");
+            let ready = dir.path().join("trapped");
+            let token = Arc::new(StopToken::new());
+            let mut supervised = Supervised::spawn(
+                &mut sh(&format!("trap '' TERM; : > {}; {CHILD_SLEEP}", ready.display())),
+                "unit@grace",
+            )
+            .expect("spawn");
+            let pgid = supervised.pgid;
+            // A child that ignores `SIGTERM` holds the grace open for its whole
+            // length, so the signal below lands inside it rather than after it.
+            wait_until("the child to ignore SIGTERM", || ready.exists());
+
+            let raiser = Arc::clone(&token);
+            let handle = std::thread::spawn(move || {
+                std::thread::sleep(SUPERVISED_TERMINATE_GRACE / 10);
+                raiser.raise(Signal::SIGINT as i32);
+            });
+
+            // A deadline already in the past, so the wait enters the grace as a
+            // timeout and the operator interrupts it there.
+            let ended = supervised
+                .wait(Some(Duration::from_millis(0)), &token, &ignore_notice)
+                .expect("wait");
+            handle.join().expect("raiser");
+            assert_eq!(
+                ended.cause,
+                EndCause::Interrupted,
+                "the shutdown that arrived mid-grace decides the cause"
+            );
+            drop(supervised);
+            wait_until("the group to be gone", || !pid_is_alive(pgid));
+        }
+
+        /// A target that cannot say whether it is gone.
+        struct UnpollableTarget {
+            asked: bool,
+            killed: bool,
+        }
+
+        impl TerminationTarget for UnpollableTarget {
+            fn ask_to_stop(&mut self) {
+                self.asked = true;
+            }
+
+            fn is_gone(&mut self) -> std::io::Result<bool> {
+                Err(std::io::Error::from_raw_os_error(nix::errno::Errno::ECHILD as i32))
+            }
+
+            fn kill(&mut self) {
+                self.killed = true;
+            }
+        }
+
+        /// Failing to *poll* a group is not a reason to leave it alive.
+        /// Returning on the error skipped the `SIGKILL` and skipped the reap,
+        /// and the caller went on to strike the group off the registry anyway —
+        /// an orphan running under nobody's supervision, which is the one thing
+        /// this design exists to prevent.
+        // §FS-rhei-run.3.2: one termination sequence, and it always ends the group.
+        #[test]
+        fn a_group_that_cannot_be_polled_is_still_killed() {
+            let token = StopToken::new();
+            let mut target = UnpollableTarget { asked: false, killed: false };
+            let result = run_termination_sequence(&mut target, &token);
+            assert!(target.asked, "it is asked to stop first");
+            assert!(target.killed, "and killed rather than left running");
+            assert!(result.is_err(), "while the failure to poll is still reported");
+        }
+
+        /// `Drop` must not strike a group off the registry a second time. The
+        /// agent path holds a reaped `Supervised` through output draining, log
+        /// footers, and usage capture, and pgids are reused: an unconditional
+        /// deregistration there removes whatever holds the pgid *now* — another
+        /// run's live group — from every shutdown path that could end it.
+        // §FS-rhei-run.3.2
+        #[test]
+        fn dropping_a_reaped_invocation_leaves_a_reused_pgid_alone() {
+            let token = StopToken::new();
+            let mut supervised =
+                Supervised::spawn(&mut sh("exit 0"), "unit@reused").expect("spawn");
+            let pgid = supervised.pgid;
+            supervised.wait(Some(Duration::from_secs(30)), &token, &ignore_notice).expect("wait");
+            assert!(!live_group_ids_for_test().contains(&pgid), "the wait deregistered it");
+
+            // Stand in for the kernel handing the same pgid to a group spawned
+            // after this one was reaped.
+            register_live_group(pgid, "unit@newcomer");
+            drop(supervised);
+            assert!(
+                live_group_ids_for_test().contains(&pgid),
+                "the newcomer stays visible to every shutdown path"
+            );
+            unregister_live_group(pgid);
+        }
+
+        /// The scheduler checks the token, but between its check and the spawn
+        /// a pass still loads the plan, resolves tooling, composes a prompt,
+        /// and hands the item to a worker thread. The spawn itself is the only
+        /// point with no window in front of it.
+        // §FS-rhei-run.3.2: an interrupted run starts nothing further.
+        #[test]
+        fn an_interrupted_run_starts_no_subprocess_at_all() {
+            let owner = NEXT_RUN_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            set_run_owner(owner);
+            mark_run_stopping(owner);
+
+            let err = match Supervised::spawn(&mut sh(CHILD_SLEEP), "unit@refused") {
+                Err(err) => err,
+                Ok(_) => panic!("an interrupted run started a subprocess anyway"),
+            };
+            assert!(spawn_was_interrupted(&err), "and says why, so it is not read as a failure");
+            assert!(
+                live_group_ids(Some(owner)).is_empty(),
+                "nothing was spawned, so nothing was registered"
+            );
+
+            // The refusal is the run's state, not the command's: the same spawn
+            // succeeds on a thread whose run was never asked to stop.
+            set_run_owner(0);
+            let supervised =
+                Supervised::spawn(&mut sh(CHILD_SLEEP), "unit@allowed").expect("spawn");
+            let pgid = supervised.pgid;
+            drop(supervised);
+            wait_until("the group to be gone", || !pid_is_alive(pgid));
+        }
+
+        /// A run tearing its own groups down after a failure raises the same
+        /// token an operator's signal does. Only the operator has an operator
+        /// waiting to read the notice — and only they can be told, truthfully,
+        /// that pressing Ctrl+C *again* skips the grace. Telling a failing run's
+        /// operator they interrupted something points them away from the
+        /// failure being reported.
+        // §FS-rhei-run.3.2
+        #[test]
+        fn a_teardown_nobody_signalled_announces_nothing() {
+            let token = StopToken::new();
+            token.request();
+            assert!(token.is_set(), "the run is still shutting down");
+            assert_eq!(token.take_announcement(), None, "but nobody interrupted it");
+
+            let signalled = StopToken::new();
+            signalled.raise(Signal::SIGINT as i32);
+            let notice = signalled.take_announcement().expect("an operator is told");
+            assert!(notice.contains("Interrupted"), "notice was: {notice}");
+            assert_eq!(signalled.take_announcement(), None, "and told exactly once");
+        }
     }
 
     /// A stdout the process can no longer write to is not a bug in it: a
@@ -374,6 +544,49 @@
         assert!(lost_output_verdict(
             "failed printing to stdout: Broken pipe (os error 32)",
             redirected
+        ));
+    }
+
+    /// The whole `EIO` branch turns on "was this a terminal", and that question
+    /// cannot be asked once the terminal has gone: the hangup swaps the pty
+    /// slave's file operations out, so the `TCGETS` behind `isatty` fails with
+    /// `EIO` like every other ioctl on it and the stream reads as *not* a
+    /// terminal from exactly the moment the guard needs it to read as one.
+    ///
+    /// This pins the kernel behaviour the fix is built on. `stream_is_terminal`
+    /// answers from a reading taken at startup for this reason; asking live
+    /// would return `false` here and send a lost console down the panic path
+    /// the guard exists to replace.
+    // §FS-rhei-run.3.2
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_hung_up_pty_stops_answering_that_it_is_a_terminal() {
+        use std::io::IsTerminal as _;
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+        // SAFETY: `openpty` fills both ends; each raw fd is owned exactly once.
+        let (master, slave) = {
+            let pty = nix::pty::openpty(None, None).expect("openpty");
+            (pty.master, pty.slave)
+        };
+        let slave_file = unsafe { std::fs::File::from_raw_fd(slave.as_raw_fd()) };
+        std::mem::forget(slave);
+        assert!(slave_file.is_terminal(), "a live pty slave is a terminal");
+
+        drop::<OwnedFd>(master);
+        // The hangup is what the operator closing a terminal window does.
+        assert!(
+            !slave_file.is_terminal(),
+            "a hung-up pty denies being a terminal, which is why the reading is taken at startup"
+        );
+
+        // And the write that produces the panic message really is `EIO`, not
+        // `EPIPE`: without the startup reading, nothing would match it.
+        let err = (&slave_file).write(b"x").expect_err("writing to a hung-up pty fails");
+        assert_eq!(err.raw_os_error(), Some(nix::errno::Errno::EIO as i32));
+        assert!(lost_output_verdict(
+            &format!("failed printing to stdout: {err}"),
+            |_| true
         ));
     }
 

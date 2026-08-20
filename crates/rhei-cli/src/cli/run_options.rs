@@ -269,6 +269,7 @@ fn start_run_frontend(
     opts: &RunOptions,
     parallel: u16,
     total_tasks: usize,
+    shutdown: &RunShutdown,
 ) -> ActiveRunFrontend {
     if opts.dry_run() {
         return ActiveRunFrontend {
@@ -301,10 +302,13 @@ fn start_run_frontend(
         plan_loader: Some(loader.clone()),
         intervene: Some(registry.clone() as Arc<dyn rhei_tui::InterveneSink>),
         gate: Some(gate.clone() as Arc<dyn rhei_tui::GateTransitionSink>),
-        // The run's own stop token, so the finished screen is not parked on
-        // while the engine waits on the render thread to exit.
-        // §FS-rhei-run-tui.1.5.7
-        stop_requested: Arc::new(interrupt_requested),
+        // This run's own shutdown fact, not the thread's: it is asked from
+        // inside the run's unwind, after the guard has handed its thread-local
+        // ownership back. §FS-rhei-run-tui.1.5.7
+        stop_requested: {
+            let shutdown = shutdown.clone();
+            Arc::new(move || shutdown.is_raised())
+        },
     };
     let frontend = rhei_tui::select_frontend(
         workspace_root,

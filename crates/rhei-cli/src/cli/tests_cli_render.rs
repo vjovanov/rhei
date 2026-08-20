@@ -367,6 +367,7 @@ transitions: []
             &opts,
             1,
             0,
+            &RunShutdown::default(),
         );
 
         assert!(frontend.dashboard.is_none());

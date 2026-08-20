@@ -445,9 +445,30 @@ fn apply_snapshot_redactor(
             command.env(key, value);
         }
     }
-    let mut supervised = Supervised::spawn(&mut command, label).map_err(|err| {
-        file_io_report(&redactor_path, "failed to spawn snapshot redactor", err)
-    })?;
+    let mut supervised = match Supervised::spawn(&mut command, label) {
+        Ok(supervised) => supervised,
+        // Interrupted before it started. It propagates as the mid-run case
+        // below does, and the durable log says so. §FS-rhei-run.3.2
+        Err(err) if spawn_was_interrupted(&err) => {
+            append_snapshot_redactor_diagnostic(
+                log_path,
+                &redactor_label,
+                &never_started_status(),
+                false,
+                true,
+                false,
+                "<not started>",
+            )?;
+            return Err(miette!(
+                help = snapshot_redactor_help(),
+                "snapshot redactor '{}' interrupted by run shutdown before it started",
+                redactor_label
+            ));
+        }
+        Err(err) => {
+            return Err(file_io_report(&redactor_path, "failed to spawn snapshot redactor", err))
+        }
+    };
     let child = &mut supervised.child;
     let mut stdin =
         child.stdin.take().ok_or_else(|| miette!(
@@ -519,6 +540,7 @@ fn apply_snapshot_redactor(
         &redactor_label,
         &status,
         timed_out,
+        interrupted,
         stderr_truncated,
         &stderr_summary,
     )?;
@@ -576,11 +598,18 @@ fn snapshot_redactor_default_env(workspace_root: &Path) -> Vec<(&'static str, Pa
     env
 }
 
+/// `interrupted` is carried alongside `timed_out` because a redactor the run
+/// shut down exits by signal and so has no code: without the cause the durable
+/// log records an unexplained failure, while the agent and program footers
+/// beside it say plainly that the run was interrupted.
+// §FS-rhei-run.3.2 §FS-rhei-agents.8
+#[allow(clippy::too_many_arguments)]
 fn append_snapshot_redactor_diagnostic(
     log_path: Option<&Path>,
     redactor_path: &str,
     status: &std::process::ExitStatus,
     timed_out: bool,
+    interrupted: bool,
     stderr_truncated: bool,
     stderr_summary: &str,
 ) -> MietteResult<()> {
@@ -599,8 +628,9 @@ fn append_snapshot_redactor_diagnostic(
     let summary = stderr_summary.replace('\n', "\\n").replace('\r', "\\r");
     writeln!(
         file,
-        "snapshot redactor: path={} status={} timeout={} stderr_truncated={} stderr={}",
-        redactor_path, status, timed_out, stderr_truncated, summary
+        "snapshot redactor: path={} status={} timeout={} interrupted={} \
+         stderr_truncated={} stderr={}",
+        redactor_path, status, timed_out, interrupted, stderr_truncated, summary
     )
     .map_err(|err| file_io_report(log_path, "failed to write snapshot redactor diagnostic", err))
 }

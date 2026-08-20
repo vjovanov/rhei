@@ -1443,10 +1443,10 @@ fn run_agent_mode(
         summary: None,
         armed: true,
     };
-    // Declared after the report guard and before the frontend: the groups are
-    // torn down on any way out, after the terminal is restored and before the
-    // report is written. §FS-rhei-run.3.2
-    let _subprocess_guard = RunSubprocessGuard::install();
+    // This run's copy of "the run is ending abnormally", handed to the
+    // frontend below and raised by the subprocess guard on its way out.
+    // §FS-rhei-run-tui.1.5.7
+    let run_shutdown = RunShutdown::default();
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
     let frontend = start_run_frontend(
         &workspace_root,
@@ -1455,7 +1455,12 @@ fn run_agent_mode(
         opts,
         frontend_parallel,
         initial_total_tasks,
+        &run_shutdown,
     );
+    // Declared after the frontend so it drops *before* it: the surface must
+    // learn the run is unwinding before it decides whether to park.
+    // §FS-rhei-run.3.2 §FS-rhei-run-tui.1.5.7
+    let mut subprocess_guard = RunSubprocessGuard::install(run_shutdown);
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration
     // instead of letting them write straight to the terminal and corrupt the
@@ -3845,6 +3850,9 @@ fn run_agent_mode(
             accounting,
         },
     });
+    // The loop reached the point where it writes a report, so the finished
+    // surface keeps its operator. §FS-rhei-run-tui.1.5.7
+    subprocess_guard.finished();
     frontend.write_frozen_dashboard();
     drop(diag_guard);
     drop(sink);

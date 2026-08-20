@@ -290,6 +290,15 @@ seconds from its timeout when the operator hits Ctrl+C. That invocation is
 **interrupted**, not timed out: it fires no timeout transition, and the ticket
 keeps the state a shutdown promised to leave it in.
 
+This holds **whenever the shutdown arrives**, including inside the grace the
+deadline itself opened. An invocation past its timeout is still owed its ten
+seconds to flush and commit, and an operator may interrupt the run at any point
+in them; the invocation that grace was running for is then interrupted, not
+timed out. Deciding the cause on the way *into* the grace and not again on the
+way out fired a timeout transition on a ticket the shutdown had promised to
+leave alone, and left the run's own report calling the run interrupted while its
+ledger called the ticket timed out.
+
 **Interruption.** `SIGINT`, `SIGTERM`, and `SIGHUP` delivered to `rhei run`
 interrupt the run. Ctrl+C under the TUI is the same event, because the TUI
 restores the terminal and re-raises `SIGINT` on the process
@@ -361,6 +370,14 @@ away (`EIO`) — `rhei run` ends the way a Unix filter does: quietly, with statu
 `141`, or `128 + signal` when a signal had already arrived. It ends that way
 **after terminating every in-flight process group**, because an exit taken from
 inside a failed print runs no destructors and none of the paths above can fire.
+`EPIPE` says the reader is gone wherever it points. `EIO` says it only on a
+terminal — on a redirected stdout it is an ordinary write failure, a full device
+or a dropped mount, and must be reported as one. Which of the two a stream is,
+is decided by a reading taken **at startup**: a pty whose master has closed
+fails `isatty` with `EIO` like every other ioctl on it, so a stream asked
+afterwards denies ever having been a terminal, at exactly the moment the answer
+decides whether the run ends quietly or aborts mid-unwind.
+
 No run report is written in that case: there is nowhere left to say so, and
 what the run did is in the task files, which are already current. A terminal
 that goes away *after* the run has ended finds the report already on disk

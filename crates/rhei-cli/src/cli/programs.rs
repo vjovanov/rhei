@@ -212,10 +212,33 @@ fn spawn_and_wait_program(
     cmd.stdin(std::process::Stdio::null());
     let supervised_label =
         format!("{}@{}", render_context.task.id, render_context.state_name);
-    let mut supervised = Supervised::spawn(&mut cmd, &supervised_label).map_err(|e| miette!(
-        help = "the program state could not start its command. Check the command exists and is executable, then re-run.",
-        "failed to spawn program: {e}"
-    ))?;
+    let mut supervised = match Supervised::spawn(&mut cmd, &supervised_label) {
+        Ok(supervised) => supervised,
+        // As for agents: the run was interrupted before this program started,
+        // so it never ran and the ticket keeps its state.
+        // §FS-rhei-run.3.2 §FS-rhei-agents.8
+        Err(err) if spawn_was_interrupted(&err) => {
+            use std::io::Write as _;
+            let mut f = &log_file;
+            let _ = writeln!(f, "\nprogram not started: the run was interrupted first");
+            let _ = writeln!(f, "\n=== exit ===");
+            let _ = writeln!(f, "code: -");
+            let _ = writeln!(f, "interrupted: true");
+            let _ = writeln!(f, "===");
+            return Ok(ProgramSpawnOutcome {
+                status: never_started_status(),
+                timed_out: false,
+                interrupted: true,
+                timeout_secs: resolved.timeout_secs,
+            });
+        }
+        Err(e) => {
+            return Err(miette!(
+                help = "the program state could not start its command. Check the command exists and is executable, then re-run.",
+                "failed to spawn program: {e}"
+            ))
+        }
+    };
     let start = Instant::now();
 
     // One wait for all three endings: exit, deadline, run interruption.

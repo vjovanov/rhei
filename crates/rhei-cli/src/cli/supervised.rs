@@ -88,29 +88,17 @@ impl StopToken {
         }
     }
 
-    /// Raise the token without naming a signal. Used by the shutdown guard,
-    /// which stops in-flight work on an early error or a panic unwind —
-    /// neither of which should change the process's exit code, and neither of
-    /// which is the operator asking for the grace to be skipped.
+    /// Raise the token without naming a signal, stopping the whole process's
+    /// work: the one caller is the lost-console exit, which is leaving through
+    /// `std::process::exit` and can no longer ask which run owned what. It
+    /// should not change the exit code, and it is not the operator asking for
+    /// the grace to be skipped.
+    ///
+    /// A run tearing down after its *own* failure does not come here — that is
+    /// one run's business, and it says so through [`mark_run_stopping`].
+    // §FS-rhei-run.3.2
     fn request(&self) {
         self.stopping.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    /// Lower a teardown-raised flag once the run that raised it has finished
-    /// tearing its own groups down.
-    ///
-    /// The flag is process-wide but the reason for it was one run's, and a
-    /// process can drive more than one (the in-process tests do). Left raised,
-    /// it would make every later run in the process skip its work on the first
-    /// pass and report success without doing any. A *signal* is never lowered:
-    /// that one stopped the process, not just the run.
-    // §FS-rhei-run.3.2
-    fn release_teardown(&self) {
-        if self.signal_number().is_some() {
-            return;
-        }
-        self.stopping.store(false, std::sync::atomic::Ordering::SeqCst);
-        self.announced.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Raise the token and record the signal that did it. Called from the
@@ -175,8 +163,17 @@ impl StopToken {
     /// restored, a redirected stdout — and that is the frontend's question.
     /// Writing it here sent an external `SIGTERM` arriving mid-render straight
     /// into the alternate screen.
+    ///
+    /// A run tearing its own groups down after a failure raises the same token
+    /// an operator's signal does, and gets nothing: telling that operator they
+    /// interrupted something — and to press Ctrl+C *again*, when they have not
+    /// pressed it once — describes a run that does not exist, and points away
+    /// from the failure actually being reported.
     // §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
     fn take_announcement(&self) -> Option<String> {
+        // Only a signal has an operator waiting to read this, and only they
+        // can be told truthfully to press Ctrl+C again. §FS-rhei-run.3.2
+        self.signal_number()?;
         if self.announced.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return None;
         }
@@ -198,9 +195,80 @@ impl StopToken {
 /// so the signal that interrupts it interrupts all of it. §FS-rhei-run.3.2
 static INTERRUPT: StopToken = StopToken::new();
 
-/// Whether the run is shutting down.
+/// The runs that are tearing their own groups down.
+///
+/// The global token means the *process* is stopping: an operator's signal, or
+/// a lost console leaving through `exit`. A run unwinding from its own error
+/// is not that. It has to stop its own waits — a worker must not go on waiting
+/// out a deadline against a group its run is already tearing down — but it has
+/// no business stopping a run beside it, and a process can drive more than one
+/// (the in-process tests do). Ownership is already tracked per run; this is
+/// the same scope, applied to the one fact that was still global.
+// §FS-rhei-run.3.2
+static STOPPING_RUNS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+
+/// Mark one run as tearing down. Run `0` is "no run owns this thread", which
+/// nothing can mark.
+///
+/// Never unmarked: a run that has torn down has torn down for good, and run ids
+/// are handed out once, so a finished run's mark can never be mistaken for a
+/// live one. The set therefore holds one entry per run the process has stopped
+/// — one, outside the in-process tests.
+// §FS-rhei-run.3.2
+fn mark_run_stopping(owner: u64) {
+    if owner == 0 {
+        return;
+    }
+    if let Ok(mut stopping) = STOPPING_RUNS.lock() {
+        stopping.insert(owner);
+    }
+}
+
+/// Whether this particular run is tearing down.
+///
+/// A poisoned lock degrades to "not stopping" rather than panicking a shutdown
+/// path — the global token still ends every wait on the paths that matter.
+fn run_is_stopping(owner: u64) -> bool {
+    owner != 0
+        && STOPPING_RUNS.lock().map(|stopping| stopping.contains(&owner)).unwrap_or(false)
+}
+
+/// Whether the named run is shutting down: its own teardown, or a signal that
+/// stopped the whole process. §FS-rhei-run.3.2
+fn run_shutdown_requested(owner: u64) -> bool {
+    INTERRUPT.is_set() || run_is_stopping(owner)
+}
+
+/// Whether the run this thread belongs to is shutting down: schedule nothing
+/// new, end every wait.
 fn interrupt_requested() -> bool {
-    INTERRUPT.is_set()
+    run_shutdown_requested(current_run_owner())
+}
+
+/// The one fact a live surface needs from the run behind it: whether that run
+/// is ending on anything other than its own terms.
+///
+/// A value the run owns rather than a reading taken through the thread-local
+/// owner, because the surface outlives the thread's ownership of the run: a
+/// TUI shuts down from inside [`RunSubprocessGuard`]'s own unwind, by which
+/// point the guard has handed that ownership back and a global reading would
+/// answer "no run is stopping" for the very run that is.
+// §FS-rhei-run-tui.1.5.7 §FS-rhei-run.3.2
+#[derive(Clone, Default)]
+struct RunShutdown(Arc<std::sync::atomic::AtomicBool>);
+
+impl RunShutdown {
+    /// The run is ending abnormally; a finished surface must leave rather than
+    /// park on itself waiting for a `q` nobody is there to press.
+    fn raise(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Asked by the frontend before it parks. The process-wide token counts
+    /// too: a signal ends this run whether or not its guard has run yet.
+    fn is_raised(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst) || INTERRUPT.is_set()
+    }
 }
 
 /// Whether an operator's signal stopped this run, as opposed to the shutdown
@@ -289,7 +357,10 @@ fn install_interrupt_handlers() {}
 fn interruptible_sleep(total: Duration) {
     let deadline = Instant::now() + total;
     loop {
-        if INTERRUPT.is_set() {
+        // This run's shutdown, not the process's alone: a run tearing down
+        // after its own failure must not sleep out a poll deadline either.
+        // §FS-rhei-run.3.2
+        if interrupt_requested() {
             return;
         }
         let now = Instant::now();
@@ -446,17 +517,30 @@ trait TerminationTarget {
 /// The one early-termination sequence: `SIGTERM`, the 10 s grace, then
 /// `SIGKILL` on whatever is left — unless the operator already asked twice,
 /// which skips straight to the kill.
-// §FS-rhei-run.3.2
+///
+/// Every exit from here goes through the kill except the one that saw the
+/// target gone. An error asking whether it is gone — `ECHILD` from a stray
+/// reap, say — is a reason to stop *waiting*, never a reason to leave a group
+/// alive: returning on it would skip the `SIGKILL` and leave the caller to
+/// deregister a live group as if it had been reaped. The error is still
+/// reported, after the kill, so the caller knows the reap is unreliable.
+// §FS-rhei-run.3.2: one termination sequence, and it always ends the group.
 fn run_termination_sequence(
     target: &mut dyn TerminationTarget,
     stop: &StopToken,
 ) -> std::io::Result<()> {
+    let mut failure = None;
     if !stop.skip_grace() {
         target.ask_to_stop();
         let deadline = Instant::now() + SUPERVISED_TERMINATE_GRACE;
         while Instant::now() < deadline {
-            if target.is_gone()? {
-                return Ok(());
+            match target.is_gone() {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(err) => {
+                    failure = Some(err);
+                    break;
+                }
             }
             // A second interrupt mid-grace is the operator saying "now".
             if stop.skip_grace() {
@@ -466,7 +550,10 @@ fn run_termination_sequence(
         }
     }
     target.kill();
-    Ok(())
+    match failure {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
 }
 
 /// The registry's side of the sequence: signal a run's groups, and watch for
@@ -535,32 +622,61 @@ fn terminate_all_live_groups() {
 ///
 /// It claims only the subprocesses of its own run: the registry is global, but
 /// ownership is not, so the guard cannot reach into work it did not start.
+///
+/// **Declare it after the frontend**, so it drops *before* the frontend does.
+/// A run unwinding from an error has to tell its surface so before that
+/// surface decides whether to park on its finished screen; a TUI that parks
+/// blocks the engine on the render thread, and the teardown below never gets
+/// its turn until an operator who has already walked away presses `q`.
+///
+/// The run is marked as stopping whether or not it still holds a live group.
+/// A worker that is already past the scheduler's own check — loading a plan,
+/// resolving tooling, composing a prompt — has not registered anything yet, and
+/// marking only when the registry is non-empty would let it spawn the agent the
+/// shutdown had already ruled out.
 // §FS-rhei-run.3.2: the supervisor's death ends its subprocesses.
+// §FS-rhei-run-tui.1.5.7
 struct RunSubprocessGuard {
     owner: u64,
+    /// The surface's copy of "this run is ending abnormally". Raised on the
+    /// way out unless the run said it finished on its own terms.
+    // §FS-rhei-run-tui.1.5.7
+    shutdown: RunShutdown,
+    /// Whether the run's loop reached its own end. Set by [`Self::finished`]
+    /// on the path that goes on to write a report.
+    finished: bool,
 }
 
 impl RunSubprocessGuard {
-    fn install() -> Self {
+    fn install(shutdown: RunShutdown) -> Self {
         let owner = NEXT_RUN_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         set_run_owner(owner);
-        Self { owner }
+        Self { owner, shutdown, finished: false }
+    }
+
+    /// The run's loop ended on its own terms, so a finished surface keeps its
+    /// operator: they are there to read it and to press `q`. Anything else —
+    /// an early `?`, a panic unwind — has nobody waiting on that screen while
+    /// the engine blocks on the render thread behind it.
+    // §FS-rhei-run-tui.1.5.7
+    fn finished(&mut self) {
+        self.finished = true;
     }
 }
 
 impl Drop for RunSubprocessGuard {
     fn drop(&mut self) {
-        set_run_owner(0);
-        if !live_group_ids(Some(self.owner)).is_empty() {
-            // Stop the waits first, or a worker would go on waiting out a
-            // deadline against a group this one is already tearing down.
-            INTERRUPT.request();
-            terminate_live_groups(Some(self.owner));
+        if !self.finished {
+            // Before the frontend this guard is declared after gets its own
+            // turn to drop. §FS-rhei-run-tui.1.5.7
+            self.shutdown.raise();
         }
-        // This run is over either way, so whatever it raised on its way out
-        // stops here rather than following the process into the next run.
+        // Unconditionally and before the teardown, so a worker already past
+        // the scheduler's check is still refused at its spawn.
         // §FS-rhei-run.3.2
-        INTERRUPT.release_teardown();
+        mark_run_stopping(self.owner);
+        terminate_live_groups(Some(self.owner));
+        set_run_owner(0);
     }
 }
 
@@ -640,6 +756,38 @@ struct Ended {
     cause: EndCause,
 }
 
+/// Hand the run's shutdown notice to `notify`, if this is the caller the token
+/// gives it to. §FS-rhei-run.3.2
+fn announce_shutdown(stop: &StopToken, notify: &dyn Fn(String)) {
+    if let Some(notice) = stop.take_announcement() {
+        notify(notice);
+    }
+}
+
+/// Whether a spawn failed because the run had already been interrupted, rather
+/// than because the command could not start. §FS-rhei-run.3.2
+fn spawn_was_interrupted(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::Interrupted
+}
+
+/// The status recorded for an invocation the shutdown stopped before it ever
+/// started: `SIGTERM`, which is what its group would have been sent a moment
+/// later. Never read as a verdict — every surface tests `interrupted` before it
+/// looks at a status.
+// §FS-rhei-run.3.2
+fn never_started_status() -> std::process::ExitStatus {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        std::process::ExitStatus::from_raw(Signal::SIGTERM as i32)
+    }
+    #[cfg(not(unix))]
+    {
+        use std::os::windows::process::ExitStatusExt as _;
+        std::process::ExitStatus::from_raw(1)
+    }
+}
+
 /// A subprocess and the process group it leads.
 struct Supervised {
     child: std::process::Child,
@@ -647,16 +795,43 @@ struct Supervised {
     /// the single-child `kill()` it always had.
     #[cfg(unix)]
     pgid: i32,
+    /// The run this invocation belongs to, captured at spawn so its wait ends
+    /// when that run tears down — and stays put when another run in the same
+    /// process tears down beside it. §FS-rhei-run.3.2
+    owner: u64,
     /// Set once the child has been reaped, so `Drop` knows whether it still
-    /// owns a live group.
+    /// owns a live group — and so that it deregisters the group at most once.
+    /// The agent path holds a reaped value through output draining, log
+    /// footers, and usage capture, and pgids are reused: a second, blind
+    /// deregistration there strikes off whatever holds the pgid *now*, leaving
+    /// another run's live group invisible to every shutdown path.
     reaped: bool,
 }
 
 impl Supervised {
     /// Spawn `cmd` as the leader of its own process group and register the
     /// group with the run's shutdown path under `label` (`<task>@<state>`).
-    /// §FS-rhei-run.3.2
+    ///
+    /// Refuses outright once the run is shutting down. This is the one place a
+    /// subprocess actually starts, and so the only place "an interrupted run
+    /// starts nothing further" holds with no window in front of it: the
+    /// scheduler checks the token too, but between its check and here a pass
+    /// still loads the plan, resolves tooling, composes a prompt, and hands the
+    /// item to a worker thread. A signal landing anywhere in that stretch used
+    /// to start an agent under `bypassPermissions` that the shutdown had
+    /// already ruled out.
+    // §FS-rhei-run.3.2
     fn spawn(cmd: &mut std::process::Command, label: &str) -> std::io::Result<Self> {
+        // The one place work actually starts, and so the only place the rule
+        // holds with no window in front of it: the scheduler's own check is a
+        // whole item's work earlier. §FS-rhei-run.3.2
+        if interrupt_requested() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "the run was interrupted before this subprocess started",
+            ));
+        }
+        let owner = current_run_owner();
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt as _;
@@ -706,8 +881,15 @@ impl Supervised {
             child,
             #[cfg(unix)]
             pgid,
+            owner,
             reaped: false,
         })
+    }
+
+    /// Whether the run that owns this invocation is shutting down: the token
+    /// the caller supplied, or this run's own teardown. §FS-rhei-run.3.2
+    fn shutdown_requested(&self, stop: &StopToken) -> bool {
+        stop.is_set() || run_is_stopping(self.owner)
     }
 
     /// Wait for the subprocess, its deadline, or the run's interruption —
@@ -717,6 +899,15 @@ impl Supervised {
     /// `notify` is handed the shutdown notice by whichever waiter notices the
     /// interrupt first, and by no other; it is the caller's to supply because
     /// only the caller knows which sink the operator is reading.
+    ///
+    /// The stop token is read on the way *out* of the termination sequence as
+    /// well as on the way in, because that sequence can hold this thread for
+    /// the whole grace. An invocation already past its deadline still has ten
+    /// seconds to flush, and an operator who hits Ctrl+C inside them has
+    /// interrupted it: reporting that as a timeout fires the timeout transition
+    /// on a ticket the shutdown promised to leave alone, and leaves the report
+    /// calling the run interrupted while the ledger calls the ticket timed
+    /// out.
     // §FS-rhei-run.3.2: timeout and shutdown are one routine.
     fn wait(
         &mut self,
@@ -734,24 +925,31 @@ impl Supervised {
             // Shutdown outranks the deadline: both are true when an agent is
             // seconds from its timeout as the operator hits Ctrl+C, and calling
             // that a timeout fires a transition. §FS-rhei-run.3.2
-            let interrupted = stop.is_set();
+            let interrupted = self.shutdown_requested(stop);
             let timed_out = !interrupted && timeout.is_some_and(|limit| start.elapsed() > limit);
-            if interrupted || timed_out {
-                let cause = if interrupted {
-                    // The first waiter to notice names every invocation the
-                    // shutdown is about to end. §FS-rhei-run.3.2
-                    if let Some(notice) = stop.take_announcement() {
-                        notify(notice);
-                    }
-                    EndCause::Interrupted
-                } else {
-                    EndCause::TimedOut
-                };
-                let status = self.terminate_and_reap(stop)?;
-                return Ok(Ended { status, cause });
+            if !interrupted && !timed_out {
+                std::thread::sleep(poll);
+                poll = next_poll_interval(poll);
+                continue;
             }
-            std::thread::sleep(poll);
-            poll = next_poll_interval(poll);
+            // The first waiter to notice names every invocation the shutdown
+            // is about to end, and says so *before* the grace rather than
+            // after it. §FS-rhei-run.3.2
+            if interrupted {
+                announce_shutdown(stop, notify);
+            }
+            let status = self.terminate_and_reap(stop)?;
+            // Asked again on the way out: the sequence above can hold this
+            // thread for the whole grace, and a Ctrl+C inside it interrupted an
+            // invocation that was only timing out. §FS-rhei-run.3.2
+            let cause = if interrupted || self.shutdown_requested(stop) {
+                // First notice of it, when the shutdown landed mid-grace.
+                announce_shutdown(stop, notify);
+                EndCause::Interrupted
+            } else {
+                EndCause::TimedOut
+            };
+            return Ok(Ended { status, cause });
         }
     }
 
@@ -761,15 +959,20 @@ impl Supervised {
         &mut self,
         stop: &StopToken,
     ) -> std::io::Result<std::process::ExitStatus> {
-        run_termination_sequence(self, stop)?;
-        let status = match self.child.try_wait()? {
-            Some(status) => status,
+        // The sequence ends the group on every path through it, so by the time
+        // it returns the group is dead whatever it has to report.
+        let sequence = run_termination_sequence(self, stop);
+        let reaped = match self.child.try_wait() {
+            Ok(Some(status)) => Ok(status),
             // Either the grace ran out and the group was killed, or it ended
             // between the last poll and here; `wait` settles both.
-            None => self.child.wait()?,
+            Ok(None) => self.child.wait(),
+            Err(err) => Err(err),
         };
+        // Unconditionally: the group is dead either way, and a failure to
+        // *reap* is not a failure to *end*. §FS-rhei-run.3.2
         self.finish();
-        Ok(status)
+        sequence.and(reaped)
     }
 
     /// Record that the child has been reaped and drop the group's registration.
@@ -830,12 +1033,15 @@ impl TerminationTarget for Supervised {
 
 impl Drop for Supervised {
     fn drop(&mut self) {
-        if !self.reaped {
-            // Left by an error or a panic before the wait finished. It gets
-            // the same sequence as every other early termination: leaving by an
-            // error earns this group no less time to flush. §FS-rhei-run.3.2
-            let _ = self.terminate_and_reap(&INTERRUPT);
+        // A reaped invocation deregistered itself in `finish`, and pgids are
+        // reused: striking one off twice removes whatever holds it now.
+        // §FS-rhei-run.3.2
+        if self.reaped {
+            return;
         }
+        // Left by an error or a panic before the wait finished: leaving that
+        // way earns the group no less time to flush. §FS-rhei-run.3.2
+        let _ = self.terminate_and_reap(&INTERRUPT);
         #[cfg(unix)]
         unregister_live_group(self.pgid);
     }

@@ -1256,6 +1256,10 @@ while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
         assert!(log.contains("snapshot redactor: path="));
         assert!(log.contains("status=exit status: 0"));
         assert!(log.contains("timeout=false"));
+        // Beside `timeout` because a redactor the run shut down exits by
+        // signal and so has no code to explain itself.
+        // §FS-rhei-run.3.2 §FS-rhei-agents.8
+        assert!(log.contains("interrupted=false"), "the cause is always recorded, got:\n{log}");
         assert!(log.contains("stderr_truncated=false"));
         assert!(log.contains("stderr=redactor diagnostic"));
         let records =

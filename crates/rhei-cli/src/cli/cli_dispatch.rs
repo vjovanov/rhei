@@ -200,6 +200,9 @@ const EXIT_BROKEN_PIPE: i32 = 141;
 /// failed with an explanation failed with empty stderr.
 // §FS-rhei-usage.2 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
 fn install_quiet_broken_pipe_exit() {
+    // Before any output can be lost, because the question cannot be asked
+    // afterwards. §FS-rhei-run.3.2
+    record_startup_terminals();
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if is_lost_output_panic(info) {
@@ -244,11 +247,36 @@ fn printing_failure_stream(message: &str) -> Option<LostStream> {
     }
 }
 
+/// Whether stdout and stderr were terminals when the process started, asked
+/// once and remembered.
+///
+/// It has to be once, and it has to be then. `isatty` on a pty whose master
+/// has closed does not answer "yes, a terminal that has gone away" — the
+/// hangup swaps the slave's file operations out and the `TCGETS` behind
+/// `isatty` fails with `EIO` like every other ioctl on it, so the stream reads
+/// as *not a terminal* from exactly the moment the guard below needs it to
+/// read as one. Asked at startup the answer is the true one, and it cannot
+/// change afterwards: a redirected stdout does not become a terminal, and a
+/// terminal that goes away was still a terminal.
+// §FS-rhei-run.3.2: a lost console ends the run quietly.
+static STARTUP_TERMINALS: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+
+/// Ask the question while both streams are still whatever they are.
+fn record_startup_terminals() -> (bool, bool) {
+    *STARTUP_TERMINALS.get_or_init(|| {
+        use std::io::IsTerminal as _;
+        (std::io::stdout().is_terminal(), std::io::stderr().is_terminal())
+    })
+}
+
 fn stream_is_terminal(stream: LostStream) -> bool {
-    use std::io::IsTerminal as _;
+    // `get_or_init` and not `get`: a panic on a path that never installed the
+    // hook — a unit test, a library caller — still gets a real answer rather
+    // than a default that silently changes the verdict.
+    let (stdout, stderr) = record_startup_terminals();
     match stream {
-        LostStream::Stdout => std::io::stdout().is_terminal(),
-        LostStream::Stderr => std::io::stderr().is_terminal(),
+        LostStream::Stdout => stdout,
+        LostStream::Stderr => stderr,
     }
 }
 
@@ -282,6 +310,10 @@ fn message_is_lost_output(message: &str) -> bool {
 /// stdout it is a real write failure — a full device, a dropped network mount —
 /// and treating that as "the output is gone" would kill every in-flight agent
 /// and exit `141` without a word about what actually went wrong.
+///
+/// `is_terminal` therefore answers for the stream as it was at startup, never
+/// as it is now: see [`STARTUP_TERMINALS`] for why asking now inverts the
+/// answer in the one case this exists for.
 fn lost_output_verdict(message: &str, is_terminal: impl Fn(LostStream) -> bool) -> bool {
     let Some(stream) = printing_failure_stream(message) else {
         return false;

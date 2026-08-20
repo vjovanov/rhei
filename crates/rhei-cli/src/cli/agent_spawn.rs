@@ -293,11 +293,36 @@ fn spawn_and_wait_agent(
     // The agent leads its own process group, so its MCP servers and shell tools
     // are terminated with it, and it never inherits the operator's terminal.
     // §FS-rhei-run.3.2
-    let mut supervised =
-        Supervised::spawn(&mut cmd, &format!("{task_id}@{state_name}")).map_err(|e| miette!(
-            help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
-            "failed to spawn agent '{}': {e}", resolved.agent.id()
-        ))?;
+    let mut supervised = match Supervised::spawn(&mut cmd, &format!("{task_id}@{state_name}")) {
+        Ok(supervised) => supervised,
+        // Interrupted between the scheduler's check and the spawn. Nothing
+        // started, so there is no verdict on the ticket and no transition
+        // fires. §FS-rhei-run.3.2 §FS-rhei-agents.8
+        Err(err) if spawn_was_interrupted(&err) => {
+            let _ = with_agent_log(&log_file, |f| {
+                writeln!(f, "\nagent not started: the run was interrupted first")?;
+                writeln!(f, "\n=== exit ===")?;
+                writeln!(f, "code: -")?;
+                writeln!(f, "ended: {}", format_iso8601_utc(std::time::SystemTime::now()))?;
+                writeln!(f, "interrupted: true")?;
+                writeln!(f, "===")?;
+                f.flush()
+            });
+            return Ok(AgentSpawnOutcome {
+                status: never_started_status(),
+                timed_out: false,
+                interrupted: true,
+                timeout_secs: resolved.timeout_secs,
+                usage_capture_path: None,
+            });
+        }
+        Err(e) => {
+            return Err(miette!(
+                help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
+                "failed to spawn agent '{}': {e}", resolved.agent.id()
+            ))
+        }
+    };
     let child = &mut supervised.child;
 
     let stdout_handle = child.stdout.take().map(|stdout| {

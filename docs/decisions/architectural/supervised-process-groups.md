@@ -69,6 +69,14 @@ terminal, a profile that does not pipe a prompt gets `stdin` on `/dev/null` —
 independently correct, and required here: an inherited tty read in a background
 group stops the child on `SIGTTIN`.
 
+The refusal to start new work is enforced **at the spawn**, not only at the
+scheduler. A pass that has chosen a work item still loads the plan, resolves
+tooling, composes a prompt, and hands the item to a worker thread before
+anything is spawned; a check at the top of that stretch leaves a window in which
+a signal still starts an agent under `bypassPermissions`. `Supervised::spawn` is
+the one place work actually begins, so it is the one place the rule holds with
+nothing in front of it.
+
 **2. Timeout and shutdown are one routine.**
 
 `Supervised::wait` is the only place a subprocess is waited on. It polls

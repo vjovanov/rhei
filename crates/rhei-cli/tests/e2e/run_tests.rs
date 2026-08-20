@@ -2492,19 +2492,12 @@ case "${RHEI_TASK_ID:?}" in
 esac
 "#;
 
-/// Losing the run's console output must not lose the run's subprocesses.
+/// A two-ticket workspace for the lost-output tests: one talker to make the run
+/// print, one sleeper with a grandchild to be left behind by the exit.
 ///
-/// A `println!` to a pipe whose reader is gone panics, and the hook that turns
-/// that into a quiet `141` leaves through `std::process::exit` — which runs no
-/// destructor, so the shutdown guard never fires. Before this, the agent still
-/// in flight was killed only by the Linux parent-death backstop and **its**
-/// grandchild survived outright.
-// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+/// `concurrent: true` plus `--parallel 2` is what puts both in flight at once.
 #[cfg(unix)]
-#[test]
-fn a_closed_stdout_still_ends_the_groups_in_flight() {
-    // `concurrent: true` plus `--parallel 2` puts both tickets in flight at
-    // once: one to make the run print, one to be left behind by the exit.
+fn setup_lost_output_workspace(prefix: &str) -> (PathBuf, PathBuf, PathBuf) {
     let machine = r#"name: lost-output
 version: 1
 states:
@@ -2527,7 +2520,7 @@ transitions:
     to: completed
 "#;
 
-    let dir = unique_temp_dir("run-lost-stdout-groups");
+    let dir = unique_temp_dir(prefix);
     let workspace = dir.join("workspace");
     let tasks_dir = workspace.join("tasks");
     fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
@@ -2553,6 +2546,21 @@ transitions:
     )
     .expect("write settings");
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    (dir, workspace, machine_path)
+}
+
+/// Losing the run's console output must not lose the run's subprocesses.
+///
+/// A `println!` to a pipe whose reader is gone panics, and the hook that turns
+/// that into a quiet `141` leaves through `std::process::exit` — which runs no
+/// destructor, so the shutdown guard never fires. Before this, the agent still
+/// in flight was killed only by the Linux parent-death backstop and **its**
+/// grandchild survived outright.
+// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_still_ends_the_groups_in_flight() {
+    let (dir, workspace, machine_path) = setup_lost_output_workspace("run-lost-stdout-groups");
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
     cmd.env("HOME", dir.join(".home"));
@@ -2596,6 +2604,516 @@ transitions:
     // Nothing transitioned the sleeper: it was terminated, not judged. The
     // talker did finish its state, which is what produced the failed print.
     assert_task_state(&workspace, &machine_path, "2", "work");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A terminal that goes away must end the run as quietly as a closed pipe does.
+///
+/// `EIO` on a *terminal* is how a closed pty reports the session hanging up, and
+/// the guard that recognises it asks whether the stream is a terminal. It cannot
+/// ask that afterwards: the hangup swaps the slave's file operations out, so the
+/// `TCGETS` behind `isatty` fails with `EIO` like every other ioctl on it and the
+/// stream reads as *not* a terminal from exactly the moment the answer matters.
+/// Asked live, the verdict came back "a real write failure", the panic went
+/// unrecognised, the report guard's own `println!` panicked again while
+/// unwinding — a double panic, which aborts — and the groups in flight were left
+/// to the parent-death backstop.
+///
+/// The pty here is deliberately not the run's controlling terminal, so no
+/// `SIGHUP` is delivered and the failed write is the only thing that can end it.
+// §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+#[cfg(unix)]
+#[test]
+fn a_hung_up_terminal_ends_the_groups_the_way_a_closed_pipe_does() {
+    use std::os::fd::{AsRawFd as _, OwnedFd};
+
+    let (dir, workspace, machine_path) = setup_lost_output_workspace("run-hung-up-terminal");
+
+    let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
+    // Neither end may leak into the child. `Command` sets up stdio and leaves
+    // every other inherited descriptor open, and `openpty` hands back plain
+    // descriptors — so without this the child holds the *master* as well, and
+    // closing this process's copy hangs nothing up at all.
+    for fd in [pty.master.as_raw_fd(), pty.slave.as_raw_fd()] {
+        nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC))
+            .expect("set FD_CLOEXEC on the pty");
+    }
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", dir.join(".home"));
+    cmd.env("TERM", "xterm-256color");
+    cmd.arg("--state-machine")
+        .arg(&machine_path)
+        .arg("run")
+        .arg(&workspace)
+        // `--no-tui` on purpose: this is about recognising the lost terminal,
+        // not about the TUI. The run still writes to a real pty.
+        .arg("--no-tui")
+        .arg("--no-callbacks")
+        .arg("--no-dashboard")
+        .arg("--parallel")
+        .arg("2");
+    let slave_out: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdout");
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::from(slave_out));
+    cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
+    let mut run = KillOnDrop(cmd.spawn().expect("rhei run should start"));
+    // Every slave copy in this process has to go, the `Command`'s own included,
+    // or the master close below is not a hangup.
+    drop(cmd);
+    drop(pty.slave);
+
+    let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
+    let agent = wait_for_recorded_pid(&workspace, "agent");
+    poll_until("the talking agent to start", TEST_PATIENCE, || {
+        workspace.join("runtime/pids/talker").exists()
+    });
+
+    // The operator's window closes. Nothing has read this pty, so the run's
+    // output so far is still sitting in a buffer that is about to be discarded.
+    drop(pty.master);
+    fs::write(workspace.join("runtime/go"), "").expect("release the talking agent");
+
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(141),
+        "a terminal that went away should end the run quietly, not abort it\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+
+    // The abort this replaces announced itself; a quiet exit does not.
+    let stderr = read_run_stderr(&dir);
+    assert!(
+        !stderr.contains("panicked"),
+        "a lost terminal is not a crash, but stderr said:\n{stderr}"
+    );
+
+    poll_until("the in-flight agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
+    poll_until("its grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
+
+    assert_task_state(&workspace, &machine_path, "2", "work");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A one-ticket plan whose program ignores `SIGTERM` and outlives its deadline,
+/// so the run spends its whole termination grace waiting on it.
+#[cfg(unix)]
+const GRACE_INTERRUPT_MACHINE: &str = r#"name: grace-interrupt
+version: 1
+states:
+  work:
+    initial: true
+    description: Outlive the deadline
+    program: |
+      mkdir -p runtime
+      trap ': > runtime/termed' TERM
+      : > runtime/started
+      while true; do sleep 300 & wait; done
+    program_timeout: 2s
+  timed-out:
+    description: The deadline fired
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: work
+    to: completed
+    exit_code: 0
+  - from: work
+    to: timed-out
+    timeout: 2s
+"#;
+
+/// A shutdown that arrives *inside* the termination grace outranks the deadline
+/// that opened it.
+///
+/// An invocation past its timeout has ten seconds to flush and commit, and the
+/// operator can hit Ctrl+C at any point in them. Reading the stop token only on
+/// the way *into* the grace called that a timeout: the timeout transition fired
+/// on a ticket the shutdown had promised to leave alone, and the run's own
+/// report called it interrupted while the ledger called the ticket timed out.
+// §FS-rhei-run.3.2: a shutdown outranks a deadline, whenever it arrives.
+#[cfg(unix)]
+#[test]
+fn a_shutdown_inside_the_timeout_grace_is_an_interruption_not_a_timeout() {
+    let plan = r#"# Rhei: Grace Interrupt
+
+## Tasks
+
+### Task 1: One
+**State:** work
+"#;
+
+    let dir = unique_temp_dir("run-interrupt-inside-grace");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", GRACE_INTERRUPT_MACHINE);
+
+    let mut run = spawn_rhei_run_with(&dir, &plan_path, &machine_path, &["--parallel", "1"]);
+
+    poll_until("the program to start", TEST_PATIENCE, || dir.join("runtime/started").exists());
+    // The deadline fires and the engine asks the group to stop. The program
+    // records the `SIGTERM` and keeps running, so the grace stays open and the
+    // interrupt below lands inside it rather than after it.
+    poll_until("the deadline to fire", TEST_PATIENCE, || dir.join("runtime/termed").exists());
+
+    signal_pid(run.id(), "INT");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(130),
+        "run should exit 128+SIGINT\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+
+    // The footer is written from the cause the wait reported, so it is where the
+    // two readings first disagree.
+    let log_dir = dir.join("runtime/logs");
+    let mut logs: Vec<PathBuf> = fs::read_dir(&log_dir)
+        .expect("program log directory")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
+        .collect();
+    logs.sort();
+    assert_eq!(logs.len(), 1, "expected exactly one program log, found {logs:?}");
+    let log = fs::read_to_string(&logs[0]).expect("read program log");
+    assert!(
+        log.contains("interrupted: true"),
+        "the footer should name the interruption, got:\n{log}"
+    );
+    assert!(
+        !log.contains("timed_out: true"),
+        "an interrupted invocation is not a timed-out one, got:\n{log}"
+    );
+
+    // No timeout transition fired, so the ticket is where the shutdown left it.
+    assert_task_state(&plan_path, &machine_path, "1", "work");
+
+    let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        report.contains("Result: interrupted — re-run to continue"),
+        "the report should name the interruption, got:\n{report}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// One ticket fails the run while another is still in flight: the shape of
+/// "an early `?` return after workers were spawned".
+#[cfg(unix)]
+const FAILING_PARALLEL_MACHINE: &str = r#"name: failing-parallel
+version: 1
+states:
+  work:
+    initial: true
+    concurrent: true
+    description: One fails, one sleeps
+    program: |
+      mkdir -p runtime/started runtime/pids
+      : > "runtime/started/$RHEI_TASK_ID"
+      case "$RHEI_TASK_ID" in
+      *1)
+        while [ ! -f runtime/go ]; do sleep 0.05; done
+        exit 9
+        ;;
+      *)
+        # Ignoring SIGTERM keeps this group alive through the teardown's ask,
+        # so the worker waiting on it is guaranteed to poll once while the run
+        # is already stopping. Without that the group is simply dead by the
+        # next poll and the wait reports `Exited`, which tests nothing.
+        trap '' TERM
+        sleep 300 &
+        printf '%s\n' "$!" > runtime/pids/grandchild
+        printf '%s\n' "$$" > runtime/pids/sleeper
+        while true; do sleep 300 & wait $!; done
+        ;;
+      esac
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: work
+    to: completed
+    exit_code: 0
+"#;
+
+/// A program-state workspace with **one task file per ticket**.
+///
+/// That layout is what `--parallel > 1` needs: tickets that share a single plan
+/// file fall back to sequential execution, because two agents editing one file
+/// would conflict. A test that wants two invocations in flight has to give them
+/// a file each.
+#[cfg(unix)]
+fn setup_program_workspace(
+    prefix: &str,
+    machine: &str,
+    titles: &[&str],
+) -> (PathBuf, PathBuf, PathBuf) {
+    let dir = unique_temp_dir(prefix);
+    let workspace = dir.join("workspace");
+    let tasks_dir = workspace.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(workspace.join("index.rhei.md"), "# Rhei: Programs\n").expect("write index");
+    for (index, title) in titles.iter().enumerate() {
+        let n = index + 1;
+        fs::write(
+            tasks_dir.join(format!("{n:02}-task.md")),
+            format!("### Task {n}: {title}\n**State:** work\n"),
+        )
+        .expect("write task file");
+    }
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    (dir, workspace, machine_path)
+}
+
+/// A run that fails on its own must not tell the operator it was interrupted.
+///
+/// The teardown after a failure raises the same stop token an operator's signal
+/// does, and the in-flight worker that noticed it printed the operator-facing
+/// shutdown notice — `Interrupted — terminating N invocation(s) …; press Ctrl+C
+/// again to kill immediately.` Nobody had pressed it once. The advice was wrong
+/// and it pointed the operator away from the failure actually being reported.
+// §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn a_run_that_fails_on_its_own_does_not_report_an_interruption() {
+    let (dir, workspace, machine_path) = setup_program_workspace(
+        "run-failure-not-interruption",
+        FAILING_PARALLEL_MACHINE,
+        &["Fails", "Sleeps"],
+    );
+
+    let mut run = spawn_rhei_run_with(&dir, &workspace, &machine_path, &["--parallel", "2"]);
+
+    let started_dir = workspace.join("runtime/started");
+    poll_until("both programs to start", TEST_PATIENCE, || {
+        fs::read_dir(&started_dir).map(|entries| entries.count() >= 2).unwrap_or(false)
+    });
+    let sleeper = wait_for_recorded_pid(&workspace, "sleeper");
+    let grandchild = wait_for_recorded_pid(&workspace, "grandchild");
+
+    fs::write(workspace.join("runtime/go"), "").expect("release the failing program");
+
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    let stderr = read_run_stderr(&dir);
+    assert_ne!(status.code(), Some(0), "the run failed\nstderr:\n{stderr}");
+    assert_ne!(status.code(), Some(130), "nobody signalled it\nstderr:\n{stderr}");
+
+    assert!(
+        stderr.contains("program exited with code 9"),
+        "the failure is what should be reported, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("press Ctrl+C again"),
+        "a run nobody interrupted must not offer a second Ctrl+C, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("Interrupted — terminating"),
+        "a failing run's teardown is not an interruption, got:\n{stderr}"
+    );
+
+    // It is still a teardown: the guard takes the group that was in flight.
+    poll_until("the in-flight program to be gone", TEST_PATIENCE, || !pid_is_alive(&sleeper));
+    poll_until("its grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
+
+    // And the report is about the failure, not about a shutdown.
+    let report = fs::read_to_string(workspace.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        !report.contains("interrupted — re-run to continue"),
+        "a failing run must not tell the operator to re-run, got:\n{report}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// One ticket whose program fails, and nothing else in flight: the run leaves
+/// by an error with no worker left holding a reference to the sink, so the
+/// frontend really is the last owner of the TUI and its drop really does join
+/// the render thread.
+#[cfg(unix)]
+const FAILING_LONE_MACHINE: &str = r#"name: failing-lone
+version: 1
+states:
+  work:
+    initial: true
+    description: Fail once released
+    program: |
+      mkdir -p runtime
+      : > runtime/started
+      while [ ! -f runtime/go ]; do sleep 0.05; done
+      exit 9
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: work
+    to: completed
+    exit_code: 0
+"#;
+
+/// A TUI run that fails must leave its screen instead of parking on it.
+///
+/// The subprocess guard was declared *before* the frontend, so the frontend
+/// dropped first and asked "is this run shutting down" before anything had said
+/// so. The answer was no, the render thread parked on the finished screen
+/// waiting for a `q`, and `TuiSink::finish` blocked on joining it — so a failed
+/// run hung there indefinitely, never writing its report and never reporting
+/// its error, until an operator who had no reason to still be watching pressed
+/// a key.
+///
+/// The surface is asked through a value the *run* owns for the same reason: by
+/// the time it is asked, the guard has handed its thread-local ownership back,
+/// and a reading taken through that answers "no run is stopping" for the very
+/// run that is.
+// §FS-rhei-run-tui.1.5.7 §FS-rhei-run.3.2
+#[cfg(unix)]
+#[test]
+fn a_failing_tui_run_leaves_its_screen_instead_of_parking_on_it() {
+    use std::io::Read as _;
+    use std::os::fd::OwnedFd;
+    use std::sync::{Arc, Mutex};
+
+    let (dir, workspace, machine_path) =
+        setup_program_workspace("run-tui-failure-parks", FAILING_LONE_MACHINE, &["Fails"]);
+
+    let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", dir.join(".home"));
+    cmd.env("TERM", "xterm-256color");
+    cmd.arg("--state-machine")
+        .arg(&machine_path)
+        .arg("run")
+        .arg(&workspace)
+        .arg("--tui")
+        .arg("--no-callbacks")
+        .arg("--no-dashboard")
+        .arg("--parallel")
+        .arg("1");
+    let slave_in: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdin");
+    let slave_out: OwnedFd = pty.slave.try_clone().expect("clone pty slave for stdout");
+    cmd.stdin(std::process::Stdio::from(slave_in));
+    cmd.stdout(std::process::Stdio::from(slave_out));
+    cmd.stderr(fs::File::create(dir.join("run.err")).expect("create run stderr"));
+    let mut run = KillOnDrop(cmd.spawn().expect("rhei run should start"));
+    drop(cmd);
+    drop(pty.slave);
+
+    // Drain the master: a full pty buffer blocks the render thread's writes,
+    // which would wedge the very shutdown under test.
+    let screen: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let drained = Arc::clone(&screen);
+    let mut master = std::fs::File::from(pty.master);
+    let drain = std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        while let Ok(n) = master.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            drained.lock().expect("screen buffer").extend_from_slice(&buf[..n]);
+        }
+    });
+
+    poll_until("the TUI to enter the alternate screen", TEST_PATIENCE, || {
+        let seen = screen.lock().expect("screen buffer");
+        seen.windows(8).any(|w| w == b"\x1b[?1049h")
+    });
+
+    poll_until("the program to start", TEST_PATIENCE, || {
+        workspace.join("runtime/started").exists()
+    });
+    fs::write(workspace.join("runtime/go"), "").expect("release the failing program");
+
+    // No key is ever sent to this pty. A run that waits for `q` never returns.
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_ne!(status.code(), Some(0), "the run failed\nstderr:\n{}", read_run_stderr(&dir));
+    join_or_detach(drain);
+
+    // It got past the render-thread join, so it still had a turn to say why.
+    let stderr = read_run_stderr(&dir);
+    assert!(
+        stderr.contains("program exited with code 9"),
+        "a failing run should still report its failure, got:\n{stderr}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A freed slot must not be refilled once the run is interrupted.
+///
+/// The sequential loop's case is covered above; this is the parallel scheduler,
+/// where the decision to start more work is taken in `refill_parallel_worker_pool`
+/// and again in each work item — and where the item is handed to a worker thread
+/// that only reaches the spawn some way later.
+// §FS-rhei-run.3.2: an interrupted run starts nothing further.
+#[cfg(unix)]
+#[test]
+fn an_interrupted_run_refills_no_parallel_slot() {
+    let machine = r#"name: refill
+version: 1
+states:
+  work:
+    initial: true
+    concurrent: true
+    description: Sleep until told otherwise
+    program: >-
+      mkdir -p runtime/started
+      && : > "runtime/started/$RHEI_TASK_ID"
+      && sleep 300
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: work
+    to: completed
+    exit_code: 0
+"#;
+
+    let (dir, workspace, machine_path) = setup_program_workspace(
+        "run-interrupt-parallel-refill",
+        machine,
+        &["One", "Two", "Three", "Four"],
+    );
+
+    // Two slots for four tickets, so two are in flight and two are queued.
+    let mut run = spawn_rhei_run_with(&dir, &workspace, &machine_path, &["--parallel", "2"]);
+
+    let started_dir = workspace.join("runtime/started");
+    poll_until("both slots to fill", TEST_PATIENCE, || {
+        fs::read_dir(&started_dir).map(|entries| entries.count() >= 2).unwrap_or(false)
+    });
+
+    signal_pid(run.id(), "TERM");
+    let status = wait_for_exit(&mut run, TEST_PATIENCE);
+    assert_eq!(
+        status.code(),
+        Some(143),
+        "run should exit 128+SIGTERM\nstderr:\n{}",
+        read_run_stderr(&dir)
+    );
+
+    let started: Vec<String> = fs::read_dir(&started_dir)
+        .expect("started marker directory")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(started.len(), 2, "only the two in-flight programs may have run, got {started:?}");
+
+    let logs: Vec<String> = fs::read_dir(workspace.join("runtime/logs"))
+        .expect("program log directory")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".log"))
+        .collect();
+    assert_eq!(logs.len(), 2, "the shutdown should open no further program logs, got {logs:?}");
+
+    for id in ["1", "2", "3", "4"] {
+        assert_task_state(&workspace, &machine_path, id, "work");
+    }
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

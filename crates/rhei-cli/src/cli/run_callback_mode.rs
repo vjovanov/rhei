@@ -42,6 +42,8 @@ fn run_callback_mode(
         armed: true,
     };
     let frontend_parallel = max_parallel.max(1).min(u16::MAX as usize) as u16;
+    // Callback-only mode installs no subprocess guard, so nothing raises this
+    // and the surface leaves on a signal alone. §FS-rhei-run-tui.1.5.7
     let frontend = start_run_frontend(
         &workspace_root,
         input,
@@ -49,6 +51,7 @@ fn run_callback_mode(
         opts,
         frontend_parallel,
         initial_total_tasks,
+        &RunShutdown::default(),
     );
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration

@@ -1326,11 +1326,15 @@ fn result_phrase(
     rows: &[TaskRow],
     no_work: bool,
     advanced_without_work: bool,
-    interrupted_by_signal: bool,
+    // Named for the reading, not for the function that takes it: spelling this
+    // `interrupted_by_signal` put the free function of that name in scope
+    // beside a parameter shadowing it, and made "ask the token here" — the one
+    // thing the paragraph above forbids — a one-character edit that compiles.
+    cut_short_by_signal: bool,
 ) -> String {
     let all_terminal_success =
         rows.iter().all(|r| matches!(r.marker, Marker::Done | Marker::TerminalAtStart));
-    if interrupted_by_signal {
+    if cut_short_by_signal {
         "interrupted — re-run to continue".to_string()
     } else if !attention.is_empty() {
         // Gated and blocked tasks both halt the run for a human; the report and

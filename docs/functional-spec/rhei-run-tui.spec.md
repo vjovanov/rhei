@@ -406,7 +406,13 @@ surface remains navigable until `q`; non-TTY and `--no-tui` output remains
 line-oriented (§1.4, §3).
 
 The navigable final surface belongs to a run that ended on its own terms. **A
-run the operator interrupted (§FS-rhei-run.3.2) does not stay navigable.** The
+run that ended any other way — the operator interrupted it (§FS-rhei-run.3.2),
+or it is unwinding from its own failure — does not stay navigable.** Neither has
+an operator waiting at the screen, and both leave the engine blocked on the
+render thread: a failing run parked there never reported its failure at all. The
+surface is told by the run that owns it rather than by a reading taken through
+the thread that drove it, because by the time the surface asks, that thread has
+already given the run up. The
 TUI restores the terminal the moment the run ends and returns, so the engine
 can finish: write the run report, print the console summary onto the terminal
 just restored, and exit `128 + signal`. Parking on the finished screen instead

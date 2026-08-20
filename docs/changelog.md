@@ -46,11 +46,14 @@
   means the first and never the second: sharing one counter let a single Ctrl+C
   plus any failed `?` elsewhere skip the grace and `SIGKILL` an agent outright.
   For the same reason a run that died of an error no longer tells the tickets it
-  killed to "re-run to continue", and the flag a teardown raises is released
-  with the run that raised it, so a second run in the same process no longer
-  starts up already interrupted and reports success without doing any work. A
-  shutdown outranks a deadline reached on the same poll — that invocation is
-  interrupted, not timed out, so no timeout transition fires. Every early
+  killed to "re-run to continue", says nothing about a Ctrl+C nobody pressed,
+  and stops only its *own* workers: a teardown is scoped to the run that raised
+  it rather than to the process, so a run beside it — the in-process tests drive
+  more than one — is neither stopped nor left to start up already interrupted
+  and report success without doing any work. A shutdown outranks a deadline
+  whenever it arrives: on the same poll, or anywhere inside the ten seconds the
+  deadline's own grace opened, that invocation is interrupted rather than timed
+  out and no timeout transition fires. Every early
   termination now takes the one sequence, including an invocation abandoned
   between its spawn and its wait, which used to be `SIGKILL`ed with no grace at
   all. A run interrupted while a sequential program was in flight no longer
@@ -63,7 +66,11 @@
   reporting a key is treated like one that fails to poll, instead of spinning.
   And an `EIO` on a redirected stdout is a real write failure again — a dropped
   mount, a full device — rather than being read as a closed terminal and
-  answered by killing every agent and exiting `141` without a word.
+  answered by killing every agent and exiting `141` without a word. The reading
+  that tells those two apart is taken at startup: a pty whose master has closed
+  fails `isatty` with `EIO` like every other ioctl on it, so asked afterwards it
+  denies ever having been a terminal — at exactly the moment the answer decides
+  whether a lost console ends the run quietly or aborts it mid-unwind.
 
   Under the TUI an interrupted run now **leaves the screen** instead of parking
   on it. The finished surface stays navigable until `q` only for a run that
@@ -79,7 +86,20 @@
   destructors, it terminates every in-flight process group on its way out
   rather than leaving them to the Linux parent-death backstop. A run that ends
   there writes no report: the task files, untouched, are what it left behind.
-  Issue #53. PR #77 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
+
+  A run that fails on its own leaves the same way. The subprocess guard now
+  drops before the frontend, so a failing TUI run tells its surface before that
+  surface decides whether to park: it used to sit on the finished screen with
+  its groups still running, waiting for a `q` from an operator who had no reason
+  to still be watching, and never reached the error it was about to report. The
+  termination sequence ends its group on every path through it, including one it
+  cannot poll — returning there skipped the `SIGKILL` and then deregistered a
+  group that was still alive. A reaped invocation is struck off the live
+  registry exactly once, so a reused pgid is not struck off with it. The refusal
+  to start new work is enforced at the spawn itself rather than only at the
+  scheduler, which is a whole item's work earlier. And the snapshot redactor's
+  durable log records interruption beside timeout, so a redactor the run killed
+  no longer reads as an unexplained failure. Issue #53. PR #77 §FS-rhei-run.3.2 §FS-rhei-run-tui.1.8
   §DA-supervised-process-groups
 
 - Publish the plan-model crate as `rhei-plan` rather than `rhei-plan-core`.
