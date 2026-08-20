@@ -478,11 +478,6 @@ fn live_group_ids(owner: Option<u64>) -> Vec<i32> {
         .unwrap_or_default()
 }
 
-#[cfg(not(unix))]
-fn live_group_ids(_owner: Option<u64>) -> Vec<i32> {
-    Vec::new()
-}
-
 /// The `<task>@<state>` labels of the invocations still running.
 #[cfg(unix)]
 fn live_invocation_labels() -> Vec<String> {
