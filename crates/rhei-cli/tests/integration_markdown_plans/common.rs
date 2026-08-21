@@ -239,3 +239,128 @@ fn assert_parse_failure(
         );
     }
 }
+
+// Directory-workspace and multi-rhei project fixtures, shared by the
+// `workspace_validation*` siblings. §AR-source-file-size.3
+
+const WORKSPACE_STATE_MACHINE: &str = r#"name: workspace-test-machine
+version: 1
+states:
+  pending:
+    description: Task not yet started
+    initial: true
+  in-progress:
+    description: Task currently being worked on
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
+"#;
+
+/// A machine that declares an artifact contract, so a reset can be checked
+/// against the paths a ticket actually writes. §FS-rhei-states.6
+const ARTIFACT_CONTRACT_STATE_MACHINE: &str = r#"name: workspace-test-machine
+version: 1
+states:
+  pending:
+    description: Task not yet started
+    initial: true
+    outputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+  in-progress:
+    description: Task currently being worked on
+    inputs:
+      - name: notes
+        path: runtime/notes/{task_id}.md
+        optional: true
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
+"#;
+
+/// Helper: create a directory workspace with the given index content and
+/// a set of task files. Returns the workspace root directory.
+fn create_workspace(
+    prefix: &str,
+    index: &str,
+    task_files: &[(&str, &str)],
+    state_machine: &str,
+) -> (PathBuf, PathBuf) {
+    let dir = unique_temp_dir(prefix);
+    let ws = dir.join("workspace");
+    let tasks_dir = ws.join("tasks");
+    fs::create_dir_all(&tasks_dir).expect("create workspace dirs");
+    fs::write(ws.join("index.rhei.md"), index).expect("write index");
+    for (name, content) in task_files {
+        let path = tasks_dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create task parent dir");
+        }
+        fs::write(path, content).expect("write task file");
+    }
+    let machine_path = write_fixture_file(&dir, "states.yaml", state_machine);
+    (ws, machine_path)
+}
+
+/// A second machine with disjoint state names, so a project mixing it with
+/// `workspace-test-machine` proves each ticket is judged under the machine of
+/// the rhei that owns it. §DA-per-rhei-state-machines
+const CHILD_FLOW_STATE_MACHINE: &str = r#"name: child-flow
+version: 1
+states:
+  open:
+    description: Ticket waiting for work
+    initial: true
+  done:
+    description: Ticket finished
+    final: true
+transitions:
+  - from: open
+    to: done
+"#;
+
+/// A project machine whose initial state carries autonomous agent work, so
+/// `rhei run` takes the orchestrated (agent-mode) scheduling path.
+const AGENT_WORK_STATE_MACHINE: &str = r#"name: workspace-test-machine
+version: 1
+states:
+  pending:
+    description: Task not yet started
+    initial: true
+    agent: fake
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: completed
+"#;
+
+fn create_panta_project(
+    prefix: &str,
+    manifest: &str,
+    files: &[(&str, &str)],
+    state_machine: &str,
+) -> PathBuf {
+    let dir = unique_temp_dir(prefix);
+    fs::write(dir.join("index.panta.md"), manifest).expect("write panta manifest");
+    for (name, content) in files {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create panta parent dir");
+        }
+        fs::write(path, content).expect("write panta file");
+    }
+    fs::write(dir.join("states.yaml"), state_machine).expect("write panta states");
+    dir
+}

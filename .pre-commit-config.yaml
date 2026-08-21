@@ -16,6 +16,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      - id: fissile-check
+        name: fissile check (staged files)
+        entry: fissile check --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
       - id: cargo-fmt-check
         name: cargo fmt --check
         entry: cargo fmt --all -- --check

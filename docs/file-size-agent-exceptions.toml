@@ -1,0 +1,269 @@
+# Soft (agent-facing) file-size exception registry (fissile spec FS-003-exceptions).
+#
+# Entries here silence soft-limit warnings for files this repo has deliberately
+# accepted as oversized, each with a written reason and a maximum accepted size
+# so the warning returns if the file grows past it. Add entries with
+# `fissile exception add --severity soft` (fissile spec FS-005-exception-add).
+#
+# `kind` says which claim the entry makes, and therefore what `reason` has to
+# establish (fissile spec FS-003-exceptions.2.1):
+#
+#   structural  splitting this file is illegal — name the constraint and what
+#               would break. Nothing retires it, so `until` is "indefinite".
+#   deferred    no constraint; a boundary is missing — name it and what has to
+#               exist first. `until` names the condition that retires the entry.
+#
+# Neither is answered by describing what the file contains.
+
+fissile_exceptions_version = 2
+
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/run_agent_mode.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 3800, unit = "lines" }
+until = "Split into scheduler, sequential execution, parallel execution, and result handling modules."
+reason = """
+Mechanical extraction from the former CLI monolith; still one orchestration loop.
+"""
+[[exceptions]]
+path = "examples/hourly-human-intervention-example/states.yaml"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "Split by template/example support if Rhei gains multi-file state machines."
+reason = """
+Example state machine intentionally shows a complete workflow in one file.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/templates/hourly-human-intervention/states.yaml"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "Split by template support if Rhei gains multi-file state machines."
+reason = """
+Template state machine mirrors the example as an instantiable workflow.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/templates/spec-implementation/states.yaml"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Split by template support if Rhei gains multi-file state machines."
+reason = """
+Template state machine must be copied as one instantiable workflow artifact.
+"""
+[[exceptions]]
+path = "examples/spec-implementation-example/states.yaml"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "Split by template support if Rhei gains multi-file state machines."
+reason = """
+Example mirrors the spec-implementation template state machine.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/e2e/completions_tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Split by shell or command group when new cases are added."
+reason = """
+E2E completion scenarios share setup and assertions.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/e2e/templates_tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1300, unit = "lines" }
+until = "Split by template command area when new cases are added."
+reason = """
+Template E2E scenarios share fixtures and setup.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/e2e/next_tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1200, unit = "lines" }
+until = "Split by readiness, assignee, and transition behavior when new cases are added."
+reason = """
+`next` command E2E scenarios share command fixtures.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/templates/changeset-review/states.yaml"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "Split by template support if Rhei gains multi-file state machines."
+reason = """
+Template state machine must be copied as one instantiable workflow artifact.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/e2e/run_tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1400, unit = "lines" }
+until = "Split by callback, agent, program, and snapshot behavior when new cases are added."
+reason = """
+Run-command E2E scenarios share setup and process assertions.
+"""
+[[exceptions]]
+path = "crates/rhei-core/src/ast.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "Split workspace/task/state structs if more public fields are added."
+reason = """
+AST types are reviewed together as the core language model.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_snapshot_runtime.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1900, unit = "lines" }
+until = "Split into preload, emit, redactor, and fanout-target groups when new cases are added."
+reason = """
+Snapshot runtime tests share preload/emit/redactor fixtures and helper builders.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/snapshot_records.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "Split manifest IO from pi-header probing once a second native-header parser exists."
+reason = """
+Snapshot record loading, manifest schema, and pi-header parsing share serde types.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_snapshots_gc.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "Split ref-gc from retention scans when retention policies grow."
+reason = """
+Snapshot GC tests share cache-root fixtures and generation builders.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_settings_tooling.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1200, unit = "lines" }
+until = "Split by load-vs-validate when settings gain new sections."
+reason = """
+Settings load/merge/validate tests share workspace and home-dir fixtures.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/integration_markdown_plans/run_programs_callbacks.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Split programs from callbacks when either grows a new behavior."
+reason = """
+Program-and-callback integration cases share workspace setup and process assertions.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/integration_markdown_plans/run_agent_regressions.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1100, unit = "lines" }
+until = "Split by regression class (snapshot, fanout, polling) when new clusters appear."
+reason = """
+Run-agent regression cases share workspace setup and process assertions.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_agent_execution_validation.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Split by validation surface (env, args, transport) when new surfaces are added."
+reason = """
+Agent execution validation tests share spawn-environment fixtures.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/snapshot_runtime_preload.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "Split override-contract checks from the preload pipeline if a second consumer needs them."
+reason = """
+Preload sequencing, override-contract validation, and parent_ref staging form one ordered procedure.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_cli_render.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1200, unit = "lines" }
+until = "Split by command group when new render surfaces are added."
+reason = """
+CLI render tests share golden output and command fixtures.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/system_transition_execution.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1100, unit = "lines" }
+until = "Split per outcome class once routing policies diverge."
+reason = """
+System-transition execution carries the failure/timeout routing pipeline as one ordered procedure.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_agent_resolution.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "Split by resolution surface (target, all_targets, legacy) when new surfaces are added."
+reason = """
+Agent resolution tests share execution-target fixtures.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/agent_command.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "Split subcommand handlers from dispatch when a fifth subcommand is added."
+reason = """
+`rhei agent` subcommand dispatch holds list/show/resolve/spawn next to each other for one help surface.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/e2e/run_signals_tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1400, unit = "lines" }
+until = "Split by shutdown class (signal, timeout, lost output) once the harness they share is a module of its own rather than helpers beside the cases."
+reason = """
+Signal, timeout, and lost-output cases share one process-supervision harness: spawning a real run, tracking its pid and grandchildren, and asserting on what survives each shutdown path.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/tests/integration_markdown_plans/workspace_validation_panta.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1000, unit = "lines" }
+until = "Split discovery from qualification and prior validation when panta gains a third cross-project surface."
+reason = """
+Cross-project panta cases share the multi-project fixture builders and the qualified-prior assertions that only apply to them.
+"""
