@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- The 500-line file-size rule is now a gate rather than a table. It has been
+  §AR-source-file-size.1 since it was written — 500 soft, 2000 hard, spec files
+  exempt — but nothing checked it, and the large-file register was a Markdown
+  table that only grew. `fissile` enforces it: `.agents/fissile.toml` encodes
+  the two numbers, the register moves into
+  `docs/file-size-agent-exceptions.toml` (25 entries, each now stating whether
+  splitting is illegal or merely blocked on a missing boundary) plus a
+  human-only `docs/file-size-human-exceptions.toml` for the hard limit, and
+  `fissile check --staged` joins `grund check` in `.pre-commit-config.yaml` so a
+  commit answers for the files it touches and not for the backlog it inherited.
+  The workspace-validation integration tests are split along the seams the gate
+  names — shared fixtures into `common.rs`, project cases away from workspace
+  cases — leaving seven files under budget and the same 179 tests.
+  `crates/rhei-cli/src/cli/run_agent_mode.rs` stays over the hard limit and
+  blocks any commit that stages it; splitting it is a human's call.
+  Issue #80. PR #81 §AR-source-file-size.1 §AR-source-file-size.2
+
 - Give `rhei run` real ownership of the subprocesses it starts. Agents and
   programs were plain children in the supervisor's own process group, and
   `rhei run` installed no signal handler at all, so every way the supervisor
