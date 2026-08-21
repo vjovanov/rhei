@@ -1,7 +1,11 @@
 // §AR-source-file-size.3: signal, timeout, and lost-output shutdown cases for
-// `rhei run`, with the process-supervision harness they alone use.
+// `rhei run`, with the process-supervision harness they alone use. Every case
+// here is unix-only, so its imports are gated the same way.
+
+#[cfg(unix)]
 use std::fs;
 
+#[cfg(unix)]
 use super::*;
 
 // ---------------------------------------------------------------------------
