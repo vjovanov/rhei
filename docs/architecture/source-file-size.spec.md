@@ -32,37 +32,39 @@ navigable through `grund <ID>`, `grund <ID> --toc`, and subsection reads.
 
 ## 2. Large-File Register
 
-Large-file exceptions belong in this section or in a more specific `AR-*`
-document that cites this rule. Each entry must explain why the file cannot yet
-be split without making the design harder to understand.
+The register is `fissile`'s exception registries, not a table maintained by
+hand: `docs/file-size-agent-exceptions.toml` for entries that leave a soft
+finding standing and `docs/file-size-human-exceptions.toml` for entries that
+clear the hard gate. `.agents/fissile.toml` encodes §1 — 500 soft, 2000 hard —
+so the rule is now checked at commit time rather than stated and hoped for.
+The gate itself is one `fissile check --staged` hook in
+`.pre-commit-config.yaml`, next to `grund check`: it reads the staged set, so it
+answers for the files a commit actually touches and stays silent about the
+backlog it did not create.
 
-| Path | Reason | Split Trigger |
-|---|---|---|
-| `crates/rhei-cli/src/cli/run_agent_mode.rs` | Mechanical extraction from the former CLI monolith; still one orchestration loop. | Split into scheduler, sequential execution, parallel execution, and result handling modules. |
-| `examples/hourly-human-intervention-example/states.yaml` | Example state machine intentionally shows a complete workflow in one file. | Split by template/example support if Rhei gains multi-file state machines. |
-| `crates/rhei-cli/templates/hourly-human-intervention/states.yaml` | Template state machine mirrors the example as an instantiable workflow. | Split by template support if Rhei gains multi-file state machines. |
-| `crates/rhei-cli/templates/spec-implementation/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
-| `examples/spec-implementation-example/states.yaml` | Example mirrors the spec-implementation template state machine. | Split by template support if Rhei gains multi-file state machines. |
-| `crates/rhei-cli/tests/e2e/completions_tests.rs` | E2E completion scenarios share setup and assertions. | Split by shell or command group when new cases are added. |
-| `crates/rhei-cli/tests/e2e/templates_tests.rs` | Template E2E scenarios share fixtures and setup. | Split by template command area when new cases are added. |
-| `crates/rhei-cli/tests/e2e/next_tests.rs` | `next` command E2E scenarios share command fixtures. | Split by readiness, assignee, and transition behavior when new cases are added. |
-| `crates/rhei-cli/templates/changeset-review/states.yaml` | Template state machine must be copied as one instantiable workflow artifact. | Split by template support if Rhei gains multi-file state machines. |
-| `crates/rhei-cli/tests/e2e/run_tests.rs` | Run-command E2E scenarios share setup and process assertions. | Split by callback, agent, program, and snapshot behavior when new cases are added. |
-| `examples/changeset-review-example/states.yaml` | Example mirrors the changeset-review template state machine. | Split by template support if Rhei gains multi-file state machines. |
-| `crates/rhei-core/src/ast.rs` | AST types are reviewed together as the core language model. | Split workspace/task/state structs if more public fields are added. |
-| `crates/rhei-cli/src/cli/tests_snapshot_runtime.rs` | Snapshot runtime tests share preload/emit/redactor fixtures and helper builders. | Split into preload, emit, redactor, and fanout-target groups when new cases are added. |
-| `crates/rhei-cli/src/cli/snapshot_records.rs` | Snapshot record loading, manifest schema, and pi-header parsing share serde types. | Split manifest IO from pi-header probing once a second native-header parser exists. |
-| `crates/rhei-cli/src/cli/tests_snapshots_gc.rs` | Snapshot GC tests share cache-root fixtures and generation builders. | Split ref-gc from retention scans when retention policies grow. |
-| `crates/rhei-cli/src/cli/tests_settings_tooling.rs` | Settings load/merge/validate tests share workspace and home-dir fixtures. | Split by load-vs-validate when settings gain new sections. |
-| `crates/rhei-cli/tests/integration_markdown_plans/run_programs_callbacks.rs` | Program-and-callback integration cases share workspace setup and process assertions. | Split programs from callbacks when either grows a new behavior. |
-| `crates/rhei-cli/tests/integration_markdown_plans/run_agent_regressions.rs` | Run-agent regression cases share workspace setup and process assertions. | Split by regression class (snapshot, fanout, polling) when new clusters appear. |
-| `crates/rhei-cli/src/cli/tests_agent_execution_validation.rs` | Agent execution validation tests share spawn-environment fixtures. | Split by validation surface (env, args, transport) when new surfaces are added. |
-| `crates/rhei-validator/src/validator/tests_state_machine.rs` | State-machine validation tests share YAML fixtures and assertion helpers. | Split by feature group (poll, fanout, snapshot, programs) when new rules are added. |
-| `crates/rhei-cli/src/cli/snapshot_runtime_preload.rs` | Preload sequencing, override-contract validation, and parent_ref staging form one ordered procedure. | Split override-contract checks from the preload pipeline if a second consumer needs them. |
-| `crates/rhei-cli/src/cli/tests_cli_render.rs` | CLI render tests share golden output and command fixtures. | Split by command group when new render surfaces are added. |
-| `crates/rhei-cli/src/cli/system_transition_execution.rs` | System-transition execution carries the failure/timeout routing pipeline as one ordered procedure. | Split per outcome class once routing policies diverge. |
-| `crates/rhei-cli/src/cli/tests_agent_resolution.rs` | Agent resolution tests share execution-target fixtures. | Split by resolution surface (target, all_targets, legacy) when new surfaces are added. |
-| `crates/rhei-cli/src/cli/agent_command.rs` | `rhei agent` subcommand dispatch holds list/show/resolve/spawn next to each other for one help surface. | Split subcommand handlers from dispatch when a fifth subcommand is added. |
+Each entry still carries what §1 asks of it: the path, the reason the size is
+necessary, and the condition that should trigger splitting it. `fissile` spells
+those as `path`, `reason`, and `until`, and adds `kind`, which fixes what the
+reason has to establish — `structural` names the constraint that makes splitting
+illegal and never expires, `deferred` names the boundary that is missing and
+what has to exist before the split can happen. Restating the file's contents is
+not a reason in either case.
+
+A registry entry does record a number, `max_accepted`, which this section
+previously ruled out on the grounds that exact line counts go stale. The
+objection holds against an exact count and is answered by not writing one:
+`fissile` quantizes every ceiling it writes up to the `[exceptions.bump]` step,
+so the recorded value is a decision — *this file may run to 800 lines* — rather
+than a reading taken on the day the entry was written, and an edit inside the
+step does not touch the registry. `fissile audit --stale-exceptions` reports the
+two ways an entry can stop being true: it accepts a file that no longer exists,
+or it stands more than one step above the file it accepts. `fissile exception
+retune` moves the number when only the number is wrong, leaving the reason
+alone.
+
+Entries are added with `fissile exception add`, never by hand. A hard entry is a
+human's to add: it is the only thing that clears a gate §1 calls not allowed,
+and an agent that could write one could waive the rule it is being held to.
 
 ## 3. Split Shape
 

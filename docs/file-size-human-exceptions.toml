@@ -1,0 +1,36 @@
+# Hard (human-reviewed) file-size exception registry (fissile spec FS-003-exceptions).
+#
+# This is the only escape hatch for a hard-limit overflow short of disabling the
+# rule. Each entry is human-reviewed blocking debt with a written reason and a
+# maximum accepted size so the failure returns if the file grows past it. Add
+# entries with `fissile exception add --severity hard` (fissile spec FS-005-exception-add).
+#
+# `kind` says which claim the entry makes, and therefore what `reason` has to
+# establish (fissile spec FS-003-exceptions.2.1):
+#
+#   structural  splitting this file is illegal — name the constraint and what
+#               would break. Nothing retires it, so `until` is "indefinite".
+#   deferred    no constraint; a boundary is missing — name it and what has to
+#               exist first. `until` names the condition that retires the entry.
+#
+# Neither is answered by describing what the file contains.
+#
+# A `structural` entry silences the soft warning for the overflow it accepts too
+# — there is nothing to minimize — so a file over the hard limit needs no
+# companion soft entry. Below that limit there is no hard finding to silence and
+# the warning is the soft registry's to accept. A `deferred` entry always leaves
+# the warning standing (fissile spec FS-003-exceptions.3).
+
+fissile_exceptions_version = 2
+
+# [[exceptions]]
+# path = "path/to/large-file"
+# match = "exact"               # exact | glob
+# rules = ["*"]                 # rule ids this applies to, or ["*"] for all
+# kind = "structural"           # structural | deferred
+# max_accepted = { value = 0, unit = "lines" }
+# until = "indefinite"
+# reason = """
+# The constraint that makes splitting this file illegal, and what would break if
+# it were split anyway.
+# """

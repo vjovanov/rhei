@@ -4,6 +4,7 @@ mod examples_tests;
 mod handoff_tests;
 mod install_skills_tests;
 mod next_tests;
+mod run_signals_tests;
 mod run_tests;
 mod snapshot_tests;
 mod template_example_sync_tests;
