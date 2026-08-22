@@ -640,25 +640,23 @@ fn line_text(input: &str, line_number: usize) -> Option<&str> {
 /// Saying only *where* the file goes left the harder half — what belongs
 /// inside it — unstated just when an author needs it. §FS-rhei-panta.6
 fn add_a_rhei_hint() -> &'static str {
-    "add one with `rhei instantiate <template>` (`rhei templates` lists them), or by hand as a \
-     `<id>.rhei.md` file next to index.panta.md"
+    "add one with `rhei new \"<title>\"`, from a template with `rhei instantiate <template>` \
+     (`rhei templates` lists them), or by hand as a `<id>.rhei.md` file next to index.panta.md"
 }
 
-/// The same two routes with room to show what a hand-written plan looks like.
-/// §FS-rhei-panta.6
+/// The three routes to a first rhei, shortest first. The hand-written skeleton
+/// it used to spell out is what `rhei new` writes, so the block is a one-liner
+/// now and the file format is something to read rather than to memorize.
+// §FS-rhei-panta.6 §FS-rhei-new.2
 fn add_a_rhei_help() -> String {
     [
-        "Add a rhei either way:",
+        "Add a rhei any of three ways:",
+        "  one command      `rhei new \"<title>\"` writes it, then",
+        "                   `rhei new \"<first ticket>\" --under <id>` fills it",
         "  from a template  `rhei templates` lists them; `rhei instantiate <name>` writes one",
         "                   into this project, keeping the template's own state machine",
-        "  by hand          create `<id>.rhei.md` next to index.panta.md:",
-        "",
-        "                       # Rhei: <title>",
-        "",
-        "                       ## Tasks",
-        "",
-        "                       ### Task 1: <first ticket>",
-        "                       **State:** pending",
+        "  by hand          create `<id>.rhei.md` next to index.panta.md, starting with",
+        "                   `# Rhei: <title>` and a `## Tasks` section",
     ]
     .join("\n")
 }

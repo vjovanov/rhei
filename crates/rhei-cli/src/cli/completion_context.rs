@@ -1,6 +1,14 @@
 fn completion_plan_path() -> Option<PathBuf> {
     let words = completion_words();
     let command = completion_command_name(&words)?;
+    // `rhei new` spends its positional on the title, not a path: reading it as
+    // one would complete every id against a plan that does not exist.
+    // §FS-rhei-new.1.1
+    if command == "new" {
+        return completion_option_value("project")
+            .map(PathBuf::from)
+            .or_else(|| resolve_plan_target(None).ok().map(|target| target.path));
+    }
     // §FS-rhei-panta.6: with the plan positional omitted, complete task and
     // rhei ids against the same target the command itself would resolve.
     first_command_positional(&words, &command)
