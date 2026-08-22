@@ -701,6 +701,7 @@ Rules:
 - Once `visitCount >= visits`, further loop-back transitions into that state are exhausted and the machine must take another allowed transition such as escalation, human review, or completion.
 - When a state also declares `all_models`, visit accounting is scoped to each model-specific execution of that state.
 - When a state also declares `all_targets`, visit accounting is scoped to each target-specific execution of that state.
+- A transition whose `from` equals its `to` on a state that does **not** declare `poll:` is a loop-back re-entry like any other: it increments `stateVisits.<state-name>`, is bounded by `visits`, and emits and inherits snapshots per visit. On a supervising state it is the release edge (§FS-rhei-supervision.4.2).
 - On a state that declares [`poll:`](rhei-states.spec.md#2-polling-states), the same `stateVisits` entry records poll attempts. Transitions from that state may use `pollAttempts` (alias for `visitCount`) and `pollMaxAttempts` (alias for `poll.max_attempts`) for clarity; both names are only defined on transitions whose `from` state declares `poll:`. A self-loop transition from a poll state is interpreted by `rhei run` as "retry after `poll.interval`" and releases the `--parallel` slot between attempts; once `pollAttempts >= pollMaxAttempts`, the engine refuses self-loops and picks the first matching non-self-loop transition instead.
 
 Example:
@@ -770,7 +771,7 @@ transitions:
 | `description` | string | Yes | Human-readable explanation of the transition's purpose and when it occurs |
 | `on_leave` | string | No | Callback function identifier invoked before leaving the source state |
 | `on_enter` | string | No | Callback function identifier invoked after entering the target state |
-| `condition` | string | No | Expression evaluated for system-triggered transitions |
+| `condition` | string | No | Expression evaluated for system-triggered transitions. Operands are integer literals, `visitCount` and `visits` (§4.3), `pollAttempts` and `pollMaxAttempts` on poll states (§FS-rhei-states.2.3), and `openDescendants`, the number of non-terminal descendants of the task (§FS-rhei-supervision.4.1). |
 | `timeout` | string | No | Duration (e.g., `24h`, `30m`) after which system triggers this transition |
 | `exit_code` | integer, integer array, or `"nonzero"` | No | Exit-code condition for transitions from program states. Only evaluated when a program exits without calling `rhei transition`. See [Program States Specification](rhei-programs.spec.md#3-exit-code-transitions). |
 | `mcp_unavailable` | boolean or string array | No | When `true`, fires when any required MCP server on the source state fails its availability check. When an array, fires only when one of the listed ids failed. Only valid on transitions from agent states. See [Tooling-Unavailable Trigger](#37-tooling-unavailable-trigger-triggeredby-system). |

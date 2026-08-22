@@ -206,6 +206,25 @@ items improve operator diagnosis without changing the execution model.
 - Add task-opening affordances, state/level filtering or dimming, a dependency
   graph view, and diff visualization against another snapshot or git ref. §FS-rhei-viz
 
+## Planned: Subtree Supervision
+
+Status: planned, specified. A non-leaf task can look after its subtree while
+it runs instead of only integrating it at the end: a state declaring
+`supervise: task|state` wakes the task at every finished descendant or every
+descendant transition, with its session continued, and holds the subtree in
+between. §FS-rhei-supervision §DF-subtree-supervision
+
+- Implement the `supervise` field, the hold/release readiness rule, the
+  `supervision` task metadata, and the `openDescendants` condition operand on
+  the shared transition path. §FS-rhei-supervision
+- Add the `## Child Tasks` / `## Child Task Results` / `## Checkpoints` and
+  `## Supervisor Brief` prompt sections. §FS-rhei-agents
+- Surface "held by supervisor" as a readiness reason in `rhei next`,
+  `rhei list`, the run report, the TUI, and the dashboard. §FS-rhei-next §FS-rhei-viz
+- Generalize self-loops on agent states to loop-back re-entries. §FS-rhei-transitions
+- Context continuity for `claude-code` supervisors depends on the snapshot
+  adapter work below. §FS-rhei-snapshots
+
 ## Planned: Snapshot Adapter and Retention Work
 
 Status: planned. Snapshot v1 intentionally ships a conservative built-in

@@ -601,6 +601,15 @@ manual claim selection (§FS-rhei-next.3) and autonomous scheduling
 at the same time, and a parent is never scheduled ahead of the subtree it
 integrates. A leaf task node satisfies the rule trivially.
 
+One declared exception refines the eligibility rule without touching the
+invariant: a task whose current state is a *supervising* state
+(§FS-rhei-supervision) is worked *between* its descendants rather than only
+after them. The engine wakes it at checkpoints of its subtree and holds the
+subtree while it is owed a visit or running, so a supervisor and one of its
+descendants are still never worked at the same time, and the supervisor may
+still enter a terminal state only after every descendant is terminal. The
+hold/release rule is specified in §FS-rhei-supervision.3.
+
 Dependency readiness requires successful terminal dependencies: a task is ready
 with respect to `**Prior:**` only when every referenced dependency is in a
 terminal state whose normalized state name is not `cancelled`. State-machine

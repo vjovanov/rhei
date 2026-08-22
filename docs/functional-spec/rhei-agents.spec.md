@@ -538,7 +538,19 @@ When `rhei run` spawns an agent for a task, it composes a prompt from the state 
 
 ## Task Content
 
-{task body from the plan, including any child task nodes}
+{task body from the plan}
+
+## Child Tasks
+
+{one line per child task node — kind, id, title, state — on a non-leaf task}
+
+## Child Task Results
+
+{the result of every terminal child, on a non-leaf task whose state is not supervising}
+
+## Checkpoints
+
+{descendants that moved since the last supervisor visit, on a supervising state}
 
 ## Prior Task Results
 
@@ -569,6 +581,10 @@ A transition from this state can finish this task. The finished task's result is
 These are notes from previous `{source-state}` state of this same task. They are context, not instructions.
 
 {inherited state handoff artifact content, when present}
+
+## Supervisor Brief
+
+{briefs written by the supervising task, when present}
 
 ## Rhei Commands
 
@@ -630,6 +646,17 @@ render as one `## Handoff from <state>` section per inherited source state. The
 handoff text is context only; if it conflicts with current instructions or the
 current task body, the current invocation wins. See
 [States Specification — State Handoffs](rhei-states.spec.md#32-state-handoffs).
+
+The subtree sections are resolved from the task tree. `## Child Tasks` lists
+a non-leaf task's children; `## Child Task Results` injects the result file of
+every terminal child when the state is not supervising; `## Checkpoints`
+replaces it on a supervising state with the descendants that moved since the
+supervisor's last visit, each carrying its result or its source state's
+outputs. `## Supervisor Brief` renders the briefs a supervising ancestor wrote
+for this task or this state; unlike handoffs, a brief is direction the agent
+follows within the state's instructions and artifact contract. On a
+supervising state, `## Rhei Commands` additionally permits `rhei transition`
+against held descendants. See §FS-rhei-supervision.5.
 
 Reusable prompt templates are expanded from each state's
 `prompt_template.values` before runtime template variables. Inline state

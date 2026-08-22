@@ -74,6 +74,12 @@ at the same time.
 
 Rule 1 governs `--task` too; see §3.4.
 
+Rule 1 has one declared refinement. A task in a *supervising* state is
+claimable while its subtree is held and nothing beneath it is in flight, and a
+descendant of a supervising task is claimable only while every supervising
+ancestor has released it (§FS-rhei-supervision.3.2). Such a descendant is
+reported as held by its supervisor rather than as blocked.
+
 ### 3.1. Behavior
 
 1. Load the state machine and plan. Validate.
@@ -218,6 +224,7 @@ action is:
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
 | Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
+| Non-terminal tasks are held by a supervisor whose visit is pending or in flight (§FS-rhei-supervision.3.4) | `no tasks are ready to claim: <N> task(s) held by a supervisor: Task <ID> held by supervisor Task <P> (<state>), ...` |
 | Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
 | Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
 

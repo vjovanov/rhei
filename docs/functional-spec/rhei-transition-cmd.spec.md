@@ -117,9 +117,10 @@ orchestrator-owned auto-advance (§FS-rhei-run.3), and a callback that redirects
 an edge with `nextState` (§FS-rhei-transitions.3.2) — a redirect is re-checked
 against the effective target, so it cannot smuggle a terminal entry past the
 guard. No command holds a private copy of the rule, and no state machine can
-opt out of it: transition `condition:` expressions see only visit and exit-code
-variables (§FS-rhei-states.2.3), so a machine author has no way to gate a
-parent's terminal edge on its children. The engine must.
+opt out of it: a transition `condition:` can *select* a parent's terminal edge
+on its subtree with `openDescendants` (§FS-rhei-supervision.4.1), but
+selection is not permission — a machine author has no way to take a terminal
+edge past an open descendant. The engine must guard it.
 
 The guard is deliberately **not** symmetric with `**Prior:**` readiness, which
 `rhei transition` skips as the human escape hatch (§3). The line between the
