@@ -38,6 +38,15 @@ pub struct StateDef {
     pub poll: Option<PollConfig>,
     /// Optional visit budget for returning to this state.
     pub visits: Option<u32>,
+    /// Marks this state as a *supervising* state: `task` or `state`.
+    ///
+    /// A non-leaf task in it is woken at checkpoints of its subtree and holds
+    /// the subtree between visits. Kept as a raw string so an unrecognized
+    /// value is reported by the machine's own validation pass with the two
+    /// legal values named, rather than as a serde variant error.
+    // §FS-rhei-supervision.1.1: `supervise: task|state` declares a supervisor.
+    #[serde(default)]
+    pub supervise: Option<String>,
     /// Optional named snapshot emit/inherit declaration.
     ///
     /// The operational CLI and run override surface inspect this field to
@@ -404,3 +413,54 @@ pub struct StateMachine {
 
 /// The built-in default states YAML shipped with rhei.
 const DEFAULT_STATES_YAML: &str = include_str!("../default-states.yaml");
+
+/// Which descendant events wake a supervising task.
+// §FS-rhei-supervision.1.1: `task` fires on a descendant's terminal entry,
+// `state` on every descendant transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuperviseKind {
+    /// A checkpoint per descendant that reaches a terminal state.
+    Task,
+    /// A checkpoint per transition any descendant applies.
+    State,
+}
+
+impl SuperviseKind {
+    /// Parse the declared `supervise:` value; `None` for anything else.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "task" => Some(Self::Task),
+            "state" => Some(Self::State),
+            _ => None,
+        }
+    }
+
+    /// The value as authored.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::State => "state",
+        }
+    }
+}
+
+impl StateDef {
+    /// The checkpoint granularity of a supervising state, or `None` when the
+    /// state does not supervise. A machine that reached the runtime has passed
+    /// validation, so an unparseable value cannot survive to here.
+    // §FS-rhei-supervision.1.1
+    pub fn supervise_kind(&self) -> Option<SuperviseKind> {
+        self.supervise.as_deref().and_then(SuperviseKind::parse)
+    }
+
+    /// Whether this state names an executor: an `agent`, a `target`, or a
+    /// legacy `model` / fanout selection. §FS-rhei-states.1.2
+    // §FS-rhei-supervision.1.2: a supervising state must be agent-bearing.
+    pub fn is_agent_bearing(&self) -> bool {
+        self.agent.is_some()
+            || self.target.is_some()
+            || self.model.is_some()
+            || !self.all_targets.is_empty()
+            || !self.all_models.is_empty()
+    }
+}

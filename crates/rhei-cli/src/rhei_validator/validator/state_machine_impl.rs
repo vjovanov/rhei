@@ -33,6 +33,7 @@ impl StateMachine {
         self.validate_tooling_configuration()?;
         self.validate_template_conditions()?;
         self.validate_poll_configuration()?;
+        self.validate_supervise_configuration()?;
         self.validate_profiles_and_node_policy()?;
         self.validate_terminal_state_present()?;
         Ok(self)

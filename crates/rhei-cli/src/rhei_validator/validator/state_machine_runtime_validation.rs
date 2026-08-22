@@ -85,6 +85,65 @@ impl StateMachine {
         Ok(())
     }
 
+    /// Validate the per-state `supervise:` block: a legal value, an
+    /// agent-bearing state that is neither final, gating, program-driven nor
+    /// polling, no fanout, and a self-loop transition to release the subtree
+    /// with.
+    ///
+    /// Every rule here is an error rather than a warning because each one
+    /// names a supervisor the engine could never schedule: without an executor
+    /// nothing runs the visit, and without the self-loop the subtree is never
+    /// released.
+    // §FS-rhei-supervision.1.2
+    fn validate_supervise_configuration(&self) -> Result<(), StateMachineLoadError> {
+        for (state_name, state) in &self.states {
+            let Some(raw) = state.supervise.as_deref() else { continue };
+            if SuperviseKind::parse(raw).is_none() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' has supervise '{raw}' (expected 'task' or 'state')"
+                )));
+            }
+            if state.terminal {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' is final and cannot declare 'supervise' (terminal states have no work to execute)"
+                )));
+            }
+            if state.gating {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' is gating and cannot declare 'supervise' (gating states require human action; a supervisor executes autonomously)"
+                )));
+            }
+            if state.program.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares both 'program' and 'supervise'; a supervisor is a continued agent session, not a program"
+                )));
+            }
+            if state.poll.is_some() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares both 'poll' and 'supervise'; a poll self-loop is a retry, not a subtree release"
+                )));
+            }
+            if !state.all_targets.is_empty() || !state.all_models.is_empty() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' combines 'supervise' with 'all_targets' or 'all_models'; a supervisor is one continued session, not a fanout"
+                )));
+            }
+            if !state.is_agent_bearing() {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares 'supervise' but is not agent-bearing; give it an 'agent', 'target', or 'model'"
+                )));
+            }
+            let has_self_loop =
+                self.transitions.iter().any(|t| t.from.0 == *state_name && t.to.0 == *state_name);
+            if !has_self_loop {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' declares 'supervise' but has no self-loop transition; add a transition with from: {state_name} and to: {state_name} so the release branch is reachable"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Validate the per-state `mcp_servers` and `skills` lists and the
     /// matching `mcp_unavailable` / `skill_unavailable` transition triggers.
     ///
