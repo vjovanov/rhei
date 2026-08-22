@@ -6,7 +6,10 @@ integrating them once they are all finished. A state that declares
 `supervise:` turns the task holding it into a *supervisor*. The orchestrator
 wakes the supervisor at *checkpoints* — after every descendant finishes
 (`task`) or after every state a descendant passes through (`state`) — with
-the same agent session continued from its previous visit, and holds the rest
+the same agent session continued from its previous visit *where the agent
+supports one* (today that is `pi`; with the built-in `claude-code` profile the
+supervisor runs each visit cold, carried by its checkpoints and its briefs),
+and holds the rest
 of the subtree while the supervisor decides how to steer it. §GOAL-rhei-outcomes
 
 Supervision builds on the non-leaf task model (§FS-rhei-plan-language.3): a

@@ -8,7 +8,10 @@
   *checkpoints* — after every finished descendant (`task`) or after every state
   a descendant passes through (`state`) — with the same agent session continued
   from its previous visit, and holds the rest of the subtree while it decides
-  how to steer. A review/fix chain authored as four children no longer runs
+  how to steer. Continuity needs an agent with session support, which today
+  means `pi`: with the built-in `claude-code` profile the supervisor runs each
+  visit cold, carried by its checkpoints and its briefs rather than by a
+  transcript. A review/fix chain authored as four children no longer runs
   unattended to the end with the parent's context out of the room.
 
   The supervisor is a **barrier over its subtree**, and the rule is one rule:
