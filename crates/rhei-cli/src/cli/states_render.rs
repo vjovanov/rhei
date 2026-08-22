@@ -809,7 +809,7 @@ fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiS
         .collect();
     let qualifier = if scope.is_some() { "narrowed to" } else { "operates project-wide across" };
     let noun = if affected.len() == 1 { "rhei" } else { "rheis" };
-    println!(
+    let line = format!(
         "Scope: `rhei {}` {} {} {}: {}",
         command,
         qualifier,
@@ -817,6 +817,14 @@ fn report_panta_scope_narrowed(loaded: &LoadedPlan, command: &str, scope: &RheiS
         noun,
         affected.join(", ")
     );
+    // Prose, so it moves to stderr when stdout is a record stream rather than
+    // being dropped: a JSON consumer must not have to parse around it, and an
+    // operator watching the run should still see it. §FS-rhei-run-json.1
+    if stdout_carries_json_records() {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
 }
 
 /// Load a plan from a file or directory workspace.

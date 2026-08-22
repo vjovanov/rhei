@@ -54,6 +54,27 @@ pub struct TuiContext {
     /// an operator waiting on a prompt, not on a surface to navigate.
     // §FS-rhei-run-tui.1.5.7
     pub stop_requested: StopRequested,
+    /// Whether this surface is *attached* to a run it does not drive.
+    ///
+    /// An attached surface never signals the run: `Ctrl+C` and `q` disconnect
+    /// it, at any time. The reflex that ends a foreground command must not end
+    /// a run another terminal may also be watching.
+    // §FS-rhei-run-headless.5.1
+    pub attached: bool,
+}
+
+impl TuiContext {
+    /// A context for a surface that drives its own run — the default everywhere
+    /// but `rhei attach`.
+    pub fn driving(
+        workspace: PathBuf,
+        plan_loader: Option<PlanLoader>,
+        intervene: Option<Arc<dyn InterveneSink>>,
+        gate: Option<Arc<dyn GateTransitionSink>>,
+        stop_requested: StopRequested,
+    ) -> Self {
+        Self { workspace, plan_loader, intervene, gate, stop_requested, attached: false }
+    }
 }
 
 pub struct TuiSink {
@@ -119,6 +140,7 @@ impl TuiSink {
             context.plan_loader,
             context.intervene,
             context.gate,
+            context.attached,
         );
 
         let loop_restored = Arc::clone(&screen_restored);
@@ -128,6 +150,14 @@ impl TuiSink {
         });
 
         Ok(Self { tx, join: Mutex::new(Some(handle)), screen_restored })
+    }
+
+    /// Whether the render thread has left the alternate screen — because the
+    /// operator quit or detached, the terminal went away, or a panic restored
+    /// it. An attached surface polls this to learn it has been disconnected.
+    // §FS-rhei-run-headless.5.1
+    pub fn screen_restored(&self) -> bool {
+        self.screen_restored.load(Ordering::SeqCst)
     }
 
     /// Signal the render thread to exit and wait for it. Safe to call twice.
@@ -327,7 +357,14 @@ fn drain_input(
                         let _ = forward_sigint_to_self();
                         return true;
                     }
-                    InputAction::Quit | InputAction::Continue => {}
+                    // Reachable on an attached surface, where `q` and Ctrl+C
+                    // both disconnect during a live run rather than only after
+                    // it ends. §FS-rhei-run-headless.5.1
+                    InputAction::Quit => {
+                        break_out_ref(terminal, screen_restored);
+                        return true;
+                    }
+                    InputAction::Continue => {}
                 }
             }
             Ok(CtEvent::Resize(_, _)) => draw(terminal, state),

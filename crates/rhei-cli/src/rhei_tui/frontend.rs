@@ -3,7 +3,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::rhei_tui::event::{EventSink, NullSink, Tee};
+use crate::rhei_tui::event_log::EventLogSink;
 use crate::rhei_tui::journal::JournalSink;
+use crate::rhei_tui::json::JsonSink;
 use crate::rhei_tui::stdout::StdoutSink;
 use crate::rhei_tui::tui::{TuiContext, TuiSink};
 
@@ -14,6 +16,13 @@ pub enum FrontendKind {
     Tui,
     /// Force plain stdout mode.
     Stdout,
+    /// Force the JSONL event stream on stdout. Decided before TTY detection:
+    /// a stream a program parses is never also a screen. §FS-rhei-run-json.1
+    Json {
+        /// Inline `agent_output` records instead of leaving the traffic to the
+        /// per-task logs. §FS-rhei-run-json.2.3
+        agent_output: bool,
+    },
     /// Auto-detect from `stdout.is_terminal()`.
     Auto,
 }
@@ -29,13 +38,15 @@ pub struct Frontend {
     _tui: Option<Arc<TuiSink>>,
 }
 
-/// Choose a frontend and compose it with a `JournalSink` into a single
-/// `EventSink`. The journal is always written; the frontend is either a
-/// `TuiSink` (interactive) or `StdoutSink` (backward-compatible).
+/// Choose a frontend and compose it with the always-on sinks into a single
+/// `EventSink`. The transition journal and the durable event log are written in
+/// every mode; the frontend is a `JsonSink`, a `TuiSink` (interactive), or a
+/// `StdoutSink`.
 ///
 /// `parallel` and `total_tasks` are passed to the TUI for its initial layout.
 /// When TUI construction fails (e.g., the backend cannot enter raw mode),
 /// this falls back to `StdoutSink` and logs a warning to stderr.
+// §FS-rhei-run-tui.1.7 §FS-rhei-run-json.3
 pub fn select_frontend(
     workspace_root: &Path,
     kind: FrontendKind,
@@ -45,7 +56,7 @@ pub fn select_frontend(
 ) -> Frontend {
     let want_tui = match kind {
         FrontendKind::Tui => true,
-        FrontendKind::Stdout => false,
+        FrontendKind::Stdout | FrontendKind::Json { .. } => false,
         FrontendKind::Auto => std::io::stdout().is_terminal(),
     };
 
@@ -61,12 +72,33 @@ pub fn select_frontend(
         }
     };
 
+    // Written in every mode so a run is followable whichever surface drives
+    // it, and before the frontend so the head of the stream is in the file.
+    // §FS-rhei-run-json.3
+    let event_log: Arc<dyn EventSink> = match EventLogSink::create(workspace_root) {
+        Ok(log) => Arc::new(log),
+        Err(err) => {
+            eprintln!(
+                "warning: could not open the run event log at {}: {err}\n\
+                 `rhei attach` will not be able to follow this run.",
+                crate::rhei_tui::event_log::event_log_path(workspace_root).display()
+            );
+            Arc::new(NullSink)
+        }
+    };
+
+    if let FrontendKind::Json { agent_output } = kind {
+        let json: Arc<dyn EventSink> = Arc::new(JsonSink::new(agent_output, workspace_root));
+        let sink = Arc::new(Tee::new(vec![journal, event_log, json]));
+        return Frontend { sink, is_tui: false, _tui: None };
+    }
+
     if want_tui {
         match TuiSink::start(parallel.max(1), total_tasks, tui_context) {
             Ok(tui) => {
                 let tui = Arc::new(tui);
                 let frontend: Arc<dyn EventSink> = tui.clone();
-                let sink = Arc::new(Tee::new(vec![journal, frontend]));
+                let sink = Arc::new(Tee::new(vec![journal, event_log, frontend]));
                 return Frontend { sink, is_tui: true, _tui: Some(tui) };
             }
             Err(err) => {
@@ -76,6 +108,6 @@ pub fn select_frontend(
     }
 
     let stdout: Arc<dyn EventSink> = Arc::new(StdoutSink::new());
-    let sink = Arc::new(Tee::new(vec![journal, stdout]));
+    let sink = Arc::new(Tee::new(vec![journal, event_log, stdout]));
     Frontend { sink, is_tui: false, _tui: None }
 }

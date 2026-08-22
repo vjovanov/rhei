@@ -22,10 +22,10 @@ path = "crates/rhei-cli/src/cli/run_agent_mode.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 3800, unit = "lines" }
-until = "Split into scheduler, sequential execution, parallel execution, and result handling modules."
+max_accepted = { value = 1000, unit = "lines" }
+until = "Pass selection — collecting a pass's agent, program, and callback work and applying the non-concurrent claim filter — has a part of its own, leaving this file the run's setup, its pass driver, and its end-of-run report."
 reason = """
-Mechanical extraction from the former CLI monolith; still one orchestration loop.
+The execution bodies are parts of their own now; what is left is the run's own lifecycle. Pass selection has no boundary to move to: it reads the plan, the machines, and the settings and writes the three task lists the pass driver dispatches, and those lists are locals of the loop. Setup and the end-of-run report stay beside it because the report is written from the counters the loop advances.
 """
 [[exceptions]]
 path = "examples/hourly-human-intervention-example/states.yaml"
@@ -266,4 +266,114 @@ max_accepted = { value = 1000, unit = "lines" }
 until = "Split discovery from qualification and prior validation when panta gains a third cross-project surface."
 reason = """
 Cross-project panta cases share the multi-project fixture builders and the qualified-prior assertions that only apply to them.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/run_summary.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 2000, unit = "lines" }
+until = "The run report has a model type the Markdown writer and the TTY renderer both consume, so each renderer can move to its own module."
+reason = """
+Over budget before this change; the touch that surfaced it added six lines. The report model, its Markdown writer, and its TTY renderer are three surfaces behind one struct, and nothing separates the model from either renderer today.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/states_render.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1400, unit = "lines" }
+until = "Plan loading moves to a module the render, scope, and validation paths all call, leaving this file the state-machine renderer."
+reason = """
+Over budget before this change; the touch that surfaced it added eight lines. Plan loading, scope reporting, and state-machine rendering share the file because plan loading has no home of its own.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/run_callback_mode.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "The pass scheduler shared with run_agent_mode.rs is factored out, leaving each mode its own execution body."
+reason = """
+Over budget before this change; the touch that surfaced it added four lines. It mirrors the agent-mode loop it was extracted alongside, and the two share a scheduler shape that is currently duplicated rather than factored.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/rhei_tui/tui/tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "The UiState fixture is shared from a test-support module so state, input, and view tests can live beside the code they cover."
+reason = """
+Over budget before this change; the touch that surfaced it added two lines. One test module covers state application, key handling, and view derivation because they are exercised through one UiState fixture.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/rhei_tui/tui/state.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "View-derived projections take a narrowed borrow instead of &UiState, so they can move to the view modules that use them."
+reason = """
+Over budget before this change; the touch that surfaced it added six lines. UiState is one struct with one apply loop, and the view-derived helpers hanging off it cannot move without a borrow of the whole state.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/cli_declarations.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Subcommand groups move to their own Subcommand enums that the root flattens, so each group's declarations travel with its command."
+reason = """
+Over budget before this change; the touch that surfaced it added three subcommands. It is one clap derive tree, and a subcommand's declaration must sit inside the enum that clap parses.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/cli_dispatch.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Dispatch is split by the same subcommand groups the declaration tree grows, so each group's arms and its entry point travel together."
+reason = """
+Over budget before this change; the touch that surfaced it added three match arms. The dispatch match must name every subcommand in one place, and the process entry point and error rendering sit beside it.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/completion_candidates.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "Completers move next to the commands whose arguments they complete, once subcommand declarations are grouped into their own modules."
+reason = """
+Over budget before this change; the touch that surfaced it added one completer. Every completer is a free function clap references by name from the declaration tree, so they are collected rather than grouped.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/supervised.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1000, unit = "lines" }
+until = "The run's interruption state has a module the supervisor, the frontends, and the lock wait all call, so the process-group registry and the supervised-child lifecycle can move out from under it."
+reason = """
+Over budget before this change; the touch that surfaced it added an interruptible sleep to the shared helper. Run interruption state has no module of its own: the process-global stop token and the per-run shutdown flags sit beside the live process-group registry and the supervised-child lifecycle because those are the only readers, and nothing separates the state from the machinery that acts on it.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/completion_context.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 900, unit = "lines" }
+until = "Plan-target and state-machine resolution move to a module the completion helpers, states, and list all call, leaving this file the completion context alone."
+reason = """
+Over budget before this change; the touch that surfaced it changed one completer's source. State-machine resolution has no module of its own — it shares this file with the shell-completion context helpers and with the states and list commands because all four answer 'which plan, under which machine' through the same free functions, and there is no resolution boundary for them to call instead.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/snapshot_continue_lock.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "The run lock has a module of its own that run, the liveness probe, and the headless launcher call, leaving this file the snapshot-continue path alone."
+reason = """
+Over budget before this change; the touch that surfaced it deleted the blocking run-lock helper the interruptible wait replaced. The run lock has no module of its own: every run, liveness probe, and headless launcher takes or reads it, yet it lives beside snapshot-continue selection because that was the first caller, and there is no lock boundary for the others to call.
 """

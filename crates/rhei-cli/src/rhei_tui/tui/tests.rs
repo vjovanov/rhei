@@ -76,7 +76,7 @@ fn demo_model() -> VizModel {
 }
 
 fn state_with_plan() -> UiState {
-    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None);
+    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None, false);
     state.plan = demo_model();
     state.refresh_plan();
     state
@@ -576,7 +576,7 @@ fn parked_model() -> VizModel {
 
 #[test]
 fn artifacts_borrow_previous_state_outputs_when_state_declares_none() {
-    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None);
+    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None, false);
     state.plan = parked_model();
     state.refresh_plan();
     let task = state.task("1").unwrap().clone();
@@ -600,7 +600,7 @@ fn artifacts_borrow_previous_state_outputs_when_state_declares_none() {
 fn artifacts_prefer_the_states_own_contracts() {
     let mut plan = parked_model();
     plan.tasks[0].state = "verify".into();
-    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None);
+    let mut state = UiState::with_context(PathBuf::from("/ws"), 2, 2, None, None, None, false);
     state.plan = plan;
     state.refresh_plan();
     let task = state.task("1").unwrap().clone();
@@ -620,7 +620,8 @@ fn inspector_excerpts_existing_artifact_content() {
     )
     .unwrap();
 
-    let mut state = UiState::with_context(workspace.path().to_path_buf(), 2, 2, None, None, None);
+    let mut state =
+        UiState::with_context(workspace.path().to_path_buf(), 2, 2, None, None, None, false);
     state.plan = parked_model();
     state.refresh_plan();
     let task = state.task("1").unwrap().clone();
@@ -691,6 +692,7 @@ fn state_with_gate(gate: Arc<RecordingGate>) -> UiState {
         None,
         None,
         Some(gate as Arc<dyn crate::rhei_tui::dashboard::GateTransitionSink>),
+        false,
     );
     state.plan = demo_model();
     state.refresh_plan();

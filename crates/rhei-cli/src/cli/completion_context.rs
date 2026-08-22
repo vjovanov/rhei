@@ -263,6 +263,11 @@ struct ExecutionMachines {
     set: rhei_validator::MachineSet,
     default_callbacks: CallbackPaths,
     per_rhei_callbacks: BTreeMap<String, CallbackPaths>,
+    /// The `--state-machine` this invocation resolved under, when one was
+    /// given. A run records it so an attached surface renders the machine the
+    /// run is executing instead of whatever the default resolves to.
+    // §FS-rhei-run-headless.5
+    state_machine_override: Option<PathBuf>,
 }
 
 impl ExecutionMachines {
@@ -273,7 +278,19 @@ impl ExecutionMachines {
             per_rhei_callbacks
                 .insert(rhei_id.clone(), resolve_callback_paths(machine.path.as_deref(), input)?);
         }
-        Ok(Self { set: resolved.validator_set(), default_callbacks, per_rhei_callbacks })
+        Ok(Self {
+            set: resolved.validator_set(),
+            default_callbacks,
+            per_rhei_callbacks,
+            state_machine_override: None,
+        })
+    }
+
+    /// Remember the explicit machine override, for the run descriptor.
+    // §FS-rhei-run-headless.5
+    fn with_state_machine_override(mut self, path: Option<&Path>) -> Self {
+        self.state_machine_override = path.map(Path::to_path_buf);
+        self
     }
 
     fn for_task(&self, id: &TaskId) -> &rhei_validator::StateMachine {

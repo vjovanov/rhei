@@ -6,8 +6,7 @@ use super::{unique_temp_dir, CliRun};
 
 /// Run `rhei install-skills` with a fake HOME and optional extra args.
 fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", home);
+    let mut cmd = super::rhei_command(home);
     cmd.arg("install-skills");
     for arg in extra_args {
         cmd.arg(arg);
@@ -22,8 +21,7 @@ fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
 
 /// Run `rhei install-skills` from a specific working directory (for --local).
 fn run_install_skills_in_dir(home: &Path, cwd: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", home);
+    let mut cmd = super::rhei_command(home);
     cmd.current_dir(cwd);
     cmd.arg("install-skills");
     for arg in extra_args {
@@ -41,6 +39,7 @@ fn run_install_skills_in_dir(home: &Path, cwd: &Path, extra_args: &[&str]) -> Cl
 fn run_install_skills_with(home: &Path, bin: &Path, cwd: &Path, extra_args: &[&str]) -> CliRun {
     let mut cmd = Command::new(bin);
     cmd.env("HOME", home);
+    cmd.env("XDG_STATE_HOME", home.join("state"));
     cmd.current_dir(cwd);
     cmd.arg("install-skills");
     for arg in extra_args {

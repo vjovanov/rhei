@@ -97,7 +97,7 @@ fn run_transition(
     from: &str,
     to: &str,
 ) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(machine_path)
         .arg("transition")
@@ -128,7 +128,7 @@ fn run_transition_with_result(
     to: &str,
     result_msg: &str,
 ) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(machine_path)
         .arg("transition")
@@ -152,7 +152,7 @@ fn run_transition_with_result(
 }
 
 fn run_complete(plan_path: &Path, machine_path: &Path, task: &str, result_msg: &str) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(machine_path)
         .arg("complete")

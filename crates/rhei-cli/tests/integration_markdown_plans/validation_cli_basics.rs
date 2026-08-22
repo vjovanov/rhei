@@ -127,7 +127,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
     let plan_path = write_fixture_file(&temp_dir, "valid-plan.rhei.md", CLI_VALID_PLAN);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
-    let validate = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let validate = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("validate")
@@ -144,7 +144,7 @@ fn cli_validate_and_render_use_real_fixture_files() {
     let validate_stdout = String::from_utf8_lossy(&validate.stdout);
     assert!(validate_stdout.contains("Validation succeeded"));
 
-    let render = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let render = rhei_command()
         .arg("render")
         .arg(&plan_path)
         .arg("--format")
@@ -172,7 +172,7 @@ fn cli_validate_surfaces_validation_errors_for_fixture() {
     let plan_path = write_fixture_file(&temp_dir, "invalid-plan.rhei.md", fixtures::INVALID_PLAN);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("validate")
@@ -296,7 +296,7 @@ fn cli_validate_reports_empty_tasks_section_parse_failure() {
 /// and a success exit left no way for a script to tell them apart.
 #[test]
 fn missing_subcommand_under_a_group_is_a_usage_error() {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("snapshot")
         .output()
         .expect("rhei command should run");

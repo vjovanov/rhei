@@ -182,8 +182,7 @@ fn spawn_rhei_run_with(
     machine: &Path,
     extra_args: &[&str],
 ) -> KillOnDrop {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", dir.join(".home"));
+    let mut cmd = rhei_command(dir.join(".home"));
     cmd.arg("--state-machine")
         .arg(machine)
         .arg("run")
@@ -733,8 +732,7 @@ fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
     let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
     let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", dir.join(".home"));
+    let mut cmd = rhei_command(dir.join(".home"));
     cmd.env("TERM", "xterm-256color");
     cmd.arg("--state-machine")
         .arg(&machine_path)
@@ -829,8 +827,7 @@ fn ctrl_c_on_the_finished_tui_screen_still_writes_the_report() {
     let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
     let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", dir.join(".home"));
+    let mut cmd = rhei_command(dir.join(".home"));
     cmd.env("TERM", "xterm-256color");
     cmd.arg("--state-machine")
         .arg(&machine_path)
@@ -995,8 +992,7 @@ transitions:
 fn a_closed_stdout_still_ends_the_groups_in_flight() {
     let (dir, workspace, machine_path) = setup_lost_output_workspace("run-lost-stdout-groups");
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", dir.join(".home"));
+    let mut cmd = rhei_command(dir.join(".home"));
     cmd.arg("--state-machine")
         .arg(&machine_path)
         .arg("run")
@@ -1074,8 +1070,7 @@ fn a_hung_up_terminal_ends_the_groups_the_way_a_closed_pipe_does() {
             .expect("set FD_CLOEXEC on the pty");
     }
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", dir.join(".home"));
+    let mut cmd = rhei_command(dir.join(".home"));
     cmd.env("TERM", "xterm-256color");
     cmd.arg("--state-machine")
         .arg(&machine_path)
@@ -1415,8 +1410,7 @@ fn a_failing_tui_run_leaves_its_screen_instead_of_parking_on_it() {
     let winsize = nix::pty::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
     let pty = nix::pty::openpty(Some(&winsize), None).expect("openpty");
 
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", dir.join(".home"));
+    let mut cmd = rhei_command(dir.join(".home"));
     cmd.env("TERM", "xterm-256color");
     cmd.arg("--state-machine")
         .arg(&machine_path)

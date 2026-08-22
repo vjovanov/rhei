@@ -23,7 +23,7 @@ fn project_machine_file_resolves_from_a_rhei_root_by_name() {
     // §AR-rhei-panta.4: a name-matching states.yaml in a rhei root resolves
     // the project machine when the project root has none.
     let output =
-        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
+        rhei_command().arg("list").arg(&dir).output().expect("list runs");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success() && stdout.contains("flow.1"),
@@ -58,7 +58,7 @@ fn project_machine_in_rhei_root_beats_a_mismatched_project_root_file() {
     fs::write(ws.join("states.yaml"), WORKSPACE_STATE_MACHINE).expect("write machine");
 
     let output =
-        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
+        rhei_command().arg("list").arg(&dir).output().expect("list runs");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success() && stdout.contains("flow.1"),
@@ -91,7 +91,7 @@ fn project_machine_resolution_errors_when_several_rhei_roots_match() {
     }
 
     let output =
-        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
+        rhei_command().arg("list").arg(&dir).output().expect("list runs");
     assert!(!output.status.success(), "ambiguous machine files must fail");
     let stderr: String = String::from_utf8_lossy(&output.stderr)
         .chars()
@@ -128,7 +128,7 @@ fn project_machine_resolution_surfaces_a_broken_rhei_root_states_file() {
     fs::write(ws.join("states.yaml"), "name: [unclosed\n").expect("write broken machine");
 
     let output =
-        Command::new(env!("CARGO_BIN_EXE_rhei")).arg("list").arg(&dir).output().expect("list runs");
+        rhei_command().arg("list").arg(&dir).output().expect("list runs");
     assert!(!output.status.success(), "a broken candidate machine file must fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -151,7 +151,7 @@ fn states_command_resolves_the_projects_declared_machine() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("states")
         .arg(&project)
         .output()

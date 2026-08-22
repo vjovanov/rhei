@@ -15,7 +15,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::*;
 
@@ -87,8 +86,7 @@ fn committed_examples_match_template_instantiation() {
         let out = scratch.join("out");
         let home = scratch.join(".home");
         fs::create_dir_all(&home).expect("create isolated home");
-        let result = Command::new(env!("CARGO_BIN_EXE_rhei"))
-            .env("HOME", &home)
+        let result = super::rhei_command(&home)
             .args([
                 "instantiate",
                 template_dir.to_str().expect("template path is utf8"),

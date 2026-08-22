@@ -20,7 +20,7 @@ transitions:
 "#;
 
 fn run_release(args: &[&std::ffi::OsStr]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_rhei"))
+    rhei_command()
         .arg("release")
         .args(args)
         .output()

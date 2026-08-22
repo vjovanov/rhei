@@ -21,8 +21,13 @@ pub(super) fn handle_key_event(
     code: KeyCode,
     modifiers: KeyModifiers,
 ) -> InputAction {
-    // Ctrl+C always restores the terminal and re-raises SIGINT (§1.8).
+    // Ctrl+C restores the terminal and re-raises SIGINT (§1.8) — unless this
+    // surface is only attached, in which case it disconnects and the run never
+    // hears about it. §FS-rhei-run-headless.5.1
     if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+        if state.attached {
+            return InputAction::Quit;
+        }
         state.push_journal(MessageLevel::Info, "(ctrl+c received — forwarding SIGINT)".to_string());
         return InputAction::ForwardSigint;
     }
@@ -48,8 +53,11 @@ pub(super) fn handle_key_event(
         KeyCode::Char('?') => state.help = true,
         KeyCode::Char('q') => {
             // Quit only once the run has finished; during a live run the
-            // operator stops with Ctrl+C (§1.5.2).
-            if state.finished {
+            // operator stops with Ctrl+C (§1.5.2). An attached surface detaches
+            // whenever it likes: it is not the thing the run is waiting on.
+
+            // §FS-rhei-run-headless.5.1
+            if state.finished || state.attached {
                 return InputAction::Quit;
             }
         }

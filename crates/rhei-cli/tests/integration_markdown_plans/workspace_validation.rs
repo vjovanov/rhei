@@ -14,7 +14,7 @@ fn diagnostics_never_break_a_file_path_across_lines() {
     fs::create_dir_all(&deep).expect("create nested dirs");
     let plan_path = write_fixture_file(&deep, "broken.rhei.md", "# Not A Rhei Heading\n");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&plan_path)
         .output()
@@ -51,7 +51,7 @@ fn empty_workspace_rhei_does_not_break_the_project_and_is_warned_about() {
     assert_eq!(loaded.rhei_ids, vec!["auth", "growth"]);
     assert_eq!(loaded.rhei.tasks.len(), 1, "the sibling rhei's tickets must still load");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -126,7 +126,7 @@ fn workspace_loads_and_validates_correctly() {
     assert!(loaded.task_sources.contains_key("2"));
 
     // CLI validate succeeds
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("validate")
@@ -164,7 +164,7 @@ fn workspace_validate_accumulates_parse_errors_across_task_files() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("validate")
@@ -215,7 +215,7 @@ fn validate_and_list_accept_workspace_index_file_path() {
     assert!(workspace::workspace_dir(&index_path).is_some());
 
     // CLI validate succeeds against the index file path.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("validate")
@@ -232,7 +232,7 @@ fn validate_and_list_accept_workspace_index_file_path() {
     assert!(stdout.contains("Validation succeeded"));
 
     // CLI list also succeeds.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("list")
@@ -291,7 +291,7 @@ fn validate_auto_discovers_workspace_root_state_machine_from_states_declaration(
         .expect("write task file");
     write_fixture_file(&ws, "states.yaml", WORKSPACE_STATE_MACHINE);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&ws)
         .output()
@@ -323,7 +323,7 @@ fn validate_reports_mismatched_auto_discovered_state_machine_name() {
         "name: wrong-machine\nversion: 1\nstates:\n  draft:\n    initial: true\n    description: Start\n  completed:\n    final: true\n    description: Done\ntransitions:\n  - from: draft\n    to: completed\n",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&plan_path)
         .output()
@@ -362,7 +362,7 @@ fn workspace_render_json_includes_all_tasks() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("render")
@@ -430,7 +430,7 @@ fn workspace_empty_tasks_directory_loads_and_is_warned_about() {
     let loaded = workspace::load_workspace(&ws).expect("an empty workspace is valid");
     assert!(loaded.rhei.tasks.is_empty());
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&ws)
         .output()
@@ -466,7 +466,7 @@ fn workspace_transition_updates_correct_task_file() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("transition")

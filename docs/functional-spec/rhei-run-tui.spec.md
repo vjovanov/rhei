@@ -235,6 +235,8 @@ The TUI keeps a bounded recent traffic buffer per active slot and may drop displ
 
 - **`JournalSink`** — opens `runtime/transitions.log` in append mode at construction and writes one line per `SlotAssigned` and one line per `SlotReleased`. Line format is fixed-column and tail-friendly (see below). The journal is always written, in every mode. State transitions themselves are recorded by command paths in `runtime/state-transitions.log`. §FS-rhei-viz.4
 - **`StdoutSink`** — reproduces the current `println!` output exactly. It is the default frontend when stdout is not a TTY.
+- **`JsonSink`** — writes one JSON object per event to stdout and nothing else, selected by `--json`. Its record contract is specified in [Run JSON Stream](rhei-run-json.spec.md); this document owns only its place among the frontends.
+- **`EventLogSink`** — appends the same records to `runtime/events.jsonl`, in every mode and whichever frontend is selected, so a separate process can follow a run it did not start (§FS-rhei-run-json.3 §FS-rhei-run-headless.5). Like the journal, its write failures are warnings, never aborts.
 - **`TuiSink`** — owns a bounded `crossbeam_channel` and a render thread. It implements `EventSink` by pushing events onto the channel; the render thread consumes events and updates the UI. The render thread maintains the shared run model — plan rows and the resolved machine supplied by the host, overlaid with runtime state from the event stream — and draws the Flow surface defined in §1.5.
 
 ### 1.4. Frontend Selection
@@ -243,9 +245,13 @@ At the entry of `run_plan`, the frontend is decided once:
 
 | Condition                                         | Frontend   |
 |--------------------------------------------------|------------|
+| `--json`, regardless of TTY detection             | JsonSink   |
 | `--no-tui`, or `stdout` is not a TTY              | StdoutSink |
 | `--tui`, regardless of TTY detection              | TuiSink    |
 | Default: `stdout.is_terminal()` is true            | TuiSink    |
+
+`--json` is decided first and conflicts with `--tui`: a stream that a program
+parses cannot also be a screen a person reads.
 
 Auto-detection uses `std::io::IsTerminal`. The `--tui` override exists for edge cases where detection is wrong (nested shells, certain tmux configurations). The `--no-tui` override is for scripted demos and debugging.
 
@@ -321,6 +327,13 @@ surroundings model of §FS-rhei-viz.4.
 | `?` | toggle the key-help overlay |
 | `q` | quit once the run has finished; during a live run, stop with `Ctrl+C` |
 | `Ctrl+C` | restore the terminal and re-raise `SIGINT` (§1.8) |
+
+**An attached surface reverses the last two rows.** When the surface is a
+client of a run it did not start (`rhei attach`), `q` and `Ctrl+C` both
+*detach* — at any time, finished or not — and neither signals the run. The
+surface is labelled as attached and its action bar names `rhei stop` rather
+than implying a key does it. See §FS-rhei-run-headless.5.1 for why the reflex
+that ends a foreground command must not end somebody else's run.
 
 #### 1.5.3. Flow view (default)
 
@@ -563,3 +576,5 @@ All three are pure Rust with no C dependencies. `notify` is already a workspace 
 - [Rhei Usage](rhei-usage.spec.md) — `rhei run` execution modes and roles.
 - [Agents Specification](rhei-agents.spec.md) — agent log capture and `runtime/logs/` layout.
 - [Program States Specification](rhei-programs.spec.md) — program execution and exit-code transitions.
+- [Run JSON Stream](rhei-run-json.spec.md) — the `JsonSink` record contract and `runtime/events.jsonl`.
+- [Detached Runs](rhei-run-headless.spec.md) — attaching this surface to a run it did not start.

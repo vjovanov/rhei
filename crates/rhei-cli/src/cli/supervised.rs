@@ -827,6 +827,14 @@ impl Supervised {
             ));
         }
         let owner = current_run_owner();
+        // The detached-child marker describes *this* process, not its work. It
+        // is inherited by the whole subtree, so an agent or program that runs
+        // `rhei run` of its own would wait forever at a human gate, ignore
+        // `--no-dashboard`, and refuse to detach. One removal here covers
+        // agents, programs, and the snapshot redactor alike.
+
+        // §FS-rhei-run-headless.1.2
+        cmd.env_remove(HEADLESS_CHILD_ENV);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt as _;

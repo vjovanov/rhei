@@ -359,6 +359,7 @@ transitions: []
                 working_dir: PathBuf::from("."),
             },
             per_rhei_callbacks: BTreeMap::new(),
+            state_machine_override: None,
         };
         let frontend = start_run_frontend(
             Path::new("."),
@@ -368,6 +369,7 @@ transitions: []
             1,
             0,
             &RunShutdown::default(),
+            &RunIdentity::new(),
         );
 
         assert!(frontend.dashboard.is_none());

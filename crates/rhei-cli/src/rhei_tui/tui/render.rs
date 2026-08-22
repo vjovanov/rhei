@@ -122,9 +122,19 @@ fn render_header(f: &mut Frame, area: Rect, state: &UiState) {
         Span::raw("  "),
     ];
     title_spans.extend(state_pill(theme, &state.plan.machine, &plan_state));
+    // Say plainly which kind of surface this is: an attached one cannot stop
+    // the run, and the operator must not have to discover that by pressing a
+    // key. §FS-rhei-run-headless.5.1
+    if state.attached {
+        title_spans.push(Span::styled("  [attached]", Style::default().fg(theme.accent())));
+    }
     if state.finished {
-        title_spans
-            .push(Span::styled("  [finished — q to quit]", Style::default().fg(theme.dim())));
+        let note = if state.attached {
+            "  [run ended — q to leave]"
+        } else {
+            "  [finished — q to quit]"
+        };
+        title_spans.push(Span::styled(note, Style::default().fg(theme.dim())));
     }
     lines.push(Line::from(title_spans));
 
@@ -306,15 +316,30 @@ fn render_action_bar(f: &mut Frame, area: Rect, state: &UiState) {
     hints.push("/ filter".to_string());
     hints.push("? help".to_string());
     // Make the stop/quit affordance visible at all times: during a live run the
-    // operator stops with Ctrl+C; once finished, `q` exits (§FS-rhei-run-tui.1.5.2).
-    hints.push(if state.finished { "q quit".to_string() } else { "^C stop".to_string() });
+    // operator stops with Ctrl+C; once finished, `q` exits. An attached surface
+    // offers only what it can actually do: detaching — the run is stopped by
+    // name, from a shell.
+
+    // §FS-rhei-run-tui.1.5.2 §FS-rhei-run-headless.5.1
+    hints.push(if state.attached {
+        "q/^C detach".to_string()
+    } else if state.finished {
+        "q quit".to_string()
+    } else {
+        "^C stop".to_string()
+    });
 
     let line = Line::from(vec![Span::styled(hints.join("   "), Style::default().fg(theme.dim()))]);
     f.render_widget(Paragraph::new(line), area);
 }
 
 fn render_help(f: &mut Frame, area: Rect, state: &UiState) {
-    let lines = vec![
+    let (quit_key, stop_key) = if state.attached {
+        ("  q           detach from this run (it keeps running)", "  Ctrl+C      detach")
+    } else {
+        ("  q           quit (after the run finishes)", "  Ctrl+C      stop the run")
+    };
+    let mut lines = vec![
         Line::from("Keys"),
         Line::from("  j/k ↓/↑     move focus in the active view"),
         Line::from("  1–4         Flow · Machine · Cost · Journal"),
@@ -328,9 +353,12 @@ fn render_help(f: &mut Frame, area: Rect, state: &UiState) {
         Line::from("  f           (Journal) cycle severity filter"),
         Line::from("  m           send a message to the selected running agent"),
         Line::from("  ?           toggle this help"),
-        Line::from("  q           quit (after the run finishes)"),
-        Line::from("  Ctrl+C      stop the run"),
+        Line::from(quit_key),
+        Line::from(stop_key),
     ];
+    if state.attached {
+        lines.push(Line::from("  stop it with: rhei stop <id>"));
+    }
     let popup = centered_rect(area, 56, lines.len() as u16 + 2);
     f.render_widget(Clear, popup);
     let block = Block::default()

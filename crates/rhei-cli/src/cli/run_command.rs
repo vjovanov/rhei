@@ -32,6 +32,108 @@ fn run_lock_roots(loaded: &LoadedPlan, workspace_root: &Path) -> BTreeSet<PathBu
     roots
 }
 
+/// One run's identity: the id it is named by everywhere, and when it began.
+/// Computed once, as soon as the run holds its locks, so the run report, the
+/// descriptor, and `rhei attach <id>` all speak about the same run by the same
+/// name — rather than each execution mode deriving its own. Stamping it before
+/// the locks made `started_at` the time the command was typed, which is not
+/// when a queued run began.
+// §FS-rhei-run.2.7
+struct RunIdentity {
+    id: String,
+    started: Instant,
+    started_wall: std::time::SystemTime,
+    /// Whether this process is the detached child of a `--headless` launch.
+    headless: bool,
+}
+
+impl RunIdentity {
+    fn new() -> Self {
+        let started_wall = std::time::SystemTime::now();
+        Self {
+            id: short_run_id(started_wall),
+            started: Instant::now(),
+            started_wall,
+            headless: is_headless_child(),
+        }
+    }
+}
+
+/// Take the run lock of every involved execution root.
+///
+/// A **detached child** must not wait: its launcher is holding a handshake
+/// open, and a blocked child turns a lock refusal into a 30-second "did not
+/// report itself ready" for a run that never had a chance. It fails fast with
+/// the same diagnostic the launcher's own pre-check gives — which is what
+/// catches the case a per-workspace launch lock cannot: two launches on
+/// different member plans that share a root.
+///
+/// A **foreground** run keeps blocking, because waiting on a contended lock is
+/// a queueing idiom people use on purpose. It says whose run it is waiting for
+/// first: silent blocking is indistinguishable from a hang.
+// §FS-rhei-run.2.6 §FS-rhei-run-headless.1.1
+fn acquire_run_locks(
+    loaded: &LoadedPlan,
+    workspace_root: &Path,
+    opts: &RunOptions,
+) -> MietteResult<Vec<HeldRunLock>> {
+    let mut locks = Vec::new();
+    for root in run_lock_roots(loaded, workspace_root) {
+        match try_acquire_run_lock(&root)? {
+            Some(lock) => locks.push(lock),
+            None if is_headless_child() => return Err(run_lock_conflict(&root)),
+            None => {
+                announce_run_lock_wait(&root, opts.json());
+                locks.push(wait_for_run_lock(&root)?);
+            }
+        }
+    }
+    Ok(locks)
+}
+
+/// How often a queued run re-tries the lock it is waiting for.
+const RUN_LOCK_WAIT_POLL: Duration = Duration::from_millis(200);
+
+/// Wait for a contended run lock the way the rest of the run waits: in slices
+/// the interrupt handler can end.
+///
+/// A blocking `flock` is not one of them. The handler sets a flag and returns,
+/// so a process parked inside `flock` goes straight back into the syscall and
+/// the operator's Ctrl+C does nothing at all — which is what turned the wait
+/// this run now announces into a wait it could not cancel. The queueing
+/// behaviour is unchanged: it still blocks until the lock frees.
+// §FS-rhei-run.2.6 §FS-rhei-run.3.2
+fn wait_for_run_lock(root: &Path) -> MietteResult<HeldRunLock> {
+    loop {
+        if let Some(lock) = try_acquire_run_lock(root)? {
+            return Ok(lock);
+        }
+        if interrupt_requested() {
+            return Err(miette!(
+                help = "the run that holds it is untouched; `rhei runs` shows what is live",
+                "stopped waiting for the run lock on {}",
+                root.display()
+            ));
+        }
+        interruptible_sleep(RUN_LOCK_WAIT_POLL);
+    }
+}
+
+/// One line naming the holder before a foreground run blocks on its lock.
+// §FS-rhei-run.2.6 §FS-rhei-run-json.1
+fn announce_run_lock_wait(root: &Path, json: bool) {
+    let holder = read_descriptor(&run_descriptor_path(root))
+        .filter(|run| !run.liveness().has_ended())
+        .map(|run| format!("run {} (pid {})", run.id, run.pid))
+        .unwrap_or_else(|| "another run".to_string());
+    let line = format!("Waiting for {holder} to release the run lock on {}...", root.display());
+    if json || stdout_carries_json_records() {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
+}
+
 /// Execute the `run` subcommand: advance tasks through the state machine
 /// in dependency order.
 ///
@@ -43,6 +145,18 @@ fn run_command(
     state_machine_path: Option<&Path>,
     opts: RunOptions,
 ) -> MietteResult<()> {
+    // `--headless` re-executes this same command in a detached session and
+    // returns its id; everything below then runs in the *child*. Checked first
+    // so a launch takes no locks and starts no frontend of its own.
+
+    // §FS-rhei-run-headless.1
+    if opts.headless() && !is_headless_child() {
+        return launch_headless_run(input, opts.json(), opts.announces_dashboard());
+    }
+    // From here on, a human-oriented line goes to stderr. §FS-rhei-run-json.1
+    if opts.json() {
+        reserve_stdout_for_json_records();
+    }
     // Installed for every `run`, before anything can be spawned: from here on a
     // SIGINT/SIGTERM/SIGHUP interrupts the run instead of killing the
     // supervisor out from under its subprocesses. §FS-rhei-run.3.2
@@ -53,21 +167,19 @@ fn run_command(
     let rhei_scope = resolve_rhei_scope(&loaded, opts.rhei_scope())?;
     report_panta_scope_narrowed(&loaded, "run", &rhei_scope);
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machines = ExecutionMachines::build(&resolved, input)?;
+    let machines =
+        ExecutionMachines::build(&resolved, input)?.with_state_machine_override(state_machine_path);
     let callback_paths = machines.default_callbacks.clone();
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let settings = load_merged_settings(&workspace_root)?;
     // §FS-rhei-run.2.6: one live run per rhei — lock every involved
     // execution root, not just the run's own.
-    let _run_locks = if opts.dry_run() {
-        Vec::new()
-    } else {
-        let mut locks = Vec::new();
-        for root in run_lock_roots(&loaded, &workspace_root) {
-            locks.push(acquire_run_lock(&root)?);
-        }
-        locks
-    };
+    let _run_locks =
+        if opts.dry_run() { Vec::new() } else { acquire_run_locks(&loaded, &workspace_root, &opts)? };
+    // Stamped only now: a run that queued behind someone else's lock began
+    // when it got the lock, not when it was typed, and `rhei runs` orders by
+    // this. §FS-rhei-run.2.7
+    let identity = RunIdentity::new();
     // §FS-rhei-run.3.1: detect subprocess commits that leave run-owned state dirty.
     let git_consistency = RunGitConsistencyGuard::capture(&workspace_root, input, !opts.dry_run());
 
@@ -118,9 +230,9 @@ fn run_command(
         should_use_agent_mode(&loaded.rhei, &machines.set, &settings, &opts, &workspace_root)?;
 
     let result = if use_standalone_mode {
-        run_agent_mode(input, &machines, &settings, &opts, effective_parallel)
+        run_agent_mode(input, &machines, &settings, &opts, effective_parallel, &identity)
     } else {
-        run_callback_mode(input, &machines, &opts, effective_parallel)
+        run_callback_mode(input, &machines, &opts, effective_parallel, &identity)
     };
     result?;
     // An interrupted run made no claim of durable success, so the commit

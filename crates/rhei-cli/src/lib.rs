@@ -40,7 +40,12 @@ include!("cli/artifacts.rs");
 include!("cli/transition_checks.rs");
 include!("cli/system_transition_triggers.rs");
 include!("cli/system_transition_execution.rs");
+include!("cli/run_descriptor.rs");
+include!("cli/run_registry.rs");
+include!("cli/headless_launcher.rs");
+include!("cli/control_client.rs");
 include!("cli/run_options.rs");
+include!("cli/run_frontend.rs");
 include!("cli/settings_types.rs");
 include!("cli/settings_load_validate.rs");
 include!("cli/tooling_resolution.rs");
@@ -60,7 +65,16 @@ include!("cli/snapshot_refs_gc.rs");
 include!("cli/snapshot_continue_lock.rs");
 include!("cli/init_command.rs");
 include!("cli/run_command.rs");
+include!("cli/run_work_items.rs");
+include!("cli/run_parallel_spawn.rs");
+include!("cli/run_parallel_schedule.rs");
+include!("cli/run_parallel_program_completion.rs");
 include!("cli/run_agent_mode.rs");
+include!("cli/run_program_sequential.rs");
+include!("cli/run_agent_sequential.rs");
+include!("cli/run_agent_sequential_completion.rs");
+include!("cli/run_agent_pool.rs");
+include!("cli/run_parallel_agent_exit.rs");
 include!("cli/run_callback_mode.rs");
 include!("cli/run_failure_transitions.rs");
 include!("cli/run_summary.rs");
@@ -75,6 +89,9 @@ include!("cli/render_install_commands.rs");
 include!("cli/install_skill_agents.rs");
 include!("cli/viz_command.rs");
 include!("cli/intervene_command.rs");
+include!("cli/attach_tail.rs");
+include!("cli/attach_command.rs");
+include!("cli/runs_command.rs");
 include!("cli/diagnostics.rs");
 
 #[cfg(test)]
@@ -90,4 +107,7 @@ mod tests {
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_runtime.rs");
     include!("cli/tests_supervised.rs");
+    include!("cli/tests_run_descriptor.rs");
+    include!("cli/tests_run_registry.rs");
+    include!("cli/tests_attach_support.rs");
 }

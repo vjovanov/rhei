@@ -18,7 +18,7 @@ fn omitted_plan_target_resolves_from_current_directory() {
         ],
         WORKSPACE_STATE_MACHINE,
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&project)
         .output()
@@ -34,7 +34,7 @@ fn omitted_plan_target_resolves_from_current_directory() {
     // upward walk still finds the project.
     let nested = project.join("notes");
     fs::create_dir_all(&nested).expect("mkdir nested");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&nested)
         .output()
@@ -52,7 +52,7 @@ fn omitted_plan_target_resolves_from_current_directory() {
         "# Rhei: Lone\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
     )
     .expect("write plan");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&dir)
         .output()
@@ -69,7 +69,7 @@ fn omitted_plan_target_resolves_from_current_directory() {
         "# Rhei: Second\n\n## Tasks\n\n### Task 1: Beta\n**State:** pending\n",
     )
     .expect("write second plan");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&dir)
         .output()
@@ -102,7 +102,7 @@ fn omitted_plan_target_resolves_conventional_panta_child() {
     fs::create_dir_all(&nested).expect("mkdir nested");
 
     for cwd in [&host, &nested] {
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("list")
             .current_dir(cwd)
             .output()
@@ -123,7 +123,7 @@ fn omitted_plan_target_resolves_conventional_panta_child() {
 fn empty_project_is_valid_and_list_exits_successfully() {
     let host = unique_temp_dir("empty-project-ok");
     assert!(
-        Command::new(env!("CARGO_BIN_EXE_rhei"))
+        rhei_command()
             .arg("init")
             .arg("--no-agents")
             .current_dir(&host)
@@ -136,7 +136,7 @@ fn empty_project_is_valid_and_list_exits_successfully() {
 
     // §FS-rhei-panta.6: a just-initialized project lists successfully and
     // says how to grow, instead of erroring.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&host)
         .output()
@@ -153,7 +153,7 @@ fn empty_project_is_valid_and_list_exits_successfully() {
     );
 
     // Machine consumers get an empty array, not prose.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg("--json")
         .current_dir(&host)
@@ -177,7 +177,7 @@ fn empty_project_validate_warns_that_discovery_found_nothing() {
     )
     .expect("write misnamed plan");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .current_dir(&host)
         .output()
@@ -209,7 +209,7 @@ fn reset_never_infers_an_omitted_target() {
         )],
         WORKSPACE_STATE_MACHINE,
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .current_dir(&project)
         .output()
@@ -231,7 +231,7 @@ fn reset_never_infers_an_omitted_target() {
     );
 
     // The explicit form still works.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(&project)
@@ -264,7 +264,7 @@ fn omitted_target_counts_workspace_rheis_and_skips_dotfiles() {
     fs::write(ws.join("tasks/one.md"), "### Task 1: Invoice\n**State:** pending\n")
         .expect("write task");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&dir)
         .output()
@@ -288,7 +288,7 @@ fn omitted_target_counts_workspace_rheis_and_skips_dotfiles() {
     fs::write(dir.join("._junk.rhei.md"), "AppleDouble metadata, not markdown")
         .expect("write dotfile");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&dir)
         .output()
@@ -316,7 +316,7 @@ fn omitted_target_never_adopts_a_loose_plan_from_an_ancestor() {
     let nested = parent.join("some/unrelated");
     fs::create_dir_all(&nested).expect("mkdir nested");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&nested)
         .output()
@@ -343,7 +343,7 @@ fn empty_project_reset_is_a_noop_success() {
     let dir = unique_temp_dir("panta-empty-reset");
     fs::write(dir.join("index.panta.md"), "# Panta: Empty\n").expect("write manifest");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(&dir)
@@ -375,7 +375,7 @@ fn basin_tickets_transition_and_complete() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let transition = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let transition = rhei_command()
         .arg("transition")
         .arg(&project)
         .args(["--task", "basin.1", "--from", "pending", "--to", "in-progress"])
@@ -388,7 +388,7 @@ fn basin_tickets_transition_and_complete() {
         String::from_utf8_lossy(&transition.stderr)
     );
 
-    let complete = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let complete = rhei_command()
         .arg("complete")
         .arg(&project)
         .args(["--task", "basin.1", "--result", "done"])
@@ -401,7 +401,7 @@ fn basin_tickets_transition_and_complete() {
         String::from_utf8_lossy(&complete.stderr)
     );
 
-    let listed = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let listed = rhei_command()
         .arg("list")
         .arg(&project)
         .args(["--rhei", "basin"])
@@ -429,7 +429,7 @@ fn reset_dry_run_changes_nothing() {
     let plan = project.join("auth.rhei.md");
     let before = fs::read_to_string(&plan).expect("read plan before reset");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg(&project)
         .arg("--dry-run")

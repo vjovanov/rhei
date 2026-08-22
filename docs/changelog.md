@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- Separate a run from the surface that watches it. `rhei run` bound the two into
+  one process: closing the terminal killed the run (`SIGHUP` is an interruption,
+  correctly, so the workaround was `nohup` or `tmux` — which puts the run
+  outside the process-group ownership `rhei run` promises), only the launching
+  shell could watch it, and a tool that wanted task outcomes had to scrape human
+  prose or parse a journal designed for `tail -f`.
+
+  **`rhei run --headless`** re-executes `rhei run` in its own session with its
+  console redirected to `runtime/run.log`, waits for the child to publish itself,
+  and prints a **run id**. The child is an ordinary run — same locks, same loop,
+  same report — not a daemon, and it deliberately does *not* arm the
+  parent-death signal that supervised work gets, which would otherwise kill
+  every detached run the moment its launcher returned. Startup stays
+  synchronous: a held run lock or an invalid plan fails the launcher with the
+  run's own diagnostic rather than handing back an id for a run that is already
+  dead.
+
+  **`rhei attach [<run>]`** connects the run TUI to a run this shell did not
+  start, as a reader of files plus a client of the endpoints the browser
+  dashboard already serves — structural events from `runtime/events.jsonl`, live
+  agent output tailed from the per-task logs, intervene and gate release posted
+  to the run's loopback control server. **In an attached surface `Ctrl+C` and
+  `q` detach**, at any time, and never reach the run; the header says
+  `[attached]` and the action bar names `rhei stop` rather than implying a key
+  does it. **`rhei runs`** lists what is live on this machine and **`rhei stop`**
+  sends the run `SIGINT`, entering the existing interruption contract unchanged
+  instead of growing a second teardown. Liveness is decided by the run lock,
+  which the kernel releases on death, plus the workspace's own descriptor — a
+  recorded pid cannot answer it after pid reuse. That probe has **three**
+  answers, not two: a lock it could not read says nothing about the run, so such
+  an entry is listed as unchecked, still resolves, is still signalled, and is
+  never reported as a run that ended — the commands that wait keep waiting, and
+  say so on stderr rather than inventing an end when they give up.
+
+  **`rhei run --json`** is a third frontend beside the TUI and plain stdout: one
+  JSON object per line on stdout and **nothing else, ever** — the scope line and
+  the report pointer move to stderr, and errors keep the existing stderr
+  envelope. The same records are written durably to `runtime/events.jsonl` by
+  every run, whichever frontend is selected, which is what makes attachment
+  possible; `rhei attach --json --since <seq> --wait` streams them from another
+  process and exits with the run's own code, so CI can launch detached and wait.
+  A registry entry outlives its run, so the id still resolves once the answer
+  exists; only a recorded `0` exits `0`, and `--wait` without `--json` is the
+  quiet form — no surface, one result block, the run's own code. Agent output
+  stays out of both by default — the per-task log is its durable form — with
+  `--json-agent-output` to inline it, carrying no `seq` so the structural
+  numbering on stdout stays identical to the durable log's.
+
+  Every non-dry run now publishes `runtime/run.json` and a registry entry, so a
+  plain foreground `rhei run` is attachable and machine-readable too: the
+  identity belongs to the run, not to the flag. A foreground run queued behind
+  another's lock now names the run it is waiting for — and that wait is
+  cancellable with `Ctrl+C`, which a blocking `flock` never was. Detachment is
+  Unix-only for now and says so. §FS-rhei-run-headless §FS-rhei-run-json §DA-detached-runs
+  §FS-rhei-run.2.7 §FS-rhei-run-tui.1.4
+
 - The 500-line file-size rule is now a gate rather than a table. It has been
   §AR-source-file-size.1 since it was written — 500 soft, 2000 hard, spec files
   exempt — but nothing checked it, and the large-file register was a Markdown
@@ -15,8 +71,12 @@
   The workspace-validation integration tests are split along the seams the gate
   names — shared fixtures into `common.rs`, project cases away from workspace
   cases — leaving seven files under budget and the same 179 tests.
-  `crates/rhei-cli/src/cli/run_agent_mode.rs` stays over the hard limit and
-  blocks any commit that stages it; splitting it is a human's call.
+  `crates/rhei-cli/src/cli/run_agent_mode.rs`, the one file left over the hard
+  limit, is split along the seams its own register entry named — work-item
+  collection, parallel spawning and scheduling, sequential agent and program
+  execution, the worker pool, and per-invocation result handling — into nine
+  parts each under 500 lines, leaving the run loop itself under the limit with
+  the same 1061 tests passing.
   Issue #80. PR #81 §AR-source-file-size.1 §AR-source-file-size.2
 
 - Give `rhei run` real ownership of the subprocesses it starts. Agents and

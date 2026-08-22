@@ -231,7 +231,13 @@ fn emit_run_report(
         let color = std::env::var_os("NO_COLOR").is_none();
         print!("{}", report.render_tty(color));
     } else if let Some(report_path) = &report.report_path {
-        println!("Report: {report_path}");
+        // The pointer is for a person, so under `--json` it takes the channel
+        // people read; stdout is records to its last byte. §FS-rhei-run-json.1
+        if stdout_carries_json_records() {
+            eprintln!("Report: {report_path}");
+        } else {
+            println!("Report: {report_path}");
+        }
     }
 }
 

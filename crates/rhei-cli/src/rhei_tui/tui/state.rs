@@ -242,6 +242,10 @@ pub(super) struct UiState {
 
     pub(super) intervene: Option<Arc<dyn InterveneSink>>,
     pub(super) gate: Option<Arc<dyn GateTransitionSink>>,
+    /// True when this surface watches a run it does not drive, which changes
+    /// what `q` and `Ctrl+C` mean and what the chrome says.
+    // §FS-rhei-run-headless.5.1
+    pub(super) attached: bool,
 }
 
 const SPINNER_FRAMES: [char; 4] = ['◐', '◓', '◑', '◒'];
@@ -254,6 +258,7 @@ impl UiState {
         plan_loader: Option<PlanLoader>,
         intervene: Option<Arc<dyn InterveneSink>>,
         gate: Option<Arc<dyn GateTransitionSink>>,
+        attached: bool,
     ) -> Self {
         let parallel = parallel.max(1);
         let mut state = Self {
@@ -292,6 +297,7 @@ impl UiState {
             spinner: 0,
             intervene,
             gate,
+            attached,
         };
         state.refresh_plan();
         state
@@ -428,7 +434,7 @@ impl UiState {
 
     pub(super) fn apply(&mut self, event: &RunEvent) {
         match event {
-            RunEvent::RunStarted { workspace, parallel, total_tasks } => {
+            RunEvent::RunStarted { workspace, parallel, total_tasks, .. } => {
                 self.workspace = workspace.clone();
                 self.parallel = (*parallel).max(1);
                 self.total_tasks = *total_tasks;

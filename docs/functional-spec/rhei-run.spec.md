@@ -25,6 +25,8 @@ Flags are grouped by concern:
 | `--rhei <RHEI_ID>`       | all     | Narrow this run to the named rheis (repeatable). See §2.5.                  |
 | `--tui`                  | auto    | Force TUI mode even when stdout is not detected as a TTY                   |
 | `--no-tui`               | auto    | Force plain stdout output even when stdout is a TTY                        |
+| `--json`                 | false   | Emit the run as a JSONL event stream on stdout. See [Run JSON Stream](rhei-run-json.spec.md) |
+| `--headless`             | false   | Detach the run into its own session and print its run id. See [Detached Runs](rhei-run-headless.spec.md) |
 | `--dashboard`            | auto    | Serve the loopback browser dashboard for this run                          |
 | `--no-dashboard`         | auto    | Disable the loopback browser dashboard                                     |
 
@@ -99,6 +101,32 @@ two multi-root runs cannot deadlock. `--dry-run` takes no locks
 (§4). Narrowing with `--rhei` does not narrow the lock set: a narrowed run
 still locks the whole project, keeping lock behavior independent of scheduling
 scope.
+
+A **foreground** run blocks on a lock another run holds — waiting for your turn
+is a queueing idiom people use on purpose — but says so first, naming the run it
+is waiting for. Blocking in total silence is indistinguishable from a hang. The
+line goes to stderr when stdout is a record stream (§FS-rhei-run-json.1). The
+wait is **interruptible**: `Ctrl+C` ends it at once, reporting that it stopped
+waiting and leaving the run that holds the lock untouched. A wait a command
+announces has to be one the operator can take back, and a wait parked inside a
+blocking `flock` cannot see the signal at all (§3.2). A **detached child** does
+not queue: it fails immediately with the diagnostic above, because its launcher
+is holding a startup handshake open and would otherwise report a timeout for
+what is really a lock refusal (§FS-rhei-run-headless.1.1).
+
+The lock is also what answers *"is this run still alive?"* for a run nobody is
+watching: `flock` is released by the kernel on process death, so a workspace
+whose lock can be taken has no live run, whatever a stale descriptor claims
+(§FS-rhei-run-headless.3).
+
+### 2.7. Run Identity
+
+Every non-dry run publishes a **run descriptor** naming its id, pid, workspace,
+control URL, and status, and a durable **event log** of everything it emitted.
+They are what let a separate process watch, attach to, or stop a run it did not
+start — see [Detached Runs](rhei-run-headless.spec.md) and
+[Run JSON Stream](rhei-run-json.spec.md). A foreground run publishes them too:
+the identity belongs to the run, not to `--headless`.
 
 ## 3. Execution Loop
 
@@ -302,7 +330,11 @@ ledger called the ticket timed out.
 **Interruption.** `SIGINT`, `SIGTERM`, and `SIGHUP` delivered to `rhei run`
 interrupt the run. Ctrl+C under the TUI is the same event, because the TUI
 restores the terminal and re-raises `SIGINT` on the process
-(§FS-rhei-run-tui.1.8). On the first such signal `rhei run`:
+(§FS-rhei-run-tui.1.8). So is `rhei stop`, which delivers the same signal to a
+detached run's pid and adds nothing to this contract
+(§FS-rhei-run-headless.7). Ctrl+C in an *attached* surface is not this event at
+all: it disconnects the surface and never reaches the run
+(§FS-rhei-run-headless.5.1). On the first such signal `rhei run`:
 
 1. schedules no further work — no new pass begins, no freed worker slot
    refills, and the scheduler's waits return at once instead of sleeping out
@@ -483,6 +515,8 @@ See [How Rhei Is Used — Command Surface](rhei-usage.spec.md#22-command-surface
 - [Snapshots Specification](rhei-snapshots.spec.md) — snapshot side effects and inheritance preload
 - [Snapshot Operations Specification](rhei-snapshot-operations.spec.md) — snapshot commands, settings, and `--from-snapshot`
 - [Run TUI Specification](rhei-run-tui.spec.md) — live terminal UI and transition journal
+- [Run JSON Stream](rhei-run-json.spec.md) — `--json`, the event record contract, and `runtime/events.jsonl`
+- [Detached Runs](rhei-run-headless.spec.md) — `--headless`, `rhei attach`, `rhei stop`, `rhei runs`
 - [Cost Accounting Specification](rhei-cost-accounting.spec.md) — token/cost ledger and rollups
 - [Transitions Specification](rhei-transitions.spec.md) — transition YAML schema and callbacks
 - [Next Command](rhei-next.spec.md), [Complete Command](rhei-complete.spec.md), [Transition Command](rhei-transition-cmd.spec.md) — manual-worker counterparts

@@ -4,7 +4,7 @@ use std::process::Command;
 use super::*;
 
 fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command(cwd.join(".home"))
         .current_dir(cwd)
         .args(args)
         .output()
@@ -1002,9 +1002,8 @@ fn templates_ships_a_builtin_library_with_the_binary() {
     fs::create_dir_all(&home).expect("create isolated home");
 
     let run = |args: &[&str]| -> CliRun {
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command(&home)
             .current_dir(&dir)
-            .env("HOME", &home)
             .args(args)
             .output()
             .expect("rhei command should run");
@@ -1067,9 +1066,8 @@ fn a_project_template_shadows_a_builtin_of_the_same_name() {
         "# Rhei: Local\n\n## Tasks\n\n### Task 1: Go\n**State:** pending\n",
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command(&home)
         .current_dir(&dir)
-        .env("HOME", &home)
         .arg("templates")
         .output()
         .expect("rhei templates should run");

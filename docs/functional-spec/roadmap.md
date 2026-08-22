@@ -173,6 +173,28 @@ share live state through the filesystem rather than through commits. §DA-panta-
   out-of-band transport — a shared filesystem or a small sync server — the same
   constraint every on-disk tracker faces. §DA-panta-root §GOAL-rhei-outcomes
 
+## Planned: Detached Run Follow-Ups
+
+Status: planned. Detached runs ship with `--headless`, `rhei attach`,
+`rhei stop`, `rhei runs`, and the `--json` event stream
+(§FS-rhei-run-headless §FS-rhei-run-json). These items extend that base
+without changing the execution model.
+
+- Support `--headless` on Windows. The primitives exist (`DETACHED_PROCESS`,
+  `CREATE_NEW_PROCESS_GROUP`), but `rhei stop` inherits a signal contract with
+  no Windows equivalent, so this means designing that teardown rather than
+  translating the Unix one. §FS-rhei-run-headless.1.3 §FS-rhei-run.3.2
+- Give the attached surface a streaming event transport when the loopback
+  server grows per-connection handling. Attachment follows
+  `runtime/events.jsonl` by polling today, which is robust and works without a
+  control server but adds latency. §DA-detached-runs
+- Extend the JSON error envelope with the stable `kind`/`path` taxonomy the CLI
+  UX section already tracks, so `--json` consumers can branch on failure class
+  instead of matching message text. §FS-rhei-run-json.1 §FS-rhei-errors
+- Add a run-scoped `rhei attach --replay` over a finished run's event log, so a
+  run can be inspected in the TUI after the fact rather than only through its
+  report and frozen dashboard. §FS-rhei-run-headless.5.2
+
 ## Planned: Dashboard and Monitoring Follow-Ups
 
 Status: planned. The first dashboard visualization pass is complete; these

@@ -296,6 +296,10 @@ fn summarize_coverage(
 #[derive(Debug, Clone)]
 pub enum RunEvent {
     RunStarted {
+        /// The id this run is named by everywhere — the report, the descriptor,
+        /// and `rhei attach <id>`. Carried on the event so the record stream is
+        /// self-describing. §FS-rhei-run.2.7 §FS-rhei-run-json.2.1
+        run_id: String,
         workspace: PathBuf,
         parallel: u16,
         total_tasks: usize,

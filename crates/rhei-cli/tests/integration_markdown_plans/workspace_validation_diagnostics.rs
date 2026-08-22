@@ -12,7 +12,7 @@ fn invalid_derived_rhei_id_error_states_rule_and_suggests_rename() {
 
     // §AR-rhei-panta.3: the derived id is a load error with the rule and a
     // concrete rename, on every command including read-only ones.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(dir.join("My Plan.rhei.md"))
         .output()
@@ -73,7 +73,7 @@ fn implicit_panta_rejects_basin_named_single_file_rhei() {
     .expect("write plan");
 
     // §FS-rhei-panta.4: the reservation also guards the implicit-Panta path.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(dir.join("basin.rhei.md"))
         .output()
@@ -97,7 +97,7 @@ fn unknown_task_id_error_suggests_closest_qualified_ids() {
     )
     .expect("write plan");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(dir.join("plan.rhei.md"))
         .args(["--task", "cache", "--no-callbacks"])
@@ -126,7 +126,7 @@ fn missing_input_artifact_error_names_pre_qualification_file() {
     fs::create_dir_all(dir.join("runtime")).expect("mkdir runtime");
     fs::write(dir.join("runtime/1.md"), "brief\n").expect("write legacy artifact");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(dir.join("plan.rhei.md"))
         .args(["--task", "1", "--no-callbacks"])
@@ -164,7 +164,7 @@ fn ambiguous_rhei_local_shorthand_names_qualified_candidates() {
 
     // §FS-rhei-panta.6: a shorthand matching more than one rhei is an error
     // that names the qualified candidates.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(&project)
         .args(["--task", "1", "--no-callbacks"])
@@ -180,7 +180,7 @@ fn ambiguous_rhei_local_shorthand_names_qualified_candidates() {
     );
 
     // A --rhei narrowing disambiguates the same shorthand.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(&project)
         .args(["--task", "1", "--rhei", "auth", "--peek", "--no-callbacks"])
@@ -211,7 +211,7 @@ fn project_parse_errors_keep_their_line_and_code_frame() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -243,7 +243,7 @@ fn project_scoped_parse_errors_match_file_scoped_ones() {
     );
 
     let run = |target: &Path| -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("validate")
             .arg(target)
             .output()
@@ -294,7 +294,7 @@ fn missing_prior_names_the_unknown_rhei_and_suggests_the_near_miss() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -343,7 +343,7 @@ fn missing_prior_never_suggests_the_citing_task_as_its_own_prior() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()

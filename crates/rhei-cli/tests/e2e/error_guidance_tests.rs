@@ -2,12 +2,11 @@
 //! command it prints survives a paste into an interactive shell.
 
 use std::fs;
-use std::process::Command;
 
 use super::*;
 
 fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = super::rhei_command(cwd.join(".home"))
         .current_dir(cwd)
         .args(args)
         .output()
