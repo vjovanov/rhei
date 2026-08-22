@@ -371,3 +371,68 @@ structure:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// `rhei states` says when a supervisor wakes and what the granularity costs.
+///
+/// "Supervises: task" read as "supervises a task" — the one thing `supervise:`
+/// does not mean. `--json` keeps the value itself, for scripts.
+// §FS-rhei-supervision.1.1 §FS-rhei-states-cmd.4
+#[test]
+fn rhei_states_says_when_a_supervisor_wakes() {
+    let plan = r#"# Rhei: States
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervise
+
+#### Task 1.1: A
+**State:** review
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-states-cmd",
+        plan,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+
+    let by_task = run_cli("states", &plan_path, &machine_path, &[]);
+    assert_success(&by_task);
+    assert!(
+        by_task.stdout.contains("Supervision: after every finished descendant (task)"),
+        "got:\n{}",
+        by_task.stdout
+    );
+
+    let state_machine =
+        write_fixture_file(&dir, "state-level.yaml", &supervision_machine("state", "completed"));
+    let by_state = run_cli("states", &plan_path, &state_machine, &[]);
+    assert_success(&by_state);
+    assert!(
+        by_state.stdout.contains(
+            "Supervision: after every descendant transition (state) \u{2014} one invocation \
+             per hop"
+        ),
+        "got:\n{}",
+        by_state.stdout
+    );
+
+    let json = run_cli("states", &plan_path, &state_machine, &["--json"]);
+    assert_success(&json);
+    let payload: serde_json::Value =
+        serde_json::from_str(&json.stdout).expect("states --json parses");
+    let supervising = payload["states"]
+        .as_array()
+        .expect("states array")
+        .iter()
+        .find(|state| state["name"] == "supervise")
+        .expect("the supervising state");
+    assert_eq!(supervising["supervise"], "state", "scripts keep the value: {payload}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

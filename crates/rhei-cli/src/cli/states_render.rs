@@ -61,8 +61,18 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
                 out.push_str(&format!("      Visits: {visits}\n"));
             }
             // §FS-rhei-supervision.1.1: the granularity is the whole field.
+            // When it wakes, not the bare value: "Supervises: task" read as
+            // "supervises a task". §FS-rhei-supervision.1.1
             if let Some(supervise) = def.supervise_kind() {
-                out.push_str(&format!("      Supervises: {}\n", supervise.as_str()));
+                let when = match supervise {
+                    rhei_validator::SuperviseKind::Task => {
+                        "after every finished descendant (task)"
+                    }
+                    rhei_validator::SuperviseKind::State => {
+                        "after every descendant transition (state) \u{2014} one invocation per hop"
+                    }
+                };
+                out.push_str(&format!("      Supervision: {when}\n"));
             }
             if let Some(poll) = def.poll.as_ref() {
                 out.push_str(&format!(

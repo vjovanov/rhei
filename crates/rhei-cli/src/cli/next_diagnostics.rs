@@ -36,7 +36,8 @@ fn supervisor_next_step(
     let task = all.iter().copied().find(|task| &task.id == supervisor)?;
     if let Some(assignee) = task.assignee.as_deref() {
         return Some(format!(
-            " Task {supervisor} is the ticket to work and {assignee} holds it;              hand it back with: rhei release {plan_arg} --task {supervisor}"
+            " Task {supervisor} is the ticket to work and {assignee} holds it; hand it back \
+             with: rhei release {plan_arg} --task {supervisor}"
         ));
     }
     let index = task_index(&all);
