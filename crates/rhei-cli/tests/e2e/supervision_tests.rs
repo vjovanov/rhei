@@ -229,7 +229,9 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
     let second = prompt_for(&dir, "plan.1", "supervise", 2);
     assert!(second.contains("## Checkpoints"), "got:\n{second}");
     assert!(
-        second.contains("### Task 1.1: Review parser \u{2014} review \u{2192} completed (visit 1)"),
+        second.contains(
+            "### Task plan.1.1: Review parser \u{2014} review \u{2192} completed (visit 1)"
+        ),
         "got:\n{second}"
     );
     assert!(second.contains("Task plan.1.1 finished review."), "got:\n{second}");

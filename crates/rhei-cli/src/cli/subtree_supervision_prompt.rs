@@ -53,22 +53,35 @@ fn read_task_result(
     Ok(Some(content.trim().to_string()).filter(|content| !content.is_empty()))
 }
 
-/// The descendant a checkpoint names, matched inside the supervisor's subtree.
+/// The one qualified id a checkpoint's rhei-local `task` can name.
 ///
-/// A checkpoint records the rhei-local id, which the merged plan graph carries
-/// under a project qualification; matching on the tail resolves both without
-/// the renderer having to know which shape it is looking at.
-// §FS-rhei-supervision.3.3
+/// A checkpoint records the rhei-local id (§3.3), while the merged plan graph
+/// carries every task under its project qualification. That qualification is
+/// the supervisor's own leading segments, so prefixing the recorded id with
+/// them names exactly one node — never a deeper cousin whose id merely ends
+/// the same way (`1.1.2` for a recorded `1.2`).
+// §FS-rhei-supervision.3.3 §FS-rhei-supervision.5.1
+fn checkpoint_qualified_id(task: &rhei_core::ast::Task, local_id: &str) -> String {
+    let qualified = task.id.to_string();
+    let prefix: String = qualified
+        .split('.')
+        .take(task.profile_depth_offset as usize)
+        .map(|segment| format!("{segment}."))
+        .collect();
+    format!("{prefix}{local_id}")
+}
+
+/// The descendant a checkpoint names, matched by exact qualified id.
+// §FS-rhei-supervision.5.1
 fn checkpoint_descendant<'a>(
     task: &'a rhei_core::ast::Task,
-    local_id: &str,
+    qualified_id: &str,
 ) -> Option<&'a rhei_core::ast::Task> {
     for child in &task.children {
-        let id = child.id.to_string();
-        if id == local_id || id.ends_with(&format!(".{local_id}")) {
+        if child.id.to_string() == qualified_id {
             return Some(child);
         }
-        if let Some(found) = checkpoint_descendant(child, local_id) {
+        if let Some(found) = checkpoint_descendant(child, qualified_id) {
             return Some(found);
         }
     }
@@ -143,11 +156,14 @@ fn render_supervision_checkpoints(
          carries what that step left behind.\n",
     );
     for checkpoint in &checkpoints {
-        let descendant = checkpoint_descendant(render_context.task, &checkpoint.task);
+        // §FS-rhei-supervision.5.1: one id spelling per prompt — the qualified
+        // one `## Child Tasks` lists and `rhei transition` accepts.
+        let qualified = checkpoint_qualified_id(render_context.task, &checkpoint.task);
+        let descendant = checkpoint_descendant(render_context.task, &qualified);
         let title = descendant.map(|task| task.title.as_str()).unwrap_or("(no longer in the plan)");
         out.push_str(&format!(
             "\n### Task {}: {} \u{2014} {} \u{2192} {} (visit {})\n",
-            checkpoint.task, title, checkpoint.from, checkpoint.to, checkpoint.visit
+            qualified, title, checkpoint.from, checkpoint.to, checkpoint.visit
         ));
         let Some(descendant) = descendant else { continue };
         let to_is_terminal = render_context

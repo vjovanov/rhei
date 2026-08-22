@@ -398,3 +398,44 @@ transitions:
         // Without a `visits:` budget the rendered state name stays unsuffixed.
         assert_eq!(format_task_state_value("supervise", Some(2), &machine), "supervise");
     }
+
+    /// A checkpoint names one descendant exactly.
+    ///
+    /// A three-level subtree whose ids collide on the tail — `1.2` beside
+    /// `1.1.2` — is the case a suffix match gets wrong: it descends into
+    /// `1.1` first and reports the cousin's title and result.
+    // §FS-rhei-supervision.5.1
+    #[test]
+    fn a_checkpoint_resolves_its_descendant_by_exact_qualified_id() {
+        let rhei = rhei_core::parse(
+            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n\
+             ### Task 1: Outer\n**State:** supervise\n\n\
+             #### Task 1.1: Inner\n**State:** supervise\n\n\
+             ##### Task 1.1.1: A\n**State:** review\n\n\
+             ##### Task 1.1.2: B\n**State:** review\n\n\
+             #### Task 1.2: Sibling\n**State:** review\n",
+        )
+        .expect("parse nested plan");
+        let project = rhei_core::workspace::implicit_panta_from_file_rhei(
+            rhei,
+            std::path::Path::new("/plans/plan.rhei.md"),
+        )
+        .expect("qualify");
+        let outer = &project.rhei.tasks[0];
+
+        let sibling = checkpoint_qualified_id(outer, "1.2");
+        assert_eq!(sibling, "plan.1.2");
+        assert_eq!(
+            checkpoint_descendant(outer, &sibling).map(|task| task.title.as_str()),
+            Some("Sibling"),
+            "the tail-colliding cousin plan.1.1.2 must not answer for plan.1.2"
+        );
+        let cousin = checkpoint_qualified_id(outer, "1.1.2");
+        assert_eq!(
+            checkpoint_descendant(outer, &cousin).map(|task| task.title.as_str()),
+            Some("B")
+        );
+        // A checkpoint for a descendant the supervisor cancelled out of the
+        // plan resolves to nothing rather than to whatever is nearby.
+        assert!(checkpoint_descendant(outer, &checkpoint_qualified_id(outer, "1.3")).is_none());
+    }

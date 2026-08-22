@@ -61,9 +61,9 @@ fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
     );
 
     let second = prompt_for(&dir, "plan.1", "supervise", 2);
-    assert!(second.contains("### Task 1.1:"), "got:\n{second}");
+    assert!(second.contains("### Task plan.1.1:"), "got:\n{second}");
     assert!(
-        !second.contains("### Task 1.2:"),
+        !second.contains("### Task plan.1.2:"),
         "the supervisor's own cancel is not news for it; got:\n{second}"
     );
 
@@ -119,14 +119,17 @@ structure:
     );
 
     let inner = prompt_for(&dir, "plan.1.1", "supervise", 2);
-    assert!(inner.contains("### Task 1.1.1:"), "the leaf checkpoints its nearest; got:\n{inner}");
+    assert!(
+        inner.contains("### Task plan.1.1.1:"),
+        "the leaf checkpoints its nearest; got:\n{inner}"
+    );
     let outer = prompt_for(&dir, "plan.1", "supervise", 2);
     assert!(
-        outer.contains("### Task 1.1: Middle \u{2014} supervise \u{2192} completed"),
+        outer.contains("### Task plan.1.1: Middle \u{2014} supervise \u{2192} completed"),
         "the outer supervisor hears only the inner one's own exit; got:\n{outer}"
     );
     assert!(
-        !outer.contains("### Task 1.1.1:"),
+        !outer.contains("### Task plan.1.1.1:"),
         "an ancestor farther up sees nothing of the leaf; got:\n{outer}"
     );
 
@@ -161,8 +164,8 @@ fn a_checkpoint_drains_the_parallel_siblings_before_the_supervisor_runs() {
     // §FS-rhei-supervision.3.3: the checkpoints accumulate and one visit
     // consumes them all.
     let second = prompt_for(&dir, "plan.1", "supervise", 2);
-    assert!(second.contains("### Task 1.1:"), "got:\n{second}");
-    assert!(second.contains("### Task 1.2:"), "got:\n{second}");
+    assert!(second.contains("### Task plan.1.1:"), "got:\n{second}");
+    assert!(second.contains("### Task plan.1.2:"), "got:\n{second}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -273,6 +276,68 @@ fn supervise_validation_rejects_and_warns_through_rhei_validate() {
     assert!(
         combined.contains("no way to finish"),
         "a supervisor with no terminal edge is warned about; got:\n{combined}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A checkpoint names one descendant exactly, and spells it the way
+/// `## Child Tasks` and `rhei transition` do.
+///
+/// The ids here collide on the tail — the sibling `1.2` beside the nested
+/// `1.1.2` — which is the case a suffix match resolves to the wrong task and
+/// then shows the supervisor that task's title and result.
+// §FS-rhei-supervision.5.1
+#[test]
+fn a_checkpoint_names_the_descendant_that_moved_not_one_whose_id_ends_the_same() {
+    let plan = r#"# Rhei: Nested
+
+---
+structure:
+  maxLevels: 4
+---
+
+## Tasks
+
+### Task 1: Outer
+**State:** supervise
+
+#### Task 1.1: Inner supervisor
+**State:** supervise
+
+##### Task 1.1.1: A
+**State:** fix
+
+##### Task 1.1.2: B
+**State:** fix
+**Prior:** Task 1.1.1
+
+#### Task 1.2: Sibling
+**State:** fix
+**Prior:** Task 1.1
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-tail-collision",
+        plan,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert_success(&result);
+
+    let outer = prompt_for(&dir, "plan.1", "supervise", 3);
+    assert!(
+        outer.contains("### Task plan.1.2: Sibling \u{2014} fix \u{2192} completed (visit 1)"),
+        "the checkpoint is the sibling, titled and qualified as such; got:\n{outer}"
+    );
+    assert!(
+        outer.contains("Task plan.1.2 finished fix."),
+        "and it carries the sibling's own result; got:\n{outer}"
+    );
+    assert!(
+        !outer.contains("Task plan.1.1.2 finished fix."),
+        "the tail-colliding cousin's result is not the sibling's; got:\n{outer}"
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

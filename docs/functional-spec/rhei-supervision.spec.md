@@ -334,16 +334,16 @@ An invocation of a supervising state renders two sections after
 ```
 ## Child Tasks
 
-- Task 1.1: Review parser [completed]
-- Task 1.2: Fix findings [fix]
-- Task 1.3: Re-review [review]
+- Task plan.1.1: Review parser [completed]
+- Task plan.1.2: Fix findings [fix]
+- Task plan.1.3: Re-review [review]
 
 ## Checkpoints
 
 These are the descendants that moved since your last visit, in order. Each
 carries what that step left behind.
 
-### Task 1.2: Fix findings — review → fix (visit 2)
+### Task plan.1.2: Fix findings — review → fix (visit 2)
 
 {for a terminal `to`: the descendant's result, `runtime/results/<id>.md`;
  otherwise: every declared, existing, non-empty `outputs:` artifact of the
@@ -354,6 +354,12 @@ carries what that step left behind.
 renders the recorded `supervision.checkpoints` (§3.3) and is omitted on a
 visit with none — the first visit, where the supervisor's job is to brief the
 first step.
+
+Both sections spell a descendant the one way the supervisor can act on it: the
+**qualified** id, the same one `rhei transition` accepts. `supervision.checkpoints`
+stores the rhei-local id (§3.3), and the renderer resolves it to exactly one
+descendant — the recorded id under the supervisor's own qualification — never
+to a deeper node whose id happens to end the same way.
 
 A non-leaf task in a state that is *not* supervising renders `## Child Tasks`
 as today and, new, `## Child Task Results` — the result of every terminal
