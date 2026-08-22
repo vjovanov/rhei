@@ -259,6 +259,33 @@ transitions:
         assert!(supervision_map(Some(&finished), &parent).is_none());
     }
 
+    /// §FS-rhei-supervision.3.1 rule 4: an exit into a `gating: true` state
+    /// keeps the block, so the subtree stays held until a human moves the
+    /// supervisor on — and moving it on is what clears the block.
+    #[test]
+    fn an_exit_to_a_human_gate_keeps_the_hold_until_the_human_moves_it() {
+        let plan = supervised_plan(&["review"]);
+        let parent = parse_task_id("1");
+
+        let mut exhausted = plan.clone();
+        exhausted.metadata = Some(record_supervision_hold(None, &parent, None));
+        let parked = deliver(&exhausted, "1", "supervise", "human-review")
+            .expect("the block survives the move");
+        assert_eq!(supervision_phase(Some(&parked), &parent), SupervisionPhase::Held);
+        assert!(
+            supervision_checkpoints(Some(&parked), &parent).is_empty(),
+            "the visit that took this edge already consumed its checkpoints"
+        );
+
+        // The human moves it on: the hold ends wherever it goes.
+        let mut at_gate = plan.clone();
+        at_gate.tasks[0].state = "human-review".to_string();
+        at_gate.metadata = Some(parked);
+        let released =
+            deliver(&at_gate, "1", "human-review", "cancelled").expect("block removed");
+        assert!(supervision_map(Some(&released), &parent).is_none());
+    }
+
     /// §FS-rhei-supervision.2.2: a supervisor's self-loop is the supervisor
     /// waiting, so it is never news for an ancestor of its own.
     #[test]

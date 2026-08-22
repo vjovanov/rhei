@@ -98,10 +98,10 @@
         let plan = supervised_plan(&["review"]);
         let machines = rhei_validator::MachineSet::single(supervision_machine());
         let child = &plan.tasks[0].children[0];
-        let (supervisor, state) =
-            held_by_supervisor(child, &plan, &machines).expect("the parent holds it");
-        assert_eq!(supervisor.to_string(), "1");
-        assert_eq!(state, "supervise");
+        let hold = held_by_supervisor(child, &plan, &machines).expect("the parent holds it");
+        assert_eq!(hold.supervisor.to_string(), "1");
+        assert_eq!(hold.state, "supervise");
+        assert!(!hold.awaiting_human, "a supervising state is not a human gate");
 
         let plan = with_metadata(plan, released);
         assert!(

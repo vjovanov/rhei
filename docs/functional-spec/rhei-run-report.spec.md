@@ -148,6 +148,14 @@ the summary prints five stacked groups:
    act on whatever its children are doing, even though the open subtree
    outranks them in the classification order above.
 
+   A **gating** parent that still carries a `held` supervision block
+   (§FS-rhei-supervision.3.1) is classified ahead of the open-subtree reading,
+   because it is not waiting on its descendants — it is holding them. Its row
+   says so and names them, and the next action is the human's: move it back into
+   its supervising state to resume supervision, or anywhere else to release the
+   subtree. The held descendants keep their own held rows, and those rows name
+   the human rather than a supervisor visit that is not coming.
+
    The run's exit status and `--dry-run`'s are one judgment, not two readings
    of this classification: a run ends non-zero when work remains that is
    waiting on neither a human gate, a poll backoff, nor a `**Prior:**` that is

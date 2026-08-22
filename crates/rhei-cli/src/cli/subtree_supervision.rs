@@ -96,6 +96,23 @@ fn supervision_map<'a>(metadata: Option<&'a Metadata>, task_id: &TaskId) -> Opti
     task_metadata_map(metadata, task_id)?.get(yaml_key(SUPERVISION_KEY))?.as_mapping()
 }
 
+/// The phase written in the plan, or `None` when the task carries no block.
+///
+/// The block is the hold, not the state: a supervisor that left its supervising
+/// state for a human gate keeps the block, and its subtree stays held until a
+/// human moves it. Only a reader that can tell "held" from "no block at all"
+/// can implement that.
+// §FS-rhei-supervision.3.1 §FS-rhei-supervision.3.3
+fn recorded_supervision_phase(
+    metadata: Option<&Metadata>,
+    task_id: &TaskId,
+) -> Option<SupervisionPhase> {
+    supervision_map(metadata, task_id)
+        .and_then(|map| map.get(yaml_key("phase")))
+        .and_then(YamlValue::as_str)
+        .and_then(SupervisionPhase::parse)
+}
+
 /// The recorded phase of a task in a supervising state.
 ///
 /// A missing block reads as `Held`, which is what makes an authored initial
@@ -103,11 +120,7 @@ fn supervision_map<'a>(metadata: Option<&'a Metadata>, task_id: &TaskId) -> Opti
 /// plan first.
 // §FS-rhei-supervision.3.3
 fn supervision_phase(metadata: Option<&Metadata>, task_id: &TaskId) -> SupervisionPhase {
-    supervision_map(metadata, task_id)
-        .and_then(|map| map.get(yaml_key("phase")))
-        .and_then(YamlValue::as_str)
-        .and_then(SupervisionPhase::parse)
-        .unwrap_or(SupervisionPhase::Held)
+    recorded_supervision_phase(metadata, task_id).unwrap_or(SupervisionPhase::Held)
 }
 
 /// The checkpoints delivered since the supervisor's last visit, in delivery

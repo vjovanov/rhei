@@ -263,7 +263,7 @@ fn diagnose_no_claimable(
         .copied()
         .filter_map(|task| {
             held_by_supervisor(task, rhei, machines)
-                .map(|(supervisor, state)| (task, supervisor, state))
+                .map(|hold| (task, hold.supervisor, hold.state))
         })
         .collect();
     if !held.is_empty() {

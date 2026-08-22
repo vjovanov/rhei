@@ -112,16 +112,29 @@ fn next_command(
         // §FS-rhei-supervision.3.4: `rhei next` never claims a descendant of a
         // held supervisor, and says which supervisor holds it rather than
         // leaving the worker to read a stall.
-        if let Some((supervisor, supervisor_state)) =
-            held_by_supervisor(task, &loaded.rhei, &machines.set)
-        {
-            return Err(miette!(
-                help = format!(
+        if let Some(hold) = held_by_supervisor(task, &loaded.rhei, &machines.set) {
+            let (supervisor, supervisor_state) = (&hold.supervisor, &hold.state);
+            // §FS-rhei-supervision.3.1: a gate-parked supervisor has no next
+            // visit, so pointing the worker at `rhei next` on it is a dead end.
+            let next_step = if hold.awaiting_human {
+                format!(
+                    "Task {supervisor} is at a human gate and still holds this subtree. A human \
+                     moves it back into its supervising state to resume supervision, or anywhere \
+                     else to release the subtree: rhei{} transition {} --task {supervisor} \
+                     --from {supervisor_state} --to <state>",
+                    state_machine_flag(resolved.default.path.as_deref()),
+                    shell_quote(&input.display().to_string())
+                )
+            } else {
+                format!(
                     "the supervisor releases the subtree on its next visit. Work the supervisor \
                      instead: rhei{} next {} --task {supervisor}",
                     state_machine_flag(resolved.default.path.as_deref()),
                     shell_quote(&input.display().to_string())
-                ),
+                )
+            };
+            return Err(miette!(
+                help = next_step,
                 "Task {} is held by supervisor Task {} ({})",
                 tid,
                 supervisor,

@@ -9,6 +9,7 @@ use std::fs;
 
 use super::supervision_tests::{
     assert_state_anywhere, prompt_for, setup_supervision, spawn_log, supervision_machine,
+    REVIEW_FIX_PLAN,
 };
 use super::*;
 
@@ -231,6 +232,51 @@ structure:
     assert!(
         !outer.contains("Task plan.1.1.2 finished fix."),
         "the tail-colliding cousin's result is not the sibling's; got:\n{outer}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A supervisor that leaves for a human gate keeps its subtree held.
+///
+/// Before: the `supervision` block was dropped on any non-self-loop exit, so
+/// exhausting the visit budget into a gating state silently un-supervised the
+/// subtree — the remaining children ran to completion with nobody watching,
+/// which is the opposite of what the budget is for.
+// §FS-rhei-supervision.3.1 §FS-rhei-supervision.3.2 §FS-rhei-supervision.3.3
+#[test]
+fn a_supervisor_parked_at_a_human_gate_still_holds_its_subtree() {
+    let machine =
+        supervision_machine("task", "completed").replace("    visits: 12\n", "    visits: 1\n");
+    let (dir, plan_path, machine_path) =
+        setup_supervision("supervision-gate-hold", REVIEW_FIX_PLAN, &machine, "");
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert!(
+        result.stderr.contains(
+            "Task plan.1 left supervision for human gate 'human-review'; its subtree stays \
+             held until a human moves it"
+        ),
+        "the one transition where the barrier outlives the state says so:\n{}",
+        result.stderr
+    );
+
+    // The children never ran: the budget ran out, so nothing beneath the
+    // supervisor may move until a human decides.
+    assert_task_state(&plan_path, &machine_path, "1", "human-review");
+    assert_state_anywhere(&plan_path, &machine_path, "1.1", "review");
+    assert_state_anywhere(&plan_path, &machine_path, "1.2", "fix");
+    let plan = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(plan.contains("phase: held"), "the block survives the move:\n{plan}");
+
+    // §FS-rhei-supervision.3.4: and the refusal names the human, not a visit
+    // that is never coming.
+    let held = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
+    assert!(!held.status.success(), "a held descendant is still not claimable");
+    assert!(
+        held.stderr.contains("is at a human gate and still holds this subtree"),
+        "got:\n{}",
+        held.stderr
     );
 
     fs::remove_dir_all(dir).expect("cleanup");

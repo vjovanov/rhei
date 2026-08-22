@@ -192,12 +192,21 @@ A task `P` in a supervising state is a barrier over its subtree. Its
    new beneath `P` is dispatched. Descendants already in flight run to their
    exit, and their exits may deliver further checkpoints, which accumulate.
    Once no descendant of `P` is in flight, `P` is ready.
-4. **Leaving releases; finishing is guarded.** When `P` exits the supervising
-   state by any edge other than its self-loop, the phase is cleared and its
-   descendants follow the ordinary rules. An exit into a `final: true` state
-   is subject to the descendants-first guard like any other terminal entry
-   (§FS-rhei-transition-cmd.3.1); a machine expresses "finish once the subtree
-   is done" with `openDescendants < 1` (§4.1).
+4. **Leaving releases, except into a human gate; finishing is guarded.** When
+   `P` exits the supervising state by any edge other than its self-loop, the
+   phase is cleared and its descendants follow the ordinary rules — *unless*
+   the target state is `gating: true`, in which case the block is **kept** with
+   phase `held`. The `supervision` block, not the state, is the hold (§3.2):
+   the one edge a supervisor takes without deciding anything is its exhaustion
+   edge, and letting that silently un-supervise the subtree is the opposite of
+   what a budget is for. A supervisor parked at a gate therefore keeps its
+   subtree held until a human moves it — back into a supervising state, where
+   entry holds as usual, or anywhere else, which releases. `rhei run` says so
+   at that transition, and the run report gives the parked ticket a row of its
+   own naming the subtree it still holds (§FS-rhei-run-report.3.1). An exit
+   into a `final: true` state is subject to the descendants-first guard like
+   any other terminal entry (§FS-rhei-transition-cmd.3.1); a machine expresses
+   "finish once the subtree is done" with `openDescendants < 1` (§4.1).
 
 Two invariants follow, and they are the point:
 
@@ -229,7 +238,10 @@ descendant is terminal" requirement for the tasks it concerns:
 - A task with one or more supervising ancestors is ready only when **every**
   supervising ancestor's phase is `released`, in addition to the ordinary
   rules. A supervising ancestor that is `held`, or in flight, holds the whole
-  subtree beneath it, nested supervisors included.
+  subtree beneath it, nested supervisors included. *Ancestor* here means any
+  ancestor carrying a `supervision` block with phase `held` — the block is the
+  hold, whatever state the task is now in (§3.1 rule 4) — plus a task in a
+  supervising state with no block at all, the authored-initial case.
 
 A task is *in flight* when a run has spawned it and it has not exited, or when
 it carries `**Assignee:**` — the manual worker's claim. Every other task keeps
@@ -256,15 +268,18 @@ metadata:
 ```
 
 - `supervision.phase` is written on the shared transition path: `held` on
-  entry into a supervising state and on every delivered checkpoint,
-  `released` on the self-loop exit. A task in a supervising state with no
+  entry into a supervising state, on every delivered checkpoint, and on an exit
+  into a `gating: true` state (§3.1 rule 4); `released` on the self-loop exit.
+  A task in a supervising state with no
   `supervision` block is `held` — the authored-initial-state case.
 - `supervision.checkpoints` accumulates delivered events in delivery order.
   `task` is the rhei-local id of the transitioning descendant, `from` and `to`
   its bare state names, `visit` the `to` state's visit number. The list is
   cleared on the self-loop exit, after the visit that consumed it.
 - The block is removed when the task leaves the supervising state by any
-  other edge, and by `rhei reset` together with `stateVisits`, which also drops
+  other edge, when a task that is *not* in a supervising state but still
+  carries a block moves at all — the human moving a gate-parked supervisor on —
+  and by `rhei reset` together with `stateVisits`, which also drops
   a `metadata.tasks.<id>` entry left empty by the two (§FS-rhei-reset).
 
 Nothing here is authored by hand in normal workflows. The block exists so

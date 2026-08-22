@@ -25,10 +25,15 @@ enum HaltCause {
     WaitingOnDescendants { open: String },
     /// A gating state deliberately waiting for a human decision.
     Gate,
+    /// A gating state that is *also* still holding a subtree: the ticket left a
+    /// supervising state by its exhaustion edge, so its `supervision` block
+    /// survived the move and nothing beneath it runs until a human moves it on.
+    // §FS-rhei-supervision.3.1
+    GateHoldingSubtree { open: String },
     /// A supervising ancestor is owed a visit or is working, so nothing beneath
     /// it is dispatched. Named so a held subtree is never read as a stall.
     // §FS-rhei-supervision.3.4
-    HeldBySupervisor { supervisor: String, state: String },
+    HeldBySupervisor { supervisor: String, state: String, awaiting_human: bool },
     /// A supervisor whose subtree is closed and whose machine declares no edge
     /// out of the supervising state on `openDescendants`. The run did
     /// everything right — it ran the whole subtree — and then had nowhere to
@@ -87,12 +92,32 @@ impl HaltCause {
                 "gating state awaiting review".to_string(),
                 "transition manually when reviewed".to_string(),
             ),
-            // §FS-rhei-supervision.3.4: the same reason every surface uses.
-            HaltCause::HeldBySupervisor { supervisor, state: supervisor_state } => (
-                format!("held by supervisor Task {supervisor} ({supervisor_state})"),
+            // §FS-rhei-supervision.3.1: the gate is holding more than itself.
+            HaltCause::GateHoldingSubtree { open } => (
                 format!(
-                    "the supervisor releases it on its next visit; nothing to do on Task {id}"
+                    "left supervision for human gate '{state}'; its subtree stays held until a \
+                     human moves it (open: {open})"
                 ),
+                format!(
+                    "move Task {id} back into its supervising state to resume supervision, or \
+                     anywhere else to release the subtree"
+                ),
+            ),
+            // §FS-rhei-supervision.3.4: the same reason every surface uses.
+            HaltCause::HeldBySupervisor { supervisor, state: supervisor_state, awaiting_human } => (
+                format!("held by supervisor Task {supervisor} ({supervisor_state})"),
+                if *awaiting_human {
+                    // §FS-rhei-supervision.3.1: a gate-parked supervisor has no
+                    // next visit to release it on.
+                    format!(
+                        "Task {supervisor} is at a human gate and still holds this subtree; \
+                         move it on to release Task {id}"
+                    )
+                } else {
+                    format!(
+                        "the supervisor releases it on its next visit; nothing to do on Task {id}"
+                    )
+                },
             ),
             // §FS-rhei-supervision.4.1: the missing line, verbatim.
             HaltCause::SupervisorHasNoTerminalEdge { suggested_final } => (
@@ -215,15 +240,26 @@ fn classify_halt(
     // A held descendant is not stalled and not blocked; it is waiting on a
     // supervisor that has not been woken yet, and that outranks every other
     // reading of it. §FS-rhei-supervision.3.4
-    if let Some((supervisor, supervisor_state)) = held_by_supervisor(task, rhei, machines) {
+    if let Some(hold) = held_by_supervisor(task, rhei, machines) {
         return HaltCause::HeldBySupervisor {
-            supervisor: supervisor.to_string(),
-            state: supervisor_state,
+            supervisor: hold.supervisor.to_string(),
+            state: hold.state,
+            awaiting_human: hold.awaiting_human,
         };
+    }
+    let open = open_descendant_tasks(task, machines);
+    // A gate that kept its block is *holding* the subtree, not waiting on it —
+    // and "waiting on descendants" would point the reader at tickets nobody can
+    // work. §FS-rhei-supervision.3.1
+    if !open.is_empty()
+        && machine.states.get(&state).map(|def| def.gating).unwrap_or(false)
+        && recorded_supervision_phase(rhei.metadata.as_ref(), &task.id)
+            == Some(SupervisionPhase::Held)
+    {
+        return HaltCause::GateHoldingSubtree { open: format_open_descendants(&open, machines) };
     }
     // A parent is not schedulable at all until its subtree closes, so that
     // outranks anything about its own state. §FS-rhei-plan-language.3
-    let open = open_descendant_tasks(task, machines);
     if !open.is_empty() && !task_is_supervising(task, machine) {
         return HaltCause::WaitingOnDescendants { open: format_open_descendants(&open, machines) };
     }

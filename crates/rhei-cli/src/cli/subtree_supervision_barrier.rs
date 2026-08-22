@@ -154,6 +154,8 @@ fn apply_supervision_transition(
 ) -> Option<Metadata> {
     let from_supervises = supervise_kind_of(move_.machine, move_.from).is_some();
     let to_supervises = supervise_kind_of(move_.machine, move_.to).is_some();
+    let to_is_gating =
+        move_.machine.states.get(move_.to).map(|def| def.gating).unwrap_or(false);
 
     let mut updated: Option<Metadata> = None;
 
@@ -161,7 +163,23 @@ fn apply_supervision_transition(
         // §FS-rhei-supervision.3.1: the self-loop releases the subtree.
         updated =
             Some(record_supervision_release(updated.as_ref().or(existing), move_.metadata_key));
+    } else if from_supervises && to_is_gating {
+        // A supervisor parked at a human gate keeps its block, so its subtree
+        // stays held; the visit that took this edge consumed its checkpoints,
+        // so the list starts empty. §FS-rhei-supervision.3.1
+        updated = Some(record_supervision_hold(
+            updated.as_ref().or(existing),
+            move_.metadata_key,
+            None,
+        ));
     } else if from_supervises {
+        updated = clear_supervision_for_task(updated.as_ref().or(existing), move_.metadata_key);
+    } else if move_.from != move_.to
+        && recorded_supervision_phase(updated.as_ref().or(existing), move_.metadata_key)
+            .is_some()
+    {
+        // The human moved a gate-parked supervisor on: the hold ends here,
+        // wherever it is going. §FS-rhei-supervision.3.1
         updated = clear_supervision_for_task(updated.as_ref().or(existing), move_.metadata_key);
     }
     if to_supervises && move_.from != move_.to {
@@ -205,6 +223,35 @@ fn transition_ends_supervisor_visit(
     from == to && supervise_kind_of(machine, from).is_some()
 }
 
+/// Say, once, that a supervisor left supervision for a human gate.
+///
+/// This is the one transition where the barrier outlives the supervising state,
+/// and it is invisible otherwise: the subtree simply stops, and a reader who
+/// does not know the rule sees a plan that stalled for no reason. Routed through
+/// the run's diagnostic sink so it lands in the TUI journal rather than on top
+/// of a rendered frame.
+// §FS-rhei-supervision.3.1
+fn announce_supervision_gate_handoff(
+    machine: &rhei_validator::StateMachine,
+    task_id: &str,
+    from: &str,
+    to: &str,
+) {
+    if from == to || supervise_kind_of(machine, from).is_none() {
+        return;
+    }
+    if !machine.states.get(to).map(|def| def.gating).unwrap_or(false) {
+        return;
+    }
+    emit_run_diag(
+        rhei_tui::MessageLevel::Warn,
+        format!(
+            "Task {task_id} left supervision for human gate '{to}'; its subtree stays held \
+             until a human moves it"
+        ),
+    );
+}
+
 /// Bind one applied transition on the shared path to the supervision rules.
 ///
 /// The shared path knows the transitioning task, the files its rewrites land
@@ -222,6 +269,7 @@ fn supervision_after_transition(
     to_visit: u64,
 ) -> Option<Metadata> {
     let (local_id, from, to) = move_;
+    announce_supervision_gate_handoff(machine, files.artifact_id, from, to);
     apply_supervision_transition(
         existing,
         SupervisionTransition {
@@ -276,6 +324,25 @@ fn any_descendant_in_flight(
         .any(|child| in_flight(child) || any_descendant_in_flight(child, in_flight))
 }
 
+/// Whether this task's `supervision` block holds its subtree right now.
+///
+/// The **block** is the hold, not the state. A task in a supervising state with
+/// no block is held — the authored-initial case — but a task that left its
+/// supervising state for a human gate keeps its block, and keeps its subtree
+/// held, until a human moves it on. Reading the state alone un-supervised a
+/// whole subtree the moment a budget ran out.
+// §FS-rhei-supervision.3.1 §FS-rhei-supervision.3.2
+fn supervision_holds_subtree(
+    task: &rhei_core::ast::Task,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+) -> bool {
+    match recorded_supervision_phase(metadata, &task.id) {
+        Some(phase) => phase == SupervisionPhase::Held,
+        None => task_is_supervising(task, machine),
+    }
+}
+
 /// Apply the hold/release rule to one task.
 ///
 /// The ancestors are consulted first and all the way up: a supervisor higher in
@@ -294,9 +361,8 @@ fn supervision_verdict(
     while let Some(id) = cursor {
         let Some(ancestor) = index.get(&id) else { break };
         let machine = machines.for_task(&ancestor.id);
-        if task_is_supervising(ancestor, machine)
-            && (supervision_phase(metadata, &ancestor.id) == SupervisionPhase::Held
-                || in_flight(ancestor))
+        if supervision_holds_subtree(ancestor, machine, metadata)
+            || (task_is_supervising(ancestor, machine) && in_flight(ancestor))
         {
             return SupervisionVerdict::Held {
                 supervisor: ancestor.id.clone(),
@@ -359,13 +425,26 @@ fn subtree_admits_to_ready_set(
     }
 }
 
+/// Who holds a ticket, and whether that holder can still release it on its own.
+///
+/// A supervisor parked at a human gate keeps its block (§3.1 rule 4), so "the
+/// supervisor releases it on its next visit" stops being true: there is no next
+/// visit until a human moves the supervisor.
+// §FS-rhei-supervision.3.1 §FS-rhei-supervision.3.4
+struct SupervisorHold {
+    supervisor: TaskId,
+    state: String,
+    /// The holder is itself in a `gating: true` state.
+    awaiting_human: bool,
+}
+
 /// The supervisor holding `task`, when one does — for the surfaces that explain
 /// why a ticket is not moving. §FS-rhei-supervision.3.4
 fn held_by_supervisor(
     task: &rhei_core::ast::Task,
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
-) -> Option<(TaskId, String)> {
+) -> Option<SupervisorHold> {
     let mut all = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all);
     let index = task_index(&all);
@@ -376,7 +455,15 @@ fn held_by_supervisor(
         rhei.metadata.as_ref(),
         &HashSet::new(),
     ) {
-        SupervisionVerdict::Held { supervisor, state } => Some((supervisor, state)),
+        SupervisionVerdict::Held { supervisor, state } => {
+            let awaiting_human = machines
+                .for_task(&supervisor)
+                .states
+                .get(&state)
+                .map(|def| def.gating)
+                .unwrap_or(false);
+            Some(SupervisorHold { supervisor, state, awaiting_human })
+        }
         _ => None,
     }
 }
