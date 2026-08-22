@@ -66,6 +66,9 @@ fn ensure_state_outputs_exist_for_transition(
     visit_count: Option<u64>,
     machine: &rhei_validator::StateMachine,
     settings: &RheiSettings,
+    // `entering_final`: the refused edge lands in a `final: true` state, where
+    // abandoning the step is the alternative worth naming. §FS-rhei-states.1.4
+    entering_final: bool,
 ) -> MietteResult<()> {
     let invocations = resolve_agent_invocations_for_task(
         machine,
@@ -90,6 +93,7 @@ fn ensure_state_outputs_exist_for_transition(
             model_name,
             agent,
             agent_mode,
+            entering_final,
         )?;
     }
 

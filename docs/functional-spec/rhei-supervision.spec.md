@@ -475,7 +475,9 @@ engine; a supervisor that wants a fresh one overwrites it.
   does not have to satisfy the cancelled step's own `outputs:` — cancellation
   abandons the work, so that contract is moot (§FS-rhei-transitions.4.5) — but
   it does have to say why: the terminal-result obligation stands, so every
-  cancel carries `--result "<why>"`.
+  cancel carries `--result "<why>"`. The waiver keys on the reserved state name
+  (§FS-rhei-states.1.4): a machine whose abandon state is spelled anything else
+  gets the ordinary outputs check, and the refusal says which name skips it.
 - **Reset.** `rhei reset` on a supervisor clears its `supervision` block;
   resetting a descendant does not touch the supervisor's phase.
 - **Fanout.** Not supported on a supervising state in v1 (§1.2).

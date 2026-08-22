@@ -147,10 +147,9 @@ fn print_next_output(output: NextOutput<'_>) {
             println!("--- Instructions ({}) ---", output.to_state);
             println!("{}", output.instructions);
         }
-        // The sections the run prompt composes, in its order relative to the
-        // instructions, plus the supervising notes `rhei run` carries in
-        // `## Rhei Commands`; all empty where nothing supervises, so a plan
-        // without it prints what it always did. §FS-rhei-supervision.3.4
+        // The run prompt's own sections, in its order, plus the notes it puts
+        // in `## Rhei Commands`. All empty without supervision, so an ordinary
+        // plan prints what it always did. §FS-rhei-supervision.3.4
         for section in [output.checkpoints, output.supervisor_brief, output.supervising] {
             if !section.is_empty() {
                 print!("{section}");

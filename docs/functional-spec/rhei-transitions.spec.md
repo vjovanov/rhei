@@ -786,10 +786,13 @@ State artifact contracts (see [States Specification — Artifact Contracts](rhei
 1. After `on_leave` callbacks complete, but before the state write is
    committed, the runtime resolves `source.outputs` and rejects the transition
    if any required output file does not exist. One exception: when the
-   transition's effective target is the `cancelled` state, source outputs are
+   transition's effective target is the reserved `cancelled` state — in either
+   accepted spelling (§FS-rhei-states.1.4) — source outputs are
    not enforced. Cancellation abandons the work rather than finishing it, so
    the source state's artifact contract is moot; the target's `inputs` and the
-   terminal-result obligation still apply.
+   terminal-result obligation still apply. The refusal on a transition into any
+   other `final: true` state names the waiver, so a machine that spelled its
+   abandon state something else learns why it was refused.
 2. Before writing the target state and invoking `on_enter`, the runtime resolves
    `target.inputs` and rejects the transition if any required input file does
    not exist. Optional inputs are resolved but do not block entry.

@@ -337,7 +337,9 @@ fn newly_discovered_tasks(
 /// Terminal cancellation does not satisfy dependencies: a cancelled task should
 /// not unblock downstream work.
 fn dependency_is_satisfied(state: &str, machine: &rhei_validator::StateMachine) -> bool {
-    normalized_state_name(state, machine) != "cancelled" && is_terminal_state(state, machine)
+    // §FS-rhei-states.1.4: the reserved cancel name, in either spelling.
+    !rhei_validator::is_cancelled_state_name(&normalized_state_name(state, machine))
+        && is_terminal_state(state, machine)
 }
 
 fn current_unix_secs() -> u64 {

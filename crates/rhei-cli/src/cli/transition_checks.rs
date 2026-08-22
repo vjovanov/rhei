@@ -99,6 +99,7 @@ fn ensure_state_outputs_exist(
     model_name: Option<&str>,
     agent: Option<&str>,
     agent_mode: Option<&str>,
+    entering_final: bool,
 ) -> MietteResult<()> {
     for artifact in &state_def.outputs {
         let (relative, path) = resolve_artifact_path(
@@ -125,10 +126,18 @@ fn ensure_state_outputs_exist(
             ));
         }
         if !path.exists() {
+            // A caller aiming at a final state has a second way out the help
+            // hides: abandon the step. Only the reserved name waives the check,
+            // so a machine that spelled it otherwise learns why. §FS-rhei-states.1.4
+            let cancel_hint = if entering_final {
+                " A transition into the reserved `cancelled` state skips this check."
+            } else {
+                ""
+            };
             return Err(miette!(
                 help = format!(
                     "the state's work is not finished until that file exists. Write it, then \
-                     retry the transition. Expected at: {}",
+                     retry the transition. Expected at: {}{cancel_hint}",
                     path.display()
                 ),
                 "Task {} cannot leave state {}.\nMissing required output artifact: {} ({})",

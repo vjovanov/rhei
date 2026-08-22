@@ -21,6 +21,7 @@ include!("validator/state_machine_snapshots.rs");
 include!("validator/state_machine_runtime_validation.rs");
 include!("validator/state_machine_profiles.rs");
 include!("validator/validation_helpers.rs");
+include!("validator/reserved_names.rs");
 include!("validator/state_machine_warnings.rs");
 include!("validator/validator_dependencies.rs");
 include!("validator/validator_entry.rs");

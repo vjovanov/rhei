@@ -467,6 +467,8 @@ fn state_outputs_exist_for_resolved_invocation(
         resolved.model_name.as_deref(),
         Some(resolved.agent.id()),
         resolved.mode.as_deref(),
+        // A readiness probe, not a refusal anyone reads: the help never renders.
+        false,
     )
     .is_ok()
 }

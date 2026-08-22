@@ -217,6 +217,27 @@ When a state declares `all_targets` and `visits`, the engine runs the state
 once per listed target and each target-specific execution tracks its own visit
 budget. The same scoping rule applies to `all_models`.
 
+### 1.4. Reserved State Names
+
+A machine names its own states, with one exception: **`cancelled` is reserved**.
+It is the one state name the engine reads as *the work was abandoned* rather
+than as a state like any other, and four rules key on it:
+
+- a `**Prior:**` in it does **not** satisfy a dependency, so a cancelled ticket
+  never unblocks downstream work (§FS-rhei-plan-language.3);
+- `rhei complete` never selects it as a completion target;
+- the run report marks it apart from success (§FS-rhei-run-report.3.2);
+- a transition **into** it waives the *source* state's declared `outputs:` —
+  cancellation abandons the work, so that contract is moot
+  (§FS-rhei-transitions.4.5). The terminal-result obligation still stands.
+
+`canceled` is accepted as the same name; the two spellings are one reserved
+name, not two states. Any other name — `dropped`, `abandoned`, `wontfix` — is an
+ordinary terminal state and gets none of the four rules. A machine that wants
+cancellation semantics must spell the state `cancelled`; the outputs refusal on
+a transition into a `final: true` state says so, because that is where the
+mistake shows up.
+
 ## 2. Polling States
 
 A state marked with a `poll:` block is a *time-triggered* state: on each attempt

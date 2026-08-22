@@ -245,7 +245,7 @@ fn find_completion_state(
         if rule.from.0 == current_state {
             let is_terminal =
                 machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
-            if is_terminal && rule.to.0 != "cancelled" {
+            if is_terminal && !rhei_validator::is_cancelled_state_name(&rule.to.0) {
                 return Some(rule.to.0.clone());
             }
         }
@@ -256,7 +256,7 @@ fn find_completion_state(
         if rule.from.0 == "*" {
             let is_terminal =
                 machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
-            if is_terminal && rule.to.0 != "cancelled" {
+            if is_terminal && !rhei_validator::is_cancelled_state_name(&rule.to.0) {
                 return Some(rule.to.0.clone());
             }
         }
@@ -267,7 +267,8 @@ fn find_completion_state(
 
 fn is_successful_completion_state(state: &str, machine: &rhei_validator::StateMachine) -> bool {
     let normalized = normalized_state_name(state, machine);
-    normalized != "cancelled" && is_terminal_state(&normalized, machine)
+    // §FS-rhei-states.1.4
+    !rhei_validator::is_cancelled_state_name(&normalized) && is_terminal_state(&normalized, machine)
 }
 
 /// Every non-terminal descendant of `task`, rendered as `Task <prefix><id>

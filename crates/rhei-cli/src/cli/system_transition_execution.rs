@@ -554,7 +554,10 @@ fn execute_transition_with_origin(
     // A cancel abandons the work, so the abandoned step's artifact contract is
     // moot; the target's inputs and the terminal result below still apply.
     // §FS-rhei-transitions.4.5
-    let cancelling = normalized_state_name(to, machine) == "cancelled";
+
+    // Only the reserved name waives it, in either spelling; anything else gets
+    // the ordinary check and a refusal that says so. §FS-rhei-states.1.4
+    let cancelling = rhei_validator::is_cancelled_state_name(&normalized_state_name(to, machine));
     if !origin.skip_source_outputs && !cancelling {
         ensure_state_outputs_exist_for_transition(
             files.artifact_root,
@@ -565,6 +568,7 @@ fn execute_transition_with_origin(
             from_visit_count,
             machine,
             &settings,
+            machine.states.get(to).map(|def| def.terminal).unwrap_or(false),
         )?;
     }
     ensure_state_inputs_exist_for_transition(

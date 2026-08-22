@@ -250,6 +250,7 @@ Before returning the machine, verify:
 - Recurring sweeps define an idempotency marker; queue flows define a no-ready-items drain path.
 - Publish/merge/deploy/release/notify states re-check approval artifacts via `inputs:` and have a non-publish path for missing/stale/negative results.
 - State names are lowercase hyphenated `IDENTIFIER`s (names with spaces/punctuation are legal but must be backticked in markdown).
+- The abandon state — if the machine has one — is named `cancelled` (or `canceled`, the same reserved name). Only that name gets cancellation semantics: a cancelled prior does not satisfy a dependency, `rhei complete` never selects it, the run report marks it apart from success, and a transition into it waives the abandoned step's declared `outputs:`. `dropped`, `abandoned`, and friends are ordinary terminal states and get none of it.
 - `name` is a meaningful project-derived identifier.
 - `profiles` present; every profile declares `initial` and a non-empty `allowed`; `initial` ∈ `allowed`; `allowed` contains ≥1 final; reachability holds (every allowed non-final reaches a final via `to`-in-`allowed` transitions).
 - `node_policy` has `root` and `default`, both naming defined profiles; every `by_type` key is a declared non-root kind; `rhei` is never a `by_type` key.

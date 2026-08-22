@@ -433,7 +433,8 @@ fn state_is_failure(state: &str) -> bool {
 /// still reads as attention, not a calm gate. §FS-rhei-run-report.3.2
 fn classify_marker(state: &str, machine: &rhei_validator::StateMachine) -> Marker {
     match state {
-        "cancelled" | "canceled" => return Marker::Cancelled,
+        // §FS-rhei-states.1.4: the reserved cancel name, in either spelling.
+        _ if rhei_validator::is_cancelled_state_name(state) => return Marker::Cancelled,
         _ if state_is_failure(state) => return Marker::Attention,
         _ => {}
     }
