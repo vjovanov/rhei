@@ -55,6 +55,11 @@ Supervision deliberately keeps the existing machinery as the levers — plan
 edits, artifacts, transitions. It adds one state field, one hold/release rule,
 one condition operand, one metadata block, and two prompt sections.
 
+A note on the word: a **supervisor** here is a *task* — a plan node in a
+supervising state. The "supervisor" of §FS-rhei-run is the `rhei run` process
+that owns spawned subprocesses (§DA-supervised-process-groups); the two are
+unrelated and never appear in the same rule.
+
 ## 1. Declaring a Supervisor
 
 ### 1.1. The `supervise` Field
@@ -548,6 +553,14 @@ engine; a supervisor that wants a fresh one overwrites it.
   gets the ordinary outputs check, and the refusal says which name skips it.
 - **Reset.** `rhei reset` on a supervisor clears its `supervision` block;
   resetting a descendant does not touch the supervisor's phase.
+- **Resumed runs.** A checkpoint reports a transition, not that work was done.
+  A run resumed after an interruption can advance a ticket on artifacts its
+  killed worker had already written — the completion condition is satisfied, so
+  the step is not redone — and the supervisor is then checkpointed on a step
+  nobody finished. That is generic resume behaviour (§FS-rhei-run.3.2) which
+  supervision makes visible rather than causes; it is a roadmap item, and until
+  it is settled a supervisor should read a checkpoint as "this ticket moved",
+  not as "this work happened".
 - **Fanout.** Not supported on a supervising state in v1 (§1.2).
   Descendants may fan out freely; their merged transition is the checkpoint.
 
