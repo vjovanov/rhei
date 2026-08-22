@@ -288,10 +288,14 @@ without special casing:
   as "the supervisor is working right now" — every later descendant exit
   would be taken for the supervisor's own doing and deliver no checkpoint
   (§2.1), and `P` itself would never be scheduled again.
-- `rhei list`, the run report, the TUI, and the Flow dashboard show a held
-  descendant with the same reason, so a subtree waiting on its supervisor is
-  never mistaken for a stall (§FS-rhei-list, §FS-rhei-run-report,
-  §FS-rhei-viz).
+- `rhei list --ready` excludes a held descendant, by the same rule the ready
+  set applies (§3.2), so the listing never offers a ticket `rhei run` would
+  refuse to schedule; and the run report names the reason on the ticket it
+  halted on, so a subtree waiting on its supervisor is not mistaken for a stall
+  (§FS-rhei-list, §FS-rhei-run-report). The plain `rhei list` listing carries no
+  held reason: it has no readiness-reason column for anything today, and adding
+  one is a follow-up alongside the same reason in the TUI and the Flow
+  dashboard (§FS-rhei-viz).
 
 ## 4. Transition Support
 

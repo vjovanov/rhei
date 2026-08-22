@@ -213,12 +213,18 @@ subtree while it runs instead of only integrating it at the end: a state
 declaring `supervise: task|state` wakes the task at every finished descendant
 or every descendant transition and holds the subtree in between. The
 `supervise` field, the hold/release readiness rule, the `supervision` task
-metadata, the `openDescendants` condition operand, the prompt sections, and the
-"held by supervisor" reason rows in `rhei next`, `rhei list --ready`, and the
-run report all ship. §FS-rhei-supervision §DF-subtree-supervision
+metadata, the `openDescendants` condition operand, and the prompt sections all
+ship. So does the reason where a surface has somewhere to put it: `rhei next`
+names the supervisor holding a ticket and the command that claims it, the run
+report says `held by supervisor Task <P> (<state>)` on the ticket it halted on,
+and `rhei list --ready` excludes a held descendant by the ready set's own rule.
+§FS-rhei-supervision §DF-subtree-supervision
 
-- Carry the reason into the TUI and the Flow dashboard, which have no readiness
-  reason concept of their own yet. §FS-rhei-viz
+- Carry the reason into the plain `rhei list` listing, the TUI, and the Flow
+  dashboard. None of the three has a readiness-reason concept of its own yet —
+  `rhei list` shows no reason for any ticket, held or blocked — so this is a
+  column that has to be designed once for every cause rather than added for
+  supervision alone. §FS-rhei-list §FS-rhei-viz
 - Context continuity for `claude-code` supervisors depends on the snapshot
   adapter work below; until it lands, a supervisor with that profile runs each
   visit cold, carried by its checkpoints and briefs. §FS-rhei-snapshots
