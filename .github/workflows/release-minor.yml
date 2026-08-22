@@ -80,6 +80,9 @@ jobs:
           python3 scripts/set-release-version.py "$next"
           cargo update --workspace
           python3 scripts/prepare_changelog_release.py prepare "$next"
+          # Fail here rather than three minutes into the dry run: this is the
+          # same check `release.yml` opens with, and it is cheap.
+          python3 scripts/verify-release-version.py "$next"
 
       - name: Commit and push release candidate
         id: candidate
@@ -93,7 +96,11 @@ jobs:
           git switch -c "$branch"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Cargo.toml crates/*/Cargo.toml Cargo.lock packages docs/changelog.md docs/changelog
+          # Stage what the bump touched rather than a list that has to be kept
+          # in step with it: the list dropped `xtask/Cargo.toml` — the one
+          # manifest outside `crates/` — and committed a bumped lockfile beside
+          # a stale `=` pin, which `verify-release-version.py` then rejected.
+          git add -A
           git commit -m "Release v${next}"
           git push -u origin "$branch"
 
