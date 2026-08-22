@@ -18,6 +18,35 @@ pub fn new_run(args: &[&str], cwd: &std::path::Path) -> CliRun {
     }
 }
 
+/// Run `rhei` with something on standard input. `--description-file -` is the
+/// only flag that reads it, and `Command::output` would otherwise hand it an
+/// immediate EOF. §FS-rhei-new.1.1
+fn new_run_with_stdin(args: &[&str], cwd: &std::path::Path, stdin: &str) -> CliRun {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = rhei_command(cwd.join(".home"))
+        .current_dir(cwd)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("rhei command should start");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(stdin.as_bytes())
+        .expect("description should be written to stdin");
+    let output = child.wait_with_output().expect("rhei command should run");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
 /// A project directory with `index.panta.md` and nothing else.
 pub fn empty_project(prefix: &str) -> std::path::PathBuf {
     let dir = unique_temp_dir(prefix);
@@ -317,6 +346,92 @@ fn refuses_a_subtask_deeper_than_max_levels() {
 fn refuses_an_unknown_parent() {
     let dir = project_with_rhei("new-ticket-parent");
     assert_failure(&new_run(&["new", "First", "--under", "nope"], &dir), "names no rhei or ticket");
+}
+
+/// §FS-rhei-new.1.1: the body comes from a file, or from standard input.
+#[test]
+fn description_file_supplies_the_body() {
+    let dir = project_with_rhei("new-ticket-description-file");
+    write_fixture_file(&dir, "body.md", "Read from a file.\n");
+    assert_success(&new_run(
+        &["new", "First", "--under", "auth", "--description-file", "body.md"],
+        &dir,
+    ));
+
+    let piped = new_run_with_stdin(
+        &["new", "Second", "--under", "auth", "--description-file", "-"],
+        &dir,
+        "Read from standard input.\n",
+    );
+    assert_success(&piped);
+
+    let plan = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+    assert!(plan.contains("\nRead from a file.\n"), "got:\n{plan}");
+    assert!(plan.contains("\nRead from standard input.\n"), "got:\n{plan}");
+}
+
+const OVERRIDE_MACHINE: &str = r#"name: custom
+version: 1
+models: [fast]
+states:
+  todo:
+    initial: true
+    description: Todo
+  doing:
+    description: Doing
+  done:
+    final: true
+    description: Done
+transitions:
+  - from: todo
+    to: doing
+  - from: doing
+    to: done
+"#;
+
+const BUGS_RHEI: &str = r#"# Rhei: Bugs
+**States:** custom
+
+---
+structure:
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+"#;
+
+/// §FS-rhei-new.1.3: the ticket flags have success paths, not only refusals.
+/// `--model` and `--target` need a machine that declares the model and settings
+/// that know the agent, which is exactly the state a real project is in.
+#[test]
+fn kind_state_model_and_target_write_the_fields_they_name() {
+    let dir = empty_project("new-ticket-overrides");
+    write_fixture_file(&dir, "states.yaml", OVERRIDE_MACHINE);
+    write_fixture_file(&dir, "bugs.rhei.md", BUGS_RHEI);
+
+    let bug = new_run(
+        &["new", "Crash on save", "--under", "bugs", "--kind", "bug", "--state", "doing"],
+        &dir,
+    );
+    assert_success(&bug);
+    assert!(bug.stdout.contains("[doing]"), "got: {}", bug.stdout);
+    assert_success(&new_run(&["new", "Fast one", "--under", "bugs", "--model", "fast"], &dir));
+    assert_success(&new_run(
+        &["new", "Targeted", "--under", "bugs", "--target", "claude-code:sonnet"],
+        &dir,
+    ));
+
+    let plan = fs::read_to_string(dir.join("bugs.rhei.md")).expect("rhei file");
+    assert!(plan.contains("### Bug 1: Crash on save\n**State:** doing\n"), "got:\n{plan}");
+    assert!(
+        plan.contains("### Task 2: Fast one\n**State:** todo\n**Model:** fast\n"),
+        "got:\n{plan}"
+    );
+    assert!(
+        plan.contains("### Task 3: Targeted\n**State:** todo\n**Target:** claude-code:sonnet\n"),
+        "got:\n{plan}"
+    );
+    assert_success(&new_run(&["validate"], &dir));
 }
 
 /// §FS-rhei-new.2.1: a member rhei widens to the project it belongs to — the
