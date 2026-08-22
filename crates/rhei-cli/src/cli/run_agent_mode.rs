@@ -258,6 +258,13 @@ fn run_agent_mode(
         if !held.is_empty() {
             run_info!("Held by an assignee, so not scheduled: {}", format_held_tasks(&held));
         }
+        // §FS-rhei-supervision.3.4: a dry run is what an author reads to
+        // understand a machine, and the barrier is otherwise invisible in it.
+        if opts.dry_run() {
+            for line in format_supervisor_holds(&loaded.rhei, &machines.set, &rhei_scope) {
+                run_info!("{line}");
+            }
+        }
 
         // Collect tasks that can be advanced autonomously.
         let plan_title = loaded.rhei.title.clone();
@@ -436,7 +443,7 @@ fn run_agent_mode(
             if opts.dry_run() {
                 run_info!(
                     "{}",
-                    format_dry_run_transition(task_id_str, current_state_raw, &to_state)
+                    format_dry_run_transition(task_id_str, current_state_raw, &to_state, machine)
                 );
                 continue;
             }
@@ -562,7 +569,8 @@ fn run_agent_mode(
                                 format_dry_run_transition(
                                     task_id_str,
                                     current_state_raw,
-                                    &to_state
+                                    &to_state,
+                                    machine,
                                 )
                             );
                         }
@@ -701,6 +709,7 @@ fn run_agent_mode(
                                     task_id_str,
                                     current_state_raw,
                                     &to_state,
+                                    machine,
                                 )
                             );
                         }
@@ -721,6 +730,7 @@ fn run_agent_mode(
                                 current_state_raw,
                                 &to_state,
                                 resolved,
+                                machine,
                             )
                         );
                     }

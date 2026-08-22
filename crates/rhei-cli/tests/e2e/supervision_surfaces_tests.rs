@@ -436,3 +436,36 @@ structure:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A dry run says what the barrier is doing and which edge undoes it.
+///
+/// Without both lines the barrier is invisible in the one surface an author
+/// reads to learn what a machine will do: most of the plan never appears as
+/// ready, and the edge that decides whether it ever does renders as a no-op
+/// self transition.
+// §FS-rhei-supervision.3.4 §FS-rhei-run.4
+#[test]
+fn a_dry_run_names_the_barrier_and_the_release_edge() {
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-dry-run",
+        REVIEW_FIX_PLAN,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+
+    let result =
+        run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui", "--dry-run"]);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("2 ticket(s) held by supervisor Task plan.1"),
+        "got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("would transition: Task plan.1  supervise -> supervise (release)"),
+        "got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

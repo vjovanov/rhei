@@ -244,6 +244,42 @@ fn find_held_tasks<'a>(
     .collect()
 }
 
+/// One line per supervisor whose barrier is stopping tickets this pass.
+///
+/// A dry run is the surface an author reads to understand what a machine will
+/// do, and the barrier is invisible in it: four of five tickets simply never
+/// appear as ready, with nothing saying why. Grouped by supervisor because the
+/// supervisor, not the count, is the thing to look at.
+// §FS-rhei-supervision.3.4
+fn format_supervisor_holds(
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+) -> Vec<String> {
+    let mut all = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all);
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for task in all
+        .iter()
+        .copied()
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
+    {
+        let Some(hold) = held_by_supervisor(task, rhei, machines) else { continue };
+        let key = hold.supervisor.to_string();
+        match counts.iter_mut().find(|(id, _)| *id == key) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((key, 1)),
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(supervisor, count)| {
+            format!("{count} ticket(s) held by supervisor Task {supervisor}")
+        })
+        .collect()
+}
+
 /// One line naming every held ticket and who holds it.
 fn format_held_tasks(held: &[&rhei_core::ast::Task]) -> String {
     held.iter()

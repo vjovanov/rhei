@@ -190,8 +190,9 @@ fn format_dry_run_agent_transition(
     from: &str,
     to: &str,
     resolved: &ResolvedAgent,
+    machine: &rhei_validator::StateMachine,
 ) -> String {
-    let base = format_dry_run_transition(task_id, from, to);
+    let base = format_dry_run_transition(task_id, from, to, machine);
     match resolved_agent_target_slug(resolved) {
         Some(target_slug) => format!("{base} [target={target_slug}]"),
         None => base,

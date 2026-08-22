@@ -331,6 +331,12 @@ without special casing:
   as "the supervisor is working right now" — every later descendant exit
   would be taken for the supervisor's own doing and deliver no checkpoint
   (§2.1), and `P` itself would never be scheduled again.
+- `rhei run --dry-run` names the barrier per pass — `N ticket(s) held by
+  supervisor Task <P>`, one line per supervisor — and renders the release
+  self-loop as `<state> -> <state> (release)`. A dry run is what an author reads
+  to learn what a machine will do, and unannotated the barrier is invisible in
+  it: most of the plan simply never appears as ready, and the one edge that
+  decides whether it ever does reads as a no-op.
 - `rhei list --ready` excludes a held descendant, by the same rule the ready
   set applies (§3.2), so the listing never offers a ticket `rhei run` would
   refuse to schedule; and the run report names the reason on the ticket it
