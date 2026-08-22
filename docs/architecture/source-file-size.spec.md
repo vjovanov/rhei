@@ -97,10 +97,15 @@ under `crates/rhei-cli/src/cli/`:
   `snapshot_continue_lock`, `snapshot_runtime_emit`, and
   `snapshot_runtime_preload` contain snapshot CLI/cache handling and run-loop
   snapshot emit/preload hooks.
-- `run_command`, `run_git_consistency`, `run_agent_mode`, `run_callback_mode`,
+- `run_command`, `run_git_consistency`, `run_agent_mode`, `run_work_items`,
+  `run_program_sequential`, `run_agent_sequential`,
+  `run_agent_sequential_completion`, `run_parallel_spawn`,
+  `run_parallel_schedule`, `run_agent_pool`, `run_parallel_agent_exit`,
+  `run_parallel_program_completion`, `run_callback_mode`,
   `run_failure_transitions`, and `ready_transition` contain orchestration,
-  durable-state consistency checks, scheduling, failure routing, and automatic
-  transition selection.
+  durable-state consistency checks, ready-set collection, sequential agent and
+  program execution, parallel spawning and scheduling, per-invocation result
+  handling, failure routing, and automatic transition selection.
 - `next_command`, `complete_reset_commands`, `complete_reset_rewrites`,
   `render_install_commands`, `install_skill_agents`, and `diagnostics` contain
   the remaining command families and shared diagnostics.

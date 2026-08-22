@@ -254,7 +254,10 @@ The same channel is reachable from the terminal, for operators who run without a
 browser open: `rhei intervene --task <id> [--slot <N>] -m "<message>"` discovers
 the live run's loopback address and delivers the message through the identical
 `/intervene` boundary and capability gate as the composer. It is the headless
-sibling of the composer, not a second code path §AR-rhei-viz-flow.7.
+sibling of the composer, not a second code path §AR-rhei-viz-flow.7. A surface
+attached with `rhei attach` is the third client of that same boundary
+§FS-rhei-run-headless.5: the loopback server is the run's **control server**,
+and the browser page is one thing it serves rather than the reason it runs.
 
 In the static surface (§7.2) the terminal shows a representative transcript so the
 layout has realistic shape, and the composer is shown disabled — its messages are

@@ -1,15 +1,11 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::*;
 
 fn run_snapshot_command(plan_path: &Path, machine_path: &Path, args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", isolated_home_for(plan_path))
-        .arg("--state-machine")
-        .arg(machine_path)
-        .arg("snapshot");
+    let mut cmd = rhei_command(isolated_home_for(plan_path));
+    cmd.arg("--state-machine").arg(machine_path).arg("snapshot");
     for arg in args {
         cmd.arg(arg);
     }

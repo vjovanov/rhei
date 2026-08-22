@@ -7,7 +7,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::*;
 
@@ -80,7 +79,7 @@ fn write_fake_agent(dir: &Path, name: &str, script: &str) {
 }
 
 fn run_run(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = rhei_command(isolated_home_for(plan_path));
     if let Some(parent) = plan_path.parent() {
         cmd.current_dir(parent);
     }

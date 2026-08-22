@@ -1,0 +1,398 @@
+// What one pass of `rhei run` has to schedule: the agent and program work
+// items, the messages a parallel worker sends back about one of them, and the
+// scan that turns the live ready set into those items.
+//
+// Its own part because collection answers a different question from execution —
+// which invocations are claimable right now, before anything is spawned — and
+// the sequential driver and the worker pool both start from its answer.
+
+// §AR-source-file-size.3 §FS-rhei-run.3
+
+
+/// What one pass of the agent-mode loop has accumulated so far.
+///
+/// Each field borrows a local of `run_agent_mode`, so the sequential driver and
+/// the worker pool can live in parts of their own while still saying exactly
+/// which pass counters they touch: nothing here is derived, and nothing else in
+/// the pass is reachable through it.
+// §FS-rhei-run.3
+struct AgentPassProgress<'a> {
+    advanced_any: &'a mut bool,
+    agents_spawned: &'a mut u32,
+    programs_spawned: &'a mut u32,
+    /// Tickets whose worker finished this pass without moving them.
+    stalled_tasks: &'a mut HashSet<String>,
+    /// Tickets whose prompt would not compose; they must not be rescheduled.
+    unpromptable_tasks: &'a mut HashSet<String>,
+}
+
+#[derive(Clone, Debug)]
+struct SnapshotOverrideRunSelection {
+    task_id: String,
+    target_slug: String,
+}
+
+#[derive(Clone)]
+struct AgentWorkItem {
+    task_id_str: String,
+    current_state_raw: String,
+    current_state: String,
+    resolved: ResolvedAgent,
+}
+
+#[derive(Clone)]
+struct ProgramWorkItem {
+    task_id_str: String,
+    current_state: String,
+    resolved: ResolvedProgram,
+}
+
+struct ParallelAgentCompletion {
+    task_id_str: String,
+    state_name: String,
+    resolved: ResolvedAgent,
+    log: PathBuf,
+    snapshot_preload: SnapshotPreload,
+    visit_count: u64,
+    result: MietteResult<AgentSpawnOutcome>,
+    accounting_recorded: bool,
+    accounting_warning: Option<String>,
+    slot: rhei_tui::Slot,
+}
+
+/// A parallel agent that ran to completion, handed to the post-exit handling
+/// that decides what its exit means. Split out of `ParallelAgentCompletion`
+/// because the interrupted and spawn-failure arms answer for themselves.
+struct ParallelAgentExit {
+    task_id_str: String,
+    state_name: String,
+    resolved: ResolvedAgent,
+    log: PathBuf,
+    snapshot_preload: SnapshotPreload,
+    visit_count: u64,
+    accounting_recorded: bool,
+    outcome: AgentSpawnOutcome,
+}
+
+struct ParallelProgramCompletion {
+    task_id_str: String,
+    state_name: String,
+    result: MietteResult<ProgramSpawnOutcome>,
+    slot: rhei_tui::Slot,
+}
+
+enum ParallelAgentThreadMessage {
+    Completed(ParallelAgentCompletion),
+    ProgramCompleted(ParallelProgramCompletion),
+    Panicked { task_id_str: String, state_name: String, slot: rhei_tui::Slot },
+}
+
+struct ParallelAgentSpawned {
+    task_id_str: String,
+    state_name: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+enum ParallelAgentSpawnOutcome {
+    Spawned(ParallelAgentSpawned),
+    Advanced,
+    Skipped,
+    /// The task's prompt could not be composed and the run was told to carry
+    /// on. It must not be scheduled again, or every later pass retries it.
+    // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
+    Unpromptable(String),
+}
+
+struct ParallelProgramSpawned {
+    task_id_str: String,
+    state_name: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+enum ParallelProgramSpawnOutcome {
+    Spawned(ParallelProgramSpawned),
+    Skipped,
+}
+
+fn select_snapshot_override_run_invocation(
+    machines: &ExecutionMachines,
+    opts: &RunOptions,
+    invocations: &[(String, String, String, ResolvedAgent)],
+) -> MietteResult<Option<SnapshotOverrideRunSelection>> {
+    if opts.snapshot_override_ref().is_none() {
+        return Ok(None);
+    }
+
+    let mut candidates = Vec::new();
+    for (task_id, _raw_state, current_state, resolved) in invocations {
+        let declares_inherit = machines
+            .for_task_str(task_id)
+            .states
+            .get(current_state)
+            .and_then(|state| state.snapshot.as_ref())
+            .and_then(|snapshot| snapshot.inherit.as_ref())
+            .is_some();
+        if !declares_inherit {
+            continue;
+        }
+        let target_slug = snapshot_target_slug_or_err(resolved)?;
+        candidates.push(SnapshotOverrideRunSelection {
+            task_id: task_id.clone(),
+            target_slug,
+        });
+    }
+
+    let mut selected = candidates.clone();
+    if let Some(task_selector) = opts.snapshot_task_selector() {
+        selected.retain(|candidate| candidate.task_id == task_selector);
+    }
+    if let Some(target_selector) = opts.snapshot_target_selector() {
+        selected.retain(|candidate| candidate.target_slug == target_selector);
+    }
+
+    if selected.len() == 1 {
+        return Ok(selected.pop());
+    }
+
+    let candidate_lines = format_snapshot_override_candidates(&candidates);
+    if selected.is_empty() {
+        return Err(miette!(
+            help = snapshot_candidates_help(),
+            "--from-snapshot did not match an active snapshot.inherit invocation; candidates:\n{}",
+            candidate_lines
+        ));
+    }
+    Err(miette!(
+        help = snapshot_candidates_help(),
+        "--from-snapshot is ambiguous; matched {} active snapshot.inherit invocations:\n{}\nretry with --task <id> and --target <slug>",
+        selected.len(),
+        format_snapshot_override_candidates(&selected)
+    ))
+}
+
+fn format_snapshot_override_candidates(candidates: &[SnapshotOverrideRunSelection]) -> String {
+    if candidates.is_empty() {
+        return "  <none>".to_string();
+    }
+    let mut sorted = candidates.to_vec();
+    sorted.sort_by(|a, b| a.task_id.cmp(&b.task_id).then_with(|| a.target_slug.cmp(&b.target_slug)));
+    sorted
+        .iter()
+        .map(|candidate| {
+            format!("  task={} target={}", candidate.task_id, candidate.target_slug)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_dry_run_agent_transition(
+    task_id: &str,
+    from: &str,
+    to: &str,
+    resolved: &ResolvedAgent,
+) -> String {
+    let base = format_dry_run_transition(task_id, from, to);
+    match resolved_agent_target_slug(resolved) {
+        Some(target_slug) => format!("{base} [target={target_slug}]"),
+        None => base,
+    }
+}
+
+fn agent_template_context(resolved: &ResolvedAgent) -> rhei_viz_model::TemplateContext {
+    rhei_viz_model::TemplateContext {
+        target: resolved.target.as_ref().map(ExecutionTarget::selector),
+        target_slug: resolved.target.as_ref().map(ExecutionTarget::slug),
+        model: resolved.model.clone(),
+        model_provider: resolved.model_provider.clone(),
+        model_name: resolved.model_name.clone().or_else(|| resolved.model.clone()),
+        agent: Some(resolved.agent.id().to_string()),
+        agent_mode: resolved.mode.clone(),
+    }
+}
+
+fn emit_run_message(
+    sink: &Arc<dyn rhei_tui::EventSink>,
+    level: rhei_tui::MessageLevel,
+    text: impl Into<String>,
+) {
+    sink.emit(rhei_tui::RunEvent::Message { level, text: text.into() });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_ready_agent_work_items(
+    loaded: &LoadedPlan,
+    machines: &ExecutionMachines,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+    workspace_root: &Path,
+    active_task_ids: &HashSet<String>,
+    active_nonconcurrent_states: &HashSet<String>,
+) -> MietteResult<(Vec<AgentWorkItem>, Vec<String>)> {
+    let mut agent_tasks = Vec::new();
+    let mut state_claimant: HashMap<String, String> = HashMap::new();
+    let mut deferred: BTreeSet<String> = BTreeSet::new();
+
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(&loaded.rhei, &machines.set, workspace_root),
+        &rhei_scope,
+    ) {
+        let task_id_str = task.id.to_string();
+        if active_task_ids.contains(&task_id_str) {
+            continue;
+        }
+
+        let machine = machines.for_task(&task.id);
+        let current_state_raw = task.state.as_str().to_string();
+        let current_state = normalized_state_name(&current_state_raw, machine);
+        let Some(state_def) = machine.states.get(&current_state) else {
+            continue;
+        };
+        if state_def.program.is_some()
+            || state_def.terminal
+            || state_def.gating
+            || opts.no_agent()
+        {
+            continue;
+        }
+
+        let invocations = resolve_agent_invocations(machine, &current_state, settings, opts)?;
+        if invocations.is_empty() {
+            if state_declares_autonomous_agent_work(state_def) {
+                return Err(miette!(
+                    help = "give the state an `agent:` or `target:` in the state machine, or run it yourself with: rhei next <plan>",
+                    "no agent configured for ready state '{}'", current_state
+                ));
+            }
+            continue;
+        }
+
+        let pending = if state_def.outputs.is_empty() {
+            invocations
+        } else {
+            invocations
+                .into_iter()
+                .filter(|resolved| {
+                    !state_outputs_exist_for_resolved_invocation(
+                        workspace_root,
+                        task,
+                        &current_state,
+                        task.state.as_str(),
+                        machine,
+                        loaded.rhei.metadata.as_ref(),
+                        state_def,
+                        resolved,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        if pending.is_empty() {
+            continue;
+        }
+
+        if !opts.dry_run() {
+            for resolved in &pending {
+                ensure_orchestrator_timeout(resolved, &current_state)?;
+            }
+        }
+
+        let is_concurrent = state_def.concurrent;
+        if !is_concurrent && active_nonconcurrent_states.contains(&current_state) {
+            deferred.insert(task_id_str);
+            continue;
+        }
+        if !is_concurrent {
+            match state_claimant.get(&current_state) {
+                Some(claimant) if claimant == &task_id_str => {}
+                Some(_) => {
+                    deferred.insert(task_id_str);
+                    continue;
+                }
+                None => {
+                    state_claimant.insert(current_state.clone(), task_id_str.clone());
+                }
+            }
+        }
+
+        for resolved in pending {
+            agent_tasks.push(AgentWorkItem {
+                task_id_str: task_id_str.clone(),
+                current_state_raw: current_state_raw.clone(),
+                current_state: current_state.clone(),
+                resolved,
+            });
+        }
+    }
+
+    Ok((agent_tasks, deferred.into_iter().collect()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_ready_program_work_items(
+    loaded: &LoadedPlan,
+    machines: &ExecutionMachines,
+    settings: &RheiSettings,
+    opts: &RunOptions,
+    workspace_root: &Path,
+    active_task_ids: &HashSet<String>,
+    active_nonconcurrent_states: &HashSet<String>,
+) -> MietteResult<(Vec<ProgramWorkItem>, Vec<String>)> {
+    let mut program_tasks = Vec::new();
+    let mut state_claimant: HashMap<String, String> = HashMap::new();
+    let mut deferred: BTreeSet<String> = BTreeSet::new();
+
+    // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
+    let rhei_scope = rhei_scope_set(opts.rhei_scope());
+    for task in narrow_to_rhei_scope(
+        find_runnable_tasks(&loaded.rhei, &machines.set, workspace_root),
+        &rhei_scope,
+    ) {
+        let task_id_str = task.id.to_string();
+        if active_task_ids.contains(&task_id_str) {
+            continue;
+        }
+
+        let machine = machines.for_task(&task.id);
+        let current_state_raw = task.state.as_str().to_string();
+        let current_state = normalized_state_name(&current_state_raw, machine);
+        let Some(state_def) = machine.states.get(&current_state) else {
+            continue;
+        };
+        if state_def.program.is_none() || state_def.terminal || state_def.gating || opts.no_program()
+        {
+            continue;
+        }
+
+        let Some(resolved) = resolve_program(machine, &current_state, settings, opts)? else {
+            continue;
+        };
+
+        let is_concurrent = state_def.concurrent;
+        if !is_concurrent && active_nonconcurrent_states.contains(&current_state) {
+            deferred.insert(task_id_str);
+            continue;
+        }
+        if !is_concurrent {
+            match state_claimant.get(&current_state) {
+                Some(claimant) if claimant == &task_id_str => {}
+                Some(_) => {
+                    deferred.insert(task_id_str);
+                    continue;
+                }
+                None => {
+                    state_claimant.insert(current_state.clone(), task_id_str.clone());
+                }
+            }
+        }
+
+        program_tasks.push(ProgramWorkItem {
+            task_id_str,
+            current_state,
+            resolved,
+        });
+    }
+
+    Ok((program_tasks, deferred.into_iter().collect()))
+}

@@ -5,6 +5,7 @@ fn run_callback_mode(
     machines: &ExecutionMachines,
     opts: &RunOptions,
     max_parallel: usize,
+    identity: &RunIdentity,
 ) -> MietteResult<()> {
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
@@ -15,10 +16,11 @@ fn run_callback_mode(
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
     let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
-    let run_started = std::time::Instant::now();
-    // §FS-rhei-run-report.2: wall-clock start and run id for the durable report.
-    let run_started_wall = std::time::SystemTime::now();
-    let run_id = short_run_id(run_started_wall);
+    // §FS-rhei-run.2.7: one identity per run, so the report and the descriptor
+    // name the same run.
+    let run_started = identity.started;
+    let run_started_wall = identity.started_wall;
+    let run_id = identity.id.clone();
     let command = current_command_line();
     let initial = load_plan(input)?;
     let initial_total_tasks = total_task_count(&initial.rhei);
@@ -52,6 +54,7 @@ fn run_callback_mode(
         frontend_parallel,
         initial_total_tasks,
         &RunShutdown::default(),
+        identity,
     );
     let sink = frontend.sink.clone();
     // Route leaf-helper diagnostics through the frontend for the run's duration
@@ -64,6 +67,7 @@ fn run_callback_mode(
     report_guard.summary = Some(summary_sink.clone());
     let dashboard_enabled = frontend.dashboard.is_some();
     sink.emit(RunEvent::RunStarted {
+        run_id: run_id.clone(),
         workspace: workspace_root.clone(),
         parallel: frontend_parallel,
         total_tasks: initial_total_tasks,
@@ -143,11 +147,11 @@ fn run_callback_mode(
                 // Callback-only interactive TUI runs use the same human-gate
                 // surface as agent mode; keep it alive only when gates are the
                 // remaining blocker. §FS-rhei-run-tui.1.5.5
-                if frontend.is_tui && should_wait_for_human_gate(&loaded.rhei, &machines.set, &rhei_scope) {
+                if opts.waits_for_human_gates(frontend.is_tui)
+                    && should_wait_for_human_gate(&loaded.rhei, &machines.set, &rhei_scope)
+                {
                     if !awaiting_gate_announced {
-                        run_info!(
-                            "Waiting for human gate decisions — resolve a gate in the UI, or press Ctrl+C to stop."
-                        );
+                        run_info!("{}", awaiting_gate_notice(frontend.is_tui));
                         awaiting_gate_announced = true;
                     }
                     interruptible_sleep(Duration::from_millis(500));

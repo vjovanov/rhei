@@ -504,8 +504,42 @@ fn complete_task_id(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+/// How many ended runs completion offers. The registry keeps a hundred; a
+/// hundred candidates is a list nobody reads.
+// §FS-rhei-run-headless.2
+const COMPLETED_RUNS_OFFERED: usize = 10;
+
+/// The run ids `rhei attach <TAB>` and `rhei stop <TAB>` offer.
+///
+/// Everything `resolve_run` can reach, in the order it tries: the runs that are
+/// live, the ones whose liveness could not be decided — which resolve and are
+/// exactly what an operator needs to reach when something is wrong — and then
+/// the most recent ended runs, which `rhei attach` answers for too.
+///
+/// Read without pruning: a tab keypress is not a request to unlink anything.
+// §FS-rhei-run-headless.3 §FS-rhei-run-headless.2
+fn complete_run_reference(current: &OsStr) -> Vec<CompletionCandidate> {
+    let prefix = current.to_string_lossy();
+    let registry = read_run_registry();
+    let live = registry.live.iter().map(|run| (run, "live"));
+    let undecided = registry
+        .undecided
+        .iter()
+        .filter_map(|entry| entry.descriptor.as_ref())
+        .map(|run| (run, "unchecked"));
+    let ended = registry.ended.iter().take(COMPLETED_RUNS_OFFERED).map(|run| (run, "ended"));
+    live.chain(undecided)
+        .chain(ended)
+        .filter(|(run, _)| run.id.starts_with(prefix.as_ref()))
+        .map(|(run, state)| {
+            let help = format!("{} [{state}]", run.plan.display());
+            CompletionCandidate::new(run.id.clone()).help(Some(help.into()))
+        })
+        .collect()
+}
+
 /// Complete `--rhei` values with the loaded project's rhei ids.
-/// §FS-rhei-panta.6
+// §FS-rhei-panta.6
 fn complete_rhei_id(current: &OsStr) -> Vec<CompletionCandidate> {
     let Some(plan) = completion_plan_path() else {
         return Vec::new();

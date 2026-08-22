@@ -4,8 +4,11 @@
 
 mod dashboard;
 mod event;
+mod event_json;
+mod event_log;
 mod frontend;
 mod journal;
+mod json;
 mod stdout;
 mod tui;
 
@@ -15,7 +18,12 @@ pub use event::{
     DimensionSummary, EventSink, MessageLevel, NullSink, PricingStatus, RunEvent, RunSummary, Slot,
     TaskOutcome, Tee, UsageCoverage, UsageStatus, UsageSummary,
 };
+pub use event_json::{
+    decode as decode_event, encode as encode_event, format_rfc3339, SCHEMA_VERSION,
+};
+pub use event_log::{event_log_path, EventLogReader, EventLogSink};
 pub use frontend::{select_frontend, Frontend, FrontendKind};
 pub use journal::JournalSink;
+pub use json::JsonSink;
 pub use stdout::StdoutSink;
 pub use tui::{StopRequested, TuiContext, TuiSink};

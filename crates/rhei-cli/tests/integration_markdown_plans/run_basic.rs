@@ -17,7 +17,7 @@ transitions:
 "#;
 
 fn run_run_command(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = rhei_command();
     if let Some(parent) = plan_path.parent() {
         cmd.current_dir(parent);
     }
@@ -39,7 +39,7 @@ fn run_run_command_with_env(
     extra_args: &[&str],
     envs: &[(&str, &str)],
 ) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = rhei_command();
     if let Some(parent) = plan_path.parent() {
         cmd.current_dir(parent);
     }
@@ -64,7 +64,7 @@ fn run_run_command_in_dir(
     machine_path: &Path,
     extra_args: &[&str],
 ) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = rhei_command();
     cmd.current_dir(current_dir).arg("--state-machine").arg(machine_path).arg("run").arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);
@@ -84,7 +84,7 @@ fn run_reset_command(plan_path: &Path, machine_path: &Path) -> CliRun {
 }
 
 fn run_reset_command_with_args(plan_path: &Path, machine_path: &Path, args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = rhei_command();
     cmd.arg("--state-machine").arg(machine_path).arg("reset").arg(plan_path);
     for arg in args {
         cmd.arg(arg);

@@ -65,6 +65,9 @@ Templates:
 Execution:
   transition  Atomically transition a task from one state to another (compare-and-swap)
   run         Execute a plan by advancing tasks through the state machine in dependency order
+  attach      Connect a live surface to a run this shell did not start
+  runs        List the runs that are live on this machine
+  stop        Ask a run to stop, entering the same interruption path as Ctrl+C
   intervene   Send a message to a running agent's stdin during a live run
   cost        Inspect run token and cost accounting artifacts
   snapshot    Inspect, prune, or continue from session snapshots
@@ -306,6 +309,46 @@ enum Commands {
         program: ProgramExecutionFlags,
         #[command(flatten)]
         snapshot: SnapshotExecutionFlags,
+    },
+    /// Connect a live surface to a run this shell did not start
+    ///
+    /// Follows the run's event log and per-task agent logs, and reaches its
+    /// agents through the same control endpoints the browser dashboard uses.
+    /// Ctrl+C and `q` detach; the run is stopped with `rhei stop`.
+    Attach {
+        /// Run id, id prefix, or plan/workspace path; omitted, the run of the
+        /// enclosing project or workspace
+        #[arg(value_name = "RUN", add = ArgValueCompleter::new(complete_run_reference))]
+        run: Option<String>,
+        /// Stream the run's JSON event records to stdout instead of opening a surface
+        #[arg(long)]
+        json: bool,
+        /// With --json, resume after this sequence number instead of replaying the run
+        #[arg(long, value_name = "SEQ", default_value_t = 0)]
+        since: u64,
+        /// Wait for the run to end and exit with the run's own exit code
+        #[arg(long)]
+        wait: bool,
+    },
+    /// List the runs that are live on this machine
+    Runs {
+        /// Emit output as JSON for machine consumption
+        #[arg(long)]
+        json: bool,
+    },
+    /// Ask a run to stop, entering the same interruption path as Ctrl+C
+    Stop {
+        /// Run id, id prefix, or plan/workspace path; omitted, the run of the
+        /// enclosing project or workspace
+        #[arg(value_name = "RUN", add = ArgValueCompleter::new(complete_run_reference))]
+        run: Option<String>,
+        /// Ask twice: signal, wait out a short grace, then signal again so
+        /// in-flight work is killed without its grace
+        #[arg(long)]
+        kill: bool,
+        /// Wait until the run has actually gone, then report its exit status
+        #[arg(long)]
+        wait: bool,
     },
     /// Send a message to a running agent's stdin during a live run
     ///

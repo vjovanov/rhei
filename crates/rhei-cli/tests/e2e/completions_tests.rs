@@ -1,11 +1,10 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::{unique_temp_dir, write_fixture_file, CliRun, STATE_MACHINE};
 
 fn run_completions(shell: &str) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = super::rhei_command(unique_temp_dir("completions-home"))
         .args(["completions", shell])
         .output()
         .expect("rhei command should run");
@@ -17,10 +16,9 @@ fn run_completions(shell: &str) -> CliRun {
 }
 
 fn run_completions_with_home(home: &Path, args: &[&str]) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = super::rhei_command(home)
         .arg("completions")
         .args(args)
-        .env("HOME", home)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME")
         .output()
@@ -38,8 +36,8 @@ fn run_completions_with_xdg(
     xdg_data_home: Option<&Path>,
     args: &[&str],
 ) -> CliRun {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    command.arg("completions").args(args).env("HOME", home);
+    let mut command = super::rhei_command(home);
+    command.arg("completions").args(args);
     match xdg_config_home {
         Some(path) => {
             command.env("XDG_CONFIG_HOME", path);
@@ -66,11 +64,10 @@ fn run_completions_with_xdg(
 }
 
 fn run_completions_in_dir(current_dir: &Path, home: &Path, args: &[&str]) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = super::rhei_command(home)
         .arg("completions")
         .args(args)
         .current_dir(current_dir)
-        .env("HOME", home)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME")
         .output()
@@ -83,10 +80,9 @@ fn run_completions_in_dir(current_dir: &Path, home: &Path, args: &[&str]) -> Cli
 }
 
 fn run_dynamic_completion(current_dir: &Path, home: &Path, shell: &str, args: &[&str]) -> CliRun {
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = super::rhei_command(home)
         .args(args)
         .current_dir(current_dir)
-        .env("HOME", home)
         .env("COMPLETE", shell)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME")

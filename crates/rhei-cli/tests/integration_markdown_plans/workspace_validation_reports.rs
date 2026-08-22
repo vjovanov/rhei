@@ -13,7 +13,7 @@ fn list_indents_and_reports_depth_rhei_locally_despite_qualified_ids() {
 
     // §FS-rhei-list.4.1: top-level tickets are flush-left; the qualification
     // segment adds no indentation.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(dir.join("plan.rhei.md"))
         .output()
@@ -30,7 +30,7 @@ fn list_indents_and_reports_depth_rhei_locally_despite_qualified_ids() {
     );
 
     // §FS-rhei-list.4.2: `depth` is 1-based within the owning rhei.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(dir.join("plan.rhei.md"))
         .arg("--json")
@@ -76,7 +76,7 @@ fn viz_renders_a_panta_project_as_one_graph_and_narrows_to_a_member() {
 
     let render = |target: &Path, out_name: &str| -> String {
         let out_file = project.join(out_name);
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("viz")
             .arg(target)
             .arg("--output")
@@ -123,7 +123,7 @@ fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
 
     // §FS-rhei-panta.6: an un-narrowed project-scoped reset announces the
     // rheis it will touch before acting.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(&project)
@@ -145,7 +145,7 @@ fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
         "# Rhei: Quiet\n\n## Tasks\n\n### Task 1: Alpha\n**State:** pending\n",
     )
     .expect("write plan");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(dir.join("plan.rhei.md"))
@@ -181,7 +181,7 @@ fn project_render_groups_tickets_under_their_rhei() {
     );
 
     let render = |format: &str| -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("render")
             .arg(&project)
             .arg("--format")

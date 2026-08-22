@@ -15,6 +15,29 @@ use serde_yaml::Value as YamlValue;
 #[path = "../../../rhei-core/tests/fixtures.rs"]
 mod fixtures;
 
+/// Every `rhei` this harness spawns, with **both** state locations pinned into
+/// a directory of its own.
+///
+/// The run registry is machine-wide, and every non-dry run publishes an entry
+/// into it. Unpinned, one `cargo test` wrote a couple of hundred entries into
+/// the developer's real `~/.local/state/rhei/runs` — and `HOME` alone is not
+/// enough, because the registry prefers `XDG_STATE_HOME` wherever the
+/// developer's environment happens to set it.
+
+// §FS-rhei-run-headless.2
+fn rhei_command() -> Command {
+    static HARNESS_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    let home = HARNESS_HOME.get_or_init(|| {
+        let home = unique_temp_dir("integration-home");
+        fs::create_dir_all(home.join("state")).expect("isolated state directory");
+        home
+    });
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", home);
+    cmd.env("XDG_STATE_HOME", home.join("state"));
+    cmd
+}
+
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -134,7 +157,7 @@ fn run_validate(plan: &str, machine: &str, prefix: &str) -> CliRun {
     let plan_path = write_fixture_file(&temp_dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&temp_dir, "states.yaml", machine);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("validate")
@@ -155,7 +178,7 @@ fn run_validate(plan: &str, machine: &str, prefix: &str) -> CliRun {
 
 fn run_cli_without_args() -> CliRun {
     let output =
-        Command::new(env!("CARGO_BIN_EXE_rhei")).output().expect("rhei command should run");
+        rhei_command().output().expect("rhei command should run");
 
     CliRun {
         status: output.status,

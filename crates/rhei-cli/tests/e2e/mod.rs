@@ -2,8 +2,13 @@ mod completions_tests;
 mod error_guidance_tests;
 mod examples_tests;
 mod handoff_tests;
+mod headless_recovery_tests;
+mod headless_support;
+mod headless_tests;
+mod headless_undecided_tests;
 mod install_skills_tests;
 mod next_tests;
+mod run_lock_wait_tests;
 mod run_signals_tests;
 mod run_tests;
 mod snapshot_tests;
@@ -219,6 +224,23 @@ pub fn copy_workspace_fixture(prefix: &str, fixture_name: &str) -> (PathBuf, Pat
     (dir, workspace_path, machine_path)
 }
 
+/// Every `rhei` an end-to-end test spawns, with **both** state locations pinned
+/// under `home`.
+///
+/// The run registry is machine-wide and every non-dry run publishes into it, so
+/// a `HOME` alone leaves a test writing entries into the developer's own
+/// `$XDG_STATE_HOME/rhei/runs` wherever their environment sets that variable.
+
+// §FS-rhei-run-headless.2
+pub fn rhei_command(home: impl AsRef<Path>) -> Command {
+    let home = home.as_ref();
+    let _ = fs::create_dir_all(home.join("state"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env("HOME", home);
+    cmd.env("XDG_STATE_HOME", home.join("state"));
+    cmd
+}
+
 /// Run an arbitrary rhei subcommand.
 pub fn run_cli(
     subcommand: &str,
@@ -226,8 +248,7 @@ pub fn run_cli(
     machine_path: &Path,
     extra_args: &[&str],
 ) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", isolated_home_for(plan_path));
+    let mut cmd = rhei_command(isolated_home_for(plan_path));
     cmd.arg("--state-machine").arg(machine_path).arg(subcommand).arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);
@@ -242,8 +263,7 @@ pub fn run_cli(
 
 /// Run an arbitrary rhei subcommand without passing `--state-machine`.
 pub fn run_cli_without_machine(subcommand: &str, plan_path: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
-    cmd.env("HOME", isolated_home_for(plan_path));
+    let mut cmd = rhei_command(isolated_home_for(plan_path));
     cmd.arg(subcommand).arg(plan_path);
     for arg in extra_args {
         cmd.arg(arg);

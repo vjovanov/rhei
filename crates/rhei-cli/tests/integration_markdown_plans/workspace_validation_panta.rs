@@ -101,7 +101,7 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
     assert_eq!(loaded.rhei.tasks[1].id.to_string(), "billing.1");
     assert_eq!(loaded.rhei.tasks[1].prior[0].to_string(), "auth.1");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -115,7 +115,7 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
     );
     assert!(stdout.contains("Validation succeeded"));
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(project.join("index.panta.md"))
         .output()
@@ -176,7 +176,7 @@ fn panta_preserves_ambiguous_local_priors_before_cross_rhei_resolution() {
     assert_eq!(loaded.rhei.tasks[1].id.to_string(), "auth.2");
     assert_eq!(loaded.rhei.tasks[1].prior[0].to_string(), "auth.auth.1");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -207,7 +207,7 @@ fn panta_next_peek_resolves_inputs_from_owning_rhei_root() {
     fs::write(runtime_dir.join("auth.1.md"), "ready").expect("write input artifact");
 
     // Panta readiness checks required inputs at the owning rhei root, not the project root. §AR-rhei-panta.5
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(&project)
         .arg("--peek")
@@ -241,7 +241,7 @@ fn panta_validates_task_links_from_owning_rhei_root() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -271,7 +271,7 @@ fn panta_validates_child_rhei_content_links() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -299,7 +299,7 @@ fn panta_explicit_max_levels_one_is_not_raised_to_default() {
         PANTA_LEVEL_TWO_OVERRIDE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -386,7 +386,7 @@ fn panta_basin_index_file_is_a_load_error_not_a_silent_skip() {
         "the error must explain why the file cannot load, got:\n{message}"
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -419,7 +419,7 @@ fn panta_basin_ignores_runtime_markdown_artifacts() {
     // Basin runtime artifacts are ignored rather than parsed as basin tasks. §FS-rhei-panta.2
     assert!(!loaded.task_sources.values().any(|path| path.ends_with("basin/runtime/result.md")));
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -480,7 +480,7 @@ fn panta_child_rhei_state_machine_override_loads_and_validates() {
 
     // `pending` exists only in the default machine and `open` only in
     // child-flow, so a green validate proves per-ticket dispatch.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -504,7 +504,7 @@ fn panta_profile_resolution_uses_rhei_local_task_depth() {
         PANTA_PROFILE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("validate")
         .arg(&project)
         .output()
@@ -530,7 +530,7 @@ fn panta_transition_routes_rewrite_to_owning_rhei_file() {
 
     // Project-scoped mutation targets the qualified ticket id and rewrites the
     // owning rhei file with its rhei-local heading. §FS-rhei-panta.6.1
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("transition")
         .arg(&project)
         .arg("--task")
@@ -577,7 +577,7 @@ fn panta_next_peek_reads_and_claim_writes_owning_rhei() {
     );
 
     // `--peek` does not mutate child rhei files, so it works project-wide. §FS-rhei-panta.6.1
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(&project)
         .arg("--peek")
@@ -595,7 +595,7 @@ fn panta_next_peek_reads_and_claim_writes_owning_rhei() {
 
     // Claim mode writes `**Assignee:**` into the owning rhei's file, resolved
     // through the source map. §FS-rhei-panta.6.1
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(&project)
         .arg("--no-callbacks")
@@ -632,7 +632,7 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
     );
 
     // An unknown rhei is rejected and names what is available. §FS-rhei-panta.6
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(&project)
         .arg("--rhei")
@@ -647,7 +647,7 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
     );
 
     // `--rhei` narrows the listing to the named rhei.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .arg(&project)
         .arg("--rhei")
@@ -661,14 +661,14 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
     // Complete one ticket in each rhei so both own runtime artifacts. The
     // fixture machine reaches a terminal state via `in-progress`.
     for task in ["auth.1", "billing.1"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("transition")
             .arg(&project)
             .args(["--task", task, "--from", "pending", "--to", "in-progress", "--no-callbacks"])
             .output()
             .expect("transition runs");
         assert!(output.status.success(), "transition {task} should succeed");
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("complete")
             .arg(&project)
             .args(["--task", task, "--result", "done", "--no-callbacks"])
@@ -683,7 +683,7 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
 
     // A narrowed reset must not destroy the other rhei's runtime state — these
     // sibling single-file rheis share one execution root. §FS-rhei-panta.6.4
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(&project)
@@ -779,7 +779,7 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
         fs::write(runtime.join(file), "x").expect("seed runtime artifact");
     }
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(&project)
@@ -835,7 +835,7 @@ fn panta_narrowed_next_explains_a_prior_outside_the_scope() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("next")
         .arg(&project)
         .args(["--rhei", "billing", "--no-callbacks"])
@@ -887,7 +887,7 @@ fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
     );
 
     // §FS-rhei-run.2.5: the sequential agent loop schedules in-scope work only.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("run")
         .arg(&project)
         .args(["--rhei", "auth", "--no-callbacks"])
@@ -957,7 +957,7 @@ fn panta_narrowed_reset_clears_workspace_index_metadata_and_legacy_records() {
     fs::write(project_runtime.join("results/1.md"), "## Result\n\nambiguous\n")
         .expect("seed shared result");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("reset")
         .arg("-y")
         .arg(&project)
@@ -1006,7 +1006,7 @@ fn panta_run_locks_every_member_rhei_execution_root() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("run")
         .arg(&project)
         .arg("--no-callbacks")

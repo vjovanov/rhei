@@ -7,6 +7,7 @@
                 working_dir: PathBuf::from("."),
             },
             per_rhei_callbacks: BTreeMap::new(),
+            state_machine_override: None,
         }
     }
     #[test]

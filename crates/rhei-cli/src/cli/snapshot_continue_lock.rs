@@ -617,14 +617,6 @@ struct HeldRunLock {
     file: fs::File,
 }
 
-fn acquire_run_lock(workspace_root: &Path) -> MietteResult<HeldRunLock> {
-    let file = open_run_lock_file(workspace_root)?;
-    file.lock_exclusive().map_err(|err| {
-        file_io_report(&workspace_root.join(".rhei/run.lock"), "failed to acquire run lock", err)
-    })?;
-    Ok(HeldRunLock { file })
-}
-
 fn run_lock_is_held(workspace_root: &Path) -> MietteResult<bool> {
     Ok(try_acquire_run_lock(workspace_root)?.is_none())
 }

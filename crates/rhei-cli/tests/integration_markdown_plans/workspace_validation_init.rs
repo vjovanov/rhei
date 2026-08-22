@@ -8,7 +8,7 @@ fn init_creates_project_with_manifest_gitignore_and_agents_note() {
 
     // §FS-rhei-init.2: manifest in panta/, ignore rules, agent note at the
     // host, empty-project hint.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .arg(&host)
         .output()
@@ -46,7 +46,7 @@ fn init_creates_project_with_manifest_gitignore_and_agents_note() {
     );
 
     // §FS-rhei-init.2: an existing project is refused untouched.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .arg(&host)
         .output()
@@ -79,7 +79,7 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
     fs::write(dir.join("AGENTS.md"), "# House rules\n\nBe kind.\n").expect("write agents");
 
     // The ambiguity error names `rhei init` as the fix. §FS-rhei-panta.6
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&dir)
         .output()
@@ -91,7 +91,7 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
 
     // §FS-rhei-init.2: default mode refuses to shadow existing plans and
     // names both fixes.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .current_dir(&dir)
         .output()
@@ -108,7 +108,7 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
     );
 
     // §FS-rhei-init.5: adoption (--here) reports the discovered rheis.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .args(["--here", "--title", "Adopted"])
         .current_dir(&dir)
@@ -127,7 +127,7 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
     );
 
     // The bare invocation now resolves the new project.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("list")
         .current_dir(&dir)
         .output()
@@ -150,7 +150,7 @@ fn init_writes_agent_note_into_claude_md_when_it_is_the_only_instruction_file() 
     fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     fs::write(dir.join("CLAUDE.md"), "# My project rules\n\nBe nice.\n").expect("write claude");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .current_dir(&dir)
         .output()
@@ -170,7 +170,7 @@ fn init_writes_agent_note_into_claude_md_when_it_is_the_only_instruction_file() 
 
     // A forced re-run rewrites the note in CLAUDE.md instead of creating a
     // sibling AGENTS.md or duplicating the block.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .args(["init", "--force"])
         .current_dir(&dir)
         .output()
@@ -196,7 +196,7 @@ fn init_prefers_agents_md_when_both_instruction_files_exist() {
     fs::write(dir.join("AGENTS.md"), "# House rules\n").expect("write agents");
     fs::write(dir.join("CLAUDE.md"), "# Claude rules\n").expect("write claude");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .current_dir(&dir)
         .output()
@@ -220,7 +220,7 @@ fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
     .expect("write bad plan");
 
     // §FS-rhei-init.5: a discovery failure is a warning, not an init failure.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .args(["--here", "--no-agents"])
         .current_dir(&dir)
@@ -255,7 +255,7 @@ fn init_leaves_the_manifest_bare_over_rhei_declared_machines() {
 
     // §FS-rhei-init.2: the manifest stays bare — each rhei keeps the machine
     // it declares, so nothing needs hoisting into the project default.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .args(["--here", "--no-agents"])
         .current_dir(&dir)
@@ -281,7 +281,7 @@ fn init_leaves_the_manifest_bare_over_rhei_declared_machines() {
 fn init_force_overwrites_manifest_without_duplicating_companions() {
     let dir = unique_temp_dir("init-force");
     let run_init = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_rhei"))
+        rhei_command()
             .arg("init")
             .args(args)
             .current_dir(&dir)
@@ -337,7 +337,7 @@ fn init_force_heals_a_mangled_agents_note() {
     )
     .expect("write mangled agents");
     assert!(
-        Command::new(env!("CARGO_BIN_EXE_rhei"))
+        rhei_command()
             .arg("init")
             .current_dir(&dir)
             .output()
@@ -362,7 +362,7 @@ fn init_force_heals_a_mangled_agents_note() {
 fn init_force_without_here_refuses_when_the_host_is_the_project() {
     let dir = unique_temp_dir("init-force-host-project");
     let run_init = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_rhei"))
+        rhei_command()
             .arg("init")
             .args(args)
             .current_dir(&dir)
@@ -411,7 +411,7 @@ fn init_loads_a_mixed_declared_and_silent_machine_set_cleanly() {
 
     // §FS-rhei-init.2: a silent rhei runs the built-in default while a
     // declaring sibling keeps its own machine — no conflict to surface.
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("init")
         .args(["--here", "--no-agents"])
         .current_dir(&dir)
@@ -444,7 +444,7 @@ fn init_strips_an_orphaned_begin_marker_without_eating_user_content() {
     .expect("write mangled agents");
 
     assert!(
-        Command::new(env!("CARGO_BIN_EXE_rhei"))
+        rhei_command()
             .arg("init")
             .current_dir(&dir)
             .output()
@@ -475,7 +475,7 @@ fn init_here_refuses_to_shadow_an_existing_panta_child_project() {
     // project at panta/ — target resolution prefers the host manifest, so
     // the child project would become unreachable by inference.
     let dir = unique_temp_dir("init-here-shadow");
-    let first = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let first = rhei_command()
         .arg("init")
         .current_dir(&dir)
         .output()
@@ -483,7 +483,7 @@ fn init_here_refuses_to_shadow_an_existing_panta_child_project() {
     assert!(first.status.success(), "default init should succeed");
 
     for args in [&["--here"][..], &["--here", "--force"][..]] {
-        let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+        let output = rhei_command()
             .arg("init")
             .args(args)
             .current_dir(&dir)

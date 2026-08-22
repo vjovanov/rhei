@@ -479,7 +479,7 @@ transitions:
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("complete")

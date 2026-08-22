@@ -54,7 +54,7 @@ fn workspace_run_advances_tasks_to_completion() {
         WORKSPACE_STATE_MACHINE,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let output = rhei_command()
         .arg("--state-machine")
         .arg(&machine_path)
         .arg("run")

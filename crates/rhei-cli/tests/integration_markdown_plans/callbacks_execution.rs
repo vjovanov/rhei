@@ -27,7 +27,7 @@ fn run_transition_with_flags(
     to: &str,
     extra_args: &[&str],
 ) -> CliRun {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = rhei_command();
     cmd.arg("--state-machine")
         .arg(machine_path)
         .arg("transition")

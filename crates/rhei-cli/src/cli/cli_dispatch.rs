@@ -213,7 +213,12 @@ fn install_quiet_broken_pipe_exit() {
             // An interrupted run still names its signal: losing the terminal is
             // how the interruption arrived, not a second outcome.
             // §FS-rhei-run.3.2
-            std::process::exit(interrupt_exit_code().unwrap_or(EXIT_BROKEN_PIPE));
+            let code = interrupt_exit_code().unwrap_or(EXIT_BROKEN_PIPE);
+            // The run really is ending, so its registry entry must go with it —
+            // otherwise a reader that lost its pipe leaves a run listed as live
+            // forever. §FS-rhei-run-headless.2
+            finalize_run_descriptor(code);
+            std::process::exit(code);
         }
         previous(info);
     }));
@@ -366,14 +371,21 @@ pub fn run() {
         // A run that a signal ended reports the signal, not a generic failure:
         // whatever error it surfaced on the way out is a consequence of the
         // interruption. §FS-rhei-run.3.2
-        std::process::exit(interrupt_exit_code().unwrap_or(1));
+        let code = interrupt_exit_code().unwrap_or(1);
+        finalize_run_descriptor(code);
+        std::process::exit(code);
     }
     // Checked after `dispatch` so every guard has run and the report is
     // written: `128 + signal` is what a shell reports for a process the signal
     // killed, and `rhei run` was asked to stop by one. §FS-rhei-run.3.2
     if let Some(code) = interrupt_exit_code() {
+        finalize_run_descriptor(code);
         std::process::exit(code);
     }
+    // The exit code is only knowable here, which is why the descriptor's
+    // terminal status is stamped from the exit path rather than from a guard
+    // that cannot see it. §FS-rhei-run-headless.2
+    finalize_run_descriptor(0);
 }
 
 /// Returns true when the invoked command's output format is JSON. In that
@@ -390,6 +402,11 @@ fn command_wants_json(command: &Commands) -> bool {
         }
         Commands::Templates { json, .. } => *json,
         Commands::Cost { json, .. } => *json,
+        Commands::Runs { json } => *json,
+        // `attach --json` streams records on stdout, so a failure must not
+        // print miette prose beside them. §FS-rhei-run-json.1
+        Commands::Attach { json, .. } => *json,
+        Commands::Run { standalone, .. } => standalone.json,
         Commands::Render { format, .. } => matches!(format, RenderFormat::Json),
         _ => false,
     }
@@ -508,6 +525,11 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Cost { input, task, json, by } => {
             cost_command(resolve_plan_target(input)?.path(), task.as_deref(), json, by)
         }
+        Commands::Attach { run, json, since, wait } => {
+            attach_command(run.as_deref(), json, since, wait)
+        }
+        Commands::Runs { json } => runs_command(json),
+        Commands::Stop { run, kill, wait } => stop_command(run.as_deref(), kill, wait),
         Commands::Intervene { plan, task, slot, message } => {
             intervene_command(&plan, &task, slot, &message)
         }

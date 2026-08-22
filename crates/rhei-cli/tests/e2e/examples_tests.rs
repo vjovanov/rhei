@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::*;
 
@@ -315,9 +314,8 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
     let home = dir.join(".home");
     fs::create_dir_all(&home).expect("isolated home");
 
-    let instantiate = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let instantiate = rhei_command(&home)
         .current_dir(&dir)
-        .env("HOME", &home)
         .args(["instantiate", "ui-test-canonical", "--output", "ws"])
         .output()
         .expect("rhei instantiate should run");
@@ -328,9 +326,8 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         String::from_utf8_lossy(&instantiate.stderr)
     );
 
-    let run = Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let run = rhei_command(&home)
         .current_dir(&dir)
-        .env("HOME", &home)
         .args(["run", "ws", "--no-tui", "--parallel", "4"])
         .output()
         .expect("rhei run should run");

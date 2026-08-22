@@ -474,6 +474,9 @@ fn state_outputs_exist_for_resolved_invocation(
 fn default_run_options() -> RunOptions {
     RunOptions {
         standalone: StandaloneExecutionFlags {
+            json: false,
+            json_agent_output: false,
+            headless: false,
             rhei: Vec::new(),
             dry_run: false,
             no_callbacks: false,

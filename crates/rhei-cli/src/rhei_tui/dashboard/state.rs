@@ -64,7 +64,7 @@ impl DashboardState {
         let now = now_ms();
         self.updated_at_ms = now;
         match event {
-            RunEvent::RunStarted { workspace, parallel, total_tasks } => {
+            RunEvent::RunStarted { workspace, parallel, total_tasks, .. } => {
                 self.workspace = workspace.display().to_string();
                 self.parallel = (*parallel).max(1);
                 self.total_tasks = *total_tasks;
