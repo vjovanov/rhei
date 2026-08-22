@@ -314,7 +314,11 @@ without special casing:
   (§FS-rhei-next.3.4). That row ends in the next step, because a held ticket is
   not a stall but someone else's turn: it names the supervisor as the ticket to
   work and gives the command that claims it, or — when a worker already holds
-  that visit — names the holder and the `rhei release` that hands it back. The
+  that visit — names the holder and the `rhei release` that hands it back, or —
+  when the supervisor is parked at a human gate (§3.1 rule 4) — names the
+  transition a human takes to release the subtree. The same three answers reach
+  `rhei next --task <descendant>`, whose refusal is the same fact asked about
+  one ticket. The
   supervisor is in no other category the diagnosis reports: its own subtree is
   open, so the "workable" set that feeds them excludes it, and a row that
   stopped at "everything is held" would leave the worker with nowhere to go.

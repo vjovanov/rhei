@@ -114,9 +114,20 @@ fn next_command(
         // leaving the worker to read a stall.
         if let Some(hold) = held_by_supervisor(task, &loaded.rhei, &machines.set) {
             let (supervisor, supervisor_state) = (&hold.supervisor, &hold.state);
+            // §FS-rhei-supervision.3.4: the supervisor is the ticket to work,
+            // but not if someone already holds it — then the way out is
+            // `rhei release`, not a claim that will be refused.
+            let holder = find_task_by_id(&loaded.rhei.tasks, supervisor)
+                .and_then(|task| task.assignee.clone());
             // §FS-rhei-supervision.3.1: a gate-parked supervisor has no next
             // visit, so pointing the worker at `rhei next` on it is a dead end.
-            let next_step = if hold.awaiting_human {
+            let next_step = if let Some(holder) = holder {
+                format!(
+                    "Task {supervisor} is the ticket to work and {holder} holds it; hand it \
+                     back with: rhei release {} --task {supervisor}",
+                    shell_quote(&input.display().to_string())
+                )
+            } else if hold.awaiting_human {
                 format!(
                     "Task {supervisor} is at a human gate and still holds this subtree. A human \
                      moves it back into its supervising state to resume supervision, or anywhere \
@@ -142,11 +153,14 @@ fn next_command(
             ));
         }
         if let Some(assignee) = task.assignee.as_deref() {
+            // `rhei release` is the command that owns `**Assignee:**`; telling a
+            // worker to hand-edit the line contradicts every other surface,
+            // which says the field is CLI-owned. §FS-rhei-release
+            let plan_arg = shell_quote(&input.display().to_string());
             return Err(miette!(
                 help = format!(
-                    "release it by deleting the **Assignee:** line from Task {tid}, or claim \
-                     whatever is ready instead: rhei next {}",
-                    shell_quote(&input.display().to_string())
+                    "hand it back with: rhei release {plan_arg} --task {tid} — or claim \
+                     whatever is ready instead: rhei next {plan_arg}"
                 ),
                 "Task {} is already assigned to {}",
                 tid,

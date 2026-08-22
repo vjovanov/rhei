@@ -548,3 +548,54 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// `rhei next --task <descendant>` answers with the same three facts the bare
+/// listing does, and never with a command that will be refused.
+///
+/// Before: it always said "Work the supervisor instead: rhei next … --task
+/// plan.1" — which fails "already assigned" when a worker holds that visit, and
+/// whose help then told the worker to hand-edit `**Assignee:**`, a field every
+/// other surface calls CLI-owned.
+// §FS-rhei-supervision.3.4 §FS-rhei-release
+#[test]
+fn the_targeted_held_refusal_names_the_holder_and_rhei_release() {
+    let plan = TWO_CHILD_PLAN
+        .replace("**State:** supervise\n", "**State:** supervise\n**Assignee:** pi\n");
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-targeted-held",
+        &plan,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+
+    let held = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
+    assert!(!held.status.success(), "a held descendant is not claimable");
+    assert!(
+        held.stderr.contains("Task plan.1 is the ticket to work and pi holds it")
+            && held.stderr.contains("rhei release"),
+        "got:\n{}",
+        held.stderr
+    );
+    assert!(
+        !held.stderr.contains("Work the supervisor instead"),
+        "the claim it would suggest is the one that fails:\n{}",
+        held.stderr
+    );
+
+    // And the refusal that claim would have produced now names `rhei release`
+    // rather than telling the worker to edit the plan by hand.
+    let claimed = run_cli("next", &plan_path, &machine_path, &["--task", "1", "--peek"]);
+    assert!(!claimed.status.success(), "a claimed ticket is not re-claimable");
+    assert!(
+        claimed.stderr.contains("rhei release") && claimed.stderr.contains("--task plan.1"),
+        "got:\n{}",
+        claimed.stderr
+    );
+    assert!(
+        !claimed.stderr.contains("deleting the **Assignee:** line"),
+        "`**Assignee:**` is CLI-owned:\n{}",
+        claimed.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
