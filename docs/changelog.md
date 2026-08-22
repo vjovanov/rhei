@@ -59,15 +59,17 @@
   Issue #82. PR #83 §FS-rhei-run-headless §FS-rhei-run-json §DA-detached-runs
   §FS-rhei-run.2.7 §FS-rhei-run-tui.1.4
 
-- Fix `rhei attach --wait` reporting a run that exited 0 as one that "recorded
-  no exit status". A run stops being live before it has recorded anything: it
-  lets go of the run lock when the run command returns and stamps its exit code
-  a frame later, from the process exit path that is the only place the code is
-  knowable. Both waits now settle before reading — the JSON follower waits for
+- Fix the waits reporting a run that exited 0 as one that "recorded no exit
+  status". A run stops being live before it has recorded anything: it lets go
+  of the run lock when the run command returns and stamps its exit code a frame
+  later, from the process exit path that is the only place the code is
+  knowable. Read in that gap, `rhei attach --wait` failed the CI step it exists
+  to pass, and `rhei stop --wait` printed a result the run had not given yet.
+  Every wait now settles before reading — `attach --json --wait` first waits for
   the run to stop being live rather than stopping at the `run_finished` record,
-  and both give the stamp the same bounded grace an undecided liveness probe
-  gets. A run killed outright never stamps anything and is still reported as
-  one that recorded nothing. PR #84 §FS-rhei-run-headless.5.3
+  and all of them then give the stamp the same bounded grace an undecided
+  liveness probe gets. A run killed outright never stamps anything and is still
+  reported as one that recorded nothing. PR #84 §FS-rhei-run-headless.5.3
 
 - The 500-line file-size rule is now a gate rather than a table. It has been
   §AR-source-file-size.1 since it was written — 500 soft, 2000 hard, spec files
