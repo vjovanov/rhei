@@ -12,8 +12,8 @@ Init writes the one file a project requires — the `index.panta.md` manifest �
 plus the low-cost conveniences that keep a project healthy from day one:
 ignore rules, and an agent-discovery note so coding agents working in the
 repository find the Rhei workflow on their own. Everything else about a
-project (rheis, tickets, state machines) is added by creating files, per
-§FS-rhei-panta.2.
+project (rheis, tickets, state machines) is added with `rhei new`
+(§FS-rhei-new) or by creating files by hand, per §FS-rhei-panta.2.
 
 Initialization is a convenience, not a gate: a project is defined by its
 files, and a hand-written `index.panta.md` is exactly as valid as a generated
@@ -208,8 +208,8 @@ host directory or anywhere under it (§FS-rhei-panta.6), so after init, bare
 
 ## 6. What init does not do
 
-- It does not create rheis or tickets. `rhei new` is the planned verb for
-  that (roadmap) and composes: `rhei init && rhei new "Auth"`.
+- It does not create rheis or tickets. `rhei new` is the verb for that
+  (§FS-rhei-new) and composes: `rhei init && rhei new "Auth"`.
 - It does not move existing plan files into `panta/` — adopting in place is
   `--here`; moving content is left to the user (and note that moving a
   *tracked* plan into the gitignored `panta/` untracks it).
