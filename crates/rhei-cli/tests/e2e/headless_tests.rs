@@ -11,7 +11,6 @@ use std::fs;
 use std::time::Duration;
 
 use super::headless_support::{kinds, parse_records, stderr, stdout, wait_until, Workspace};
-use super::repo_root;
 
 // ---------------------------------------------------------------------------
 // §FS-rhei-run-json: the record stream
@@ -338,7 +337,9 @@ fn a_detached_run_is_its_own_session_leader() {
             sid, pid,
             "a detached run leads its own session, so the launcher's SIGHUP cannot reach it"
         ),
-        // Not Linux, or no procfs: the assertion is unavailable, not failed.
-        None => assert!(repo_root().is_dir()),
+        // procfs is Linux-only. On another Unix the session id cannot be read
+        // here, so there is nothing to assert — an unavailable assertion, not a
+        // failed one.
+        None => {}
     }
 }

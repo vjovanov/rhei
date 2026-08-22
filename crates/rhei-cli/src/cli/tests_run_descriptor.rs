@@ -375,6 +375,7 @@ mod run_descriptor_tests {
 
     /// Write a workspace descriptor without publishing a registry entry: these
     /// cases are about one workspace, and the registry is machine-wide.
+    #[cfg(unix)]
     fn write_test_descriptor(descriptor: &RunDescriptor) {
         let path = run_descriptor_path(&descriptor.workspace);
         fs::create_dir_all(path.parent().expect("runtime directory")).expect("runtime directory");
