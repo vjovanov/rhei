@@ -85,7 +85,13 @@ Steps 10 and 13 are the same code on every verb that can move a task, so a
 file, a `> **Result:**` link, and an absent `**Assignee:**` indistinguishable
 from the ones `rhei complete` and `rhei run` leave for the same edge.
 
-Outside a terminal entry, `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment is owned by `rhei next`; unassignment is part of the shared terminal finalization above, which `rhei complete` also runs.
+Outside a terminal entry, `rhei transition` does not add, remove, or modify
+the `**Assignee:**` line, with one exception: the self-loop of a supervising
+state (§FS-rhei-supervision.3.1). That edge ends a supervisor's visit, so it
+ends the claim on that visit too, and the line is dropped exactly as a
+terminal entry drops it. Assignment is otherwise owned by `rhei next`;
+unassignment is part of the shared terminal finalization above, which
+`rhei complete` also runs.
 
 `rhei transition` deliberately does **not** check `**Prior:**` dependencies.
 It is the explicit human-initiated primitive, so it is the escape hatch for

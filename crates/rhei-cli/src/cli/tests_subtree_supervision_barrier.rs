@@ -281,3 +281,21 @@
         );
         assert_eq!(supervisor_next_edge(&exhausted).as_deref(), Some("human-review"));
     }
+
+    /// The release self-loop is the only non-terminal edge that drops a claim.
+    ///
+    /// Scoped this tightly on purpose: assignment is otherwise owned by
+    /// `rhei next`, and unassignment by the shared terminal finalization.
+    // §FS-rhei-supervision.3.4
+    #[test]
+    fn only_a_supervising_self_loop_ends_the_claim_it_was_taken_under() {
+        let machine = supervision_machine();
+        assert!(transition_ends_supervisor_visit(&machine, "supervise", "supervise"));
+        assert!(!transition_ends_supervisor_visit(&machine, "supervise", "completed"));
+        assert!(!transition_ends_supervisor_visit(&machine, "supervise", "human-review"));
+        assert!(
+            !transition_ends_supervisor_visit(&machine, "review", "review"),
+            "an ordinary state's self-loop is not a supervisor's visit"
+        );
+        assert!(!transition_ends_supervisor_visit(&machine, "review", "completed"));
+    }

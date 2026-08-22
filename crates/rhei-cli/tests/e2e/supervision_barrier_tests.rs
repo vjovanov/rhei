@@ -342,3 +342,81 @@ structure:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// The manual-worker loop of §3.4 runs to the end: claim, release, let a child
+/// finish, and claim the visit that child's checkpoint earned.
+///
+/// The release self-loop ends the visit, so it ends the claim. A claim that
+/// survived it swallowed every later checkpoint and left the subtree with
+/// nothing anyone could work.
+// §FS-rhei-supervision.3.4
+#[test]
+fn the_release_self_loop_hands_the_supervisor_back_to_the_next_worker() {
+    let plan = r#"# Rhei: Manual
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervise
+
+#### Task 1.1: A
+**State:** fix
+
+#### Task 1.2: B
+**State:** fix
+**Prior:** Task 1.1
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-manual-release",
+        plan,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+
+    let claim = run_cli("next", &plan_path, &machine_path, &["--task", "1"]);
+    assert_success(&claim);
+    assert!(
+        fs::read_to_string(&plan_path).expect("read plan").contains("**Assignee:**"),
+        "the visit is claimed"
+    );
+
+    let released = run_transition(&plan_path, &machine_path, "1", "supervise", "supervise");
+    assert_success(&released);
+    assert!(
+        !fs::read_to_string(&plan_path).expect("read plan").contains("**Assignee:**"),
+        "the self-loop ends the visit, and with it the claim"
+    );
+
+    // §FS-rhei-supervision.2.1: with no claim standing, the child's own exit is
+    // news for the supervisor rather than the supervisor's own doing.
+    let done =
+        run_cli("complete", &plan_path, &machine_path, &["--task", "1.1", "--result", "fixed"]);
+    assert_success(&done);
+    let plan_after = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(
+        plan_after.contains("phase: held"),
+        "the checkpoint holds the subtree again; got:\n{plan_after}"
+    );
+    assert!(plan_after.contains("task: '1.1'"), "and it is recorded; got:\n{plan_after}");
+
+    // §FS-rhei-supervision.3.4: the command the held descendant's help names is
+    // the command that works.
+    let held = run_cli("next", &plan_path, &machine_path, &["--task", "1.2", "--peek"]);
+    assert!(!held.status.success(), "a held descendant is still not claimable");
+    assert_stderr_contains(&held, "--task plan.1");
+
+    let second = run_cli("next", &plan_path, &machine_path, &["--task", "1"]);
+    assert_success(&second);
+    assert!(
+        second.stdout.contains("claimed"),
+        "the next visit is claimable; got:\n{}",
+        second.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

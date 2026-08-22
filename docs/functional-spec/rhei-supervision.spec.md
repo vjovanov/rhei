@@ -169,6 +169,9 @@ A task `P` in a supervising state is a barrier over its subtree. Its
    self-loop, the phase becomes `released`: descendants of `P` are eligible
    under the ordinary rules — `**Prior:**`, `inputs:`, gating, polling,
    `concurrent`, `--parallel` — exactly as if `P` had no supervising state.
+   The visit is over, so the self-loop also drops `P`'s `**Assignee:**`: the
+   worker that took the visit no longer holds the ticket, and `P` is claimed
+   afresh by whoever answers its next checkpoint (§3.4).
 3. **A checkpoint holds again.** When a checkpoint event is delivered to `P`
    (§2), the phase becomes `held` and the event is recorded (§3.3). Nothing
    new beneath `P` is dispatched. Descendants already in flight run to their
@@ -266,7 +269,13 @@ without special casing:
   (§FS-rhei-next.3.4).
 - The worker releases the subtree with the self-loop,
   `rhei transition <P> --from <state> --to <state>`, and finishes it with the
-  terminal edge once `openDescendants` is `0`.
+  terminal edge once `openDescendants` is `0`. That self-loop ends the visit
+  and with it the worker's claim: `rhei transition` drops `P`'s
+  `**Assignee:**` on this one edge, the way a terminal entry does
+  (§FS-rhei-transition-cmd.3). A claim that outlived the visit would be read
+  as "the supervisor is working right now" — every later descendant exit
+  would be taken for the supervisor's own doing and deliver no checkpoint
+  (§2.1), and `P` itself would never be scheduled again.
 - `rhei list`, the run report, the TUI, and the Flow dashboard show a held
   descendant with the same reason, so a subtree waiting on its supervisor is
   never mistaken for a stall (§FS-rhei-list, §FS-rhei-run-report,

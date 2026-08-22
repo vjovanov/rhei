@@ -605,8 +605,12 @@ fn execute_transition_with_origin(
     }
 
     let rendered_to_state = format_task_state_value(to, to_visit_count, machine);
+    // §FS-rhei-supervision.3.4: the release self-loop ends the visit, so it
+    // ends the claim the visit was taken under.
+    let ends_visit = transition_ends_supervisor_visit(machine, from, to);
     let metadata_raw_updated = if task_file == metadata_file {
-        let new_task_raw = rewrite_task_state(&task_raw, task_id_str, &rendered_to_state)?;
+        let new_task_raw =
+            rewrite_task_for_transition(&task_raw, task_id_str, &rendered_to_state, ends_visit)?;
         if let Some(updated_metadata) = updated_metadata.as_ref() {
             rewrite_frontmatter(&new_task_raw, updated_metadata)?
         } else {
@@ -621,7 +625,12 @@ fn execute_transition_with_origin(
     let task_raw_updated = if task_file == metadata_file {
         None
     } else {
-        Some(rewrite_task_state(&task_raw, task_id_str, &rendered_to_state)?)
+        Some(rewrite_task_for_transition(
+            &task_raw,
+            task_id_str,
+            &rendered_to_state,
+            ends_visit,
+        )?)
     };
 
     // Atomic write(s): write to temp file in the same directory, then rename.
@@ -717,6 +726,26 @@ fn execute_transition_with_origin(
     let _ = fs2::FileExt::unlock(&metadata_handle);
     record?;
     Ok(to.to_string())
+}
+
+/// The task's markdown after this transition: the new `**State:**` value, and
+/// — only when the edge ends a supervisor's visit — without the
+/// `**Assignee:**` that visit was claimed under.
+///
+/// Rewritten in memory rather than through the claim command so an `on_enter`
+/// failure rolls the claim back with the state it was written beside.
+// §FS-rhei-supervision.3.4 §FS-rhei-transition-cmd.3
+fn rewrite_task_for_transition(
+    raw: &str,
+    local_id: &str,
+    rendered_to_state: &str,
+    ends_supervisor_visit: bool,
+) -> MietteResult<String> {
+    let rewritten = rewrite_task_state(raw, local_id, rendered_to_state)?;
+    if !ends_supervisor_visit {
+        return Ok(rewritten);
+    }
+    Ok(without_task_assignee(&rewritten, local_id).0)
 }
 
 /// Extract the current state and node-policy inputs for a task from raw

@@ -189,6 +189,22 @@ fn apply_supervision_transition(
     updated
 }
 
+/// Whether this edge ends a supervisor's visit.
+///
+/// The release self-loop is the one non-terminal edge that drops a
+/// `**Assignee:**`: the visit it was claimed for is over, and a claim that
+/// outlived it would read as "the supervisor is working right now" — every
+/// later descendant exit taken for the supervisor's own doing (§2.1), and the
+/// supervisor itself never scheduled again.
+// §FS-rhei-supervision.3.1 §FS-rhei-supervision.3.4
+fn transition_ends_supervisor_visit(
+    machine: &rhei_validator::StateMachine,
+    from: &str,
+    to: &str,
+) -> bool {
+    from == to && supervise_kind_of(machine, from).is_some()
+}
+
 /// Bind one applied transition on the shared path to the supervision rules.
 ///
 /// The shared path knows the transitioning task, the files its rewrites land
