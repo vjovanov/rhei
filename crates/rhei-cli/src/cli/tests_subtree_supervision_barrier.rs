@@ -247,3 +247,37 @@
             "an ordinary state gets no supervisor permissions; got:\n{prompt}"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Edge selection
+    // -----------------------------------------------------------------------
+
+    fn supervisor_next_edge(plan: &str) -> Option<String> {
+        let rhei = rhei_core::parse(plan).expect("parse plan");
+        let machine = supervision_machine();
+        find_next_transition(&rhei.tasks[0], &rhei, &machine).expect("selection succeeds")
+    }
+
+    /// §FS-rhei-supervision.4.1: transitions are tried in declaration order, so
+    /// the exhaustion edge comes first, the terminal edge second, and the
+    /// unconditional self-loop last.
+    #[test]
+    fn a_supervisor_selects_release_then_finish_then_escalation() {
+        let open = "# Rhei: Edges\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervise\n\n#### Task 1.1: Child\n**State:** review\n";
+        assert_eq!(supervisor_next_edge(open).as_deref(), Some("supervise"));
+
+        let closed = open.replace("**State:** review", "**State:** completed");
+        assert_eq!(
+            supervisor_next_edge(&closed).as_deref(),
+            Some("completed"),
+            "`openDescendants < 1` selects the terminal edge over the self-loop"
+        );
+
+        // The budget is spent: the self-loop is refused and the escalation edge
+        // is what is left. §FS-rhei-transitions.4.3
+        let exhausted = open.replace(
+            "structure:\n  maxLevels: 3\n",
+            "structure:\n  maxLevels: 3\nmetadata:\n  tasks:\n    1:\n      stateVisits:\n        supervise: 12\n",
+        );
+        assert_eq!(supervisor_next_edge(&exhausted).as_deref(), Some("human-review"));
+    }
