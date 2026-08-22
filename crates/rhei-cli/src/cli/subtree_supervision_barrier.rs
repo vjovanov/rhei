@@ -337,6 +337,28 @@ fn supervision_verdict_for(
     supervision_verdict(task, index, machines, metadata, &in_flight)
 }
 
+/// Whether this task is work anyone can be handed right now, as far as the
+/// subtree beneath it is concerned.
+///
+/// One answer for the ready set, `rhei next`, and `rhei list --ready`: a
+/// supervisor owed a visit is work while its subtree is open, a released or
+/// draining one is not, a held descendant is not, and anything unsupervised
+/// keeps the non-leaf rule it always had.
+// §FS-rhei-supervision.3.2
+fn subtree_admits_to_ready_set(
+    task: &rhei_core::ast::Task,
+    index: &std::collections::HashMap<TaskId, &rhei_core::ast::Task>,
+    machines: &rhei_validator::MachineSet,
+    metadata: Option<&Metadata>,
+    spawned: &HashSet<String>,
+) -> bool {
+    match supervision_verdict_for(task, index, machines, metadata, spawned) {
+        SupervisionVerdict::SupervisorReady => true,
+        SupervisionVerdict::SupervisorWaiting | SupervisionVerdict::Held { .. } => false,
+        SupervisionVerdict::Unsupervised => descendants_are_terminal(task, machines),
+    }
+}
+
 /// The supervisor holding `task`, when one does — for the surfaces that explain
 /// why a ticket is not moving. §FS-rhei-supervision.3.4
 fn held_by_supervisor(

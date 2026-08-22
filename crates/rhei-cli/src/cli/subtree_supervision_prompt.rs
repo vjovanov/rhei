@@ -63,12 +63,13 @@ fn read_task_result(
 // §FS-rhei-supervision.3.3 §FS-rhei-supervision.5.1
 fn checkpoint_qualified_id(task: &rhei_core::ast::Task, local_id: &str) -> String {
     let qualified = task.id.to_string();
-    let prefix: String = qualified
-        .split('.')
-        .take(task.profile_depth_offset as usize)
-        .map(|segment| format!("{segment}."))
-        .collect();
-    format!("{prefix}{local_id}")
+    let mut resolved = String::with_capacity(qualified.len() + local_id.len());
+    for segment in qualified.split('.').take(task.profile_depth_offset as usize) {
+        resolved.push_str(segment);
+        resolved.push('.');
+    }
+    resolved.push_str(local_id);
+    resolved
 }
 
 /// The descendant a checkpoint names, matched by exact qualified id.

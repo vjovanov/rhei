@@ -752,6 +752,12 @@ fn list_command(
         })
     };
 
+    // Built once for the whole listing rather than per row: the barrier walks
+    // a task's ancestors and its subtree. §FS-rhei-supervision.3.2
+    let all_tasks: Vec<&rhei_core::ast::Task> = flat.iter().map(|(task, _)| *task).collect();
+    let supervision_index = task_index(&all_tasks);
+    let no_run_spawned = HashSet::new();
+
     // Judged against every machine in the project rather than the `--rhei`
     // scope: a real state no in-scope rhei uses is an honest empty result.
     // §FS-rhei-list.2.1: a state no machine declares is an error, not silence.
@@ -880,13 +886,17 @@ fn list_command(
             // A ticket whose subtree is still open is not work anyone can be
             // handed — its children are. §FS-rhei-list.3.1 §FS-rhei-next.3
 
-            // Supervision refines both halves: a supervisor is work while its
-            // subtree is open, and a held descendant is not.
-            // §FS-rhei-supervision.3.2
-            let supervising = task_is_supervising(task, machine);
-            let subtree_done = supervising || descendants_are_terminal(task, &machines);
-            let held = held_by_supervisor(task, &loaded.rhei, &machines).is_some();
-            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done && !held;
+            // Supervision refines both halves through the one verdict the
+            // ready set and `rhei next` also ask, so the three surfaces cannot
+            // disagree about what is work. §FS-rhei-supervision.3.2
+            let subtree_done = subtree_admits_to_ready_set(
+                task,
+                &supervision_index,
+                &machines,
+                loaded.rhei.metadata.as_ref(),
+                &no_run_spawned,
+            );
+            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done;
             if filters.ready && !task_ready {
                 continue;
             }
