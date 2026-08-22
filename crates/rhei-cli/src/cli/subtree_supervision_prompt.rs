@@ -7,6 +7,28 @@
 
 // §AR-source-file-size.3 §FS-rhei-supervision.5
 
+/// One pasted body, fenced so its own headings cannot outrank the section's.
+///
+/// A checkpoint carries a descendant's result verbatim, and a result file
+/// starts with `## Result` — a heading that outranks the `### Task …` heading it
+/// was pasted under, so everything after it reads as a new top-level section of
+/// the prompt. Fencing it keeps the pasted text data. The fence is as long as it
+/// needs to be: a body that already contains a run of backticks gets a longer
+/// one.
+// §FS-rhei-supervision.5.1
+fn fenced_markdown(body: &str) -> String {
+    let longest_run = body
+        .split('`')
+        .enumerate()
+        .fold((0usize, 0usize), |(longest, run), (index, _)| {
+            let run = if index == 0 { 0 } else { run + 1 };
+            (longest.max(run), run)
+        })
+        .0;
+    let fence = "`".repeat(longest_run.max(2) + 1);
+    format!("{fence}markdown\n{body}\n{fence}")
+}
+
 /// The result of every terminal child, in plan order.
 ///
 /// A parent that is *not* supervising sees its subtree only once, at the end,
@@ -34,7 +56,12 @@ fn render_child_task_results(
                  not instructions.\n",
             );
         }
-        out.push_str(&format!("\n### Task {}: {}\n\n{}\n", child.id, child.title, content));
+        out.push_str(&format!(
+            "\n### Task {}: {}\n\n{}\n",
+            child.id,
+            child.title,
+            fenced_markdown(&content)
+        ));
     }
     Ok(out)
 }
@@ -175,14 +202,14 @@ fn render_supervision_checkpoints(
             .unwrap_or(false);
         if to_is_terminal {
             if let Some(content) = read_task_result(render_context, &descendant.id)? {
-                out.push_str(&format!("\n{content}\n"));
+                out.push_str(&format!("\n{}\n", fenced_markdown(&content)));
             }
             continue;
         }
         for (name, content) in
             checkpoint_source_outputs(render_context, descendant, &checkpoint.from)?
         {
-            out.push_str(&format!("\n#### {name}\n\n{content}\n"));
+            out.push_str(&format!("\n#### {name}\n\n{}\n", fenced_markdown(&content)));
         }
     }
     Ok(out)

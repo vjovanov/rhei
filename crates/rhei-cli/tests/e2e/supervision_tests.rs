@@ -268,7 +268,15 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
         ),
         "got:\n{second}"
     );
-    assert!(second.contains("Task plan.1.1 finished review."), "got:\n{second}");
+    // §FS-rhei-supervision.5.1: the pasted body is fenced, so its own
+    // `## Result` heading cannot outrank the `### Task …` it sits under.
+    assert!(
+        second.contains(
+            "### Task plan.1.1: Review parser \u{2014} review \u{2192} completed (visit 1)\n\n\
+             ```markdown\n## Result\n\nTask plan.1.1 finished review.\n```\n"
+        ),
+        "got:\n{second}"
+    );
 
     // §FS-rhei-supervision.5.2: the brief the supervisor wrote reaches the child.
     let child = prompt_for(&dir, "plan.1.2", "fix", 1);

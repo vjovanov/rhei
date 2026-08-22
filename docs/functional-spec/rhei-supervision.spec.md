@@ -400,10 +400,20 @@ carries what that step left behind.
 
 ### Task plan.1.2: Fix findings — review → fix (visit 2)
 
-{for a terminal `to`: the descendant's result, `runtime/results/<id>.md`;
- otherwise: every declared, existing, non-empty `outputs:` artifact of the
- `from` state, each under its artifact name}
+    ```markdown
+    {for a terminal `to`: the descendant's result, `runtime/results/<id>.md`;
+     otherwise: every declared, existing, non-empty `outputs:` artifact of the
+     `from` state, each under its artifact name}
+    ```
 ```
+
+Every pasted body is **fenced**. A result file opens with `## Result`, a heading
+that outranks the `### Task …` heading it is pasted under, so unfenced it would
+turn everything after it into a new top-level section of the prompt. The fence
+is as long as it needs to be: a body that already contains a run of backticks
+gets a longer one. `## Child Task Results` fences its bodies for the same
+reason. (`## Prior Task Results` and the handoff sections predate this and do
+not fence yet; that is a follow-up, not a difference worth relying on.)
 
 `## Child Tasks` is the map and is rendered on every visit. `## Checkpoints`
 renders the recorded `supervision.checkpoints` (§3.3) and is omitted on a
