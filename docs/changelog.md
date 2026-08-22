@@ -76,12 +76,38 @@
   so a cancel still needs `--result "<why>"`, and the supervisor's prompt now
   says so.
 
+  `cancelled` is now a **reserved state name**, and `canceled` is accepted as
+  the same name. Four rules read it as "the work was abandoned" — a cancelled
+  prior does not satisfy a dependency, `rhei complete` never selects it, the run
+  report marks it apart from success, and a transition into it waives the
+  source state's outputs — and each used to spell the test itself, so an
+  American-spelled machine got cancellation semantics in one surface out of
+  four. A machine that names its abandon state anything else keeps the ordinary
+  outputs check, and the refusal on a transition into a `final: true` state now
+  names the state that skips it. §FS-rhei-states.1.4
+
+  A supervisor that leaves its supervising state for a **human gate keeps its
+  subtree held**. The `supervision` block, not the state, is the hold: an exit
+  into a `gating: true` state keeps the block, every other non-self-loop exit
+  removes it, and a human moving the parked ticket on is what releases the
+  subtree. Exhausting a visit budget used to silently un-supervise everything
+  beneath the supervisor, which is the opposite of what a budget is for. The run
+  says so at that transition and the report gives the parked ticket a row naming
+  the subtree it still holds.
+
   Every surface that explains readiness gained the reason: `rhei next` refuses a
-  held descendant by naming its supervisor, `rhei list --ready` excludes it and
-  admits a supervisor whose subtree is still open, and the run's halt report
-  says `held by supervisor Task <P> (<state>)` — so a subtree waiting on its
-  supervisor is never mistaken for a stall. §FS-rhei-supervision
-  §DF-subtree-supervision
+  held descendant by naming its supervisor — or the worker holding that visit,
+  or the human at the gate — `rhei list --ready` excludes it and
+  admits a supervisor whose subtree is still open, the run report gives held
+  tickets a **Waiting** section of their own rather than diluting Attention, and
+  `rhei run --dry-run` names the barrier per pass and renders the release
+  self-loop as `(release)`. `rhei run` also prints the machine's validation
+  warnings once at start, so a machine whose supervisor has no `openDescendants`
+  exit is called out before the run spends the whole subtree proving it — and if
+  it halts there, the halt names the missing transition line.
+
+  `examples/subtree-supervision/` runs the whole chain with a committed mock
+  agent and no credentials. §FS-rhei-supervision §DF-subtree-supervision
 
 - Separate a run from the surface that watches it. `rhei run` bound the two into
   one process: closing the terminal killed the run (`SIGHUP` is an interruption,
