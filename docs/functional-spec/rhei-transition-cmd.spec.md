@@ -63,7 +63,15 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
    condition-blocked — is reported as such rather than as an open subtree: a
    user is not sent to finish descendants for a move that was never available.
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
-8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
+8. Verify that every required `outputs:` artifact declared on the source state
+   exists (see [Plan Language Specification — State Artifact
+   Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing
+   outputs abort the transition before the state write. This check is skipped
+   when the effective target is the `cancelled` state: cancellation abandons the
+   work, so the source state's artifact contract is moot. Nothing else on the
+   path changes — step 6's descendants-first guard, step 9's target inputs, step
+   10's terminal-result obligation, and the callbacks all still apply, so a
+   cancel into `cancelled` still needs `--result` or a result on disk.
 9. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
 10. Apply the terminal-result obligation (§3.2) against the same effective
     target, before the state write: when the target is `final: true`, either

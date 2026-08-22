@@ -785,7 +785,11 @@ State artifact contracts (see [States Specification — Artifact Contracts](rhei
 
 1. After `on_leave` callbacks complete, but before the state write is
    committed, the runtime resolves `source.outputs` and rejects the transition
-   if any required output file does not exist.
+   if any required output file does not exist. One exception: when the
+   transition's effective target is the `cancelled` state, source outputs are
+   not enforced. Cancellation abandons the work rather than finishing it, so
+   the source state's artifact contract is moot; the target's `inputs` and the
+   terminal-result obligation still apply.
 2. Before writing the target state and invoking `on_enter`, the runtime resolves
    `target.inputs` and rejects the transition if any required input file does
    not exist. Optional inputs are resolved but do not block entry.

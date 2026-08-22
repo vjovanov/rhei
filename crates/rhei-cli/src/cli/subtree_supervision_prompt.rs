@@ -257,6 +257,8 @@ fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -
     "You are supervising this task's subtree. You may run `rhei transition` against \
      descendants of this task — to cancel a step the checkpoints made unnecessary, \
      typically — and you may append descendants under this task in its task file. \
+     A cancel does not have to satisfy the cancelled step's own declared outputs, \
+     but it does have to say why: pass `--result \"<why>\"` on every cancel. \
      You must still not transition this task itself; the orchestrator owns that edge.\n\n"
         .to_string()
 }

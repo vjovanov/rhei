@@ -550,7 +550,12 @@ fn execute_transition_with_origin(
     // §AR-rhei-panta.2: artifact templates render the project-qualified id
     // against the owning rhei's execution root, matching the paths agents and
     // ready-checks were shown.
-    if !origin.skip_source_outputs {
+
+    // A cancel abandons the work, so the abandoned step's artifact contract is
+    // moot; the target's inputs and the terminal result below still apply.
+    // §FS-rhei-transitions.4.5
+    let cancelling = normalized_state_name(to, machine) == "cancelled";
+    if !origin.skip_source_outputs && !cancelling {
         ensure_state_outputs_exist_for_transition(
             files.artifact_root,
             Some(&task_info.task),

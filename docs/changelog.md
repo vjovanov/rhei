@@ -61,6 +61,18 @@
   declares neither `visits:` nor a `visitCount`-bounded exit — nothing ends that
   loop.
 
+  Cancelling a step no longer has to satisfy that step's own `outputs:`. This
+  is a deliberate **behaviour change** on every verb, not only under a
+  supervisor: a transition whose effective target is `cancelled` skips the
+  source state's required outputs, because cancellation abandons the work and
+  the contract of a step nobody is finishing is moot. Without it a supervisor
+  could not drop a pending `review` child whose state declares a `findings`
+  output — the whole point of cancelling it is that nobody will write one.
+  Nothing else on the path changes: the descendants-first guard, the target's
+  `inputs:`, the callbacks, and the terminal-result obligation all still apply,
+  so a cancel still needs `--result "<why>"`, and the supervisor's prompt now
+  says so.
+
   Every surface that explains readiness gained the reason: `rhei next` refuses a
   held descendant by naming its supervisor, `rhei list --ready` excludes it and
   admits a supervisor whose subtree is still open, and the run's halt report

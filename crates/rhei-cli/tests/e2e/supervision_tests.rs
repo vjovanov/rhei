@@ -225,6 +225,9 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
         first.contains("You are supervising this task's subtree."),
         "the supervisor's command permissions are stated; got:\n{first}"
     );
+    // §FS-rhei-supervision.6: a cancel waives the abandoned step's outputs but
+    // not its result, and the permission text says so.
+    assert!(first.contains("pass `--result \"<why>\"` on every cancel"), "got:\n{first}");
 
     let second = prompt_for(&dir, "plan.1", "supervise", 2);
     assert!(second.contains("## Checkpoints"), "got:\n{second}");

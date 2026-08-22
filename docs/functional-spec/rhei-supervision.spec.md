@@ -397,9 +397,10 @@ sees what the subtree produced.
 
 The `## Rhei Commands` section of a supervisor's prompt additionally states
 that the agent **may** run `rhei transition` against *held descendants* — to
-cancel a step the checkpoint made unnecessary, typically — and may append
-descendants under its own task in its task file, as any agent editing its own
-file may. It still must not transition its own task: the orchestrator owns
+cancel a step the checkpoint made unnecessary, typically, passing
+`--result "<why>"` because a cancelled ticket still has to say why (§6) — and
+may append descendants under its own task in its task file, as any agent
+editing its own file may. It still must not transition its own task: the orchestrator owns
 that edge. A transition the supervisor applies to a descendant is an external
 plan change the orchestrator respects on re-read (§FS-rhei-agents.5.2).
 
@@ -452,7 +453,11 @@ engine; a supervisor that wants a fresh one overwrites it.
 - **Appending and cancelling.** The supervisor appends descendants by editing
   its task file and cancels them with `rhei transition`, both during its
   visit; the orchestrator re-reads the plan when the visit ends, so
-  `openDescendants` (§4.1) and the released subtree reflect the edits.
+  `openDescendants` (§4.1) and the released subtree reflect the edits. A cancel
+  does not have to satisfy the cancelled step's own `outputs:` — cancellation
+  abandons the work, so that contract is moot (§FS-rhei-transitions.4.5) — but
+  it does have to say why: the terminal-result obligation stands, so every
+  cancel carries `--result "<why>"`.
 - **Reset.** `rhei reset` on a supervisor clears its `supervision` block;
   resetting a descendant does not touch the supervisor's phase.
 - **Fanout.** Not supported on a supervising state in v1 (§1.2).
