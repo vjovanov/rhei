@@ -249,17 +249,55 @@ fn render_supervisor_brief(render_context: &RuntimeTemplateContext<'_>) -> Miett
     Ok(out)
 }
 
+/// The one sentence that names the brief, with the paths this run resolves.
+///
+/// A supervisor's whole job is to steer the next step, and the lever for that is
+/// a file at a reserved path. The engine-authored paragraph used to list only
+/// the destructive levers — cancel and append — so an agent that had never read
+/// the spec had no way to learn the constructive one. The paths are absolute
+/// because the supervisor's cwd is not something the prompt can promise.
+// §FS-rhei-supervision.5.1 §FS-rhei-supervision.5.2
+fn supervisor_brief_directions(root: &Path) -> String {
+    let relative = root.join("runtime").join("supervise");
+    let supervise =
+        std::path::absolute(&relative).unwrap_or(relative).display().to_string();
+    format!(
+        "Steer the next step by writing {supervise}/<task-id>.md (read by every state of \
+         that descendant) or {supervise}/<task-id>/<state>.md (that state only)."
+    )
+}
+
 /// The extra permission a supervisor's `## Rhei Commands` section carries.
 // §FS-rhei-supervision.5.1
 fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -> String {
     if !task_is_supervising(render_context.task, render_context.machine) {
         return String::new();
     }
-    "You are supervising this task's subtree. You may run `rhei transition` against \
-     descendants of this task — to cancel a step the checkpoints made unnecessary, \
-     typically — and you may append descendants under this task in its task file. \
-     A cancel does not have to satisfy the cancelled step's own declared outputs, \
-     but it does have to say why: pass `--result \"<why>\"` on every cancel. \
-     You must still not transition this task itself; the orchestrator owns that edge.\n\n"
-        .to_string()
+    let root = export_root_for_task(render_context, &render_context.task.id);
+    format!(
+        "You are supervising this task's subtree. {} \
+         You may run `rhei transition` against \
+         descendants of this task — to cancel a step the checkpoints made unnecessary, \
+         typically — and you may append descendants under this task in its task file. \
+         A cancel does not have to satisfy the cancelled step's own declared outputs, \
+         but it does have to say why: pass `--result \"<why>\"` on every cancel. \
+         You must still not transition this task itself; the orchestrator owns that edge.\n\n",
+        supervisor_brief_directions(root)
+    )
+}
+
+/// What a supervising ticket's *manual* worker has to know beyond the state's
+/// own instructions.
+///
+/// `rhei run` carries the same facts in `## Rhei Commands` and `## Result`,
+/// which `rhei next` does not render; without this section a worker handed a
+/// supervisor by hand learned neither where a brief goes nor that the subtree
+/// beneath it is held.
+// §FS-rhei-supervision.3.4 §FS-rhei-supervision.5.2
+fn render_supervisor_visit_notes(render_context: &RuntimeTemplateContext<'_>) -> String {
+    if !task_is_supervising(render_context.task, render_context.machine) {
+        return String::new();
+    }
+    let root = export_root_for_task(render_context, &render_context.task.id);
+    format!("\n## Supervising This Subtree\n\n{}\n", supervisor_brief_directions(root))
 }

@@ -26,6 +26,10 @@ struct NextOutput<'a> {
     /// ticket, or empty when there is none.
     // §FS-rhei-supervision.5.2
     supervisor_brief: &'a str,
+    /// The `## Supervising This Subtree` notes a supervising ticket's manual
+    /// worker needs, or empty when this ticket does not supervise.
+    // §FS-rhei-supervision.3.4
+    supervising: &'a str,
     agent_id: Option<&'a str>,
     model_id: Option<&'a str>,
 }
@@ -78,6 +82,9 @@ fn print_next_output(output: NextOutput<'_>) {
         }
         if !output.supervisor_brief.is_empty() {
             obj["supervisor_brief"] = serde_json::json!(output.supervisor_brief.trim());
+        }
+        if !output.supervising.is_empty() {
+            obj["supervising"] = serde_json::json!(output.supervising.trim());
         }
         println!("{}", serde_json::to_string_pretty(&obj).expect("JSON serialization"));
     } else {
@@ -140,10 +147,11 @@ fn print_next_output(output: NextOutput<'_>) {
             println!("--- Instructions ({}) ---", output.to_state);
             println!("{}", output.instructions);
         }
-        // The two sections the run prompt composes, in its order relative to
-        // the instructions; both empty where nothing supervises, so a plan
+        // The sections the run prompt composes, in its order relative to the
+        // instructions, plus the supervising notes `rhei run` carries in
+        // `## Rhei Commands`; all empty where nothing supervises, so a plan
         // without it prints what it always did. §FS-rhei-supervision.3.4
-        for section in [output.checkpoints, output.supervisor_brief] {
+        for section in [output.checkpoints, output.supervisor_brief, output.supervising] {
             if !section.is_empty() {
                 print!("{section}");
             }

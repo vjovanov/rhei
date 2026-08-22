@@ -267,7 +267,11 @@ without special casing:
   supervision sections `rhei run` composes, from the same renderers and in the
   same order relative to the instructions: `## Checkpoints` for a ticket in a
   supervising state that is owed any, and `## Supervisor Brief` for a ticket a
-  supervising ancestor wrote one for (§5.2). Under `--json` each is a field,
+  supervising ancestor wrote one for (§5.2). A ticket in a supervising state
+  also gets `## Supervising This Subtree`, which carries what `rhei run` puts in
+  `## Rhei Commands` and `## Result` — sections `rhei next` does not render: the
+  brief paths (§5.1), what the barrier means while the visit runs, and how the
+  visit ends. Under `--json` each is a field,
   present only when the section is. A plan with no supervising state produces
   the output it always did. It never claims a descendant of a held supervisor;
   such descendants are reported as `Task <id> held by supervisor Task <P>
@@ -405,7 +409,11 @@ as today and, new, `## Child Task Results` — the result of every terminal
 child, in plan order — so an unsupervised parent integrating its subtree also
 sees what the subtree produced.
 
-The `## Rhei Commands` section of a supervisor's prompt additionally states
+The `## Rhei Commands` section of a supervisor's prompt names the lever the
+supervisor steers with before the ones it destroys with: one sentence giving
+both brief paths (§5.2) with the execution root resolved to an absolute path,
+because the supervisor's working directory is not something the prompt can
+promise. It additionally states
 that the agent **may** run `rhei transition` against *held descendants* — to
 cancel a step the checkpoint made unnecessary, typically, passing
 `--result "<why>"` because a cancelled ticket still has to say why (§6) — and

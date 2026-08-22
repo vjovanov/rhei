@@ -228,6 +228,18 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
     // §FS-rhei-supervision.6: a cancel waives the abandoned step's outputs but
     // not its result, and the permission text says so.
     assert!(first.contains("pass `--result \"<why>\"` on every cancel"), "got:\n{first}");
+    // §FS-rhei-supervision.5.1: the constructive lever is named before the
+    // destructive ones, with the paths this run resolves.
+    let supervise_dir = dir.join("runtime/supervise");
+    assert!(
+        first.contains(&format!(
+            "Steer the next step by writing {}/<task-id>.md (read by every state of \
+             that descendant) or {}/<task-id>/<state>.md (that state only).",
+            supervise_dir.display(),
+            supervise_dir.display()
+        )),
+        "got:\n{first}"
+    );
 
     let second = prompt_for(&dir, "plan.1", "supervise", 2);
     assert!(second.contains("## Checkpoints"), "got:\n{second}");

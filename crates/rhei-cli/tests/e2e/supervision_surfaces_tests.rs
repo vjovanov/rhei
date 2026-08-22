@@ -338,6 +338,16 @@ metadata:
             .contains("### Task plan.1.1: A \u{2014} fix \u{2192} completed"),
         "got: {payload}"
     );
+    // §FS-rhei-supervision.3.4: and the notes `rhei run` carries in sections
+    // `rhei next` does not render — starting with where a brief goes.
+    let supervising = payload["supervising"].as_str().expect("a supervising section");
+    assert!(
+        supervising.contains(&format!(
+            "Steer the next step by writing {}/<task-id>.md",
+            dir.join("runtime/supervise").display()
+        )),
+        "got: {supervising}"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

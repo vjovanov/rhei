@@ -404,6 +404,9 @@ fn next_command(
     // written, from the renderers the run prompt uses. §FS-rhei-supervision.3.4
     let checkpoints = render_supervision_checkpoints(&render_context)?;
     let supervisor_brief = render_supervisor_brief(&render_context)?;
+    // What `rhei run` carries in `## Rhei Commands` and `## Result`, neither of
+    // which `rhei next` renders. §FS-rhei-supervision.3.4
+    let supervising = render_supervisor_visit_notes(&render_context);
 
     print_next_output(NextOutput {
         as_json,
@@ -416,6 +419,7 @@ fn next_command(
         instructions: &instructions,
         checkpoints: &checkpoints,
         supervisor_brief: &supervisor_brief,
+        supervising: &supervising,
         agent_id: agent_id_str.as_deref(),
         model_id: model_id_str.as_deref(),
     });
