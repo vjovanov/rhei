@@ -118,7 +118,8 @@ fn next_command(
             return Err(miette!(
                 help = format!(
                     "the supervisor releases the subtree on its next visit. Work the supervisor \
-                     instead: rhei next {} --task {supervisor}",
+                     instead: rhei{} next {} --task {supervisor}",
+                    state_machine_flag(resolved.default.path.as_deref()),
                     shell_quote(&input.display().to_string())
                 ),
                 "Task {} is held by supervisor Task {} ({})",

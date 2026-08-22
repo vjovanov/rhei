@@ -272,7 +272,13 @@ without special casing:
   the output it always did. It never claims a descendant of a held supervisor;
   such descendants are reported as `Task <id> held by supervisor Task <P>
   (<state>)`, a reason row of its own beside the prerequisite row
-  (§FS-rhei-next.3.4).
+  (§FS-rhei-next.3.4). That row ends in the next step, because a held ticket is
+  not a stall but someone else's turn: it names the supervisor as the ticket to
+  work and gives the command that claims it, or — when a worker already holds
+  that visit — names the holder and the `rhei release` that hands it back. The
+  supervisor is in no other category the diagnosis reports: its own subtree is
+  open, so the "workable" set that feeds them excludes it, and a row that
+  stopped at "everything is held" would leave the worker with nowhere to go.
 - The worker releases the subtree with the self-loop,
   `rhei transition <P> --from <state> --to <state>`, and finishes it with the
   terminal edge once `openDescendants` is `0`. That self-loop ends the visit

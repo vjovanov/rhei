@@ -33,6 +33,72 @@ fn rhei_next_reports_a_held_descendant_instead_of_claiming_it() {
     assert!(!auto.status.success(), "nothing else is claimable either");
     assert_stderr_contains(&auto, "ticket(s) held by a supervisor");
     assert_stderr_contains(&auto, "Task plan.1.1 held by supervisor Task plan.1 (supervise)");
+    // §FS-rhei-supervision.3.4: the visit is already claimed here, so the row
+    // names who holds it and how to hand it back.
+    assert_stderr_contains(&auto, "pi holds it");
+    assert_stderr_contains(&auto, "rhei release");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A worker whose whole scope is held is told which ticket to work.
+///
+/// The supervisor is in no other category the diagnosis reports — its own
+/// subtree is open, so the workable set excludes it — and a row that stopped
+/// at "everything is held" left the worker with nowhere to go.
+// §FS-rhei-supervision.3.4
+#[test]
+fn the_held_row_names_the_supervisor_as_the_ticket_to_work() {
+    // `supervise` is not the profile's initial state, so nothing is
+    // auto-claimable and the diagnosis is all the worker gets.
+    let machine = r#"name: midflow
+version: 1
+states:
+  plan: { initial: true, description: Plan, agent: mock, agent_timeout: 30s, instructions: plan }
+  supervise:
+    description: Supervise
+    supervise: task
+    agent: mock
+    agent_timeout: 30s
+    visits: 12
+    instructions: supervise
+  fix: { description: Fix, agent: mock, agent_timeout: 30s, instructions: fix }
+  completed: { description: Done, final: true }
+  cancelled: { description: Dropped, final: true }
+transitions:
+  - { from: plan, to: supervise, description: Start supervising }
+  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }
+  - { from: supervise, to: supervise, description: Released }
+  - { from: fix, to: completed, description: Fixed }
+  - { from: "*", to: cancelled, description: Dropped }
+"#;
+    let plan = r#"# Rhei: Mid
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervise
+
+#### Task 1.1: A
+**State:** fix
+"#;
+    let (dir, plan_path, machine_path) =
+        setup_supervision("supervision-held-next-step", plan, machine, "");
+
+    let diagnosed = run_cli("next", &plan_path, &machine_path, &["--peek"]);
+    assert!(!diagnosed.status.success(), "nothing is auto-claimable");
+    assert_stderr_contains(&diagnosed, "Task plan.1.1 held by supervisor Task plan.1");
+    assert_stderr_contains(&diagnosed, "Work the supervisor instead");
+    assert_stderr_contains(&diagnosed, "--task plan.1");
+
+    // And the command it names is one that works.
+    let worked = run_cli("next", &plan_path, &machine_path, &["--task", "plan.1", "--peek"]);
+    assert_success(&worked);
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

@@ -8,6 +8,54 @@
 
 // §AR-source-file-size.3 §FS-rhei-next.3.4
 
+/// The ` --state-machine=<path>` a suggested command needs to resolve the same
+/// machine this invocation did, or nothing when the default was in force.
+fn state_machine_flag(state_machine_path: Option<&Path>) -> String {
+    state_machine_path
+        .map(|path| format!(" --state-machine={}", shell_quote(&path.display().to_string())))
+        .unwrap_or_default()
+}
+
+/// The next step for a worker whose whole scope is held: claim the supervisor's
+/// visit, or — when someone already has — say who and how to take it back.
+///
+/// A held ticket is not a stall and not a blocker; it is someone else's turn,
+/// and the row that reports it has to name whose. Returns `None` for a
+/// supervisor that is not itself work right now, so the caller can look at the
+/// next one up.
+// §FS-rhei-supervision.3.4
+fn supervisor_next_step(
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    supervisor: &TaskId,
+    plan_arg: &str,
+    state_machine_path: Option<&Path>,
+) -> Option<String> {
+    let mut all = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all);
+    let task = all.iter().copied().find(|task| &task.id == supervisor)?;
+    if let Some(assignee) = task.assignee.as_deref() {
+        return Some(format!(
+            " Task {supervisor} is the ticket to work and {assignee} holds it;              hand it back with: rhei release {plan_arg} --task {supervisor}"
+        ));
+    }
+    let index = task_index(&all);
+    let claimable = subtree_admits_to_ready_set(
+        task,
+        &index,
+        machines,
+        rhei.metadata.as_ref(),
+        &HashSet::new(),
+    );
+    if !claimable {
+        return None;
+    }
+    Some(format!(
+        " Work the supervisor instead: rhei{} next {plan_arg} --task {supervisor}",
+        state_machine_flag(state_machine_path)
+    ))
+}
+
 fn transition_command_lines(
     task: &rhei_core::ast::Task,
     state_name: &str,
@@ -16,9 +64,7 @@ fn transition_command_lines(
     plan_arg: &str,
     state_machine_path: Option<&Path>,
 ) -> Vec<String> {
-    let state_machine_arg = state_machine_path
-        .map(|path| format!(" --state-machine={}", shell_quote(&path.display().to_string())))
-        .unwrap_or_default();
+    let state_machine_arg = state_machine_flag(state_machine_path);
     let from_arg = shell_quote(state_name);
     machine
         .transitions()
@@ -230,12 +276,29 @@ fn diagnose_no_claimable(
             .collect();
         let suffix =
             if held.len() > 3 { format!(" (+{} more)", held.len() - 3) } else { String::new() };
+        // The supervisor is in no category above — its own subtree is open, so
+        // the workable set excludes it — and naming it here is what keeps the
+        // answer from being a dead end. §FS-rhei-supervision.3.4
+        let mut supervisors: Vec<&TaskId> = Vec::new();
+        for (_, supervisor, _) in &held {
+            if !supervisors.contains(&supervisor) {
+                supervisors.push(supervisor);
+            }
+        }
+        let plan_arg = shell_quote(&plan_path.display().to_string());
+        let next_step = supervisors
+            .into_iter()
+            .find_map(|id| {
+                supervisor_next_step(rhei, machines, id, &plan_arg, state_machine_path)
+            })
+            .unwrap_or_default();
         return format!(
-            "no tickets are ready to claim{}: {} ticket(s) held by a supervisor: {}{}.",
+            "no tickets are ready to claim{}: {} ticket(s) held by a supervisor: {}{}.{}",
             scope_suffix,
             held.len(),
             items.join(", "),
-            suffix
+            suffix,
+            next_step
         );
     }
 
