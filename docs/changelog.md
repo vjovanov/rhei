@@ -59,6 +59,13 @@
   Issue #82. PR #83 §FS-rhei-run-headless §FS-rhei-run-json §DA-detached-runs
   §FS-rhei-run.2.7 §FS-rhei-run-tui.1.4
 
+- Fix the minor release assembling its release commit from a path list that had
+  drifted from the bump: it omitted `xtask/Cargo.toml`, the one manifest outside
+  `crates/`, so the commit carried a bumped lockfile beside a stale `=` pin and
+  the release rejected itself on its first step. The commit now stages
+  everything the bump touched, and the version check runs immediately after the
+  bump rather than a dry run later. PR #85 §FS-rhei-distribution.2
+
 - Fix the waits reporting a run that exited 0 as one that "recorded no exit
   status". A run stops being live before it has recorded anything: it lets go
   of the run lock when the run command returns and stamps its exit code a frame
