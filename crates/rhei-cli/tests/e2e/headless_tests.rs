@@ -332,14 +332,13 @@ fn a_detached_run_is_its_own_session_leader() {
         let tail = stat.rsplit_once(") ")?.1;
         tail.split_whitespace().nth(3)?.parse::<i32>().ok()
     });
-    match session {
-        Some(sid) => assert_eq!(
+    // `session` is `None` off Linux: procfs is where the session id is readable,
+    // so on another Unix there is nothing to assert here — an unavailable
+    // assertion, not a failed one.
+    if let Some(sid) = session {
+        assert_eq!(
             sid, pid,
             "a detached run leads its own session, so the launcher's SIGHUP cannot reach it"
-        ),
-        // procfs is Linux-only. On another Unix the session id cannot be read
-        // here, so there is nothing to assert — an unavailable assertion, not a
-        // failed one.
-        None => {}
+        );
     }
 }
