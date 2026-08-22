@@ -29,6 +29,13 @@ enum HaltCause {
     /// it is dispatched. Named so a held subtree is never read as a stall.
     // §FS-rhei-supervision.3.4
     HeldBySupervisor { supervisor: String, state: String },
+    /// A supervisor whose subtree is closed and whose machine declares no edge
+    /// out of the supervising state on `openDescendants`. The run did
+    /// everything right — it ran the whole subtree — and then had nowhere to
+    /// put the parent; `rhei validate` warns about exactly this machine, so the
+    /// halt names the missing line rather than pointing at logs.
+    // §FS-rhei-supervision.1.2 §FS-rhei-supervision.4.1
+    SupervisorHasNoTerminalEdge { suggested_final: String },
     /// A live `**Assignee:**`; the scheduler never schedules a claimed ticket.
     Claimed { assignee: String },
     /// An unsatisfied `**Prior:**`, already formatted as `Task <id> (<state>)`.
@@ -87,6 +94,17 @@ impl HaltCause {
                     "the supervisor releases it on its next visit; nothing to do on Task {id}"
                 ),
             ),
+            // §FS-rhei-supervision.4.1: the missing line, verbatim.
+            HaltCause::SupervisorHasNoTerminalEdge { suggested_final } => (
+                format!(
+                    "no transition out of '{state}' is eligible on `openDescendants`; its \
+                     subtree is closed and nothing can finish it"
+                ),
+                format!(
+                    "add `- {{from: {state}, to: {suggested_final}, condition: \
+                     openDescendants < 1}}` to the machine's transitions"
+                ),
+            ),
             HaltCause::Claimed { assignee } => (
                 format!("claimed by {assignee}"),
                 format!(
@@ -143,6 +161,38 @@ impl HaltCause {
     }
 }
 
+/// Whether the machine gives a supervising state an edge that finishes the task
+/// once its subtree closes — the same shape `rhei validate` warns about the
+/// absence of. §FS-rhei-supervision.1.2
+fn supervising_state_can_finish(machine: &rhei_validator::StateMachine, state: &str) -> bool {
+    machine.transitions().iter().any(|rule| {
+        rule.from.0 == state
+            && rule.to.0 != state
+            && machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false)
+            && rule.condition.as_deref().is_some_and(|cond| cond.contains("openDescendants"))
+    })
+}
+
+/// The terminal state a suggested `openDescendants` edge should aim at: one the
+/// supervising state already reaches if there is one, otherwise the machine's
+/// first success terminal in declaration order.
+// §FS-rhei-supervision.4.1 §FS-rhei-states.1.4
+fn suggested_final_state(machine: &rhei_validator::StateMachine, state: &str) -> String {
+    let is_success_terminal = |name: &str| {
+        machine.states.get(name).map(|def| def.terminal).unwrap_or(false)
+            && !rhei_validator::is_cancelled_state_name(name)
+    };
+    machine
+        .transitions()
+        .iter()
+        .find(|rule| rule.from.0 == state && is_success_terminal(&rule.to.0))
+        .map(|rule| rule.to.0.clone())
+        .or_else(|| {
+            machine.states.keys().find(|name| is_success_terminal(name)).cloned()
+        })
+        .unwrap_or_else(|| "completed".to_string())
+}
+
 /// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
 /// the run actually spawned work for, whose failure is the ordinary stalled
 /// case rather than a scheduling one; `missing` carries the required artifacts
@@ -176,6 +226,16 @@ fn classify_halt(
     let open = open_descendant_tasks(task, machines);
     if !open.is_empty() && !task_is_supervising(task, machine) {
         return HaltCause::WaitingOnDescendants { open: format_open_descendants(&open, machines) };
+    }
+    // A supervisor that ran its whole subtree and has no edge left is not
+    // stalled work: the machine is missing a line. §FS-rhei-supervision.4.1
+    if task_is_supervising(task, machine)
+        && open.is_empty()
+        && !supervising_state_can_finish(machine, &state)
+    {
+        return HaltCause::SupervisorHasNoTerminalEdge {
+            suggested_final: suggested_final_state(machine, &state),
+        };
     }
     if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
         return HaltCause::Gate;

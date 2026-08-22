@@ -109,7 +109,12 @@ in it is worked once, after its whole subtree is terminal
   This mirrors the self-loop rule for polling states (§FS-rhei-states.1.3).
 - `rhei validate` warns when no transition from a supervising state uses
   `openDescendants` (§4.1) to reach a terminal state: the supervisor would
-  have no way to finish.
+  have no way to finish. `rhei run` prints that warning at start
+  (§FS-rhei-run.3), and if the run reaches the state the warning describes — a
+  supervisor with a closed subtree and no eligible edge out — the halt names
+  the missing line: `add - {from: <s>, to: <final>, condition: openDescendants
+  < 1}`. Running the whole subtree and then reporting "stalled in non-terminal
+  state" is the one outcome this machine must not produce.
 - `visits` on a supervising state is allowed and budgets the number of
   supervisor visits; the usual exhaustion rules apply
   (§FS-rhei-transitions.4.3). `rhei validate` warns when a supervising state

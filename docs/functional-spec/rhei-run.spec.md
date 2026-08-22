@@ -141,7 +141,12 @@ task. The manual worker loop must claim such a task with `rhei next`, do the
 work, and finish it with `rhei complete`. This prevents the built-in machine
 from silently completing fresh tasks without executing them.
 
-1. Load the state machine and plan. Validate.
+1. Load the state machine and plan. Validate. Errors stop the run; the
+   validation **warnings** (§FS-rhei-validate.4) are printed once at start, in
+   the same words `rhei validate` prints them. A machine that warns is still a
+   legal machine, so the run proceeds — but the operator hears about it before
+   the run spends an hour proving the warning right, rather than only if they
+   happened to run `rhei validate` first.
 2. Scan all task nodes, including child and grandchild tasks, and compute the
    *ready set*: tasks all of whose descendants are terminal, whose `**Prior:**`
    are all in successful terminal states

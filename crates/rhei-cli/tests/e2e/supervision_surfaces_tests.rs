@@ -9,7 +9,7 @@
 use std::fs;
 
 use super::supervision_barrier_tests::TWO_CHILD_PLAN;
-use super::supervision_tests::{setup_supervision, supervision_machine};
+use super::supervision_tests::{setup_supervision, supervision_machine, REVIEW_FIX_PLAN};
 use super::*;
 
 /// §FS-rhei-supervision.3.4: `rhei next` never claims a descendant of a held
@@ -494,6 +494,57 @@ structure:
     assert!(!ready.stdout.contains("Task plan.1:"), "got:\n{}", ready.stdout);
     let next = run_cli("next", &plan_path, &machine_path, &["--peek"]);
     assert!(!next.status.success(), "and `rhei next` refuses it too");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A machine whose supervisor cannot finish is legal, so `rhei run` runs it —
+/// and says, twice, what is wrong with it.
+///
+/// Before: the warning existed only in `rhei validate`, and the run drove the
+/// whole subtree and then reported "stalled in non-terminal state supervise /
+/// inspect logs", which is advice for a halt nobody can name. This one is
+/// nameable: the machine is missing one line.
+// §FS-rhei-supervision.1.2 §FS-rhei-supervision.4.1 §FS-rhei-run.3
+#[test]
+fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
+    let machine = supervision_machine("task", "completed")
+        .replace(
+            "  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }\n",
+            "",
+        );
+    assert!(
+        !machine.contains("openDescendants"),
+        "the fixture must be the machine that cannot finish:\n{machine}"
+    );
+    let (dir, plan_path, machine_path) =
+        setup_supervision("supervision-no-terminal-edge", REVIEW_FIX_PLAN, &machine, "");
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    // The machine's own warning, printed at run start rather than only by
+    // `rhei validate`.
+    assert!(
+        result.stderr.contains(
+            "warning: state 'supervise' declares 'supervise' but no transition from it \
+             reaches a final state on `openDescendants`"
+        ),
+        "got stderr:\n{}",
+        result.stderr
+    );
+    // And the halt names the line to add, wherever the halt is reported.
+    let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        report.contains("no transition out of 'supervise' is eligible on `openDescendants`"),
+        "got:\n{report}"
+    );
+    assert!(
+        report.contains("add `- {from: supervise, to: completed, condition: openDescendants < 1}`"),
+        "got:\n{report}"
+    );
+    assert!(
+        !report.contains("stalled in non-terminal state"),
+        "the halt is nameable, so it must not fall back to the generic reading:\n{report}"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

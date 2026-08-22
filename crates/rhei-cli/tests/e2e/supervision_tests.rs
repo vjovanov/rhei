@@ -162,7 +162,7 @@ pub fn prompt_for(dir: &Path, task: &str, state: &str, visit: u32) -> String {
 
 /// The §FS-rhei-supervision.7 chain: two pre-authored children, a supervisor
 /// woken after each of them.
-const REVIEW_FIX_PLAN: &str = r#"# Rhei: Harden
+pub const REVIEW_FIX_PLAN: &str = r#"# Rhei: Harden
 
 ---
 structure:
