@@ -48,7 +48,14 @@ help = ticket_id_required_help(),
         // rolling the state back: the transition happened, its callbacks ran,
         // and discarding that silently would lose the record of it.
         if let Some(initial) = target.initial_state.as_deref() {
-            if normalized_state_name(&target.state, machines.for_task_str(&target.id)) != initial {
+            let machine = machines.for_task_str(&target.id);
+            let state = normalized_state_name(&target.state, machine);
+            // A supervisor is claimed where it stands, and a name the machine
+            // does not declare cannot be transitioned to.
+            // §FS-rhei-supervision.3.4 §FS-rhei-release
+            let claimable_where_it_stands = supervise_kind_of(machine, &state).is_some();
+            let target_exists = machine.states.contains_key(initial);
+            if state != initial && !claimable_where_it_stands && target_exists {
                 println!(
                     "  note: still in '{}'. `rhei next` claims from '{}', so move it back with \
                      `rhei transition --task {} --from {} --to {}` if it should be picked up \

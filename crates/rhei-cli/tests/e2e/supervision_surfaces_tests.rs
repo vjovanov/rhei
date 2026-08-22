@@ -296,3 +296,78 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// `rhei release` on a supervisor says nothing about moving it back.
+///
+/// The note exists because `rhei next` claims from the profile's initial state,
+/// so a ticket released later is unclaimed but not re-claimable. A supervisor
+/// is claimed exactly where it stands, so moving it back to `pending` is the
+/// one thing that would make it unclaimable — and a machine that has no state
+/// by that name cannot run the command the note prints at all.
+// §FS-rhei-supervision.3.4 §FS-rhei-release
+#[test]
+fn releasing_a_supervisor_suggests_no_move_back() {
+    let machine = r#"name: release-note
+version: 1
+states:
+  pending:
+    initial: true
+    description: Fresh
+  supervise:
+    description: Supervise
+    supervise: task
+    agent: mock
+    agent_timeout: 30s
+    visits: 12
+  review:
+    description: Review
+    agent: mock
+    agent_timeout: 30s
+  completed:
+    description: Done
+    final: true
+transitions:
+  - { from: pending, to: supervise, description: Start supervising }
+  - { from: supervise, to: completed, description: Done, condition: openDescendants < 1 }
+  - { from: supervise, to: supervise, description: Released }
+  - { from: review, to: completed, description: Reviewed }
+"#;
+    let plan = r#"# Rhei: Release
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervise
+**Assignee:** pi
+
+#### Task 1.1: A
+**State:** review
+**Assignee:** pi
+"#;
+    let (dir, plan_path, machine_path) =
+        setup_supervision("supervision-release-note", plan, machine, "");
+
+    let supervisor = run_cli("release", &plan_path, &machine_path, &["--task", "1", "--dry-run"]);
+    assert_success(&supervisor);
+    assert!(
+        !supervisor.stdout.contains("note: still in"),
+        "a supervisor is claimed where it stands:\n{}",
+        supervisor.stdout
+    );
+
+    // An ordinary ticket in a later state still gets the note.
+    let child = run_cli("release", &plan_path, &machine_path, &["--task", "1.1", "--dry-run"]);
+    assert_success(&child);
+    assert!(
+        child.stdout.contains("note: still in 'review'"),
+        "the note is right for an ordinary ticket:\n{}",
+        child.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
