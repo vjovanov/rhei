@@ -263,7 +263,13 @@ Supervision is defined on the shared path, so the manual-worker loop sees it
 without special casing:
 
 - `rhei next` claims a held supervisor under §3.2 and renders its prompt with
-  the checkpoints (§5.1). It never claims a descendant of a held supervisor;
+  the checkpoints (§5.1). Claim mode and `--peek` render the same two
+  supervision sections `rhei run` composes, from the same renderers and in the
+  same order relative to the instructions: `## Checkpoints` for a ticket in a
+  supervising state that is owed any, and `## Supervisor Brief` for a ticket a
+  supervising ancestor wrote one for (§5.2). Under `--json` each is a field,
+  present only when the section is. A plan with no supervising state produces
+  the output it always did. It never claims a descendant of a held supervisor;
   such descendants are reported as `Task <id> held by supervisor Task <P>
   (<state>)`, a reason row of its own beside the prerequisite row
   (§FS-rhei-next.3.4).

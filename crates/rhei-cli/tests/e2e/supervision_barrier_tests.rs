@@ -417,6 +417,143 @@ structure:
         "the next visit is claimable; got:\n{}",
         second.stdout
     );
+    // §FS-rhei-supervision.3.4: the visit `rhei next` hands over carries what
+    // the visit is about.
+    assert!(
+        second.stdout.contains("### Task plan.1.1: A \u{2014} fix \u{2192} completed (visit 1)"),
+        "got:\n{}",
+        second.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `rhei next` renders the same two supervision sections `rhei run` composes:
+/// the checkpoints a supervisor is owed, and the brief its descendant was
+/// written.
+// §FS-rhei-supervision.3.4
+#[test]
+fn rhei_next_renders_the_checkpoints_and_the_brief_the_run_prompt_would() {
+    let plan = r#"# Rhei: Handover
+
+---
+structure:
+  maxLevels: 3
+metadata:
+  tasks:
+    1:
+      stateVisits:
+        supervise: 2
+      supervision:
+        phase: released
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervise-2
+
+#### Task 1.1: A
+**State:** fix
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-next-sections",
+        plan,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+    let brief = dir.join("runtime/supervise");
+    fs::create_dir_all(&brief).expect("create brief dir");
+    fs::write(brief.join("plan.1.1.md"), "Fix only the parser overflow.\n").expect("write brief");
+
+    // §FS-rhei-supervision.5.2: the released descendant reads its brief.
+    let child = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
+    assert_success(&child);
+    assert!(child.stdout.contains("## Supervisor Brief"), "got:\n{}", child.stdout);
+    assert!(child.stdout.contains("Fix only the parser overflow."), "got:\n{}", child.stdout);
+
+    // §FS-rhei-supervision.5.1: and the supervisor reads its checkpoints, in
+    // JSON as a field of its own.
+    let done =
+        run_cli("complete", &plan_path, &machine_path, &["--task", "1.1", "--result", "fixed"]);
+    assert_success(&done);
+    let supervisor =
+        run_cli("next", &plan_path, &machine_path, &["--task", "1", "--peek", "--json"]);
+    assert_success(&supervisor);
+    let payload: serde_json::Value =
+        serde_json::from_str(&supervisor.stdout).expect("next --json parses");
+    assert!(
+        payload["checkpoints"]
+            .as_str()
+            .expect("a checkpoint section")
+            .contains("### Task plan.1.1: A \u{2014} fix \u{2192} completed"),
+        "got: {payload}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// A plan with no supervising state prints exactly what it printed before
+/// supervision existed: no empty section, no blank line, no field.
+// §FS-rhei-supervision.3.4
+#[test]
+fn rhei_next_output_is_unchanged_for_a_plan_without_supervision() {
+    let machine = r#"name: plain
+version: 1
+states:
+  fix:
+    initial: true
+    description: Fix
+    agent: mock
+    agent_timeout: 30s
+    instructions: Apply the fixes.
+  completed:
+    description: Done
+    final: true
+transitions:
+  - { from: fix, to: completed, description: Fixed }
+"#;
+    let plan = r#"# Rhei: Plain
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Fix findings
+**State:** fix
+
+Body text.
+
+#### Task 1.1: A
+**State:** fix
+"#;
+    let (dir, plan_path, machine_path) =
+        setup_supervision("supervision-next-untouched", plan, machine, "");
+
+    let peek = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
+    assert_success(&peek);
+    let expected = [
+        "Task plan.1.1 \u{2014} current state: 'fix' (read-only peek; not advanced)",
+        "Agent: mock  |  Model: default",
+        "",
+        "## Task plan.1.1: A",
+        "",
+        "--- Instructions (fix) ---",
+        "Apply the fixes.",
+        "",
+    ]
+    .join("\n");
+    assert_eq!(peek.stdout, expected);
+
+    let json = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek", "--json"]);
+    assert_success(&json);
+    let payload: serde_json::Value =
+        serde_json::from_str(&json.stdout).expect("next --json parses");
+    assert!(payload.get("checkpoints").is_none(), "got: {payload}");
+    assert!(payload.get("supervisor_brief").is_none(), "got: {payload}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

@@ -97,6 +97,7 @@ include!("cli/complete_reset_commands.rs");
 include!("cli/complete_reset_rewrites.rs");
 include!("cli/transition_ledger.rs");
 include!("cli/release_command.rs");
+include!("cli/next_output.rs");
 include!("cli/render_install_commands.rs");
 include!("cli/install_skill_agents.rs");
 include!("cli/viz_command.rs");

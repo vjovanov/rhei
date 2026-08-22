@@ -399,6 +399,10 @@ fn next_command(
     );
     let personality = state_personality(machine, final_state.as_str())
         .map(|text| resolve_runtime_template_text(&text, &render_context));
+    // The checkpoints a supervisor is owed and the brief a descendant was
+    // written, from the renderers the run prompt uses. §FS-rhei-supervision.3.4
+    let checkpoints = render_supervision_checkpoints(&render_context)?;
+    let supervisor_brief = render_supervisor_brief(&render_context)?;
 
     print_next_output(NextOutput {
         as_json,
@@ -409,6 +413,8 @@ fn next_command(
         to_state: task.state.as_str(),
         personality: personality.as_deref(),
         instructions: &instructions,
+        checkpoints: &checkpoints,
+        supervisor_brief: &supervisor_brief,
         agent_id: agent_id_str.as_deref(),
         model_id: model_id_str.as_deref(),
     });
