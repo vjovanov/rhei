@@ -321,3 +321,51 @@ structure:
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// The plan and the machine printed in the spec's example validate as written.
+///
+/// They did not: the machine had no `name`, no state marked `initial`, and a
+/// `snapshot:` block on an `agent:` that resolves no provider or model — three
+/// hard errors before a reader gets to the first pass. An example a reader
+/// cannot paste is worse than no example, so the spec's own text is the fixture.
+// §FS-rhei-supervision.7
+#[test]
+fn the_specs_own_example_validates_as_printed() {
+    let spec =
+        fs::read_to_string(repo_root().join("docs/functional-spec/rhei-supervision.spec.md"))
+            .expect("read the supervision spec");
+    let section = spec
+        .split("## 7. Example")
+        .nth(1)
+        .expect("the spec has a §7")
+        .split("## Related Specifications")
+        .next()
+        .expect("§7 ends before Related Specifications");
+
+    let block = |fence: &str| -> String {
+        let opened = section
+            .split(&format!("```{fence}\n"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("§7 has a ```{fence} block"));
+        opened.split("```").next().expect("the block is closed").to_string()
+    };
+
+    let dir = unique_temp_dir("supervision-spec-example");
+    let plan_path = write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        &format!("# Rhei: Harden the parser\n\n## Tasks\n\n{}", block("markdown")),
+    );
+    let machine_path = write_fixture_file(&dir, "states.yaml", &block("yaml"));
+
+    let result = run_cli("validate", &plan_path, &machine_path, &[]);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("Validation succeeded"),
+        "the spec's example must validate clean; got:\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

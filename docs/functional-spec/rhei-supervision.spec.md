@@ -60,7 +60,7 @@ one condition operand, one metadata block, and two prompt sections.
 states:
   supervise:
     supervise: task          # task | state
-    agent: pi
+    target: pi:anthropic:claude-sonnet-4-5
     visits: 20
     snapshot:
       emit:    { name: supervisor, on: always }
@@ -68,6 +68,16 @@ states:
     instructions: |
       You supervise Task {task_id} ...
 ```
+
+The `snapshot:` block is what makes each visit continue the last one, and it is
+the one part of this shape that is not universally available: of the built-in
+agent profiles only **`pi`** declares a snapshot session layout today, and only
+through a `target:` (or an equivalent `model` binding) that resolves a provider
+and a model — a bare `agent: pi` does not. Every other built-in profile —
+`claude-code`, `codex`, `gemini`, `cursor`, `kilocode` — must **omit** the
+block; declaring it is a hard `unsupported-snapshot-session` validation error,
+and the error says so. A supervisor without it still supervises: it runs each
+visit cold, carried by its checkpoints and its briefs (§6).
 
 | Value | A checkpoint is produced when a descendant… | The supervisor runs… |
 |-------|----------------------------------------------|----------------------|
@@ -507,10 +517,14 @@ Goal and acceptance criteria for the whole change.
 ```
 
 ```yaml
+name: harden-the-parser
+version: 1
+
 states:
   supervise:
+    initial: true
     supervise: task
-    agent: pi
+    target: pi:anthropic:claude-sonnet-4-5
     visits: 12
     snapshot:
       emit:    { name: supervisor, on: always }
