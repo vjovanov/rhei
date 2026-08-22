@@ -78,6 +78,7 @@ include!("cli/new_command.rs");
 include!("cli/new_rhei.rs");
 include!("cli/new_ticket.rs");
 include!("cli/new_ticket_write.rs");
+include!("cli/new_verify.rs");
 include!("cli/run_command.rs");
 include!("cli/run_work_items.rs");
 include!("cli/run_parallel_spawn.rs");

@@ -5,7 +5,7 @@ use std::fs;
 
 use super::*;
 
-fn new_run(args: &[&str], cwd: &std::path::Path) -> CliRun {
+pub fn new_run(args: &[&str], cwd: &std::path::Path) -> CliRun {
     let output = rhei_command(cwd.join(".home"))
         .current_dir(cwd)
         .args(args)
@@ -19,16 +19,27 @@ fn new_run(args: &[&str], cwd: &std::path::Path) -> CliRun {
 }
 
 /// A project directory with `index.panta.md` and nothing else.
-fn empty_project(prefix: &str) -> std::path::PathBuf {
+pub fn empty_project(prefix: &str) -> std::path::PathBuf {
     let dir = unique_temp_dir(prefix);
     write_fixture_file(&dir, "index.panta.md", "# Panta: Test\n");
     dir
 }
 
-fn assert_failure(result: &CliRun, needle: &str) {
+pub fn assert_failure(result: &CliRun, needle: &str) {
     assert!(!result.status.success(), "command should fail\nstdout:\n{}", result.stdout);
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(combined.contains(needle), "expected {needle:?} in output, got:\n{combined}");
+}
+
+/// Everything the command said, with miette's line wrapping and its box-drawing
+/// gutter flattened away. A needle longer than a few words otherwise straddles
+/// a wrap and never matches.
+pub fn flattened_output(result: &CliRun) -> String {
+    format!("{}{}", result.stdout, result.stderr)
+        .replace('\u{2502}', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +167,7 @@ fn refuses_to_create_a_rhei_outside_a_project() {
 // Creating a ticket — §FS-rhei-new.3
 // ---------------------------------------------------------------------------
 
-fn project_with_rhei(prefix: &str) -> std::path::PathBuf {
+pub fn project_with_rhei(prefix: &str) -> std::path::PathBuf {
     let dir = empty_project(prefix);
     assert_success(&new_run(&["new", "Authentication", "--id", "auth"], &dir));
     dir
@@ -306,82 +317,6 @@ fn refuses_a_subtask_deeper_than_max_levels() {
 fn refuses_an_unknown_parent() {
     let dir = project_with_rhei("new-ticket-parent");
     assert_failure(&new_run(&["new", "First", "--under", "nope"], &dir), "names no rhei or ticket");
-}
-
-// ---------------------------------------------------------------------------
-// Shared behavior — §FS-rhei-new.5
-// ---------------------------------------------------------------------------
-
-/// §FS-rhei-new.5.3: a flag belonging to the other mode is refused, never
-/// silently ignored.
-#[test]
-fn refuses_flags_from_the_other_mode() {
-    let dir = project_with_rhei("new-mode");
-    assert_failure(
-        &new_run(&["new", "X", "--under", "auth", "--dir"], &dir),
-        "--dir configures a new rhei",
-    );
-    assert_failure(
-        &new_run(&["new", "X", "--state", "pending"], &dir),
-        "--state configures a new ticket",
-    );
-}
-
-/// §FS-rhei-new.5.2: a create that would not validate is undone.
-#[test]
-fn rolls_back_a_create_that_fails_validation() {
-    let dir = project_with_rhei("new-rollback");
-    assert_success(&new_run(&["new", "First", "--under", "auth"], &dir));
-    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
-
-    let result = new_run(&["new", "Broken", "--under", "auth", "--prior", "99"], &dir);
-    assert!(!result.status.success(), "an unresolvable prior must fail");
-    assert!(result.stderr.contains("nothing was written"), "got: {}", result.stderr);
-    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
-}
-
-#[test]
-fn rollback_removes_a_file_it_created() {
-    let dir = empty_project("new-rollback-file");
-    assert_success(&new_run(&["new", "Billing", "--dir"], &dir));
-    let result = new_run(&["new", "Broken", "--under", "billing", "--prior", "99"], &dir);
-    assert!(!result.status.success());
-    assert_eq!(fs::read_dir(dir.join("billing/tasks")).expect("tasks dir").count(), 0);
-}
-
-#[test]
-fn keep_on_error_leaves_the_write_in_place() {
-    let dir = empty_project("new-keep");
-    assert_success(&new_run(&["new", "Billing", "--dir"], &dir));
-    let result =
-        new_run(&["new", "Broken", "--under", "billing", "--prior", "99", "--keep-on-error"], &dir);
-    assert!(!result.status.success());
-    assert!(result.stderr.contains("left failing validation"), "got: {}", result.stderr);
-    assert_eq!(fs::read_dir(dir.join("billing/tasks")).expect("tasks dir").count(), 1);
-}
-
-/// §FS-rhei-new.5.4: `--dry-run` prints the block and touches nothing.
-#[test]
-fn dry_run_writes_nothing() {
-    let dir = project_with_rhei("new-dry-run");
-    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
-    let result = new_run(&["new", "First", "--under", "auth", "--dry-run"], &dir);
-    assert_success(&result);
-    assert!(result.stdout.contains("Would create ticket auth.1"));
-    assert!(result.stdout.contains("### Task 1: First"));
-    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
-}
-
-#[test]
-fn json_reports_the_created_ticket() {
-    let dir = project_with_rhei("new-json");
-    let result = new_run(&["new", "First", "--under", "auth", "--json"], &dir);
-    assert_success(&result);
-    let value: serde_json::Value = serde_json::from_str(result.stdout.trim()).expect("json output");
-    assert_eq!(value["kind"], "ticket");
-    assert_eq!(value["id"], "auth.1");
-    assert_eq!(value["title"], "First");
-    assert_eq!(value["state"], "pending");
 }
 
 /// §FS-rhei-new.3: a lone plan is its own rhei, so tickets can be added to it

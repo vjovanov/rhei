@@ -248,24 +248,56 @@ take a lock for a race that costs one re-run.
 
 ## 5. Write, validate, report
 
-### 5.1. Validation is part of creating
+### 5.1. A create is verified, not assumed
+
+`rhei new` never writes over a file that is already there. The destination of a
+new task file is derived from the id and the title, so a file already sitting
+at that name holds someone else's work — the refusal names the path and points
+at `--id`, before anything is written. Creating is not editing (§6), and an
+unconditional write is editing with the diff thrown away.
 
 After writing, `rhei new` loads and validates the project the way
-`rhei validate` does. A create that leaves the project unloadable has not
-succeeded, and reporting it at the next unrelated command is how a small
-mistake — a mistyped `--model`, a `--prior` naming nothing — becomes a
-confusing one.
+`rhei validate` does, and then *reloads the plan and looks up the id it just
+created*. Both halves are needed, and neither implies the other. Validation
+says the project still parses; the reload says the new node is actually in it.
+A block appended after an unterminated code fence, or spliced where the parser
+ends a section earlier than the writer assumed, leaves the project valid and
+the ticket absent — and reported as success, that is a file the author has to
+debug by hand, one id short and with the next create about to reuse the number.
+When the id does not come back from the file it was written to, the create has
+failed like any other, names the file, and is rolled back (§5.2).
 
-### 5.2. Failure rolls back
+A create that leaves the project unloadable has likewise not succeeded, and
+reporting it at the next unrelated command is how a small mistake — a mistyped
+`--model`, a `--prior` naming nothing — becomes a confusing one.
 
-When validation fails, the write is undone: a created file is removed, and a
-modified file is restored byte-for-byte. The error is the validator's own, with
-its code frame. `--keep-on-error` keeps the write for inspection, and then says
+### 5.2. A create answers for the errors it introduced
+
+The validation pass runs twice: once *before* the write and once after it. What
+decides the outcome is the difference between them.
+
+- Errors the create introduced — a `--prior` naming nothing, a `--states`
+  naming a machine no `states.yaml` provides — undo the write: a created file
+  is removed, and a modified file is restored byte-for-byte. The report lists
+  only those new errors, with the validator's own code frames.
+- Errors that were already there do not. When the post-write errors are the
+  ones the pre-write pass already found, the write is **kept** and the command
+  succeeds, with a warning saying the project was already failing validation
+  and that the failure is not this create's.
+
+The second rule is the point of running the pass twice. `rhei new` is the
+on-ramp: a project with one broken rhei is exactly the project someone is
+trying to add a working rhei to, and a create that refuses until everything
+else is fixed refuses precisely when it is most needed. It is also simply
+untrue to say "nothing was written because the project would not validate with
+it" about a create whose own output is fine — the command would be blaming
+itself for the state it found.
+
+Rolling back a create's *own* errors is still the right default, because that
+failure is nearly always in the flags rather than in the file: re-running with a
+fixed flag is the fix, and a half-created ticket in the way of that re-run is
+pure friction. `--keep-on-error` keeps the write for inspection, and then says
 that the project is left failing validation.
-
-Rolling back is the right default because the failure is nearly always in the
-flags, not in the file: re-running with a fixed flag is the fix, and a
-half-created ticket in the way of that re-run is pure friction.
 
 ### 5.3. Mode confusion is an error
 

@@ -113,10 +113,16 @@ help = "`--description-file -` reads the description from standard input; pipe i
     Ok(Some(body))
 }
 
-/// Write the create, then validate the project it landed in. A create that
-/// leaves the project unloadable has not succeeded, so the write is undone
-/// unless `--keep-on-error`. §FS-rhei-new.5.1 §FS-rhei-new.5.2
+/// Write the create, then decide whether it succeeded: the errors it added to
+/// the ones the project already had, and whether the new id reads back. The
+/// write is undone when it did not, unless `--keep-on-error`.
+// §FS-rhei-new.5.1 §FS-rhei-new.5.2
 fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> MietteResult<()> {
+    // The pass runs before the write as well, so what follows it can be read as
+    // a difference rather than as a verdict on the whole project.
+    // §FS-rhei-new.5.2
+    let inherited = create_validation_errors(target);
+
     let previous = fs::read_to_string(&write.path).ok();
     let created_dirs: Vec<PathBuf> =
         write.dirs.iter().filter(|dir| !dir.exists()).cloned().collect();
@@ -129,7 +135,8 @@ fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> Miet
     // Warnings are deliberately dropped: a rhei created seconds ago holding no
     // tickets is exactly what was asked for, and saying so here would make the
     // normal path noisier than the failing one. §FS-rhei-new.5.1
-    let Err(err) = validation_warnings_or_error(target, None) else {
+    let Some(failure) = new_write_failure(target, write, &inherited) else {
+        report_inherited_validation_failure(&inherited);
         return Ok(());
     };
     if keep_on_error {
@@ -137,16 +144,38 @@ fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> Miet
             "warning: kept {} — the project is left failing validation",
             display_path(&write.path)
         );
-        return Err(err);
+        return Err(failure.report);
     }
     roll_back_new_write(&write.path, previous.as_deref(), &created_dirs);
     // Say it before the validator's own report: a create that reports only a
     // validation error reads as though something half-landed. §FS-rhei-new.5.2
     eprintln!(
-        "note: nothing was written — the create was rolled back because the project would \
-         not validate with it. Re-run with `--keep-on-error` to inspect it."
+        "note: nothing was written — the create was rolled back because {}. Re-run with \
+         `--keep-on-error` to inspect it.",
+        failure.reason
     );
-    Err(err)
+    Err(failure.report)
+}
+
+/// Say that the project was failing validation before this create, and that the
+/// failure is not the create's.
+///
+/// Kept as a warning rather than an error: `rhei new` is the on-ramp, and a
+/// project with one broken rhei is exactly the project someone is adding a
+/// working one to. Silence would be worse than noise here — the next command
+/// will fail, and the user would read that failure as this create's doing.
+// §FS-rhei-new.5.2
+fn report_inherited_validation_failure(inherited: &[String]) {
+    if inherited.is_empty() {
+        return;
+    }
+    let count = inherited.len();
+    let noun = if count == 1 { "error" } else { "errors" };
+    eprintln!(
+        "warning: the project was already failing validation before this create \
+         ({count} {noun}), and it fails the same way after it — the write is kept, and \
+         those errors are not this create's. Run `rhei validate` to see them."
+    );
 }
 
 /// Undo a write: restore a modified file byte-for-byte, remove a created one,

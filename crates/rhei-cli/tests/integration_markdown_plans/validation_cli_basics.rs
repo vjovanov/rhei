@@ -316,3 +316,65 @@ fn missing_subcommand_under_a_group_is_a_usage_error() {
         "error should show the subcommand's own usage, got:\n{stderr}"
     );
 }
+
+/// `rhei validate` prints exactly what it printed before its pass was split.
+///
+/// The pass is now shared with `rhei new`, which runs it twice and compares the
+/// results, and so needs the error strings rather than a rendered report.
+/// Lifting them out must not move one byte of what `validate` says, so both
+/// halves are pinned here — the green output and the failing one, stream by
+/// stream, with the exit code.
+// §FS-rhei-new.5.2
+#[test]
+fn cli_validate_output_is_byte_for_byte_pinned() {
+    let dir = unique_temp_dir("integration-cli-validate-pinned");
+    write_fixture_file(&dir, "states.yaml", fixtures::TEST_STATE_MACHINE);
+    write_fixture_file(&dir, "plan.rhei.md", PINNED_VALID_PLAN);
+
+    let succeeded = run_validate_in_dir(&dir);
+    assert_eq!(succeeded.status.code(), Some(0));
+    assert_eq!(succeeded.stdout, "Validation succeeded\n");
+    assert_eq!(succeeded.stderr, "");
+
+    write_fixture_file(&dir, "plan.rhei.md", PINNED_INVALID_PLAN);
+    let failed = run_validate_in_dir(&dir);
+    assert_eq!(failed.status.code(), Some(1));
+    assert_eq!(failed.stdout, "");
+    assert_eq!(
+        failed.stderr,
+        concat!(
+            "  × -- VALIDATION ERROR ----------------------\n",
+            "  │ in plan.rhei.md\n",
+            "\n",
+            "  │ I validated this plan using 'states.yaml', but found a problem.\n",
+            "\n",
+            "  │ The problem is:\n",
+            "\n",
+            "  │     Task plan.1 depends on missing Task plan.99\n",
+            "\n",
+            "  │ I recommend fixing the problems above and running the command again.\n",
+            "  help: fix the errors above, then re-check with: rhei validate <plan>\n",
+            "\n",
+        )
+    );
+}
+
+const PINNED_VALID_PLAN: &str = "# Rhei: Pinned\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n";
+
+const PINNED_INVALID_PLAN: &str =
+    "# Rhei: Pinned\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n**Prior:** 99\n";
+
+/// Validate from inside `dir` with relative arguments, so the paths the report
+/// names do not depend on where `cargo test` was started.
+fn run_validate_in_dir(dir: &Path) -> CliRun {
+    let output = rhei_command()
+        .current_dir(dir)
+        .args(["--state-machine", "states.yaml", "validate", "plan.rhei.md"])
+        .output()
+        .expect("validate command should run");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}

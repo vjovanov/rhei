@@ -152,18 +152,35 @@ help = "re-run after `rhei validate` passes, so the plan on disk and the ids agr
         }
         RheiEntry::Workspace(dir) => {
             let tasks_dir = dir.join("tasks");
-            Ok(PlacedTicket {
-                path: tasks_dir.join(task_file_name(local_id, title)),
-                contents: block.to_string(),
-                dirs: vec![tasks_dir],
-            })
+            let path = tasks_dir.join(task_file_name(local_id, title));
+            reject_existing_destination(&path)?;
+            Ok(PlacedTicket { path, contents: block.to_string(), dirs: vec![tasks_dir] })
         }
-        RheiEntry::Basin(dir) => Ok(PlacedTicket {
-            path: dir.join(task_file_name(local_id, title)),
-            contents: block.to_string(),
-            dirs: vec![dir.clone()],
-        }),
+        RheiEntry::Basin(dir) => {
+            let path = dir.join(task_file_name(local_id, title));
+            reject_existing_destination(&path)?;
+            Ok(PlacedTicket { path, contents: block.to_string(), dirs: vec![dir.clone()] })
+        }
     }
+}
+
+/// Refuse a destination that is already occupied.
+///
+/// A task file's name comes from the id and the title, so two unrelated
+/// tickets can pick the same one — and the file already there is authored
+/// content, not a slot. Creating is not editing: an unconditional write would
+/// take someone's notes, exit 0, and validate green.
+// §FS-rhei-new.5.1 §FS-rhei-new.6
+fn reject_existing_destination(path: &Path) -> MietteResult<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    Err(miette!(
+help = "give the ticket another id with --id, or move the existing file aside first.",
+
+        "{} already exists, and `rhei new` never writes over a file it did not create",
+        display_path(path)
+    ))
 }
 
 /// `4-rotate-signing-keys.md` — the id first so the directory sorts the way the

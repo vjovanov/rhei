@@ -1078,6 +1078,20 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     Ok(())
 }
 
+/// One whole validation pass, before anything decides what to do with it.
+///
+/// `rhei validate` collapses this straight into a report and a set of warnings,
+/// but a command that validates its *own* write compares two passes to tell the
+/// errors it introduced from the ones it found — which needs the error strings
+/// themselves, not a rendered diagnostic.
+// §FS-rhei-new.5.2
+struct ValidationPass {
+    errors: Vec<String>,
+    warnings: Vec<String>,
+    /// The states file the pass resolved, for an error report to name.
+    state_machine: Option<PathBuf>,
+}
+
 /// Run the whole validation pass, failing on the first error report and
 /// returning its warnings otherwise.
 ///
@@ -1089,6 +1103,15 @@ fn validation_warnings_or_error(
     input: &Path,
     state_machine: Option<&Path>,
 ) -> MietteResult<Vec<String>> {
+    let pass = validation_pass(input, state_machine)?;
+    if !pass.errors.is_empty() {
+        return Err(validation_report(input, pass.state_machine.as_deref(), &pass.errors));
+    }
+    Ok(pass.warnings)
+}
+
+/// The validation pass itself, reported as data. §FS-rhei-new.5.2
+fn validation_pass(input: &Path, state_machine: Option<&Path>) -> MietteResult<ValidationPass> {
     let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine)?;
@@ -1145,11 +1168,11 @@ fn validation_warnings_or_error(
     report.warnings.extend(empty_rhei_warnings(&loaded));
     report.warnings.extend(ignored_member_settings_warnings(input, &loaded));
 
-    if report.has_errors() {
-        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
-    }
-
-    Ok(report.warnings)
+    Ok(ValidationPass {
+        errors: report.errors,
+        warnings: report.warnings,
+        state_machine: resolved.default.path.clone(),
+    })
 }
 
 /// Print success output and any non-fatal validation warnings.

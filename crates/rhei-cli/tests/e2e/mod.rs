@@ -8,6 +8,7 @@ mod headless_tests;
 mod headless_undecided_tests;
 mod install_skills_tests;
 mod new_tests;
+mod new_write_tests;
 mod next_tests;
 mod run_lock_wait_tests;
 mod run_signals_tests;

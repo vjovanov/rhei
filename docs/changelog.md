@@ -18,10 +18,20 @@
   the structure block. `--under basin` is the capture path for a ticket with no
   owning rhei, creating `basin/` on first use.
 
-  A create validates the project it landed in, and **rolls itself back** when
-  that fails — a mistyped `--model` or a `--prior` naming nothing leaves
-  nothing behind to clean up, and `--keep-on-error` opts out. `--dry-run`
-  prints the exact markdown, `--json` reports the created id for scripts.
+  A create is verified rather than assumed. It never writes over a file that
+  already exists, it validates the project it landed in, and it reloads the
+  plan to confirm the new id actually reads back out of it — a block that
+  landed in dead text is a failure, not a green exit. When something is wrong
+  it **rolls itself back**, so a mistyped `--model` or a `--prior` naming
+  nothing leaves nothing behind to clean up, and `--keep-on-error` opts out.
+
+  Crucially, a create answers only for the errors it *introduced*. The
+  validation pass runs before the write as well as after it, and a project that
+  was already failing keeps the create with a warning instead of refusing it:
+  a half-broken project is exactly the one someone is adding work to, and a
+  command that refuses until everything else is fixed refuses when it is needed
+  most. `--dry-run` prints the exact markdown, `--json` reports the created id
+  for scripts.
 
   Two rules changed to make this honest. A `## Tasks` section with no tickets
   is now **valid** in a single-file rhei, matching what the Directory Workspace
