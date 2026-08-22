@@ -1,0 +1,306 @@
+// §FS-rhei-supervision driven end to end: a parent woken between its children,
+// the checkpoints it reads, the briefs it writes, and the barrier that keeps it
+// from ever running beside one of them.
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use super::*;
+
+/// The mock agent every supervision scenario runs.
+///
+/// It logs one line per invocation, saves the prompt it was handed, writes the
+/// state's declared output and its result, and — in a supervising state — leaves
+/// a brief for each of its children. `extra` is spliced into the `supervise`
+/// arm so a scenario can make the supervisor act on its subtree.
+pub fn supervision_agent_script(extra: &str) -> String {
+    format!(
+        r#"#!/bin/sh
+set -eu
+root="${{RHEI_ROOT:?}}"
+task="${{RHEI_TASK_ID:?}}"
+state="${{RHEI_STATE:?}}"
+visit="${{RHEI_VISIT_COUNT:-1}}"
+mkdir -p "$root/runtime/logs" "$root/runtime/prompts" "$root/runtime/supervise" "$root/runtime/review"
+printf '%s %s %s\n' "$task" "$state" "$visit" >> "$root/runtime/logs/spawns.log"
+
+prompt=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--prompt" ]; then
+    shift
+    prompt="${{1:-}}"
+  fi
+  shift || true
+done
+printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state-$visit.md"
+
+case "$state" in
+  supervise)
+    for child in 1 2; do
+      printf 'Brief for child %s written on visit %s.\n' "$child" "$visit" \
+        > "$root/runtime/supervise/$task.$child.md"
+    done
+{extra}
+    ;;
+  review)
+    printf 'Findings from %s.\n' "$task" > "$root/runtime/review/$task.md"
+    ;;
+esac
+
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PATH"
+"#
+    )
+}
+
+/// The canonical supervisor machine of §FS-rhei-supervision.7.
+pub fn supervision_machine(supervise: &str, review_to: &str) -> String {
+    format!(
+        r#"name: supervision-e2e
+version: 1
+states:
+  supervise:
+    initial: true
+    description: Supervise the subtree
+    supervise: {supervise}
+    agent: mock
+    agent_timeout: 30s
+    visits: 12
+    instructions: You supervise Task {{task_id}}.
+  review:
+    description: Review
+    agent: mock
+    agent_timeout: 30s
+    outputs:
+      - name: findings
+        path: runtime/review/{{task_id}}.md
+    instructions: Review as briefed.
+  fix:
+    description: Fix
+    agent: mock
+    agent_timeout: 30s
+    instructions: Apply exactly the fixes the brief asks for.
+  human-review:
+    description: A human decides
+    gating: true
+  completed:
+    description: Done
+    final: true
+  cancelled:
+    description: Dropped
+    final: true
+transitions:
+  - {{ from: supervise, to: human-review, description: Budget exhausted, condition: visitCount >= visits }}
+  - {{ from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }}
+  - {{ from: supervise, to: supervise, description: Released the subtree }}
+  - {{ from: review, to: {review_to}, description: Findings written }}
+  - {{ from: fix, to: completed, description: Fixes applied }}
+  - {{ from: "*", to: cancelled, description: Dropped }}
+"#
+    )
+}
+
+/// A supervision workspace: a single-file plan, the machine, and a `mock` agent
+/// registered in project settings. Returns `(dir, plan_path, machine_path)`.
+pub fn setup_supervision(
+    prefix: &str,
+    plan: &str,
+    machine: &str,
+    script_extra: &str,
+) -> (PathBuf, PathBuf, PathBuf) {
+    let dir = unique_temp_dir(prefix);
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let script = write_fixture_file(&dir, "mock-agent.sh", &supervision_agent_script(script_extra));
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "prompt_flag": "--prompt", "timeout": "30s" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+    (dir, plan_path, machine_path)
+}
+
+/// The `<task> <state> <visit>` lines the mock agent logged, in order.
+pub fn spawn_log(dir: &Path) -> Vec<String> {
+    fs::read_to_string(dir.join("runtime/logs/spawns.log"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Assert a task's state anywhere in the tree, verified through `rhei render`.
+pub fn assert_state_anywhere(plan: &Path, machine: &Path, task_id: &str, expected: &str) {
+    fn find(node: &serde_json::Value, task_id: &str) -> Option<String> {
+        let path = node["id"]["path"].as_str().unwrap_or_default();
+        if path == task_id || path.split_once('.').is_some_and(|(_, local)| local == task_id) {
+            return node["state"].as_str().map(str::to_string);
+        }
+        node["children"].as_array().into_iter().flatten().find_map(|child| find(child, task_id))
+    }
+    let json = render_json(plan, machine);
+    let state = json["tasks"]
+        .as_array()
+        .expect("tasks array")
+        .iter()
+        .find_map(|task| find(task, task_id))
+        .unwrap_or_else(|| panic!("Task {task_id} not found in rendered JSON"));
+    assert_eq!(state, expected, "Task {task_id} should be '{expected}', got '{state}'");
+}
+
+pub fn prompt_for(dir: &Path, task: &str, state: &str, visit: u32) -> String {
+    let path = dir.join(format!("runtime/prompts/{task}-{state}-{visit}.md"));
+    fs::read_to_string(&path).unwrap_or_else(|err| panic!("read prompt {}: {err}", path.display()))
+}
+
+/// The §FS-rhei-supervision.7 chain: two pre-authored children, a supervisor
+/// woken after each of them.
+const REVIEW_FIX_PLAN: &str = r#"# Rhei: Harden
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Harden the parser
+**State:** supervise
+
+Goal and acceptance criteria for the whole change.
+
+#### Task 1.1: Review parser
+**State:** review
+
+#### Task 1.2: Fix findings
+**State:** fix
+**Prior:** Task 1.1
+"#;
+
+/// §FS-rhei-supervision.7: the whole trace — hold, visit, release, child,
+/// checkpoint, visit — with the supervisor never running beside a child.
+#[test]
+fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-task-chain",
+        REVIEW_FIX_PLAN,
+        &supervision_machine("task", "completed"),
+        "",
+    );
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert_success(&result);
+
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert_state_anywhere(&plan_path, &machine_path, "1.1", "completed");
+    assert_state_anywhere(&plan_path, &machine_path, "1.2", "completed");
+
+    // The supervisor is scheduled *between* its children, never beside one.
+    // §FS-rhei-supervision.3.1
+    assert_eq!(
+        spawn_log(&dir),
+        vec![
+            "plan.1 supervise 1".to_string(),
+            "plan.1.1 review 1".to_string(),
+            "plan.1 supervise 2".to_string(),
+            "plan.1.2 fix 1".to_string(),
+            "plan.1 supervise 3".to_string(),
+        ],
+        "expected hold \u{2192} visit \u{2192} release \u{2192} child \u{2192} checkpoint \u{2192} visit"
+    );
+
+    // §FS-rhei-supervision.5.1: the first visit has nothing to judge; the
+    // second reads the checkpoint the first child produced.
+    let first = prompt_for(&dir, "plan.1", "supervise", 1);
+    assert!(!first.contains("## Checkpoints"), "got:\n{first}");
+    assert!(first.contains("## Child Tasks"), "got:\n{first}");
+    assert!(
+        first.contains("You are supervising this task's subtree."),
+        "the supervisor's command permissions are stated; got:\n{first}"
+    );
+
+    let second = prompt_for(&dir, "plan.1", "supervise", 2);
+    assert!(second.contains("## Checkpoints"), "got:\n{second}");
+    assert!(
+        second.contains("### Task 1.1: Review parser \u{2014} review \u{2192} completed (visit 1)"),
+        "got:\n{second}"
+    );
+    assert!(second.contains("Task plan.1.1 finished review."), "got:\n{second}");
+
+    // §FS-rhei-supervision.5.2: the brief the supervisor wrote reaches the child.
+    let child = prompt_for(&dir, "plan.1.2", "fix", 1);
+    assert!(child.contains("## Supervisor Brief"), "got:\n{child}");
+    assert!(child.contains("directions from the supervising Task plan.1."), "got:\n{child}");
+    assert!(child.contains("Brief for child 2 written on visit 2."), "got:\n{child}");
+
+    // §FS-rhei-supervision.3.3: leaving the supervising state removes the block.
+    let plan = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(!plan.contains("supervision:"), "the block is gone once the supervisor left:\n{plan}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-supervision.2.1: `supervise: state` hears every hop, so a child
+/// with its own two-step machine hands control back twice.
+#[test]
+fn a_state_supervisor_is_woken_after_every_hop_of_a_descendant() {
+    let plan = r#"# Rhei: Every hop
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Harden the parser
+**State:** supervise
+
+#### Task 1.1: Review then fix
+**State:** review
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-state-chain",
+        plan,
+        // `review` lands in `fix` rather than `completed`, so the child takes
+        // two hops of its own.
+        &supervision_machine("state", "fix"),
+        "",
+    );
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert_success(&result);
+
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert_state_anywhere(&plan_path, &machine_path, "1.1", "completed");
+    assert_eq!(
+        spawn_log(&dir),
+        vec![
+            "plan.1 supervise 1".to_string(),
+            "plan.1.1 review 1".to_string(),
+            "plan.1 supervise 2".to_string(),
+            "plan.1.1 fix 1".to_string(),
+            "plan.1 supervise 3".to_string(),
+        ],
+        "a non-terminal hop is a checkpoint under `supervise: state`"
+    );
+
+    let second = prompt_for(&dir, "plan.1", "supervise", 2);
+    assert!(
+        second.contains("\u{2014} review \u{2192} fix (visit 1)"),
+        "the non-terminal hop is rendered with the source state's outputs; got:\n{second}"
+    );
+    assert!(
+        second.contains("Findings from plan.1.1."),
+        "the `review` state's declared output rides along; got:\n{second}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

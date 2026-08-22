@@ -12,6 +12,8 @@ mod run_lock_wait_tests;
 mod run_signals_tests;
 mod run_tests;
 mod snapshot_tests;
+mod supervision_barrier_tests;
+mod supervision_tests;
 mod template_example_sync_tests;
 mod templates_tests;
 mod terminal_result_tests;
