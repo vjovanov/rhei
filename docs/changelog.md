@@ -55,7 +55,8 @@
   identity belongs to the run, not to the flag. A foreground run queued behind
   another's lock now names the run it is waiting for — and that wait is
   cancellable with `Ctrl+C`, which a blocking `flock` never was. Detachment is
-  Unix-only for now and says so. §FS-rhei-run-headless §FS-rhei-run-json §DA-detached-runs
+  Unix-only for now and says so.
+  Issue #82. PR #83 §FS-rhei-run-headless §FS-rhei-run-json §DA-detached-runs
   §FS-rhei-run.2.7 §FS-rhei-run-tui.1.4
 
 - The 500-line file-size rule is now a gate rather than a table. It has been
