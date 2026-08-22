@@ -141,4 +141,41 @@ mod attach_support_tests {
         assert!(matches!(ending.verdict(&finished), Ending::Ended));
     }
 
+    /// The exit status lands *after* the run stops being live: the run lock
+    /// goes when the run command returns, the stamp comes from the process
+    /// exit path behind it. A wait that reads the descriptor in that gap finds
+    /// nothing on it, and reported a run that exited 0 as one that "did not
+    /// end on its own" — the CI failure §5.3 exists to prevent.
+    // §FS-rhei-run-headless.5.3
+    #[test]
+    fn the_wait_gives_a_late_exit_stamp_time_to_land() {
+        use super::run_descriptor_tests::{descriptor, workspace};
+
+        let workspace = workspace();
+        let run = descriptor("settle", &workspace.path, "2026-08-22T10:00:00Z");
+        let path = run_descriptor_path(&workspace.path);
+        fs::create_dir_all(path.parent().expect("runtime")).expect("runtime directory");
+        fs::write(&path, serde_json::to_string(&run).expect("render")).expect("descriptor");
+
+        let stamped = {
+            let mut ended = run.clone();
+            ended.status = RunStatus::Finished;
+            ended.exit_code = Some(0);
+            serde_json::to_string(&ended).expect("render")
+        };
+        // The run's exit path, several polls behind the wait — the gap a loaded
+        // machine widens until the wait loses the race to it.
+        let late = std::thread::spawn(move || {
+            std::thread::sleep(ATTACH_POLL * 3);
+            fs::write(&path, stamped).expect("stamp");
+        });
+
+        let settled = settled_end(&run);
+        late.join().expect("the stamping thread");
+        assert_eq!(
+            settled.exit_code,
+            Some(0),
+            "the wait outlasted the gap between the run going away and its stamp"
+        );
+    }
 }

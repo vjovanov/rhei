@@ -74,20 +74,29 @@ fn require_event_log(descriptor: &RunDescriptor, events_path: &Path) -> MietteRe
     ))
 }
 
-/// Poll until the run is over, then print exactly what attaching to an already
-/// finished run prints and exit with the run's own code. The two print the same
-/// block on purpose: whether the wait outlived the run or arrived after it is
-/// not a difference a caller should have to parse.
+/// Wait out the run, then print exactly what attaching to an already finished
+/// run prints and exit with the run's own code. The two print the same block on
+/// purpose: whether the wait outlived the run or arrived after it is not a
+/// difference a caller should have to parse.
+// §FS-rhei-run-headless.5.3
+fn wait_for_run_end(descriptor: &RunDescriptor) -> MietteResult<()> {
+    poll_until_run_ends(descriptor)?;
+    let final_state = settled_end(descriptor);
+    report_finished_run(&final_state);
+    exit_with_run_status(&final_state)
+}
+
+/// Poll until the run's own process is no longer live.
 ///
 /// An undecided probe is **not** an end: reporting one as "has ended" is how a
 /// healthy job fails its CI step. The wait keeps going, and gives up — loudly —
 /// only once the grace of [`UndecidedWatch`] has run out.
 // §FS-rhei-run-headless.5.3 §FS-rhei-run-headless.3
-fn wait_for_run_end(descriptor: &RunDescriptor) -> MietteResult<()> {
+fn poll_until_run_ends(descriptor: &RunDescriptor) -> MietteResult<()> {
     let mut undecided = UndecidedWatch::default();
     loop {
         match descriptor.liveness() {
-            Liveness::Ended | Liveness::Gone => break,
+            Liveness::Ended | Liveness::Gone => return Ok(()),
             Liveness::Live => undecided.decided(),
             Liveness::Unknown(reason) => {
                 if undecided.exhausted(&reason) {
@@ -97,9 +106,29 @@ fn wait_for_run_end(descriptor: &RunDescriptor) -> MietteResult<()> {
         }
         std::thread::sleep(ATTACH_POLL);
     }
-    let final_state = recorded_end(descriptor);
-    report_finished_run(&final_state);
-    exit_with_run_status(&final_state)
+}
+
+/// The run's descriptor once its exit status has landed on it.
+///
+/// A run stops being *live* before it has recorded anything: it lets go of the
+/// run lock when the run command returns, and stamps its exit code one frame
+/// later, from the process exit path that is the only place the code is
+/// knowable. Reading between those two moments finds no status on a run that
+/// ended perfectly well, and `--wait` then failed the CI step it exists to
+/// pass. So the stamp gets the same bounded grace an undecided probe gets:
+/// long enough for an ordinary exit path, short enough that a run killed
+/// outright — which will never stamp anything — is still reported as one that
+/// recorded nothing.
+// §FS-rhei-run-headless.5.3
+fn settled_end(descriptor: &RunDescriptor) -> RunDescriptor {
+    let deadline = Instant::now() + UNDECIDED_GRACE;
+    loop {
+        let current = recorded_end(descriptor);
+        if current.exit_code.is_some() || Instant::now() >= deadline {
+            return current;
+        }
+        std::thread::sleep(ATTACH_POLL);
+    }
 }
 
 /// The diagnostic for a run whose liveness never became decidable.
@@ -217,7 +246,11 @@ fn stream_run_json(
         std::thread::sleep(ATTACH_POLL);
     }
     if wait {
-        return exit_with_run_status(descriptor);
+        // `run_finished` ends the run *loop*, not the process: reading the
+        // status off the last record reported a run that succeeded as one that
+        // "did not end on its own". §FS-rhei-run-headless.5.3
+        poll_until_run_ends(descriptor)?;
+        return exit_with_run_status(&settled_end(descriptor));
     }
     Ok(())
 }

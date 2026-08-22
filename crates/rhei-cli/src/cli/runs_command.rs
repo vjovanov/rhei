@@ -127,9 +127,9 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
     if wait {
         await_run_end(&descriptor)?;
         println!("Run {} has ended.", descriptor.id);
-        // Re-read: the run rewrote its descriptor on the way out.
-        let final_state = read_descriptor(&run_descriptor_path(&descriptor.workspace));
-        report_recorded_result(final_state.as_ref().unwrap_or(&descriptor));
+        // Re-read, and give the stamp time to land: a run is no longer live a
+        // frame before it records its code. §FS-rhei-run-headless.5.3
+        report_recorded_result(&settled_end(&descriptor));
     } else {
         println!("It is terminating its in-flight work; `rhei runs` shows when it is gone.");
     }
