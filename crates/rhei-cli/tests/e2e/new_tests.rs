@@ -319,6 +319,34 @@ fn refuses_an_unknown_parent() {
     assert_failure(&new_run(&["new", "First", "--under", "nope"], &dir), "names no rhei or ticket");
 }
 
+/// §FS-rhei-new.2.1: a member rhei widens to the project it belongs to — the
+/// same resolution every other command does, announced the same way.
+#[test]
+fn a_member_rhei_widens_to_its_project() {
+    let dir = empty_project("new-widen");
+    assert_success(&new_run(&["new", "Authentication", "--id", "auth"], &dir));
+    assert_success(&new_run(&["new", "Billing", "--dir"], &dir));
+    let member = dir.join("billing");
+
+    // Standing inside one member, `--under` still names any rhei in the
+    // project — which a lone plan could not resolve at all.
+    let inside = new_run(&["new", "Rotate keys", "--under", "auth"], &member);
+    assert_success(&inside);
+    assert!(inside.stdout.contains("belongs to the project at"), "got: {}", inside.stdout);
+    assert!(fs::read_to_string(dir.join("auth.rhei.md"))
+        .expect("rhei file")
+        .contains("Rotate keys"));
+
+    // A new rhei created from inside a member lands beside the manifest.
+    assert_success(&new_run(&["new", "Reporting"], &member));
+    assert!(dir.join("reporting.rhei.md").is_file());
+
+    // `--project <member>` resolves the same project, so the basin exists.
+    let captured = new_run(&["new", "Typo", "--under", "basin", "--project", "auth.rhei.md"], &dir);
+    assert_success(&captured);
+    assert!(dir.join("basin/1-typo.md").is_file());
+}
+
 /// §FS-rhei-new.3: a lone plan is its own rhei, so tickets can be added to it
 /// even outside a project.
 #[test]

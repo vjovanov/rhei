@@ -36,7 +36,7 @@ rather than a silent no-op (§5.3).
 
 | Flag                  | Default          | Description                                                       |
 |-----------------------|------------------|-------------------------------------------------------------------|
-| `--project <PATH>`    | inferred         | The project or plan to write into. Omitted, the enclosing project, workspace, or lone plan is used, exactly as every other command resolves it (§FS-rhei-panta.6) |
+| `--project <PATH>`    | inferred         | The project or plan to write into, resolved exactly as every other command resolves one: omitted, the enclosing project, workspace, or lone plan; named, a member rhei widens to the project it belongs to (§FS-rhei-panta.6) |
 | `--id <ID>`           | derived          | Explicit id, replacing derivation from the title (§4)             |
 | `--description <TEXT>`| empty            | Body content — the ticket's description, or the rhei's lead paragraph |
 | `--description-file <PATH>` | —          | Read the description from a file; `-` reads standard input        |
@@ -140,10 +140,14 @@ billing/
 The workspace index carries no `## Tasks` section: in that format tickets live
 in `tasks/` files, and an empty `tasks/` directory is a valid empty rhei.
 
-Creating a rhei requires a Panta project. When the resolved target is a lone
-plan or a bare workspace rather than a project, the command says so and points
-at `rhei init` — a rhei is a *member* of a project, and there is nowhere to put
-a second one otherwise.
+Creating a rhei requires a Panta project, and the target is resolved the way
+every other command resolves one. Standing in a member rhei's directory — or
+naming that member with `--project` — creates the new rhei in the project the
+member belongs to, and the widening is announced exactly as `rhei validate`
+announces it (§FS-rhei-validate.1.1). Only when the resolved target really is a
+lone plan or a bare workspace does the command say so and point at `rhei init`
+— a rhei is a *member* of a project, and there is nowhere to put a second one
+otherwise.
 
 ## 3. Creating a ticket
 

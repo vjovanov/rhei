@@ -32,7 +32,16 @@ struct NewWrite {
 fn new_command(options: &NewOptions) -> MietteResult<()> {
     reject_mode_confusion(options)?;
     let description = resolve_new_description(options)?;
-    let target = resolve_plan_path(options.project.clone())?;
+    // A member rhei widens to the project it belongs to, exactly as every
+    // other command resolves its target: only there do `--under basin` and a
+    // cross-rhei `**Prior:**` resolve. §FS-rhei-new.1.1 §FS-rhei-new.2.1
+    let resolved = resolve_plan_target(options.project.clone())?;
+    // The announcement is `rhei validate`'s, word for word — but it is prose on
+    // stdout, and `--json` promises one object there. §FS-rhei-new.5.4
+    if !options.json {
+        report_validation_widened(&resolved);
+    }
+    let target = resolved.path().to_path_buf();
 
     let write = match options.under.as_deref() {
         Some(parent) => new_ticket_write(&target, options, parent, description.as_deref())?,
