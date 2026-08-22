@@ -191,7 +191,12 @@ across files would put a parent and its child in different diffs.
 
 Nothing else in the file is rewritten. `rhei new` inserts its own block and
 leaves every other byte — including hand-authored spacing and comments — as it
-found it.
+found it. The block is written with the line terminator the file already uses,
+so a CRLF file stays CRLF; existing blank lines are never removed, and a single
+blank separator is emitted only where the line before the insertion point is
+not already blank. A `git diff` after a create shows the added lines and
+nothing else, which is the whole point: a create the author cannot review as a
+three-line diff is a create they have to re-read the file to trust.
 
 ### 3.2. State
 

@@ -108,56 +108,117 @@ fn description_body(description: Option<&str>) -> Option<String> {
     (!body.is_empty()).then(|| body.to_string())
 }
 
-/// Append a ticket at the end of a file, separated by exactly one blank line.
-/// This is where a top-level ticket goes: `## Tasks` is the final `##` chapter,
-/// so the end of the file is the end of the section. §FS-rhei-new.3.1
-fn append_ticket(raw: &str, block: &str) -> String {
-    let mut out = raw.trim_end_matches('\n').to_string();
-    if !out.is_empty() {
-        out.push_str("\n\n");
+/// The line terminator a file already uses: CRLF when it is the majority, LF
+/// otherwise.
+///
+/// A splice that re-joins with `\n` rewrites every line of a CRLF file, which
+/// turns a three-line create into a whole-file diff and buries what was added.
+// §FS-rhei-new.3.1
+fn dominant_line_ending(raw: &str) -> &'static str {
+    let crlf = raw.matches("\r\n").count();
+    let lf = raw.matches('\n').count() - crlf;
+    if crlf > lf { "\r\n" } else { "\n" }
+}
+
+/// Strip one line terminator from the end of `text`, CRLF before LF. `None`
+/// when the text does not end on a line boundary.
+fn strip_one_line_ending(text: &str) -> Option<&str> {
+    text.strip_suffix("\r\n").or_else(|| text.strip_suffix('\n'))
+}
+
+/// True when `raw` already ends in a blank line, so a separator would make a
+/// second one. Existing spacing is authored spacing: `rhei new` adds to it and
+/// never rewrites it. §FS-rhei-new.3.1
+fn ends_with_blank_line(raw: &str) -> bool {
+    let Some(body) = strip_one_line_ending(raw) else {
+        return false;
+    };
+    body.is_empty() || strip_one_line_ending(body).is_some()
+}
+
+/// Append `block` to `out` line by line, terminated with `eol`. The rendered
+/// block always uses `\n`; the file it joins decides what is written.
+// §FS-rhei-new.3.1
+fn push_block_with(out: &mut String, block: &str, eol: &str) {
+    for line in block.trim_end_matches('\n').split('\n') {
+        out.push_str(line.trim_end_matches('\r'));
+        out.push_str(eol);
     }
-    out.push_str(block.trim_end_matches('\n'));
-    out.push('\n');
+}
+
+/// End `out` on a line boundary and then on one blank line, in the file's own
+/// terminator — adding neither when the text already ends that way.
+fn push_block_separator(out: &mut String, raw: &str, eol: &str) {
+    if raw.is_empty() {
+        return;
+    }
+    if !raw.ends_with('\n') {
+        out.push_str(eol);
+    }
+    if !ends_with_blank_line(raw) {
+        out.push_str(eol);
+    }
+}
+
+/// Append a ticket at the end of a file, separated by one blank line. This is
+/// where a top-level ticket goes: `## Tasks` is the final `##` chapter, so the
+/// end of the file is the end of the section. §FS-rhei-new.3.1
+fn append_ticket(raw: &str, block: &str) -> String {
+    let eol = dominant_line_ending(raw);
+    let mut out = String::with_capacity(raw.len() + block.len() + 8);
+    out.push_str(raw);
+    push_block_separator(&mut out, raw, eol);
+    push_block_with(&mut out, block, eol);
     out
+}
+
+/// Every line of `raw` as `(byte offset, text without its terminator)`.
+///
+/// Offsets rather than a `Vec<&str>` of lines: splicing by offset copies the
+/// bytes on either side through unchanged, which is what the spec promises and
+/// what re-joining split lines cannot do.
+// §FS-rhei-new.3.1
+fn line_offsets(raw: &str) -> impl Iterator<Item = (usize, &str)> {
+    raw.split_inclusive('\n').scan(0usize, |offset, line| {
+        let start = *offset;
+        *offset += line.len();
+        Some((start, line.trim_end_matches('\n').trim_end_matches('\r')))
+    })
 }
 
 /// Insert a ticket immediately after `parent_local_id`'s existing subtree, so
 /// the file stays in id order. `None` when the parent's heading is not in this
 /// file. §FS-rhei-new.3.1
 fn insert_ticket_after_subtree(raw: &str, parent_local_id: &str, block: &str) -> Option<String> {
-    let lines: Vec<&str> = raw.lines().collect();
     let mut in_code_block = false;
-    let mut parent: Option<(usize, usize)> = None;
+    let mut parent_hashes: Option<usize> = None;
     let mut subtree_end: Option<usize> = None;
 
-    for (index, line) in lines.iter().enumerate() {
+    for (start, line) in line_offsets(raw) {
         let Some((hashes, id)) = node_heading_outside_code(line, &mut in_code_block) else {
             continue;
         };
-        match parent {
-            None if id == parent_local_id => parent = Some((index, hashes)),
+        match parent_hashes {
+            None if id == parent_local_id => parent_hashes = Some(hashes),
             // The subtree ends at the first heading no deeper than the parent.
-            Some((_, parent_hashes)) if hashes <= parent_hashes => {
-                subtree_end = Some(index);
+            Some(parent) if hashes <= parent => {
+                subtree_end = Some(start);
                 break;
             }
             _ => {}
         }
     }
 
-    let (_, _) = parent?;
-    let insert_at = subtree_end.unwrap_or(lines.len());
-    let mut out: Vec<String> = lines[..insert_at].iter().map(|line| (*line).to_string()).collect();
-    while out.last().is_some_and(|line| line.trim().is_empty()) {
-        out.pop();
+    parent_hashes?;
+    let (head, tail) = raw.split_at(subtree_end.unwrap_or(raw.len()));
+    let eol = dominant_line_ending(raw);
+    let mut out = String::with_capacity(raw.len() + block.len() + 8);
+    out.push_str(head);
+    push_block_separator(&mut out, head, eol);
+    push_block_with(&mut out, block, eol);
+    if !tail.is_empty() {
+        out.push_str(eol);
+        out.push_str(tail);
     }
-    out.push(String::new());
-    out.extend(block.trim_end_matches('\n').lines().map(ToOwned::to_owned));
-    if insert_at < lines.len() {
-        out.push(String::new());
-        out.extend(lines[insert_at..].iter().map(|line| (*line).to_string()));
-    }
-    let mut joined = out.join("\n");
-    joined.push('\n');
-    Some(joined)
+    Some(out)
 }

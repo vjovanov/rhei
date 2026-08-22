@@ -242,3 +242,50 @@ fn dry_run_under_json_emits_json_and_still_writes_nothing() {
     );
     assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
 }
+
+// ---------------------------------------------------------------------------
+// The file's own bytes — §FS-rhei-new.3.1
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_crlf_plan_stays_crlf_through_an_append_and_an_insert() {
+    let dir = empty_project("new-write-crlf");
+    let plan = dir.join("auth.rhei.md");
+    fs::write(
+        &plan,
+        "# Rhei: Auth\r\n\r\n## Tasks\r\n\r\n### Task 1: One\r\n**State:** pending\r\n",
+    )
+    .expect("plan should be written");
+
+    assert_success(&new_run(&["new", "Two", "--under", "auth"], &dir));
+    assert_success(&new_run(&["new", "Nested", "--under", "auth.1"], &dir));
+
+    let after = fs::read_to_string(&plan).expect("plan");
+    assert_eq!(
+        after.matches("\r\n").count(),
+        after.matches('\n').count(),
+        "a pure CRLF file must stay pure CRLF:\n{after:?}"
+    );
+    assert_eq!(
+        after,
+        "# Rhei: Auth\r\n\r\n## Tasks\r\n\r\n### Task 1: One\r\n**State:** pending\r\n\r\n\
+         #### Task 1.1: Nested\r\n**State:** pending\r\n\r\n\
+         ### Task 2: Two\r\n**State:** pending\r\n"
+    );
+}
+
+/// Inserting adds lines and removes none: authored spacing is the author's.
+#[test]
+fn an_insert_adds_lines_and_removes_none() {
+    let dir = empty_project("new-write-spacing");
+    let plan = dir.join("auth.rhei.md");
+    let before = "# Rhei: Auth\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n\n\
+                  <!-- authored note -->\n\n\n### Task 2: Two\n**State:** pending\n";
+    fs::write(&plan, before).expect("plan should be written");
+
+    assert_success(&new_run(&["new", "Nested", "--under", "auth.1"], &dir));
+
+    let after = fs::read_to_string(&plan).expect("plan");
+    let inserted = "#### Task 1.1: Nested\n**State:** pending\n\n### Task 2: Two";
+    assert_eq!(after, before.replace("### Task 2: Two", inserted));
+}
