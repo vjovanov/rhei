@@ -16,6 +16,7 @@ Use this table when you know the job you want to model:
 | Multi-model analysis | `multi-model-analysis/` | Runs analysis across several targets before aggregation. |
 | Parallel implementation branches | `parallel-worktrees/` | Demonstrates independent tasks advancing concurrently. |
 | Snapshot continuation | `snapshot-continuation/` | Shows snapshot emit, inherit, list, continue, and run override commands. |
+| A parent that steers its subtree while it runs | `subtree-supervision/` | A supervising state wakes the parent at every finished child and holds the rest of the subtree in between. |
 | Live dashboard regression testing | `ui-test-canonical-example/` | Canonical runnable fixture for Flow and TUI/dashboard behavior. |
 
 ## Files
@@ -73,6 +74,14 @@ Use this table when you know the job you want to model:
   - `states.yaml`
   - counted `review` and `fix` states with two total passes each
   - one review artifact file and one fix artifact updated across the loop
+
+- `subtree-supervision/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/` and `states.yaml`
+  - a state that declares `supervise: task`, making its task a supervisor
+  - the three supervisor edges — exhaustion, `openDescendants < 1`, and the
+    unconditional self-loop that releases the subtree
+  - a committed mock agent, so the whole chain runs without credentials
 
 - `snapshot-continuation/`
   Valid example directory using:

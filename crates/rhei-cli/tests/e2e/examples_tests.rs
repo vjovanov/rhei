@@ -214,6 +214,53 @@ fn example_agent_discussion_runs_with_mock_agents() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// The supervision example runs the whole §7 chain with its own committed mock.
+///
+/// Unlike the other examples here it is *not* handed the shared mock agent: the
+/// point of the fixture is that a reader can copy the directory and run it, so
+/// the committed `workflow.sh` and the committed settings are what the test
+/// exercises.
+// §FS-rhei-supervision.7
+#[test]
+fn example_subtree_supervision_runs_its_supervisor_between_its_children() {
+    let (dir, workspace) =
+        copy_example_workspace("example-subtree-supervision", "examples/subtree-supervision");
+    let machine_path = workspace.join("states.yaml");
+    let result = run_cli("run", &workspace, &machine_path, &["--no-tui"]);
+    assert_success(&result);
+    assert_all_tasks_in_state(&workspace, &machine_path, "completed");
+
+    // The supervisor is scheduled between its children, never beside one, and
+    // one visit more than there are children. §FS-rhei-supervision.3.1
+    let log = fs::read_to_string(workspace.join("runtime/logs/subtree-supervision.log"))
+        .expect("the mock logs every invocation");
+    let states: Vec<&str> = log
+        .lines()
+        .filter_map(|line| line.split("state=").nth(1))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .collect();
+    assert_eq!(
+        states,
+        vec![
+            "supervise", "review", "supervise", "fix", "supervise", "review", "supervise", "fix",
+            "supervise"
+        ],
+        "expected hold \u{2192} visit \u{2192} release \u{2192} child \u{2192} checkpoint; got:\n{log}"
+    );
+
+    // §FS-rhei-supervision.5.2: one brief per child, at the reserved path.
+    for child in 1..=4 {
+        let brief = workspace.join(format!("runtime/supervise/subtree-supervision.1.{child}.md"));
+        assert!(
+            brief.exists(),
+            "the supervisor briefs every step it releases: {}",
+            brief.display()
+        );
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 #[test]
 fn example_analyze_and_dispatch_runs_with_mock_agents() {
     let (dir, workspace, machine_path, result) = run_example_with_mock_agents(

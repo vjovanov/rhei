@@ -1,0 +1,115 @@
+name: subtree-supervision
+version: 1
+
+# The §FS-rhei-supervision.7 chain: a parent that steers its own subtree.
+#
+# `supervise: task` on the parent's state makes it a *supervisor*. The
+# orchestrator wakes it after every descendant that reaches a terminal state and
+# holds the rest of the subtree while it decides what happens next. Its three
+# outgoing edges are tried in declaration order, and the order is the design:
+#
+#   1. exhaustion  `visitCount >= visits` — the budget ran out; a human decides
+#   2. terminal    `openDescendants < 1`  — the subtree closed; write the result
+#   3. self-loop   (unconditional)        — release the subtree and wait
+#
+# The self-loop is the release edge. Without it the supervisor would run once
+# and never wait for its children.
+#
+# The supervisor here uses the `mock` agent so this example runs with no agent
+# credentials. A real one would name a snapshot-capable agent and add a
+# `snapshot:` block so each visit continues the previous transcript — of the
+# built-in profiles only `pi` supports that today; see the README.
+
+states:
+  supervise:
+    initial: true
+    supervise: task
+    description: >-
+      The parent, woken between its children. Judges the checkpoints, briefs the
+      next step, and finishes once the subtree is closed.
+    agent: mock
+    visits: 12
+    instructions: |
+      You supervise Task {task_id}.
+
+      Judge every entry under `## Checkpoints` — those are the descendants that
+      moved since your last visit, each carrying what that step left behind.
+      Then steer what comes next:
+
+      - brief the next step by writing a Markdown file at the path named in
+        `## Rhei Commands`;
+      - append a child under this task in its own task file if the plan needs
+        one;
+      - cancel a child the results made unnecessary with `rhei transition`,
+        passing `--result "<why>"`.
+
+      Write your own `## Result` only on the visit where every child is
+      terminal and you intend to finish. Otherwise return without it: you will
+      be woken again at the next checkpoint.
+
+  review:
+    description: Read the code and record findings for the fix step.
+    agent: mock
+    outputs:
+      - name: findings
+        path: runtime/review/{task_id}.md
+    instructions: |
+      Review Task {task_id} as briefed under `## Supervisor Brief` and write
+      your findings to {output.findings.path}.
+
+  fix:
+    description: Apply exactly the fixes the supervisor's brief asks for.
+    agent: mock
+    instructions: |
+      Apply exactly the fixes the brief under `## Supervisor Brief` asks for —
+      nothing the review did not ask for.
+
+  human-review:
+    description: >-
+      The supervisor spent its visit budget without closing the subtree. A human
+      reads the checkpoints and decides.
+    gating: true
+    instructions: |
+      The supervisor ran out of visits. Read runtime/review/ and the plan, then
+      transition Task {task_id} back to `supervise` to give it more rope, or to
+      `cancelled` to stop.
+
+  completed:
+    description: Done.
+    final: true
+
+  cancelled:
+    description: Abandoned. The reserved name, so a cancelled step waives its
+      declared outputs and does not satisfy anyone's prerequisite.
+    final: true
+
+transitions:
+  - from: supervise
+    to: human-review
+    description: Supervisor budget exhausted; a human decides.
+    condition: visitCount >= visits
+
+  - from: supervise
+    to: completed
+    description: Every child is terminal and the supervisor wrote its result.
+    condition: openDescendants < 1
+
+  - from: supervise
+    to: supervise
+    description: Released the subtree; wait for the next checkpoint.
+
+  - from: review
+    to: completed
+    description: Findings written.
+
+  - from: fix
+    to: completed
+    description: Fixes applied.
+
+  - from: human-review
+    to: supervise
+    description: A human gave the supervisor more rope.
+
+  - from: "*"
+    to: cancelled
+    description: Dropped.

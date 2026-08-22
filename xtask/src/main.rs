@@ -88,6 +88,12 @@ const EXAMPLES: &[Example] = &[
         runnable: false,
     },
     Example {
+        name: "subtree-supervision",
+        path: "examples/subtree-supervision",
+        state_machine: Some("examples/subtree-supervision/states.yaml"),
+        runnable: true,
+    },
+    Example {
         name: "snapshot-continuation",
         path: "examples/snapshot-continuation",
         state_machine: Some("examples/snapshot-continuation/states.yaml"),

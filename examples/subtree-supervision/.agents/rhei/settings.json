@@ -1,0 +1,17 @@
+{
+  "defaults": {
+    "agent": "mock",
+    "agent_timeout": "5m"
+  },
+  "agents": {
+    "mock": {
+      "command": [
+        "sh",
+        "-c",
+        "ws=\"$RHEI_PLAN_PATH\"; [ -f \"$ws\" ] && ws=$(dirname \"$ws\"); exec sh \"$ws/workflow.sh\""
+      ],
+      "prompt_flag": "--prompt",
+      "timeout": "5m"
+    }
+  }
+}

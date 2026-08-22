@@ -46,6 +46,14 @@ Rhei is the only agent runtime that combines all of:
   through state machines, spawns agents or deterministic programs, captures
   logs and artifacts, and exposes the same model through reusable crates and
   bindings.
+- **Parents that supervise, not just integrate.** A state declaring
+  `supervise: task | state` turns the task holding it into a *supervisor*: the
+  orchestrator wakes it after every finished descendant (or every descendant
+  transition), holds the rest of the subtree in between, and lets it steer with
+  briefs, appended children, and cancellations. A review/fix chain no longer runs
+  unattended to the end with the parent's context out of the room. See
+  [`examples/subtree-supervision/`](examples/subtree-supervision/) and
+  [`docs/functional-spec/rhei-supervision.spec.md`](docs/functional-spec/rhei-supervision.spec.md).
 - **Full validator.** `rhei validate` checks syntax, state validity, dependency
   integrity, hierarchy/id alignment, link integrity, terminal-tree coherence,
   and artifact contracts.
