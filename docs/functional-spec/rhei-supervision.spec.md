@@ -249,8 +249,8 @@ metadata:
   its bare state names, `visit` the `to` state's visit number. The list is
   cleared on the self-loop exit, after the visit that consumed it.
 - The block is removed when the task leaves the supervising state by any
-  other edge, and by `rhei reset` together with `stateVisits`
-  (§FS-rhei-reset).
+  other edge, and by `rhei reset` together with `stateVisits`, which also drops
+  a `metadata.tasks.<id>` entry left empty by the two (§FS-rhei-reset).
 
 Nothing here is authored by hand in normal workflows. The block exists so
 that a run stopped between a checkpoint and the supervisor's visit resumes

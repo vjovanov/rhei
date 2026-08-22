@@ -226,10 +226,33 @@ fn clear_supervision_for_task(existing: Option<&Metadata>, task_id: &TaskId) -> 
 
 /// The runtime task metadata `rhei reset` clears: the visit counters, and the
 /// supervision blocks that are meaningless without them.
+///
+/// A task whose whole entry was runtime state loses the entry too. `tasks: {1:
+/// {}}` in a reset plan is a record of nothing, and the next reader has to
+/// decide whether it means anything.
 // §FS-rhei-supervision.3.3 §FS-rhei-reset
 fn clear_runtime_task_metadata(existing: Option<&Metadata>) -> Option<Metadata> {
     let without_visits = clear_runtime_state_visits(existing)?;
-    clear_runtime_supervision(Some(&without_visits))
+    let cleared = clear_runtime_supervision(Some(&without_visits))?;
+    Some(drop_empty_task_metadata(cleared))
+}
+
+/// Drop `metadata.tasks` entries left empty by a clear, and the containers left
+/// empty by that. §FS-rhei-reset
+fn drop_empty_task_metadata(mut root: Metadata) -> Metadata {
+    let Some(YamlValue::Mapping(metadata_section)) = root.get_mut(yaml_key("metadata")) else {
+        return root;
+    };
+    if let Some(YamlValue::Mapping(tasks)) = metadata_section.get_mut(yaml_key("tasks")) {
+        tasks.retain(|_, value| !matches!(value, YamlValue::Mapping(map) if map.is_empty()));
+        if tasks.is_empty() {
+            metadata_section.remove(yaml_key("tasks"));
+        }
+    }
+    if metadata_section.is_empty() {
+        root.remove(yaml_key("metadata"));
+    }
+    root
 }
 
 /// Drop every task's supervision block, beside the `stateVisits` reset.

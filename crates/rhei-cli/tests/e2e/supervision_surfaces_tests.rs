@@ -142,6 +142,10 @@ metadata:
     let after = fs::read_to_string(&plan_path).expect("read plan");
     assert!(!after.contains("supervision:"), "got:\n{after}");
     assert!(!after.contains("stateVisits"), "got:\n{after}");
+    // §FS-rhei-reset: the entry those two filled goes with them — a reset plan
+    // carries no `tasks: {1: {}}` for the next reader to interpret.
+    assert!(!after.contains("tasks:"), "got:\n{after}");
+    assert!(!after.contains("metadata:"), "got:\n{after}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
