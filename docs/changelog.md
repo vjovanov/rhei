@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+- Give a parent a way to look after its subtree *while* it runs instead of only
+  integrating it at the end. A state that declares **`supervise: task | state`**
+  turns the task holding it into a **supervisor**: the orchestrator wakes it at
+  *checkpoints* — after every finished descendant (`task`) or after every state
+  a descendant passes through (`state`) — with the same agent session continued
+  from its previous visit, and holds the rest of the subtree while it decides
+  how to steer. A review/fix chain authored as four children no longer runs
+  unattended to the end with the parent's context out of the room.
+
+  The supervisor is a **barrier over its subtree**, and the rule is one rule:
+  entry holds, the supervisor's **self-loop releases**, a checkpoint holds
+  again, and it is ready once nothing beneath it is in flight. So a supervisor
+  and one of its descendants are still never worked at the same time — the
+  guarantee the non-leaf task model already made, extended to a parent that runs
+  many times — and a supervisor that changes nothing changes nothing: it is not
+  ready again until a descendant produces one. Under `--parallel` a checkpoint
+  is a drain: siblings already running finish, nothing new starts, and one visit
+  sees every checkpoint they produced.
+
+  Checkpoints are **post-transition** and reach exactly one task, the *nearest*
+  supervising ancestor. A poll retry is not one, a supervisor's own release edge
+  is not one for its own ancestors, and neither is a move the supervisor made
+  itself during its visit. The phase and the pending checkpoints live in plan
+  frontmatter beside `stateVisits`, written on the shared transition path — so
+  `rhei run`'s auto-advance, `rhei transition`, `rhei complete`, and a callback
+  redirect all maintain the barrier identically, a run stopped between a
+  checkpoint and the visit resumes exactly where it was, and a manual worker
+  sees the same state the orchestrator would. `rhei reset` clears it.
+
+  The supervisor steers with the levers that already exist. It writes a
+  **brief** at `runtime/supervise/<task-id>.md` (or
+  `runtime/supervise/<task-id>/<state>.md` for one state only) that the next
+  step reads under **`## Supervisor Brief`** — direction, bounded by that state's
+  own instructions and artifact contract. It appends children by editing its own
+  task file and cancels ones the results made unnecessary with `rhei
+  transition`, both of which the orchestrator sees on re-read. Its own prompt
+  gains **`## Checkpoints`** — what moved since its last visit, each carrying
+  the result or the source state's outputs — and an unsupervised parent finally
+  gains **`## Child Task Results`**, the result of every terminal child, which
+  it never saw before.
+
+  Transition conditions gain **`openDescendants`**, the number of non-terminal
+  descendants of the transitioning task, evaluated against the plan as re-read
+  after the subprocess exits. It is how a machine *selects* a parent's terminal
+  edge once its subtree closes; the descendants-first guard still decides
+  whether that edge may be taken. Self-loops on non-poll agent states are now
+  general **loop-back re-entries** rather than a polling-only construct.
+
+  Every surface that explains readiness gained the reason: `rhei next` refuses a
+  held descendant by naming its supervisor, `rhei list --ready` excludes it and
+  admits a supervisor whose subtree is still open, and the run's halt report
+  says `held by supervisor Task <P> (<state>)` — so a subtree waiting on its
+  supervisor is never mistaken for a stall. §FS-rhei-supervision
+  §DF-subtree-supervision
+
 - Separate a run from the surface that watches it. `rhei run` bound the two into
   one process: closing the terminal killed the run (`SIGHUP` is an interruption,
   correctly, so the workaround was `nohup` or `tmux` — which puts the run

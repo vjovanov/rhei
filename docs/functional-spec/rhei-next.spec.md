@@ -224,7 +224,7 @@ action is:
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
 | Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
-| Non-terminal tasks are held by a supervisor whose visit is pending or in flight (§FS-rhei-supervision.3.4) | `no tasks are ready to claim: <N> task(s) held by a supervisor: Task <ID> held by supervisor Task <P> (<state>), ...` |
+| Non-terminal tickets are held by a supervisor whose visit is pending or in flight (§FS-rhei-supervision.3.4) | `no tickets are ready to claim: <N> ticket(s) held by a supervisor: Task <ID> held by supervisor Task <P> (<state>), ...` |
 | Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
 | Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
 

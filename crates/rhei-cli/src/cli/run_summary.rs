@@ -463,6 +463,14 @@ fn marker_for_task(
     machine: &rhei_validator::StateMachine,
     halt_causes: &HashMap<String, HaltCause>,
 ) -> Marker {
+    // A held descendant is a deliberate pause, not work to act on: its
+    // supervisor is the ticket that is owed a visit, and it takes the
+    // Attention row. §FS-rhei-supervision.3.4
+    if matches!(halt_causes.get(id), Some(HaltCause::HeldBySupervisor { .. }))
+        && !state_is_failure(state)
+    {
+        return Marker::Gate;
+    }
     if is_calm_parent(id, state, machine, halt_causes) {
         return Marker::Gate;
     }

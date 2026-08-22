@@ -128,7 +128,11 @@ has landed is (§FS-rhei-states.3.3).
 
 A transition applied to a descendant while its nearest supervisor is itself
 in flight — a cancel the supervisor issues during its own visit (§5.1) — is
-not a checkpoint: the supervisor already knows.
+not a checkpoint: the supervisor already knows. The shared path recognizes
+that visit from the two facts it can see: the supervisor's `**Assignee:**`
+claim, and the task id the invocation it is running inside carries
+(§FS-rhei-agents.4). A descendant's own worker carries the descendant's id, so
+its exits are checkpoints as usual.
 
 ### 2.2. Nearest Supervising Ancestor
 

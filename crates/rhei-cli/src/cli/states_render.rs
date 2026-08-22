@@ -60,6 +60,10 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
             if let Some(visits) = def.visits {
                 out.push_str(&format!("      Visits: {visits}\n"));
             }
+            // §FS-rhei-supervision.1.1: the granularity is the whole field.
+            if let Some(supervise) = def.supervise_kind() {
+                out.push_str(&format!("      Supervises: {}\n", supervise.as_str()));
+            }
             if let Some(poll) = def.poll.as_ref() {
                 out.push_str(&format!(
                     "      Poll: interval={}, max_attempts={}\n",
@@ -176,6 +180,7 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
                 "concurrent": def.concurrent,
                 "poll": &def.poll,
                 "visits": def.visits,
+                "supervise": &def.supervise,
                 "target": &def.target,
                 "all_targets": &def.all_targets,
                 "all_models": &def.all_models,

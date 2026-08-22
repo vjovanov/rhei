@@ -206,24 +206,25 @@ items improve operator diagnosis without changing the execution model.
 - Add task-opening affordances, state/level filtering or dimming, a dependency
   graph view, and diff visualization against another snapshot or git ref. §FS-rhei-viz
 
-## Planned: Subtree Supervision
+## Planned: Subtree Supervision Follow-Ups
 
-Status: planned, specified. A non-leaf task can look after its subtree while
-it runs instead of only integrating it at the end: a state declaring
-`supervise: task|state` wakes the task at every finished descendant or every
-descendant transition, with its session continued, and holds the subtree in
-between. §FS-rhei-supervision §DF-subtree-supervision
+Status: shipped, with two follow-ups. A non-leaf task can look after its
+subtree while it runs instead of only integrating it at the end: a state
+declaring `supervise: task|state` wakes the task at every finished descendant
+or every descendant transition and holds the subtree in between. The
+`supervise` field, the hold/release readiness rule, the `supervision` task
+metadata, the `openDescendants` condition operand, the prompt sections, and the
+"held by supervisor" reason rows in `rhei next`, `rhei list --ready`, and the
+run report all ship. §FS-rhei-supervision §DF-subtree-supervision
 
-- Implement the `supervise` field, the hold/release readiness rule, the
-  `supervision` task metadata, and the `openDescendants` condition operand on
-  the shared transition path. §FS-rhei-supervision
-- Add the `## Child Tasks` / `## Child Task Results` / `## Checkpoints` and
-  `## Supervisor Brief` prompt sections. §FS-rhei-agents
-- Surface "held by supervisor" as a readiness reason in `rhei next`,
-  `rhei list`, the run report, the TUI, and the dashboard. §FS-rhei-next §FS-rhei-viz
-- Generalize self-loops on agent states to loop-back re-entries. §FS-rhei-transitions
+- Carry the reason into the TUI and the Flow dashboard, which have no readiness
+  reason concept of their own yet. §FS-rhei-viz
 - Context continuity for `claude-code` supervisors depends on the snapshot
-  adapter work below. §FS-rhei-snapshots
+  adapter work below; until it lands, a supervisor with that profile runs each
+  visit cold, carried by its checkpoints and briefs. §FS-rhei-snapshots
+- Fanout on a supervising state is a v1 validation error; lift it only with a
+  rule for what a fanned-out supervisor's continued session means.
+  §FS-rhei-supervision.1.2
 
 ## Planned: Snapshot Adapter and Retention Work
 

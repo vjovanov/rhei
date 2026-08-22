@@ -98,9 +98,10 @@ Text output includes:
 - Node policy when present.
 - Each state with description and flags such as `final`, `gating`, and
   `concurrent`.
-- Per-state execution details such as visits, polling, targets, models, agent,
-  agent mode, timeouts, program presence, MCP servers, skills, snapshots,
-  inputs, outputs, personality, and instructions.
+- Per-state execution details such as visits, supervision granularity
+  (§FS-rhei-supervision.1.1), polling, targets, models, agent, agent mode,
+  timeouts, program presence, MCP servers, skills, snapshots, inputs, outputs,
+  personality, and instructions.
 - Per-state prompt-template reference when present.
 - Declared transitions and annotations for callbacks, conditions, and timeouts.
 
