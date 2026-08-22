@@ -49,7 +49,7 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     };
 
     if options.dry_run {
-        report_new_dry_run(&write);
+        report_new_dry_run(&write, options.json);
         return Ok(());
     }
     apply_new_write(&target, &write, options.keep_on_error)?;
@@ -206,24 +206,42 @@ fn roll_back_new_write(path: &Path, previous: Option<&str>, created_dirs: &[Path
     }
 }
 
-fn report_new_dry_run(write: &NewWrite) {
+/// Report a `--dry-run`. Under `--json` it is the same object the real create
+/// emits, plus the fact that nothing was written and the block that would have
+/// been: a flag that selects the output format keeps working under a flag that
+/// only selects whether the write happens.
+// §FS-rhei-new.5.4
+fn report_new_dry_run(write: &NewWrite, json: bool) {
+    if json {
+        let mut value = new_write_json(write);
+        value["dry_run"] = serde_json::Value::Bool(true);
+        value["markdown"] = serde_json::Value::String(write.preview.clone());
+        println!("{value}");
+        return;
+    }
     println!("Would create {} {} at {}", write.kind, write.id, display_path(&write.path));
     println!();
     print!("{}", write.preview);
 }
 
+/// The facts `--json` reports, shared by the real create and the dry run so the
+/// two can never drift. §FS-rhei-new.5.4
+fn new_write_json(write: &NewWrite) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "kind": write.kind,
+        "id": write.id,
+        "title": write.title,
+        "path": display_path(&write.path),
+    });
+    if let Some(state) = &write.state {
+        value["state"] = serde_json::Value::String(state.clone());
+    }
+    value
+}
+
 fn report_new_write(write: &NewWrite, json: bool) {
     if json {
-        let mut value = serde_json::json!({
-            "kind": write.kind,
-            "id": write.id,
-            "title": write.title,
-            "path": display_path(&write.path),
-        });
-        if let Some(state) = &write.state {
-            value["state"] = serde_json::Value::String(state.clone());
-        }
-        println!("{value}");
+        println!("{}", new_write_json(write));
         return;
     }
     match &write.state {

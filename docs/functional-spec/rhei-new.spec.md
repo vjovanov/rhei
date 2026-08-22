@@ -329,6 +329,13 @@ Created ticket auth.4 "Rotate signing keys" [pending] in panta/auth.rhei.md
 `state` for a ticket) for scripts that create tickets in bulk. `--dry-run`
 prints the target path and the exact markdown block, and touches nothing.
 
+Together, `--dry-run --json` emits that same object with `"dry_run": true` and
+the block under `"markdown"`, so a script can preview a bulk create the same
+way it reads a real one. A flag that selects the output format has to keep
+working under a flag that only selects whether the write happens: silently
+handing prose to a caller that asked for JSON is the §5.3 failure again, in the
+one place a caller cannot notice it.
+
 ## 6. What `rhei new` does not do
 
 - It does not edit or move anything that already exists. No re-titling, no

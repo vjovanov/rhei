@@ -218,3 +218,27 @@ fn rolling_back_a_dir_rhei_removes_the_directory_it_made() {
     assert!(!dir.join("billing/tasks").exists(), "tasks/ must be removed");
     assert!(!dir.join("billing").exists(), "the rhei directory must be removed");
 }
+
+// ---------------------------------------------------------------------------
+// What it prints — §FS-rhei-new.5.4
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dry_run_under_json_emits_json_and_still_writes_nothing() {
+    let dir = project_with_rhei("new-write-dry-json");
+    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+
+    let result = new_run(&["new", "First", "--under", "auth", "--dry-run", "--json"], &dir);
+    assert_success(&result);
+    let value: serde_json::Value =
+        serde_json::from_str(result.stdout.trim()).expect("--dry-run --json must emit JSON");
+    assert_eq!(value["kind"], "ticket");
+    assert_eq!(value["id"], "auth.1");
+    assert_eq!(value["state"], "pending");
+    assert_eq!(value["dry_run"], true);
+    assert!(
+        value["markdown"].as_str().expect("markdown").contains("### Task 1: First"),
+        "got: {value}"
+    );
+    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
+}

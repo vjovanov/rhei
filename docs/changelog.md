@@ -31,7 +31,8 @@
   a half-broken project is exactly the one someone is adding work to, and a
   command that refuses until everything else is fixed refuses when it is needed
   most. `--dry-run` prints the exact markdown, `--json` reports the created id
-  for scripts.
+  for scripts — including under `--dry-run`, where the object carries
+  `"dry_run": true` and the block under `"markdown"`.
 
   Two rules changed to make this honest. A `## Tasks` section with no tickets
   is now **valid** in a single-file rhei, matching what the Directory Workspace
