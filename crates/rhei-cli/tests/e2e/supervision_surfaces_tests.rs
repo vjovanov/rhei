@@ -348,6 +348,26 @@ metadata:
         )),
         "got: {supervising}"
     );
+    // §FS-rhei-supervision.3.4: the barrier, and the one command that ends the
+    // visit — spelled with this invocation's own plan and machine.
+    assert!(
+        supervising.contains("The subtree below is held for as long as this ticket is claimed"),
+        "got: {supervising}"
+    );
+    assert!(
+        supervising.contains(&format!(
+            "rhei --state-machine={} transition {} --task plan.1 --from supervise --to supervise",
+            machine_path.display(),
+            plan_path.display()
+        )),
+        "got: {supervising}"
+    );
+    // §FS-rhei-supervision.5.1: and the qualified result rule `rhei run` puts
+    // in `## Result`, which `rhei next` does not render.
+    assert!(
+        supervising.contains("Write the result only on the visit where every descendant is"),
+        "got: {supervising}"
+    );
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

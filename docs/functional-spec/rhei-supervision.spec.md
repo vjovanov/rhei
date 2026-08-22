@@ -280,8 +280,10 @@ without special casing:
   supervising ancestor wrote one for (§5.2). A ticket in a supervising state
   also gets `## Supervising This Subtree`, which carries what `rhei run` puts in
   `## Rhei Commands` and `## Result` — sections `rhei next` does not render: the
-  brief paths (§5.1), what the barrier means while the visit runs, and how the
-  visit ends. Under `--json` each is a field,
+  brief paths (§5.1), the barrier sentence, the qualified `## Result` rule, and
+  the one command that ends the visit: the state's own self-loop, spelled out
+  with this invocation's plan path and machine, because that edge is what
+  releases the subtree and drops the claim. Under `--json` each is a field,
   present only when the section is. A plan with no supervising state produces
   the output it always did. It never claims a descendant of a held supervisor;
   such descendants are reported as `Task <id> held by supervisor Task <P>
@@ -414,6 +416,14 @@ stores the rhei-local id (§3.3), and the renderer resolves it to exactly one
 descendant — the recorded id under the supervisor's own qualification — never
 to a deeper node whose id happens to end the same way.
 
+`## Result` (§FS-rhei-states.3.3) is **qualified** on a supervising state. The
+unqualified sentence is true of the last visit and misleading on every earlier
+one, and a supervisor without session continuity reads it cold each time: it
+says instead that a transition from this state can finish the task *once its
+subtree is closed*, and that the result is written only on the visit where every
+descendant is terminal and the supervisor intends to finish — otherwise the
+supervisor returns without one and is woken at the next checkpoint.
+
 A non-leaf task in a state that is *not* supervising renders `## Child Tasks`
 as today and, new, `## Child Task Results` — the result of every terminal
 child, in plan order — so an unsupervised parent integrating its subtree also
@@ -423,7 +433,11 @@ The `## Rhei Commands` section of a supervisor's prompt names the lever the
 supervisor steers with before the ones it destroys with: one sentence giving
 both brief paths (§5.2) with the execution root resolved to an absolute path,
 because the supervisor's working directory is not something the prompt can
-promise. It additionally states
+promise. It also states the barrier in one sentence — while this invocation
+runs nothing beneath it runs, and when the invocation ends the subtree is
+released (§3.1) — because everything a supervisor is tempted to do wrong
+follows from not knowing it: waiting for a child that cannot start, or treating
+this visit as the last one. It additionally states
 that the agent **may** run `rhei transition` against *held descendants* — to
 cancel a step the checkpoint made unnecessary, typically, passing
 `--result "<why>"` because a cancelled ticket still has to say why (§6) — and

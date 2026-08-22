@@ -228,6 +228,25 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
     // §FS-rhei-supervision.6: a cancel waives the abandoned step's outputs but
     // not its result, and the permission text says so.
     assert!(first.contains("pass `--result \"<why>\"` on every cancel"), "got:\n{first}");
+    // §FS-rhei-supervision.3.1: the barrier, in the sentence that decides how
+    // the agent behaves for the rest of the visit.
+    assert!(
+        first.contains(
+            "While you run, nothing beneath you runs; when this invocation ends the subtree \
+             is released."
+        ),
+        "got:\n{first}"
+    );
+    // §FS-rhei-supervision.5.1: `## Result` is qualified, so a cold agent does
+    // not write one on visit 1.
+    assert!(
+        first.contains(
+            "A transition from this state can finish this task. The finished task's result \
+             is read from this file. Write the result only on the visit where every \
+             descendant is terminal and you intend to finish"
+        ),
+        "got:\n{first}"
+    );
     // §FS-rhei-supervision.5.1: the constructive lever is named before the
     // destructive ones, with the paths this run resolves.
     let supervise_dir = dir.join("runtime/supervise");

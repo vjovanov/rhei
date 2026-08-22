@@ -267,6 +267,16 @@ fn supervisor_brief_directions(root: &Path) -> String {
     )
 }
 
+/// The barrier, in the one sentence that decides how the agent should behave.
+///
+/// Everything a supervisor is tempted to do wrong follows from not knowing this:
+/// it waits for a child that cannot start, or it treats its visit as the last
+/// one because nothing said another was coming.
+// §FS-rhei-supervision.3.1
+const SUPERVISOR_BARRIER_SENTENCE: &str =
+    "While you run, nothing beneath you runs; when this invocation ends the subtree is \
+     released.";
+
 /// The extra permission a supervisor's `## Rhei Commands` section carries.
 // §FS-rhei-supervision.5.1
 fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -> String {
@@ -275,7 +285,7 @@ fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -
     }
     let root = export_root_for_task(render_context, &render_context.task.id);
     format!(
-        "You are supervising this task's subtree. {} \
+        "You are supervising this task's subtree. {SUPERVISOR_BARRIER_SENTENCE} {} \
          You may run `rhei transition` against \
          descendants of this task — to cancel a step the checkpoints made unnecessary, \
          typically — and you may append descendants under this task in its task file. \
@@ -286,6 +296,18 @@ fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -
     )
 }
 
+/// What `## Result` means on a supervising state, which is not what it means
+/// anywhere else.
+///
+/// The unqualified sentence — "a transition from this state can finish this
+/// task" — is true of the *last* visit and misleading on every earlier one. A
+/// cold agent that reads it on visit 1 writes a result for work its children
+/// have not done yet.
+// §FS-rhei-supervision.4.1 §FS-rhei-states.3.3
+const SUPERVISOR_RESULT_QUALIFIER: &str =
+    "Write the result only on the visit where every descendant is terminal and you intend \
+     to finish; otherwise return without it and you will be woken at the next checkpoint.";
+
 /// What a supervising ticket's *manual* worker has to know beyond the state's
 /// own instructions.
 ///
@@ -294,10 +316,24 @@ fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -
 /// supervisor by hand learned neither where a brief goes nor that the subtree
 /// beneath it is held.
 // §FS-rhei-supervision.3.4 §FS-rhei-supervision.5.2
-fn render_supervisor_visit_notes(render_context: &RuntimeTemplateContext<'_>) -> String {
+fn render_supervisor_visit_notes(
+    render_context: &RuntimeTemplateContext<'_>,
+    release_command: &str,
+) -> String {
     if !task_is_supervising(render_context.task, render_context.machine) {
         return String::new();
     }
     let root = export_root_for_task(render_context, &render_context.task.id);
-    format!("\n## Supervising This Subtree\n\n{}\n", supervisor_brief_directions(root))
+    format!(
+        "\n## Supervising This Subtree\n\n\
+         {}\n\n\
+         {SUPERVISOR_BARRIER_SENTENCE} The subtree below is held for as long as this ticket \
+         is claimed; release it with:\n\n\
+         ```\n{release_command}\n```\n\n\
+         That edge is the state's own self-loop: it ends this visit and drops the claim, so \
+         the next checkpoint is claimed afresh.\n\n\
+         A transition from this state can finish this task once its subtree is closed. \
+         {SUPERVISOR_RESULT_QUALIFIER}\n",
+        supervisor_brief_directions(root)
+    )
 }

@@ -148,10 +148,17 @@ fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String
             .display()
             .to_string()
     };
+    // §FS-rhei-supervision.4.1: on a supervising state only the visit that finds
+    // the subtree closed finishes the task; every earlier one just releases.
+    let qualifier = if task_is_supervising(render_context.task, render_context.machine) {
+        format!(" {SUPERVISOR_RESULT_QUALIFIER}")
+    } else {
+        String::new()
+    };
     format!(
         "\n## Result\n\n\
          A transition from this state can finish this task. The finished task's result is read \
-         from this file.\n\n- `{shown}`\n"
+         from this file.{qualifier}\n\n- `{shown}`\n"
     )
 }
 
