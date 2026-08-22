@@ -139,7 +139,7 @@ fn run_callback_mode(
         }
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
-            find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root),
+            find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root, &HashSet::new()),
             &rhei_scope,
         );
         if ready.is_empty() {

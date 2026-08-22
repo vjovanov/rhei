@@ -6,6 +6,11 @@ struct RuntimeTemplateContext<'a> {
     /// owns them.
     // §FS-rhei-panta.6.1: artifacts live under the owning rhei's root.
     task_roots: Option<&'a HashMap<String, PathBuf>>,
+    /// The loaded plan's task roots, when the caller has them. Prompt
+    /// composition walks them to name the supervising ancestor whose brief it
+    /// is rendering; nothing else needs the tree.
+    // §FS-rhei-supervision.5.2
+    plan_tasks: Option<&'a [rhei_core::ast::Task]>,
     checkout_root: &'a Path,
     plan_path: &'a Path,
     state_machine_path: Option<&'a Path>,

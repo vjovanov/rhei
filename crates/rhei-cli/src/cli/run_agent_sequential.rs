@@ -114,6 +114,7 @@ fn run_sequential_agent_invocation(
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
         task_roots: Some(&loaded.task_roots),
+        plan_tasks: Some(&loaded.rhei.tasks),
         checkout_root: &checkout_root.path,
         plan_path: &callback_paths.plan_path,
         state_machine_path: callback_paths.state_machine_path.as_deref(),

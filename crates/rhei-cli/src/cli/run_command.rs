@@ -263,7 +263,7 @@ fn should_use_agent_mode(
     }
 
     for task in narrow_to_rhei_scope(
-        find_runnable_tasks(rhei, machines, workspace_root),
+        find_runnable_tasks(rhei, machines, workspace_root, &HashSet::new()),
         &rhei_scope_set(opts.rhei_scope()),
     ) {
         let machine = machines.for_task(&task.id);

@@ -94,7 +94,9 @@ fn ensure_current_state_visit_count(
     current_state_raw: &str,
     machine: &rhei_validator::StateMachine,
 ) -> Option<Metadata> {
-    state_visit_limit(machine, current_state)?;
+    if !state_counts_visits(machine, current_state) {
+        return None;
+    }
 
     let current =
         current_state_visit_count(existing, task_id, current_state, current_state_raw, machine);
@@ -117,7 +119,9 @@ fn update_metadata_for_transition(
     to_state: &str,
     machine: &rhei_validator::StateMachine,
 ) -> Option<Metadata> {
-    state_visit_limit(machine, to_state)?;
+    if !state_counts_visits(machine, to_state) {
+        return None;
+    }
 
     let mut root = existing.cloned().unwrap_or_default();
     let metadata_section = ensure_mapping(&mut root, yaml_key("metadata"));

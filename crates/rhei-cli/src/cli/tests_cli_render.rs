@@ -576,6 +576,7 @@ transitions:
         let task = &rhei.tasks[0];
         let context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace"),
@@ -637,6 +638,7 @@ states:
         .expect("machine should parse");
         let context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace"),
@@ -820,6 +822,7 @@ transitions:
     ) -> RuntimeTemplateContext<'a> {
         RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: workspace,
             checkout_root: workspace,
             plan_path: workspace,
@@ -979,6 +982,7 @@ transitions:
         let task = &rhei.tasks[1];
         let context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: workspace.path(),
             checkout_root: workspace.path(),
             plan_path: workspace.path(),
@@ -1055,6 +1059,7 @@ transitions:
         let task = &rhei.tasks[0];
         let context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: workspace.path(),
             checkout_root: workspace.path(),
             plan_path: workspace.path(),
@@ -1129,6 +1134,7 @@ transitions:
         let task = &rhei.tasks[0];
         let mut context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: workspace.path(),
             checkout_root: workspace.path(),
             plan_path: workspace.path(),
@@ -1203,6 +1209,7 @@ transitions:
         let task = &rhei.tasks[0];
         let context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: workspace.path(),
             checkout_root: workspace.path(),
             plan_path: workspace.path(),
@@ -1272,6 +1279,7 @@ transitions:
         let task = &rhei.tasks[1];
         let context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: workspace.path(),
             checkout_root: workspace.path(),
             plan_path: workspace.path(),

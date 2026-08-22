@@ -334,6 +334,7 @@ fn program_transition_is_applicable(
         machine,
         metadata,
         &task.id,
+        Some(task),
         current_state,
         task.state.as_str(),
     )

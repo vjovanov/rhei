@@ -878,10 +878,15 @@ fn list_command(
             let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
             let satisfied = priors_satisfied(task);
             // A ticket whose subtree is still open is not work anyone can be
-            // handed — its children are. Once they are terminal the parent is
-            // claimable work. §FS-rhei-list.3.1 §FS-rhei-next.3
-            let subtree_done = descendants_are_terminal(task, &machines);
-            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done;
+            // handed — its children are. §FS-rhei-list.3.1 §FS-rhei-next.3
+
+            // Supervision refines both halves: a supervisor is work while its
+            // subtree is open, and a held descendant is not.
+            // §FS-rhei-supervision.3.2
+            let supervising = task_is_supervising(task, machine);
+            let subtree_done = supervising || descendants_are_terminal(task, &machines);
+            let held = held_by_supervisor(task, &loaded.rhei, &machines).is_some();
+            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done && !held;
             if filters.ready && !task_ready {
                 continue;
             }

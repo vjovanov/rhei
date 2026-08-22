@@ -361,9 +361,9 @@
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let dir = tempfile::tempdir().expect("tmpdir");
-        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new());
+        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new());
         assert_eq!(ready.len(), 2);
-        let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path());
+        let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &HashSet::new());
         assert_eq!(
             runnable.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
             vec!["2".to_string()]
@@ -383,7 +383,7 @@
         let dir = tempfile::tempdir().expect("tmpdir");
         let ready_ids = |plan: &str| {
             let rhei = rhei_core::parse(plan).expect("parse plan");
-            find_ready_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new())
+            find_ready_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new(), &HashSet::new())
                 .iter()
                 .map(|task| task.id.to_string())
                 .collect::<Vec<_>>()
@@ -490,6 +490,7 @@ structure:
             &rhei_validator::MachineSet::single(machine),
             dir.path(),
             &std::collections::HashMap::new(),
+            &HashSet::new(),
         );
         assert_eq!(
             ready.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
@@ -515,7 +516,7 @@ structure:
         let dir = tempfile::tempdir().expect("tmpdir");
 
         // §FS-rhei-run-tui.1.5.7: gate-only runs reach the empty-ready wait path.
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &HashSet::new()).is_empty());
     }
 
     #[test]
@@ -557,7 +558,7 @@ transitions:
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &HashSet::new()).is_empty());
         assert!(has_pending_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone())));
         assert!(!should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
@@ -599,7 +600,7 @@ transitions:
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &HashSet::new()).is_empty());
         assert!(should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
 
@@ -646,7 +647,7 @@ transitions:
 
         // The parent is not schedulable while its subtree is open, and the
         // child is gated, so nothing is runnable — but the gate is the reason.
-        assert!(find_runnable_tasks(&rhei, &machines, dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &machines, dir.path(), &HashSet::new()).is_empty());
         assert!(should_wait_for_human_gate(&rhei, &machines, &None));
     }
 
@@ -700,7 +701,7 @@ transitions:
         // Nothing is runnable: the parent waits on its subtree, the child is
         // gated, and the dependent waits on the parent — one gate, three
         // tickets, and the gate is still the whole reason.
-        assert!(find_runnable_tasks(&rhei, &machines, dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &machines, dir.path(), &HashSet::new()).is_empty());
         assert!(remaining_work_is_only_gating_or_poll_blocked(&rhei, &machines, &None));
         assert!(should_wait_for_human_gate(&rhei, &machines, &None));
     }
@@ -872,7 +873,7 @@ transitions: []
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &HashSet::new()).is_empty());
         assert!(!has_pending_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone())));
         assert!(!should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
@@ -1037,6 +1038,7 @@ states:
 
         let render_context = RuntimeTemplateContext {
             task_roots: None,
+            plan_tasks: None,
             workspace_root: Path::new("/tmp/workspace"),
             checkout_root: Path::new("/tmp/workspace"),
             plan_path: Path::new("/tmp/workspace/plan.rhei.md"),
