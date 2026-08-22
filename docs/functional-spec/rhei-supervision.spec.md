@@ -327,8 +327,9 @@ without special casing:
 - `rhei list --ready` excludes a held descendant, by the same rule the ready
   set applies (§3.2), so the listing never offers a ticket `rhei run` would
   refuse to schedule; and the run report names the reason on the ticket it
-  halted on, so a subtree waiting on its supervisor is not mistaken for a stall
-  (§FS-rhei-list, §FS-rhei-run-report). The plain `rhei list` listing carries no
+  halted on, under a **Waiting** group rather than Attention — a held ticket is
+  someone else's turn, not a human's, and it is counted in no halt tally
+  (§FS-rhei-list, §FS-rhei-run-report.3.1). The plain `rhei list` listing carries no
   held reason: it has no readiness-reason column for anything today, and adding
   one is a follow-up alongside the same reason in the TUI and the Flow
   dashboard (§FS-rhei-viz).

@@ -279,5 +279,28 @@ fn a_supervisor_parked_at_a_human_gate_still_holds_its_subtree() {
         held.stderr
     );
 
+    // §FS-rhei-run-report.3.1: the held ticket explains itself under Waiting,
+    // and the row a person must act on is the gate, alone in Attention.
+    let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+    let attention = report
+        .split("## Attention")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .expect("an Attention section");
+    assert!(attention.contains("| plan.1 |"), "got:\n{attention}");
+    assert!(
+        !attention.contains("| plan.1.1 |") && !attention.contains("| plan.1.2 |"),
+        "held tickets do not dilute Attention:\n{attention}"
+    );
+    let waiting = report
+        .split("## Waiting")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .expect("a Waiting section");
+    assert!(
+        waiting.contains("| plan.1.1 |") && waiting.contains("held by supervisor Task plan.1"),
+        "got:\n{waiting}"
+    );
+
     fs::remove_dir_all(dir).expect("cleanup");
 }
