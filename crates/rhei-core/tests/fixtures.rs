@@ -80,7 +80,10 @@ pub const INVALID_FIXTURE_MALFORMED_RHEI_HEADER: &str = r#"#Rhei: Missing requir
 pub const INVALID_FIXTURE_MISSING_TASKS_SECTION: &str = r#"# Rhei: Missing tasks section
 "#;
 
-pub const INVALID_FIXTURE_EMPTY_TASKS_SECTION: &str = r#"# Rhei: Empty tasks section
+/// An empty `## Tasks` section is a valid, empty rhei — the state a rhei is in
+/// between being created and receiving its first ticket.
+// §FS-rhei-plan-language.1.1
+pub const VALID_FIXTURE_EMPTY_TASKS_SECTION: &str = r#"# Rhei: Empty tasks section
 
 ## Tasks
 "#;

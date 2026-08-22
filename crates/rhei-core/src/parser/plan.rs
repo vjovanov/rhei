@@ -814,12 +814,13 @@ pub fn parse(input: &str) -> Result<Rhei> {
         ));
     }
 
-    if tasks.is_empty() {
-        return Err(ParseError::new(
-            "Tasks section must contain at least one task",
-            tasks_section_line,
-        ));
-    }
+    // An empty `## Tasks` section is a valid, empty rhei — the state a rhei
+    // passes through between being created and receiving its first ticket.
+    // The Directory Workspace format has always accepted one, and the two
+    // formats describe the same rhei; `rhei validate` warns instead of
+    // failing, so an accidentally emptied rhei is still named.
+
+    // §FS-rhei-plan-language.1.1 §FS-rhei-new.2
 
     let states_declared = rhei_states.is_some();
     Ok(Rhei {

@@ -189,12 +189,13 @@ fn errors_when_missing_tasks_section() {
 }
 
 #[test]
-fn errors_when_tasks_section_is_empty() {
+fn allows_an_empty_tasks_section() {
+    // §FS-rhei-plan-language.1.1: an empty rhei is valid in both formats.
     let input = "# Rhei: Example\n## Tasks\n";
-    let err = parse(input).unwrap_err();
+    let rhei = parse(input).expect("an empty Tasks section is a valid, empty rhei");
 
-    assert_eq!(err.message, "Tasks section must contain at least one task");
-    assert_eq!(err.line, Some(2));
+    assert_eq!(rhei.title, "Example");
+    assert!(rhei.tasks.is_empty());
 }
 
 #[test]

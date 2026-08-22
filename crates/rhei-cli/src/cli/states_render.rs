@@ -325,6 +325,13 @@ fn empty_rhei_warnings(loaded: &LoadedPlan) -> Vec<String> {
              under `tasks/`"
                 .to_string(),
         ],
+        // A single-file rhei may be empty too, and an emptied one looks exactly
+        // like a freshly created one. §FS-rhei-plan-language.1.1
+        LoadedPlanKind::SingleFile if loaded.rhei.tasks.is_empty() => vec![
+            "this rhei holds no tickets: its tickets are the task nodes under its \
+             `## Tasks` section"
+                .to_string(),
+        ],
         _ => Vec::new(),
     }
 }
@@ -1066,6 +1073,22 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
+    let warnings = validation_warnings_or_error(input, state_machine)?;
+    print_validation_report(&warnings);
+    Ok(())
+}
+
+/// Run the whole validation pass, failing on the first error report and
+/// returning its warnings otherwise.
+///
+/// Split out so a command that validates its *own* write can reuse the exact
+/// pass `rhei validate` runs without its output — `rhei new` checks the project
+/// still loads before it reports success.
+// §FS-rhei-new.5.1
+fn validation_warnings_or_error(
+    input: &Path,
+    state_machine: Option<&Path>,
+) -> MietteResult<Vec<String>> {
     let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine)?;
@@ -1126,9 +1149,7 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
         return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
     }
 
-    print_validation_report(&report.warnings);
-
-    Ok(())
+    Ok(report.warnings)
 }
 
 /// Print success output and any non-fatal validation warnings.

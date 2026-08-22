@@ -275,20 +275,23 @@ fn cli_validate_reports_missing_tasks_section_parse_failure() {
 }
 
 #[test]
-fn cli_validate_reports_empty_tasks_section_parse_failure() {
+fn cli_validate_accepts_an_empty_tasks_section_with_a_warning() {
     let result = run_validate(
-        fixtures::INVALID_FIXTURE_EMPTY_TASKS_SECTION,
+        fixtures::VALID_FIXTURE_EMPTY_TASKS_SECTION,
         fixtures::TEST_STATE_MACHINE,
         "integration-cli-empty-tasks",
     );
 
-    assert_parse_failure(
-        &result,
-        &["Tasks section", "must contain at least one task"],
-        Some("line 3"),
-        Some("## Tasks"),
-        &["missing mandatory **State:**", "depends on missing Task"],
+    assert!(
+        result.status.success(),
+        "an empty rhei is valid\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
     );
+    assert!(result.stdout.contains("Validation succeeded"), "stdout:\n{}", result.stdout);
+    // Valid, but an emptied rhei looks exactly like a freshly created one.
+    // §FS-rhei-plan-language.1.1
+    assert!(result.stdout.contains("holds no tickets"), "stdout:\n{}", result.stdout);
 }
 
 /// A bare `rhei` asks for orientation; `rhei <group>` with no subcommand is a
