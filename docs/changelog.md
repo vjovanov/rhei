@@ -50,6 +50,17 @@
   whether that edge may be taken. Self-loops on non-poll agent states are now
   general **loop-back re-entries** rather than a polling-only construct.
 
+  That generalization is a **behaviour change** for machines that already had
+  such a self-loop: the engine now counts visits of every non-poll state a
+  self-loop is declared from, so a `condition: visitCount >= N` exit on that
+  loop fires where it previously compared against `0` and spun forever. The
+  visible side effect is that a task which merely *enters* such a state gets
+  `stateVisits.<state>: 1` in frontmatter even if it never loops. How the state
+  is spelled does not change: `**State:**` takes its `-<n>` suffix only where
+  `visits:` is declared. `rhei validate` now warns when a non-poll self-loop
+  declares neither `visits:` nor a `visitCount`-bounded exit — nothing ends that
+  loop.
+
   Every surface that explains readiness gained the reason: `rhei next` refuses a
   held descendant by naming its supervisor, `rhei list --ready` excludes it and
   admits a supervisor whose subtree is still open, and the run's halt report

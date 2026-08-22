@@ -439,3 +439,51 @@ transitions:
         // plan resolves to nothing rather than to whatever is nearby.
         assert!(checkpoint_descendant(outer, &checkpoint_qualified_id(outer, "1.3")).is_none());
     }
+
+    /// Any non-poll state a self-loop is declared from counts its visits.
+    ///
+    /// The loop's own exit reads `visitCount`; uncounted, it compares against
+    /// `0` forever and the run never leaves the state. A poll state keeps its
+    /// own attempt accounting and is left alone.
+    // §FS-rhei-supervision.4.2
+    #[test]
+    fn a_self_looping_state_counts_its_visits_without_a_declared_budget() {
+        let machine = machine_with_states(
+            r#"name: loop
+version: 1
+states:
+  work:
+    description: Work
+    agent: pi
+  poll-me:
+    description: Poll
+    agent: pi
+    poll: { interval: 5m, max_attempts: 3 }
+  plain:
+    description: One shot
+    agent: pi
+  done:
+    description: Done
+    final: true
+transitions:
+  - { from: work, to: done, description: Second visit, condition: visitCount >= 2 }
+  - { from: work, to: work, description: Loop back }
+  - { from: poll-me, to: poll-me, description: Retry }
+  - { from: poll-me, to: done, description: Gave up, condition: pollAttempts >= pollMaxAttempts }
+  - { from: plain, to: done, description: Finished }
+"#,
+        );
+        assert!(state_counts_visits(&machine, "work"));
+        assert!(!state_counts_visits(&machine, "poll-me"), "poll attempts are their own accounting");
+        assert!(!state_counts_visits(&machine, "plain"));
+
+        let id = parse_task_id("1");
+        let first = update_metadata_for_transition(None, &id, "work", &machine)
+            .expect("a self-looping state is counted");
+        assert_eq!(task_visit_count(Some(&first), &id, "work"), 1);
+        let second = update_metadata_for_transition(Some(&first), &id, "work", &machine)
+            .expect("the re-entry increments");
+        assert_eq!(task_visit_count(Some(&second), &id, "work"), 2);
+        // §FS-rhei-transitions.2.3: no `visits:` budget, no `-<n>` suffix.
+        assert_eq!(format_task_state_value("work", Some(2), &machine), "work");
+    }

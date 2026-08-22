@@ -197,6 +197,11 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
 - `state.poll` on a `gating: true` state is a validation error (gating states require human action; polling executes autonomously).
 - `state.poll` combined with `state.visits` is a validation error. `poll.max_attempts` replaces the `visits` cap for the poll state and populates the same `stateVisits` counter.
 - A state that declares `poll` must have at least one self-loop transition (`from: <state>, to: <state>`); without it the "retry" branch is unreachable.
+- A non-poll state the machine declares a self-loop from is warned about when
+  it declares neither `visits` nor a transition whose `condition` is bounded by
+  `visitCount`: the loop has no budget and no exit that counts, so a run may
+  re-enter it forever. Visits of such a state are counted regardless, so an
+  authored `visitCount` exit works (§FS-rhei-supervision.4.2).
 - `state.supervise`, when present, must be `task` or `state`, and the state must be agent-bearing. `supervise` on a `final: true`, `gating: true`, `program:`, or `poll:` state is a validation error, as is combining it with `all_targets` or `all_models`. A supervising state must declare a self-loop transition — its release edge. Warnings and the full rule set are in §FS-rhei-supervision.1.2.
 - A state that declares both `poll` and `snapshot.inherit` is a validation
   error in v1. Polling states may still emit snapshots on terminal exit when

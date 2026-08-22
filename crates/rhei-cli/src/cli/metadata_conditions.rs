@@ -103,14 +103,32 @@ fn state_visit_limit(machine: &rhei_validator::StateMachine, state_name: &str) -
 
 /// Whether the engine keeps a `stateVisits` counter for this state.
 ///
-/// A `visits:` budget has always been counted. A supervising state joins it
-/// whether or not the author capped it: every visit is its own invocation, and
-/// the snapshots, artifacts, and checkpoint records that visit produces are all
-/// keyed by its number.
-// §FS-rhei-supervision.4.2 §FS-rhei-transitions.4.3
+/// A `visits:` budget has always been counted. Every non-poll state the machine
+/// declares a self-loop from joins it, capped or not: `visitCount` is what such
+/// a loop's own exit condition reads, and an uncounted one compares against `0`
+/// forever. A supervising state is one of these by construction — its release
+/// edge is a self-loop — and every visit is its own invocation, keyed by number
+/// in the snapshots, artifacts, and checkpoints it produces. A poll state keeps
+/// its own attempt accounting instead.
+// §FS-rhei-supervision.4.2 §FS-rhei-supervision.1.2 §FS-rhei-transitions.4.3
 fn state_counts_visits(machine: &rhei_validator::StateMachine, state_name: &str) -> bool {
-    state_visit_limit(machine, state_name).is_some()
-        || supervise_kind_of(machine, state_name).is_some()
+    if state_visit_limit(machine, state_name).is_some() {
+        return true;
+    }
+    let Some(def) = machine.states.get(state_name) else { return false };
+    if def.poll.is_some() {
+        return false;
+    }
+    def.supervise_kind().is_some() || state_declares_self_loop(machine, state_name)
+}
+
+/// Whether the machine declares a literal self-loop from this state.
+// §FS-rhei-supervision.4.2
+fn state_declares_self_loop(machine: &rhei_validator::StateMachine, state_name: &str) -> bool {
+    machine
+        .transitions()
+        .iter()
+        .any(|rule| rule.from.0 == state_name && rule.to.0 == state_name)
 }
 
 fn current_state_visit_count(

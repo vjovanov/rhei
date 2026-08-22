@@ -329,6 +329,20 @@ and re-evaluates the state's `inputs:` on re-entry. The engine selects it on
 the same rules as any other edge. On a supervising state it is the release
 edge (§3.1); on any other agent state it simply means "run this state again".
 
+The counter is therefore kept for **every** non-poll state the machine
+declares a self-loop from, whether or not that state caps itself with
+`visits:` — a task that merely enters such a state gets `stateVisits.<state>:
+1` — because `visitCount` is what the loop's own exit condition reads. Without
+the counter a `condition: visitCount >= N` exit compares against `0` forever
+and the loop never ends. Counting does not change how the state is spelled:
+`**State:**` takes its `-<n>` suffix only when `visits:` is declared
+(§FS-rhei-transitions.2.3), so a machine that adds no budget sees no change in
+its plan files.
+
+`rhei validate` warns when a non-poll state with a self-loop declares neither
+`visits:` nor a transition bounded by `visitCount`: nothing terminates that
+loop (§FS-rhei-states.1.3).
+
 This generalizes the self-loop, previously specified only for polling states
 (§FS-rhei-states.2). The poll interpretation — release the slot, retry after
 `interval` — is unchanged and applies only when the state declares `poll:`.

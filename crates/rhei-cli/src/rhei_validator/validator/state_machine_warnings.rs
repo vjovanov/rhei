@@ -12,6 +12,40 @@ fn validate_state_machine_warnings(machine: &StateMachine, report: &mut Validati
             ));
         }
         warn_on_supervising_state(machine, state_name, state, report);
+        warn_on_unbounded_self_loop(machine, state_name, state, report);
+    }
+}
+
+/// Warn about a self-loop nothing terminates.
+///
+/// A non-poll self-loop is a loop-back re-entry, and its visits are counted so
+/// a `visitCount` exit can end it. A state that declares neither a `visits`
+/// budget nor such an exit has no way out of its own loop: the engine keeps
+/// selecting the self-loop and the task never leaves the state. A poll state is
+/// exempt — `max_attempts` bounds its attempts.
+// §FS-rhei-supervision.4.2 §FS-rhei-states.1.3
+fn warn_on_unbounded_self_loop(
+    machine: &StateMachine,
+    state_name: &str,
+    state: &StateDef,
+    report: &mut ValidationReport,
+) {
+    if state.poll.is_some() || state.visits.is_some() {
+        return;
+    }
+    let outgoing = || machine.transitions.iter().filter(|rule| rule.from.0 == *state_name);
+    if !outgoing().any(|rule| rule.to.0 == *state_name) {
+        return;
+    }
+    let has_counted_exit = outgoing().any(|rule| {
+        rule.to.0 != *state_name
+            && rule.condition.as_deref().is_some_and(|cond| cond.contains("visitCount"))
+    });
+    if !has_counted_exit {
+        report.warnings.push(format!(
+            "state '{state_name}' has a self-loop but declares neither 'visits' nor a transition \
+             bounded by `visitCount`; nothing ends the loop, so a run may re-enter it forever"
+        ));
     }
 }
 

@@ -186,6 +186,33 @@ node_policy:
         );
     }
 
+    /// A self-loop with no budget and no counted exit is warned about.
+    ///
+    /// Visits of such a state are counted so an authored `visitCount` exit
+    /// works; nothing counts down for a machine that authored neither.
+    // §FS-rhei-supervision.4.2 §FS-rhei-states.1.3
+    #[test]
+    fn warns_when_a_self_loop_has_neither_a_budget_nor_a_counted_exit() {
+        let states = canonical_states().replace("    visits: 12\n", "");
+        let transitions = canonical_transitions().replace(
+            "  - { from: supervise, to: human-review, description: Budget exhausted, condition: visitCount >= visits }\n",
+            "",
+        );
+        let warnings = supervision_warnings_for(&supervise_machine(&states, &transitions));
+        assert!(
+            warnings.iter().any(|w| w.contains("nothing ends the loop")),
+            "expected the unbounded-self-loop warning; got: {warnings:?}"
+        );
+
+        // The same machine with only the budget back is bounded again.
+        let budgeted =
+            supervision_warnings_for(&supervise_machine(canonical_states(), &transitions));
+        assert!(
+            budgeted.iter().all(|w| !w.contains("nothing ends the loop")),
+            "a `visits:` budget ends the loop; got: {budgeted:?}"
+        );
+    }
+
     #[test]
     fn the_canonical_supervisor_warns_about_nothing() {
         let warnings =
