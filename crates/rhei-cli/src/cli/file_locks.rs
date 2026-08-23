@@ -51,9 +51,24 @@ impl LockedPlanFile {
     ///
     /// The fallback is for Windows, where a second handle onto a file *this*
     /// process has locked is refused outright — the writer locks the plan and
-    /// then cannot read it. That refusal is the one case in which the handle is
-    /// known to still be the file at `path`: had anybody replaced it, the
-    /// replacement would carry no lock and the read would have succeeded.
+    /// then cannot read it.
+    ///
+    /// The refusal does not *prove* the handle is still the file at `path`, and
+    /// the comment here used to say it did. It is true only while no other
+    /// process is inside the release-then-rename window [`persist_locked`]
+    /// opens: in that window a rewriter has let go of the file it is about to
+    /// replace, so this process can take a lock on a file that is orphaned a
+    /// moment later, and a third process locking the *replacement* is enough to
+    /// refuse our read by path and send us to a handle naming the old content.
+    /// Nothing in this function can tell those two refusals apart without a
+    /// file-identity check, and rhei does not take a dependency for one. #95's
+    /// sidecar lock — held on a file the rename never touches — removes the
+    /// window, and with it this hole.
+    ///
+    /// What is closed here: once *this* process has released its own lock the
+    /// handle is never consulted again ([`read_through_handle`] answers `None`
+    /// and the caller reports the original refusal), so the window this
+    /// process opens cannot be read through by this process.
     ///
     /// `action` names the read the way `file_io_report` wants it, so a caller's
     /// diagnostic reads the same as it did when this was `fs::read_to_string`.
@@ -109,9 +124,13 @@ type PlanLockHandle = Arc<Mutex<Option<fs::File>>>;
 /// Read the whole file behind a lock handle, from the start.
 ///
 /// `None` when the lock has already been released, which leaves the caller with
-/// the original refusal to report.
+/// the original refusal to report. That is a rule and not an accident: a
+/// released handle names whatever file it named before, and after
+/// [`persist_locked`]'s rename that is an orphan nobody can reach by path. A
+/// read served from it would be content no writer will ever see again.
 fn read_through_handle(handle: &Mutex<Option<fs::File>>) -> Option<std::io::Result<String>> {
     let guard = handle.lock().expect("plan lock handle");
+    // `None` once released — the caller keeps its original error. §FS-rhei-new.4
     let file = guard.as_ref()?;
     let mut reader = file;
     Some((|| {
@@ -141,6 +160,8 @@ fn read_through_held_lock(path: &Path) -> Option<std::io::Result<String>> {
 /// writer that took the lock before us has left a different file at `path`, and
 /// only reading by path sees it. The fallback covers the case that reading by
 /// path cannot: the file is one *we* locked, and Windows will not open it twice.
+/// Its limit is that function's too — a lock we have released is deregistered
+/// and never read through, and the window that remains is #95's.
 ///
 /// The `io::Error` is passed through rather than wrapped, because the loader
 /// this is installed into branches on its kind.
