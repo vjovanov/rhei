@@ -49,6 +49,7 @@ Supporting product documents:
 
 - [Project purpose](../grund.md) §GND-rhei-purpose
 - [Goals](goals.md)
+- [Requirements](../requirements/README.md) §REQ-cross-platform
 - [Roadmap](roadmap.md) §RM-rhei-roadmap
 - [Comparison](comparison.md)
 - [Rhei vs. beads](rhei-vs-beads.md)

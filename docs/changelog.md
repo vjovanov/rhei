@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A new grund kind, **`REQ`** (`docs/requirements/`), for cross-cutting
+  requirements every feature is held to from the moment it is specified —
+  distinct from the user-visible behaviour of one feature (`FS-`) and from an
+  outcome the project pursues (`GOAL-`). Requirements cite goals; specs and
+  architecture cite the requirement at the point they realize it. The
+  cross-platform rule is the first: §REQ-cross-platform.
+
 - Rhei is a **cross-platform tool by requirement**, not by accident: Linux,
   macOS, and Windows are supported as one tool, every behaviour works and is
   tested on all three, a platform difference is declared in the spec at the
@@ -9,7 +16,7 @@
   every platform runs. This was true of the binaries and, since Windows CI
   started running the suite, increasingly of the tests; it is now written
   down as a goal and a requirement that new work is held to from the start.
-  §GOAL-rhei-outcomes §FS-rhei-distribution.7 (PR #96)
+  §GOAL-rhei-outcomes §REQ-cross-platform (PR #96)
 
 - Windows CI now runs the test suite it can: every crate's unit tests,
   `rhei-core`'s integration tests, and the CLI's integration target, which

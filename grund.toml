@@ -30,6 +30,11 @@ file = "docs/functional-spec/goals.md"
 title = "Outcomes the project is trying to achieve"
 
 [[kinds]]
+prefix = "REQ"
+folder = "docs/requirements"
+title = "Cross-cutting requirements every feature is held to"
+
+[[kinds]]
 prefix = "FS"
 folder = "docs/functional-spec"
 title = "User-visible behavior and requirements"
